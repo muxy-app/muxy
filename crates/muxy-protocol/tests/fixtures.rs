@@ -44,6 +44,15 @@ fn fixture_path(message: &Message) -> PathBuf {
 fn project_fixture_name(message: &Message) -> Option<&'static str> {
     Some(match message {
         Message::Request {
+            body: RequestBody::WriteInput { .. },
+            ..
+        } => "write_input",
+        Message::Reply {
+            body: ReplyBody::InputWritten,
+            ..
+        } => "input_written",
+
+        Message::Request {
             body: RequestBody::ReadActivity,
             ..
         } => "read_activity",

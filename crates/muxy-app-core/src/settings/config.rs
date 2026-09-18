@@ -9,6 +9,7 @@ use crate::settings::{Appearance, Error, Keymap, Result};
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    pub composer: super::ComposerSettings,
     pub quick_terminal: crate::settings::QuickTerminalSettings,
     pub appearance: Appearance,
     pub window: WindowSettings,
@@ -108,6 +109,7 @@ impl Settings {
 
     pub fn validate(&self) -> Result<()> {
         self.quick_terminal.validate()?;
+        self.composer.validate()?;
         for (name, value, minimum) in [
             ("width", self.window.default_size[0], 640.0),
             ("height", self.window.default_size[1], 400.0),
@@ -131,6 +133,12 @@ impl Settings {
     pub fn save_clipboard(&self, path: &Path) -> Result<()> {
         crate::settings::appearance::save_section(path, "clipboard", &self.clipboard)
             .map_err(|error| Error::new("clipboard", error))
+    }
+
+    pub fn save_composer(&self, path: &Path) -> Result<()> {
+        self.composer.validate()?;
+        crate::settings::appearance::save_section(path, "composer", &self.composer)
+            .map_err(|error| Error::new("composer", error))
     }
 
     pub fn save_panes(&self, path: &Path) -> Result<()> {

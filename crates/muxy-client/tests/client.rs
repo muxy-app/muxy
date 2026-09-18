@@ -9,6 +9,8 @@ mod attachment_timeout;
 mod close;
 #[path = "client/colors.rs"]
 mod colors;
+#[path = "client/composer.rs"]
+mod composer;
 #[path = "client/cursor.rs"]
 mod cursor;
 #[path = "client/links.rs"]

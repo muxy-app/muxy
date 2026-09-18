@@ -461,6 +461,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::Git(_),
                 ..
             } => ("GitRequest", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::WriteInput { .. },
+                ..
+            } => ("WriteInput", ChannelKind::Control),
             Message::Request { .. } => ("Request", ChannelKind::Control),
             Message::FrameAck { .. } => ("FrameAck", ChannelKind::Control),
             Message::HelloReply { .. } => ("HelloReply", ChannelKind::Control),
@@ -477,6 +481,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: ReplyBody::Git(_),
                 ..
             } => ("GitReply", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::InputWritten,
+                ..
+            } => ("InputWritten", ChannelKind::Control),
             Message::Reply { .. } => ("Reply", ChannelKind::Control),
             Message::SessionEnded { .. } => ("SessionEnded", ChannelKind::Control),
             Message::Fatal(_) => ("Fatal", ChannelKind::Control),
@@ -538,6 +546,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "CellSize",
             "ReadServerSettings",
             "WriteServerSettings",
+            "WriteInput",
+            "InputWritten",
             "StopServer",
             "StopServerIfIdle",
             "ServerBusy",

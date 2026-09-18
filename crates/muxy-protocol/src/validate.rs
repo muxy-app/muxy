@@ -125,6 +125,12 @@ fn validate_mouse(event: &MouseEvent) -> Result<(), ErrorCode> {
 
 fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
     match body {
+        RequestBody::WriteInput { channel, bytes } => {
+            if *channel == crate::CONTROL {
+                return Err(ErrorCode::UnknownChannel);
+            }
+            validate_input(bytes)
+        }
         RequestBody::AcknowledgeActivity(ids) | RequestBody::ClaimActivity(ids) => {
             if ids.len() <= crate::ACTIVITY_HISTORY_LIMIT {
                 Ok(())
@@ -268,6 +274,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         }
         ReplyBody::SavedScreen(screen) => validate_saved_screen(screen),
         ReplyBody::ActivityAcknowledged
+        | ReplyBody::InputWritten
         | ReplyBody::Git(_)
         | ReplyBody::ProjectMutated { .. }
         | ReplyBody::SessionReferencesSynced

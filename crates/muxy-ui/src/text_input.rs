@@ -517,6 +517,7 @@ pub struct TextInput {
     ghost: SharedString,
     style: InputStyle,
     font_family: Option<SharedString>,
+    placeholder_font_family: Option<SharedString>,
     key_context: &'static str,
     selected_range: Range<usize>,
     selection_reversed: bool,
@@ -551,6 +552,7 @@ impl TextInput {
             ghost: SharedString::default(),
             style,
             font_family: None,
+            placeholder_font_family: None,
             key_context: DEFAULT_CONTEXT,
             selected_range: 0..0,
             selection_reversed: false,
@@ -588,6 +590,11 @@ impl TextInput {
 
     pub fn with_key_context(mut self, context: &'static str) -> Self {
         self.key_context = context;
+        self
+    }
+
+    pub fn with_placeholder_font(mut self, family: impl Into<SharedString>) -> Self {
+        self.placeholder_font_family = Some(family.into());
         self
     }
 
@@ -1631,7 +1638,14 @@ impl Element for TextElement {
 
         let run = TextRun {
             len: display_text.len(),
-            font: text_style.font(),
+            font: if shows_placeholder {
+                input
+                    .placeholder_font_family
+                    .clone()
+                    .map_or_else(|| text_style.font(), gpui::font)
+            } else {
+                text_style.font()
+            },
             color,
             background_color: None,
             underline: None,

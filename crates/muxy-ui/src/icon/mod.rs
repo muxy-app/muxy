@@ -5,7 +5,7 @@ mod raster;
 mod sfsymbol;
 
 #[cfg(target_os = "macos")]
-pub use raster::{tinted, tinted_symbol};
+pub use raster::{tinted, tinted_symbol, tinted_symbol_weight};
 
 use gpui::SharedString;
 

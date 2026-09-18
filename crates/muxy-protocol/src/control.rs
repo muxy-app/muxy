@@ -75,6 +75,10 @@ pub enum RequestBody {
     AcknowledgeActivity(Vec<u64>),
     ClaimActivity(Vec<u64>),
     Files(crate::FilesRequest),
+    WriteInput {
+        channel: ChannelId,
+        bytes: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -124,6 +128,7 @@ pub enum ReplyBody {
     ActivityAcknowledged,
     ActivityClaimed(Vec<u64>),
     Files(crate::FilesReply),
+    InputWritten,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -1,5 +1,13 @@
 # App model
 
+Composer keeps a draft for each server and project, including its files and copied
+images. Its panel can be pinned or floating at the right or bottom of the workspace.
+It sends to the active terminal or the visible split terminals; failed sends preserve
+the draft. Optional on-device dictation inserts text into the draft without sending it.
+
+Native picker modals support searchable lists, streamed items, and dynamic queries.
+Selection returns the chosen item; dismissal or replacement cancels the picker.
+
 The desktop and keyboard TUI are clients of the same server. The
 [product model](./product-model.md) defines what clients own; this document
 defines how users navigate and manage their views.

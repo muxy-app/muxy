@@ -25,6 +25,17 @@ const METADATA_POLL: Duration = Duration::from_millis(100);
 
 type Fault = Box<dyn Error + Send + Sync>;
 
+struct InputWrite {
+    bytes: Vec<u8>,
+    reply: Option<Sender<Result<(), ServerError>>>,
+}
+
+impl From<Vec<u8>> for InputWrite {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self { bytes, reply: None }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum OwnerEvent {
     Command(SessionCommand),
@@ -70,7 +81,7 @@ struct Owner {
     detection_progress: String,
     size: Size,
     events: Receiver<OwnerEvent>,
-    input: Sender<Vec<u8>>,
+    input: Sender<InputWrite>,
     attachments: HashMap<AttachmentId, Attachment>,
     output_pending: bool,
     resize_pending: bool,
@@ -216,14 +227,27 @@ fn set_colors(
     terminal.set_defaults(colors)
 }
 
-fn start_input(pty: &mut Pty, events: Sender<OwnerEvent>) -> Result<Sender<Vec<u8>>, ServerError> {
+fn start_input(
+    pty: &mut Pty,
+    events: Sender<OwnerEvent>,
+) -> Result<Sender<InputWrite>, ServerError> {
     let mut writer = pty.take_writer().map_err(ServerError::spawn_failed)?;
-    let (input, pending) = mpsc::channel::<Vec<u8>>();
+    let (input, pending) = mpsc::channel::<InputWrite>();
     thread::Builder::new()
         .name(format!("session-{}-input", pty.child_pid()))
         .spawn(move || {
-            for bytes in pending {
-                if let Err(error) = writer.write_all(&bytes) {
+            for input in pending {
+                let result = writer.write_all(&input.bytes);
+                if let Some(reply) = input.reply {
+                    let acknowledgement = result.as_ref().copied().map_err(|error| {
+                        ServerError::new(
+                            ErrorCode::BadRequest,
+                            format!("terminal input write failed: {error}"),
+                        )
+                    });
+                    let _ = reply.send(acknowledgement);
+                }
+                if let Err(error) = result {
                     let _ = events.send(OwnerEvent::WriteFailed(error));
                     break;
                 }
@@ -258,7 +282,13 @@ impl Owner {
                 }
                 Wake::Event(OwnerEvent::WriteFailed(error)) => return Err(error.into()),
                 Wake::Event(OwnerEvent::Command(SessionCommand::Input(bytes))) => {
-                    self.input.send(bytes)?;
+                    self.input.send(bytes.into())?;
+                }
+                Wake::Event(OwnerEvent::Command(SessionCommand::WriteInput { bytes, reply })) => {
+                    self.input.send(InputWrite {
+                        bytes,
+                        reply: Some(reply),
+                    })?;
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::CellSize(cell))) => {
                     self.terminal.set_cell_size(cell)?;
@@ -267,7 +297,7 @@ impl Owner {
                 Wake::Event(OwnerEvent::Command(SessionCommand::Mouse(event))) => {
                     let bytes = self.terminal.encode_mouse(&event)?;
                     if !bytes.is_empty() {
-                        self.input.send(bytes)?;
+                        self.input.send(bytes.into())?;
                     }
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::SetColors(colors))) => {
@@ -380,7 +410,7 @@ impl Owner {
         }
         let answers = self.terminal.take_pty_output();
         if !answers.is_empty() {
-            self.input.send(answers)?;
+            self.input.send(answers.into())?;
         }
         self.output_pending = true;
         self.compress_pending = true;

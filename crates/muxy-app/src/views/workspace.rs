@@ -41,6 +41,8 @@ actions!(
         ToggleFullScreen,
         ToggleThemePicker,
         ToggleCommandPalette,
+        ToggleComposer,
+        ToggleVoiceRecording,
         NavigateBack,
         NavigateForward,
         Quit,
@@ -82,6 +84,15 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     registry.register(ShortcutId::ToggleFullScreen, &ToggleFullScreen);
     registry.register(ShortcutId::ToggleThemePicker, &ToggleThemePicker);
     registry.register(ShortcutId::ToggleCommandPalette, &ToggleCommandPalette);
+    registry.register(ShortcutId::ToggleComposer, &ToggleComposer);
+    registry.register(ShortcutId::ToggleVoiceRecording, &ToggleVoiceRecording);
+    registry.register(ShortcutId::VoiceFinish, &super::voice::Finish);
+    registry.register(ShortcutId::VoiceCancel, &super::voice::Cancel);
+    registry.register(ShortcutId::VoicePause, &super::voice::Pause);
+    registry.register(ShortcutId::ComposerSubmit, &super::composer::Submit);
+    registry.register(ShortcutId::ComposerInsert, &super::composer::Insert);
+    registry.register(ShortcutId::ComposerClose, &super::composer::Close);
+    registry.register(ShortcutId::ComposerVoice, &super::composer::ToggleVoice);
     registry.register(ShortcutId::NavigateBack, &NavigateBack);
     registry.register(ShortcutId::NavigateForward, &NavigateForward);
     registry.register(ShortcutId::Quit, &Quit);
@@ -334,6 +345,18 @@ pub(crate) fn register_commands(
     let missing = model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing;
     let no_pane = missing || model.active_pane().is_none();
     for command in [
+        action(
+            model,
+            ShortcutId::ToggleComposer,
+            "Toggle Composer",
+            ToggleComposer,
+        ),
+        action(
+            model,
+            ShortcutId::ToggleVoiceRecording,
+            "Toggle Voice Recording",
+            ToggleVoiceRecording,
+        ),
         action(model, ShortcutId::NewTab, "New Tab", NewTab).disabled(missing),
         action(model, ShortcutId::NewHomeTab, "New Home Tab", NewHomeTab),
         action(model, ShortcutId::CloseTab, "Close Tab", CloseTab)
@@ -398,7 +421,15 @@ impl AppModel {
                     pane.corner_radius = radius;
                     cx.notify();
                 }
-                pane.native_visible = self.overlay.is_none() && self.close_prompt.is_none();
+                pane.native_visible = self.overlay.is_none()
+                    && self.voice.view.is_none()
+                    && self.voice.closing.is_none()
+                    && self.close_prompt.is_none()
+                    && self.composer.closing.is_none()
+                    && (self.composer.view.is_none()
+                        || (self.settings.composer.pinned
+                            && self.settings.composer.presentation
+                                == muxy_app_core::settings::ComposerPresentation::Panel));
                 #[cfg(target_os = "macos")]
                 if let Some(scroll) = &pane.native_scroll {
                     scroll.set_visible(pane.native_visible && pane.grid.is_some());
@@ -408,9 +439,12 @@ impl AppModel {
     }
 }
 
-impl Render for AppModel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.overlay.is_none() && (self.focus_requested || self.active_pane().is_none()) {
+impl AppModel {
+    fn prepare_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.overlay.is_none()
+            && (self.focus_requested
+                || (self.active_pane().is_none() && self.composer.view.is_none()))
+        {
             self.focus_active(window, cx);
             self.focus_requested = false;
         }
@@ -427,12 +461,25 @@ impl Render for AppModel {
             .cancel_unavailable(self.state.current_project(), false);
         self.sync_pane_focus(cx);
         self.sync_tab_sidebar(cx);
+    }
+}
+
+impl Render for AppModel {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.prepare_workspace(window, cx);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused;
         let sidebar_width = self.sidebar_width();
         let content = super::splits::render(self, cx).unwrap_or_else(|| empty(self, cx));
+        let content = self.composer_content(content, window, cx);
         let error = self.error.as_ref().map(|message| banner(message, theme));
         action_handlers(cx)
+            .on_action(cx.listener(|model, _: &ToggleVoiceRecording, window, cx| {
+                model.toggle_voice(window, cx);
+            }))
+            .on_action(cx.listener(|model, _: &ToggleComposer, window, cx| {
+                model.toggle_composer(window, cx);
+            }))
             .on_action(cx.listener(|model, _: &ToggleCommandPalette, window, cx| {
                 model.toggle_command_palette(window, cx);
             }))
@@ -506,6 +553,8 @@ impl Render for AppModel {
             .when(self.sidebar_resize.is_some(), |body| {
                 body.child(div().absolute().inset_0().cursor_ew_resize().occlude())
             })
+            .child(self.floating_composer(window, cx))
+            .child(self.voice_panel())
             .child(overlays::layer(self, window, cx))
     }
 }

@@ -3,10 +3,12 @@
 //! Workspaces, cached project views, tabs, panes, and window state live here;
 //! server execution and UI toolkit code do not.
 
+pub mod composer;
 mod error;
 mod home;
 mod ids;
 mod layout;
+pub mod modal;
 pub mod opener;
 mod pane;
 mod project;

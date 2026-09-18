@@ -153,6 +153,15 @@ pub enum ShortcutId {
     PreviousSettingsControl,
     InstallCommandLineTool,
     ToggleCommandPalette,
+    ToggleComposer,
+    ComposerSubmit,
+    ComposerInsert,
+    ComposerClose,
+    ComposerVoice,
+    ToggleVoiceRecording,
+    VoiceFinish,
+    VoiceCancel,
+    VoicePause,
 }
 
 impl ShortcutId {
@@ -1146,5 +1155,59 @@ pub const ALL: &[Shortcut] = &[
         keys: &["cmd-shift-p"],
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "toggle_composer",
+        keys: &["cmd-i"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "composer.submit",
+        keys: &["cmd-enter"],
+        contexts: &[Some("Composer")],
+        key_contexts: &[&[Some("Composer")]],
+    },
+    Shortcut {
+        id: "composer.insert",
+        keys: &["cmd-shift-enter"],
+        contexts: &[Some("Composer")],
+        key_contexts: &[&[Some("Composer")]],
+    },
+    Shortcut {
+        id: "composer.close",
+        keys: &["escape"],
+        contexts: &[Some("Composer && !Picker")],
+        key_contexts: &[&[Some("Composer && !Picker")]],
+    },
+    Shortcut {
+        id: "composer.voice",
+        keys: &[],
+        contexts: &[Some("Composer")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "toggle_voice_recording",
+        keys: &["cmd-shift-i"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "voice.finish",
+        keys: &["enter"],
+        contexts: &[Some("VoiceRecording")],
+        key_contexts: &[&[Some("VoiceRecording")]],
+    },
+    Shortcut {
+        id: "voice.cancel",
+        keys: &["escape"],
+        contexts: &[Some("VoiceRecording")],
+        key_contexts: &[&[Some("VoiceRecording")]],
+    },
+    Shortcut {
+        id: "voice.pause",
+        keys: &["space"],
+        contexts: &[Some("VoiceRecording")],
+        key_contexts: &[&[Some("VoiceRecording")]],
     },
 ];

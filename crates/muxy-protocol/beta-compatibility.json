@@ -1,5 +1,5 @@
 {
-  "identifier": 14,
+  "identifier": 15,
   "wire": {
     "CancelCreation.bin": "031bc6d86abd1ea3445835db6184a96951140b35449fdbd0e0782a05b6c87d26",
     "Catalog.bin": "02dace73c7b8d79c93c0e0f4cd15177764638901fdfc10fde3b8ed0454cd4c95",
@@ -30,14 +30,15 @@
     "git_changed.bin": "ef735c08af47ad09516c803c5385311516a2cf774e59614a979e9c23dd545003",
     "git_reply.bin": "9c01a05402bec1e268f00ab107ac0cdcd4c24bdcc47a56cb68407da9beefacf5",
     "git_request.bin": "56ad3fca98297fc98a2557b7e5038a69fa46a2b3e48a03ddb6bf8fca182afac2",
-    "hello.bin": "2bb7237366438cef37a2389bd61f61a2062d5786d0f7d71177061c11ce9d4b5f",
-    "hello_reply.bin": "cfae76246891aba57d67f1d7a89717d0aaf8cb039b44b1b6fcde56a929563665",
+    "hello.bin": "42b5ebd9fecfd61a7dc9032e5d3592c24ba2db478951c7dadde3e6cc58137e19",
+    "hello_reply.bin": "bb3c2fd4eef54f07bf67918561be4e9f7b3a00d30cdcf8a697cb3c435db61600",
     "history_metadata.bin": "fffff1f770355489db28b9f7fd7f13eaccece41a7dec86813394e3035d7dba64",
     "history_reply.bin": "f3061b12a4d1779645c7cd21662df438b5bc5dab22daf9d46cbbb7e0f6e82df5",
     "history_request.bin": "6c231c15b10f8254b6950d904c0e83a7df86ac0dfa00d0dda7d64283c2475eda",
     "identify_client.bin": "c0d4247f869fda0446dedc32981f7bd8122e11c7966b45bd38ca24aa5d89603c",
     "input.bin": "16450ec2b7f3d3b580e488e2b0aae063bbd34b84221c5e532768a3c0e9e5691e",
     "input_modes.bin": "e20b9e85c1a5133c6b94ab648ed477e43e45ce495a9b52050026a1a521d69b1d",
+    "input_written.bin": "7bdb1029ca4ddbeb94ca08a9100c16c7d04d2e31c49983112a40e273c295bc9d",
     "links_metadata.bin": "b6b6526b2fea2b72e9afe0a8f9aac060346c59b9f4520f95d2f6f2bacf1f7bdf",
     "metadata.bin": "89e0da8d714bb5ab708c246576fe617dca6b5f8a43ec5d09dd621cc6094de2c9",
     "mouse.bin": "0acc7981a695a7d1a580fd3d2868a0e7312c54b43b287f5a47ebef584f95939d",
@@ -67,6 +68,7 @@
     "terminal_colors_reply.bin": "924c3a6b0c6b62e383e393d780ef585f0ebd58bede5fdd20d3376e6126a4bcec",
     "terminal_colors_request.bin": "888b49ed3eaf3df6f80a845eb5a95352c48cb5ebe0ec2634cae2b2eca0412e35",
     "version_unsupported.bin": "ee6ce00a4e4bbb224418d69cb2089f11c0600878b380b5dba038952d8840cdbb",
+    "write_input.bin": "fb290bb1d978ac5ee89c743da87549733d2c3f81585c3605fe5cd7ed78d8e6b2",
     "write_server_settings.bin": "d9c0207ae48c72a15c83bf76f6fb01d7186cb56bed3936f011f30fd94b2520f6"
   }
 }

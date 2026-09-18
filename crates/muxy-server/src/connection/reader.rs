@@ -312,6 +312,20 @@ fn ordered_request(
             outbox.resize(channel, id, size)?;
             return Ok(None);
         }
+        RequestBody::WriteInput { channel, bytes } => {
+            let handle = outbox.handle(channel).ok_or_else(|| {
+                ServerError::new(ErrorCode::UnknownChannel, "terminal is no longer attached")
+            })?;
+            let (reply, result) = mpsc::channel();
+            handle.send(SessionCommand::WriteInput { bytes, reply })?;
+            result.recv_timeout(Duration::from_secs(5)).map_err(|_| {
+                ServerError::new(
+                    ErrorCode::BadRequest,
+                    "terminal delivery was not confirmed; input may have been written",
+                )
+            })??;
+            ReplyBody::InputWritten
+        }
         RequestBody::SyncSessionReferences { .. }
         | RequestBody::CloseSession { .. }
         | RequestBody::DiscardSession(_)

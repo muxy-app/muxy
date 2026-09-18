@@ -58,6 +58,9 @@ impl SettingsWindow {
                 &view,
                 window,
                 |root: &mut Self, _, event, window, cx| match event {
+                    SettingsEvent::DictationLanguage => {
+                        let _ = root.model.update(cx, AppModel::composer_language);
+                    }
                     SettingsEvent::Change(change) => {
                         let _ = root
                             .model

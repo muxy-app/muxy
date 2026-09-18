@@ -43,6 +43,8 @@ class BetaVersionTests(unittest.TestCase):
         self.assertEqual(info["MuxyVersion"], "2.0.0-beta-1234")
         self.assertEqual(info["LSMinimumSystemVersion"], "14.0")
         self.assertNotIn("SUFeedURL", info)
+        self.assertIn("NSMicrophoneUsageDescription", info)
+        self.assertIn("NSSpeechRecognitionUsageDescription", info)
 
 
 class StampTests(unittest.TestCase):

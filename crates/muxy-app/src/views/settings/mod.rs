@@ -1,5 +1,6 @@
 mod appearance;
 mod catalog;
+mod composer;
 mod keyboard;
 mod layout;
 mod pickers;
@@ -42,6 +43,7 @@ pub(crate) fn register_commands(
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Category {
     General,
+    Composer,
     QuickTerminal,
     Appearance,
     Terminal,
@@ -50,9 +52,10 @@ pub(crate) enum Category {
 }
 
 impl Category {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::General,
         Self::QuickTerminal,
+        Self::Composer,
         Self::Appearance,
         Self::Keyboard,
         Self::Terminal,
@@ -62,6 +65,7 @@ impl Category {
     fn label(self) -> &'static str {
         match self {
             Self::General => "General",
+            Self::Composer => "Composer",
             Self::QuickTerminal => "Quick Terminal",
             Self::Appearance => "Appearance",
             Self::Terminal => "Terminal",
@@ -73,6 +77,7 @@ impl Category {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Change {
+    Composer(&'static str, bool),
     QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
     Theme(bool, String),
     Sidebar(bool),
@@ -88,6 +93,7 @@ pub(crate) enum Change {
 }
 
 pub(crate) enum SettingsEvent {
+    DictationLanguage,
     Change(Change),
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
@@ -210,6 +216,8 @@ impl SettingsView {
             shortcut_row_count: 0,
         };
         for id in [
+            "composer-font",
+            "composer-line-height",
             "quick-width",
             "quick-height",
             "width",
@@ -277,6 +285,11 @@ impl SettingsView {
     }
 
     #[cfg(test)]
+    pub(crate) fn dictation_language(&self) -> &str {
+        &self.snapshot.settings.composer.language
+    }
+
+    #[cfg(test)]
     pub(crate) fn matching_setting_ids(&self) -> Vec<&'static str> {
         catalog::SETTINGS
             .iter()
@@ -303,6 +316,11 @@ impl SettingsView {
             (server.history_budget_bytes / (1024 * 1024)).to_string()
         });
         for (id, value) in [
+            ("composer-font", settings.composer.font_family.clone()),
+            (
+                "composer-line-height",
+                settings.composer.line_height.to_string(),
+            ),
             ("quick-width", settings.quick_terminal.width.to_string()),
             ("quick-height", settings.quick_terminal.height.to_string()),
             ("width", settings.window.default_size[0].to_string()),

@@ -130,6 +130,7 @@ impl SettingsView {
             [
                 Category::General,
                 Category::QuickTerminal,
+                Category::Composer,
                 Category::Appearance,
                 Category::Terminal,
                 Category::Keyboard,
@@ -188,6 +189,7 @@ impl SettingsView {
     ) -> Vec<AnyElement> {
         match category {
             Category::General | Category::Appearance => appearance::rows(self, category, cx),
+            Category::Composer => super::composer::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),
             Category::Server => server::rows(self, cx),
             Category::Keyboard => Vec::new(),

@@ -10,6 +10,55 @@ pub(super) struct Setting {
 
 pub(super) const SETTINGS: &[Setting] = &[
     Setting {
+        id: "voice-auto-send",
+        label: "Send after recording",
+        description: "Press Return after inserting standalone voice dictation into the terminal.",
+        category: Category::Composer,
+        section: "Voice",
+    },
+    Setting {
+        id: "composer-language",
+        label: "Dictation language",
+        description: "Choose an installed on-device speech language.",
+        category: Category::Composer,
+        section: "Voice",
+    },
+    Setting {
+        id: "composer-clear-after",
+        label: "Clear after sending",
+        description: "Clear the draft only after every terminal confirms delivery.",
+        category: Category::Composer,
+        section: "Behavior",
+    },
+    Setting {
+        id: "composer-clear-close",
+        label: "Clear on close",
+        description: "Discard the draft when closing Composer or switching projects.",
+        category: Category::Composer,
+        section: "Behavior",
+    },
+    Setting {
+        id: "composer-images",
+        label: "Image submission",
+        description: "Paste image contents into compatible terminal apps or insert the saved image path.",
+        category: Category::Composer,
+        section: "Behavior",
+    },
+    Setting {
+        id: "composer-font",
+        label: "Composer font",
+        description: "Font family used for composing text.",
+        category: Category::Composer,
+        section: "Text",
+    },
+    Setting {
+        id: "composer-line-height",
+        label: "Composer line height",
+        description: "Line spacing from 1.1 to 2.0.",
+        category: Category::Composer,
+        section: "Text",
+    },
+    Setting {
         id: "quick-enabled",
         label: "Enable Quick Terminal",
         description: "Show a persistent home-directory shell with a shortcut.",

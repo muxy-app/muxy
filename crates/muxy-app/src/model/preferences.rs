@@ -205,6 +205,12 @@ impl AppModel {
     }
 
     fn apply_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
+        if matches!(
+            &change,
+            Change::Composer(..) | Change::Field("composer-font" | "composer-line-height", _)
+        ) {
+            return self.apply_composer_preference(change, cx);
+        }
         let path = self.path.with_file_name("settings.toml");
         let mut settings = self.settings.clone();
         settings.appearance = self.appearance.clone();
@@ -292,6 +298,47 @@ impl AppModel {
             pane.view.update(cx, |pane, cx| {
                 pane.copy_on_select = self.settings.clipboard.copy_on_select;
                 cx.notify();
+            });
+        }
+        Ok(())
+    }
+
+    fn apply_composer_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
+        let path = self.path.with_file_name("settings.toml");
+        let mut settings = self.settings.clone();
+        match change {
+            Change::Composer(id, value) => {
+                match id {
+                    "composer-clear-after" => settings.composer.clear_after_sending = value,
+                    "composer-clear-close" => settings.composer.clear_on_close = value,
+                    "voice-auto-send" => settings.composer.voice_auto_send = value,
+                    "composer-images" => {
+                        settings.composer.image_strategy = if value {
+                            muxy_app_core::composer::submission::ImageSubmissionStrategy::Clipboard
+                        } else {
+                            muxy_app_core::composer::submission::ImageSubmissionStrategy::InlinePath
+                        }
+                    }
+                    _ => return Err("Unknown composer preference".into()),
+                }
+                settings.save_composer(&path)?;
+            }
+            Change::Field(id @ ("composer-font" | "composer-line-height"), value) => {
+                if id == "composer-font" {
+                    settings.composer.font_family = value;
+                } else {
+                    settings.composer.line_height = value.parse()?;
+                }
+                settings.save_composer(&path)?;
+            }
+            _ => return Err("Unknown composer preference".into()),
+        }
+        self.settings.composer = settings.composer;
+        self.composer.preferences_dirty = false;
+        if let Some(view) = &self.composer.view {
+            view.update(cx, |view, cx| {
+                view.settings = self.settings.composer.clone();
+                view.refresh_style(cx);
             });
         }
         Ok(())
@@ -493,7 +540,7 @@ fn change_id(change: &Change) -> &str {
         Change::CloseBehavior(_) => "close-behavior",
         Change::CopyOnSelect(_) => "copy-on-select",
         Change::Directory(_) => "directory",
-        Change::Field(id, _) => id,
+        Change::Composer(id, _) | Change::Field(id, _) => id,
         Change::Binding(id, _) => id,
         Change::ShellIntegration(_) => "shell-integration",
     }

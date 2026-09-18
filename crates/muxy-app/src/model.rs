@@ -1,10 +1,12 @@
 mod catalog;
+mod composer;
 pub(crate) mod git;
 mod links;
 mod preferences;
 mod quick_terminal;
 mod tabs;
 mod updates;
+mod voice;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -64,6 +66,8 @@ struct CloseRequest {
 }
 
 pub(crate) struct AppModel {
+    pub(crate) composer: composer::ComposerRuntime,
+    pub(crate) voice: voice::VoiceRuntime,
     pub(crate) git: git::GitState,
     catalog: catalog::Synchronization,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
@@ -161,6 +165,16 @@ impl AppModel {
             });
         }
         self.refresh_quick_terminal(cx);
+        if let Some(view) = &self.composer.view {
+            view.update(cx, |view, cx| {
+                view.appearance(self.theme.clone(), self.metrics, cx);
+            });
+        }
+        if let Some(view) = &self.voice.view {
+            view.update(cx, |view, cx| {
+                view.appearance(self.theme.clone(), self.metrics, cx);
+            });
+        }
         self.sync_preferences(cx);
         if let Some(Overlay::Commands { palette, dark }) = &self.overlay {
             let active = self.themes.active_name(&self.appearance, *dark);
@@ -334,8 +348,9 @@ impl AppModel {
         });
         let activation = cx.observe_window_activation(window, Self::activation_changed);
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
+            model.close_voice(cx);
             model.save(cx);
-            async {}
+            model.flush_composer(cx)
         });
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
         let (theme, fallback) = themes.resolve(&boot.settings.appearance, dark);
@@ -355,6 +370,8 @@ impl AppModel {
             });
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         let mut model = Self {
+            composer: composer::ComposerRuntime::new(boot.composer),
+            voice: voice::VoiceRuntime::default(),
             git: git::GitState::default(),
             catalog: catalog::Synchronization::default(),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
@@ -1203,6 +1220,8 @@ impl AppModel {
     }
 
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
+        self.sync_composer(cx);
+        self.sync_voice(cx);
         self.sync_git(cx);
         self.sync_references(cx);
         self.refresh_existing_sessions(cx);
@@ -2099,6 +2118,7 @@ mod tests {
     mod clipboard;
     mod colors;
     mod command_palette;
+    mod composer;
     mod detach;
     mod find;
     mod git;
@@ -2189,6 +2209,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("muxy-app-restore-{}", ProjectId::new()));
         (
             Boot {
+                composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),
                 settings: muxy_app_core::settings::Settings::default(),

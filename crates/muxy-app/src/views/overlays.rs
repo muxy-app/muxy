@@ -9,6 +9,7 @@ use super::menu::{self, Item, Menu};
 use crate::model::AppModel;
 
 pub(crate) enum Overlay {
+    Native(Entity<super::native_modal::NativeModal>),
     Commands {
         palette: Entity<muxy_ui::command_palette::CommandPalette<super::command_palette::Handler>>,
         dark: bool,
@@ -66,6 +67,7 @@ pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
 pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let content = match &model.overlay {
         None => return div().into_any_element(),
+        Some(Overlay::Native(picker)) => picker.clone().into_any_element(),
         Some(Overlay::GitForm(form)) => div()
             .absolute()
             .top_0()

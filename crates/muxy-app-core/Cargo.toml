@@ -20,3 +20,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 uuid = { version = "1", features = ["v4", "serde"] }
 unicode-segmentation = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "tiff", "webp"] }
+rustix = { version = "1.1.4", features = ["fs"] }
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"

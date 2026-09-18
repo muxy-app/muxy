@@ -9,6 +9,33 @@ use crate::views::settings::{Change, SettingsEvent};
 use muxy_core::shortcuts::ShortcutSettings;
 
 #[gpui::test]
+fn dictation_language_selection_updates_the_open_settings_window(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = settings_window(boot, cx);
+    view.update(cx, |model, cx| {
+        model.composer_language(cx);
+        let Some(Overlay::Native(modal)) = &model.overlay else {
+            panic!("language picker");
+        };
+        modal.update(cx, |modal, cx| {
+            let token = modal.token();
+            modal.feed(
+                token,
+                vec![muxy_app_core::modal::ModalItem::new("fr-FR", "French")],
+                cx,
+            );
+            modal.finish(token, cx);
+            modal.complete(Some("fr-FR"), cx);
+        });
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |model, cx| {
+        assert_eq!(model.settings.composer.language, "fr-FR");
+        assert_eq!(settings_view(model).read(cx).dictation_language(), "fr-FR");
+    });
+}
+
+#[gpui::test]
 fn ghostty_configuration_is_discoverable_and_reload_reports_errors(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let path = boot.state_path.with_file_name("ghostty.conf");
@@ -805,7 +832,7 @@ fn settings_controls_are_reachable_and_activated_with_the_keyboard(cx: &mut Test
     let (boot, _) = stub_boot(AppState::bootstrap().expect("state"));
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = settings_window(boot, cx);
-    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab tab space");
+    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab tab tab space");
     view.read_with(cx, |model, _| {
         assert_eq!(
             model.settings.window.close_behavior,
@@ -865,7 +892,7 @@ fn keyboard_navigation_reveals_every_shortcut_in_both_directions(cx: &mut TestAp
     let (view, cx) = settings_window(boot, cx);
     click_preference(cx, "settings-category-Keyboard");
     cx.simulate_resize(size(px(900.0), px(500.0)));
-    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab");
+    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab tab");
     let settings = view.read_with(cx, |model, _| settings_view(model));
     for (index, shortcut) in muxy_core::shortcuts::ALL.iter().enumerate() {
         cx.update(|window, cx| {
@@ -905,7 +932,7 @@ fn tabbing_reveals_fields_below_a_short_settings_viewport(cx: &mut TestAppContex
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (_, cx) = settings_window(boot, cx);
     cx.simulate_resize(size(px(740.0), px(480.0)));
-    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab tab tab tab tab");
+    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab tab tab tab tab tab");
     let row = cx
         .debug_bounds("settings-field-height")
         .expect("height field");

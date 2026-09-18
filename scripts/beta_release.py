@@ -87,6 +87,8 @@ def bundle_info(version):
         "NSHighResolutionCapable": True,
         "NSSupportsAutomaticGraphicsSwitching": True,
         "NSPrincipalClass": "NSApplication",
+        "NSMicrophoneUsageDescription": "Muxy uses your microphone to dictate text into Composer.",
+        "NSSpeechRecognitionUsageDescription": "Muxy transcribes your dictation on this device and inserts it into Composer.",
     }
 
 

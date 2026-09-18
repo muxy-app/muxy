@@ -9,6 +9,9 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 muxy-core = { path = "../muxy-core" }
 gpui = { version = "=0.2.2", default-features = false }
@@ -18,13 +21,18 @@ async-channel = "2"
 raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+dispatch2 = "0.3"
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "AVMediaFormat", "AVCaptureSession", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureDevice", "AVCaptureAudioDataOutput", "objc2-core-media"] }
+objc2-speech = { version = "0.3", default-features = false, features = ["std", "block2", "SFSpeechRecognizer", "SFSpeechRecognitionRequest", "SFSpeechRecognitionResult", "SFSpeechRecognitionTask", "SFSpeechRecognitionTaskHint", "SFTranscription", "objc2-core-media"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMSampleBuffer", "objc2"] }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "block2", "dispatch2", "objc2-core-audio-types", "objc2"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 block2 = "0.6"
 objc2 = "0.6"
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGEvent", "CGEventTypes", "CGRemoteOperation"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString", "NSURL", "NSNotification", "NSBundle", "NSError", "NSOperation", "NSArray", "NSEnumerator", "block2"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSFontDescriptor", "objc2-core-foundation", "NSAlert", "NSOpenPanel", "NSPanel", "NSSavePanel", "NSApplication", "NSButton", "NSCell", "NSControl", "NSResponder", "NSView", "NSWindow", "NSScrollView", "NSScroller", "NSClipView", "NSEvent", "NSAppearance", "block2", "NSAccessibility", "NSAccessibilityConstants", "NSAccessibilityProtocols", "libc", "NSAccessibilityElement", "NSColor", "NSScreen", "NSWorkspace", "NSRunningApplication", "NSTextInputContext", "objc2-core-graphics", "objc2-quartz-core"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSGeometry", "NSString", "NSURL", "NSNotification", "NSBundle", "NSError", "NSOperation", "NSArray", "NSEnumerator", "block2"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSMenu", "NSMenuItem", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSFontDescriptor", "objc2-core-foundation", "NSAlert", "NSOpenPanel", "NSPanel", "NSSavePanel", "NSApplication", "NSButton", "NSCell", "NSControl", "NSResponder", "NSView", "NSWindow", "NSScrollView", "NSScroller", "NSClipView", "NSEvent", "NSAppearance", "block2", "NSAccessibility", "NSAccessibilityConstants", "NSAccessibilityProtocols", "libc", "NSAccessibilityElement", "NSColor", "NSScreen", "NSWorkspace", "NSRunningApplication", "NSTextInputContext", "objc2-core-graphics", "objc2-quartz-core"] }
 
 [lints]
 workspace = true

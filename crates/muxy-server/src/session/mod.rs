@@ -20,6 +20,10 @@ pub struct AttachmentId(pub u64);
 #[derive(Debug)]
 pub enum SessionCommand {
     Input(Vec<u8>),
+    WriteInput {
+        bytes: Vec<u8>,
+        reply: Sender<Result<(), ServerError>>,
+    },
     Mouse(MouseEvent),
     CellSize(muxy_protocol::CellSize),
     Resize(Size),

@@ -384,6 +384,15 @@ impl Client {
         self.send(channel, &Message::Input(bytes.to_vec()))
     }
 
+    pub fn write_input(&self, channel: ChannelId, bytes: Vec<u8>) -> Result<(), ClientError> {
+        session_channel(channel)?;
+        muxy_protocol::validate_input(&bytes).map_err(ClientError::Invalid)?;
+        match self.request(RequestBody::WriteInput { channel, bytes })? {
+            ReplyBody::InputWritten => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn send_cell_size(
         &self,
         channel: ChannelId,

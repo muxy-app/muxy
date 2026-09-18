@@ -352,7 +352,7 @@ fn search_result_dropdown_uses_the_visible_field_and_closes_when_scrolled_out(
     let settings = view.read_with(cx, |model, _| settings_view(model));
     settings.update(cx, |pane, cx| {
         pane.results_state().scroll_to(gpui::ListOffset {
-            item_ix: 2,
+            item_ix: 4,
             offset_in_item: px(0.0),
         });
         cx.notify();
@@ -386,6 +386,13 @@ fn search_result_dropdown_uses_the_visible_field_and_closes_when_scrolled_out(
     click_preference(cx, "settings-search");
     cx.simulate_keystrokes("cmd-a f o n t");
     cx.simulate_resize(size(px(650.0), px(650.0)));
+    settings.update(cx, |pane, cx| {
+        pane.results_state().scroll_to(gpui::ListOffset {
+            item_ix: 1,
+            offset_in_item: px(0.0),
+        });
+        cx.notify();
+    });
     click_preference(cx, "settings-picker-font-family");
     let trigger = cx
         .debug_bounds("settings-picker-font-family")

@@ -37,3 +37,20 @@ pub mod quick_terminal;
     reason = "Native notification delegate and Objective-C initialization"
 )]
 pub mod notifications;
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code, reason = "Apple speech and capture framework adapter")]
+pub mod voice;
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code, reason = "Native clipboard item preservation")]
+pub mod pasteboard;
+
+#[cfg(target_os = "macos")]
+#[allow(
+    unsafe_code,
+    reason = "Native menu actions are handled on the main dispatch queue"
+)]
+pub mod native_menu;
+
+pub mod transcript;

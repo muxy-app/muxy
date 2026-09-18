@@ -13,6 +13,7 @@ impl Category {
     fn sections(self) -> &'static [&'static str] {
         match self {
             Self::QuickTerminal => &["General", "Shortcut", "Size", "Appearance"],
+            Self::Composer => &["Behavior", "Text", "Voice"],
             Self::General => &["Closing terminals", "Window size"],
             Self::Appearance => &["Themes", "Interface"],
             Self::Keyboard => &["Shortcuts"],

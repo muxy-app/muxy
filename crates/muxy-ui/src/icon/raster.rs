@@ -14,6 +14,7 @@ const APPKIT_SYMBOL_CORRECTION: f32 = 0.97;
 struct MaskKey {
     symbol: SharedString,
     point_size: u32,
+    weight: u32,
     scale: u32,
 }
 
@@ -45,9 +46,20 @@ pub fn tinted_symbol(
     color: Hsla,
     scale: f32,
 ) -> Option<Glyph> {
+    tinted_symbol_weight(symbol, size, color, scale, SEMIBOLD)
+}
+
+pub fn tinted_symbol_weight(
+    symbol: &SharedString,
+    size: Pixels,
+    color: Hsla,
+    scale: f32,
+    weight: f32,
+) -> Option<Glyph> {
     let key = MaskKey {
         symbol: symbol.clone(),
         point_size: f32::from(size).to_bits(),
+        weight: weight.to_bits(),
         scale: scale.to_bits(),
     };
     let tint = TintKey {
@@ -65,7 +77,7 @@ pub fn tinted_symbol(
                 sfsymbol::rasterize(
                     &key.symbol,
                     f32::from(size) * APPKIT_SYMBOL_CORRECTION,
-                    SEMIBOLD,
+                    weight,
                     scale,
                 )
                 .map(Arc::new)

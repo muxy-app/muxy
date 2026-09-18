@@ -108,9 +108,13 @@ else
 fi
 # Sign every executable before sealing the bundle.
 for BINARY in muxy muxy-server muxy-app; do
-    codesign "${SIGN_ARGS[@]}" "$APP/Contents/MacOS/$BINARY"
+    if [[ "$BINARY" == muxy-app ]]; then
+        codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT/packaging/macos/Muxy.entitlements" "$APP/Contents/MacOS/$BINARY"
+    else
+        codesign "${SIGN_ARGS[@]}" "$APP/Contents/MacOS/$BINARY"
+    fi
 done
-codesign "${SIGN_ARGS[@]}" "$APP"
+codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT/packaging/macos/Muxy.entitlements" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 for BINARY in muxy muxy-server; do
     python3 "$ROOT/scripts/beta_release.py" check-build "$VERSION" "$APP/Contents/MacOS/$BINARY"

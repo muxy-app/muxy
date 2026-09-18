@@ -148,7 +148,7 @@ fn search_fields_keep_keyboard_focus_when_virtualized_offscreen(cx: &mut TestApp
     let settings = view.read_with(cx, |model, _| settings_view(model));
     settings.update(cx, |pane, cx| {
         pane.results_state().scroll_to(gpui::ListOffset {
-            item_ix: 2,
+            item_ix: 4,
             offset_in_item: px(0.0),
         });
         cx.notify();

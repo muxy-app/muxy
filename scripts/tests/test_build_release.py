@@ -52,6 +52,7 @@ class BuildReleaseTests(unittest.TestCase):
         for relative in (
             "scripts/build-release.sh", "scripts/beta_release.py", "scripts/beta_compatibility.py", "scripts/zig/zig",
             "crates/muxy-protocol/src/build.rs", "LICENSE", "crates/muxy-server/src/detection/THIRD_PARTY.md", "crates/muxy-server/src/detection/LICENSE-herdr",
+            "packaging/macos/Muxy.entitlements",
             "packaging/macos/AppIcon.png", "packaging/macos/AppIconBeta.png",
         ):
             destination = self.root / relative

@@ -670,9 +670,9 @@ fn panel_resize_listener(
                 move_handler(dimension, window, cx);
             });
             let end_state = resize_state.clone();
-            window.on_mouse_event(move |_: &MouseUpEvent, phase, _, _| {
-                if phase == DispatchPhase::Bubble {
-                    end_state.end();
+            window.on_mouse_event(move |_: &MouseUpEvent, phase, window, _| {
+                if phase == DispatchPhase::Bubble && end_state.end() {
+                    window.refresh();
                 }
             });
         },
@@ -688,33 +688,46 @@ impl RenderOnce for PanelFrame {
         let bounds = self.sizing.bounds;
         let resize_state = self.sizing.resize_state.clone();
         let down_resize_state = resize_state.clone();
-        let resize_handle = div()
-            .id(SharedString::from(format!(
-                "panel-resize-{}",
-                self.placement.id.as_str()
-            )))
+        let group = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
+        let separator = div()
             .absolute()
-            .on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, _, cx| {
-                down_resize_state.begin(PanelResize::new(
-                    position,
-                    dimension,
-                    Point::new(f32::from(event.position.x), f32::from(event.position.y)),
-                    bounds,
-                ));
-                cx.stop_propagation();
-            });
+            .bg(if resize_state.is_active() {
+                self.theme.accent
+            } else {
+                self.theme.border
+            })
+            .group_hover(group.clone(), |style| style.bg(self.theme.accent));
+        let resize_handle = div()
+            .id(group.clone())
+            .group(group)
+            .absolute()
+            .on_mouse_down(
+                MouseButton::Left,
+                move |event: &MouseDownEvent, window, cx| {
+                    down_resize_state.begin(PanelResize::new(
+                        position,
+                        dimension,
+                        Point::new(f32::from(event.position.x), f32::from(event.position.y)),
+                        bounds,
+                    ));
+                    window.refresh();
+                    cx.stop_propagation();
+                },
+            );
         let resize_handle = match position {
             PanelPosition::Right => resize_handle
-                .left(px(-5.0))
+                .left(px(-1.0))
                 .top_0()
                 .w(self.metrics.resize_handle_hit_area())
                 .h_full()
+                .child(separator.left_0().top_0().bottom_0().w(px(1.0)))
                 .cursor_ew_resize(),
             PanelPosition::Bottom => resize_handle
                 .left_0()
-                .top(px(-5.0))
+                .top(px(-1.0))
                 .w_full()
                 .h(self.metrics.resize_handle_hit_area())
+                .child(separator.left_0().top_0().right_0().h(px(1.0)))
                 .cursor_ns_resize(),
         };
         let resize_listener = panel_resize_listener(resize_state, self.on_resize);
@@ -733,7 +746,7 @@ impl RenderOnce for PanelFrame {
             .min_w(px(0.0))
             .min_h(px(0.0))
             .bg(self.theme.bg)
-            .border_color(self.theme.border_solid())
+            .border_color(self.theme.border)
             .child(self.chrome)
             .child(
                 div()
@@ -749,27 +762,25 @@ impl RenderOnce for PanelFrame {
 
         match (self.placement.position, self.placement.mode) {
             (PanelPosition::Right, PanelMode::Pinned) => {
-                frame.w(px(dimension)).h_full().border_l_1()
+                frame.w(px(dimension + 1.0)).h_full().border_l_1()
             }
             (PanelPosition::Bottom, PanelMode::Pinned) => {
-                frame.w_full().h(px(dimension)).border_t_1()
+                frame.w_full().h(px(dimension + 1.0)).border_t_1()
             }
             (PanelPosition::Right, PanelMode::Floating) => frame
                 .absolute()
                 .top_0()
                 .right_0()
                 .bottom_0()
-                .w(px(dimension))
-                .border_l_1()
-                .shadow_lg(),
+                .w(px(dimension + 1.0))
+                .border_l_1(),
             (PanelPosition::Bottom, PanelMode::Floating) => frame
                 .absolute()
                 .left_0()
                 .right_0()
                 .bottom_0()
-                .h(px(dimension))
-                .border_t_1()
-                .shadow_lg(),
+                .h(px(dimension + 1.0))
+                .border_t_1(),
         }
     }
 }

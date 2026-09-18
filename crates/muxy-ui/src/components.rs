@@ -329,6 +329,8 @@ pub struct SymbolGlyph {
     symbol: SharedString,
     size: Pixels,
     color: Hsla,
+    weight: f32,
+    hover: Option<(SharedString, Hsla)>,
 }
 
 impl SymbolGlyph {
@@ -337,19 +339,61 @@ impl SymbolGlyph {
             symbol: symbol.into(),
             size,
             color,
+            weight: 0.3,
+            hover: None,
         }
+    }
+    #[must_use]
+    pub fn hover_in_group(mut self, group: impl Into<SharedString>, color: Hsla) -> Self {
+        self.hover = Some((group.into(), color));
+        self
+    }
+
+    #[must_use]
+    pub fn bold(mut self) -> Self {
+        self.weight = 0.4;
+        self
+    }
+
+    #[must_use]
+    pub fn regular(mut self) -> Self {
+        self.weight = 0.0;
+        self
     }
 }
 
 impl RenderOnce for SymbolGlyph {
     fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        symbol_layer(&self.symbol, self.size, self.color, window.scale_factor())
+        let scale = window.scale_factor();
+        let base = symbol_layer(&self.symbol, self.size, self.color, scale, self.weight);
+        let Some((group, color)) = self.hover else {
+            return base.into_any_element();
+        };
+        div()
+            .relative()
+            .flex_none()
+            .child(base.group_hover(group.clone(), |style| style.opacity(0.0)))
+            .child(
+                symbol_layer(&self.symbol, self.size, color, scale, self.weight)
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .opacity(0.0)
+                    .group_hover(group, |style| style.opacity(1.0)),
+            )
+            .into_any_element()
     }
 }
 
 #[cfg(target_os = "macos")]
-fn symbol_layer(symbol: &SharedString, size: Pixels, color: Hsla, scale: f32) -> gpui::Div {
-    let Some(glyph) = crate::icon::tinted_symbol(symbol, size, color, scale) else {
+fn symbol_layer(
+    symbol: &SharedString,
+    size: Pixels,
+    color: Hsla,
+    scale: f32,
+    weight: f32,
+) -> gpui::Div {
+    let Some(glyph) = crate::icon::tinted_symbol_weight(symbol, size, color, scale, weight) else {
         return fallback_layer(symbol, size, color);
     };
     div().flex_none().w(glyph.width).h(glyph.height).child(
@@ -361,7 +405,13 @@ fn symbol_layer(symbol: &SharedString, size: Pixels, color: Hsla, scale: f32) ->
 }
 
 #[cfg(not(target_os = "macos"))]
-fn symbol_layer(symbol: &SharedString, size: Pixels, color: Hsla, _scale: f32) -> gpui::Div {
+fn symbol_layer(
+    symbol: &SharedString,
+    size: Pixels,
+    color: Hsla,
+    _scale: f32,
+    _weight: f32,
+) -> gpui::Div {
     fallback_layer(symbol, size, color)
 }
 

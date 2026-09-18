@@ -9,11 +9,13 @@ mod theme;
 mod updater;
 mod views {
     pub(crate) mod command_palette;
+    pub(crate) mod composer;
     pub(crate) mod confirm;
     pub(crate) mod disconnected;
     pub(crate) mod font_picker;
     pub(crate) mod git;
     pub(crate) mod menu;
+    pub(crate) mod native_modal;
     pub(crate) mod overlays;
     pub(crate) mod project_editor;
     pub(crate) mod project_menu;
@@ -43,6 +45,7 @@ mod views {
         pub(crate) mod scroll;
         pub(crate) mod selection;
     }
+    pub(crate) mod voice;
     pub(crate) mod workspace;
 }
 
@@ -61,8 +64,8 @@ use views::workspace::{
     HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize, NewHomeTab, NewTab,
     NextProject, NextPrompt, NextTab, OpenConfiguration, OpenSettings, PreviousProject,
     PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectTab, ShowAll, SplitDown,
-    SplitRight, ToggleCommandPalette, ToggleFullScreen, ToggleSidebar, ToggleThemePicker,
-    ToggleZoomPane, Zoom, bind_keys,
+    SplitRight, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
+    ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
 };
 
 fn main() -> ExitCode {
@@ -237,6 +240,9 @@ fn menus() -> Vec<Menu> {
             name: "View".into(),
             items: vec![
                 MenuItem::action("Command Palette…", ToggleCommandPalette),
+                MenuItem::separator(),
+                MenuItem::action("Toggle Composer", ToggleComposer),
+                MenuItem::action("Toggle Voice Recording", ToggleVoiceRecording),
                 MenuItem::separator(),
                 MenuItem::action("Toggle Sidebar", ToggleSidebar),
                 MenuItem::action("Toggle Full Screen", ToggleFullScreen),

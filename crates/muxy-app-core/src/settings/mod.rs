@@ -4,6 +4,7 @@
 
 mod appearance;
 mod chord;
+mod composer;
 mod config;
 mod error;
 mod ghostty;
@@ -12,6 +13,7 @@ mod quick_terminal;
 
 pub use appearance::{AppLayout, Appearance, ProjectOrder, SidebarCollapsedStyle};
 pub use chord::KeyChord;
+pub use composer::{ComposerPosition, ComposerPresentation, ComposerSettings};
 pub use config::{
     ClipboardSettings, CloseBehavior, NewPaneDirectory, OpenerSettings, PaneSettings,
     ProjectSettings, Settings, WindowSettings,

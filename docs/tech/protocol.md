@@ -65,6 +65,7 @@ share a supported contract. Any other traffic before hello is fatal.
 | Session ended, server restarting for an update | server | control |
 | Error | server | control |
 | Input, cell pixel dimensions | client | session |
+| Acknowledged input write and its reply | client, server | control |
 | Screen frame, metadata event | server | session |
 
 A request carries a client-chosen ID and gets exactly one reply, in any
@@ -116,6 +117,11 @@ replacements, including an empty replacement when cleared. Their attachment
 frame sequence prevents activation ahead of the matching screen; zero refers
 to the attach snapshot. History carries no OSC 8 links. Detecting plain links
 and choosing browser, editor, or Finder openers are app policy.
+
+Composer uses bounded acknowledged input writes. Success confirms that the server
+wrote the bytes to the PTY, not that the terminal application processed them. A
+failed or unconfirmed write is never automatically retried. Ordinary keystrokes
+continue to use streamed input without acknowledgements.
 
 ## Terminal colors
 

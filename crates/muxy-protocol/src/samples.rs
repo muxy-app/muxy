@@ -97,6 +97,7 @@ impl Message {
         samples.extend(files_samples());
         samples.extend(snapshot.into_iter().flat_map(history_samples));
         samples.extend(input_samples());
+        samples.extend(acknowledged_input_samples());
         samples.extend(search_samples(session, channel));
         samples.extend(color_samples());
         samples.extend(settings_samples());
@@ -556,6 +557,23 @@ fn files_samples() -> Vec<Message> {
                 paths: vec![ServerPath(b"file".to_vec())],
                 rescan: false,
             },
+        },
+    ]
+}
+
+fn acknowledged_input_samples() -> Vec<Message> {
+    let channel = ChannelId(1);
+    vec![
+        Message::Request {
+            id: RequestId(1),
+            body: RequestBody::WriteInput {
+                channel,
+                bytes: b"pwd\r".to_vec(),
+            },
+        },
+        Message::Reply {
+            id: RequestId(1),
+            body: ReplyBody::InputWritten,
         },
     ]
 }

@@ -21,6 +21,7 @@ pub(crate) type Worker = Sender<(u64, Work)>;
 
 #[derive(Debug)]
 pub(crate) struct Boot {
+    pub(crate) composer: muxy_app_core::composer::ComposerStore,
     pub(crate) state: AppState,
     pub(crate) state_path: PathBuf,
     pub(crate) settings: muxy_app_core::settings::Settings,
@@ -41,6 +42,11 @@ impl Boot {
         let (work, updates) = bridge(state_path.with_file_name("server.sock"))?;
         work.send((1, Work::Connect))?;
         Ok(Self {
+            composer: muxy_app_core::composer::ComposerStore::load_from(
+                state_path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(".")),
+            ),
             state,
             state_path,
             settings,
@@ -53,6 +59,11 @@ impl Boot {
 
 #[derive(Debug)]
 pub(crate) enum Work {
+    WriteInput {
+        channel: ChannelId,
+        bytes: Vec<u8>,
+        completion: async_channel::Sender<Result<(), String>>,
+    },
     ReadActivity,
     OpenActivitySession {
         project: muxy_protocol::ProjectId,
@@ -357,6 +368,10 @@ fn schedule(
 
 fn rejected(work: Work, error: ClientError) -> Update {
     match work {
+        Work::WriteInput { completion, .. } => {
+            let _ = completion.try_send(Err(error.to_string()));
+            Update::Error(error.to_string())
+        }
         Work::OpenActivitySession { .. } => Update::ActivitySession(Err(error)),
         Work::ReadActivity => Update::Activity(Err(error)),
         Work::AcknowledgeActivity(ids) => Update::ActivityAcknowledged {
@@ -570,6 +585,18 @@ fn perform(work: Work, client: &Client) -> Option<Update> {
         }
         Work::Colors(colors) => client.set_terminal_colors(colors),
         Work::Input(channel, bytes) => client.send_input(channel, &bytes),
+        Work::WriteInput {
+            channel,
+            bytes,
+            completion,
+        } => {
+            let _ = completion.try_send(
+                client
+                    .write_input(channel, bytes)
+                    .map_err(|error| error.to_string()),
+            );
+            return None;
+        }
         Work::Mouse(channel, event) => client.send_mouse(channel, event),
         Work::CellSize(channel, cell) => client.send_cell_size(channel, cell),
         Work::Ack(channel, seq) => client.ack(channel, seq),
