@@ -37,6 +37,53 @@ fn attach_panes(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppMode
 }
 
 #[gpui::test]
+fn nested_splits_leave_only_the_divider_between_panes(cx: &mut TestAppContext) {
+    for direction in [Direction::Right, Direction::Down] {
+        let mut state = AppState::bootstrap().expect("state");
+        let tab = state.open_terminal_tab(state.home().id).expect("tab");
+        let first = state.home().tabs[0].panes[0].id;
+        let second = state.split_pane(first, direction).expect("split");
+        let third = state.split_pane(second, direction).expect("split");
+        state.set_ratio(tab, &[], 0.37).expect("ratio");
+        state
+            .set_ratio(tab, &[Branch::Second], 0.61)
+            .expect("ratio");
+        let (mut boot, _requests) = stub_boot(state);
+        boot.terminal.options.padding_x = [0.0; 2];
+        boot.terminal.options.padding_y = [0.0; 2];
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        for extent in 1100_u16..1110 {
+            cx.simulate_resize(size(px(f32::from(extent)), px(f32::from(extent - 300))));
+            cx.run_until_parked();
+            let bounds = view.read_with(cx, |model, cx| {
+                [first, second, third].map(|id| {
+                    model
+                        .terminal(&id)
+                        .expect("terminal")
+                        .view
+                        .read(cx)
+                        .geometry
+                        .expect("geometry")
+                        .0
+                })
+            });
+            for pair in bounds.windows(2) {
+                let (end, start) = if direction == Direction::Right {
+                    assert_eq!(pair[0].top(), pair[1].top());
+                    assert_eq!(pair[0].bottom(), pair[1].bottom());
+                    (pair[0].right(), pair[1].left())
+                } else {
+                    assert_eq!(pair[0].left(), pair[1].left());
+                    assert_eq!(pair[0].right(), pair[1].right());
+                    (pair[0].bottom(), pair[1].top())
+                };
+                assert_eq!(end + px(1.0), start, "{direction:?}, extent {extent}");
+            }
+        }
+    }
+}
+
+#[gpui::test]
 fn zoom_and_tab_switch_detach_only_hidden_leaves_and_restore_all(cx: &mut TestAppContext) {
     let (state, first_tab, panes) = split_state();
     let (boot, requests) = stub_boot(state);

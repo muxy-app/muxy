@@ -4,7 +4,7 @@ use std::rc::Rc;
 use gpui::{
     AnyElement, Bounds, Context, DispatchPhase, InteractiveElement, IntoElement, MouseButton,
     MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, SharedString, Styled, canvas, div,
-    px, relative,
+    point, px, relative,
 };
 use muxy_app_core::{Axis, Branch, Layout, TabId};
 
@@ -156,8 +156,8 @@ fn node(
     first_path.push(Branch::First);
     let mut second_path = path.clone();
     second_path.push(Branch::Second);
-    let first = weighted(node(first, tab, first_path, model, cx), *ratio);
-    let second = weighted(node(second, tab, second_path, model, cx), 1.0 - *ratio);
+    let mut first = node(first, tab, first_path, model, cx);
+    let mut second = node(second, tab, second_path, model, cx);
     let bounds = Rc::new(Cell::new(Bounds::default()));
     let measured = bounds.clone();
     let state = model.split_resize.clone();
@@ -179,59 +179,85 @@ fn node(
             });
             cx.stop_propagation();
         });
-    let (container, divider, hit) = match axis {
-        Axis::Horizontal => (
-            div().flex().flex_row(),
-            div().w(px(1.0)).h_full(),
-            hit.left(relative(ratio))
-                .ml(px(-ratio - 2.5))
-                .top_0()
-                .w(px(6.0))
-                .h_full()
-                .cursor_ew_resize(),
-        ),
-        Axis::Vertical => (
-            div().flex().flex_col(),
-            div().h(px(1.0)).w_full(),
-            hit.top(relative(ratio))
-                .mt(px(-ratio - 2.5))
-                .left_0()
-                .h(px(6.0))
-                .w_full()
-                .cursor_ns_resize(),
-        ),
+    let hit = match axis {
+        Axis::Horizontal => hit
+            .left(relative(ratio))
+            .ml(px(-ratio - 2.5))
+            .top_0()
+            .w(px(6.0))
+            .h_full()
+            .cursor_ew_resize(),
+        Axis::Vertical => hit
+            .top(relative(ratio))
+            .mt(px(-ratio - 2.5))
+            .left_0()
+            .h(px(6.0))
+            .w_full()
+            .cursor_ns_resize(),
     };
-    container
+    let border = model.theme.border_solid();
+    div()
         .relative()
         .size_full()
         .min_w(px(0.0))
         .min_h(px(0.0))
-        .child(first)
         .child(
-            divider
-                .relative()
-                .flex_none()
-                .bg(model.theme.border_solid()),
+            canvas(
+                move |bounds, window, cx| {
+                    measured.set(bounds);
+                    let [first_bounds, divider, second_bounds] =
+                        split_bounds(bounds, axis, ratio, window.scale_factor());
+                    first.layout_as_root(first_bounds.size.into(), window, cx);
+                    first.prepaint_at(first_bounds.origin, window, cx);
+                    second.layout_as_root(second_bounds.size.into(), window, cx);
+                    second.prepaint_at(second_bounds.origin, window, cx);
+                    (first, divider, second)
+                },
+                move |_, (mut first, divider, mut second), window, cx| {
+                    first.paint(window, cx);
+                    window.paint_quad(gpui::fill(divider, border));
+                    second.paint(window, cx);
+                },
+            )
+            .size_full(),
         )
-        .child(second)
         .child(hit)
-        .child(
-            canvas(move |bounds, _, _| measured.set(bounds), |_, (), _, _| ())
-                .absolute()
-                .size_full(),
-        )
         .into_any_element()
 }
 
-fn weighted(content: AnyElement, ratio: f32) -> gpui::Div {
-    let mut view = div()
-        .flex()
-        .min_w(px(0.0))
-        .min_h(px(0.0))
-        .flex_basis(px(0.0))
-        .child(content);
-    view.style().flex_grow = Some(ratio);
-    view
+fn split_bounds(
+    bounds: Bounds<Pixels>,
+    axis: Axis,
+    ratio: f32,
+    scale_factor: f32,
+) -> [Bounds<Pixels>; 3] {
+    let extent = match axis {
+        Axis::Horizontal => bounds.size.width,
+        Axis::Vertical => bounds.size.height,
+    };
+    let available = (extent - px(1.0)).max(px(0.0));
+    let first =
+        ((available * ratio * scale_factor).round() / scale_factor).clamp(px(0.0), available);
+    let second = first + extent.min(px(1.0));
+    let (first_end, divider_start, divider_end, second_start) = match axis {
+        Axis::Horizontal => (
+            point(bounds.left() + first, bounds.bottom()),
+            point(bounds.left() + first, bounds.top()),
+            point(bounds.left() + second, bounds.bottom()),
+            point(bounds.left() + second, bounds.top()),
+        ),
+        Axis::Vertical => (
+            point(bounds.right(), bounds.top() + first),
+            point(bounds.left(), bounds.top() + first),
+            point(bounds.right(), bounds.top() + second),
+            point(bounds.left(), bounds.top() + second),
+        ),
+    };
+    [
+        Bounds::from_corners(bounds.origin, first_end),
+        Bounds::from_corners(divider_start, divider_end),
+        Bounds::from_corners(second_start, bounds.bottom_right()),
+    ]
 }
 
 fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
@@ -278,6 +304,43 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
 mod tests {
     use super::*;
     use gpui::{point, size};
+
+    #[test]
+    fn split_bounds_tile_the_parent_on_the_pixel_grid() {
+        for scale in [1.0, 2.0] {
+            for axis in [Axis::Horizontal, Axis::Vertical] {
+                for extent in [0.0, 1.0, 601.0, 602.0] {
+                    let extent = px(extent / scale);
+                    let outer = Bounds::new(point(px(20.0), px(30.0)), size(extent, extent));
+                    for ratio in [0.15, 0.37, 0.5, 0.61, 0.85] {
+                        let [first, divider, second] = split_bounds(outer, axis, ratio, scale);
+                        assert_eq!(first.origin, outer.origin);
+                        assert_eq!(second.bottom_right(), outer.bottom_right());
+                        match axis {
+                            Axis::Horizontal => {
+                                assert_eq!(first.right(), divider.left());
+                                assert_eq!(divider.right(), second.left());
+                                assert_eq!(divider.size.width, extent.min(px(1.0)));
+                            }
+                            Axis::Vertical => {
+                                assert_eq!(first.bottom(), divider.top());
+                                assert_eq!(divider.bottom(), second.top());
+                                assert_eq!(divider.size.height, extent.min(px(1.0)));
+                            }
+                        }
+                        for bounds in [first, divider, second] {
+                            assert!(bounds.size.width >= px(0.0) && bounds.size.height >= px(0.0));
+                            for edge in
+                                [bounds.left(), bounds.right(), bounds.top(), bounds.bottom()]
+                            {
+                                assert_eq!(edge * scale, (edge * scale).round());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn divider_uses_parent_pixels_retains_grab_offset_and_clamps() {
