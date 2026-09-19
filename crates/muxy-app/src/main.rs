@@ -1,5 +1,7 @@
 mod boot;
 mod cli_install;
+mod diagnostics;
+mod extensions;
 mod model;
 mod navigation;
 mod opener;

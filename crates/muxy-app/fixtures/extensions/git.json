@@ -1,0 +1,170 @@
+{
+  "name": "git",
+  "private": true,
+  "scripts": {
+    "build": "vite build && node -e \"require('fs').copyFileSync('package.json','dist/package.json')\"",
+    "build:surfaces": "vite build",
+    "dev": "vite",
+    "test": "node --test tests/*.test.mjs",
+    "update-skill": "node scripts/update-skill.mjs"
+  },
+  "type": "module",
+  "version": "1.16.0",
+  "dependencies": {
+    "@pierre/diffs": "^1.2.12",
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "tailwindcss": "^4.3.0",
+    "vite": "^7.3.5"
+  },
+  "muxy": {
+    "$schema": "https://raw.githubusercontent.com/muxy-app/muxy/main/docs/extensions/schema/manifest.schema.json",
+    "description": "Official Git extension for Muxy — GitHub, Forgejo, and Gitea",
+    "permissions": [
+      "commands:exec",
+      "panels:write",
+      "tabs:write",
+      "worktrees:read",
+      "worktrees:write",
+      "notifications:write",
+      "storage:read",
+      "storage:write",
+      "files:read",
+      "git:read",
+      "git:write"
+    ],
+    "events": [
+      "project.switched",
+      "worktree.switched",
+      "file.changed"
+    ],
+    "panels": [
+      {
+        "id": "scm",
+        "title": "Source Control",
+        "entry": "panel/index.html",
+        "icon": {
+          "symbol": "arrow.triangle.branch"
+        },
+        "position": "right",
+        "mode": "pinned",
+        "headerButtons": [
+          {
+            "id": "refresh",
+            "icon": {
+              "symbol": "arrow.clockwise"
+            },
+            "tooltip": "Refresh",
+            "command": "refresh-scm"
+          },
+          {
+            "id": "open-repository",
+            "icon": {
+              "symbol": "arrow.up.right.square"
+            },
+            "tooltip": "Open Repository in Browser",
+            "command": "open-repository"
+          }
+        ]
+      }
+    ],
+    "tabTypes": [
+      {
+        "id": "diff-viewer",
+        "title": "Diff Viewer",
+        "entry": "panel/diff-viewer.html"
+      }
+    ],
+    "commands": [
+      {
+        "id": "toggle-scm",
+        "title": "Toggle Source Control",
+        "defaultShortcut": "cmd+y",
+        "action": {
+          "kind": "togglePanel",
+          "panel": "scm"
+        }
+      },
+      {
+        "id": "refresh-scm",
+        "title": "Refresh"
+      },
+      {
+        "id": "open-repository",
+        "title": "Open Repository in Browser"
+      },
+      {
+        "id": "open-diff",
+        "title": "Open Diff",
+        "action": {
+          "kind": "openTab",
+          "tabType": "diff-viewer"
+        }
+      },
+      {
+        "id": "commit",
+        "title": "Commit",
+        "subtitle": "Stage all changes and commit",
+        "action": {
+          "kind": "openModal",
+          "entry": "modal/commit.html",
+          "width": 520,
+          "height": 310,
+          "dismissOnOutsideClick": true
+        }
+      },
+      {
+        "id": "create-pr",
+        "title": "Create PR",
+        "subtitle": "Commit, push, and open a pull request",
+        "action": {
+          "kind": "openModal",
+          "entry": "modal/create-pr.html",
+          "width": 520,
+          "height": 450,
+          "dismissOnOutsideClick": true
+        }
+      },
+      {
+        "id": "checkout-pr",
+        "title": "Checkout Pull Request…",
+        "subtitle": "Search open pull requests",
+        "defaultShortcut": "cmd+shift+y",
+        "action": {
+          "kind": "openModal",
+          "entry": "modal/pr-checkout.html",
+          "width": 800,
+          "height": 680,
+          "dismissOnOutsideClick": true
+        }
+      }
+    ],
+    "topbarItems": [
+      {
+        "id": "scm",
+        "icon": {
+          "symbol": "arrow.triangle.branch"
+        },
+        "tooltip": "Toggle Source Control",
+        "command": "toggle-scm"
+      }
+    ],
+    "marketplace": {
+      "author": "Saeed Vaziry",
+      "github": "saeedvaziry",
+      "repository": "https://github.com/muxy-app/extensions",
+      "categories": [
+        "git",
+        "source-control"
+      ],
+      "icon": "icon.svg",
+      "screenshots": [
+        "screenshots/screenshot-1.png",
+        "screenshots/screenshot-2.png"
+      ]
+    }
+  }
+}

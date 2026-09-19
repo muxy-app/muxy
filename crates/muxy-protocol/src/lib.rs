@@ -6,6 +6,8 @@
 mod build;
 pub use build::{BuildInfo, COMPATIBILITY, ServerInfo};
 mod control;
+mod exec;
+pub use exec::{ExecRequest, ExecResult, MAX_EXEC_OUTPUT};
 mod ids;
 mod message;
 mod path;

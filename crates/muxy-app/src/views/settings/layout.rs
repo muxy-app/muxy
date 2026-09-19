@@ -19,6 +19,7 @@ impl Category {
             Self::Keyboard => &["Shortcuts"],
             Self::Terminal => &["Text", "Behavior", "Configuration"],
             Self::Server => &["Connection", "Sessions", "Server control"],
+            Self::Extensions => &[],
         }
     }
 }
@@ -237,6 +238,19 @@ impl SettingsView {
     }
 
     fn content(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.category == Category::Extensions
+            && self.query.is_empty()
+            && let Some(extensions) = &self.extensions
+        {
+            return div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .h_full()
+                .px(px(32.0))
+                .child(extensions.clone())
+                .into_any_element();
+        }
         let view = cx.entity();
         div()
             .relative()

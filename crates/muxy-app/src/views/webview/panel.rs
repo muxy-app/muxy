@@ -158,11 +158,32 @@ impl AppModel {
 
     fn webview_panel_chrome(&self, id: &PanelId, cx: &Context<Self>) -> PanelChrome {
         let panel = &self.webviews.panels[id];
-        PanelChrome::new(
+        let owner = &panel.surface.view.read(cx).source.owner;
+        let kind = &panel.surface.view.read(cx).instance;
+        let definition = self
+            .extensions
+            .registry
+            .enabled(owner)
+            .and_then(|extension| {
+                extension
+                    .manifest
+                    .panels
+                    .iter()
+                    .find(|p| &p.surface.id == kind)
+            });
+        let symbol = definition
+            .and_then(|p| p.surface.icon.as_ref())
+            .and_then(|icon| match icon {
+                muxy_app_core::extensions::Icon::Name(name)
+                | muxy_app_core::extensions::Icon::Symbol { symbol: name } => Some(name.as_str()),
+                muxy_app_core::extensions::Icon::Svg { .. } => None,
+            })
+            .unwrap_or("puzzlepiece.extension");
+        let mut chrome = PanelChrome::new(
             panel.title.clone(),
             Some(
                 SymbolGlyph::new(
-                    "puzzlepiece.extension",
+                    symbol.to_owned(),
                     self.metrics.font_footnote(),
                     self.theme.fg_muted,
                 )
@@ -173,7 +194,39 @@ impl AppModel {
             self.webview_panel_action(id, PanelControl::Mode(panel.placement.mode), 2, cx),
             self.webview_panel_action(id, PanelControl::Close, 3, cx),
             PanelStyle::new(self.theme.clone(), self.metrics),
-        )
+        );
+        if let Some(definition) = definition {
+            for control in &definition.hidden_controls {
+                chrome = match control.as_str() {
+                    "position" => chrome.without_move_action(),
+                    "mode" => chrome.without_mode_action(),
+                    "close" => chrome.without_close_action(),
+                    _ => chrome,
+                };
+            }
+            for (index, item) in definition.header_buttons.iter().enumerate() {
+                let owner = owner.clone();
+                let command = item.command.clone();
+                let model = cx.weak_entity();
+                let symbol = match &item.icon {
+                    muxy_app_core::extensions::Icon::Name(name)
+                    | muxy_app_core::extensions::Icon::Symbol { symbol: name } => name.clone(),
+                    muxy_app_core::extensions::Icon::Svg { .. } => "puzzlepiece.extension".into(),
+                };
+                chrome = chrome.with_trailing_action(PanelAction::symbol(
+                    gpui::SharedString::from(format!("extension-panel-{}-{}", owner, item.id)),
+                    item.tooltip.clone().unwrap_or_else(|| item.command.clone()),
+                    symbol,
+                    panel.header_controls[index].clone(),
+                    move |window, cx| {
+                        let _ = model.update(cx, |model, cx| {
+                            model.run_extension_command(&owner, &command, window, cx);
+                        });
+                    },
+                ));
+            }
+        }
+        chrome
     }
 
     fn webview_panel_action(

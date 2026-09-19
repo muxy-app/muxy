@@ -93,6 +93,7 @@ impl Message {
             } => Some(*snapshot.clone()),
             _ => None,
         });
+        samples.extend(exec_samples());
         samples.extend(git_samples());
         samples.extend(files_samples());
         samples.extend(snapshot.into_iter().flat_map(history_samples));
@@ -574,6 +575,43 @@ fn acknowledged_input_samples() -> Vec<Message> {
         Message::Reply {
             id: RequestId(1),
             body: ReplyBody::InputWritten,
+        },
+    ]
+}
+
+fn exec_samples() -> Vec<Message> {
+    vec![
+        Message::Request {
+            id: RequestId(90),
+            body: RequestBody::Exec(crate::ExecRequest {
+                job: 1,
+                project: crate::ProjectId::from_u128(1),
+                argv: vec!["git".into(), "status".into()],
+                shell: None,
+                cwd: None,
+                env: std::collections::BTreeMap::new(),
+                stdin: Vec::new(),
+                timeout_ms: 30000,
+            }),
+        },
+        Message::Request {
+            id: RequestId(91),
+            body: RequestBody::CancelExec(1),
+        },
+        Message::Reply {
+            id: RequestId(90),
+            body: ReplyBody::Exec(crate::ExecResult {
+                stdout: "output".into(),
+                stderr: String::new(),
+                exit_code: 0,
+                timed_out: false,
+                truncated: false,
+                cancelled: false,
+            }),
+        },
+        Message::Reply {
+            id: RequestId(91),
+            body: ReplyBody::ExecCancelled,
         },
     ]
 }

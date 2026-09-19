@@ -5,6 +5,24 @@ use muxy_protocol::{
 };
 
 impl Client {
+    pub fn exec(
+        &self,
+        request: muxy_protocol::ExecRequest,
+    ) -> Result<muxy_protocol::ExecResult, ClientError> {
+        let timeout = std::time::Duration::from_millis(u64::from(request.timeout_ms) + 10_000);
+        match self.request_with_timeout(RequestBody::Exec(request), timeout)? {
+            ReplyBody::Exec(result) => Ok(result),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    pub fn cancel_exec(&self, job: u64) -> Result<(), ClientError> {
+        match self.request(RequestBody::CancelExec(job))? {
+            ReplyBody::ExecCancelled => Ok(()),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
     pub fn activity(&self) -> Result<muxy_protocol::ActivitySnapshot, ClientError> {
         match self.request(RequestBody::ReadActivity)? {
             ReplyBody::Activity(snapshot) => Ok(snapshot),

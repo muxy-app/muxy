@@ -242,6 +242,10 @@ impl AppModel {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "One workspace action registration chain"
+)]
 fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
     div()
         .on_action(
@@ -258,6 +262,11 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             cx.listener(|model, _: &SelectCommandOutput, _, cx| model.prompt_action(None, cx)),
         )
         .key_context("WorkspaceTabs")
+        .on_action(cx.listener(
+            |model, action: &crate::model::extensions::RunCommand, window, cx| {
+                model.run_extension_command(&action.owner, &action.command, window, cx);
+            },
+        ))
         .on_mouse_down(
             gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
             cx.listener(|model, _, _, cx| model.navigate(false, cx)),

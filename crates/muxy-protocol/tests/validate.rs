@@ -293,6 +293,22 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
     for message in Message::samples() {
         let (name, channel) = match &message {
             Message::Request {
+                body: RequestBody::Exec(_),
+                ..
+            } => ("Exec", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::CancelExec(_),
+                ..
+            } => ("CancelExec", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Exec(_),
+                ..
+            } => ("ExecResult", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ExecCancelled,
+                ..
+            } => ("ExecCancelled", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::ReadActivity,
                 ..
             } => ("ReadActivity", ChannelKind::Control),
@@ -513,6 +529,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
     assert_eq!(
         seen,
         BTreeSet::from([
+            "Exec",
+            "CancelExec",
+            "ExecResult",
+            "ExecCancelled",
             "SessionMetadata",
             "ActivityChanged",
             "ReadActivity",

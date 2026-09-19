@@ -1,5 +1,7 @@
 mod catalog;
 mod composer;
+mod diagnostics;
+pub(crate) mod extensions;
 pub(crate) mod git;
 mod links;
 mod preferences;
@@ -42,14 +44,14 @@ impl PaneView {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConnectionState {
     Connecting,
     Ready,
     Disconnected,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Quitting {
     Idle,
     Preserve,
@@ -67,6 +69,7 @@ struct CloseRequest {
 }
 
 pub(crate) struct AppModel {
+    pub(crate) extensions: extensions::Runtime,
     pub(crate) webviews: webviews::Webviews,
     pub(crate) panels: muxy_ui::panel::PanelHost,
     pub(crate) composer: composer::ComposerRuntime,
@@ -374,6 +377,11 @@ impl AppModel {
             });
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         let mut model = Self {
+            extensions: extensions::Runtime::new(
+                boot.state_path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(".")),
+            ),
             webviews: webviews::Webviews::default(),
             panels: muxy_ui::panel::PanelHost::default(),
             composer: composer::ComposerRuntime::new(boot.composer),
@@ -442,6 +450,7 @@ impl AppModel {
             _activation: activation,
             _quit: quit,
         };
+        model.refresh_installed_extensions(cx);
         model.sync_visible(cx);
         model.save_bounds(window, cx);
         model.save(cx);
@@ -451,6 +460,7 @@ impl AppModel {
                 .navigation
                 .record((model.state.current_project().id, tab));
         }
+        Self::start_diagnostics(cx);
         model.start_update_checks(cx);
         model
     }
@@ -570,6 +580,14 @@ impl AppModel {
     }
 
     pub(crate) fn select_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        crate::diagnostics::event(
+            "project.select",
+            format_args!(
+                "from={:?} to={project:?} quitting={:?}",
+                self.state.current_project().id,
+                self.quitting
+            ),
+        );
         if self.quitting != Quitting::Idle {
             return;
         }
@@ -1058,6 +1076,13 @@ impl AppModel {
     }
 
     pub(crate) fn quit(&mut self, cx: &mut Context<Self>) {
+        crate::diagnostics::event(
+            "quit.request",
+            format_args!(
+                "quitting={:?} pending={:?} discarding={:?}",
+                self.quitting, self.pending, self.discarding
+            ),
+        );
         if self.quitting != Quitting::Idle || !self.preferences_before_quit(cx) {
             return;
         }
@@ -1168,6 +1193,7 @@ impl AppModel {
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
+        self.sync_extension_events(cx);
         self.split_resize.end();
         if let Some(tab) = self.active_tab() {
             self.navigation
@@ -1335,6 +1361,15 @@ impl AppModel {
             PaneEvent::Search(request) => model.search(id, request.clone(), cx),
             PaneEvent::Viewport(size) => model.viewport(id, *size, cx),
             PaneEvent::Input(channel, bytes) => {
+                crate::diagnostics::event(
+                    "terminal.input",
+                    format_args!(
+                        "pane={id} channel={channel:?} length={} quitting={:?} retained={}",
+                        bytes.len(),
+                        model.quitting,
+                        model.retained.contains(&id)
+                    ),
+                );
                 if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
                     model.send(Work::Input(*channel, bytes.clone()), cx);
                 }
@@ -1440,6 +1475,16 @@ impl AppModel {
     }
 
     fn start_attach(&mut self, pane: PaneId, size: Size, cx: &mut Context<Self>) {
+        crate::diagnostics::event(
+            "terminal.attach",
+            format_args!(
+                "pane={pane} size={size:?} pending={} intents={} restore={} replacing={}",
+                self.pending.contains(&pane),
+                self.state.project_intents().len(),
+                self.catalog.restore.is_some(),
+                self.updates.replacing()
+            ),
+        );
         if self.pending.contains(&pane)
             || !self.state.project_intents().is_empty()
             || self.catalog.restore.is_some()
@@ -1495,6 +1540,13 @@ impl AppModel {
     }
 
     fn viewport(&mut self, id: PaneId, size: Size, cx: &mut Context<Self>) {
+        crate::diagnostics::event(
+            "terminal.viewport",
+            format_args!(
+                "pane={id} size={size:?} connection={:?} quitting={:?}",
+                self.connection, self.quitting
+            ),
+        );
         if self.connection != ConnectionState::Ready || self.quitting != Quitting::Idle {
             return;
         }
@@ -1580,6 +1632,7 @@ impl AppModel {
         if !self.send(Work::Colors(self.palette.terminal_colors()), cx) {
             return;
         }
+        self.extension_client(cx);
         self.refresh_activity(cx);
         self.sync_references(cx);
         self.catalog.pending = false;
@@ -1713,6 +1766,15 @@ impl AppModel {
         created: bool,
         cx: &mut Context<Self>,
     ) {
+        crate::diagnostics::event(
+            "terminal.attached",
+            format_args!(
+                "pane={pane} session={session:?} channel={:?} created={created} visible={} detached_pending={}",
+                attachment.channel,
+                self.terminal(&pane).is_some(),
+                self.detached_pending.contains(&pane)
+            ),
+        );
         self.pending.remove(&pane);
         self.initial_directories.remove(&pane);
         let detached = self.detached_pending.remove(&pane);
@@ -1750,6 +1812,13 @@ impl AppModel {
         error: &muxy_client::ClientError,
         cx: &mut Context<Self>,
     ) {
+        crate::diagnostics::event(
+            "terminal.attach_failed",
+            format_args!(
+                "pane={pane} session={session:?} created={created} error_kind={:?}",
+                std::mem::discriminant(error)
+            ),
+        );
         self.pending.remove(&pane);
         let detached = self.detached_pending.remove(&pane);
         if detached {
@@ -1933,7 +2002,9 @@ impl AppModel {
             ClientEvent::Progress { session, progress } => {
                 self.receive_progress(session, progress, cx);
             }
-            ClientEvent::FilesChanged { .. } => (),
+            ClientEvent::FilesChanged { project, changes } => {
+                self.extension_files_changed(project, changes, cx);
+            }
             ClientEvent::GitChanged { project } => self.git_invalidated(project, cx),
             ClientEvent::SessionsChanged { revision } => {
                 self.existing_sessions.revision = self.existing_sessions.revision.max(revision);
@@ -2050,6 +2121,8 @@ impl AppModel {
     }
 
     fn disconnect(&mut self, cx: &mut Context<Self>) {
+        self.stop_extension_tasks(cx);
+        self.extensions.disconnect();
         self.git.reset_context();
         for repository in self.git.projects.values_mut() {
             repository.disconnect();
@@ -2092,6 +2165,20 @@ impl AppModel {
     }
 
     fn send(&mut self, work: Work, cx: &mut Context<Self>) -> bool {
+        if !matches!(
+            work,
+            Work::Input(..) | Work::Mouse(..) | Work::CellSize(..) | Work::Ack(..) | Work::Flush
+        ) {
+            crate::diagnostics::event(
+                "model.send",
+                format_args!(
+                    "generation={} kind={} connection={:?}",
+                    self.generation,
+                    work.name(),
+                    self.connection
+                ),
+            );
+        }
         if self.connection != ConnectionState::Ready && !matches!(work, Work::Flush) {
             self.fail("Server disconnected".into(), cx);
             return false;
@@ -2119,6 +2206,7 @@ impl Drop for AppModel {
 
 #[cfg(test)]
 mod tests {
+    pub(super) mod extensions;
     mod webviews;
     use muxy_protocol::ExitReason;
     mod activity;
@@ -2210,7 +2298,7 @@ mod tests {
         }
     }
 
-    fn stub_boot(state: AppState) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>) {
+    pub(super) fn stub_boot(state: AppState) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>) {
         let (work, requests) = std::sync::mpsc::channel();
         let (_, updates) = async_channel::unbounded();
         let directory = std::env::temp_dir().join(format!("muxy-app-restore-{}", ProjectId::new()));

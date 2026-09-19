@@ -1,0 +1,203 @@
+{
+  "name": "files",
+  "version": "1.21.5",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/copy-build-assets.mjs",
+    "gen-icons": "node scripts/gen-material-icons.mjs",
+    "update-skill": "node scripts/update-skill.mjs"
+  },
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.6",
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/lang-cpp": "^6.0.3",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-go": "^6.0.1",
+    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-java": "^6.0.2",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/lang-php": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/lang-vue": "^0.1.3",
+    "@codemirror/lang-xml": "^6.1.0",
+    "@codemirror/lang-yaml": "^6.1.3",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/lint": "^6.8.5",
+    "@codemirror/search": "^6.7.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.43.0",
+    "@lezer/highlight": "^1.2.3",
+    "jsonc-parser": "^3.3.1",
+    "mermaid": "^11.15.0",
+    "pdfjs-dist": "^6.1.200",
+    "web-tree-sitter": "^0.26.9",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@tree-sitter-grammars/tree-sitter-lua": "^0.4.1",
+    "@tree-sitter-grammars/tree-sitter-toml": "^0.7.0",
+    "@tree-sitter-grammars/tree-sitter-zig": "^1.1.2",
+    "esbuild": "^0.27.7",
+    "material-icon-theme": "^5.35.0",
+    "tailwindcss": "^4.3.0",
+    "tree-sitter-bash": "^0.25.1",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-php": "^0.24.2",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "vite": "^7.3.5"
+  },
+  "muxy": {
+    "$schema": "https://raw.githubusercontent.com/muxy-app/muxy/main/docs/extensions/schema/manifest.schema.json",
+    "description": "File explorer for Muxy",
+    "permissions": [
+      "files:read",
+      "files:write",
+      "panels:write",
+      "tabs:write",
+      "commands:exec",
+      "commands:run-script",
+      "git:read"
+    ],
+    "events": [
+      "file.changed",
+      "worktree.switched",
+      "project.switched",
+      "tab.created",
+      "tab.updated",
+      "tab.closed",
+      "tab.focused",
+      "panel.opened"
+    ],
+    "panels": [
+      {
+        "id": "files",
+        "title": "Files",
+        "entry": "panel/index.html",
+        "position": "right",
+        "mode": "pinned",
+        "hiddenControls": [
+          "position"
+        ],
+        "icon": {
+          "symbol": "folder"
+        },
+        "headerButtons": [
+          {
+            "id": "files-toggle-dirty-filter",
+            "icon": {
+              "symbol": "line.3.horizontal.decrease"
+            },
+            "tooltip": "Show only changed files",
+            "command": "files-toggle-dirty-filter"
+          },
+          {
+            "id": "files-toggle-icon-theme",
+            "icon": {
+              "symbol": "paintpalette"
+            },
+            "tooltip": "Toggle file icon theme",
+            "command": "files-toggle-icon-theme"
+          }
+        ]
+      }
+    ],
+    "tabTypes": [
+      {
+        "id": "code-editor",
+        "title": "Editor",
+        "entry": "panel/editor.html"
+      }
+    ],
+    "fileOpeners": [
+      {
+        "id": "editor",
+        "title": "Editor",
+        "tabType": "code-editor",
+        "patterns": [
+          "*"
+        ],
+        "singleton": false
+      }
+    ],
+    "commands": [
+      {
+        "id": "toggle-files",
+        "title": "Toggle Files",
+        "defaultShortcut": "cmd+e",
+        "action": {
+          "kind": "togglePanel",
+          "panel": "files"
+        }
+      },
+      {
+        "id": "files-quick-open",
+        "title": "Files: Go to File…",
+        "subtitle": "Fuzzy-find a file in the workspace",
+        "defaultShortcut": "cmd+p",
+        "action": {
+          "kind": "runScript",
+          "script": "scripts/quick-open.js"
+        }
+      },
+      {
+        "id": "files-toggle-dirty-filter",
+        "title": "Files: Show Only Changed Files",
+        "subtitle": "Toggle filtering the file tree to git changes"
+      },
+      {
+        "id": "files-toggle-icon-theme",
+        "title": "Files: Toggle Icon Theme",
+        "subtitle": "Switch the file tree between stroke and colored icons"
+      },
+      {
+        "id": "files-find-in-files",
+        "title": "Files: Find in Files…",
+        "subtitle": "Search text across all workspace files",
+        "defaultShortcut": "cmd+shift+f",
+        "action": {
+          "kind": "runScript",
+          "script": "scripts/find-in-files.js"
+        }
+      }
+    ],
+    "topbarItems": [
+      {
+        "id": "files",
+        "icon": {
+          "symbol": "folder"
+        },
+        "tooltip": "Toggle Files",
+        "command": "toggle-files"
+      }
+    ],
+    "marketplace": {
+      "author": "Saeed Vaziry",
+      "github": "saeedvaziry",
+      "repository": "https://github.com/muxy-app/extensions",
+      "categories": [
+        "files",
+        "explorer"
+      ],
+      "icon": "icon.svg",
+      "screenshots": [
+        "screenshots/screenshot-1.png",
+        "screenshots/screenshot-2.png"
+      ]
+    }
+  }
+}

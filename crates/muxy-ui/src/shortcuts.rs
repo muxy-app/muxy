@@ -34,6 +34,11 @@ impl<'a> Registry<'a> {
         }
     }
 
+    /// Register a dynamic command after app settings have resolved conflicts.
+    pub fn register_dynamic(&mut self, key: &str, action: impl Action, context: Option<&str>) {
+        self.bindings.push(KeyBinding::new(key, action, context));
+    }
+
     pub fn into_bindings(self) -> Vec<KeyBinding> {
         self.bindings
     }

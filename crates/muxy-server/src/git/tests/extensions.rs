@@ -652,6 +652,104 @@ fn numeric_branches_are_queried_by_head_and_configured_pr_numbers_are_explicit()
 }
 
 #[test]
+fn status_prefers_remote_default_branch_over_stale_local_ref_and_caches_it() {
+    let repo = Repo::new(true);
+    let remote = traced_remote(&repo);
+    run(
+        &remote,
+        &["update-ref", "refs/heads/develop", "refs/heads/main"],
+    )
+    .unwrap();
+    run(&remote, &["symbolic-ref", "HEAD", "refs/heads/develop"]).unwrap();
+    run(
+        &repo.path,
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    )
+    .unwrap();
+    run(
+        &repo.path,
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    )
+    .unwrap();
+    for _ in 0..3 {
+        let GitReply::Status(status) = repo.git(GitAction::Status { local: true }).unwrap() else {
+            panic!()
+        };
+        assert_eq!(status.default_branch.as_deref(), Some("develop"));
+    }
+    assert_eq!(
+        std::fs::read(repo.path.join(".git/remote-calls")).unwrap(),
+        b"x"
+    );
+}
+
+#[test]
+fn status_reuses_remote_default_branch_until_remote_configuration_changes() {
+    let repo = Repo::new(true);
+    let remote = traced_remote(&repo);
+    for _ in 0..3 {
+        let GitReply::Status(status) = repo.git(GitAction::Status { local: true }).unwrap() else {
+            panic!()
+        };
+        assert_eq!(status.default_branch.as_deref(), Some("main"));
+    }
+    assert_eq!(
+        std::fs::read(repo.path.join(".git/remote-calls")).unwrap(),
+        b"x"
+    );
+    run(
+        &remote,
+        &["update-ref", "refs/heads/develop", "refs/heads/main"],
+    )
+    .unwrap();
+    run(&remote, &["symbolic-ref", "HEAD", "refs/heads/develop"]).unwrap();
+    run(
+        &repo.path,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "ext::/bin/sh .git/remote-probe changed",
+        ],
+    )
+    .unwrap();
+    let GitReply::Status(status) = repo.git(GitAction::Status { local: true }).unwrap() else {
+        panic!()
+    };
+    assert_eq!(status.default_branch.as_deref(), Some("develop"));
+    assert_eq!(
+        std::fs::read(repo.path.join(".git/remote-calls")).unwrap(),
+        b"xx"
+    );
+}
+
+fn traced_remote(repo: &Repo) -> PathBuf {
+    let remote = remote(repo);
+    run(&repo.path, &["push", "origin", "HEAD:refs/heads/main"]).unwrap();
+    std::fs::write(
+        repo.path.join(".git/remote-probe"),
+        "printf x >> .git/remote-calls\nexec git upload-pack .git/test-remote.git\n",
+    )
+    .unwrap();
+    run(&repo.path, &["config", "protocol.ext.allow", "always"]).unwrap();
+    run(
+        &repo.path,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "ext::/bin/sh .git/remote-probe",
+        ],
+    )
+    .unwrap();
+    remote
+}
+
+#[test]
 fn remote_default_branch_is_reported_and_used_for_pr_creation_without_a_local_branch() {
     let mut repo = Repo::new(true);
     fake_gh(&mut repo);

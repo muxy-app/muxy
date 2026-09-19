@@ -89,6 +89,15 @@ impl Delivery {
     }
 
     pub(super) fn complete(&mut self, update: Option<Update>) -> Vec<Update> {
+        crate::diagnostics::event(
+            "worker.complete",
+            format_args!(
+                "pending={} deferred={} flushing={}",
+                self.pending,
+                self.deferred.len(),
+                self.flushing
+            ),
+        );
         self.pending = self.pending.saturating_sub(1);
         if let Some(Update::Attached { attachment, .. }) = &update {
             self.installed_through = self.installed_through.max(attachment.channel.0);
@@ -125,6 +134,12 @@ impl Delivery {
     }
 
     pub(super) fn flush(&mut self) -> Vec<Update> {
+        if self.pending > 0 && !self.flushing {
+            crate::diagnostics::event(
+                "worker.flush",
+                format_args!("pending={} deferred={}", self.pending, self.deferred.len()),
+            );
+        }
         self.flushing = self.pending > 0;
         if self.flushing {
             Vec::new()

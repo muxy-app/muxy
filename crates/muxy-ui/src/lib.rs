@@ -58,3 +58,10 @@ pub mod native_menu;
 pub mod webview;
 
 pub mod transcript;
+
+#[cfg(target_os = "macos")]
+#[allow(
+    unsafe_code,
+    reason = "JavaScriptCore contexts confined to script threads"
+)]
+pub mod javascript;

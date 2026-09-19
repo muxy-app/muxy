@@ -633,6 +633,7 @@ fn install_script(controller: &WKUserContentController, source: &str, mtm: MainT
 
 impl Drop for NativeWebview {
     fn drop(&mut self) {
+        self.blur();
         if let Some(monitor) = self.monitor.take() {
             unsafe {
                 NSEvent::removeMonitor(&monitor);

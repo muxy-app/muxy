@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 
 use muxy_protocol::{ErrorCode, FilesAction, FilesReply, FilesRequest, ServerPath};
 
@@ -29,17 +29,24 @@ fn wire_path(path: &Path) -> ServerPath {
 
 #[derive(Debug, Default)]
 pub(crate) struct Files {
-    locks: Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>,
+    locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
 }
 
 impl Files {
-    fn lock_for(&self, path: &Path) -> Arc<Mutex<()>> {
+    fn lock_for(&self, path: &Path) -> Arc<RwLock<()>> {
         let mut locks = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
         locks.retain(|_, lock| lock.strong_count() > 0);
         let lock = locks.get(path).and_then(Weak::upgrade).unwrap_or_default();
         locks.insert(path.to_owned(), Arc::downgrade(&lock));
         lock
     }
+}
+
+pub(crate) fn is_read(action: &FilesAction) -> bool {
+    matches!(
+        action,
+        FilesAction::List(_) | FilesAction::Read(_) | FilesAction::Stat(_)
+    )
 }
 
 impl Registry {
@@ -50,7 +57,9 @@ impl Registry {
         let project = self.catalog.project(request.project)?;
         let root = root::Root::open(path(&project.directory))?;
         let lock = self.files.lock_for(&root.path);
-        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let read = is_read(&request.action);
+        let _read = read.then(|| lock.read().unwrap_or_else(PoisonError::into_inner));
+        let _write = (!read).then(|| lock.write().unwrap_or_else(PoisonError::into_inner));
         let reply = match &request.action {
             FilesAction::List(value) => FilesReply::Entries(root.list(path(value))?),
             FilesAction::Read(value) => FilesReply::Content(root.read(path(value))?),

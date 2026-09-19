@@ -21,7 +21,7 @@ impl Source {
         {
             return Err(io::Error::other("invalid webview owner"));
         }
-        resolve(&self.directory, &self.entry)?;
+        relative_path(&self.entry)?;
         let escaped: String = self
             .entry
             .trim_start_matches('/')
@@ -38,7 +38,7 @@ impl Source {
     }
 }
 
-pub fn resolve(root: &Path, relative: &str) -> io::Result<PathBuf> {
+fn relative_path(relative: &str) -> io::Result<&Path> {
     let relative = Path::new(relative.trim_start_matches('/'));
     if relative
         .components()
@@ -46,6 +46,11 @@ pub fn resolve(root: &Path, relative: &str) -> io::Result<PathBuf> {
     {
         return Err(io::Error::other("asset path escapes its content root"));
     }
+    Ok(relative)
+}
+
+pub fn resolve(root: &Path, relative: &str) -> io::Result<PathBuf> {
+    let relative = relative_path(relative)?;
     let root = root.canonicalize()?;
     let path = root.join(relative).canonicalize()?;
     if !path.starts_with(&root) || !path.is_file() {

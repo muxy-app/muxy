@@ -55,8 +55,9 @@ pub(crate) fn tab_strip(
         - 28.0
         - zoom_width
         - existing_width
-        - control_width)
-        .max(0.0);
+        - control_width
+        - model.extension_toolbar_width())
+    .max(0.0);
     let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
     let ideal_width = available / f32::from(count.max(1));
     let width = ideal_width.clamp(44.0, 200.0);
@@ -115,6 +116,7 @@ pub(crate) fn tab_strip(
             (existing_count > 0).then(|| existing_terminals_button(existing_count, model, cx)),
         )
         .children(zoom_tab.map(|tab| zoom_control(tab.zoomed.is_some(), model, cx)))
+        .child(model.extension_toolbar(cx))
         .child(settings)
         .child(drag::track_pointer(targets, cx))
         .into_any_element()

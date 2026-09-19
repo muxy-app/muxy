@@ -2,7 +2,9 @@ mod command;
 mod details;
 mod diff;
 mod github;
+mod metadata;
 mod mutate;
+mod operations;
 mod processes;
 mod read;
 #[cfg(test)]
@@ -17,7 +19,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 
 type Result<T> = std::result::Result<T, ServerError>;
 fn error(message: impl std::fmt::Display) -> ServerError {
@@ -37,11 +39,12 @@ fn server_path(path: &Path) -> ServerPath {
 
 #[derive(Debug, Default)]
 pub(crate) struct Git {
-    locks: Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>,
+    locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
     github: github::Github,
+    pub(crate) operations: operations::Operations,
 }
 impl Git {
-    fn lock_for(&self, path: &Path) -> Result<Arc<Mutex<()>>> {
+    fn lock_for(&self, path: &Path) -> Result<Arc<RwLock<()>>> {
         let common = run(
             path,
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -51,6 +54,10 @@ impl Git {
         ))
         .canonicalize()
         .map_err(error)?;
+        Ok(self.lock_at(common))
+    }
+
+    fn lock_at(&self, common: PathBuf) -> Arc<RwLock<()>> {
         let mut locks = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
         locks.retain(|_, lock| lock.strong_count() > 0);
         let lock = locks
@@ -58,8 +65,26 @@ impl Git {
             .and_then(Weak::upgrade)
             .unwrap_or_default();
         locks.insert(common, Arc::downgrade(&lock));
-        Ok(lock)
+        lock
     }
+}
+
+pub(crate) fn is_read(action: &GitAction) -> bool {
+    use muxy_protocol::GitPullRequestAction as Pr;
+    matches!(
+        action,
+        GitAction::Summary
+            | GitAction::Branches
+            | GitAction::Changes
+            | GitAction::Worktrees
+            | GitAction::InspectRemoval
+            | GitAction::Status { .. }
+            | GitAction::RepoInfo
+            | GitAction::RemoteBranches
+            | GitAction::Log { .. }
+            | GitAction::Diff(_)
+            | GitAction::PullRequest(Pr::Info | Pr::Number | Pr::Diff { .. } | Pr::List { .. })
+    )
 }
 
 impl Registry {
@@ -79,10 +104,13 @@ impl Registry {
             if project.kind == Some(ProjectKind::Worktree) {
                 return Err(error("Cannot initialize a registered worktree"));
             }
-            let _operation = self
-                .operations
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
+            let lock = if is_repository(directory)? {
+                self.git.lock_for(directory)?
+            } else {
+                self.git
+                    .lock_at(directory.canonicalize().map_err(error)?.join(".git"))
+            };
+            let _guard = lock.write().unwrap_or_else(PoisonError::into_inner);
             self.catalog.project(request.project)?;
             run(directory, &["init"])?;
             return Ok(GitReply::Done);
@@ -110,7 +138,9 @@ impl Registry {
         ));
         let directory = root.as_path();
         let lock = self.git.lock_for(directory)?;
-        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let read = is_read(&request.action);
+        let _read = read.then(|| lock.read().unwrap_or_else(PoisonError::into_inner));
+        let _write = (!read).then(|| lock.write().unwrap_or_else(PoisonError::into_inner));
         // The project may have been deleted while waiting for another repository operation.
         self.catalog.project(request.project)?;
         self.dispatch_git(&project, directory, &request.action)

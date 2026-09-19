@@ -5,6 +5,7 @@
 
 pub mod composer;
 mod error;
+pub mod extensions;
 mod home;
 mod ids;
 mod layout;

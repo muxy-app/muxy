@@ -35,7 +35,7 @@ pub(crate) struct Modal {
     result: ModalResult,
     completion: async_channel::Sender<Value>,
     closing: bool,
-    opener: gpui::WeakEntity<Webview>,
+    opener: Option<gpui::WeakEntity<Webview>>,
 }
 
 impl Drop for Modal {
@@ -66,10 +66,12 @@ pub(crate) struct Webviews {
 impl AppModel {
     pub(crate) fn sync_webviews(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.initialize_webview_demo(cx);
+        self.sync_extension_events(cx);
         if !matches!(self.overlay, Some(Overlay::Webview)) && self.webviews.modal.is_some() {
             self.webviews.modal = None;
         }
         let descriptors = self.ensure_webview_panes(window, cx);
+        self.prune_extension_jobs(cx);
         self.prune_webview_results(cx);
         let visible = self.visible_panes();
         if self.overlay.is_none()
@@ -111,7 +113,8 @@ impl AppModel {
                 .view
                 .as_ref()
                 .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active());
-        let shortcuts = surface_shortcuts(&self.settings.keymap);
+        let mut shortcuts = surface_shortcuts(&self.settings.keymap);
+        shortcuts.extend(self.extension_keystrokes());
         for (id, surface) in &self.webviews.panes {
             surface
                 .view
@@ -295,7 +298,7 @@ impl AppModel {
                     }
                     SurfaceEvent::Escape => {}
                     SurfaceEvent::Shortcut(key) => {
-                        window.dispatch_keystroke(key.clone(), cx);
+                        dispatch_shortcut(key.clone(), window, cx);
                     }
                 },
             );
@@ -351,6 +354,13 @@ impl AppModel {
         if view.read(cx).native.generation() != request.generation {
             return;
         }
+        if let Err(error) = self.authorize_page(
+            &view.read(cx).source.owner,
+            request.body["verb"].as_str().unwrap_or(""),
+        ) {
+            view.read(cx).reply(request, Err(error));
+            return;
+        }
         let result = self.dispatch_webview(view, request, window, cx);
         if let Some(result) = result {
             view.read(cx).reply(request, result);
@@ -392,7 +402,9 @@ impl AppModel {
             "tabs.setTitle" | "tabs.setIcon" => {
                 return Self::webview_metadata(view, request, pane, cx);
             }
-            "tabs.open" => self.open_page_tab(view, args, cx),
+            "tabs.open" if view.read(cx).source.owner == "foundation" => {
+                self.open_page_tab(view, args, cx)
+            }
             "panels.open" | "panels.toggle" | "panels.close" => {
                 self.panel_request(view, request, window, cx)
             }
@@ -453,7 +465,8 @@ impl AppModel {
                 return None;
             }
             _ => {
-                Err("API unavailable: extension runtime and authorization are not installed".into())
+                self.extension_page_request(view, request, window, cx);
+                return None;
             }
         };
         Some(result)
@@ -565,7 +578,7 @@ impl AppModel {
             completion,
             result: ModalResult::default(),
             closing: false,
-            opener: opener.downgrade(),
+            opener: Some(opener.downgrade()),
         });
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Webview);
@@ -575,7 +588,7 @@ impl AppModel {
 
     pub(crate) fn complete_webview_modal(&mut self, value: Value, cx: &mut Context<Self>) {
         if let Some(mut modal) = self.webviews.modal.take() {
-            self.webviews.restore_focus = Some(modal.opener.clone());
+            self.webviews.restore_focus.clone_from(&modal.opener);
             if let Some(result) = modal.result.complete(value) {
                 let _ = modal.completion.try_send(result);
             }
@@ -616,7 +629,7 @@ impl AppModel {
             .panes
             .iter()
             .filter_map(|id| self.webviews.panes.get(id))
-            .map(|surface| surface.view.update(cx, Webview::before_close))
+            .map(|surface| surface.view.clone())
             .collect();
         if replies.is_empty() {
             self.check_next_close(cx);
@@ -627,8 +640,27 @@ impl AppModel {
         let panes = request.panes.clone();
         cx.spawn(async move |model, cx| {
             let mut prevent = false;
-            for reply in replies {
-                prevent |= reply.recv().await.unwrap_or(false);
+            for view in replies {
+                if !model
+                    .update(cx, |model, _| {
+                        model.webviews.close_sequence == sequence
+                            && model
+                                .close_request
+                                .as_ref()
+                                .is_some_and(|request| request.panes == panes)
+                    })
+                    .unwrap_or(false)
+                {
+                    return;
+                }
+                let Ok(reply) = view.update(cx, Webview::before_close) else {
+                    prevent = true;
+                    break;
+                };
+                if reply.recv().await.unwrap_or(true) {
+                    prevent = true;
+                    break;
+                }
             }
             let _ = model.update(cx, |model, cx| {
                 if model.webviews.close_sequence == sequence
@@ -658,6 +690,12 @@ impl AppModel {
         }
         tab.title(self.state.window().active_pane)
     }
+}
+
+pub(super) fn dispatch_shortcut(key: gpui::Keystroke, window: &Window, cx: &mut gpui::App) {
+    window.defer(cx, move |window, cx| {
+        window.dispatch_keystroke(key, cx);
+    });
 }
 
 impl AppModel {
@@ -781,7 +819,7 @@ impl AppModel {
         } else if let Some(svg) = args["icon"]["svg"].as_str() {
             let root = view.read(cx).source.directory.clone();
             let svg = svg.to_owned();
-            let load = cx.background_executor().spawn(async move {
+            let load = crate::extensions::io::run(move || {
                 use std::io::Read;
                 let path = muxy_ui::webview::assets::resolve(&root, &svg)
                     .map_err(|error| error.to_string())?;
@@ -865,6 +903,163 @@ fn occlusions_for(id: gpui::EntityId, occlusions: &[Occlusion]) -> Vec<gpui::Bou
         .iter()
         .map(|(_, bounds)| *bounds)
         .collect()
+}
+
+impl AppModel {
+    pub(super) fn register_extension_surfaces(&mut self, cx: &mut Context<Self>) {
+        self.bind_extension_keys(cx);
+        for extension in self.extensions.registry.active() {
+            for surface in &extension.manifest.tab_types {
+                self.webviews.registered.insert(
+                    (extension.name.clone(), surface.id.clone()),
+                    Registered {
+                        source: Source {
+                            owner: extension.name.clone(),
+                            directory: extension.directory.clone(),
+                            entry: surface.entry.clone(),
+                        },
+                        title: surface.title.clone(),
+                    },
+                );
+            }
+            for panel in &extension.manifest.panels {
+                self.webviews.registered_panels.insert(
+                    (extension.name.clone(), panel.surface.id.clone()),
+                    panels::Definition {
+                        source: Source {
+                            owner: extension.name.clone(),
+                            directory: extension.directory.clone(),
+                            entry: panel.surface.entry.clone(),
+                        },
+                        title: panel.surface.title.clone(),
+                        position: if panel.position == "bottom" {
+                            muxy_ui::panel::PanelPosition::Bottom
+                        } else {
+                            muxy_ui::panel::PanelPosition::Right
+                        },
+                        mode: if panel.mode == "floating" {
+                            muxy_ui::panel::PanelMode::Floating
+                        } else {
+                            muxy_ui::panel::PanelMode::Pinned
+                        },
+                    },
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn remove_extension_surfaces(&mut self, cx: &mut Context<Self>) {
+        self.remove_owner_surfaces(None, cx);
+    }
+
+    pub(in crate::model) fn remove_owner_surfaces(
+        &mut self,
+        owner: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let keep = |name: &str| name == "foundation" || owner.is_some_and(|owner| owner != name);
+        self.webviews.registered.retain(|(owner, _), _| keep(owner));
+        self.webviews
+            .registered_panels
+            .retain(|(owner, _), _| keep(owner));
+        self.webviews
+            .panes
+            .retain(|_, surface| keep(&surface.view.read(cx).source.owner));
+        let panels: Vec<_> = self
+            .webviews
+            .panels
+            .iter()
+            .filter(|(_, panel)| !keep(&panel.surface.view.read(cx).source.owner))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in panels {
+            self.remove_webview_panel(&id, cx);
+        }
+        if self
+            .webviews
+            .modal
+            .as_ref()
+            .is_some_and(|modal| !keep(&modal.surface.view.read(cx).source.owner))
+        {
+            self.complete_webview_modal(Value::Null, cx);
+        }
+        if owner.is_none() && matches!(self.overlay, Some(Overlay::Native(_))) {
+            self.overlay = None;
+        }
+    }
+
+    pub(super) fn open_extension_modal(
+        &mut self,
+        extension: &muxy_app_core::extensions::Extension,
+        args: &Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(String, async_channel::Receiver<Value>), String> {
+        if self.webviews.modal.is_some() {
+            return Err("a webview modal is already open".into());
+        }
+        let entry = args["entry"].as_str().ok_or("entry is required")?;
+        self.webviews.sequence += 1;
+        let id = format!("webview:{}:{}", extension.name, self.webviews.sequence);
+        let source = Source {
+            owner: extension.name.clone(),
+            directory: extension.directory.clone(),
+            entry: entry.into(),
+        };
+        let options = ModalOptions {
+            width: args["width"].as_f64().unwrap_or(480.0),
+            height: args["height"].as_f64().unwrap_or(320.0),
+            dismiss_on_outside_click: args["dismissOnOutsideClick"].as_bool().unwrap_or(true),
+        }
+        .normalized();
+        let surface = self.create_webview(
+            source,
+            id.clone(),
+            args["data"].clone(),
+            SurfaceKind::Modal,
+            window,
+            cx,
+        )?;
+        let (completion, result) = async_channel::bounded(1);
+        surface.view.read(cx).focus.focus(window);
+        self.webviews.modal = Some(Modal {
+            id: id.clone(),
+            surface,
+            options,
+            result: ModalResult::default(),
+            completion,
+            closing: false,
+            opener: None,
+        });
+        self.overlay_subscription = None;
+        self.overlay = Some(Overlay::Webview);
+        cx.notify();
+        Ok((id, result))
+    }
+}
+
+impl AppModel {
+    pub(crate) fn extension_close_checks(
+        &mut self,
+        owner: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Vec<Entity<Webview>> {
+        self.webviews
+            .panes
+            .values()
+            .map(|surface| &surface.view)
+            .chain(
+                self.webviews
+                    .panels
+                    .values()
+                    .map(|panel| &panel.surface.view),
+            )
+            .chain(self.webviews.modal.iter().map(|modal| &modal.surface.view))
+            .filter(|view| owner.is_none_or(|owner| view.read(cx).source.owner == owner))
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]

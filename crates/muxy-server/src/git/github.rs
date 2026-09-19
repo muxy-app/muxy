@@ -13,12 +13,14 @@ const FIELDS: &str = "number,url,title,author,headRefName,headRefOid,baseRefName
 #[derive(Debug)]
 pub(super) struct Github {
     pub(super) executable: PathBuf,
+    default_branches: super::metadata::DefaultBranches,
 }
 
 impl Default for Github {
     fn default() -> Self {
         Self {
             executable: "gh".into(),
+            default_branches: super::metadata::DefaultBranches::default(),
         }
     }
 }
@@ -366,14 +368,16 @@ impl Github {
     }
 
     pub(super) fn default_branch(&self, repository: &Path) -> Option<String> {
-        super::details::default_branch(repository).or_else(|| {
-            let bytes = self
-                .run(repository, &["repo", "view", "--json", "defaultBranchRef"])
-                .ok()?;
-            let value: Value = serde_json::from_slice(&bytes).ok()?;
-            let branch = value.pointer("/defaultBranchRef/name")?.as_str()?;
-            validate_branch(repository, branch).ok()?;
-            Some(branch.to_owned())
+        self.default_branches.resolve(repository, || {
+            super::details::default_branch(repository).or_else(|| {
+                let bytes = self
+                    .run(repository, &["repo", "view", "--json", "defaultBranchRef"])
+                    .ok()?;
+                let value: Value = serde_json::from_slice(&bytes).ok()?;
+                let branch = value.pointer("/defaultBranchRef/name")?.as_str()?;
+                validate_branch(repository, branch).ok()?;
+                Some(branch.to_owned())
+            })
         })
     }
 

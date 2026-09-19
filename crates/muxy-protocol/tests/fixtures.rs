@@ -35,10 +35,34 @@ fn generate_fixtures() -> Result<(), Box<dyn Error>> {
 }
 
 fn fixture_path(message: &Message) -> PathBuf {
-    let name = project_fixture_name(message).unwrap_or_else(|| legacy_fixture_name(message));
+    let name = exec_fixture_name(message)
+        .or_else(|| project_fixture_name(message))
+        .unwrap_or_else(|| legacy_fixture_name(message));
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(format!("{name}.bin"))
+}
+
+fn exec_fixture_name(message: &Message) -> Option<&'static str> {
+    Some(match message {
+        Message::Request {
+            body: RequestBody::Exec(_),
+            ..
+        } => "exec_request",
+        Message::Request {
+            body: RequestBody::CancelExec(_),
+            ..
+        } => "exec_cancel",
+        Message::Reply {
+            body: ReplyBody::Exec(_),
+            ..
+        } => "exec_result",
+        Message::Reply {
+            body: ReplyBody::ExecCancelled,
+            ..
+        } => "exec_cancelled",
+        _ => return None,
+    })
 }
 
 fn project_fixture_name(message: &Message) -> Option<&'static str> {

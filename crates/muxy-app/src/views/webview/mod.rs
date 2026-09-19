@@ -325,6 +325,20 @@ impl Webview {
         cx: &mut Context<Self>,
     ) {
         let focus_change = self.presentation.update_focus(visible, blocked, focused);
+        if focus_change.is_some()
+            || self.presentation.visible != visible
+            || self.presentation.blocked != blocked
+        {
+            crate::diagnostics::event(
+                "webview.present",
+                format_args!(
+                    "instance={} kind={:?} visible={visible} blocked={blocked} focused={focused} failed={}",
+                    self.instance,
+                    self.kind,
+                    self.error.is_some()
+                ),
+            );
+        }
         if let Some(focused) = focus_change {
             if !focused {
                 self.native.blur();
@@ -351,6 +365,10 @@ impl Webview {
     pub(crate) fn before_close(&mut self, cx: &mut Context<Self>) -> async_channel::Receiver<bool> {
         let (sender, receiver) = async_channel::bounded(1);
         let id = self.closes.begin(Instant::now());
+        crate::diagnostics::event(
+            "webview.close",
+            format_args!("instance={} id={id} phase=begin", self.instance),
+        );
         self.close_results.insert(id, sender);
         let kind = self.kind.name();
         self.native.evaluate(&format!(
@@ -373,6 +391,13 @@ impl Webview {
     }
 
     fn resolve_close(&mut self, id: u64, prevent: bool) {
+        crate::diagnostics::event(
+            "webview.close",
+            format_args!(
+                "instance={} id={id} phase=resolved prevent={prevent}",
+                self.instance
+            ),
+        );
         if let Some(sender) = self.close_results.remove(&id) {
             let _ = sender.try_send(prevent);
         }
@@ -445,9 +470,10 @@ impl Render for Webview {
 
 fn bridge_script(owner: &str, id: &str, kind: SurfaceKind, data: &Value, theme: &Value) -> String {
     format!(
-        "{}({});",
+        "{}({}, {});",
         include_str!("bridge.js"),
-        json!({ "owner": owner, "id": id, "surface": kind.name(), "data": data, "theme": theme })
+        json!({ "owner": owner, "id": id, "surface": kind.name(), "data": data, "theme": theme }),
+        include_str!("../../extensions/bridge.js")
     )
 }
 

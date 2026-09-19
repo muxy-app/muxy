@@ -1,5 +1,5 @@
 {
-  "identifier": 15,
+  "identifier": 16,
   "wire": {
     "CancelCreation.bin": "031bc6d86abd1ea3445835db6184a96951140b35449fdbd0e0782a05b6c87d26",
     "Catalog.bin": "02dace73c7b8d79c93c0e0f4cd15177764638901fdfc10fde3b8ed0454cd4c95",
@@ -21,6 +21,10 @@
     "client_identified.bin": "5a66ff8490c648cd9f68f8658f8847f2ce4403f5ff73236969f42a3f4e35ee8d",
     "close_session.bin": "aab1b9971f61dc83da58a07bc3002ad86226b54aedac0078cb01799d28cbac96",
     "cursor_blinking.bin": "e6bb74fe2ce8d01f1b4ead2e66d7f4a116fb69cd57ac52f9b881e2a449d1bb23",
+    "exec_cancel.bin": "03df82c16fe84b63c1ca55d19d7b88925ff1fc8d783050e2d3d98fb017ca6c1c",
+    "exec_cancelled.bin": "76301edf61f19c8dce5f78cf1a7834e2cc5d68f80174a3329e0be8e2f264c26a",
+    "exec_request.bin": "9552d69c673dafce70c5a2e5c01506cddd10968143e0ca0b0c859feff2e5573b",
+    "exec_result.bin": "9b760a43fd416ff5f59f577fd9637f17207ba78f3fed6d3cbe6ac3695fbeb475",
     "fatal.bin": "a92018e31809f768abab3d8f250594ffc725bbc3cda7a72adbfbc1c34b5573b7",
     "files_changed.bin": "873b35703a8013db9a4a61de3ddcb25217570ccfcd36687f68f3d1dadb5f1b37",
     "files_reply.bin": "c51b86ac9da45e6c44770c1f0ae386e49ea9022c67e91771272e40a3cd903631",
@@ -30,8 +34,8 @@
     "git_changed.bin": "ef735c08af47ad09516c803c5385311516a2cf774e59614a979e9c23dd545003",
     "git_reply.bin": "9c01a05402bec1e268f00ab107ac0cdcd4c24bdcc47a56cb68407da9beefacf5",
     "git_request.bin": "56ad3fca98297fc98a2557b7e5038a69fa46a2b3e48a03ddb6bf8fca182afac2",
-    "hello.bin": "42b5ebd9fecfd61a7dc9032e5d3592c24ba2db478951c7dadde3e6cc58137e19",
-    "hello_reply.bin": "bb3c2fd4eef54f07bf67918561be4e9f7b3a00d30cdcf8a697cb3c435db61600",
+    "hello.bin": "b6314adef791b39dc78d73fff4a56ca2bc84157458d040c2bcfbb9ccf1998c5a",
+    "hello_reply.bin": "61938bd900a6b53430e2791f497d6c5579d8f6360a74b2cc6f298ae58fe724ad",
     "history_metadata.bin": "fffff1f770355489db28b9f7fd7f13eaccece41a7dec86813394e3035d7dba64",
     "history_reply.bin": "f3061b12a4d1779645c7cd21662df438b5bc5dab22daf9d46cbbb7e0f6e82df5",
     "history_request.bin": "6c231c15b10f8254b6950d904c0e83a7df86ac0dfa00d0dda7d64283c2475eda",
