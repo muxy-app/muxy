@@ -17,6 +17,7 @@ mod state;
 pub mod store;
 mod tab;
 pub mod title;
+pub mod webview;
 mod window;
 
 pub use error::AppError;

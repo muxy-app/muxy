@@ -18,6 +18,77 @@ fn composer_text(view: &Entity<AppModel>, cx: &VisualTestContext) -> String {
 }
 
 #[gpui::test]
+fn shared_panel_header_preserves_composer_actions(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::{ComposerPosition, ComposerPresentation};
+    use muxy_ui::panel::PanelId;
+
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.settings.composer.presentation = ComposerPresentation::Panel;
+    boot.settings.composer.position = ComposerPosition::Right;
+    boot.settings.composer.pinned = true;
+    boot.settings.composer.broadcast = false;
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1000.0), px(700.0)));
+    cx.simulate_keystrokes("cmd-i");
+    cx.simulate_input("keep editing");
+    for selector in ["composer-position", "composer-pin", "composer-broadcast"] {
+        cx.run_until_parked();
+        let bounds = cx.debug_bounds(selector).expect("panel action");
+        cx.simulate_click(bounds.center(), Modifiers::default());
+        cx.run_until_parked();
+    }
+    view.read_with(cx, |model, cx| {
+        assert_eq!(model.settings.composer.position, ComposerPosition::Bottom);
+        assert!(!model.settings.composer.pinned);
+        assert!(model.settings.composer.broadcast);
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(
+            model
+                .panels
+                .placement(&PanelId::new(crate::views::composer::PANEL)),
+            Some(&composer.placement())
+        );
+        assert_eq!(composer.draft.text, "keep editing");
+    });
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| assert!(!model.settings.composer.broadcast));
+    let bounds = cx
+        .debug_bounds("composer-floating")
+        .expect("floating action");
+    cx.simulate_click(bounds.center(), Modifiers::default());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            model.settings.composer.presentation,
+            ComposerPresentation::Floating
+        );
+        assert!(
+            model
+                .panels
+                .placement(&PanelId::new(crate::views::composer::PANEL))
+                .is_none()
+        );
+    });
+    cx.simulate_keystrokes("cmd-i");
+    cx.simulate_keystrokes("cmd-i");
+    view.update(cx, |model, cx| {
+        let composer = model.composer.view.clone().expect("composer");
+        composer.update(cx, |composer, cx| {
+            composer.settings.presentation = ComposerPresentation::Panel;
+            cx.emit(ComposerEvent::Preferences(composer.settings.clone()));
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    let bounds = cx.debug_bounds("composer-close").expect("close action");
+    cx.simulate_click(bounds.center(), Modifiers::default());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| assert!(model.composer.view.is_none()));
+}
+
+#[gpui::test]
 fn composer_shortcut_focus_drafts_and_panel_modes(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;

@@ -19,7 +19,7 @@ use muxy_app_core::{
     },
 };
 use muxy_protocol::{ChannelId, Modes};
-use muxy_ui::panel::{PanelHost, PanelId};
+use muxy_ui::panel::PanelId;
 
 use super::AppModel;
 use crate::{
@@ -38,7 +38,6 @@ pub(crate) struct ComposerRuntime {
     key: Option<DraftId>,
     pane: Option<PaneId>,
     store: Arc<Mutex<ComposerStore>>,
-    host: PanelHost,
     subscription: Option<Subscription>,
     save: Option<Task<()>>,
     submission: Option<Task<()>>,
@@ -54,7 +53,6 @@ impl ComposerRuntime {
             exit: None,
             key: None,
             pane: None,
-            host: PanelHost::default(),
             subscription: None,
             save: None,
             submission: None,
@@ -80,10 +78,21 @@ impl AppModel {
         self.close_voice(cx);
         self.dismiss_overlay(cx);
         self.open_composer(cx);
+        self.blur_webviews(cx);
         if let Some(view) = &self.composer.view {
             view.focus_handle(cx).focus(window);
         }
         self.focus_requested = false;
+    }
+
+    fn place_composer_panel(&mut self, view: &Entity<Composer>, cx: &mut Context<Self>) {
+        if view.read(cx).settings.presentation
+            == muxy_app_core::settings::ComposerPresentation::Panel
+        {
+            self.place_panel(view.read(cx).placement(), cx);
+        } else {
+            self.panels.remove(&PanelId::new(PANEL));
+        }
     }
 
     fn open_composer(&mut self, cx: &mut Context<Self>) {
@@ -114,7 +123,7 @@ impl AppModel {
             view.error = error;
             view.sending = self.composer.submission.is_some();
         });
-        self.composer.host.place(view.read(cx).placement());
+        self.place_composer_panel(&view, cx);
         self.composer.subscription = Some(cx.subscribe(&view, |model, _, event, cx| match event {
             ComposerEvent::Changed => model.composer_changed(cx),
             ComposerEvent::Close => model.close_composer(cx),
@@ -137,7 +146,8 @@ impl AppModel {
                 model.settings.composer = settings.clone();
                 model.composer.preferences_dirty = true;
                 if let Some(view) = &model.composer.view {
-                    model.composer.host.place(view.read(cx).placement());
+                    let view = view.clone();
+                    model.place_composer_panel(&view, cx);
                 }
                 model.save_composer(cx);
                 model.sync_preferences(cx);
@@ -154,7 +164,7 @@ impl AppModel {
         self.dismiss_composer(self.settings.composer.clear_on_close, cx);
     }
 
-    fn dismiss_composer(&mut self, clear: bool, cx: &mut Context<Self>) {
+    pub(super) fn dismiss_composer(&mut self, clear: bool, cx: &mut Context<Self>) {
         if let Some(view) = &self.composer.view {
             view.update(cx, Composer::cancel_voice);
         }
@@ -170,7 +180,7 @@ impl AppModel {
             }
         }
         self.save_composer(cx);
-        self.composer.host.remove(&PanelId::new(PANEL));
+        self.panels.remove(&PanelId::new(PANEL));
         if let Some(view) = self.composer.view.take()
             && view.read(cx).settings.presentation
                 == muxy_app_core::settings::ComposerPresentation::Floating
@@ -431,7 +441,7 @@ impl AppModel {
             return content;
         }
         let dimension = gpui::px(view.read(cx).sizing(window).layout().dimension() + 1.0);
-        let Some(placement) = self.composer.host.placement(&PanelId::new(PANEL)) else {
+        let Some(placement) = self.panels.placement(&PanelId::new(PANEL)) else {
             return content;
         };
         let right = placement.position == muxy_ui::panel::PanelPosition::Right;
@@ -467,7 +477,8 @@ impl AppModel {
                         model.close_composer(cx);
                     }
                 }))
-                .child(view.clone()),
+                .child(view.clone())
+                .child(self.webview_occlusion()),
         )
         .into_any_element()
     }

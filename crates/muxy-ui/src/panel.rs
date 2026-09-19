@@ -1,4 +1,4 @@
-use crate::components::{IconButton, Tooltip};
+use crate::components::{IconGlyph, SymbolGlyph, Tooltip};
 use crate::icon::Icon;
 use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
@@ -333,8 +333,32 @@ type PanelActionHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 enum PanelActionContent {
     Glyph(SharedString),
+    Symbol(SharedString),
     Icon(Icon),
     Element(AnyElement),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelControl {
+    Move(PanelPosition),
+    Mode(PanelMode),
+    Close,
+}
+
+impl PanelControl {
+    fn appearance(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Move(PanelPosition::Right) => {
+                ("Move to Bottom", "rectangle.bottomhalf.inset.filled")
+            }
+            Self::Move(PanelPosition::Bottom) => {
+                ("Move to Right", "rectangle.righthalf.inset.filled")
+            }
+            Self::Mode(PanelMode::Pinned) => ("Float Panel", "pin.slash"),
+            Self::Mode(PanelMode::Floating) => ("Dock Panel", "pin"),
+            Self::Close => ("Close", "xmark"),
+        }
+    }
 }
 
 #[must_use]
@@ -348,6 +372,33 @@ pub struct PanelAction {
 }
 
 impl PanelAction {
+    pub fn control(
+        id: impl Into<ElementId>,
+        control: PanelControl,
+        focus_handle: FocusHandle,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        let (label, symbol) = control.appearance();
+        Self::symbol(id, label, symbol, focus_handle, handler)
+    }
+
+    pub fn symbol(
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        symbol: impl Into<SharedString>,
+        focus_handle: FocusHandle,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            content: PanelActionContent::Symbol(symbol.into()),
+            focus_handle: focus_handle.tab_stop(true),
+            handler: Rc::new(handler),
+            selected: false,
+        }
+    }
+
     pub fn new(
         id: impl Into<ElementId>,
         label: impl Into<SharedString>,
@@ -481,7 +532,7 @@ impl RenderOnce for PanelChrome {
             .flex()
             .flex_row()
             .items_center()
-            .gap(self.metrics.spacing3())
+            .gap(self.metrics.spacing2())
             .min_w(px(0.0))
             .flex_grow();
         if let Some(icon) = self.icon {
@@ -501,10 +552,12 @@ impl RenderOnce for PanelChrome {
             .flex()
             .flex_row()
             .items_center()
-            .h(self.metrics.title_bar_height() + px(1.0))
-            .px(self.metrics.spacing4())
+            .flex_none()
+            .h(self.metrics.scaled(33.0))
+            .pl(self.metrics.spacing4())
+            .pr(self.metrics.spacing2())
             .border_b_1()
-            .border_color(self.theme.border_solid())
+            .border_color(self.theme.border)
             .track_focus(&self.focus_handle)
             .child(title)
             .children(
@@ -541,50 +594,54 @@ fn panel_action(
         handler,
         selected,
     } = action;
+    let selector = SharedString::from(id.to_string());
+    let group = SharedString::from(format!("panel-action-{id}"));
+    let color = if selected {
+        theme.accent
+    } else {
+        theme.fg_muted
+    };
     let glyph = match content {
-        PanelActionContent::Icon(icon) => {
-            let click_handler = handler.clone();
-            return IconButton::new(
-                id,
-                icon,
-                metrics.scaled(13.0),
-                metrics.control_medium(),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(label, theme.raised(), theme.fg, theme.border)
-            .focus_handle(focus_handle)
-            .selected(selected, theme.accent_soft, metrics.radius_sm())
-            .on_click(move |_, window, cx| click_handler(window, cx))
-            .on_key(move |window, cx| handler(window, cx))
-            .into_any_element();
+        PanelActionContent::Icon(icon) => IconGlyph::new(icon, metrics.font_emphasis(), color)
+            .when(!selected, |glyph| {
+                glyph.hover_in_group(group.clone(), theme.fg)
+            })
+            .into_any_element(),
+        PanelActionContent::Symbol(symbol) => {
+            SymbolGlyph::new(symbol, metrics.font_emphasis(), color)
+                .when(!selected, |glyph| {
+                    glyph.hover_in_group(group.clone(), theme.fg)
+                })
+                .into_any_element()
         }
         PanelActionContent::Element(element) => element,
         PanelActionContent::Glyph(glyph) => div().child(glyph).into_any_element(),
     };
-    let group = SharedString::from(format!("panel-action-{label}"));
     let click_handler = handler.clone();
     let key_handler = handler;
     let focus_for_mouse = focus_handle.clone();
     let focused = focus_handle.is_focused(window);
     let tooltip_background = theme.raised();
     let tooltip_foreground = theme.fg;
-    let tooltip_border = theme.border_solid();
+    let tooltip_border = theme.border;
     div()
         .id(id)
         .group(group)
+        .debug_selector(move || selector.to_string())
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .size(metrics.control_small())
-        .rounded(metrics.radius_sm())
+        .size(metrics.control_medium())
+        .rounded(metrics.radius_xl())
         .cursor_pointer()
         .track_focus(&focus_handle)
-        .text_size(metrics.font_footnote())
-        .text_color(theme.fg_muted)
-        .hover(|style| style.bg(theme.hover).text_color(theme.fg))
-        .when(focused || selected, |style| style.bg(theme.accent_soft))
+        .text_size(metrics.font_emphasis())
+        .text_color(color)
+        .when(!selected, |button| {
+            button.hover(|style| style.text_color(theme.fg))
+        })
+        .when(focused, |style| style.bg(theme.accent_soft))
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             window.focus(&focus_for_mouse);
             cx.stop_propagation();
@@ -737,6 +794,8 @@ impl RenderOnce for PanelFrame {
                 "panel-frame-{}",
                 self.placement.id.as_str()
             )))
+            .max_w_full()
+            .max_h_full()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .occlude()
             .relative()

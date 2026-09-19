@@ -152,7 +152,12 @@ impl AppModel {
             .right_0()
             .flex()
             .justify_center()
-            .child(view.clone())
+            .child(
+                div()
+                    .relative()
+                    .child(view.clone())
+                    .child(self.webview_occlusion()),
+            )
             .into_any_element()
     }
 }

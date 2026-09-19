@@ -311,7 +311,7 @@ fn tab_cell(
             .terminal(&pane.id)
             .is_some_and(|pane| pane.view.read(cx).bell_flashing)
     });
-    let title = tab.title(model.state.window().active_pane);
+    let title = model.webview_title(tab, cx).to_owned();
     let color = tab
         .color
         .as_ref()
@@ -384,7 +384,7 @@ fn tab_cell(
             }),
         )
         .child(tab_label(
-            title,
+            &title,
             shows_title,
             active,
             group,
@@ -393,7 +393,9 @@ fn tab_cell(
                 tab,
                 model,
                 px(14.0),
-                tab_glyph(tab.pinned, settings, bell, foreground, theme),
+                model
+                    .webview_glyph(tab, px(14.0), foreground, cx)
+                    .unwrap_or_else(|| tab_glyph(tab.pinned, settings, bell, foreground, theme)),
             ),
         ))
         .when(!tab.pinned, |cell| cell.child(close))

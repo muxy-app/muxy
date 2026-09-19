@@ -68,7 +68,7 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
         .iter()
         .filter_map(|pane| match pane.content {
             PaneContent::Terminal { session } => session,
-            PaneContent::Settings => None,
+            PaneContent::Settings | PaneContent::Webview(_) => None,
         })
         .collect();
     resolve(
@@ -109,7 +109,7 @@ pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
         .iter()
         .filter_map(|pane| match pane.content {
             PaneContent::Terminal { session } => session,
-            PaneContent::Settings => None,
+            PaneContent::Settings | PaneContent::Webview(_) => None,
         })
         .collect();
     let includes = |project, session| {

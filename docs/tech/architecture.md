@@ -122,12 +122,18 @@ flowchart LR
 ```
 
 - The app redraws a pane only when a frame arrives or the viewport changes.
-- Per-pane render state exists only for visible panes; the server holds
+- Terminal render state exists only for visible panes; the server holds
   everything else, and a pane that becomes visible attaches or re-fetches.
   Cached client content is displayed first, including while disconnected.
   Server reads refresh it lazily; the server owns durable retained history.
 - A future full-emulator surface would convert runs locally without changing
   the server or protocol; see [D9](./decisions.md#d9-the-app-renders-the-run-grid-directly-in-gpui-and-redraws-on-demand).
+
+Webview descriptors and close/result state belong to muxy-app-core. muxy-ui owns
+the native WebKit adapter, scoped asset loading, and native view composition.
+muxy-app retains and coordinates surfaces, focus, presentation, and the page
+bridge. Hidden pages remain alive; they have no terminal session or server state.
+The bridge exposes surface operations only until extension authorization exists.
 
 ## Transport adapters
 

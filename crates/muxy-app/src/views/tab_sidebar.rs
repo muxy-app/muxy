@@ -467,7 +467,7 @@ fn tab_row(
             .terminal(&pane.id)
             .is_some_and(|pane| pane.view.read(cx).bell_flashing)
     });
-    let title = tab.title(model.state.window().active_pane);
+    let title = model.webview_title(tab, cx);
     let color = tab
         .color
         .as_ref()
@@ -533,12 +533,7 @@ fn tab_row(
                     tab,
                     model,
                     m.icon_md(),
-                    SymbolGlyph::new(
-                        "terminal",
-                        m.font_footnote(),
-                        if active { theme.fg } else { theme.fg_muted },
-                    )
-                    .into_any_element(),
+                    webview_tab_icon(tab, model, active, cx),
                 )),
         )
         .child(
@@ -783,6 +778,19 @@ fn tab_accessory(
             slot.child(close_tab_button(id, group, model, cx))
         })
         .into_any_element()
+}
+
+fn webview_tab_icon(tab: &Tab, model: &AppModel, active: bool, cx: &gpui::App) -> AnyElement {
+    let color = if active {
+        model.theme.fg
+    } else {
+        model.theme.fg_muted
+    };
+    model
+        .webview_glyph(tab, model.metrics.font_footnote(), color, cx)
+        .unwrap_or_else(|| {
+            SymbolGlyph::new("terminal", model.metrics.font_footnote(), color).into_any_element()
+        })
 }
 
 #[cfg(test)]

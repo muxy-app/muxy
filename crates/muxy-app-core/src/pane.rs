@@ -15,4 +15,5 @@ pub struct Pane {
 pub enum PaneContent {
     Terminal { session: Option<SessionId> },
     Settings,
+    Webview(crate::webview::WebviewDescriptor),
 }

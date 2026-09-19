@@ -8,7 +8,7 @@ use gpui::{
 use muxy_app_core::settings::{ComposerPosition, ComposerPresentation};
 use muxy_ui::{
     components::{ButtonInteraction, SymbolGlyph},
-    panel::{PanelFrame, PanelStyle},
+    panel::{PanelAction, PanelChrome, PanelControl, PanelFrame, PanelStyle},
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -26,7 +26,6 @@ pub(super) struct SizeMotion {
 
 #[derive(Clone, Copy)]
 enum Control {
-    Header,
     Metadata,
     Toolbar,
     Recording,
@@ -70,15 +69,6 @@ impl Composer {
         let active = matches!(control, Control::Recording);
         let enabled = id != "composer-voice" || !self.sending;
         let (box_size, glyph_size, color) = match control {
-            Control::Header => (
-                m.control_medium(),
-                m.font_emphasis(),
-                if id == "composer-broadcast" && self.settings.broadcast {
-                    theme.accent
-                } else {
-                    theme.fg_muted
-                },
-            ),
             Control::Metadata => (m.control_small(), m.font_caption(), theme.fg_dim),
             Control::Toolbar => (m.control_large(), m.font_footnote(), theme.fg_muted),
             Control::Recording => (m.control_large(), m.font_footnote(), gpui::white()),
@@ -109,11 +99,7 @@ impl Composer {
             })
             .rounded(m.radius_xl())
             .when(active, |button| button.bg(theme.diff_remove))
-            .child(SymbolGlyph::new(symbol, glyph_size, color).when(
-                matches!(control, Control::Header)
-                    && !(id == "composer-broadcast" && self.settings.broadcast),
-                |glyph| glyph.hover_in_group(id, theme.fg),
-            ))
+            .child(SymbolGlyph::new(symbol, glyph_size, color))
             .tooltip(move |_, cx| {
                 cx.new(|_| {
                     muxy_ui::components::Tooltip::new(label, theme.raised(), theme.fg, theme.border)
@@ -128,116 +114,115 @@ impl Composer {
             .into_any_element()
     }
 
-    fn header(&self, cx: &mut Context<Self>) -> AnyElement {
-        let m = self.metrics;
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(m.spacing2())
-            .h(m.scaled(33.0))
-            .pl(m.spacing4())
-            .pr(m.spacing2())
-            .border_b_1()
-            .border_color(self.theme.border)
-            .child(SymbolGlyph::new(
-                "keyboard",
-                m.font_footnote(),
-                self.theme.fg_muted,
-            ))
-            .child(
-                div()
-                    .text_size(m.font_body())
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Rich Input"),
-            )
-            .child(div().flex_1())
-            .child(self.header_controls(cx))
-            .into_any_element()
-    }
-
-    fn header_controls(&self, cx: &mut Context<Self>) -> AnyElement {
-        let right = self.settings.position == ComposerPosition::Right;
-        div()
-            .flex()
-            .flex_none()
-            .child(self.glyph_button(
+    fn header(&self, cx: &Context<Self>) -> AnyElement {
+        let placement = self.placement();
+        PanelChrome::new(
+            "Rich Input",
+            Some(
+                SymbolGlyph::new(
+                    "keyboard",
+                    self.metrics.font_footnote(),
+                    self.theme.fg_muted,
+                )
+                .into_any_element(),
+            ),
+            self.header_focus[0].clone(),
+            self.panel_control(
+                "composer-position",
+                PanelControl::Move(placement.position),
+                1,
+                cx,
+            ),
+            self.panel_control("composer-pin", PanelControl::Mode(placement.mode), 2, cx),
+            self.panel_control("composer-close", PanelControl::Close, 3, cx),
+            PanelStyle::new(self.theme.clone(), self.metrics),
+        )
+        .with_trailing_action(
+            self.panel_action(
                 "composer-broadcast",
+                "Broadcast to Split Panes",
                 if self.settings.broadcast {
                     "dot.radiowaves.left.and.right"
                 } else {
                     "antenna.radiowaves.left.and.right.slash"
                 },
-                "Broadcast to Split Panes",
-                Control::Header,
-                |view, _, cx| {
+                4,
+                |view, cx| {
                     view.settings.broadcast = !view.settings.broadcast;
                     view.preferences(cx);
                 },
                 cx,
-            ))
-            .child(self.glyph_button(
-                "composer-floating",
-                "rectangle.on.rectangle",
-                "Use Floating Composer",
-                Control::Header,
-                |view, _, cx| {
-                    view.settings.presentation = ComposerPresentation::Floating;
+            )
+            .selected(self.settings.broadcast),
+        )
+        .with_trailing_action(self.panel_action(
+            "composer-floating",
+            "Use Floating Composer",
+            "rectangle.on.rectangle",
+            5,
+            |view, cx| {
+                view.settings.presentation = ComposerPresentation::Floating;
+                view.preferences(cx);
+            },
+            cx,
+        ))
+        .into_any_element()
+    }
+
+    fn panel_control(
+        &self,
+        id: &'static str,
+        control: PanelControl,
+        index: usize,
+        cx: &Context<Self>,
+    ) -> PanelAction {
+        let view = cx.weak_entity();
+        PanelAction::control(
+            id,
+            control,
+            self.header_focus[index].clone(),
+            move |_, cx| {
+                let _ = view.update(cx, |view, cx| {
+                    match control {
+                        PanelControl::Close => {
+                            cx.emit(ComposerEvent::Close);
+                            return;
+                        }
+                        PanelControl::Move(_) => {
+                            view.settings.position =
+                                if view.settings.position == ComposerPosition::Right {
+                                    ComposerPosition::Bottom
+                                } else {
+                                    ComposerPosition::Right
+                                };
+                        }
+                        PanelControl::Mode(_) => view.settings.pinned = !view.settings.pinned,
+                    }
                     view.preferences(cx);
-                },
-                cx,
-            ))
-            .child(self.glyph_button(
-                "composer-position",
-                if right {
-                    "rectangle.bottomhalf.inset.filled"
-                } else {
-                    "rectangle.righthalf.inset.filled"
-                },
-                if right {
-                    "Move to Bottom"
-                } else {
-                    "Move to Right"
-                },
-                Control::Header,
-                |view, _, cx| {
-                    view.settings.position = if view.settings.position == ComposerPosition::Right {
-                        ComposerPosition::Bottom
-                    } else {
-                        ComposerPosition::Right
-                    };
-                    view.preferences(cx);
-                },
-                cx,
-            ))
-            .child(self.glyph_button(
-                "composer-pin",
-                if self.settings.pinned {
-                    "pin.slash"
-                } else {
-                    "pin"
-                },
-                if self.settings.pinned {
-                    "Float Panel"
-                } else {
-                    "Dock Panel"
-                },
-                Control::Header,
-                |view, _, cx| {
-                    view.settings.pinned = !view.settings.pinned;
-                    view.preferences(cx);
-                },
-                cx,
-            ))
-            .child(self.glyph_button(
-                "composer-close",
-                "xmark",
-                "Close",
-                Control::Header,
-                |_, _, cx| cx.emit(ComposerEvent::Close),
-                cx,
-            ))
-            .into_any_element()
+                });
+            },
+        )
+    }
+
+    fn panel_action(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        symbol: &'static str,
+        index: usize,
+        action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cx: &Context<Self>,
+    ) -> PanelAction {
+        let view = cx.weak_entity();
+        PanelAction::symbol(
+            id,
+            label,
+            symbol,
+            self.header_focus[index].clone(),
+            move |_, cx| {
+                let _ = view.update(cx, |view, cx| action(view, cx));
+            },
+        )
     }
 
     fn metadata(&self, cx: &mut Context<Self>) -> AnyElement {

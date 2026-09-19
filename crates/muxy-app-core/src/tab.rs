@@ -144,7 +144,7 @@ impl Tab {
         Self::with_content(PaneContent::Terminal { session: None }, "Terminal")
     }
 
-    fn with_content(content: PaneContent, title: &str) -> Self {
+    pub(crate) fn with_content(content: PaneContent, title: &str) -> Self {
         let pane = Pane {
             id: PaneId::new(),
             title: title.into(),

@@ -33,7 +33,9 @@ pub fn plan(state: &AppState, sessions: &[SessionInfo]) -> RestorePlan {
             {
                 plan.create.push(pane.id);
             }
-            PaneContent::Terminal { session: None } | PaneContent::Settings => {}
+            PaneContent::Terminal { session: None }
+            | PaneContent::Settings
+            | PaneContent::Webview(_) => {}
         }
     }
     plan

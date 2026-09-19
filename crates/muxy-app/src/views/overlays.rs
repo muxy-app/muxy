@@ -9,6 +9,7 @@ use super::menu::{self, Item, Menu};
 use crate::model::AppModel;
 
 pub(crate) enum Overlay {
+    Webview,
     Native(Entity<super::native_modal::NativeModal>),
     Commands {
         palette: Entity<muxy_ui::command_palette::CommandPalette<super::command_palette::Handler>>,
@@ -28,6 +29,10 @@ pub(crate) enum Overlay {
 
 impl AppModel {
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.overlay, Some(Overlay::Webview)) {
+            self.dismiss_webview_modal(cx);
+            return;
+        }
         self.git.interaction = self.git.interaction.wrapping_add(1);
         self.overlay = None;
         self.overlay_subscription = None;
@@ -67,6 +72,7 @@ pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
 pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let content = match &model.overlay {
         None => return div().into_any_element(),
+        Some(Overlay::Webview) => return super::webview::modal::render(model, window, cx),
         Some(Overlay::Native(picker)) => picker.clone().into_any_element(),
         Some(Overlay::GitForm(form)) => div()
             .absolute()

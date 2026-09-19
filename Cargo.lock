@@ -3833,6 +3833,7 @@ dependencies = [
  "objc2-quartz-core",
  "objc2-speech",
  "objc2-user-notifications",
+ "objc2-web-kit",
  "raw-window-handle",
  "unicode-segmentation",
 ]
@@ -4335,6 +4336,20 @@ dependencies = [
  "bitflags 2.13.1",
  "block2",
  "objc2",
+ "objc2-foundation",
+]
+
+[[package]]
+name = "objc2-web-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2e5aaab980c433cf470df9d7af96a7b46a9d892d521a2cbbb2f8a4c16751e7f"
+dependencies = [
+ "bitflags 2.13.1",
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
  "objc2-foundation",
 ]
 

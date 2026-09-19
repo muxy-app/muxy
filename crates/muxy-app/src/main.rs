@@ -46,6 +46,7 @@ mod views {
         pub(crate) mod selection;
     }
     pub(crate) mod voice;
+    pub(crate) mod webview;
     pub(crate) mod workspace;
 }
 

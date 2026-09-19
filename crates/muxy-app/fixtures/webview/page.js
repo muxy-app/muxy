@@ -1,0 +1,21 @@
+const $ = id => document.getElementById(id);
+const status = message => { $('status').textContent = message; };
+const bind = (id, action) => { if ($(id)) $(id).onclick = () => Promise.resolve().then(action).catch(error => status(error.message)); };
+const viewport = () => { $('viewport').textContent = `${innerWidth} × ${innerHeight}`; };
+addEventListener('resize', viewport); viewport();
+muxy.onFocus(focused => { if (focused) $('editor').focus(); });
+muxy.onDataChange(data => status(JSON.stringify(data)));
+muxy.onThemeChange(theme => status(`Theme: ${theme.colorScheme}`));
+muxy.lifecycle.onBeforeClose(() => $('veto').checked);
+status(JSON.stringify(muxy.data));
+bind('modal', async () => status('Modal result: ' + JSON.stringify(await muxy.modal.openWebview({ entry:'modal.html', data:{message:'Hello from tab'} }))));
+bind('fixed', async () => status('Modal result: ' + JSON.stringify(await muxy.modal.openWebview({entry:'modal.html', dismissOnOutsideClick:false}))));
+bind('new', () => muxy.tabs.open({kind:'extensionWebView',extension:{id:muxy.extensionID,tabType:'demo',data:{message:'New instance'}}}));
+bind('singleton', () => muxy.tabs.open({kind:'extensionWebView',extension:{id:muxy.extensionID,tabType:'demo',singleton:true,data:{updated:Date.now()}}}));
+bind('rename', async () => { await muxy.tabs.setTitle('Retitled webview'); await muxy.tabs.setIcon('doc.text'); });
+bind('submit', () => muxy.modal.submitWebview({text:$('editor').value}));
+bind('self', () => muxy.lifecycle.close());
+
+bind('right-panel', () => muxy.panels.open('right', {message:'Right panel'}));
+bind('bottom-panel', () => muxy.panels.open('bottom', {message:'Bottom panel'}));
+bind('close-panel', () => muxy.panels.close());

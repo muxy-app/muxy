@@ -34,6 +34,9 @@ impl SplitResize {
 }
 
 impl SplitResizeState {
+    pub(crate) fn active(&self) -> bool {
+        self.0.borrow().is_some()
+    }
     pub(crate) fn end(&self) -> bool {
         self.0.borrow_mut().take().is_some()
     }
@@ -47,7 +50,6 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
         .iter()
         .find(|tab| Some(tab.id) == model.active_tab())?;
     if let Some(zoomed) = tab.zoomed {
-        model.grids.get(&zoomed)?;
         return Some(
             div()
                 .debug_selector(|| "zoomed-pane-frame".into())
@@ -68,12 +70,12 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                         .border_color(model.theme.border)
                         .shadow_md()
                         .overflow_hidden()
-                        .child(pane_element(zoomed, model)),
+                        .child(pane_element(zoomed, model, cx)),
                 )
                 .into_any_element(),
         );
     }
-    let content = node(&tab.layout, tab.id, Vec::new(), model);
+    let content = node(&tab.layout, tab.id, Vec::new(), model, cx);
     let state = model.split_resize.clone();
     let weak = cx.weak_entity();
     Some(
@@ -132,7 +134,13 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
     )
 }
 
-fn node(layout: &Layout, tab: TabId, path: Vec<Branch>, model: &AppModel) -> AnyElement {
+fn node(
+    layout: &Layout,
+    tab: TabId,
+    path: Vec<Branch>,
+    model: &AppModel,
+    cx: &Context<AppModel>,
+) -> AnyElement {
     let (axis, ratio, first, second) = match layout {
         Layout::Split {
             axis,
@@ -141,15 +149,15 @@ fn node(layout: &Layout, tab: TabId, path: Vec<Branch>, model: &AppModel) -> Any
             second,
         } => (axis, ratio, first, second),
         Layout::Leaf(id) => {
-            return pane_element(*id, model);
+            return pane_element(*id, model, cx);
         }
     };
     let mut first_path = path.clone();
     first_path.push(Branch::First);
     let mut second_path = path.clone();
     second_path.push(Branch::Second);
-    let first = weighted(node(first, tab, first_path, model), *ratio);
-    let second = weighted(node(second, tab, second_path, model), 1.0 - *ratio);
+    let first = weighted(node(first, tab, first_path, model, cx), *ratio);
+    let second = weighted(node(second, tab, second_path, model, cx), 1.0 - *ratio);
     let bounds = Rc::new(Cell::new(Bounds::default()));
     let measured = bounds.clone();
     let state = model.split_resize.clone();
@@ -226,7 +234,40 @@ fn weighted(content: AnyElement, ratio: f32) -> gpui::Div {
     view
 }
 
-fn pane_element(id: muxy_app_core::PaneId, model: &AppModel) -> AnyElement {
+fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    if let Some(surface) = model.webviews.panes.get(&id) {
+        return surface.view.clone().into_any_element();
+    }
+    if let Some(descriptor) = model
+        .state
+        .projects()
+        .iter()
+        .flat_map(|p| &p.tabs)
+        .flat_map(|t| &t.panes)
+        .find_map(|pane| match &pane.content {
+            muxy_app_core::PaneContent::Webview(descriptor) if pane.id == id => Some(descriptor),
+            _ => None,
+        })
+    {
+        return div()
+            .size_full()
+            .id(SharedString::from(format!("webview-placeholder-{id}")))
+            .debug_selector(|| "webview-placeholder".into())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |model, _, window, cx| {
+                    model.focus_pane(id, cx);
+                    model.focus_active(window, cx);
+                }),
+            )
+            .child(super::webview::placeholder(
+                &descriptor.owner,
+                &descriptor.kind,
+                &model.theme,
+                model.metrics,
+            ))
+            .into_any_element();
+    }
     let Some(pane) = model.grids.get(&id) else {
         return div().size_full().into_any_element();
     };

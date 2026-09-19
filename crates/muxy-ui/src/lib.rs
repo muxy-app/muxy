@@ -53,4 +53,8 @@ pub mod pasteboard;
 )]
 pub mod native_menu;
 
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code, reason = "Main-thread WebKit and native view integration")]
+pub mod webview;
+
 pub mod transcript;

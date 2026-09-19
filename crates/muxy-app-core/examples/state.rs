@@ -107,6 +107,11 @@ fn show(output: &mut impl Write, state: &AppState) -> io::Result<()> {
                             pane.id
                         )?;
                     }
+                    PaneContent::Webview(ref descriptor) => writeln!(
+                        output,
+                        "    Pane {} webview {}/{}",
+                        pane.id, descriptor.owner, descriptor.kind
+                    )?,
                     PaneContent::Settings => writeln!(output, "    Pane {} — settings", pane.id)?,
                 }
             }

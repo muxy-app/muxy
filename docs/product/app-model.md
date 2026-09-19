@@ -8,6 +8,14 @@ the draft. Optional on-device dictation inserts text into the draft without send
 Native picker modals support searchable lists, streamed items, and dynamic queries.
 Selection returns the chosen item; dismissal or replacement cancels the picker.
 
+Webview tabs retain their pages while switching tabs and projects. Their identity
+and data are saved; unavailable content shows a placeholder. Webview panels dock
+at the right or bottom, pinned or floating, with shared move, resize, pin, and
+close controls. Their pages remain alive until closed. Webview modals return a
+result or cancel on dismissal or replacement. Pages receive live theme, data,
+and focus updates and may veto user closes. These are client-owned foundations;
+extension loading, permissions, and privileged API wiring are deferred.
+
 The desktop and keyboard TUI are clients of the same server. The
 [product model](./product-model.md) defines what clients own; this document
 defines how users navigate and manage their views.

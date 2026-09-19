@@ -7,6 +7,7 @@ mod quick_terminal;
 mod tabs;
 mod updates;
 mod voice;
+mod webviews;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -66,6 +67,8 @@ struct CloseRequest {
 }
 
 pub(crate) struct AppModel {
+    pub(crate) webviews: webviews::Webviews,
+    pub(crate) panels: muxy_ui::panel::PanelHost,
     pub(crate) composer: composer::ComposerRuntime,
     pub(crate) voice: voice::VoiceRuntime,
     pub(crate) git: git::GitState,
@@ -305,6 +308,7 @@ impl AppModel {
 
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_active = window.is_window_active();
+        cx.notify();
         self.acknowledge_focused_activity(cx);
         if window.is_window_active() {
             if self.path.with_file_name("ghostty.conf").exists() {
@@ -370,6 +374,8 @@ impl AppModel {
             });
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         let mut model = Self {
+            webviews: webviews::Webviews::default(),
+            panels: muxy_ui::panel::PanelHost::default(),
             composer: composer::ComposerRuntime::new(boot.composer),
             voice: voice::VoiceRuntime::default(),
             git: git::GitState::default(),
@@ -818,7 +824,7 @@ impl AppModel {
             whole_tab: pane.is_none(),
             behavior: self.settings.window.close_behavior,
         });
-        self.check_next_close(cx);
+        self.check_webview_closes(cx);
     }
 
     fn check_next_close(&mut self, cx: &mut Context<Self>) {
@@ -1112,7 +1118,7 @@ impl AppModel {
             .find(|pane| pane.id == id)
             .and_then(|pane| match pane.content {
                 PaneContent::Terminal { session } => session,
-                PaneContent::Settings => None,
+                PaneContent::Settings | PaneContent::Webview(_) => None,
             })
     }
 
@@ -2113,6 +2119,7 @@ impl Drop for AppModel {
 
 #[cfg(test)]
 mod tests {
+    mod webviews;
     use muxy_protocol::ExitReason;
     mod activity;
     mod clipboard;

@@ -183,7 +183,7 @@ impl AppState {
             .chain(self.quick_terminal())
             .filter_map(|pane| match pane.content {
                 PaneContent::Terminal { session } => session,
-                PaneContent::Settings => None,
+                PaneContent::Settings | PaneContent::Webview(_) => None,
             })
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -755,7 +755,7 @@ impl AppState {
                 *current = session;
                 Ok(())
             }
-            PaneContent::Settings => Err(AppError::NotTerminal(pane)),
+            PaneContent::Settings | PaneContent::Webview(_) => Err(AppError::NotTerminal(pane)),
         }
     }
 
@@ -776,14 +776,14 @@ impl AppState {
         Ok(())
     }
 
-    fn project_mut(&mut self, id: ProjectId) -> Result<&mut Project, AppError> {
+    pub(crate) fn project_mut(&mut self, id: ProjectId) -> Result<&mut Project, AppError> {
         self.projects
             .iter_mut()
             .find(|project| project.id == id)
             .ok_or(AppError::UnknownProject(id))
     }
 
-    fn pane_mut(&mut self, id: PaneId) -> Result<&mut Pane, AppError> {
+    pub(crate) fn pane_mut(&mut self, id: PaneId) -> Result<&mut Pane, AppError> {
         self.projects
             .iter_mut()
             .flat_map(|project| &mut project.tabs)

@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head>
+<body><header><strong>Webview Foundation</strong><span id="viewport"></span></header>
+<main><h1>Interactive webview</h1><p>This page runs inside a retained native WKWebView.</p>
+<label>Retained text <input id="editor" placeholder="Type, switch tabs, then return" autofocus></label>
+<div class="actions"><button id="modal">Open modal</button><button id="fixed">Modal without outside dismissal</button><button id="new">New webview tab</button><button id="singleton">Update singleton</button><button id="rename">Retitle and icon</button></div>
+<div class="actions"><button id="right-panel">Right panel</button><button id="bottom-panel">Bottom panel</button></div>
+<label><input id="veto" type="checkbox"> Prevent user closes</label>
+<div class="actions"><button id="self">Force close self</button><button onclick="location.reload()">Reload</button><a href="https://example.com">Blocked external navigation</a></div>
+<pre id="status"></pre><div class="fill">This area stretches to the bottom and right edges.</div>
+</main><footer>Bottom edge <span>Right edge →</span></footer><script src="page.js"></script></body></html>
