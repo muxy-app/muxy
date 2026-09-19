@@ -71,3 +71,6 @@ debug = 1
 
 [profile.bench]
 inherits = "release"
+
+[patch.crates-io]
+gpui = { git = "https://github.com/muxy-app/gpui", rev = "6fc3226f446a05e78b4bc6915e65a2cab836b23d" }

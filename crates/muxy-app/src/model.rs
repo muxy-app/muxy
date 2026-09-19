@@ -31,7 +31,6 @@ use muxy_ui::theme::{Metrics, Theme};
 pub(crate) struct PaneView {
     pub(crate) view: Entity<TerminalPane>,
     _subscription: Subscription,
-    _invalidation: Subscription,
 }
 
 impl PaneView {
@@ -147,6 +146,7 @@ pub(crate) struct AppModel {
     _appearance: Subscription,
     _bounds: Subscription,
     _activation: Subscription,
+    _panes: Subscription,
     _quit: Subscription,
 }
 
@@ -365,6 +365,9 @@ impl AppModel {
             model.save_bounds(window, cx);
         });
         let activation = cx.observe_window_activation(window, Self::activation_changed);
+        let panes = cx.observe(&cx.entity(), |model: &mut Self, _, cx| {
+            model.sync_pane_focus(cx);
+        });
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
             model.close_voice(cx);
             model.save(cx);
@@ -463,10 +466,12 @@ impl AppModel {
             _appearance: appearance,
             _bounds: bounds,
             _activation: activation,
+            _panes: panes,
             _quit: quit,
         };
         model.refresh_installed_extensions(cx);
         model.sync_visible(cx);
+        model.sync_pane_focus(cx);
         model.save_bounds(window, cx);
         model.save(cx);
         model.focus.focus(window);
@@ -1353,8 +1358,6 @@ impl AppModel {
             pane.set_state(state, cx);
             pane
         });
-        let model = cx.entity();
-        let invalidation = view.update(cx, |_, cx| cx.observe(&model, |_, _, cx| cx.notify()));
         let subscription = cx.subscribe(&view, move |model, _, event, cx| match event {
             PaneEvent::Title(title) => {
                 let _ = model.state.set_pane_title(id, title.clone());
@@ -1407,7 +1410,6 @@ impl AppModel {
             PaneView {
                 view,
                 _subscription: subscription,
-                _invalidation: invalidation,
             },
         );
         if !self.is_quick_terminal(id) {

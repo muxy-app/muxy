@@ -56,7 +56,12 @@ fn directional_focus_redraws_both_cached_split_panes(cx: &mut TestAppContext) {
     for (index, pane) in panes.iter().enumerate() {
         pane.read_with(cx, |pane, _| {
             assert_eq!(pane.focus_border.is_some(), index == 0);
-            assert!(pane.render_count > counts[index]);
+            assert!(
+                pane.render_count > counts[index],
+                "pane {index} rendered {} times before and {} after",
+                counts[index],
+                pane.render_count
+            );
         });
     }
 }
