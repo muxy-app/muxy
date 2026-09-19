@@ -1,24 +1,34 @@
 #!/bin/bash
 set -euo pipefail
 
-if [[ $# -ne 1 || ! -f "$1" ]]; then
-    echo "Usage: $0 <signed.dmg|signed.zip>" >&2
+if [[ $# -ne 1 || ! -e "$1" ]]; then
+    echo "Usage: $0 <signed.dmg|signed.zip|signed.app>" >&2
     exit 1
 fi
 case "$1" in
-    *.dmg|*.zip) ;;
-    *) echo "Error: expected a DMG or ZIP" >&2; exit 1 ;;
+    *.dmg|*.zip) [[ -f "$1" ]] || exit 1 ;;
+    *.app) [[ -d "$1" ]] || exit 1 ;;
+    *) echo "Error: expected a DMG, ZIP or app bundle" >&2; exit 1 ;;
 esac
-: "${APPLE_ID:?APPLE_ID is required}"
-: "${APPLE_APP_SPECIFIC_PASSWORD:?APPLE_APP_SPECIFIC_PASSWORD is required}"
-: "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required}"
+if [[ -n "${NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
+    CREDENTIALS=(--keychain-profile "$NOTARY_KEYCHAIN_PROFILE")
+else
+    : "${APPLE_ID:?APPLE_ID is required}"
+    : "${APPLE_APP_SPECIFIC_PASSWORD:?APPLE_APP_SPECIFIC_PASSWORD is required}"
+    : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required}"
+    CREDENTIALS=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+fi
 
 TEMP="$(mktemp -d)"
 trap 'rm -rf "$TEMP"' EXIT
-CREDENTIALS=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+SUBMISSION="$1"
+if [[ "$1" == *.app ]]; then
+    SUBMISSION="$TEMP/application.zip"
+    ditto -c -k --sequesterRsrc --keepParent "$1" "$SUBMISSION"
+fi
 for ATTEMPT in 1 2 3; do
     STATUS=0
-    xcrun notarytool submit "$1" "${CREDENTIALS[@]}" --wait --timeout 30m \
+    xcrun notarytool submit "$SUBMISSION" "${CREDENTIALS[@]}" --wait --timeout 30m \
         --output-format json > "$TEMP/submission.json" 2> "$TEMP/submission.error" || STATUS=$?
     cat "$TEMP/submission.json"
     cat "$TEMP/submission.error" >&2
@@ -39,6 +49,12 @@ fi
 python3 -c 'import json, sys; sys.exit(0 if json.load(sys.stdin).get("status") == "Accepted" else 1)' \
     < "$TEMP/submission.json"
 case "$1" in
+    *.app)
+        xcrun stapler staple "$1"
+        xcrun stapler validate "$1"
+        codesign --verify --deep --strict --verbose=2 "$1"
+        spctl --assess --type execute --verbose=2 "$1"
+        ;;
     *.dmg)
         xcrun stapler staple "$1"
         xcrun stapler validate "$1"
