@@ -47,7 +47,11 @@ pub enum Event {
     Failed(String),
     Escape,
     Shortcut(gpui::Keystroke),
-    Snapshot(Vec<u8>),
+    Snapshot {
+        id: u64,
+        generation: u64,
+        png: Vec<u8>,
+    },
     Asset {
         id: u64,
         result: AssetResult,
@@ -60,6 +64,7 @@ struct State {
     worker: WorkerPool,
     sequence: Cell<u64>,
     generation: Cell<u64>,
+    snapshot_id: Cell<u64>,
     modal: Cell<bool>,
     shortcuts: RefCell<Vec<gpui::Keystroke>>,
     replies: RefCell<HashMap<u64, Reply>>,
@@ -330,6 +335,7 @@ impl NativeWebview {
             worker: WorkerPool::new("webview-assets", 2, 32).map_err(|error| error.to_string())?,
             sequence: Cell::new(0),
             generation: Cell::new(0),
+            snapshot_id: Cell::new(0),
             modal: Cell::new(false),
             shortcuts: RefCell::default(),
             replies: RefCell::default(),
@@ -560,19 +566,30 @@ impl NativeWebview {
     }
 
     pub fn snapshot(&self) {
-        let sender = self.delegate.ivars().sender.clone();
+        let delegate = self.delegate.clone();
+        let state = delegate.ivars();
+        let id = state.next();
+        let generation = state.generation.get();
+        state.snapshot_id.set(id);
         let completion = RcBlock::new(move |image: *mut NSImage, _: *mut NSError| {
+            let state = delegate.ivars();
+            if state.snapshot_id.get() != id || state.generation.get() != generation {
+                return;
+            }
             if let Some(image) = unsafe { image.as_ref() }
                 && let Some(data) = image.TIFFRepresentation()
-                && let Some(bitmap) = NSBitmapImageRep::imageRepWithData(&data)
-                && let Some(png) = unsafe {
-                    bitmap.representationUsingType_properties(
-                        NSBitmapImageFileType::PNG,
-                        &NSDictionary::new(),
-                    )
-                }
             {
-                let _ = sender.try_send(Event::Snapshot(png.to_vec()));
+                let tiff = data.to_vec();
+                let sender = state.sender.clone();
+                let _ = state.worker.try_spawn(move || {
+                    if let Some(png) = snapshot_png(&tiff) {
+                        let _ = sender.try_send(Event::Snapshot {
+                            id,
+                            generation,
+                            png,
+                        });
+                    }
+                });
             }
         });
         unsafe {
@@ -580,6 +597,24 @@ impl NativeWebview {
                 .takeSnapshotWithConfiguration_completionHandler(None, &completion);
         }
     }
+
+    pub fn is_current_snapshot(&self, id: u64, generation: u64) -> bool {
+        let state = self.delegate.ivars();
+        state.snapshot_id.get() == id && state.generation.get() == generation
+    }
+}
+
+fn snapshot_png(tiff: &[u8]) -> Option<Vec<u8>> {
+    objc2::rc::autoreleasepool(|_| {
+        let bitmap = NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(tiff))?;
+        unsafe {
+            bitmap.representationUsingType_properties(
+                NSBitmapImageFileType::PNG,
+                &NSDictionary::new(),
+            )
+        }
+        .map(|png| png.to_vec())
+    })
 }
 
 fn install_script(controller: &WKUserContentController, source: &str, mtm: MainThreadMarker) {
@@ -822,6 +857,38 @@ fn asset_response(
 mod tests {
     use super::*;
     use gpui::{point, px, size};
+
+    #[test]
+    fn snapshot_encoding_preserves_pixels_on_a_worker() {
+        let rgba = vec![
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 10, 20, 30, 255,
+        ];
+        let source = image::RgbaImage::from_raw(2, 2, rgba.clone()).expect("source pixels");
+        let mut png = std::io::Cursor::new(Vec::new());
+        source
+            .write_to(&mut png, image::ImageFormat::Png)
+            .expect("PNG");
+        let bitmap =
+            NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(png.get_ref())).expect("bitmap");
+        let tiff = bitmap.TIFFRepresentation().expect("TIFF").to_vec();
+        let worker = WorkerPool::new("snapshot-test", 1, 1).expect("worker");
+        let (send, receive) = std::sync::mpsc::channel();
+        worker
+            .try_spawn(move || {
+                send.send(snapshot_png(&tiff)).expect("snapshot receiver");
+            })
+            .expect("queued snapshot");
+        let png = receive
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("snapshot completed")
+            .expect("snapshot PNG");
+        let decoded = image::load_from_memory(&png)
+            .expect("decoded snapshot")
+            .into_rgba8();
+        assert_eq!(decoded.dimensions(), (2, 2));
+        assert_eq!(decoded.into_raw(), rgba);
+        assert!(snapshot_png(b"incomplete snapshot").is_none());
+    }
 
     #[test]
     fn native_function_keys_and_shifted_symbols_match_gpui_bindings() {

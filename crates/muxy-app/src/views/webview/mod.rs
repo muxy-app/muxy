@@ -96,6 +96,7 @@ pub(crate) struct Webview {
     background: gpui::Rgba,
     presentation: Presentation,
     snapshot: Option<Arc<gpui::RenderImage>>,
+    snapshot_task: Option<Task<()>>,
     error: Option<String>,
     radius: f64,
     closes: CloseRequests,
@@ -150,6 +151,7 @@ impl Webview {
                 background: theme.bg.into(),
                 presentation: Presentation::default(),
                 snapshot: None,
+                snapshot_task: None,
                 error: None,
                 radius: 0.0,
                 closes: CloseRequests::default(),
@@ -225,6 +227,7 @@ impl Webview {
                 self.fail_closes();
                 self.error = None;
                 self.snapshot = None;
+                self.snapshot_task = None;
             }
             Event::Loaded => {
                 self.push_state();
@@ -232,20 +235,33 @@ impl Webview {
             }
             Event::Failed(error) => {
                 self.fail_closes();
+                self.snapshot_task = None;
                 self.error = Some(error);
                 self.native.set_visible(false);
             }
             Event::Escape => cx.emit(SurfaceEvent::Escape),
             Event::Shortcut(key) => cx.emit(SurfaceEvent::Shortcut(key)),
-            Event::Snapshot(bytes) => {
-                if let Ok(image) = image::load_from_memory(&bytes) {
-                    let mut rgba = image.into_rgba8();
-                    for pixel in rgba.pixels_mut() {
-                        pixel.0.swap(0, 2);
-                    }
-                    self.snapshot =
-                        Some(Arc::new(gpui::RenderImage::new([image::Frame::new(rgba)])));
+            Event::Snapshot {
+                id,
+                generation,
+                png,
+            } => {
+                if self.error.is_some() || !self.native.is_current_snapshot(id, generation) {
+                    return;
                 }
+                let decode = cx
+                    .background_executor()
+                    .spawn(async move { decode_snapshot(&png) });
+                self.snapshot_task = Some(cx.spawn(async move |view, cx| {
+                    let Ok(image) = decode.await else { return };
+                    let _ = view.update(cx, |view, cx| {
+                        if view.error.is_none() && view.native.is_current_snapshot(id, generation) {
+                            view.snapshot = Some(Arc::new(image));
+                            cx.notify();
+                        }
+                    });
+                }));
+                return;
             }
         }
         cx.notify();
@@ -369,6 +385,14 @@ impl Webview {
     }
 }
 
+fn decode_snapshot(png: &[u8]) -> image::ImageResult<gpui::RenderImage> {
+    let mut rgba = image::load_from_memory(png)?.into_rgba8();
+    for pixel in rgba.pixels_mut() {
+        pixel.0.swap(0, 2);
+    }
+    Ok(gpui::RenderImage::new([image::Frame::new(rgba)]))
+}
+
 impl Drop for Webview {
     fn drop(&mut self) {
         self.fail_closes();
@@ -475,7 +499,32 @@ pub(crate) fn placeholder(
 
 #[cfg(test)]
 mod tests {
-    use super::Presentation;
+    use super::{Presentation, decode_snapshot};
+
+    #[test]
+    fn snapshots_preserve_dimensions_rows_and_alpha_in_bgra_order() {
+        let rgba = vec![
+            255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 10, 20, 30, 255,
+        ];
+        let source = image::RgbaImage::from_raw(2, 2, rgba).expect("source pixels");
+        let mut png = std::io::Cursor::new(Vec::new());
+        source
+            .write_to(&mut png, image::ImageFormat::Png)
+            .expect("PNG");
+        let decoded = decode_snapshot(png.get_ref()).expect("snapshot");
+        assert_eq!(decoded.size(0), gpui::size(2.into(), 2.into()));
+        assert_eq!(
+            decoded.as_bytes(0).expect("pixels"),
+            [
+                0, 0, 255, 255, 0, 255, 0, 128, 255, 0, 0, 0, 30, 20, 10, 255
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_snapshot_data_is_rejected() {
+        assert!(decode_snapshot(b"incomplete snapshot").is_err());
+    }
 
     #[test]
     fn live_modals_hide_snapshots_while_tabs_keep_occlusion_backing() {
