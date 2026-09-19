@@ -3,6 +3,8 @@ use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, point};
 use muxy_app_core::settings::{AppLayout, ProjectOrder, Settings, SidebarCollapsedStyle};
 
 fn click(cx: &mut VisualTestContext, selector: &str) {
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
     let position = cx
         .debug_bounds(selector.to_owned().leak())
         .expect("control")
@@ -560,6 +562,7 @@ fn selecting_a_worktree_reveals_its_saved_parent_and_tabs(cx: &mut TestAppContex
         assert!(!model.navigation_tabs().contains(&tab));
     });
     view.update(cx, |model, cx| model.select_tab(tab, cx));
+    cx.update(|window, _| window.refresh());
     cx.run_until_parked();
     let parent_bounds = cx
         .debug_bounds(format!("tab-project-{project}").leak())

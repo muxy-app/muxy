@@ -121,6 +121,8 @@ pub(crate) struct Snapshot {
 
 pub(crate) struct SettingsView {
     pub(crate) extensions: Option<Entity<extensions::ExtensionsView>>,
+    navigation_view: Entity<super::cached::CachedView<Self>>,
+    content_view: Entity<super::cached::CachedView<Self>>,
     quick_recording: Option<(muxy_ui::quick_terminal::ShortcutRecording, gpui::Task<()>)>,
     quick_slider: Option<(&'static str, gpui::Bounds<gpui::Pixels>)>,
     pub(crate) focus: FocusHandle,
@@ -154,6 +156,14 @@ pub(crate) struct SettingsView {
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
 impl SettingsView {
+    #[cfg(test)]
+    pub(crate) fn region_render_counts(&self, cx: &gpui::App) -> (usize, usize) {
+        (
+            self.navigation_view.read(cx).render_count,
+            self.content_view.read(cx).render_count,
+        )
+    }
+
     pub(crate) fn new(
         snapshot: Snapshot,
         theme: Theme,
@@ -182,6 +192,8 @@ impl SettingsView {
         });
         let mut pane = Self {
             extensions: None,
+            navigation_view: super::cached::CachedView::new(|view, _, cx| view.navigation(cx), cx),
+            content_view: super::cached::CachedView::new(|view, _, cx| view.content(cx), cx),
             quick_recording: None,
             quick_slider: None,
             focus,

@@ -73,7 +73,9 @@ impl EntityInputHandler for TerminalPane {
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let composition = std::mem::take(&mut self.composition);
         self.send_paste(composition.text.as_bytes(), cx);
-        cx.notify();
+        if !composition.text.is_empty() {
+            cx.notify();
+        }
     }
 
     fn replace_text_in_range(
@@ -84,9 +86,12 @@ impl EntityInputHandler for TerminalPane {
         cx: &mut Context<Self>,
     ) {
         let mut composition = std::mem::take(&mut self.composition);
+        let had_composition = !composition.text.is_empty();
         composition.replace(range, text);
         self.send_paste(composition.text.as_bytes(), cx);
-        cx.notify();
+        if had_composition {
+            cx.notify();
+        }
     }
 
     fn replace_and_mark_text_in_range(

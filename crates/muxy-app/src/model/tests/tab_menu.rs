@@ -13,6 +13,8 @@ fn fixture() -> (AppState, [TabId; 4]) {
 }
 
 fn click(cx: &mut VisualTestContext, selector: &str, button: MouseButton) {
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
     let position = cx
         .debug_bounds(selector.to_owned().leak())
         .expect(selector)

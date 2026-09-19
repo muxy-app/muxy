@@ -123,7 +123,7 @@ impl SettingsView {
         })
     }
 
-    fn navigation(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn navigation(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .debug_selector(|| "settings-navigation".into())
             .flex_none()
@@ -237,13 +237,16 @@ impl SettingsView {
             .into_any_element()
     }
 
-    fn content(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn content(&self, cx: &mut Context<Self>) -> AnyElement {
+        for anchor in self.picker_anchors.values() {
+            anchor.set(None);
+        }
         if self.category == Category::Extensions
             && self.query.is_empty()
             && let Some(extensions) = &self.extensions
         {
             return div()
-                .flex_1()
+                .w_full()
                 .min_w_0()
                 .min_h_0()
                 .h_full()
@@ -254,7 +257,7 @@ impl SettingsView {
         let view = cx.entity();
         div()
             .relative()
-            .flex_1()
+            .w_full()
             .min_w(px(0.0))
             .min_h(px(0.0))
             .h_full()
@@ -308,9 +311,6 @@ impl SettingsView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        for anchor in self.picker_anchors.values() {
-            anchor.set(None);
-        }
         self.compact = size.width < px(660.0);
         self.refresh_results(size.height, window, cx);
         div()
@@ -318,8 +318,24 @@ impl SettingsView {
             .size_full()
             .flex()
             .when(self.compact, Styled::flex_col)
-            .child(self.navigation(cx))
-            .child(self.content(cx))
+            .child(if self.compact {
+                self.navigation(cx)
+            } else {
+                gpui::AnyView::from(self.navigation_view.clone())
+                    .cached(div().w(px(248.0)).h_full().flex_none().style().clone())
+                    .into_any_element()
+            })
+            .child(
+                gpui::AnyView::from(self.content_view.clone()).cached(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .min_h(px(0.0))
+                        .h_full()
+                        .style()
+                        .clone(),
+                ),
+            )
             .into_any_element()
     }
 }

@@ -59,6 +59,8 @@ pub(crate) enum PaneState {
     reason = "Visibility, focus restoration and bell activity are independent pane states"
 )]
 pub(crate) struct TerminalPane {
+    #[cfg(test)]
+    pub(crate) render_count: usize,
     pub(crate) sent_cell_size: Option<(ChannelId, muxy_protocol::CellSize)>,
     pub(crate) images: element::images::Textures,
     pub(crate) shades: element::shade::Textures,
@@ -130,6 +132,8 @@ impl TerminalPane {
             });
         });
         Self {
+            #[cfg(test)]
+            render_count: 0,
             _keybindings: keybindings,
             configured_font_size: terminal.font_size,
             grid: None,
@@ -1119,14 +1123,20 @@ impl TerminalPane {
             && !bytes.is_empty()
             && let Some(channel) = self.channel
         {
-            if self.terminal.options.scroll_on_keystroke {
+            if self.terminal.options.scroll_on_keystroke
+                && (self.scroll.view.is_some() || self.scroll.elastic != 0.0)
+            {
                 self.scroll_to_bottom(cx);
             }
+            let redraw = !self.cursor_blink.visible
+                || (self.terminal.options.selection_clear_on_typing && self.selection.is_some());
             if self.terminal.options.selection_clear_on_typing {
                 self.clear_selection();
             }
-            self.cursor_blink.reset();
-            cx.notify();
+            self.restart_cursor_blink(cx);
+            if redraw {
+                cx.notify();
+            }
             for chunk in bytes.chunks(muxy_protocol::MAX_INPUT) {
                 cx.emit(PaneEvent::Input(channel, chunk.to_vec()));
             }
@@ -1252,6 +1262,10 @@ impl TerminalPane {
 
 impl Render for TerminalPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(test)]
+        {
+            self.render_count += 1;
+        }
         if self.find_focus_pending {
             self.find_focus_pending = false;
             self.focus.focus(window);

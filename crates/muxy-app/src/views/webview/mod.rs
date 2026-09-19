@@ -130,6 +130,8 @@ impl Webview {
             kind == SurfaceKind::Modal,
         )?;
         Ok(cx.new(move |cx| {
+            cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
+                .detach();
             let events = cx.spawn(async move |view: gpui::WeakEntity<Self>, cx| {
                 while let Ok(event) = events.recv().await {
                     if view.update(cx, |view, cx| view.handle(event, cx)).is_err() {
@@ -226,7 +228,7 @@ impl Webview {
             Event::Navigated => {
                 self.fail_closes();
                 self.error = None;
-                self.snapshot = None;
+                self.clear_snapshot(cx);
                 self.snapshot_task = None;
             }
             Event::Loaded => {
@@ -256,6 +258,7 @@ impl Webview {
                     let Ok(image) = decode.await else { return };
                     let _ = view.update(cx, |view, cx| {
                         if view.error.is_none() && view.native.is_current_snapshot(id, generation) {
+                            view.clear_snapshot(cx);
                             view.snapshot = Some(Arc::new(image));
                             cx.notify();
                         }
@@ -265,6 +268,12 @@ impl Webview {
             }
         }
         cx.notify();
+    }
+
+    fn clear_snapshot(&mut self, cx: &mut gpui::App) {
+        if let Some(image) = self.snapshot.take() {
+            cx.drop_image(image, None);
+        }
     }
 
     fn push_state(&self) {
