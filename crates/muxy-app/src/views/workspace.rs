@@ -430,7 +430,7 @@ impl AppModel {
                     pane.corner_radius = radius;
                     cx.notify();
                 }
-                pane.native_visible = self.overlay.is_none()
+                let native_visible = self.overlay.is_none()
                     && self.voice.view.is_none()
                     && self.voice.closing.is_none()
                     && self.close_prompt.is_none()
@@ -439,6 +439,10 @@ impl AppModel {
                         || (self.settings.composer.pinned
                             && self.settings.composer.presentation
                                 == muxy_app_core::settings::ComposerPresentation::Panel));
+                if pane.native_visible != native_visible {
+                    pane.native_visible = native_visible;
+                    cx.notify();
+                }
                 #[cfg(target_os = "macos")]
                 if let Some(scroll) = &pane.native_scroll {
                     scroll.set_visible(pane.native_visible && pane.grid.is_some());
@@ -505,7 +509,7 @@ impl Render for AppModel {
             .font_family(".SystemUIFont")
             .line_height(relative(1.2))
             .when(sidebar_width > 0.0, |body| {
-                body.child(sidebar::sidebar(self, window, cx))
+                body.child(self.cached_sidebar())
             })
             .child(
                 div()

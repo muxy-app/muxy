@@ -103,6 +103,18 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
 }
 
 impl AppModel {
+    pub(crate) fn cached_sidebar(&self) -> gpui::AnyView {
+        gpui::AnyView::from(self.sidebar_view.clone()).cached(
+            div()
+                .w(px(self.sidebar_width()))
+                .h_full()
+                .min_h(px(0.0))
+                .flex_none()
+                .style()
+                .clone(),
+        )
+    }
+
     pub(crate) fn sidebar_width(&self) -> f32 {
         if self.appearance.sidebar_expanded {
             let width = self

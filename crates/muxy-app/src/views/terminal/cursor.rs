@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use gpui::{Context, Task, Window};
+use gpui::{AnyWindowHandle, Context, Task, Window};
 
 use super::pane::{PaneState, TerminalPane};
 
@@ -10,6 +10,7 @@ pub(crate) struct CursorBlink {
     pub(crate) enabled: bool,
     pub(crate) visible: bool,
     task: Option<Task<()>>,
+    window: Option<AnyWindowHandle>,
 }
 
 impl Default for CursorBlink {
@@ -18,6 +19,7 @@ impl Default for CursorBlink {
             enabled: true,
             visible: true,
             task: None,
+            window: None,
         }
     }
 }
@@ -30,6 +32,14 @@ impl CursorBlink {
 }
 
 impl TerminalPane {
+    pub(super) fn restart_cursor_blink(&mut self, cx: &mut Context<Self>) {
+        let running = self.cursor_blink.task.is_some();
+        self.cursor_blink.reset();
+        if running && let Some(window) = self.cursor_blink.window {
+            self.start_cursor_blink(window, cx);
+        }
+    }
+
     fn should_blink_cursor(&self, window: &Window) -> bool {
         self.cursor_blink.enabled
             && self.state == PaneState::Live
@@ -46,13 +56,20 @@ impl TerminalPane {
     }
 
     pub(crate) fn sync_cursor_blink(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.cursor_blink.window = Some(window.window_handle());
         if !self.should_blink_cursor(window) {
             self.cursor_blink.reset();
         } else if self.cursor_blink.task.is_none() {
-            self.cursor_blink.task = Some(cx.spawn_in(window, async move |pane, cx| {
-                loop {
-                    cx.background_executor().timer(BLINK_INTERVAL).await;
-                    let keep_blinking = pane.update_in(cx, |pane, window, cx| {
+            self.start_cursor_blink(window.window_handle(), cx);
+        }
+    }
+
+    fn start_cursor_blink(&mut self, window: AnyWindowHandle, cx: &mut Context<Self>) {
+        self.cursor_blink.task = Some(cx.spawn(async move |pane, cx| {
+            loop {
+                cx.background_executor().timer(BLINK_INTERVAL).await;
+                let keep_blinking = window.update(cx, |_, window, cx| {
+                    pane.update(cx, |pane, cx| {
                         let blinking = pane.should_blink_cursor(window);
                         if blinking {
                             pane.cursor_blink.visible = !pane.cursor_blink.visible;
@@ -61,13 +78,13 @@ impl TerminalPane {
                         }
                         cx.notify();
                         blinking
-                    });
-                    if !matches!(keep_blinking, Ok(true)) {
-                        break;
-                    }
+                    })
+                });
+                if !matches!(keep_blinking, Ok(Ok(true))) {
+                    break;
                 }
-            }));
-        }
+            }
+        }));
     }
 }
 
@@ -128,6 +145,28 @@ mod tests {
     fn tick(cx: &mut VisualTestContext) {
         cx.executor().advance_clock(BLINK_INTERVAL);
         cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn typing_without_echo_preserves_the_frame_and_restarts_the_blink_timer(
+        cx: &mut TestAppContext,
+    ) {
+        let (pane, cx) = setup(cx);
+        let renders = pane.read_with(cx, |pane, _| pane.render_count);
+        cx.executor().advance_clock(Duration::from_millis(400));
+        cx.simulate_keystrokes("a");
+        cx.run_until_parked();
+        assert_eq!(pane.read_with(cx, |pane, _| pane.render_count), renders);
+        cx.executor().advance_clock(Duration::from_millis(400));
+        cx.run_until_parked();
+        assert!(pane.read_with(cx, |pane, _| pane.cursor_blink.visible));
+        cx.executor().advance_clock(Duration::from_millis(130));
+        cx.run_until_parked();
+        assert!(!pane.read_with(cx, |pane, _| pane.cursor_blink.visible));
+        cx.simulate_keystrokes("b");
+        cx.run_until_parked();
+        assert!(pane.read_with(cx, |pane, _| pane.cursor_blink.visible));
+        assert!(pane.read_with(cx, |pane, _| pane.render_count) > renders);
     }
 
     #[gpui::test]

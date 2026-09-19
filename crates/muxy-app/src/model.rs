@@ -29,12 +29,22 @@ use muxy_ui::theme::{Metrics, Theme};
 pub(crate) struct PaneView {
     pub(crate) view: Entity<TerminalPane>,
     _subscription: Subscription,
+    _invalidation: Subscription,
 }
 
 impl PaneView {
     pub(crate) fn element(&self) -> gpui::AnyElement {
-        use gpui::IntoElement;
-        self.view.clone().into_any_element()
+        use gpui::{IntoElement, Styled};
+        gpui::AnyView::from(self.view.clone())
+            .cached(
+                gpui::div()
+                    .size_full()
+                    .min_w(gpui::px(0.0))
+                    .min_h(gpui::px(0.0))
+                    .style()
+                    .clone(),
+            )
+            .into_any_element()
     }
 
     pub(crate) fn focus(&self, window: &mut Window, cx: &gpui::App) {
@@ -67,6 +77,7 @@ struct CloseRequest {
 }
 
 pub(crate) struct AppModel {
+    pub(crate) sidebar_view: Entity<crate::views::cached::CachedView<Self>>,
     pub(crate) webviews: webviews::Webviews,
     pub(crate) panels: muxy_ui::panel::PanelHost,
     pub(crate) composer: composer::ComposerRuntime,
@@ -374,6 +385,10 @@ impl AppModel {
             });
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         let mut model = Self {
+            sidebar_view: crate::views::cached::CachedView::new(
+                |model, window, cx| crate::views::sidebar::sidebar(model, window, cx),
+                cx,
+            ),
             webviews: webviews::Webviews::default(),
             panels: muxy_ui::panel::PanelHost::default(),
             composer: composer::ComposerRuntime::new(boot.composer),
@@ -1312,6 +1327,8 @@ impl AppModel {
             pane.set_state(state, cx);
             pane
         });
+        let model = cx.entity();
+        let invalidation = view.update(cx, |_, cx| cx.observe(&model, |_, _, cx| cx.notify()));
         let subscription = cx.subscribe(&view, move |model, _, event, cx| match event {
             PaneEvent::Title(title) => {
                 let _ = model.state.set_pane_title(id, title.clone());
@@ -1355,6 +1372,7 @@ impl AppModel {
             PaneView {
                 view,
                 _subscription: subscription,
+                _invalidation: invalidation,
             },
         );
         if !self.is_quick_terminal(id) {
@@ -2135,6 +2153,7 @@ mod tests {
     mod progress;
     mod projects;
     mod quick_terminal;
+    mod rendering;
     mod scrollback;
     mod session_ownership;
     mod sidebar;

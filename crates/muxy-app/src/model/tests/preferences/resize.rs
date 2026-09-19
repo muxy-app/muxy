@@ -400,3 +400,31 @@ fn settings_scrollbar_scrolls_and_settings_resize_never_changes_workspace_bounds
         );
     });
 }
+
+#[gpui::test]
+fn navigation_hover_preserves_settings_content_and_selection_refreshes_it(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (model, cx) = settings_window(boot, cx);
+    let settings = model.read_with(cx, |model, _| settings_view(model));
+    let counts = |cx: &mut VisualTestContext| {
+        settings.read_with(
+            cx,
+            crate::views::settings::SettingsView::region_render_counts,
+        )
+    };
+    let (navigation, content) = counts(cx);
+    let row = cx
+        .debug_bounds("settings-category-Appearance")
+        .expect("category");
+    cx.simulate_event(gpui::MouseMoveEvent {
+        position: row.center(),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    let (next_navigation, next_content) = counts(cx);
+    assert!(next_navigation > navigation);
+    assert_eq!(next_content, content);
+    click_preference(cx, "settings-category-Appearance");
+    assert!(counts(cx).1 > content);
+    assert!(cx.debug_bounds("settings-picker-dark-theme").is_some());
+}
