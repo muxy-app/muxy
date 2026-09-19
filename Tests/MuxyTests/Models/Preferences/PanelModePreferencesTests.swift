@@ -61,4 +61,21 @@ struct PanelModePreferencesTests {
         #expect(mode == .pinned)
         #expect(defaults.string(forKey: preferences.storageKey(for: BuiltinPanel.richInput)) == "pinned")
     }
+
+    @Test("supports compact mode")
+    func supportsCompactMode() throws {
+        let suiteName = "PanelModePreferencesTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = PanelModePreferences(defaults: defaults)
+        let host = PanelHost(modePreferences: preferences)
+
+        host.open("ext:files:files", at: .right, mode: .compact)
+        #expect(host.placement(for: "ext:files:files")?.mode == .compact)
+
+        preferences.setMode(.compact, for: "ext:files:files")
+        let restoredHost = PanelHost(modePreferences: PanelModePreferences(defaults: defaults))
+        restoredHost.open("ext:files:files", at: .right, mode: .pinned)
+        #expect(restoredHost.placement(for: "ext:files:files")?.mode == .compact)
+    }
 }

@@ -65,8 +65,8 @@ struct PanelContainer<Content: View>: View {
                 }
                 if chrome.shows(.pin), let onTogglePin {
                     control(
-                        symbol: mode == .floating ? "pin" : "pin.slash",
-                        label: mode == .floating ? L10n.string("Dock Panel") : L10n.string("Float Panel"),
+                        symbol: pinSymbol,
+                        label: pinLabel,
                         focus: .pin,
                         action: onTogglePin
                     )
@@ -134,5 +134,21 @@ struct PanelContainer<Content: View>: View {
 
     private var positionLabel: String {
         L10n.string("Move to \(L10n.string(key: position.opposite.displayName))")
+    }
+
+    private var pinSymbol: String {
+        switch mode {
+        case .floating: "pin"
+        case .pinned: "pin.slash"
+        case .compact: "rectangle.compress.vertical"
+        }
+    }
+
+    private var pinLabel: String {
+        switch mode {
+        case .floating: L10n.string("Dock Panel")
+        case .pinned: L10n.string("Float Panel")
+        case .compact: L10n.string("Expand Panel")
+        }
     }
 }
