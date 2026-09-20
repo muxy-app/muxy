@@ -133,6 +133,7 @@ impl AppModel {
                 let theme = self.theme.clone();
                 bar = bar.child(
                     div()
+                        .debug_selector(|| "extension-toolbar-item".into())
                         .id(gpui::SharedString::from(format!(
                             "extension-toolbar-{}-{}",
                             extension.name, item.id
