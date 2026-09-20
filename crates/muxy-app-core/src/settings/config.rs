@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ use crate::settings::{Appearance, Error, Keymap, Result};
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub composer: super::ComposerSettings,
+    pub panel_pins: BTreeMap<String, BTreeMap<String, bool>>,
     pub quick_terminal: crate::settings::QuickTerminalSettings,
     pub appearance: Appearance,
     pub window: WindowSettings,
@@ -67,6 +69,31 @@ impl Default for WindowSettings {
 }
 
 impl Settings {
+    pub fn panel_pinned(&self, owner: &str, panel: &str, default: bool) -> bool {
+        self.panel_pins
+            .get(owner)
+            .and_then(|panels| panels.get(panel))
+            .copied()
+            .unwrap_or(default)
+    }
+
+    pub fn set_panel_pinned(
+        &mut self,
+        owner: &str,
+        panel: &str,
+        pinned: bool,
+        path: &Path,
+    ) -> Result<()> {
+        let mut pins = self.panel_pins.clone();
+        pins.entry(owner.into())
+            .or_default()
+            .insert(panel.into(), pinned);
+        crate::settings::appearance::save_section(path, "panel_pins", &pins)
+            .map_err(|error| Error::new("panel_pins", error))?;
+        self.panel_pins = pins;
+        Ok(())
+    }
+
     pub fn set_confirm_running_process(&mut self, enabled: bool, path: &Path) -> Result<()> {
         let values = toml::Table::from_iter([(
             "confirm_running_process".into(),

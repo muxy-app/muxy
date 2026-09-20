@@ -140,7 +140,8 @@ impl AppModel {
             window,
             cx,
         )?;
-        let placement = PanelPlacement::new(id.clone(), definition.position, definition.mode);
+        let mode = self.webview_panel_mode(&owner, kind, definition.mode);
+        let placement = PanelPlacement::new(id.clone(), definition.position, mode);
         self.place_panel(placement.clone(), cx);
         if self.overlay.is_none() {
             surface.view.read(cx).focus.focus(window);
@@ -184,6 +185,17 @@ impl AppModel {
         Ok(Value::Null)
     }
 
+    fn webview_panel_mode(&self, owner: &str, kind: &str, default: PanelMode) -> PanelMode {
+        if self
+            .settings
+            .panel_pinned(owner, kind, default == PanelMode::Pinned)
+        {
+            PanelMode::Pinned
+        } else {
+            PanelMode::Floating
+        }
+    }
+
     pub(crate) fn place_panel(&mut self, placement: PanelPlacement, cx: &mut Context<Self>) {
         if let Some(displacement) = self.panels.place(placement) {
             let id = displacement.displaced.id;
@@ -203,6 +215,16 @@ impl AppModel {
             return;
         };
         if toggle_mode {
+            let view = panel.surface.view.read(cx);
+            if let Err(error) = self.settings.set_panel_pinned(
+                &view.source.owner,
+                &view.instance,
+                panel.placement.mode != PanelMode::Pinned,
+                &self.path.with_file_name("settings.toml"),
+            ) {
+                self.fail(format!("Could not save panel pin: {error}"), cx);
+                return;
+            }
             panel.placement.mode = panel.placement.mode.toggled();
         } else {
             panel.placement.position = panel.placement.position.moved();
@@ -259,13 +281,12 @@ impl AppModel {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let mut shortcuts = super::surface_shortcuts(&self.settings.keymap);
-        shortcuts.extend(self.extension_keystrokes());
+        let shortcuts = self.webview_shortcuts();
         for (id, panel) in &mut self.webviews.panels {
             let visible = self.panels.placement(id).is_some();
             panel.focused = panel.is_focused(window, cx);
             panel.surface.view.update(cx, |view, cx| {
-                view.native.set_shortcuts(false, shortcuts.clone());
+                view.native.set_shortcuts(false, shortcuts.to_vec());
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     visible,

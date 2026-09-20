@@ -13,6 +13,7 @@ mod webviews;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use gpui::{AppContext, Context, Entity, FocusHandle, Subscription, Task, Window};
 use muxy_app_core::{
@@ -121,6 +122,8 @@ pub(crate) struct AppModel {
     pub(crate) configuration_error: Option<String>,
     path: PathBuf,
     bounds_save: Option<Task<()>>,
+    webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
+    pub(crate) spinners: crate::views::tab_activity::Spinners,
     work: Worker,
     pending: HashSet<PaneId>,
     detached_pending: HashSet<PaneId>,
@@ -441,6 +444,8 @@ impl AppModel {
             configuration_error,
             path: boot.state_path,
             bounds_save: None,
+            webview_shortcuts: None,
+            spinners: crate::views::tab_activity::Spinners::default(),
             work: boot.work,
             pending: HashSet::new(),
             detached_pending: HashSet::new(),

@@ -300,6 +300,7 @@ impl AppModel {
             || self.appearance.light_theme != settings.appearance.light_theme;
         self.appearance = settings.appearance.clone();
         self.settings = settings;
+        self.invalidate_webview_shortcuts();
         if bindings_changed {
             self.bind_extension_keys(cx);
         }

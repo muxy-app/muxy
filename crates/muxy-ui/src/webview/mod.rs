@@ -689,10 +689,7 @@ impl NativeWebview {
 }
 
 fn snapshot_rows(image: &NSImage, width: u32, height: u32) -> Option<Vec<u8>> {
-    objc2::rc::autoreleasepool(|_| unsafe {
-        let rep = crate::bitmap::draw_into_bitmap(image, width, height)?;
-        crate::bitmap::rgba_rows(&rep, width, height)
-    })
+    crate::bitmap::render_rgba(image, width, height)
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

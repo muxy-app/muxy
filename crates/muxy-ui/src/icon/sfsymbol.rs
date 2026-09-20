@@ -30,7 +30,7 @@ pub(super) fn rasterize(symbol: &str, point_size: f32, weight: f32, scale: f32) 
     {
         return None;
     }
-    autoreleasepool(|_| unsafe {
+    autoreleasepool(|_| {
         let name = NSString::from_str(symbol);
         let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(&name, None)?;
 
@@ -45,8 +45,7 @@ pub(super) fn rasterize(symbol: &str, point_size: f32, weight: f32, scale: f32) 
         let width = dimension(natural.width * f64::from(scale))?;
         let height = dimension(natural.height * f64::from(scale))?;
 
-        let rep = bitmap::draw_into_bitmap(&image, width, height)?;
-        let alpha = bitmap::rgba_rows(&rep, width, height)?
+        let alpha = bitmap::render_rgba(&image, width, height)?
             .chunks_exact(4)
             .map(|pixel| pixel[3])
             .collect();

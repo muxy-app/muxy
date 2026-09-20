@@ -262,6 +262,7 @@ impl AppModel {
         self.extensions.local_revision = snapshot.revision;
         self.extensions.registry = snapshot.registry;
         self.extensions.grants = snapshot.grants;
+        self.invalidate_webview_shortcuts();
         self.register_extension_surfaces(cx);
         self.sync_extension_events(cx);
         cx.notify();

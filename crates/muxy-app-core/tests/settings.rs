@@ -14,6 +14,62 @@ use muxy_app_core::settings::{CellHeight, KeyChord, Keymap, Settings, TerminalSe
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[test]
+fn panel_pins_survive_reload_and_override_defaults_independently() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[composer]\npinned = true\n[keymap]\nnew_tab = 'cmd-n'\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    assert!(settings.panel_pins.is_empty());
+    assert!(settings.panel_pinned("git.tools", "changes", true));
+    assert!(!settings.panel_pinned("git.tools", "changes", false));
+
+    settings.set_panel_pinned("git.tools", "changes", true, &path)?;
+    settings = Settings::load(&path)?;
+    assert!(settings.panel_pinned("git.tools", "changes", false));
+    assert!(!settings.panel_pinned("files", "changes", false));
+    assert!(!settings.panel_pinned("git.tools", "history", false));
+
+    settings.set_panel_pinned("files", "changes", true, &path)?;
+    settings.set_panel_pinned("git.tools", "history", true, &path)?;
+    settings.set_panel_pinned("git.tools", "changes", false, &path)?;
+    settings = Settings::load(&path)?;
+    assert!(!settings.panel_pinned("git.tools", "changes", true));
+    assert!(settings.panel_pinned("files", "changes", false));
+    assert!(settings.panel_pinned("git.tools", "history", false));
+    assert!(settings.composer.pinned);
+    assert_eq!(
+        settings
+            .keymap
+            .chord(ShortcutId::NewTab)
+            .map(KeyChord::as_str),
+        Some("cmd-n")
+    );
+    settings.save_composer(&path)?;
+    assert_eq!(Settings::load(&path)?, settings);
+    Ok(())
+}
+
+#[test]
+fn failed_panel_pin_save_preserves_the_previous_preference() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "")?;
+    let mut settings = Settings::load(&path)?;
+    settings.set_panel_pinned("git", "changes", true, &path)?;
+    let previous = settings.clone();
+    fs::write(&path, "invalid toml")?;
+    assert!(
+        settings
+            .set_panel_pinned("git", "changes", false, &path)
+            .is_err()
+    );
+    assert_eq!(settings, previous);
+    assert_eq!(fs::read_to_string(&path)?, "invalid toml");
+    Ok(())
+}
+
+#[test]
 fn close_behavior_defaults_to_close_and_persists_without_changing_other_preferences() -> Result {
     use muxy_app_core::settings::CloseBehavior;
     let fixture = Fixture::new()?;

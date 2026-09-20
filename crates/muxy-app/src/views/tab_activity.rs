@@ -1,8 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, AppContext, Bounds, Hsla, IntoElement, ParentElement,
-    PathBuilder, Pixels, SharedString, StatefulInteractiveElement, Styled, canvas, div, percentage,
-    point, px, svg,
+    AnyElement, AppContext, Bounds, Hsla, IntoElement, ParentElement, PathBuilder, Pixels, Rgba,
+    SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, svg,
 };
 use muxy_app_core::{
     PaneContent, ProjectId, Tab,
@@ -11,6 +10,10 @@ use muxy_app_core::{
 };
 use muxy_protocol::{AgentProvider, ProgressState, SessionId, TerminalProgress};
 use muxy_ui::components::Tooltip;
+use muxy_ui::spinner::NativeSpinner;
+use std::cell::RefCell;
+use std::collections::hash_map::{Entry, HashMap};
+use std::rc::Rc;
 
 use crate::model::AppModel;
 use gpui::InteractiveElement;
@@ -206,6 +209,75 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
         .into_any_element()
 }
 
+/// Indeterminate progress glyphs are native Core Animation layers, so a
+/// turning spinner costs the app no frames.
+#[derive(Clone, Default)]
+pub(crate) struct Spinners(Rc<RefCell<Registry>>);
+
+#[derive(Default)]
+struct Registry {
+    frame: u64,
+    blocked: bool,
+    natives: HashMap<String, Native>,
+}
+
+struct Native {
+    spinner: NativeSpinner,
+    seen: u64,
+}
+
+impl Spinners {
+    /// Starts a frame. Spinners that were not painted last frame are removed.
+    pub(crate) fn begin_frame(&self, blocked: bool) {
+        let mut registry = self.0.borrow_mut();
+        registry.frame += 1;
+        registry.blocked = blocked;
+        let current = registry.frame;
+        registry
+            .natives
+            .retain(|_, native| native.seen + 1 >= current);
+    }
+
+    fn glyph(&self, id: String, size: Pixels, color: Hsla) -> AnyElement {
+        let registry = self.0.clone();
+        canvas(
+            |_, _, _| (),
+            move |bounds, (), window, _| {
+                registry
+                    .borrow_mut()
+                    .paint(id, bounds, color.into(), window);
+            },
+        )
+        .size(size)
+        .into_any_element()
+    }
+}
+
+impl Registry {
+    fn paint(&mut self, id: String, bounds: Bounds<Pixels>, color: Rgba, window: &Window) {
+        // Test windows have no native view to attach to.
+        if cfg!(test) {
+            return;
+        }
+        let (frame, blocked) = (self.frame, self.blocked);
+        let native = match self.natives.entry(id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => match NativeSpinner::new(window) {
+                Ok(spinner) => entry.insert(Native {
+                    spinner,
+                    seen: frame,
+                }),
+                Err(_) => return,
+            },
+        };
+        native.seen = frame;
+        let mask = window.content_mask().bounds;
+        let visible =
+            !blocked && mask.contains(&bounds.origin) && mask.contains(&bounds.bottom_right());
+        native.spinner.show(bounds, color, visible);
+    }
+}
+
 pub(super) fn status_glyph(
     id: String,
     status: Status,
@@ -224,7 +296,7 @@ pub(super) fn status_glyph(
             (
                 "progress",
                 tooltip.to_owned(),
-                progress_circle(&id, progress, size, theme),
+                progress_circle(&id, progress, size, model),
             )
         }
         Status::Blocked | Status::Completed => {
@@ -291,26 +363,16 @@ fn progress_circle(
     id: &str,
     progress: TerminalProgress,
     size: Pixels,
-    theme: &muxy_ui::theme::Theme,
+    model: &AppModel,
 ) -> AnyElement {
+    let theme = &model.theme;
     let color = match progress.state {
         ProgressState::Error => theme.danger,
         ProgressState::Paused => theme.warning,
         ProgressState::Running | ProgressState::Indeterminate => theme.accent,
     };
     if progress.state == ProgressState::Indeterminate {
-        return svg()
-            .path("icons/progress-indeterminate.svg")
-            .size(size)
-            .text_color(color)
-            .with_animation(
-                SharedString::from(format!("terminal-progress-{id}")),
-                Animation::new(std::time::Duration::from_secs(1)).repeat(),
-                |svg, delta| {
-                    svg.with_transformation(gpui::Transformation::rotate(percentage(delta)))
-                },
-            )
-            .into_any_element();
+        return model.spinners.glyph(id.to_owned(), size, color);
     }
     progress_ring(
         size,

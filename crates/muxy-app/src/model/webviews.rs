@@ -113,14 +113,14 @@ impl AppModel {
                 .view
                 .as_ref()
                 .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active());
-        let mut shortcuts = surface_shortcuts(&self.settings.keymap);
-        shortcuts.extend(self.extension_keystrokes());
+        self.spinners.begin_frame(blocked);
+        let shortcuts = self.webview_shortcuts();
         for (id, surface) in &self.webviews.panes {
             surface
                 .view
                 .read(cx)
                 .native
-                .set_shortcuts(false, shortcuts.clone());
+                .set_shortcuts(false, shortcuts.to_vec());
             let Some(descriptor) = descriptors.get(id) else {
                 continue;
             };
@@ -781,6 +781,23 @@ fn surface_shortcuts(keymap: &muxy_app_core::settings::Keymap) -> Vec<gpui::Keys
 }
 
 impl AppModel {
+    /// Keystrokes webviews hand back to the app, rebuilt only after the
+    /// keymap or the extension registry changes.
+    pub(super) fn webview_shortcuts(&mut self) -> std::rc::Rc<Vec<gpui::Keystroke>> {
+        if let Some(shortcuts) = &self.webview_shortcuts {
+            return shortcuts.clone();
+        }
+        let mut shortcuts = surface_shortcuts(&self.settings.keymap);
+        shortcuts.extend(self.extension_keystrokes());
+        let shortcuts = std::rc::Rc::new(shortcuts);
+        self.webview_shortcuts = Some(shortcuts.clone());
+        shortcuts
+    }
+
+    pub(super) fn invalidate_webview_shortcuts(&mut self) {
+        self.webview_shortcuts = None;
+    }
+
     fn webview_metadata(
         view: &Entity<Webview>,
         request: &Request,
