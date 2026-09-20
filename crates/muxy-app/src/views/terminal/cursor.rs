@@ -72,6 +72,7 @@ impl TerminalPane {
                     pane.update(cx, |pane, cx| {
                         let blinking = pane.should_blink_cursor(window);
                         if blinking {
+                            crate::profiler::count(crate::profiler::Metric::CursorBlink, 1);
                             pane.cursor_blink.visible = !pane.cursor_blink.visible;
                         } else {
                             pane.cursor_blink.reset();

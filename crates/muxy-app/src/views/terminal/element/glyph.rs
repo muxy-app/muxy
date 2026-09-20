@@ -1,6 +1,6 @@
-use gpui::{Bounds, Hsla, Path, PathBuilder, Pixels, point, px};
+use gpui::{Bounds, Hsla, PathBuilder, Pixels, point, px};
 
-use super::box_drawing::STROKES;
+use super::{box_drawing::STROKES, dots, layers::Paths};
 
 pub(super) fn prepare(
     text: &str,
@@ -8,7 +8,7 @@ pub(super) fn prepare(
     color: Hsla,
     scale: f32,
     quads: &mut Vec<(Bounds<Pixels>, Hsla)>,
-    paths: &mut Vec<(Path<Pixels>, Hsla)>,
+    paths: &mut Paths,
 ) -> bool {
     let mut chars = text.chars();
     let Some(ch) = chars.next() else {
@@ -22,7 +22,12 @@ pub(super) fn prepare(
     let pixel = px(1.0 / scale);
     let cp = u32::from(ch);
     if (0x2800..=0x28ff).contains(&cp) {
-        braille(cp, bounds, pixel, color, paths);
+        #[cfg(test)]
+        if paths.legacy_dots {
+            braille(cp, bounds, pixel, color, paths);
+            return true;
+        }
+        dots::prepare(cp - 0x2800, bounds, pixel, color, paths);
         return true;
     }
     if (0xe0b0..=0xe0b3).contains(&cp) {
@@ -56,14 +61,13 @@ pub(super) fn prepare(
     true
 }
 
-fn braille(
-    cp: u32,
-    bounds: Bounds<Pixels>,
-    pixel: Pixels,
-    color: Hsla,
-    paths: &mut Vec<(Path<Pixels>, Hsla)>,
-) {
+#[cfg(test)]
+fn braille(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths: &mut Paths) {
     let mask = cp - 0x2800;
+    let radius = (bounds.size.width / 8.0).max(pixel / 2.0);
+    let disjoint =
+        radius * 2.0 < bounds.size.width / 2.0 && radius * 2.0 < bounds.size.height / 4.0;
+    let mut dots = Vec::with_capacity(mask.count_ones() as usize);
     for (bit, col, row) in [
         (0, 0_u8, 0_u8),
         (1, 0, 1),
@@ -79,7 +83,6 @@ fn braille(
         }
         let x = bounds.left() + bounds.size.width * (0.25 + 0.5 * f32::from(col));
         let y = bounds.top() + bounds.size.height * (0.125 + 0.25 * f32::from(row));
-        let radius = (bounds.size.width / 8.0).max(pixel / 2.0);
         let mut path = PathBuilder::fill();
         path.move_to(point(x - radius, y));
         path.arc_to(
@@ -98,17 +101,18 @@ fn braille(
         );
         path.close();
         if let Ok(path) = path.build() {
-            paths.push((path, color));
+            dots.push((path, color));
+        }
+    }
+    if disjoint {
+        paths.extend_disjoint(bounds, dots);
+    } else {
+        for dot in dots {
+            paths.push(dot);
         }
     }
 }
-fn powerline(
-    cp: u32,
-    bounds: Bounds<Pixels>,
-    pixel: Pixels,
-    color: Hsla,
-    paths: &mut Vec<(Path<Pixels>, Hsla)>,
-) {
+fn powerline(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths: &mut Paths) {
     let center = bounds.center();
     let right = cp < 0xe0b2;
     let (edge, tip) = if right {
@@ -131,13 +135,7 @@ fn powerline(
         paths.push((path, color));
     }
 }
-fn rounded(
-    cp: u32,
-    bounds: Bounds<Pixels>,
-    pixel: Pixels,
-    color: Hsla,
-    paths: &mut Vec<(Path<Pixels>, Hsla)>,
-) {
+fn rounded(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths: &mut Paths) {
     let center = bounds.center();
     let right = cp == 0x256d || cp == 0x2570;
     let down = cp == 0x256d || cp == 0x256e;

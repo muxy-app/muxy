@@ -63,6 +63,7 @@ pub(crate) struct TerminalPane {
     pub(crate) render_count: usize,
     pub(crate) sent_cell_size: Option<(ChannelId, muxy_protocol::CellSize)>,
     pub(crate) images: element::images::Textures,
+    pub(crate) rows: std::cell::RefCell<element::Rows>,
     pub(crate) shades: element::shade::Textures,
     pub(crate) grid: Option<RunGrid>,
     pub(crate) copy_on_select: bool,
@@ -139,6 +140,7 @@ impl TerminalPane {
             grid: None,
             sent_cell_size: None,
             images: element::images::Textures::default(),
+            rows: std::cell::RefCell::default(),
             shades: element::shade::Textures::default(),
             copy_on_select: false,
             open_context: None,
@@ -258,6 +260,8 @@ impl TerminalPane {
     }
 
     pub(crate) fn apply(&mut self, frame: &ScreenFrame, cx: &mut Context<Self>) {
+        let _span = crate::profiler::span(crate::profiler::Metric::FrameApply);
+        crate::profiler::count(crate::profiler::Metric::FrameRows, frame.rows.len());
         if let Some(grid) = &mut self.grid {
             if frame.reset {
                 self.scroll.reset();
@@ -1262,6 +1266,7 @@ impl TerminalPane {
 
 impl Render for TerminalPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = crate::profiler::span(crate::profiler::Metric::TerminalRender);
         #[cfg(test)]
         {
             self.render_count += 1;

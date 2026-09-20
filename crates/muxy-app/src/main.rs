@@ -6,6 +6,7 @@ mod model;
 mod navigation;
 mod opener;
 mod picker;
+mod profiler;
 mod server;
 mod theme;
 mod updater;
@@ -73,16 +74,23 @@ use views::workspace::{
 };
 
 fn main() -> ExitCode {
-    let boot = match boot::Boot::load() {
-        Ok(boot) => boot,
-        Err(error) => {
-            let _ = writeln!(io::stderr(), "muxy-app: {error}");
-            return ExitCode::FAILURE;
+    let profile = profiler::init();
+    let boot = {
+        let _span = profiler::span(profiler::Metric::BootLoad);
+        match boot::Boot::load() {
+            Ok(boot) => boot,
+            Err(error) => {
+                let _ = writeln!(io::stderr(), "muxy-app: {error}");
+                return ExitCode::FAILURE;
+            }
         }
     };
     Application::new()
         .with_assets(muxy_ui::assets::Assets)
         .run(move |cx: &mut App| {
+            if let Some(profile) = profile {
+                profile.finish_on_quit(cx);
+            }
             bind_keys(&boot.settings.keymap, cx);
             let config_path = boot.state_path.with_file_name("ghostty.conf");
             cx.on_action(move |_: &OpenConfiguration, _| {

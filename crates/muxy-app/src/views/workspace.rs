@@ -463,6 +463,7 @@ impl AppModel {
 
 impl AppModel {
     fn prepare_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _span = crate::profiler::span(crate::profiler::Metric::WorkspacePrepare);
         if self.overlay.is_none()
             && (self.focus_requested
                 || (self.active_pane().is_none()
@@ -489,7 +490,11 @@ impl AppModel {
 
 impl Render for AppModel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_webviews(window, cx);
+        let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceRender);
+        {
+            let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceSyncWebviews);
+            self.sync_webviews(window, cx);
+        }
         self.prepare_workspace(window, cx);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused;
@@ -498,7 +503,7 @@ impl Render for AppModel {
         let content = self.webview_panel_content(content, window, cx);
         let content = self.composer_content(content, window, cx);
         let error = self.error.as_ref().map(|message| banner(message, theme));
-        action_handlers(cx)
+        let workspace = action_handlers(cx)
             .on_action(cx.listener(|model, _: &ToggleVoiceRecording, window, cx| {
                 model.toggle_voice(window, cx);
             }))
@@ -581,7 +586,8 @@ impl Render for AppModel {
             .child(self.floating_composer(window, cx))
             .child(self.voice_panel())
             .child(overlays::layer(self, window, cx))
-            .child(self.apply_webview_occlusions(cx))
+            .child(self.apply_webview_occlusions(cx));
+        crate::profiler::workspace(workspace)
     }
 }
 

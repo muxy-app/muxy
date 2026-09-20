@@ -38,19 +38,6 @@ pub struct Snapshot {
     pub bgra: Vec<u8>,
 }
 
-impl Snapshot {
-    fn from_rgba(width: u32, height: u32, mut pixels: Vec<u8>) -> Self {
-        for pixel in pixels.chunks_exact_mut(4) {
-            pixel.swap(0, 2);
-        }
-        Self {
-            width,
-            height,
-            bgra: pixels,
-        }
-    }
-}
-
 impl std::fmt::Debug for Snapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Snapshot({}x{})", self.width, self.height)
@@ -662,18 +649,19 @@ impl NativeWebview {
             if state.snapshot_id.get() != id || state.generation.get() != generation {
                 return;
             }
-            let Some(rgba) =
+            let Some(bgra) =
                 unsafe { image.as_ref() }.and_then(|image| snapshot_rows(image, width, height))
             else {
                 return;
             };
-            let sender = state.sender.clone();
-            let _ = state.worker.try_spawn(move || {
-                let _ = sender.try_send(Event::Snapshot {
-                    id,
-                    generation,
-                    image: Snapshot::from_rgba(width, height, rgba),
-                });
+            let _ = state.sender.try_send(Event::Snapshot {
+                id,
+                generation,
+                image: Snapshot {
+                    width,
+                    height,
+                    bgra,
+                },
             });
         });
         unsafe {
@@ -689,7 +677,7 @@ impl NativeWebview {
 }
 
 fn snapshot_rows(image: &NSImage, width: u32, height: u32) -> Option<Vec<u8>> {
-    crate::bitmap::render_rgba(image, width, height)
+    crate::bitmap::render_bgra(image, width, height)
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -955,11 +943,9 @@ mod tests {
             NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(png.get_ref())).expect("bitmap");
         let image = NSImage::initWithSize(NSImage::alloc(), NSSize::new(2.0, 2.0));
         image.addRepresentation(&bitmap);
-        let rows = snapshot_rows(&image, 2, 2).expect("rows");
-        let snapshot = Snapshot::from_rgba(2, 2, rows);
-        assert_eq!((snapshot.width, snapshot.height), (2, 2));
+        let bgra = snapshot_rows(&image, 2, 2).expect("rows");
         assert_eq!(
-            snapshot.bgra,
+            bgra,
             vec![
                 0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 30, 20, 10, 255
             ]

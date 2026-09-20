@@ -1,13 +1,20 @@
 mod background;
 mod block;
 mod box_drawing;
+mod cache;
+#[cfg(test)]
+mod cache_tests;
 mod decoration;
+mod dots;
 mod glyph;
 pub(super) mod images;
+mod layers;
 mod padding;
 pub(super) mod shade;
 
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
+
+pub(crate) use cache::Rows;
 
 use gpui::{
     App, Bounds, Entity, FontFeatures, FontStyle, FontWeight, Hsla, IntoElement, LineLayout,
@@ -19,15 +26,26 @@ use muxy_protocol::{MAX_COLS, MAX_ROWS, Run, Size, Style};
 use super::{colors::Palette, pane::TerminalPane};
 
 #[derive(Default)]
-struct Painting {
+struct RowPainting {
     lines: Vec<(Point<Pixels>, WrappedLine)>,
     glyphs: Vec<PaintGlyph>,
-    thicken: f32,
     shades: Vec<shade::Shade>,
-    shade_sprites: Vec<shade::Sprite>,
     backgrounds: Vec<(Bounds<Pixels>, Hsla)>,
     blocks: Vec<(Bounds<Pixels>, Hsla)>,
-    paths: Vec<(gpui::Path<Pixels>, Hsla)>,
+    block_layers: layers::QuadLayers,
+    paths: layers::Paths,
+    decorations: Vec<(Bounds<Pixels>, Hsla)>,
+}
+
+#[derive(Default)]
+struct Painting {
+    #[cfg(test)]
+    unbatched: bool,
+    #[cfg(test)]
+    sequential_quads: bool,
+    rows: Vec<Rc<RowPainting>>,
+    thicken: f32,
+    shade_sprites: Vec<shade::Sprite>,
     images: Vec<images::Placement>,
     selections: Vec<(Bounds<Pixels>, Hsla)>,
     matches: Vec<(Bounds<Pixels>, bool)>,
@@ -59,12 +77,14 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
     let mouse_view = view.clone();
     canvas(
         move |bounds, window, cx| {
+            let _span = crate::profiler::span(crate::profiler::Metric::TerminalPrepaint);
             let (base_font, font_size, cell) =
                 typography(&view.read(cx).terminal, &palette, window);
             let frame = padding::Frame::configured(bounds, cell, &view.read(cx).terminal.options);
             let viewport = frame.viewport;
             #[cfg(target_os = "macos")]
             if let Some(native) = &view.read(cx).native_scroll {
+                let _span = crate::profiler::span(crate::profiler::Metric::NativeScrollSync);
                 let pane = view.read(cx);
                 native.sync(muxy_ui::native_scroll::ScrollGeometry {
                     bounds,
@@ -105,9 +125,14 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                 window,
             );
             view.update(cx, |pane, cx| {
+                let shades: Vec<_> = painting
+                    .rows
+                    .iter()
+                    .flat_map(|row| row.shades.iter().copied())
+                    .collect();
                 painting.shade_sprites =
                     pane.shades
-                        .prepare(&painting.shades, frame.content, window.scale_factor());
+                        .prepare(&shades, frame.content, window.scale_factor());
                 for image in pane.shades.retired() {
                     cx.drop_image(image, Some(window));
                 }
@@ -132,6 +157,7 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
             (painting, frame, frame.backgrounds(view.read(cx), &palette))
         },
         move |bounds, (painting, frame, padding), window, cx| {
+            let _span = crate::profiler::span(crate::profiler::Metric::TerminalPaint);
             let focus_border = mouse_view.read(cx).focus_border;
             let focus = mouse_view.read(cx).focus.clone();
             window.handle_input(
@@ -153,8 +179,9 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
             {
                 let clip = frame.grid.intersect(&frame.content);
                 let colored = painting
-                    .backgrounds
+                    .rows
                     .iter()
+                    .flat_map(|row| &row.backgrounds)
                     .map(|(bounds, _)| bounds.intersect(&clip))
                     .chain(padding.iter().map(|(bounds, _)| *bounds));
                 let mut color: Hsla = rgb(palette.background).into();
@@ -263,6 +290,7 @@ fn prepare(
     font_size: Pixels,
     window: &mut Window,
 ) -> Painting {
+    let _span = crate::profiler::span(crate::profiler::Metric::TerminalPrepare);
     let mut painting = Painting {
         cell,
         background_opacity: if view.terminal.options.background_opacity_cells {
@@ -278,6 +306,7 @@ fn prepare(
         ..Painting::default()
     };
     let Some(grid) = view.displayed_grid() else {
+        view.rows.borrow_mut().clear();
         return painting;
     };
     let height = view.viewport().map_or(grid.size.rows, |size| size.rows);
@@ -300,7 +329,10 @@ fn prepare(
         metrics: (metrics.ascent, metrics.descent),
         window,
     };
-    for index in 0..usize::from(height) + usize::from(remainder < 0.0) {
+    let count = usize::from(height) + usize::from(remainder < 0.0);
+    let mut rows = view.rows.borrow_mut();
+    rows.begin(&renderer, count);
+    for index in 0..count {
         let Some(runs) = grid.content_row(start + index) else {
             continue;
         };
@@ -344,12 +376,13 @@ fn prepare(
             (!columns.is_empty() && palette.selection_foreground.is_some())
                 .then(|| selected_runs(runs, columns, palette))
         });
-        renderer.row(
+        painting.rows.push(rows.prepare(
+            index,
             selected.as_deref().unwrap_or(runs),
             position,
-            &mut painting,
             painting_thickens || (view.scroll.view.is_none() && row == grid.cursor.row),
-        );
+            &mut renderer,
+        ));
     }
     if view.scroll.view.is_none()
         && view.focused
@@ -452,7 +485,7 @@ impl RowRenderer<'_> {
         &mut self,
         runs: &[Run],
         position: Point<Pixels>,
-        painting: &mut Painting,
+        painting: &mut RowPainting,
         collect_glyphs: bool,
     ) {
         let mut column = 0_u16;
@@ -492,14 +525,13 @@ impl RowRenderer<'_> {
                     .chars()
                     .any(|ch| (map.start..=map.end).contains(&u32::from(ch)))
             });
+            let first_block = painting.blocks.len();
             if !mapped && shade::prepare(&run.text, bounds, foreground, &mut painting.shades) {
             } else if let Some(quads) = (!mapped)
                 .then(|| block::quads(&run.text, bounds, foreground, self.window.scale_factor()))
                 .flatten()
             {
-                for (bounds, color) in quads {
-                    push_quad(&mut painting.blocks, bounds, color);
-                }
+                painting.blocks.extend(quads);
             } else if !mapped
                 && glyph::prepare(
                     &run.text,
@@ -528,6 +560,9 @@ impl RowRenderer<'_> {
                     next_column += part.width;
                 }
             }
+            painting
+                .block_layers
+                .append_cell(&painting.blocks, first_block);
             column = column.saturating_add(run.width);
         }
 
@@ -550,7 +585,7 @@ impl RowRenderer<'_> {
         columns: &[u16],
         column: u16,
         position: Point<Pixels>,
-        painting: &mut Painting,
+        painting: &mut RowPainting,
         collect_glyphs: bool,
     ) {
         if !text.is_empty() {
@@ -817,10 +852,18 @@ fn push_quad(quads: &mut Vec<(Bounds<Pixels>, Hsla)>, bounds: Bounds<Pixels>, co
     reason = "Keep the terminal paint order explicit"
 )]
 fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut App) {
+    #[cfg(test)]
+    let layered = !painting.unbatched;
+    #[cfg(not(test))]
+    let layered = true;
     images::paint(&painting.images, i64::MIN..i64::from(i32::MIN / 2), window);
-    for (bounds, mut color) in painting.backgrounds {
-        color.a *= painting.background_opacity;
-        window.paint_quad(fill(bounds, color));
+    for row in &painting.rows {
+        layers::quads(
+            &row.backgrounds,
+            painting.background_opacity,
+            layered,
+            window,
+        );
     }
     images::paint(&painting.images, i64::from(i32::MIN / 2)..0, window);
     for (bounds, current) in painting.matches {
@@ -831,19 +874,33 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
     for (bounds, color) in painting.selections {
         window.paint_quad(fill(bounds, color));
     }
-    for (bounds, color) in painting.decorations {
+    for &(bounds, color) in painting
+        .decorations
+        .iter()
+        .chain(painting.rows.iter().flat_map(|row| &row.decorations))
+    {
         window.paint_quad(fill(bounds, color));
     }
-    for &(bounds, color) in &painting.blocks {
-        window.paint_quad(fill(bounds, color));
+    for row in &painting.rows {
+        #[cfg(test)]
+        if painting.sequential_quads {
+            layers::quads(&row.blocks, 1.0, layered, window);
+            continue;
+        }
+        row.block_layers.paint(&row.blocks, None, layered, window);
     }
     shade::paint(&painting.shade_sprites, window);
-    for (path, color) in &painting.paths {
-        window.paint_path(path.clone(), *color);
+    for row in &painting.rows {
+        row.paths.paint(None, layered, window);
     }
     if painting.thicken > 0.0 {
         let amount = px(0.5 / window.scale_factor());
-        for glyph in painting.glyphs.iter().filter(|glyph| !glyph.emoji) {
+        for glyph in painting
+            .rows
+            .iter()
+            .flat_map(|row| &row.glyphs)
+            .filter(|glyph| !glyph.emoji)
+        {
             let mut color = glyph.color;
             color.a *= painting.thicken * 0.5;
             for offset in [point(-amount, px(0.0)), point(amount, px(0.0))] {
@@ -857,9 +914,9 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
             }
         }
     }
-    for (origin, line) in painting.lines {
+    for (origin, line) in painting.rows.iter().flat_map(|row| &row.lines) {
         if let Err(error) = line.paint(
-            origin,
+            *origin,
             painting.cell.height,
             gpui::TextAlign::Left,
             None,
@@ -896,8 +953,9 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
                 window.paint_quad(fill(cursor, color));
                 window.with_content_mask(Some(gpui::ContentMask { bounds: cursor }), |window| {
                     for glyph in painting
-                        .glyphs
+                        .rows
                         .iter()
+                        .flat_map(|row| &row.glyphs)
                         .filter(|glyph| glyph.row_top == cursor.top())
                     {
                         if glyph.emoji {
@@ -913,11 +971,23 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
                             painting.cursor_text,
                         );
                     }
-                    for (path, _) in &painting.paths {
-                        window.paint_path(path.clone(), painting.cursor_text);
+                    for row in &painting.rows {
+                        row.paths.paint(Some(painting.cursor_text), layered, window);
                     }
-                    for &(bounds, _) in &painting.blocks {
-                        window.paint_quad(fill(bounds, painting.cursor_text));
+                    for row in &painting.rows {
+                        #[cfg(test)]
+                        if painting.sequential_quads {
+                            for &(bounds, _) in &row.blocks {
+                                window.paint_quad(fill(bounds, painting.cursor_text));
+                            }
+                            continue;
+                        }
+                        row.block_layers.paint(
+                            &row.blocks,
+                            Some(painting.cursor_text),
+                            layered,
+                            window,
+                        );
                     }
                 });
             }
@@ -982,7 +1052,7 @@ mod tests {
                     style: Style::default(),
                 },
             ];
-            let mut painting = Painting::default();
+            let mut painting = RowPainting::default();
             RowRenderer {
                 settings: &muxy_app_core::settings::FontOptions::default(),
                 cell: size(px(8.0), px(16.0)),
@@ -1082,14 +1152,16 @@ mod tests {
                 );
                 assert!(
                     painting
-                        .glyphs
+                        .rows
                         .iter()
+                        .flat_map(|row| &row.glyphs)
                         .any(|glyph| glyph.color == rgb(0xff_ff00).into())
                 );
                 assert!(
                     painting
-                        .glyphs
+                        .rows
                         .iter()
+                        .flat_map(|row| &row.glyphs)
                         .any(|glyph| glyph.color == rgb(0xff_0000).into())
                 );
             });
@@ -1257,8 +1329,11 @@ mod tests {
                     px(12.0),
                     window,
                 );
-                assert!(painting.lines.is_empty(), "blocks must not use font glyphs");
-                assert!(!painting.blocks.is_empty());
+                assert!(
+                    painting.rows[0].lines.is_empty(),
+                    "blocks must not use font glyphs"
+                );
+                assert!(!painting.rows[0].blocks.is_empty());
             });
         });
     }
@@ -1335,26 +1410,27 @@ mod tests {
                 let bounds =
                     |x, width| Bounds::new(point(px(x), px(0.0)), size(px(width), px(16.0)));
                 assert_eq!(
-                    &painting.blocks[..2],
+                    &painting.rows[0].blocks,
                     &[
                         (bounds(24.0, 16.0), color),
-                        (bounds(40.0, 16.0), rgb(pane.palette.foreground).into()),
+                        (bounds(40.0, 8.0), rgb(pane.palette.foreground).into()),
+                        (bounds(48.0, 8.0), rgb(pane.palette.foreground).into()),
                     ]
                 );
-                assert_eq!(painting.shades.len(), 1);
-                assert_eq!(painting.shades[0].bounds, bounds(56.0, 8.0));
-                assert_eq!(painting.shades[0].color, color);
+                assert_eq!(painting.rows[0].shades.len(), 1);
+                assert_eq!(painting.rows[0].shades[0].bounds, bounds(56.0, 8.0));
+                assert_eq!(painting.rows[0].shades[0].color, color);
                 assert_eq!(
-                    painting.backgrounds,
+                    painting.rows[0].backgrounds,
                     vec![
                         (bounds(24.0, 16.0), rgb(0x11_22_33).into()),
                         (bounds(56.0, 8.0), rgb(0x11_22_33).into()),
                     ]
                 );
-                assert_eq!(painting.decorations.len(), 4);
+                assert_eq!(painting.rows[0].decorations.len(), 4);
                 assert_eq!(painting.cursor, Some(bounds(64.0, 8.0)));
-                assert_eq!(painting.lines.len(), 1);
-                let line = &painting.lines[0].1;
+                assert_eq!(painting.rows[0].lines.len(), 1);
+                let line = &painting.rows[0].lines[0].1;
                 assert_eq!(line.text.as_ref(), "a\u{200c}x\u{200c}");
                 assert_glyph_x(line, 'x', px(64.0));
             });
