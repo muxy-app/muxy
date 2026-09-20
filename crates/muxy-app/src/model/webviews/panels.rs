@@ -97,17 +97,7 @@ impl AppModel {
         let id = panel_id(&owner, kind);
         let open = self.panels.placement(&id).is_some();
         if verb == "panels.close" || (verb == "panels.toggle" && open) {
-            if verb == "panels.toggle" {
-                self.focus_requested |= self
-                    .webviews
-                    .panels
-                    .get(&id)
-                    .is_some_and(|panel| panel.is_focused(window, cx));
-                self.panels.remove(&id);
-                cx.notify();
-            } else {
-                self.dismiss_webview_panel(&id, cx);
-            }
+            self.dismiss_webview_panel(&id, cx);
             return Ok(Value::Null);
         }
         if let Some(panel) = self.webviews.panels.get(&id) {

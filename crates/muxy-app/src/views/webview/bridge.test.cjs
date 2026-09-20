@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const source = readFileSync(`${__dirname}/bridge.js`, 'utf8');
+const apiSource = readFileSync(`${__dirname}/../../extensions/bridge.js`, 'utf8');
 
 function page(reply = () => null, { rootPresent = true, surface = "tab" } = {}) {
   const messages = [], css = new Map(), events = new Map(), observers = [];
@@ -30,7 +31,7 @@ function page(reply = () => null, { rootPresent = true, surface = "tab" } = {}) 
     messages.push(JSON.parse(JSON.stringify(message)));
     return { ok: true, value: await reply(message) };
   } } } };
-  vm.runInContext(`${source}(${JSON.stringify({ owner: 'test', id: 'instance', surface, data: { saved: true }, theme: { background: '#123456', foregroundMuted: '#888888', colorScheme: 'dark', topbarHeight: '34px' } })});`, context);
+  vm.runInContext(`${source}(${JSON.stringify({ owner: 'test', id: 'instance', surface, data: { saved: true }, theme: { background: '#123456', foregroundMuted: '#888888', colorScheme: 'dark', topbarHeight: '34px' } })}, ${apiSource});`, context);
   return { context, muxy: context.muxy, messages, css, events, root, authoredStyle, observers, attachRoot };
 }
 const settled = () => new Promise(resolve => setImmediate(resolve));
@@ -54,7 +55,7 @@ test('identity, initial theme/data, listener disposal and focus deduplication', 
   context.__muxyApplyTheme({ colorScheme: 'light', topbarHeight: '40px' });
   assert.equal(css.get('--muxy-topbar-height'), '40px');
   assert.ok(Object.isFrozen(muxy.theme));
-  assert.equal(muxy.git, undefined); assert.equal(muxy.files, undefined);
+  assert.equal(typeof muxy.git.status, 'function'); assert.equal(typeof muxy.files.read, 'function');
 });
 
 test('theme initialization and updates leave authored backgrounds untouched', () => {
@@ -92,26 +93,26 @@ test('theme updates racing the root observer still disconnect it', () => {
   assert.equal(observers[0].active, false);
 });
 
-test('close defaults, acknowledgements, async veto, errors, and unsubscribe', async () => {
-  const { context, muxy, messages } = page();
-  context.__muxyBeforeClose(1, 'tab', 'instance'); await settled();
+for (const surface of ['tab', 'panel']) test(`${surface} close defaults, acknowledgements, async veto, errors, and unsubscribe`, async () => {
+  const { context, muxy, messages } = page(undefined, { surface });
+  context.__muxyBeforeClose(1, surface, 'instance'); await settled();
   assert.deepEqual(messages.at(-1).args, { callID: '1', prevent: false });
   let release;
   const unsubscribe = muxy.lifecycle.onBeforeClose(info => {
-    assert.equal(info.surface, 'tab'); assert.equal(info.instanceID, 'instance');
+    assert.equal(info.surface, surface); assert.equal(info.instanceID, 'instance');
     return new Promise(resolve => { release = resolve; });
   });
-  context.__muxyBeforeClose(2, 'tab', 'instance'); await settled();
+  context.__muxyBeforeClose(2, surface, 'instance'); await settled();
   assert.equal(messages.at(-1).verb, 'lifecycle.ackBeforeClose');
   release({ prevent: true }); await settled();
   assert.deepEqual(messages.at(-1).args, { callID: '2', prevent: true });
-  unsubscribe(); context.__muxyBeforeClose(3, 'tab', 'instance'); await settled();
+  unsubscribe(); context.__muxyBeforeClose(3, surface, 'instance'); await settled();
   assert.equal(messages.at(-1).args.prevent, false);
   muxy.lifecycle.onBeforeClose(() => { throw Error('broken handler'); });
-  context.__muxyBeforeClose(4, 'tab', 'instance'); await settled();
+  context.__muxyBeforeClose(4, surface, 'instance'); await settled();
   assert.equal(messages.at(-1).args.prevent, false);
   muxy.lifecycle.onBeforeClose(() => Promise.reject(Error('rejected handler')));
-  context.__muxyBeforeClose(5, 'tab', 'instance'); await settled();
+  context.__muxyBeforeClose(5, surface, 'instance'); await settled();
   assert.equal(messages.at(-1).args.prevent, false);
 });
 
