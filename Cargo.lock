@@ -1222,8 +1222,6 @@ dependencies = [
 [[package]]
 name = "core-text"
 version = "21.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a593227b66cbd4007b2a050dfdd9e1d1318311409c8d600dc82ba1b15ca9c130"
 dependencies = [
  "core-foundation 0.10.0",
  "core-graphics 0.24.0",
@@ -2372,7 +2370,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/muxy-app/gpui?rev=e96f5917b4a9c3c3f4459138ddaeff48d646a37a#e96f5917b4a9c3c3f4459138ddaeff48d646a37a"
+source = "git+https://github.com/muxy-app/gpui?rev=bd450eaedd79e2c86ba7a3bae0b62827f6a25954#bd450eaedd79e2c86ba7a3bae0b62827f6a25954"
 dependencies = [
  "anyhow",
  "as-raw-xcb-connection",

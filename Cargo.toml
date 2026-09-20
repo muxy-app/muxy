@@ -73,4 +73,5 @@ debug = 1
 inherits = "release"
 
 [patch.crates-io]
-gpui = { git = "https://github.com/muxy-app/gpui", rev = "e96f5917b4a9c3c3f4459138ddaeff48d646a37a" }
+core-text = { path = "vendor/core-text" }
+gpui = { git = "https://github.com/muxy-app/gpui", rev = "bd450eaedd79e2c86ba7a3bae0b62827f6a25954" }

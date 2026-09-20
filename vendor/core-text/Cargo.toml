@@ -1,0 +1,52 @@
+[package]
+edition = "2018"
+name = "core-text"
+version = "21.0.0"
+authors = ["The Servo Project Developers"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Bindings to the Core Text framework."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/servo/core-foundation-rs"
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-apple-darwin"
+
+[lib]
+name = "core_text"
+path = "src/lib.rs"
+
+[dependencies.core-foundation]
+version = "0.10"
+default-features = false
+
+[dependencies.core-graphics]
+version = "0.24"
+default-features = false
+
+[dependencies.foreign-types]
+version = "0.5"
+
+[dependencies.libc]
+version = "0.2"
+
+[features]
+default = [
+    "mountainlion",
+    "link",
+]
+link = [
+    "core-foundation/link",
+    "core-graphics/link",
+]
+mountainlion = []
+
+[workspace]
+
+[package.metadata.muxy]
+upstream-version = "21.0.0"
+ownership-fix = "https://github.com/servo/core-foundation-rs/commit/6f844cf1a1a18e25b70fcdf1bcdc458555bd2eff"
