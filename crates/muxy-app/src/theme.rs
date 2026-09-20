@@ -231,6 +231,7 @@ mod tests {
         fs::create_dir_all(&directory)?;
         let original = Catalog::load(&directory);
         assert!(original.errors.is_empty());
+        assert_eq!(original.entries.len(), 490);
         assert!(original.entries.iter().all(|entry| entry.scheme.background.is_some() && entry.scheme.foreground.is_some()));
         fs::write(
             directory.join("Custom.conf"),
