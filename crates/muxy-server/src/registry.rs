@@ -205,15 +205,24 @@ impl Registry {
         &self,
         intent: &muxy_protocol::ProjectIntent,
     ) -> Result<u64, ServerError> {
-        let _operation = self
-            .operations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let muxy_protocol::ProjectMutation::Create(project) = &intent.mutation
-            && project.kind == Some(muxy_protocol::ProjectKind::Worktree)
-            && !self.catalog.has_project_receipt(intent.operation)
-        {
-            self.validate_worktree_registration(project)?;
+        let _operation = loop {
+            let revision = self.catalog.revision();
+            let validate = if let muxy_protocol::ProjectMutation::Create(project) = &intent.mutation
+                && project.kind == Some(muxy_protocol::ProjectKind::Worktree)
+                && !self.catalog.has_project_receipt(intent.operation)
+            {
+                self.validate_worktree_registration(project)?;
+                true
+            } else {
+                false
+            };
+            let operation = self.session_operation();
+            if !validate || self.catalog.revision() == revision {
+                break operation;
+            }
+        };
+        if !self.catalog.has_project_receipt(intent.operation) {
+            self.git.operations.check_mutation(&intent.mutation)?;
         }
         if !self.catalog.begin_mutation(intent)? {
             self.resume_cleanup()?;
@@ -321,11 +330,11 @@ impl Registry {
         colors: Option<TerminalColors>,
         requester: Option<&crate::connection::Outbox>,
     ) -> Result<SessionInfo, ServerError> {
-        let _operation = self
-            .operations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let _operation = self.session_operation();
         let directory_bytes = session_directory(directory)?;
+        self.git
+            .operations
+            .check_session(Path::new(std::ffi::OsStr::from_bytes(&directory_bytes.0)))?;
         if let Some(info) = self
             .catalog
             .creation(operation, project, &directory_bytes)?

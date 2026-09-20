@@ -1,6 +1,7 @@
 mod appearance;
 mod catalog;
 mod composer;
+pub(crate) mod extensions;
 mod keyboard;
 mod layout;
 mod pickers;
@@ -49,10 +50,11 @@ pub(crate) enum Category {
     Terminal,
     Keyboard,
     Server,
+    Extensions,
 }
 
 impl Category {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -60,6 +62,7 @@ impl Category {
         Self::Keyboard,
         Self::Terminal,
         Self::Server,
+        Self::Extensions,
     ];
 
     fn label(self) -> &'static str {
@@ -71,6 +74,7 @@ impl Category {
             Self::Terminal => "Terminal",
             Self::Keyboard => "Keyboard",
             Self::Server => "Server",
+            Self::Extensions => "Extensions",
         }
     }
 }
@@ -116,6 +120,7 @@ pub(crate) struct Snapshot {
 }
 
 pub(crate) struct SettingsView {
+    pub(crate) extensions: Option<Entity<extensions::ExtensionsView>>,
     navigation_view: Entity<super::cached::CachedView<Self>>,
     content_view: Entity<super::cached::CachedView<Self>>,
     quick_recording: Option<(muxy_ui::quick_terminal::ShortcutRecording, gpui::Task<()>)>,
@@ -186,6 +191,7 @@ impl SettingsView {
             });
         });
         let mut pane = Self {
+            extensions: None,
             navigation_view: super::cached::CachedView::new(|view, _, cx| view.navigation(cx), cx),
             content_view: super::cached::CachedView::new(|view, _, cx| view.content(cx), cx),
             quick_recording: None,
@@ -267,6 +273,9 @@ impl SettingsView {
         self.results.dirty = true;
         self.snapshot = snapshot;
         self.theme = theme;
+        if let Some(extensions) = &self.extensions {
+            extensions.update(cx, |view, cx| view.sync_theme(self.theme.clone(), cx));
+        }
         let style = InputStyle::field(&self.theme, &self.metrics);
         self.search
             .update(cx, |input, cx| input.set_style(style, cx));
@@ -425,6 +434,13 @@ impl SettingsView {
             let value = self.fields[id].read(cx).text().trim().to_owned();
             cx.emit(SettingsEvent::Change(Change::Field(id, value)));
         }
+    }
+
+    pub(crate) fn show_extensions(&mut self, cx: &mut Context<Self>) {
+        self.category = Category::Extensions;
+        self.query.clear();
+        self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.notify();
     }
 
     pub(crate) fn show_server(&mut self, cx: &mut Context<Self>) {

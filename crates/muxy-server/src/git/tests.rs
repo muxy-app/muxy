@@ -9,6 +9,7 @@ use muxy_protocol::{
     WorktreeIntent,
 };
 use std::sync::mpsc;
+mod worktree_concurrency;
 
 struct Repo {
     path: PathBuf,
@@ -552,3 +553,36 @@ fn linked_worktree_watch_detects_common_refs_and_stops_when_dropped() {
 }
 
 mod extensions;
+
+#[test]
+fn repository_reads_overlap_and_mutations_wait_for_readers() {
+    let repo = Repo::new(true);
+    let lock = repo.registry.git.lock_for(&repo.path).unwrap();
+    let guard = lock.read().unwrap();
+    let repo = &repo;
+    std::thread::scope(|scope| {
+        let (read, completed) = mpsc::channel();
+        scope.spawn(move || {
+            let _ = read.send(repo.git(GitAction::Summary));
+        });
+        let result = completed.recv_timeout(std::time::Duration::from_secs(3));
+        let (write, written) = mpsc::channel();
+        scope.spawn(move || {
+            let _ = write.send(repo.git(GitAction::CreateBranch("parallel".into())));
+        });
+        let early_write = written.recv_timeout(std::time::Duration::from_millis(100));
+        drop(guard);
+        assert!(matches!(
+            result.unwrap().unwrap(),
+            GitReply::Summary(Some(_))
+        ));
+        assert!(early_write.is_err());
+        assert!(matches!(
+            written
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap()
+                .unwrap(),
+            GitReply::Done
+        ));
+    });
+}

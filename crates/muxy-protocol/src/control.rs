@@ -79,6 +79,8 @@ pub enum RequestBody {
         channel: ChannelId,
         bytes: Vec<u8>,
     },
+    Exec(crate::ExecRequest),
+    CancelExec(u64),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -129,6 +131,8 @@ pub enum ReplyBody {
     ActivityClaimed(Vec<u64>),
     Files(crate::FilesReply),
     InputWritten,
+    Exec(crate::ExecResult),
+    ExecCancelled,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -242,6 +242,10 @@ impl AppModel {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "One workspace action registration chain"
+)]
 fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
     div()
         .on_action(
@@ -258,6 +262,11 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             cx.listener(|model, _: &SelectCommandOutput, _, cx| model.prompt_action(None, cx)),
         )
         .key_context("WorkspaceTabs")
+        .on_action(cx.listener(
+            |model, action: &crate::model::extensions::RunCommand, window, cx| {
+                model.run_extension_command(&action.owner, &action.command, window, cx);
+            },
+        ))
         .on_mouse_down(
             gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
             cx.listener(|model, _, _, cx| model.navigate(false, cx)),
@@ -396,7 +405,7 @@ pub(crate) fn register_commands(
 }
 
 impl AppModel {
-    fn sync_pane_focus(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sync_pane_focus(&mut self, cx: &mut Context<Self>) {
         self.acknowledge_focused_activity(cx);
         let active = self.active_pane();
         if let Some(active) = active {
@@ -474,7 +483,6 @@ impl AppModel {
         }
         self.tab_drag
             .cancel_unavailable(self.state.current_project(), false);
-        self.sync_pane_focus(cx);
         self.sync_tab_sidebar(cx);
     }
 }

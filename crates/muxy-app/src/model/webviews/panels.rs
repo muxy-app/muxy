@@ -21,8 +21,20 @@ pub(crate) struct Panel {
     pub height: f32,
     pub resize: PanelResizeState,
     pub controls: [FocusHandle; 4],
+    pub header_controls: Vec<FocusHandle>,
     closing: bool,
     focused: bool,
+}
+
+impl Panel {
+    fn is_focused(&self, window: &Window, cx: &gpui::App) -> bool {
+        self.surface.view.read(cx).focus.is_focused(window)
+            || self
+                .controls
+                .iter()
+                .chain(&self.header_controls)
+                .any(|focus| focus.is_focused(window))
+    }
 }
 
 impl AppModel {
@@ -57,6 +69,24 @@ impl AppModel {
     ) -> Result<Value, String> {
         let args = &request.body["args"];
         let owner = view.read(cx).source.owner.clone();
+        self.panel_operation(
+            &owner,
+            request.body["verb"].as_str().unwrap_or(""),
+            args,
+            window,
+            cx,
+        )
+    }
+
+    pub(in crate::model) fn panel_operation(
+        &mut self,
+        owner: &str,
+        verb: &str,
+        args: &Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let owner = owner.to_owned();
         let kind = args["panelID"].as_str().ok_or("panelID is required")?;
         let definition = self
             .webviews
@@ -66,9 +96,18 @@ impl AppModel {
             .ok_or("panel is not registered for this owner")?;
         let id = panel_id(&owner, kind);
         let open = self.panels.placement(&id).is_some();
-        let verb = request.body["verb"].as_str().unwrap_or("");
         if verb == "panels.close" || (verb == "panels.toggle" && open) {
-            self.dismiss_webview_panel(&id, cx);
+            if verb == "panels.toggle" {
+                self.focus_requested |= self
+                    .webviews
+                    .panels
+                    .get(&id)
+                    .is_some_and(|panel| panel.is_focused(window, cx));
+                self.panels.remove(&id);
+                cx.notify();
+            } else {
+                self.dismiss_webview_panel(&id, cx);
+            }
             return Ok(Value::Null);
         }
         if let Some(panel) = self.webviews.panels.get(&id) {
@@ -83,6 +122,14 @@ impl AppModel {
             let placement = panel.placement.clone();
             self.place_panel(placement, cx);
             self.focus_requested = false;
+            if !open {
+                self.emit_extension_event(
+                    Some(&owner),
+                    "panel.opened",
+                    serde_json::json!({"panelID":kind,"extensionID":owner}),
+                    cx,
+                );
+            }
             return Ok(Value::Null);
         }
         let surface = self.create_webview(
@@ -108,11 +155,31 @@ impl AppModel {
                 height: 260.0,
                 resize: PanelResizeState::default(),
                 controls: std::array::from_fn(|_| cx.focus_handle()),
+                header_controls: (0..self
+                    .extensions
+                    .registry
+                    .enabled(&owner)
+                    .and_then(|extension| {
+                        extension
+                            .manifest
+                            .panels
+                            .iter()
+                            .find(|panel| panel.surface.id == kind)
+                    })
+                    .map_or(0, |panel| panel.header_buttons.len()))
+                    .map(|_| cx.focus_handle())
+                    .collect(),
                 closing: false,
                 focused: false,
             },
         );
         self.focus_requested = false;
+        self.emit_extension_event(
+            Some(&owner),
+            "panel.opened",
+            serde_json::json!({"panelID":kind,"extensionID":owner}),
+            cx,
+        );
         cx.notify();
         Ok(Value::Null)
     }
@@ -192,11 +259,11 @@ impl AppModel {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let shortcuts = super::surface_shortcuts(&self.settings.keymap);
+        let mut shortcuts = super::surface_shortcuts(&self.settings.keymap);
+        shortcuts.extend(self.extension_keystrokes());
         for (id, panel) in &mut self.webviews.panels {
             let visible = self.panels.placement(id).is_some();
-            panel.focused = panel.surface.view.read(cx).focus.is_focused(window)
-                || panel.controls.iter().any(|focus| focus.is_focused(window));
+            panel.focused = panel.is_focused(window, cx);
             panel.surface.view.update(cx, |view, cx| {
                 view.native.set_shortcuts(false, shortcuts.clone());
                 view.refresh_theme(&self.theme, self.metrics, cx);

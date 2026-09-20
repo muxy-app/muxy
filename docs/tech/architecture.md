@@ -133,7 +133,12 @@ Webview descriptors and close/result state belong to muxy-app-core. muxy-ui owns
 the native WebKit adapter, scoped asset loading, and native view composition.
 muxy-app retains and coordinates surfaces, focus, presentation, and the page
 bridge. Hidden pages remain alive; they have no terminal session or server state.
-The bridge exposes surface operations only until extension authorization exists.
+The app owns extension discovery, permissions, commands, and the main-compatible
+bridge. Each page or script has an app-bound owner; disabled or stale callers
+cannot issue API operations. JavaScriptCore runs command scripts on dedicated
+threads, while filesystem, Git, and cancellable process execution use the server.
+Marketplace archives are bounded and verified before installation. Packages,
+developer folders, grants, and extension storage remain scoped to the app profile.
 
 ## Transport adapters
 

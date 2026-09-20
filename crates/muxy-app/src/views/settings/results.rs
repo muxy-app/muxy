@@ -135,6 +135,7 @@ impl SettingsView {
                 Category::Terminal,
                 Category::Keyboard,
                 Category::Server,
+                Category::Extensions,
             ]
         };
         for category in order {
@@ -193,6 +194,25 @@ impl SettingsView {
             Category::Terminal => terminal::rows(self, window, cx),
             Category::Server => server::rows(self, cx),
             Category::Keyboard => Vec::new(),
+            Category::Extensions => {
+                if self.matches(
+                    Category::Extensions,
+                    "Manage extensions marketplace installed unpacked",
+                ) {
+                    vec![
+                        muxy_ui::controls::button(
+                            self.style(),
+                            "manage-extensions",
+                            "Manage Extensions",
+                            true,
+                            cx.listener(|view, _, _, cx| view.show_extensions(cx)),
+                        )
+                        .into_any_element(),
+                    ]
+                } else {
+                    Vec::new()
+                }
+            }
             Category::QuickTerminal => super::quick_terminal::rows(self, cx),
         }
     }

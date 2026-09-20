@@ -410,3 +410,39 @@ fn unknown_projects_and_direct_subscriptions_return_errors() {
     );
     assert!(workspace.files(FilesAction::Watch).is_err());
 }
+
+#[test]
+fn project_reads_overlap_and_mutations_wait_for_readers() {
+    let workspace = Workspace::new();
+    let lock = workspace.registry.files.lock_for(&workspace.path);
+    let guard = lock.read().unwrap();
+    let workspace = &workspace;
+    std::thread::scope(|scope| {
+        let (read, completed) = mpsc::channel();
+        scope.spawn(move || {
+            let _ = read.send(workspace.registry.files(&FilesRequest {
+                project: workspace.project,
+                action: FilesAction::List(ServerPath(Vec::new())),
+            }));
+        });
+        let result = completed.recv_timeout(std::time::Duration::from_secs(3));
+        let (write, written) = mpsc::channel();
+        scope.spawn(move || {
+            let _ = write.send(workspace.registry.files(&FilesRequest {
+                project: workspace.project,
+                action: FilesAction::Mkdir(ServerPath(b"parallel".to_vec())),
+            }));
+        });
+        let early_write = written.recv_timeout(std::time::Duration::from_millis(100));
+        drop(guard);
+        assert!(matches!(result.unwrap().unwrap(), FilesReply::Entries(_)));
+        assert!(early_write.is_err());
+        assert!(matches!(
+            written
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap()
+                .unwrap(),
+            FilesReply::Path(_)
+        ));
+    });
+}

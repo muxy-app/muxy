@@ -40,6 +40,52 @@ impl AppModel {
         else {
             return;
         };
+        if let Target::File(file) = &target
+            && self.settings.openers.file == "system.editor"
+            && self.settings.openers.project_target.is_none()
+            && let Ok(relative) = file.path.strip_prefix(&context.project_directory)
+            && let Some(relative) = relative.to_str()
+        {
+            let opener = self.extensions.registry.active().find_map(|extension| {
+                extension
+                    .manifest
+                    .file_openers
+                    .iter()
+                    .find(|opener| {
+                        opener["patterns"].as_array().is_some_and(|patterns| {
+                            patterns
+                                .iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .any(|pattern| {
+                                    pattern == "*"
+                                        || pattern == relative
+                                        || pattern
+                                            .strip_prefix('*')
+                                            .is_some_and(|suffix| relative.ends_with(suffix))
+                                })
+                        })
+                    })
+                    .map(|opener| (extension.name.clone(), opener.clone()))
+            });
+            if let Some((owner, opener)) = opener {
+                let descriptor = muxy_app_core::webview::WebviewDescriptor {
+                    owner,
+                    kind: opener["tabType"].as_str().unwrap_or("").into(),
+                    data: serde_json::json!({"filePath":relative,"line":file.line,"column":file.column,"replaceable":false}),
+                };
+                match self.open_webview_tab(
+                    descriptor,
+                    opener["singleton"].as_bool().unwrap_or(false),
+                    cx,
+                ) {
+                    Ok(_) => return,
+                    Err(error) => {
+                        self.fail(format!("Could not open file: {error}"), cx);
+                        return;
+                    }
+                }
+            }
+        }
         let settings = self.settings.openers.clone();
         let result = crate::opener::submit(move || {
             crate::opener::open(&OpenRequest { target, context }, &settings)

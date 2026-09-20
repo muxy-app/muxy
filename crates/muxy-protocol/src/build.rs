@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when mixed beta builds would be unsafe, including behavior or shared storage changes.
-pub const COMPATIBILITY: u64 = 15;
+pub const COMPATIBILITY: u64 = 16;
 
 /// Stable update metadata, independent of the mutable terminal schema.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

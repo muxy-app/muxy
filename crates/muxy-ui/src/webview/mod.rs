@@ -11,10 +11,7 @@ use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{
-    NSBitmapImageFileType, NSBitmapImageRep, NSColor, NSEvent, NSEventMask, NSEventModifierFlags,
-    NSImage, NSView,
-};
+use objc2_app_kit::{NSColor, NSEvent, NSEventMask, NSEventModifierFlags, NSImage, NSView};
 use objc2_core_graphics::CGMutablePath;
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization, NSJSONWritingOptions,
@@ -33,6 +30,32 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use assets::Source;
 
 type Reply = RcBlock<dyn Fn(*mut AnyObject, *mut NSString)>;
+
+/// Premultiplied BGRA pixels of a page at the display's scale.
+pub struct Snapshot {
+    pub width: u32,
+    pub height: u32,
+    pub bgra: Vec<u8>,
+}
+
+impl Snapshot {
+    fn from_rgba(width: u32, height: u32, mut pixels: Vec<u8>) -> Self {
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        Self {
+            width,
+            height,
+            bgra: pixels,
+        }
+    }
+}
+
+impl std::fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Snapshot({}x{})", self.width, self.height)
+    }
+}
 type AssetResult = Result<(Vec<u8>, &'static str), String>;
 
 #[derive(Debug)]
@@ -50,7 +73,7 @@ pub enum Event {
     Snapshot {
         id: u64,
         generation: u64,
-        png: Vec<u8>,
+        image: Snapshot,
     },
     Asset {
         id: u64,
@@ -308,6 +331,25 @@ pub struct NativeWebview {
     visible: Cell<bool>,
     bounds: Cell<Bounds<Pixels>>,
     clip: Cell<Bounds<Pixels>>,
+    occlusions: RefCell<Vec<Bounds<Pixels>>>,
+    applied: RefCell<Applied>,
+}
+
+/// Native view state as last applied. Every frame syncs the view, and each
+/// new layer mask costs a view-sized bitmap, so only changes are applied.
+#[derive(Debug, Default)]
+struct Applied {
+    frame: Option<NSRect>,
+    background: Option<Rgba>,
+    radius: Option<f64>,
+    mask: Option<Mask>,
+}
+
+#[derive(Debug, PartialEq)]
+struct Mask {
+    bounds: Bounds<Pixels>,
+    clip: Bounds<Pixels>,
+    occlusions: Vec<Bounds<Pixels>>,
 }
 
 impl NativeWebview {
@@ -390,6 +432,8 @@ impl NativeWebview {
                 visible: Cell::new(false),
                 bounds: Cell::default(),
                 clip: Cell::default(),
+                occlusions: RefCell::default(),
+                applied: RefCell::default(),
             },
             receiver,
         ))
@@ -476,25 +520,54 @@ impl NativeWebview {
         } else {
             self.parent.bounds().size.height - top - height
         };
-        self.view.setFrame(NSRect::new(
+        let frame = NSRect::new(
             NSPoint::new(f64::from(f32::from(bounds.left())), y),
             NSSize::new(f64::from(f32::from(bounds.size.width)), height),
-        ));
-        unsafe {
-            self.view
-                .setUnderPageBackgroundColor(Some(&background_color(background)));
+        );
+        let mut applied = self.applied.borrow_mut();
+        if applied.frame != Some(frame) {
+            self.view.setFrame(frame);
+            applied.frame = Some(frame);
         }
-        if let Some(layer) = self.view.layer() {
+        if applied.background != Some(background) {
+            unsafe {
+                self.view
+                    .setUnderPageBackgroundColor(Some(&background_color(background)));
+            }
+            applied.background = Some(background);
+        }
+        if applied.radius != Some(radius)
+            && let Some(layer) = self.view.layer()
+        {
             layer.setCornerRadius(radius);
             layer.setMasksToBounds(true);
+            applied.radius = Some(radius);
         }
-        self.occlude(&[]);
+        drop(applied);
+        self.apply_mask();
     }
 
     pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
+        if *self.occlusions.borrow() != occlusions {
+            *self.occlusions.borrow_mut() = occlusions.to_vec();
+        }
+        self.apply_mask();
+    }
+
+    fn apply_mask(&self) {
         let bounds = self.bounds.get();
         let clip = bounds.intersect(&self.clip.get());
-        let (regions, excluded) = composition_regions(bounds, clip, occlusions);
+        let occlusions = self.occlusions.borrow();
+        let mask = Mask {
+            bounds,
+            clip,
+            occlusions: occlusions.clone(),
+        };
+        if self.applied.borrow().mask.as_ref() == Some(&mask) {
+            return;
+        }
+        self.applied.borrow_mut().mask = Some(mask);
+        let (regions, excluded) = composition_regions(bounds, clip, &occlusions);
         *self.view.ivars().borrow_mut() = excluded
             .into_iter()
             .map(|region| self.local_rect(region))
@@ -538,7 +611,9 @@ impl NativeWebview {
     }
 
     pub fn set_visible(&self, visible: bool) {
-        self.visible.set(visible);
+        if self.visible.replace(visible) == visible && self.view.isHidden() != visible {
+            return;
+        }
         self.view.setHidden(!visible);
         if !visible {
             self.blur();
@@ -566,6 +641,17 @@ impl NativeWebview {
     }
 
     pub fn snapshot(&self) {
+        let scale = self
+            .view
+            .window()
+            .map_or(1.0, |window| window.backingScaleFactor());
+        let bounds = self.bounds.get();
+        let (Some(width), Some(height)) = (
+            pixel_dimension(bounds.size.width, scale),
+            pixel_dimension(bounds.size.height, scale),
+        ) else {
+            return;
+        };
         let delegate = self.delegate.clone();
         let state = delegate.ivars();
         let id = state.next();
@@ -576,21 +662,19 @@ impl NativeWebview {
             if state.snapshot_id.get() != id || state.generation.get() != generation {
                 return;
             }
-            if let Some(image) = unsafe { image.as_ref() }
-                && let Some(data) = image.TIFFRepresentation()
-            {
-                let tiff = data.to_vec();
-                let sender = state.sender.clone();
-                let _ = state.worker.try_spawn(move || {
-                    if let Some(png) = snapshot_png(&tiff) {
-                        let _ = sender.try_send(Event::Snapshot {
-                            id,
-                            generation,
-                            png,
-                        });
-                    }
+            let Some(rgba) =
+                unsafe { image.as_ref() }.and_then(|image| snapshot_rows(image, width, height))
+            else {
+                return;
+            };
+            let sender = state.sender.clone();
+            let _ = state.worker.try_spawn(move || {
+                let _ = sender.try_send(Event::Snapshot {
+                    id,
+                    generation,
+                    image: Snapshot::from_rgba(width, height, rgba),
                 });
-            }
+            });
         });
         unsafe {
             self.view
@@ -604,17 +688,17 @@ impl NativeWebview {
     }
 }
 
-fn snapshot_png(tiff: &[u8]) -> Option<Vec<u8>> {
-    objc2::rc::autoreleasepool(|_| {
-        let bitmap = NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(tiff))?;
-        unsafe {
-            bitmap.representationUsingType_properties(
-                NSBitmapImageFileType::PNG,
-                &NSDictionary::new(),
-            )
-        }
-        .map(|png| png.to_vec())
+fn snapshot_rows(image: &NSImage, width: u32, height: u32) -> Option<Vec<u8>> {
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let rep = crate::bitmap::draw_into_bitmap(image, width, height)?;
+        crate::bitmap::rgba_rows(&rep, width, height)
     })
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn pixel_dimension(points: Pixels, scale: f64) -> Option<u32> {
+    let pixels = f64::from(f32::from(points)) * scale;
+    (pixels.is_finite() && (1.0..=16384.0).contains(&pixels)).then(|| pixels.round() as u32)
 }
 
 fn install_script(controller: &WKUserContentController, source: &str, mtm: MainThreadMarker) {
@@ -633,6 +717,7 @@ fn install_script(controller: &WKUserContentController, source: &str, mtm: MainT
 
 impl Drop for NativeWebview {
     fn drop(&mut self) {
+        self.blur();
         if let Some(monitor) = self.monitor.take() {
             unsafe {
                 NSEvent::removeMonitor(&monitor);
@@ -857,37 +942,33 @@ fn asset_response(
 mod tests {
     use super::*;
     use gpui::{point, px, size};
+    use objc2_app_kit::NSBitmapImageRep;
 
     #[test]
-    fn snapshot_encoding_preserves_pixels_on_a_worker() {
+    fn snapshots_pack_rows_in_bgra_order() {
         let rgba = vec![
             255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 10, 20, 30, 255,
         ];
-        let source = image::RgbaImage::from_raw(2, 2, rgba.clone()).expect("source pixels");
+        let source = image::RgbaImage::from_raw(2, 2, rgba).expect("source pixels");
         let mut png = std::io::Cursor::new(Vec::new());
         source
             .write_to(&mut png, image::ImageFormat::Png)
             .expect("PNG");
         let bitmap =
             NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(png.get_ref())).expect("bitmap");
-        let tiff = bitmap.TIFFRepresentation().expect("TIFF").to_vec();
-        let worker = WorkerPool::new("snapshot-test", 1, 1).expect("worker");
-        let (send, receive) = std::sync::mpsc::channel();
-        worker
-            .try_spawn(move || {
-                send.send(snapshot_png(&tiff)).expect("snapshot receiver");
-            })
-            .expect("queued snapshot");
-        let png = receive
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("snapshot completed")
-            .expect("snapshot PNG");
-        let decoded = image::load_from_memory(&png)
-            .expect("decoded snapshot")
-            .into_rgba8();
-        assert_eq!(decoded.dimensions(), (2, 2));
-        assert_eq!(decoded.into_raw(), rgba);
-        assert!(snapshot_png(b"incomplete snapshot").is_none());
+        let image = NSImage::initWithSize(NSImage::alloc(), NSSize::new(2.0, 2.0));
+        image.addRepresentation(&bitmap);
+        let rows = snapshot_rows(&image, 2, 2).expect("rows");
+        let snapshot = Snapshot::from_rgba(2, 2, rows);
+        assert_eq!((snapshot.width, snapshot.height), (2, 2));
+        assert_eq!(
+            snapshot.bgra,
+            vec![
+                0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 30, 20, 10, 255
+            ]
+        );
+        assert_eq!(pixel_dimension(px(100.5), 2.0), Some(201));
+        assert_eq!(pixel_dimension(px(0.0), 2.0), None);
     }
 
     #[test]

@@ -95,6 +95,8 @@ elif name == "spctl":
     sys.exit(int(os.environ.get("SPCTL_EXIT", "0")))
 elif name == "sleep":
     pass
+elif name == "ditto":
+    Path(args[-1]).write_bytes(b"app archive")
 else:
     sys.exit("unexpected tool: " + name)
 '''
@@ -107,7 +109,7 @@ class ReleaseScriptTests(unittest.TestCase):
         self.directory = Path(self.temp.name)
         self.tools = self.directory / "tools"
         self.tools.mkdir()
-        for name in ("git", "gh", "xcrun", "spctl", "codesign", "sleep"):
+        for name in ("git", "gh", "xcrun", "spctl", "codesign", "sleep", "ditto"):
             tool = self.tools / name
             tool.write_text(f"#!{sys.executable}\n" + FAKE_TOOL)
             tool.chmod(0o755)
@@ -122,6 +124,7 @@ class ReleaseScriptTests(unittest.TestCase):
             "APPLE_ID": "test@example.invalid",
             "APPLE_APP_SPECIFIC_PASSWORD": "test-password",
             "APPLE_TEAM_ID": "test-team",
+            "NOTARY_KEYCHAIN_PROFILE": "",
         }
         for arch in ("arm64", "x86_64"):
             (self.directory / f"Muxy-{VERSION}-{arch}.dmg").write_bytes(arch.encode())
@@ -349,6 +352,33 @@ class ReleaseScriptTests(unittest.TestCase):
             ["stapler", "staple"], ["stapler", "validate"],
         ])
         self.assertEqual(len(self.calls("spctl")), 1)
+
+    def test_app_is_archived_then_stapled_with_keychain_credentials(self):
+        app = self.directory / "Muxy Beta.app"
+        app.mkdir()
+        self.env["NOTARY_KEYCHAIN_PROFILE"] = "local-notary"
+        for key in ("APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"):
+            del self.env[key]
+        result = self.run_script("notarize-release.sh", app)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls("ditto")[0][1:6], ["-c", "-k", "--sequesterRsrc", "--keepParent", str(app)])
+        submit = self.calls("xcrun")[0]
+        self.assertIn("--keychain-profile", submit)
+        self.assertIn("local-notary", submit)
+        self.assertNotIn("--password", submit)
+        self.assertEqual(self.calls("xcrun")[-2:], [
+            ["xcrun", "stapler", "staple", str(app)],
+            ["xcrun", "stapler", "validate", str(app)],
+        ])
+        self.assertEqual(self.calls("spctl")[0][-1], str(app))
+        self.assertIn("execute", self.calls("spctl")[0])
+
+    def test_rejected_app_is_never_stapled(self):
+        app = self.directory / "Muxy Beta.app"
+        app.mkdir()
+        self.env["NOTARY_STATUS"] = "Invalid"
+        self.assertNotEqual(self.run_script("notarize-release.sh", app).returncode, 0)
+        self.assertFalse(any(call[1] == "stapler" for call in self.calls("xcrun")))
 
     def test_zip_checks_notarized_binaries_without_stapling(self):
         archive = self.directory / "standalone.zip"

@@ -21,6 +21,7 @@ async-channel = "2"
 raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2-javascript-core = { version = "=0.3.2", default-features = false, features = ["std", "JSBase", "JSContextRef", "JSObjectRef", "JSStringRef", "JSValueRef"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKWebView", "WKWebViewConfiguration", "WKUserContentController", "WKUserScript", "WKContentWorld", "WKScriptMessage", "WKScriptMessageHandlerWithReply", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKUIDelegate", "WKWindowFeatures", "WKURLSchemeHandler", "WKURLSchemeTask", "WKSnapshotConfiguration"] }
 dispatch2 = "0.3"
 objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "AVMediaFormat", "AVCaptureSession", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureDevice", "AVCaptureAudioDataOutput", "objc2-core-media"] }
@@ -33,7 +34,7 @@ objc2 = "0.6"
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGPath", "CGAffineTransform", "CGEvent", "CGEventTypes", "CGRemoteOperation"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSJSONSerialization", "NSURLRequest", "NSURLResponse", "NSNull", "NSKeyValueCoding", "NSValue", "NSDictionary", "NSData", "NSGeometry", "NSString", "NSURL", "NSNotification", "NSBundle", "NSError", "NSOperation", "NSArray", "NSEnumerator", "block2"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSMenu", "NSMenuItem", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSFontDescriptor", "objc2-core-foundation", "NSAlert", "NSOpenPanel", "NSPanel", "NSSavePanel", "NSApplication", "NSButton", "NSCell", "NSControl", "NSResponder", "NSView", "NSWindow", "NSScrollView", "NSScroller", "NSClipView", "NSEvent", "NSAppearance", "block2", "NSAccessibility", "NSAccessibilityConstants", "NSAccessibilityProtocols", "libc", "NSAccessibilityElement", "NSColor", "NSScreen", "NSWorkspace", "NSRunningApplication", "NSTextInputContext", "objc2-core-graphics", "objc2-quartz-core"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSMenu", "NSMenuItem", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSFontDescriptor", "objc2-core-foundation", "NSAlert", "NSTextField", "NSOpenPanel", "NSPanel", "NSSavePanel", "NSApplication", "NSButton", "NSCell", "NSControl", "NSResponder", "NSView", "NSWindow", "NSScrollView", "NSScroller", "NSClipView", "NSEvent", "NSAppearance", "block2", "NSAccessibility", "NSAccessibilityConstants", "NSAccessibilityProtocols", "libc", "NSAccessibilityElement", "NSColor", "NSScreen", "NSWorkspace", "NSRunningApplication", "NSTextInputContext", "objc2-core-graphics", "objc2-quartz-core"] }
 
 [lints]
 workspace = true

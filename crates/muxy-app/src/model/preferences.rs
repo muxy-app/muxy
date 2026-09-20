@@ -52,6 +52,15 @@ impl AppModel {
             &self.path.with_file_name("ghostty.conf"),
         )
         .unwrap_or_default();
+        let model = cx.weak_entity();
+        let extensions = cx.new(|cx| {
+            crate::views::settings::extensions::ExtensionsView::new(
+                model,
+                self.theme.clone(),
+                muxy_ui::theme::Metrics::new(1.15),
+                cx,
+            )
+        });
         let view = cx.new(|cx| {
             let mut view = SettingsView::new(
                 snapshot,
@@ -59,6 +68,7 @@ impl AppModel {
                 muxy_ui::theme::Metrics::new(1.15),
                 cx,
             );
+            view.extensions = Some(extensions);
             view.set_included_keys(&included_keys);
             view
         });
@@ -215,6 +225,7 @@ impl AppModel {
         let mut settings = self.settings.clone();
         settings.appearance = self.appearance.clone();
         let theme_changed = matches!(change, Change::Theme(..));
+        let bindings_changed = matches!(change, Change::Binding(..));
         match change {
             Change::QuickTerminal(quick) => {
                 self.apply_quick_settings(quick, cx)?;
@@ -272,8 +283,6 @@ impl AppModel {
                 }
                 settings.keymap = settings.keymap.with_binding(&id, chord)?;
                 settings.keymap.save(&path)?;
-                cx.clear_key_bindings();
-                crate::views::workspace::bind_keys(&settings.keymap, cx);
                 cx.set_menus(crate::menus());
             }
             Change::Field(id @ ("width" | "height"), value) => {
@@ -291,6 +300,9 @@ impl AppModel {
             || self.appearance.light_theme != settings.appearance.light_theme;
         self.appearance = settings.appearance.clone();
         self.settings = settings;
+        if bindings_changed {
+            self.bind_extension_keys(cx);
+        }
         if theme_changed {
             self.refresh_theme(cx);
         }

@@ -13,8 +13,13 @@ and data are saved; unavailable content shows a placeholder. Webview panels dock
 at the right or bottom, pinned or floating, with shared move, resize, pin, and
 close controls. Their pages remain alive until closed. Webview modals return a
 result or cancel on dismissal or replacement. Pages receive live theme, data,
-and focus updates and may veto user closes. These are client-owned foundations;
-extension loading, permissions, and privileged API wiring are deferred.
+and focus updates and may veto user closes.
+
+Settings → Extensions manages installed packages and the marketplace. Users can
+load an unpacked folder, install a package, and enable it after reviewing its
+permissions. Reloading, disabling, and uninstalling honor open views’ close
+handlers. The first compatibility target is main’s unchanged Git and Files
+extensions; other extension capabilities remain deferred.
 
 The desktop and keyboard TUI are clients of the same server. The
 [product model](./product-model.md) defines what clients own; this document

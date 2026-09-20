@@ -3,6 +3,9 @@
 //! This crate translates shared protocol traffic without owning project,
 //! tab, pane, UI, or desktop update policy. Local startup launches an explicit executable.
 
+mod async_request;
+mod asynchronous;
+pub use async_request::Request;
 mod client;
 mod error;
 mod events;

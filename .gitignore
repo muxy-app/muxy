@@ -8,3 +8,4 @@
 /.claude/
 /skills-lock.json
 __pycache__/
+.env.release

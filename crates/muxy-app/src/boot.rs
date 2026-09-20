@@ -33,6 +33,11 @@ pub(crate) struct Boot {
 impl Boot {
     pub(crate) fn load() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let state_path = store::default_path()?;
+        crate::diagnostics::init(
+            state_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new(".")),
+        );
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -59,6 +64,7 @@ impl Boot {
 
 #[derive(Debug)]
 pub(crate) enum Work {
+    ExtensionClient(async_channel::Sender<Option<Client>>),
     WriteInput {
         channel: ChannelId,
         bytes: Vec<u8>,
@@ -128,6 +134,7 @@ pub(crate) enum Work {
     EndAll(Vec<SessionId>),
     Flush,
     Completed(Box<Option<Update>>),
+    AsyncCompleted(Box<Update>),
     Detach(ChannelId),
     Resize(ChannelId, Size),
     Colors(TerminalColors),
@@ -137,6 +144,51 @@ pub(crate) enum Work {
     Ack(ChannelId, u64),
     Event(ClientEvent),
     Stop,
+}
+
+impl Work {
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::ExtensionClient(..) => "ExtensionClient",
+            Self::WriteInput { .. } => "WriteInput",
+            Self::ReadActivity => "ReadActivity",
+            Self::OpenActivitySession { .. } => "OpenActivitySession",
+            Self::AcknowledgeActivity(..) => "AcknowledgeActivity",
+            Self::ClaimActivity(..) => "ClaimActivity",
+            Self::Git(..) => "Git",
+            Self::ProjectSessions { .. } => "ProjectSessions",
+            Self::ReadCatalog => "ReadCatalog",
+            Self::CancelCreation(..) => "CancelCreation",
+            Self::MutateProject(..) => "MutateProject",
+            Self::Search { .. } => "Search",
+            Self::Connect => "Connect",
+            Self::ReconnectAfterUpdate(..) => "ReconnectAfterUpdate",
+            Self::ReadServerSettings => "ReadServerSettings",
+            Self::WriteServerSettings(..) => "WriteServerSettings",
+            Self::StopServer { .. } => "StopServer",
+            Self::PrepareUpdate { .. } => "PrepareUpdate",
+            Self::CheckServerUpdate { .. } => "CheckServerUpdate",
+            Self::Attach { .. } => "Attach",
+            Self::References(..) => "References",
+            Self::Discard(..) => "Discard",
+            Self::CheckClose { .. } => "CheckClose",
+            Self::ReadSaved { .. } => "ReadSaved",
+            Self::History { .. } => "History",
+            Self::EndAll(..) => "EndAll",
+            Self::Flush => "Flush",
+            Self::Completed(..) => "Completed",
+            Self::AsyncCompleted(..) => "AsyncCompleted",
+            Self::Detach(..) => "Detach",
+            Self::Resize(..) => "Resize",
+            Self::Colors(..) => "Colors",
+            Self::Input(..) => "Input",
+            Self::Mouse(..) => "Mouse",
+            Self::CellSize(..) => "CellSize",
+            Self::Ack(..) => "Ack",
+            Self::Event(..) => "Event",
+            Self::Stop => "Stop",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -218,6 +270,10 @@ pub(crate) enum Update {
     Error(String),
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep connection and request routing together"
+)]
 fn bridge(socket: PathBuf) -> std::io::Result<(Worker, async_channel::Receiver<(u64, Update)>)> {
     let (sender, work) = mpsc::channel();
     let (updates, receiver) = async_channel::unbounded();
@@ -257,6 +313,10 @@ fn bridge(socket: PathBuf) -> std::io::Result<(Worker, async_channel::Receiver<(
                     ) {
                         Ok((connected, sessions)) => {
                             let info = connected.server_info().clone();
+                            crate::diagnostics::event(
+                                "connected",
+                                format_args!("generation={generation} instance={}", info.instance),
+                            );
                             client = Some(connected);
                             vec![Update::ServerInfo(info), Update::Connected(sessions)]
                         }
@@ -266,6 +326,10 @@ fn bridge(socket: PathBuf) -> std::io::Result<(Worker, async_channel::Receiver<(
                     Vec::new()
                 } else {
                     match work {
+                        Work::ExtensionClient(reply) => {
+                            let _ = reply.try_send(client.clone());
+                            Vec::new()
+                        }
                         Work::Event(event) => delivery.event(event).unwrap_or_else(|error| {
                             if let Some(client) = &client {
                                 client.disconnect();
@@ -280,6 +344,13 @@ fn bridge(socket: PathBuf) -> std::io::Result<(Worker, async_channel::Receiver<(
                             .and_then(|client| perform(work, client))
                             .into_iter()
                             .collect(),
+                        Work::Git(request) => {
+                            if let Some(client) = &client {
+                                dispatch_git(client, request, requested, event_sender.clone());
+                            }
+                            Vec::new()
+                        }
+                        Work::AsyncCompleted(update) => vec![*update],
                         Work::Flush => delivery.flush(),
                         Work::Completed(update) => delivery.complete(*update),
                         work => client
@@ -308,6 +379,27 @@ fn bridge(socket: PathBuf) -> std::io::Result<(Worker, async_channel::Receiver<(
             }
         })?;
     Ok((sender, receiver))
+}
+
+fn dispatch_git(
+    client: &Client,
+    request: muxy_protocol::GitRequest,
+    generation: u64,
+    completed: Worker,
+) {
+    let trace = crate::diagnostics::Span::new(
+        "app.git",
+        format_args!("generation={generation} project={:?}", request.project),
+    );
+    client
+        .git_async(request.clone())
+        .on_complete(move |result| {
+            trace.stage(format_args!("phase=reply success={}", result.is_ok()));
+            let _ = completed.send((
+                generation,
+                Work::AsyncCompleted(Box::new(Update::Git { request, result })),
+            ));
+        });
 }
 
 fn connect(
@@ -354,7 +446,18 @@ fn schedule(
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .take();
-            let update = work.and_then(|work| perform(work, &client));
+            let update = work.and_then(|work| {
+                let span = crate::diagnostics::Span::new(
+                    "worker",
+                    format_args!("generation={generation} kind={}", work.name()),
+                );
+                let update = perform(work, &client);
+                span.stage(format_args!(
+                    "phase=reply update={:?}",
+                    update.as_ref().map(std::mem::discriminant)
+                ));
+                update
+            });
             let _ = completed.send((generation, Work::Completed(Box::new(update))));
         })
         .err()
@@ -465,10 +568,7 @@ fn perform(work: Work, client: &Client) -> Option<Update> {
         Work::ClaimActivity(ids) => {
             return Some(Update::ActivityClaimed(client.claim_activity(ids)));
         }
-        Work::Git(request) => {
-            let result = client.git(request.clone());
-            return Some(Update::Git { request, result });
-        }
+        Work::Git(_) => return None,
         Work::ProjectSessions { project } => {
             return Some(Update::ProjectSessions {
                 project,
@@ -602,9 +702,11 @@ fn perform(work: Work, client: &Client) -> Option<Update> {
         Work::Ack(channel, seq) => client.ack(channel, seq),
         Work::Connect
         | Work::ReconnectAfterUpdate(_)
+        | Work::ExtensionClient(_)
         | Work::Event(_)
         | Work::Stop
-        | Work::Completed(_) => {
+        | Work::Completed(_)
+        | Work::AsyncCompleted(_) => {
             return None;
         }
     };

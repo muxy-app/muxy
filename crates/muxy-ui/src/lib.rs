@@ -2,6 +2,9 @@
 //! app settings resolve them through the registration interface.
 
 pub mod assets;
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod bitmap;
 pub mod command_palette;
 pub mod components;
 pub mod controls;
@@ -58,3 +61,10 @@ pub mod native_menu;
 pub mod webview;
 
 pub mod transcript;
+
+#[cfg(target_os = "macos")]
+#[allow(
+    unsafe_code,
+    reason = "JavaScriptCore contexts confined to script threads"
+)]
+pub mod javascript;

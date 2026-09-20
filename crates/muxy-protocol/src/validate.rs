@@ -140,6 +140,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         }
         RequestBody::Git(request) => request.validate(),
         RequestBody::Files(request) => request.validate(),
+        RequestBody::Exec(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {
             if sessions.len() > 16_384 {
                 Err(ErrorCode::BadRequest)
@@ -176,7 +177,8 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_page_size(*max_rows)
         }
         RequestBody::SavedHistoryPage { max_rows, .. } => validate_page_size(*max_rows),
-        RequestBody::ReadActivity
+        RequestBody::CancelExec(_)
+        | RequestBody::ReadActivity
         | RequestBody::IdentifyClient(_)
         | RequestBody::ReadCatalog { .. }
         | RequestBody::ListProjectSessions { .. }
@@ -214,6 +216,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             }
         }
         ReplyBody::Files(reply) => reply.validate(),
+        ReplyBody::Exec(reply) => reply.validate(),
         ReplyBody::Catalog(page) => page.validate(),
         ReplyBody::ProjectSessions(page) => page.validate(),
         ReplyBody::ServerSettings(settings) => settings.validate(),
@@ -273,7 +276,8 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             )
         }
         ReplyBody::SavedScreen(screen) => validate_saved_screen(screen),
-        ReplyBody::ActivityAcknowledged
+        ReplyBody::ExecCancelled
+        | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten
         | ReplyBody::Git(_)
         | ReplyBody::ProjectMutated { .. }

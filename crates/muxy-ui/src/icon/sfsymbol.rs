@@ -1,10 +1,9 @@
-use objc2::rc::{Retained, autoreleasepool};
-use objc2::{AnyThread, MainThreadMarker};
-use objc2_app_kit::{
-    NSBitmapImageRep, NSCompositingOperation, NSDeviceRGBColorSpace, NSGraphicsContext, NSImage,
-    NSImageSymbolConfiguration, NSImageSymbolScale,
-};
-use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use objc2::MainThreadMarker;
+use objc2::rc::autoreleasepool;
+use objc2_app_kit::{NSImage, NSImageSymbolConfiguration, NSImageSymbolScale};
+use objc2_foundation::NSString;
+
+use crate::bitmap;
 
 #[derive(Debug)]
 pub(super) struct Mask {
@@ -46,33 +45,10 @@ pub(super) fn rasterize(symbol: &str, point_size: f32, weight: f32, scale: f32) 
         let width = dimension(natural.width * f64::from(scale))?;
         let height = dimension(natural.height * f64::from(scale))?;
 
-        let rep = draw_into_bitmap(&image, width, height)?;
-        let data = rep.bitmapData();
-        if data.is_null() {
-            return None;
-        }
-
-        let bytes_per_row = usize::try_from(rep.bytesPerRow()).ok()?;
-        let samples = usize::try_from(rep.samplesPerPixel()).ok()?;
-        let columns = usize::try_from(width).ok()?;
-        let rows = usize::try_from(height).ok()?;
-        let length = rows.checked_mul(bytes_per_row)?;
-        if samples != 4
-            || rep.isPlanar()
-            || bytes_per_row < columns.checked_mul(samples)?
-            || usize::try_from(rep.bytesPerPlane()).ok()? < length
-        {
-            return None;
-        }
-        let pixels = std::slice::from_raw_parts(data, length);
-        let alpha = pixels
-            .chunks_exact(bytes_per_row)
-            .take(rows)
-            .flat_map(|row| {
-                row[..columns * samples]
-                    .chunks_exact(samples)
-                    .map(|pixel| pixel[3])
-            })
+        let rep = bitmap::draw_into_bitmap(&image, width, height)?;
+        let alpha = bitmap::rgba_rows(&rep, width, height)?
+            .chunks_exact(4)
+            .map(|pixel| pixel[3])
             .collect();
         Some(Mask {
             width,
@@ -82,46 +58,6 @@ pub(super) fn rasterize(symbol: &str, point_size: f32, weight: f32, scale: f32) 
             alpha,
         })
     })
-}
-
-unsafe fn draw_into_bitmap(
-    image: &NSImage,
-    width: u32,
-    height: u32,
-) -> Option<Retained<NSBitmapImageRep>> {
-    unsafe {
-        let rep = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
-        NSBitmapImageRep::alloc(),
-        std::ptr::null_mut(),
-        isize::try_from(width).ok()?,
-        isize::try_from(height).ok()?,
-        8,
-        4,
-        true,
-        false,
-        NSDeviceRGBColorSpace,
-        isize::try_from(width.checked_mul(4)?).ok()?,
-        32,
-    )?;
-
-        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&rep)?;
-        NSGraphicsContext::saveGraphicsState_class();
-        NSGraphicsContext::setCurrentContext(Some(&context));
-
-        let rect = NSRect::new(
-            NSPoint::new(0.0, 0.0),
-            NSSize::new(f64::from(width), f64::from(height)),
-        );
-        image.drawInRect_fromRect_operation_fraction(
-            rect,
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
-            NSCompositingOperation::SourceOver,
-            1.0,
-        );
-
-        NSGraphicsContext::restoreGraphicsState_class();
-        Some(rep)
-    }
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

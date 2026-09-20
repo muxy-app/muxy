@@ -182,3 +182,93 @@ pub fn choose_folder(
     panel.beginWithCompletionHandler(&handler);
     Ok(FolderPicker { panel, completed })
 }
+
+/// A labelled native alert, confirmation, or text prompt.
+#[derive(Clone, Debug, Default)]
+pub struct DialogOptions {
+    pub title: String,
+    pub message: String,
+    pub buttons: Vec<String>,
+    pub default_button: Option<String>,
+    pub cancel_button: Option<String>,
+    pub input: Option<(String, String)>,
+    pub style: String,
+}
+
+pub fn present(
+    window: &gpui::Window,
+    options: DialogOptions,
+    on_complete: impl FnOnce(Option<String>) + 'static,
+) -> io::Result<Confirmation> {
+    let main_thread = MainThreadMarker::new()
+        .ok_or_else(|| io::Error::other("dialogs require the main thread"))?;
+    let windows = NSApplication::sharedApplication(main_thread).windows();
+    let title = window.window_title();
+    let parent = (0..windows.count())
+        .map(|index| windows.objectAtIndex(index))
+        .find(|window| window.title().to_string() == title)
+        .ok_or_else(|| io::Error::other("dialog parent is closed"))?;
+    if parent.attachedSheet().is_some() {
+        return Err(io::Error::other("an application dialog is already open"));
+    }
+    let alert = NSAlert::new(main_thread);
+    alert.setMessageText(&NSString::from_str(&options.title));
+    alert.setInformativeText(&NSString::from_str(&options.message));
+    alert.setAlertStyle(match options.style.as_str() {
+        "warning" => NSAlertStyle::Warning,
+        "critical" => NSAlertStyle::Critical,
+        _ => NSAlertStyle::Informational,
+    });
+    for (index, label) in options.buttons.iter().enumerate() {
+        let button = alert.addButtonWithTitle(&NSString::from_str(label));
+        let key = if options.default_button.as_ref() == Some(label)
+            || (options.default_button.is_none() && index == 0)
+        {
+            "\r"
+        } else if options.cancel_button.as_ref() == Some(label) {
+            "\u{1b}"
+        } else {
+            ""
+        };
+        button.setKeyEquivalent(&NSString::from_str(key));
+    }
+    let input = options.input.map(|(value, placeholder)| {
+        let input = objc2_app_kit::NSTextField::textFieldWithString(
+            &NSString::from_str(&value),
+            main_thread,
+        );
+        input.setPlaceholderString(Some(&NSString::from_str(&placeholder)));
+        input.setFrame(objc2_foundation::NSRect::new(
+            objc2_foundation::NSPoint::new(0.0, 0.0),
+            objc2_foundation::NSSize::new(320.0, 24.0),
+        ));
+        alert.setAccessoryView(Some(&input));
+        alert.window().setInitialFirstResponder(Some(&input));
+        input
+    });
+    let completed = Rc::new(Cell::new(false));
+    let finished = completed.clone();
+    let callback = Cell::new(Some(on_complete));
+    let handler = RcBlock::new(move |response| {
+        finished.set(true);
+        let label = usize::try_from(response - NSAlertFirstButtonReturn)
+            .ok()
+            .and_then(|index| options.buttons.get(index));
+        let value = match (label, &input) {
+            (Some(label), Some(input)) if options.cancel_button.as_ref() != Some(label) => {
+                Some(input.stringValue().to_string())
+            }
+            (Some(label), None) => Some(label.clone()),
+            _ => None,
+        };
+        if let Some(callback) = callback.take() {
+            callback(value);
+        }
+    });
+    alert.beginSheetModalForWindow_completionHandler(&parent, Some(&handler));
+    Ok(Confirmation {
+        alert,
+        parent,
+        completed,
+    })
+}

@@ -35,12 +35,15 @@ pub(super) fn run(
     version: Version,
 ) -> Result<Exit, WireError> {
     let requests = Requests {
+        commands: crate::exec::Jobs::default(),
         registry: Arc::clone(registry),
         outbox: Arc::clone(outbox),
         workers: WorkerPool::new("connection-work", 1, 32)?,
         git_workers: WorkerPool::new("connection-git", 1, 16)?,
+        git_readers: WorkerPool::new("connection-git-read", 4, 32)?,
         git_watch: Arc::new(Mutex::new(None)),
         files_workers: WorkerPool::new("connection-files", 1, 16)?,
+        files_readers: WorkerPool::new("connection-files-read", 4, 32)?,
         files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
         search_cache: Arc::new(Mutex::new(SearchCache::default())),
         version,
@@ -124,11 +127,14 @@ pub(super) fn run(
 }
 
 struct Requests {
+    commands: crate::exec::Jobs,
     registry: Arc<Registry>,
     outbox: Arc<Outbox>,
     workers: WorkerPool,
     git_workers: WorkerPool,
+    git_readers: WorkerPool,
     files_workers: WorkerPool,
+    files_readers: WorkerPool,
     files_watch: Arc<Mutex<crate::files::watch::Subscriptions>>,
     git_watch: Arc<Mutex<Option<crate::git::watch::RepositoryWatch>>>,
     search_cache: Arc<Mutex<SearchCache>>,
@@ -156,11 +162,25 @@ impl Requests {
         let outbox = &self.outbox;
         match body {
             RequestBody::Ping => Ok(Some(ReplyBody::Pong)),
+            RequestBody::Exec(request) => {
+                self.commands
+                    .start(request, id, Arc::clone(&self.registry), Arc::clone(outbox))?;
+                Ok(None)
+            }
+            RequestBody::CancelExec(job) => {
+                self.commands.cancel(job);
+                Ok(Some(ReplyBody::ExecCancelled))
+            }
             RequestBody::Files(request) => {
                 let watch = Arc::clone(&self.files_watch);
                 let registry = Arc::clone(&self.registry);
                 let output = Arc::clone(outbox);
-                self.files_workers
+                let workers = if crate::files::is_read(&request.action) {
+                    &self.files_readers
+                } else {
+                    &self.files_workers
+                };
+                workers
                     .try_spawn(move || {
                         if output.is_closed() {
                             return;
@@ -189,7 +209,12 @@ impl Requests {
                 let watch = Arc::clone(&self.git_watch);
                 let registry = Arc::clone(&self.registry);
                 let output = Arc::clone(outbox);
-                self.git_workers
+                let workers = if crate::git::is_read(&request.action) {
+                    &self.git_readers
+                } else {
+                    &self.git_workers
+                };
+                workers
                     .try_spawn(move || {
                         if output.is_closed() {
                             return;
@@ -335,6 +360,12 @@ fn ordered_request(
         | RequestBody::ListProjectSessions { .. } => project_request(body, registry, outbox)?,
         RequestBody::Git(request) => ReplyBody::Git(registry.git(&request)?),
         RequestBody::Files(request) => ReplyBody::Files(registry.files(&request)?),
+        RequestBody::Exec(_) | RequestBody::CancelExec(_) => {
+            return Err(ServerError::new(
+                ErrorCode::BadRequest,
+                "commands require a connection",
+            ));
+        }
         RequestBody::ListSessions => ReplyBody::Sessions(registry.list()),
         RequestBody::CreateSession {
             project,

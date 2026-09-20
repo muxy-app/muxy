@@ -1,4 +1,4 @@
-((initial) => {
+((initial, makeAPI) => {
   const handler = window.webkit?.messageHandlers?.muxy;
   if (!handler) return;
   let nextID = 1;
@@ -42,7 +42,9 @@
         value => resolve(value === true || value?.prevent === true), () => resolve(false));
     } catch (_) { resolve(false); }
   };
+  const api = makeAPI(send, initial);
   window.muxy = Object.freeze({
+    ...api,
     extensionID: initial.owner,
     tabInstanceID: initial.id,
     panelID: initial.surface === "panel" ? initial.id : null,
@@ -53,6 +55,7 @@
     onThemeChange: callback => subscribe(listeners.theme, callback),
     onFocus: callback => subscribe(listeners.focus, callback),
     tabs: {
+      ...api.tabs,
       open: request => send('tabs.open', request),
       setTitle: title => send('tabs.setTitle', { tabInstanceID: initial.id, title: String(title ?? '') }),
       setIcon: icon => send('tabs.setIcon', { tabInstanceID: initial.id, icon: icon ?? null }),

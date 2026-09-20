@@ -344,3 +344,126 @@ fn deferred_progress_keeps_only_the_latest_state_and_completion_count() -> TestR
     );
     Ok(())
 }
+
+#[test]
+fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult {
+    let directory = tempfile::Builder::new()
+        .prefix("muxy-async-")
+        .tempdir_in("/tmp")?;
+    let listener = UnixListener::bind(directory.path().join("server.sock"))?;
+    let (started, pending) = mpsc::channel();
+    let server = thread::spawn(move || withhold_extension_replies(&listener, &started));
+    let (work, updates) = bridge(directory.path().join("server.sock"))?;
+    work.send((1, Work::Connect))?;
+    assert!(matches!(updates.recv_blocking()?.1, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.1, Update::Connected(_)));
+    let (reply, client) = async_channel::bounded(1);
+    work.send((1, Work::ExtensionClient(reply)))?;
+    let client = client.recv_blocking()?.ok_or("missing client")?;
+    let project = muxy_protocol::ProjectId::new();
+    let files = client.files_async(muxy_protocol::FilesRequest {
+        project,
+        action: muxy_protocol::FilesAction::List(muxy_protocol::ServerPath(Vec::new())),
+    });
+    let git = client.git_async(muxy_protocol::GitRequest {
+        project,
+        action: muxy_protocol::GitAction::Status { local: true },
+    });
+    let command = client.exec_async(muxy_protocol::ExecRequest {
+        job: 1,
+        project,
+        argv: vec!["pwd".into()],
+        shell: None,
+        cwd: None,
+        stdin: Vec::new(),
+        env: std::collections::BTreeMap::new(),
+        timeout_ms: 30_000,
+    });
+    for _ in 0..3 {
+        pending.recv_timeout(Duration::from_secs(2))?;
+    }
+    work.send((
+        1,
+        Work::Git(muxy_protocol::GitRequest {
+            project,
+            action: muxy_protocol::GitAction::Summary,
+        }),
+    ))?;
+    pending.recv_timeout(Duration::from_secs(2))?;
+    for request in [
+        Work::ReadCatalog,
+        Work::ReadActivity,
+        Work::ReadServerSettings,
+        Work::ProjectSessions { project },
+        Work::ReadSaved {
+            pane: PaneId::new(),
+            session: SessionId::from(std::num::NonZeroU64::MIN),
+        },
+        Work::Flush,
+    ] {
+        work.send((1, request))?;
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut received = [false; 6];
+    while Instant::now() < deadline && !received.iter().all(|received| *received) {
+        match updates.try_recv() {
+            Ok((1, update)) => match update {
+                Update::Catalog(_) => received[0] = true,
+                Update::Activity(_) => received[1] = true,
+                Update::ServerSettings(_) => received[2] = true,
+                Update::ProjectSessions { .. } => received[3] = true,
+                Update::Saved { .. } => received[4] = true,
+                Update::Flushed => received[5] = true,
+                _ => (),
+            },
+            _ => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    work.send((1, Work::Stop))?;
+    client.disconnect();
+    drop((files, git, command));
+    server.join().map_err(|_| "fake server panicked")??;
+    assert!(
+        received.iter().all(|received| *received),
+        "app catalog, activity, settings, project sessions, saved screens and flush must complete while extension replies remain pending: {received:?}"
+    );
+    Ok(())
+}
+
+fn withhold_extension_replies(listener: &UnixListener, started: &Sender<()>) -> TestResult {
+    let (socket, _) = listener.accept()?;
+    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let mut decoder = Decoder::new(socket.try_clone()?);
+    let mut encoder = Encoder::new(socket);
+    assert!(matches!(decoder.next()?, (CONTROL, Message::Hello { .. })));
+    encoder.send(
+        CONTROL,
+        &Message::HelloReply {
+            versions: SUPPORTED.to_vec(),
+            server: muxy_protocol::ServerInfo::current(),
+        },
+    )?;
+    identify_desktop(&mut decoder, &mut encoder)?;
+    while let Ok((_, message)) = decoder.next() {
+        let Message::Request { id, body } = message else {
+            continue;
+        };
+        if matches!(
+            body,
+            RequestBody::Git(_) | RequestBody::Files(_) | RequestBody::Exec(_)
+        ) {
+            started.send(())?;
+            continue;
+        }
+        let body = if matches!(body, RequestBody::ListSessions) {
+            ReplyBody::Sessions(Vec::new())
+        } else {
+            ReplyBody::Error(muxy_protocol::ErrorReply {
+                code: ErrorCode::BadRequest,
+                message: "test response".into(),
+            })
+        };
+        encoder.send(CONTROL, &Message::Reply { id, body })?;
+    }
+    Ok(())
+}

@@ -65,6 +65,9 @@ impl AppModel {
                 return;
             }
         };
+        if page.revision < self.state.catalog_revision() {
+            return;
+        }
         let previous = self.state.clone();
         if let Err(error) = self.state.apply_catalog(&page) {
             self.fail(error.to_string(), cx);

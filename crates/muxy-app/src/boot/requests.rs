@@ -52,6 +52,16 @@ impl Requests {
                 .into(),
             ));
         }
+        crate::diagnostics::event(
+            "worker.queue",
+            format_args!(
+                "kind={} queued={} running={} pending={}",
+                work.name(),
+                self.queued.len(),
+                self.running,
+                delivery.pending
+            ),
+        );
         self.queued.push_back(work);
         delivery.pending += 1;
         None

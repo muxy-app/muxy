@@ -60,6 +60,7 @@ share a supported contract. Any other traffic before hello is fatal.
 | History page and search, and their replies | client, server | control |
 | Set terminal colors and its reply | client, server | control |
 | Read and write server settings, stop server, and their replies | client, server | control |
+| Run or cancel a project command, and their replies | client, server | control |
 | Ping, pong | client, server | control |
 | Frame ack | client | control |
 | Session ended, server restarting for an update | server | control |
@@ -207,6 +208,14 @@ Matching identifiers permit an app update while the older server continues;
 otherwise installation waits for an atomic idle stop or explicit destructive
 confirmation. Scheduling stays in the app. Pre-metadata beta updaters retain
 their existing restart behavior for the transition release.
+
+## Extension commands
+
+Command requests identify a server project and a connection-scoped job. The app
+checks extension permissions and consent before sending them. The server bounds
+input, output, concurrency, and execution time; cancellation and disconnect stop
+the command’s process group. Completion reports exit status and whether output
+was truncated, timed out, or cancelled.
 
 ## AI activity
 

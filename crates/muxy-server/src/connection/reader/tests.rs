@@ -38,12 +38,15 @@ impl Connection {
         });
         Ok(Self {
             requests: Requests {
+                commands: crate::exec::Jobs::default(),
                 registry,
                 outbox,
                 workers: WorkerPool::new("ordering-test", 1, 32)?,
                 git_workers: WorkerPool::new("git-test", 1, 16)?,
+                git_readers: WorkerPool::new("git-read-test", 4, 32)?,
                 git_watch: Arc::new(Mutex::new(None)),
                 files_workers: WorkerPool::new("connection-files", 1, 16)?,
+                files_readers: WorkerPool::new("files-read-test", 4, 32)?,
                 files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
                 search_cache: Arc::new(Mutex::new(SearchCache::default())),
                 version: muxy_protocol::V1,
@@ -148,13 +151,17 @@ fn queued_history_precedes_later_detach() -> TestResult {
 #[test]
 fn file_work_does_not_block_ping_or_catalog_requests() -> TestResult {
     let mut connection = Connection::new()?;
-    let (release, gate) = mpsc::channel();
-    let (started, ready) = mpsc::channel();
-    connection.requests.files_workers.try_spawn(move || {
-        let _ = started.send(());
-        let _ = gate.recv_timeout(Duration::from_secs(5));
-    })?;
-    ready.recv_timeout(Duration::from_secs(2))?;
+    let mut releases = Vec::new();
+    for _ in 0..4 {
+        let (release, gate) = mpsc::channel();
+        let (started, ready) = mpsc::channel();
+        connection.requests.files_readers.try_spawn(move || {
+            let _ = started.send(());
+            let _ = gate.recv_timeout(Duration::from_secs(5));
+        })?;
+        ready.recv_timeout(Duration::from_secs(2))?;
+        releases.push(release);
+    }
     connection.send(
         1,
         RequestBody::Files(muxy_protocol::FilesRequest {
@@ -175,10 +182,50 @@ fn file_work_does_not_block_ping_or_catalog_requests() -> TestResult {
         connection.reply()?,
         (RequestId(3), ReplyBody::Catalog(_))
     ));
-    release.send(())?;
+    for release in releases {
+        release.send(())?;
+    }
     assert!(matches!(
         connection.reply()?,
         (RequestId(1), ReplyBody::Error(_))
     ));
+    Ok(())
+}
+
+#[test]
+fn git_and_files_each_execute_reads_while_another_read_is_pending() -> TestResult {
+    let mut connection = Connection::new()?;
+    for git in [true, false] {
+        let (release, gate) = mpsc::channel();
+        let (started, ready) = mpsc::channel();
+        let workers = if git {
+            &connection.requests.git_readers
+        } else {
+            &connection.requests.files_readers
+        };
+        workers.try_spawn(move || {
+            let _ = started.send(());
+            let _ = gate.recv_timeout(Duration::from_secs(5));
+        })?;
+        ready.recv_timeout(Duration::from_secs(2))?;
+        let project = muxy_protocol::ProjectId::new();
+        connection.send(
+            1,
+            if git {
+                RequestBody::Git(muxy_protocol::GitRequest {
+                    project,
+                    action: muxy_protocol::GitAction::Summary,
+                })
+            } else {
+                RequestBody::Files(muxy_protocol::FilesRequest {
+                    project,
+                    action: muxy_protocol::FilesAction::List(muxy_protocol::ServerPath(Vec::new())),
+                })
+            },
+        )?;
+        let result = connection.replies.recv_timeout(Duration::from_secs(2));
+        release.send(())?;
+        assert!(matches!(result?, (RequestId(1), ReplyBody::Error(_))));
+    }
     Ok(())
 }

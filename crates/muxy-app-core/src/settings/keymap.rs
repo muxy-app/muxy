@@ -94,7 +94,7 @@ impl Keymap {
     }
 
     pub fn with_binding(&self, id: &str, chord: Option<KeyChord>) -> Result<Self> {
-        if shortcuts::find(id).is_none() {
+        if shortcuts::find(id).is_none() && !extension_action(id) {
             return Err(Error::new("keymap", "unknown action"));
         }
         let reset = chord.is_none();
@@ -105,7 +105,7 @@ impl Keymap {
             overrides.remove(id);
         }
         let resolved = Self::from_overrides(overrides)?;
-        if reset && resolved.binding(id) != Self::default().binding(id) {
+        if reset && !extension_action(id) && resolved.binding(id) != Self::default().binding(id) {
             return Err(Error::new(
                 format!("keymap.{id}"),
                 "the default shortcut is assigned to another action; reset that action first",
@@ -124,12 +124,13 @@ impl Keymap {
         let mut explicit = BTreeMap::new();
         for (name, value) in overrides {
             let key = format!("keymap.{name}");
-            let shortcut =
-                shortcuts::find(&name).ok_or_else(|| Error::new(&key, "unknown action"))?;
+            if shortcuts::find(&name).is_none() && !extension_action(&name) {
+                return Err(Error::new(&key, "unknown action"));
+            }
             let chord = value
                 .parse()
                 .map_err(|error: Error| Error::new(&key, error))?;
-            explicit.insert(shortcut.id.to_owned(), chord);
+            explicit.insert(name, chord);
         }
         for action in [
             ShortcutId::OpenSettings,
@@ -205,7 +206,14 @@ fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {
     })
 }
 
+fn extension_action(id: &str) -> bool {
+    id.starts_with("extension.") && id.len() <= 300 && id.split('.').count() >= 3
+}
+
 fn same_scope(left: &str, right: &str) -> bool {
+    if extension_action(left) || extension_action(right) {
+        return true;
+    }
     shortcuts::find(left)
         .zip(shortcuts::find(right))
         .is_some_and(|(left, right)| overlaps(left, right))
@@ -217,7 +225,11 @@ impl ShortcutSettings for Keymap {
             return Vec::new();
         };
         let Some(shortcut) = shortcuts::find(id) else {
-            return Vec::new();
+            return if extension_action(id) {
+                vec![primary.as_str().to_owned()]
+            } else {
+                Vec::new()
+            };
         };
         let is_default = shortcut.keys.first().is_some_and(|key| {
             key.parse::<KeyChord>()

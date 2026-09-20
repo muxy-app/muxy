@@ -68,35 +68,80 @@ impl Registry {
         owner: ProjectId,
         intent: &WorktreeIntent,
     ) -> Result<GitReply> {
-        let _operation = self
-            .operations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(receipt) = self.catalog.git_receipt(intent.operation) {
+        let token = self.git.operations.token(intent.operation);
+        let _token = token.lock().unwrap_or_else(PoisonError::into_inner);
+        let previous = self.catalog.git_receipt(intent.operation);
+        if let Some(receipt) = &previous {
             self.catalog.ensure_durable()?;
             if receipt.owner != owner || receipt.intent != *intent {
                 return Err(error(
                     "Operation token reused with different worktree request",
                 ));
             }
-            if let Some(error) = receipt.failed {
-                return Err(crate::ServerError::new(error.code, error.message));
+            if let Some(error) = &receipt.failed {
+                return Err(crate::ServerError::new(error.code, &error.message));
             }
-            if let Some(reply) = receipt.reply {
-                return Ok(reply);
+            if let Some(reply) = &receipt.reply {
+                return Ok(reply.clone());
             }
+        }
+        let parent = self.catalog.project(owner).or_else(|error| {
+            previous
+                .as_ref()
+                .filter(|receipt| {
+                    receipt.applied && matches!(intent.action, WorktreeAction::Remove { .. })
+                })
+                .map(|receipt| receipt.project.clone())
+                .ok_or(error)
+        })?;
+        let repository = if matches!(intent.action, WorktreeAction::Remove { .. }) {
+            self.catalog.project(
+                parent
+                    .parent_id
+                    .ok_or_else(|| error("Missing worktree parent"))?,
+            )?
+        } else {
+            parent.clone()
+        };
+        let lock = self.git.lock_for(path(&repository.directory))?;
+        let _guard = lock.write().unwrap_or_else(PoisonError::into_inner);
+        let (project, removal) = match &intent.action {
+            WorktreeAction::Create { project, .. }
+            | WorktreeAction::Register { project, .. }
+            | WorktreeAction::CheckoutPullRequest { project, .. } => (*project, None),
+            WorktreeAction::Remove { .. } => (owner, Some(path(&parent.directory).to_owned())),
+        };
+        let _reservation = {
+            let _operation = self.session_operation();
+            self.catalog.project(repository.id)?;
+            if previous.as_ref().is_none_or(|receipt| !receipt.applied) {
+                self.catalog.project(owner)?;
+            }
+            self.git
+                .operations
+                .reserve(vec![owner, repository.id, project], removal)?
+        };
+        if let Some(receipt) = previous {
             return self.finish_worktree_attempt(receipt);
         }
-        let parent = self.catalog.project(owner)?;
-        let lock = self.git.lock_for(path(&parent.directory))?;
-        let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let receipt = self.prepare_worktree_receipt(owner, intent, &parent)?;
+        self.catalog.save_git(receipt.clone())?;
+        self.finish_worktree_attempt(receipt)
+    }
+
+    fn prepare_worktree_receipt(
+        &self,
+        owner: ProjectId,
+        intent: &WorktreeIntent,
+        parent: &ProjectDescriptor,
+    ) -> Result<GitReceipt> {
         let receipt = match &intent.action {
             WorktreeAction::CheckoutPullRequest {
                 project,
                 directory,
                 number,
             } => {
-                self.validate_worktree_parent(&parent, *project, directory)?;
+                self.validate_worktree_parent(parent, *project, directory)?;
                 if path(directory).try_exists().map_err(error)? {
                     return Err(error("Worktree directory already exists"));
                 }
@@ -105,7 +150,7 @@ impl Registry {
                     .github
                     .prepare_worktree(path(&parent.directory), *number)?;
                 std::fs::create_dir(path(directory)).map_err(error)?;
-                Self::new_worktree_receipt(owner, intent, &parent, *project, directory, &branch)?
+                Self::new_worktree_receipt(owner, intent, parent, *project, directory, &branch)?
             }
             WorktreeAction::Create {
                 project,
@@ -113,7 +158,7 @@ impl Registry {
                 branch,
                 base,
             } => {
-                self.validate_worktree_parent(&parent, *project, directory)?;
+                self.validate_worktree_parent(parent, *project, directory)?;
                 validate_branch(path(&parent.directory), branch)?;
                 if let Some(base) = base {
                     if base.starts_with('-') {
@@ -125,10 +170,10 @@ impl Registry {
                     )?;
                 }
                 std::fs::create_dir(path(directory)).map_err(error)?;
-                Self::new_worktree_receipt(owner, intent, &parent, *project, directory, branch)?
+                Self::new_worktree_receipt(owner, intent, parent, *project, directory, branch)?
             }
             WorktreeAction::Register { project, directory } => {
-                self.validate_worktree_parent(&parent, *project, directory)?;
+                self.validate_worktree_parent(parent, *project, directory)?;
                 let entry = validate_member(path(&parent.directory), path(directory))?;
                 if entry.primary {
                     return Err(error("The primary worktree is already the parent project"));
@@ -136,20 +181,20 @@ impl Registry {
                 Self::new_worktree_receipt(
                     owner,
                     intent,
-                    &parent,
+                    parent,
                     *project,
                     directory,
                     entry.branch.as_deref().unwrap_or("Detached worktree"),
                 )?
             }
             WorktreeAction::Remove { expected } => {
-                if self.inspect_removal(&parent)? != *expected {
+                if self.inspect_removal(parent)? != *expected {
                     return Err(error("Worktree changed; inspect and confirm removal again"));
                 }
                 GitReceipt {
                     owner,
                     intent: intent.clone(),
-                    project: parent,
+                    project: parent.clone(),
                     device: expected.device,
                     inode: expected.inode,
                     applied: false,
@@ -158,9 +203,7 @@ impl Registry {
                 }
             }
         };
-        self.catalog.save_git(receipt.clone())?;
-        drop(guard);
-        self.finish_worktree_attempt(receipt)
+        Ok(receipt)
     }
 
     fn validate_worktree_parent(
@@ -266,8 +309,6 @@ impl Registry {
         };
         let parent = self.catalog.project(parent_id)?;
         let repository = path(&parent.directory);
-        let lock = self.git.lock_for(repository)?;
-        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let target = path(&receipt.project.directory);
         if !receipt.applied {
             let exists = target.try_exists().map_err(error)?;
@@ -374,7 +415,7 @@ impl Registry {
 
     pub(crate) fn resume_git(&self) {
         for receipt in self.catalog.pending_git() {
-            if let Err(error) = self.finish_worktree_attempt(receipt) {
+            if let Err(error) = self.git_worktree(receipt.owner, &receipt.intent) {
                 log::warn!("Worktree recovery needs attention: {error}");
             }
         }

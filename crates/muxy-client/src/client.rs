@@ -31,10 +31,11 @@ pub struct Attachment {
 }
 
 struct Shared {
-    writer: Mutex<Encoder<Box<dyn Write + Send>>>,
+    writer: Arc<Mutex<Encoder<Box<dyn Write + Send>>>>,
+    asynchronous: mpsc::SyncSender<(muxy_protocol::RequestId, RequestBody)>,
     pending: Arc<Pending>,
     events: Mutex<Option<Receiver<ClientEvent>>>,
-    cancellation: Box<dyn StreamCancellation>,
+    cancellation: Arc<dyn StreamCancellation>,
     version: Version,
     server: muxy_protocol::ServerInfo,
 }
@@ -82,7 +83,7 @@ impl Client {
         stream: Box<dyn ByteStream>,
         timeout: Duration,
     ) -> Result<Self, ClientError> {
-        let cancellation = stream.cancellation()?;
+        let cancellation: Arc<dyn StreamCancellation> = stream.cancellation()?.into();
         let reader_cancellation = stream.cancellation()?;
         let (read, write) = stream.split()?;
         let mut decoder = Decoder::new(read);
@@ -117,14 +118,39 @@ impl Client {
                 return Err(error);
             }
         };
+        let (asynchronous, requests) =
+            mpsc::sync_channel::<(muxy_protocol::RequestId, RequestBody)>(128);
+        let writer = Arc::new(Mutex::new(encoder));
         let shared = Arc::new(Shared {
-            writer: Mutex::new(encoder),
+            writer: writer.clone(),
+            asynchronous,
             pending,
             events: Mutex::new(Some(receiver)),
             cancellation,
             version,
             server,
         });
+        let writer_pending = Arc::clone(&shared.pending);
+        let writer_cancellation = Arc::clone(&shared.cancellation);
+        thread::Builder::new()
+            .name("muxy-client-writer".into())
+            .spawn(move || {
+                for (id, body) in requests {
+                    if !writer_pending.contains_async(id) {
+                        continue;
+                    }
+                    let sent = lock(&writer).send(CONTROL, &Message::Request { id, body });
+                    if sent.is_err() {
+                        writer_pending.close();
+                        writer_cancellation.cancel();
+                        break;
+                    }
+                }
+            })?;
+        let deadlines = Arc::clone(&shared.pending);
+        thread::Builder::new()
+            .name("muxy-client-deadlines".into())
+            .spawn(move || deadlines.watch_deadlines())?;
         Ok(Self {
             shared,
             timeout: DEFAULT_TIMEOUT,
@@ -416,6 +442,49 @@ impl Client {
     pub fn ack(&self, channel: ChannelId, seq: u64) -> Result<(), ClientError> {
         session_channel(channel)?;
         self.send(CONTROL, &Message::FrameAck { channel, seq })
+    }
+
+    pub(crate) fn request_async<T>(
+        &self,
+        body: RequestBody,
+        timeout: Duration,
+        decode: fn(ReplyBody) -> Result<T, ClientError>,
+    ) -> crate::Request<T> {
+        let validation = Message::Request {
+            id: muxy_protocol::RequestId(0),
+            body: body.clone(),
+        }
+        .validate()
+        .map_err(ClientError::Invalid)
+        .and_then(|()| {
+            if message_version(&Message::Request {
+                id: muxy_protocol::RequestId(0),
+                body: body.clone(),
+            }) > self.shared.version
+            {
+                Err(ClientError::Protocol(
+                    "request requires a newer server".into(),
+                ))
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = validation {
+            return crate::Request::failed(error, decode);
+        }
+        let (id, response) = match self.shared.pending.register_async(timeout) {
+            Ok(value) => value,
+            Err(error) => return crate::Request::failed(error, decode),
+        };
+        let request =
+            crate::Request::new(response, Arc::downgrade(&self.shared.pending), id, decode);
+        if let Err(error) = self.shared.asynchronous.try_send((id, body)) {
+            self.shared.pending.fail_async(
+                id,
+                std::io::Error::new(std::io::ErrorKind::WouldBlock, error.to_string()).into(),
+            );
+        }
+        request
     }
 
     pub(crate) fn request(&self, body: RequestBody) -> Result<ReplyBody, ClientError> {
