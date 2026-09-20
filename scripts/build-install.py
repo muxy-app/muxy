@@ -222,6 +222,7 @@ def main():
                LIBGHOSTTY_VT_SYS_OPTIMIZE="ReleaseFast")
     if system == "Darwin":
         env["MACOSX_DEPLOYMENT_TARGET"] = "14.0"
+        env["SDKROOT"] = output("xcrun", "--sdk", "macosx", "--show-sdk-path")
     packages = ["muxy-cli", "muxy-server"] + (["muxy-app"] if system == "Darwin" else [])
     print(f"==> Building for {target}", flush=True)
     run("cargo", "build", "--locked", "--release", "--target", target,

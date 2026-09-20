@@ -86,6 +86,28 @@ class BuildInstallTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "glibc 2.35"):
                         build_install.host_target()
 
+    def test_mac_build_selects_sdk_matching_xcode_over_inherited_sdk(self):
+        selected_sdk = "/Applications/Xcode.app/Contents/Developer/SDKs/MacOSX.sdk"
+
+        def command_output(*args):
+            if args == ("xcrun", "--sdk", "macosx", "--show-sdk-path"):
+                return selected_sdk
+            return '{"version":"2.0.0-beta-0","compatibility":15}'
+
+        with patch.dict(os.environ, {"SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk"}), \
+                patch.object(build_install, "ROOT", self.root), \
+                patch.object(sys, "argv", ["build-install.py", "--build-only"]), \
+                patch.object(build_install, "host_target", return_value=("Darwin", "aarch64-apple-darwin")), \
+                patch.object(build_install.shutil, "which", return_value="tool"), \
+                patch.object(build_install, "signing_identity", return_value="identity"), \
+                patch.object(build_install, "output", side_effect=command_output), \
+                patch.object(build_install, "run") as run, \
+                patch.object(build_install, "package_app", return_value=self.artifact):
+            build_install.main()
+            build = next(call for call in run.call_args_list if call.args[:2] == ("cargo", "build"))
+            self.assertEqual(build.kwargs["env"]["SDKROOT"], selected_sdk)
+            self.assertEqual(os.environ["SDKROOT"], "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk")
+
     def test_identity_selection_requires_developer_id_and_is_unambiguous(self):
         first, second = "A" * 40, "B" * 40
         with patch.object(build_install, "output", return_value=(
