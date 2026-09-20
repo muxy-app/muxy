@@ -308,6 +308,25 @@ pub struct NativeWebview {
     visible: Cell<bool>,
     bounds: Cell<Bounds<Pixels>>,
     clip: Cell<Bounds<Pixels>>,
+    occlusions: RefCell<Vec<Bounds<Pixels>>>,
+    applied: RefCell<Applied>,
+}
+
+/// Native view state as last applied. Every frame syncs the view, and each
+/// new layer mask costs a view-sized bitmap, so only changes are applied.
+#[derive(Debug, Default)]
+struct Applied {
+    frame: Option<NSRect>,
+    background: Option<Rgba>,
+    radius: Option<f64>,
+    mask: Option<Mask>,
+}
+
+#[derive(Debug, PartialEq)]
+struct Mask {
+    bounds: Bounds<Pixels>,
+    clip: Bounds<Pixels>,
+    occlusions: Vec<Bounds<Pixels>>,
 }
 
 impl NativeWebview {
@@ -390,6 +409,8 @@ impl NativeWebview {
                 visible: Cell::new(false),
                 bounds: Cell::default(),
                 clip: Cell::default(),
+                occlusions: RefCell::default(),
+                applied: RefCell::default(),
             },
             receiver,
         ))
@@ -476,25 +497,54 @@ impl NativeWebview {
         } else {
             self.parent.bounds().size.height - top - height
         };
-        self.view.setFrame(NSRect::new(
+        let frame = NSRect::new(
             NSPoint::new(f64::from(f32::from(bounds.left())), y),
             NSSize::new(f64::from(f32::from(bounds.size.width)), height),
-        ));
-        unsafe {
-            self.view
-                .setUnderPageBackgroundColor(Some(&background_color(background)));
+        );
+        let mut applied = self.applied.borrow_mut();
+        if applied.frame != Some(frame) {
+            self.view.setFrame(frame);
+            applied.frame = Some(frame);
         }
-        if let Some(layer) = self.view.layer() {
+        if applied.background != Some(background) {
+            unsafe {
+                self.view
+                    .setUnderPageBackgroundColor(Some(&background_color(background)));
+            }
+            applied.background = Some(background);
+        }
+        if applied.radius != Some(radius)
+            && let Some(layer) = self.view.layer()
+        {
             layer.setCornerRadius(radius);
             layer.setMasksToBounds(true);
+            applied.radius = Some(radius);
         }
-        self.occlude(&[]);
+        drop(applied);
+        self.apply_mask();
     }
 
     pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
+        if *self.occlusions.borrow() != occlusions {
+            *self.occlusions.borrow_mut() = occlusions.to_vec();
+        }
+        self.apply_mask();
+    }
+
+    fn apply_mask(&self) {
         let bounds = self.bounds.get();
         let clip = bounds.intersect(&self.clip.get());
-        let (regions, excluded) = composition_regions(bounds, clip, occlusions);
+        let occlusions = self.occlusions.borrow();
+        let mask = Mask {
+            bounds,
+            clip,
+            occlusions: occlusions.clone(),
+        };
+        if self.applied.borrow().mask.as_ref() == Some(&mask) {
+            return;
+        }
+        self.applied.borrow_mut().mask = Some(mask);
+        let (regions, excluded) = composition_regions(bounds, clip, &occlusions);
         *self.view.ivars().borrow_mut() = excluded
             .into_iter()
             .map(|region| self.local_rect(region))
@@ -538,7 +588,9 @@ impl NativeWebview {
     }
 
     pub fn set_visible(&self, visible: bool) {
-        self.visible.set(visible);
+        if self.visible.replace(visible) == visible && self.view.isHidden() != visible {
+            return;
+        }
         self.view.setHidden(!visible);
         if !visible {
             self.blur();
