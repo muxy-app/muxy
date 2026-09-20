@@ -16,3 +16,7 @@
 ## Third-party dependencies
 
 When adding new third-party dependencies, provide user with their github url and stars and metrics if they are being maintained so user can approve adding it.
+
+## Performance
+
+- Do not ignore performance and memory efficiency. with GPUI it is easy to cause high CPU and memory usage.
