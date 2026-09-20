@@ -96,7 +96,6 @@ pub(crate) struct Webview {
     background: gpui::Rgba,
     presentation: Presentation,
     snapshot: Option<Arc<gpui::RenderImage>>,
-    snapshot_task: Option<Task<()>>,
     error: Option<String>,
     radius: f64,
     closes: CloseRequests,
@@ -153,7 +152,6 @@ impl Webview {
                 background: theme.bg.into(),
                 presentation: Presentation::default(),
                 snapshot: None,
-                snapshot_task: None,
                 error: None,
                 radius: 0.0,
                 closes: CloseRequests::default(),
@@ -229,15 +227,15 @@ impl Webview {
                 self.fail_closes();
                 self.error = None;
                 self.clear_snapshot(cx);
-                self.snapshot_task = None;
             }
             Event::Loaded => {
                 self.push_state();
-                self.native.snapshot();
+                if self.presentation.native_visible(false) {
+                    self.native.snapshot();
+                }
             }
             Event::Failed(error) => {
                 self.fail_closes();
-                self.snapshot_task = None;
                 self.error = Some(error);
                 self.native.set_visible(false);
             }
@@ -246,24 +244,16 @@ impl Webview {
             Event::Snapshot {
                 id,
                 generation,
-                png,
+                image,
             } => {
-                if self.error.is_some() || !self.native.is_current_snapshot(id, generation) {
-                    return;
+                if self.error.is_none()
+                    && self.native.is_current_snapshot(id, generation)
+                    && let Some(image) = render_snapshot(image)
+                {
+                    self.clear_snapshot(cx);
+                    self.snapshot = Some(Arc::new(image));
+                    cx.notify();
                 }
-                let decode = cx
-                    .background_executor()
-                    .spawn(async move { decode_snapshot(&png) });
-                self.snapshot_task = Some(cx.spawn(async move |view, cx| {
-                    let Ok(image) = decode.await else { return };
-                    let _ = view.update(cx, |view, cx| {
-                        if view.error.is_none() && view.native.is_current_snapshot(id, generation) {
-                            view.clear_snapshot(cx);
-                            view.snapshot = Some(Arc::new(image));
-                            cx.notify();
-                        }
-                    });
-                }));
                 return;
             }
         }
@@ -356,13 +346,22 @@ impl Webview {
                 .evaluate(&format!("window.__muxyApplyFocus?.({focused});"));
         }
         if self.presentation.visible != visible || self.presentation.blocked != blocked {
-            if self.presentation.visible && !self.presentation.blocked {
+            let failed = self.error.is_some();
+            let was_shown = self.presentation.native_visible(failed);
+            let shown = visible && !blocked && !failed;
+            let appeared = visible && !self.presentation.visible;
+            if was_shown && !shown && visible {
                 self.native.snapshot();
+            }
+            if !visible {
+                self.clear_snapshot(cx);
             }
             self.presentation.visible = visible;
             self.presentation.blocked = blocked;
-            self.native
-                .set_visible(visible && !blocked && self.error.is_none());
+            self.native.set_visible(shown);
+            if shown && appeared {
+                self.native.snapshot();
+            }
             cx.notify();
         }
         self.radius = radius;
@@ -419,12 +418,9 @@ impl Webview {
     }
 }
 
-fn decode_snapshot(png: &[u8]) -> image::ImageResult<gpui::RenderImage> {
-    let mut rgba = image::load_from_memory(png)?.into_rgba8();
-    for pixel in rgba.pixels_mut() {
-        pixel.0.swap(0, 2);
-    }
-    Ok(gpui::RenderImage::new([image::Frame::new(rgba)]))
+fn render_snapshot(snapshot: muxy_ui::webview::Snapshot) -> Option<gpui::RenderImage> {
+    let pixels = image::RgbaImage::from_raw(snapshot.width, snapshot.height, snapshot.bgra)?;
+    Some(gpui::RenderImage::new([image::Frame::new(pixels)]))
 }
 
 impl Drop for Webview {
@@ -534,31 +530,34 @@ pub(crate) fn placeholder(
 
 #[cfg(test)]
 mod tests {
-    use super::{Presentation, decode_snapshot};
+    use super::{Presentation, render_snapshot};
+    use muxy_ui::webview::Snapshot;
 
     #[test]
-    fn snapshots_preserve_dimensions_rows_and_alpha_in_bgra_order() {
-        let rgba = vec![
-            255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 10, 20, 30, 255,
+    fn snapshots_keep_dimensions_and_pixels() {
+        let bgra = vec![
+            0, 0, 255, 255, 0, 255, 0, 128, 255, 0, 0, 0, 30, 20, 10, 255,
         ];
-        let source = image::RgbaImage::from_raw(2, 2, rgba).expect("source pixels");
-        let mut png = std::io::Cursor::new(Vec::new());
-        source
-            .write_to(&mut png, image::ImageFormat::Png)
-            .expect("PNG");
-        let decoded = decode_snapshot(png.get_ref()).expect("snapshot");
-        assert_eq!(decoded.size(0), gpui::size(2.into(), 2.into()));
-        assert_eq!(
-            decoded.as_bytes(0).expect("pixels"),
-            [
-                0, 0, 255, 255, 0, 255, 0, 128, 255, 0, 0, 0, 30, 20, 10, 255
-            ]
-        );
+        let image = render_snapshot(Snapshot {
+            width: 2,
+            height: 2,
+            bgra: bgra.clone(),
+        })
+        .expect("snapshot");
+        assert_eq!(image.size(0), gpui::size(2.into(), 2.into()));
+        assert_eq!(image.as_bytes(0).expect("pixels"), bgra);
     }
 
     #[test]
-    fn invalid_snapshot_data_is_rejected() {
-        assert!(decode_snapshot(b"incomplete snapshot").is_err());
+    fn truncated_snapshots_are_rejected() {
+        assert!(
+            render_snapshot(Snapshot {
+                width: 2,
+                height: 2,
+                bgra: vec![0; 15],
+            })
+            .is_none()
+        );
     }
 
     #[test]
