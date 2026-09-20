@@ -1,9 +1,9 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, StatefulInteractiveElement, Styled, canvas, div, px,
+    AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, StatefulInteractiveElement, Styled, canvas, div, px,
 };
-use muxy_ui::components::{IconGlyph, Tooltip};
+use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::popover::PopoverAnchor;
 
@@ -158,28 +158,11 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
             |h| format!("Detached {}", &h[..h.len().min(8)]),
         )
     });
-    let branch_tooltip = if summary.branch.is_none() {
-        "Detached HEAD".into()
-    } else {
-        summary.upstream.as_ref().map_or_else(
-            || "No upstream".into(),
-            |upstream| {
-                format!(
-                    "{upstream} · {} ahead · {} behind",
-                    summary.ahead, summary.behind
-                )
-            },
-        )
-    };
     let changes = match summary.changed {
         0 => "Clean".into(),
         1 => "1 Change".into(),
         count => format!("{count} Changes"),
     };
-    let changes_tooltip = format!(
-        "{} staged · {} unstaged · {} untracked · {} conflicted",
-        summary.staged, summary.unstaged, summary.untracked, summary.conflicted
-    );
     let color = if summary.conflicted > 0 {
         model.theme.danger
     } else if summary.changed > 0 {
@@ -192,29 +175,19 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
         repository_chip(
             Kind::Branches,
             branch,
-            branch_tooltip,
             model.theme.fg_muted,
             enabled,
             model,
             cx,
         ),
         separator(model),
-        repository_chip(
-            Kind::Changes,
-            changes,
-            changes_tooltip,
-            color,
-            enabled,
-            model,
-            cx,
-        ),
+        repository_chip(Kind::Changes, changes, color, enabled, model, cx),
     ]
 }
 
 fn repository_chip(
     kind: Kind,
     label: String,
-    tooltip: String,
     color: Hsla,
     enabled: bool,
     model: &AppModel,
@@ -270,12 +243,5 @@ fn repository_chip(
                 .font_weight(FontWeight::MEDIUM)
                 .child(label),
         )
-        .tooltip({
-            let theme = model.theme.clone();
-            move |_, cx| {
-                cx.new(|_| Tooltip::new(tooltip.clone(), theme.raised(), theme.fg, theme.border))
-                    .into()
-            }
-        })
         .into_any_element()
 }
