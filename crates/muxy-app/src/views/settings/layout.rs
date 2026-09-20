@@ -250,7 +250,7 @@ impl SettingsView {
                 .min_w_0()
                 .min_h_0()
                 .h_full()
-                .px(px(32.0))
+                .px(px(if self.compact { 20.0 } else { 32.0 }))
                 .child(extensions.clone())
                 .into_any_element();
         }

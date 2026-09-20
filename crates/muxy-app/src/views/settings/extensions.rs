@@ -1,17 +1,23 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement,
+    AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
-    div, px,
+    div,
 };
 use muxy_ui::{
-    controls::{self, Style},
+    components::{ButtonInteraction, SymbolGlyph},
+    controls::{self, Choice, Style},
+    form,
     text_input::{InputEvent, InputStyle, TextInput},
     theme::{Metrics, Theme},
 };
 use serde_json::{Value, json};
 
 use crate::{extensions::marketplace, model::AppModel};
+use muxy_app_core::extensions::Extension;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -229,29 +235,52 @@ impl ExtensionsView {
         self.mutating = true;
         self.error = None;
         cx.spawn(async move |view, cx| {
+            let installed_name = name.clone();
             let result = crate::extensions::io::run(move || {
                 let stage = marketplace::download(&details, &directory)?;
                 marketplace::install(&stage, &directory, &name)
             })
             .await;
+            let result = match result {
+                Ok(()) => match model.update(cx, AppModel::refresh_installed_extensions_task) {
+                    Ok(task) => task.await,
+                    Err(error) => Err(error.to_string()),
+                },
+                Err(error) => Err(error),
+            };
             let _ = view.update(cx, |view, cx| {
-                view.mutating = false;
-                match result {
-                    Ok(()) => {
-                        let _ = view
-                            .model
-                            .update(cx, AppModel::refresh_installed_extensions);
-                        view.tab = Tab::Installed;
-                        view.selected = None;
-                        view.query.clear();
-                        view.search.update(cx, |search, cx| search.set_text("", cx));
-                    }
-                    Err(error) => view.error = Some(error),
-                }
-                cx.notify();
+                view.finish_install(&installed_name, result, cx);
             });
         })
         .detach();
+    }
+
+    fn finish_install(&mut self, name: &str, result: Result<(), String>, cx: &mut Context<Self>) {
+        self.mutating = false;
+        match result {
+            Ok(()) => {
+                let details = self.model.upgrade().and_then(|model| {
+                    model
+                        .read(cx)
+                        .extensions
+                        .registry
+                        .extensions
+                        .get(name)
+                        .map(installed_details)
+                });
+                if let Some(details) = details {
+                    self.tab = Tab::Installed;
+                    self.query.clear();
+                    self.search.update(cx, |search, cx| search.set_text("", cx));
+                    self.selected = Some(details);
+                    self.error = None;
+                } else {
+                    self.error = Some("The installed extension could not be loaded. Reload extensions to try again.".into());
+                }
+            }
+            Err(error) => self.error = Some(error),
+        }
+        cx.notify();
     }
 
     fn enable(&mut self, name: &str, enabled: bool, cx: &mut Context<Self>) {
@@ -348,7 +377,7 @@ impl ExtensionsView {
         label: &str,
         action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
         cx: &Context<Self>,
-    ) -> AnyElement {
+    ) -> gpui::Stateful<gpui::Div> {
         controls::button(
             Style {
                 theme: &self.theme,
@@ -360,18 +389,14 @@ impl ExtensionsView {
             cx.listener(move |view, _, window, cx| {
                 if !view.mutating {
                     action(view, window, cx);
+                    cx.notify();
                 }
             }),
         )
-        .into_any_element()
     }
 }
 
 impl Render for ExtensionsView {
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Settings toolbar and content share one render layout"
-    )]
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(model) = self.model.upgrade() else {
             return div().into_any_element();
@@ -388,202 +413,463 @@ impl Render for ExtensionsView {
             })
             .collect();
         let errors = registry.errors.clone();
-        let mut body = div().flex().flex_col().gap(px(16.0)).w_full();
-        body = if let Some(details) = &self.selected {
-            self.details_body(details, &installed, body, cx)
+        let body = if let Some(details) = &self.selected {
+            self.details_body(details, &installed, cx)
         } else if self.tab == Tab::Installed {
-            self.installed_body(&installed, body, cx)
+            self.installed_body(&installed, cx)
         } else {
-            self.marketplace_body(body, cx)
+            self.marketplace_body(cx)
         };
 
         div()
             .flex()
             .flex_col()
             .size_full()
+            .min_w_0()
             .min_h_0()
-            .gap(px(20.0))
-            .py(px(24.0))
-            .child(div().text_size(px(26.0)).child("Extensions"))
+            .text_size(self.metrics.font_body())
+            .child(self.header(cx))
             .child(
                 div()
-                    .flex()
-                    .justify_between()
-                    .gap(px(8.0))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(6.0))
-                            .child(self.button(
-                                "installed-tab",
-                                if self.tab == Tab::Installed {
-                                    "Installed ✓"
-                                } else {
-                                    "Installed"
-                                },
-                                |view, _, cx| {
-                                    view.tab = Tab::Installed;
-                                    view.selected = None;
-                                    view.revision += 1;
-                                    view.busy = false;
-                                    cx.notify();
-                                },
-                                cx,
-                            ))
-                            .child(self.button(
-                                "marketplace-tab",
-                                if self.tab == Tab::Marketplace {
-                                    "Marketplace ✓"
-                                } else {
-                                    "Marketplace"
-                                },
-                                |view, _, cx| {
-                                    view.tab = Tab::Marketplace;
-                                    view.selected = None;
-                                    view.fetch(true, cx);
-                                },
-                                cx,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(6.0))
-                            .child(self.button(
-                                "extension-reload",
-                                "Reload",
-                                |view, _, cx| {
-                                    let _ = view.model.update(cx, AppModel::reload_extensions);
-                                    cx.notify();
-                                },
-                                cx,
-                            ))
-                            .child(self.button(
-                                "extension-load",
-                                "Load Unpacked…",
-                                |view, _, cx| view.load_unpacked(cx),
-                                cx,
-                            )),
-                    ),
-            )
-            .when(self.selected.is_none(), |body| {
-                body.child(controls::search_field(
-                    Style {
-                        theme: &self.theme,
-                        metrics: &self.metrics,
-                    },
-                    "extension-search",
-                    &self.search,
-                ))
-            })
-            .when_some(self.error.clone(), |body, error| {
-                body.child(div().text_color(self.theme.danger).child(error))
-            })
-            .children(
-                errors
-                    .into_iter()
-                    .map(|error| div().text_color(self.theme.danger).child(error)),
-            )
-            .when(self.busy || self.mutating, |body| {
-                body.child(div().text_color(self.theme.fg_muted).child("Loading…"))
-            })
-            .child(
-                div()
-                    .id("extension-list")
+                    .id(if self.selected.is_some() {
+                        "extension-detail-scroll"
+                    } else {
+                        "extension-list-scroll"
+                    })
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .child(body),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(self.metrics.spacing7())
+                            .py(self.metrics.spacing7())
+                            .when(self.selected.is_none(), |body| {
+                                body.child(controls::search_field(
+                                    self.style(),
+                                    "extension-search",
+                                    &self.search,
+                                ))
+                            })
+                            .when_some(self.error.as_ref(), |body, error| {
+                                body.child(form::note(self.style(), error, true))
+                            })
+                            .children(
+                                errors
+                                    .iter()
+                                    .map(|error| form::note(self.style(), error, true)),
+                            )
+                            .when(self.busy || self.mutating, |body| {
+                                body.child(form::note(
+                                    self.style(),
+                                    if self.mutating {
+                                        "Applying changes…"
+                                    } else {
+                                        "Loading extensions…"
+                                    },
+                                    false,
+                                ))
+                            })
+                            .child(body),
+                    ),
             )
             .into_any_element()
     }
 }
 
 impl ExtensionsView {
+    fn style(&self) -> Style<'_> {
+        Style {
+            theme: &self.theme,
+            metrics: &self.metrics,
+        }
+    }
+
+    fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        if self.mutating {
+            return;
+        }
+        self.tab = tab;
+        self.selected = None;
+        self.error = None;
+        self.revision += 1;
+        self.busy = false;
+        if tab == Tab::Marketplace {
+            self.fetch(true, cx);
+        }
+        cx.notify();
+    }
+
+    fn header(&self, cx: &Context<Self>) -> gpui::Div {
+        let header = div()
+            .flex()
+            .flex_none()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap(self.metrics.spacing6())
+            .py(self.metrics.spacing7())
+            .border_b_1()
+            .border_color(self.theme.border);
+        if self.selected.is_some() {
+            return header.child(
+                self.button(
+                    "extension-back",
+                    "Extensions",
+                    |view, _, cx| {
+                        view.selected = None;
+                        view.error = None;
+                        cx.notify();
+                    },
+                    cx,
+                )
+                .flex_row_reverse()
+                .gap(self.metrics.spacing3())
+                .child(SymbolGlyph::new(
+                    "chevron.left",
+                    self.metrics.icon_sm(),
+                    self.theme.fg_muted,
+                )),
+            );
+        }
+        header
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(self.metrics.spacing6())
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(self.metrics.spacing4())
+                            .child(SymbolGlyph::new(
+                                "puzzlepiece.extension",
+                                self.metrics.icon_md(),
+                                self.theme.fg_muted,
+                            ))
+                            .child(
+                                div()
+                                    .text_size(self.metrics.font_title())
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Extensions"),
+                            ),
+                    )
+                    .child(self.tab_control(cx)),
+            )
+            .when(self.tab == Tab::Installed, |header| {
+                header.child(self.header_actions(cx))
+            })
+    }
+
+    fn tab_control(&self, cx: &Context<Self>) -> gpui::AnyElement {
+        let choices = [
+            Choice::new("installed", "Installed"),
+            Choice::new("marketplace", "Browse"),
+        ]
+        .map(|mut choice| {
+            choice.enabled = !self.mutating;
+            choice
+        });
+        controls::segmented(
+            self.style(),
+            "extensions",
+            &choices,
+            if self.tab == Tab::Installed {
+                "installed"
+            } else {
+                "marketplace"
+            },
+            cx.listener(|view, value: &SharedString, _, cx| {
+                view.switch_tab(
+                    if value.as_ref() == "installed" {
+                        Tab::Installed
+                    } else {
+                        Tab::Marketplace
+                    },
+                    cx,
+                );
+            }),
+        )
+    }
+
+    fn header_actions(&self, cx: &Context<Self>) -> gpui::Div {
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(self.metrics.spacing4())
+            .child(self.button(
+                "extension-load",
+                "Load Unpacked…",
+                |view, _, cx| view.load_unpacked(cx),
+                cx,
+            ))
+            .child(self.button(
+                "extension-reload",
+                "Reload",
+                |view, _, cx| {
+                    let _ = view.model.update(cx, AppModel::reload_extensions);
+                    cx.notify();
+                },
+                cx,
+            ))
+    }
+
+    fn card(&self) -> gpui::Div {
+        div()
+            .min_w_0()
+            .w_full()
+            .rounded(self.metrics.radius_lg())
+            .bg(self.theme.surface)
+            .border_1()
+            .border_color(self.theme.border)
+    }
+
+    fn badge(&self, text: impl Into<SharedString>, active: bool) -> gpui::Div {
+        div()
+            .flex_none()
+            .px(self.metrics.spacing3())
+            .py(self.metrics.spacing1())
+            .rounded(self.metrics.radius_sm())
+            .text_size(self.metrics.font_footnote())
+            .text_color(if active {
+                self.theme.accent
+            } else {
+                self.theme.fg_muted
+            })
+            .bg(if active {
+                self.theme.accent_soft
+            } else {
+                self.theme.hover
+            })
+            .child(text.into())
+    }
+
+    fn section(&self, title: &str, content: impl IntoElement) -> gpui::Div {
+        self.card()
+            .p(self.metrics.spacing7())
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing6())
+            .child(
+                div()
+                    .text_size(self.metrics.font_emphasis())
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title.to_owned()),
+            )
+            .child(content)
+    }
+
+    fn empty_state(&self, title: &str, description: &str) -> gpui::Div {
+        self.card()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(self.metrics.spacing6())
+            .p(self.metrics.spacing9())
+            .child(SymbolGlyph::new(
+                "puzzlepiece.extension",
+                self.metrics.icon_xxl(),
+                self.theme.fg_muted,
+            ))
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title.to_owned()),
+            )
+            .child(
+                div()
+                    .text_color(self.theme.fg_muted)
+                    .text_center()
+                    .child(description.to_owned()),
+            )
+    }
+
     fn details_body(
         &self,
         details: &Value,
-        installed: &[(muxy_app_core::extensions::Extension, bool, bool)],
-        mut body: gpui::Div,
+        installed: &[(Extension, bool, bool)],
         cx: &mut Context<Self>,
     ) -> gpui::Div {
         let name = details["name"].as_str().unwrap_or("").to_owned();
         let local = installed
             .iter()
             .find(|(extension, _, _)| extension.name == name);
-        body = body
-            .child(self.button(
-                "extension-back",
-                "Back",
-                |view, _, cx| {
-                    view.selected = None;
-                    cx.notify();
-                },
+        let details = local.map_or_else(
+            || details.clone(),
+            |(extension, _, _)| installed_details(extension),
+        );
+        let hero = self.detail_header(&name, &details, local, cx);
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing7())
+            .min_w_0()
+            .child(hero)
+            .child(self.section("Requested permissions", self.permissions_body(&details)));
+        if let Some((_, _, unpacked)) = local {
+            let reset = name.clone();
+            body = body.child(
+                self.section(
+                    "Manage extension",
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(self.metrics.spacing4())
+                        .child(self.button(
+                            "extension-reset-permissions",
+                            "Reset remembered permissions",
+                            move |view, _, cx| view.reset_permissions(&reset, cx),
+                            cx,
+                        ))
+                        .child(
+                            self.button(
+                                "extension-remove",
+                                if *unpacked {
+                                    "Unload folder"
+                                } else {
+                                    "Uninstall"
+                                },
+                                move |view, _, cx| view.remove(&name, cx),
+                                cx,
+                            )
+                            .text_color(self.theme.danger),
+                        ),
+                ),
+            );
+        }
+        body
+    }
+
+    fn detail_header(
+        &self,
+        name: &str,
+        details: &Value,
+        local: Option<&(Extension, bool, bool)>,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        let mut heading = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(self.metrics.spacing4())
+            .child(
+                div()
+                    .text_size(self.metrics.font_display())
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .min_w_0()
+                    .max_w_full()
+                    .truncate()
+                    .child(name.to_owned()),
+            )
+            .when_some(details["version"].as_str(), |heading, version| {
+                heading.child(
+                    div()
+                        .text_color(self.theme.fg_muted)
+                        .child(format!("v{version}")),
+                )
+            });
+        if let Some((_, enabled, unpacked)) = local {
+            heading =
+                heading.child(self.badge(if *enabled { "Enabled" } else { "Disabled" }, *enabled));
+            if *unpacked {
+                heading = heading.child(self.badge("Unpacked", false));
+            }
+        }
+        let action = if let Some((_, enabled, _)) = local {
+            let enabled = *enabled;
+            let owner = name.to_owned();
+            self.button(
+                "extension-enable",
+                if enabled { "Disable" } else { "Enable" },
+                move |view, _, cx| view.enable(&owner, !enabled, cx),
                 cx,
-            ))
-            .child(div().text_size(px(24.0)).child(name.clone()))
+            )
+        } else {
+            self.button(
+                "extension-install",
+                "Install",
+                |view, _, cx| view.install(cx),
+                cx,
+            )
+        };
+        self.card()
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing6())
+            .p(self.metrics.spacing7())
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .justify_between()
+                    .gap(self.metrics.spacing6())
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .min_w_0()
+                            .gap(self.metrics.spacing6())
+                            .child(SymbolGlyph::new(
+                                "puzzlepiece.extension.fill",
+                                self.metrics.icon_xl(),
+                                self.theme.fg_muted,
+                            ))
+                            .child(heading),
+                    )
+                    .child(action),
+            )
             .child(
                 div()
                     .text_color(self.theme.fg_muted)
                     .child(details["description"].as_str().unwrap_or("").to_owned()),
             )
-            .child(div().text_size(px(14.0)).child("Requested permissions"));
-        for permission in details["permissions"]
+            .when(local.is_some_and(|(_, enabled, _)| !enabled), |hero| {
+                hero.child(
+                    div().text_color(self.theme.fg_muted).child(
+                        "Review the permissions below, then enable this extension to use it.",
+                    ),
+                )
+            })
+    }
+
+    fn permissions_body(&self, details: &Value) -> gpui::Div {
+        let permissions: Vec<_> = details["permissions"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-        {
-            body = body.child(
+            .collect();
+        let mut permission_tags = div().flex().flex_wrap().gap(self.metrics.spacing4());
+        for permission in &permissions {
+            permission_tags = permission_tags.child(self.badge((*permission).to_owned(), false));
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing6())
+            .child(permission_tags)
+            .when(permissions.is_empty(), |body| {
+                body.child(
+                    div()
+                        .text_color(self.theme.fg_muted)
+                        .child("No permissions requested."),
+                )
+            })
+            .child(
                 div()
+                    .text_size(self.metrics.font_footnote())
                     .text_color(self.theme.fg_muted)
-                    .child(permission.to_owned()),
-            );
-        }
-        body=body.child(div().text_size(px(12.0)).text_color(self.theme.fg_muted).child("Extensions can access the capabilities listed above. Commands and file or Git changes ask for permission when used."));
-        if let Some((_, enabled, unpacked)) = local {
-            let enabled = *enabled;
-            let remove = name.clone();
-            let reset = name.clone();
-            body = body
-                .child(self.button(
-                    "extension-enable",
-                    if enabled { "Disable" } else { "Enable" },
-                    move |view, _, cx| view.enable(&name, !enabled, cx),
-                    cx,
-                ))
-                .child(self.button(
-                    "extension-reset-permissions",
-                    "Reset remembered permissions",
-                    move |view, _, cx| {
-                        view.reset_permissions(&reset, cx);
-                    },
-                    cx,
-                ))
-                .child(self.button(
-                    "extension-remove",
-                    if *unpacked {
-                        "Unload folder"
-                    } else {
-                        "Uninstall"
-                    },
-                    move |view, _, cx| view.remove(&remove, cx),
-                    cx,
-                ));
-        } else if !self.busy {
-            body = body.child(self.button(
-                "extension-install",
-                "Install",
-                |view, _, cx| view.install(cx),
-                cx,
-            ));
-        }
-        body
+                    .child("Commands and file or Git changes ask for permission when used."),
+            )
     }
+
     fn installed_body(
         &self,
-        installed: &[(muxy_app_core::extensions::Extension, bool, bool)],
-        mut body: gpui::Div,
+        installed: &[(Extension, bool, bool)],
         cx: &mut Context<Self>,
     ) -> gpui::Div {
         let query = self.query.to_lowercase();
@@ -596,98 +882,162 @@ impl ExtensionsView {
             })
             .collect();
         if filtered.is_empty() {
-            body = body.child(div().py(px(32.0)).child(if installed.is_empty() {
-                "No extensions installed. Load a folder or browse the marketplace."
+            return if installed.is_empty() {
+                self.empty_state(
+                    "No extensions installed",
+                    "Browse extensions to add tools to Muxy, or load an unpacked extension folder.",
+                )
+                .child(self.button(
+                    "extension-browse",
+                    "Browse extensions",
+                    |view, _, cx| view.switch_tab(Tab::Marketplace, cx),
+                    cx,
+                ))
             } else {
-                "No matching extensions."
-            }));
+                self.empty_state(
+                    "No matching extensions",
+                    "Try a different name or clear your search.",
+                )
+            };
         }
-        for (extension, enabled, unpacked) in filtered {
-            let details = json!({"name":extension.name,"description":extension.manifest.description,"permissions":extension.manifest.permissions});
-            body = body.child(
+        let mut rows = self.card().overflow_hidden();
+        for (index, (extension, enabled, unpacked)) in filtered.into_iter().enumerate() {
+            rows = rows.child(self.installed_row(extension, *enabled, *unpacked, index > 0, cx));
+        }
+        rows
+    }
+
+    fn installed_row(
+        &self,
+        extension: &Extension,
+        enabled: bool,
+        unpacked: bool,
+        separator: bool,
+        cx: &Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let details = installed_details(extension);
+        let mut title = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(self.metrics.spacing4())
+            .child(
                 div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .min_w_0()
+                    .max_w_full()
+                    .truncate()
+                    .child(extension.name.clone()),
+            )
+            .child(
+                div()
+                    .text_size(self.metrics.font_footnote())
+                    .text_color(self.theme.fg_muted)
+                    .child(format!("v{}", extension.version)),
+            )
+            .child(self.badge(if enabled { "Enabled" } else { "Disabled" }, enabled));
+        if unpacked {
+            title = title.child(self.badge("Unpacked", false));
+        }
+
+        div()
+            .id(SharedString::from(format!(
+                "extension-row-{}",
+                extension.name
+            )))
+            .flex()
+            .items_center()
+            .gap(self.metrics.spacing6())
+            .p(self.metrics.spacing7())
+            .when(separator, |row| {
+                row.border_t_1().border_color(self.theme.border)
+            })
+            .cursor_pointer()
+            .hover(|row| row.bg(self.theme.hover))
+            .focus(|row| row.bg(self.theme.accent_soft))
+            .button_interaction(cx.listener(move |view, _, _, cx| {
+                if !view.mutating {
+                    view.selected = Some(details.clone());
+                    view.error = None;
+                    cx.notify();
+                }
+            }))
+            .child(SymbolGlyph::new(
+                "puzzlepiece.extension.fill",
+                self.metrics.icon_lg(),
+                self.theme.fg_muted,
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(self.metrics.spacing2())
+                    .child(title)
+                    .child(
+                        div()
+                            .text_size(self.metrics.font_footnote())
+                            .text_color(self.theme.fg_muted)
+                            .line_clamp(2)
+                            .child(extension.manifest.description.clone()),
+                    ),
+            )
+            .child(SymbolGlyph::new(
+                "chevron.right",
+                self.metrics.icon_sm(),
+                self.theme.fg_muted,
+            ))
+    }
+
+    fn marketplace_body(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let mut body = div().flex().flex_col().gap(self.metrics.spacing6());
+        for item in &self.items {
+            let name = item["name"].as_str().unwrap_or("").to_owned();
+            let selected = name.clone();
+            body = body.child(
+                self.card()
+                    .p(self.metrics.spacing7())
                     .flex()
                     .items_center()
-                    .gap(px(16.0))
-                    .py(px(16.0))
-                    .border_b_1()
-                    .border_color(self.theme.border)
+                    .gap(self.metrics.spacing6())
+                    .child(SymbolGlyph::new(
+                        "puzzlepiece.extension",
+                        self.metrics.icon_xl(),
+                        self.theme.fg_muted,
+                    ))
                     .child(
                         div()
                             .flex_1()
-                            .child(
-                                div().child(format!("{}  {}", extension.name, extension.version)),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(13.0))
-                                    .text_color(self.theme.fg_muted)
-                                    .child(extension.manifest.description.clone()),
-                            )
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(self.metrics.spacing2())
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
                             .child(
                                 div()
-                                    .text_size(px(12.0))
+                                    .text_size(self.metrics.font_footnote())
                                     .text_color(self.theme.fg_muted)
-                                    .child(format!(
-                                        "{}{}",
-                                        if *enabled { "Enabled" } else { "Disabled" },
-                                        if *unpacked { " · Unpacked" } else { "" }
-                                    )),
+                                    .line_clamp(2)
+                                    .child(item["description"].as_str().unwrap_or("").to_owned()),
                             ),
                     )
                     .child(self.button(
-                        format!("manage-{}", extension.name),
-                        "Manage",
-                        move |view, _, cx| {
-                            view.selected = Some(details.clone());
-                            cx.notify();
-                        },
+                        format!("details-{selected}"),
+                        "View",
+                        move |view, _, cx| view.details(selected.clone(), cx),
                         cx,
                     )),
             );
         }
-        body
-    }
-    fn marketplace_body(&self, mut body: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
-        let mut cards = div().flex().flex_wrap().gap(px(12.0));
-        for item in &self.items {
-            let name = item["name"].as_str().unwrap_or("").to_owned();
-            let selected = name.clone();
-            cards = cards.child(
-                div()
-                    .flex_1()
-                    .min_w(px(220.0))
-                    .p(px(18.0))
-                    .rounded(px(8.0))
-                    .border_1()
-                    .border_color(self.theme.border)
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child(name)
-                            .child(self.button(
-                                format!("details-{selected}"),
-                                "View",
-                                move |view, _, cx| view.details(selected.clone(), cx),
-                                cx,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .mt(px(8.0))
-                            .text_color(self.theme.fg_muted)
-                            .child(item["description"].as_str().unwrap_or("").to_owned()),
-                    ),
-            );
-        }
-        body = body.child(cards);
-        if !self.busy && self.items.is_empty() {
-            body = body.child(div().child("No marketplace extensions found."));
+        if !self.busy && self.items.is_empty() && self.error.is_none() {
+            body = body.child(self.empty_state(
+                "No extensions found",
+                "Try a different search to find extensions.",
+            ));
         }
         if self.has_next && !self.busy {
-            body = body.child(self.button(
+            body = body.child(div().flex().justify_center().child(self.button(
                 "extension-more",
                 "Load more",
                 |view, _, cx| {
@@ -695,8 +1045,17 @@ impl ExtensionsView {
                     view.fetch(false, cx);
                 },
                 cx,
-            ));
+            )));
         }
         body
     }
+}
+
+fn installed_details(extension: &Extension) -> Value {
+    json!({
+        "name": extension.name,
+        "version": extension.version,
+        "description": extension.manifest.description,
+        "permissions": extension.manifest.permissions,
+    })
 }

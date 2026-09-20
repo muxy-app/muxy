@@ -289,19 +289,26 @@ impl AppModel {
     }
 
     pub(crate) fn refresh_installed_extensions(&mut self, cx: &mut Context<Self>) {
-        let task = self.change_extensions(
-            |state| {
-                state.registry.reload();
-                Ok(())
-            },
-            cx,
-        );
+        let task = self.refresh_installed_extensions_task(cx);
         cx.spawn(async move |model, cx| {
             if let Err(error) = task.await {
                 let _ = model.update(cx, |model, cx| model.fail(error, cx));
             }
         })
         .detach();
+    }
+
+    pub(crate) fn refresh_installed_extensions_task(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<Result<(), String>> {
+        self.change_extensions(
+            |state| {
+                state.registry.reload();
+                Ok(())
+            },
+            cx,
+        )
     }
 
     pub(crate) fn load_unpacked_extension(

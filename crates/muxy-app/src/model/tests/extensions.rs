@@ -110,3 +110,27 @@ pub(in crate::model) fn finish_extension(
         thread::sleep(Duration::from_millis(2));
     }
 }
+
+#[gpui::test]
+fn installed_registry_refresh_finishes_after_the_package_is_available(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let directory = view.read_with(cx, |model, _| model.extensions.registry.directory());
+    let package = directory.join("reader");
+    std::fs::create_dir_all(&package).expect("package folder");
+    std::fs::write(
+        package.join("package.json"),
+        r#"{"name":"reader","version":"1.0.0","muxy":{"permissions":["files:read"]}}"#,
+    )
+    .expect("manifest");
+    finish_extension(
+        view.update(cx, AppModel::refresh_installed_extensions_task),
+        cx,
+    )
+    .expect("refresh installed extensions");
+    view.read_with(cx, |model, _| {
+        let registry = &model.extensions.registry;
+        assert!(registry.extensions.contains_key("reader"));
+        assert!(registry.enabled("reader").is_none());
+    });
+}
