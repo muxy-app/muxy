@@ -262,7 +262,7 @@ impl Webview {
 
     fn clear_snapshot(&mut self, cx: &mut gpui::App) {
         if let Some(image) = self.snapshot.take() {
-            cx.drop_image(image, None);
+            cx.defer(move |cx| cx.drop_image(image, None));
         }
     }
 
