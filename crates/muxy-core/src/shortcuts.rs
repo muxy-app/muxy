@@ -183,9 +183,9 @@ pub const ALL: &[Shortcut] = &[
     },
     Shortcut {
         id: "existing_terminals",
-        keys: &[],
+        keys: &["cmd-alt-t"],
         contexts: &[Some("WorkspaceTabs")],
-        key_contexts: &[],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
     },
     Shortcut {
         id: "detach_terminal",

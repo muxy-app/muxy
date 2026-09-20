@@ -176,22 +176,33 @@ fn page(revision: u64, sessions: Vec<ProjectSession>) -> ProjectSessions {
 }
 
 #[gpui::test]
-fn existing_terminals_shortcut_is_unassigned_configurable_and_resettable(cx: &mut TestAppContext) {
+fn existing_terminals_shortcut_preserves_save_and_is_configurable_and_resettable(
+    cx: &mut TestAppContext,
+) {
     let state = AppState::bootstrap().expect("state");
     let project = state.home().id;
     let (boot, _requests) = stub_boot(state);
-    assert!(
+    assert_eq!(
         boot.settings
             .keymap
             .chord(muxy_core::shortcuts::ShortcutId::ExistingTerminals)
-            .is_none()
+            .map(muxy_app_core::settings::KeyChord::as_str),
+        Some("cmd-alt-t")
     );
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| model.focus_active(window, cx));
     });
-    cx.simulate_keystrokes("cmd-shift-e");
+    cx.simulate_keystrokes("cmd-s");
+    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
+    cx.simulate_keystrokes("cmd-alt-t");
+    view.read_with(cx, |model, _| {
+        assert!(
+            matches!(&model.overlay, Some(Overlay::Sessions(picker)) if picker.project == project)
+        );
+    });
+    cx.simulate_keystrokes("escape");
     view.update(cx, |model, cx| {
         assert!(model.overlay.is_none());
         model.change_preference(
@@ -202,6 +213,8 @@ fn existing_terminals_shortcut_is_unassigned_configurable_and_resettable(cx: &mu
             cx,
         );
     });
+    cx.simulate_keystrokes("cmd-alt-t");
+    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
     cx.simulate_keystrokes("cmd-shift-e");
     view.read_with(cx, |model, _| {
         assert!(
@@ -218,4 +231,10 @@ fn existing_terminals_shortcut_is_unassigned_configurable_and_resettable(cx: &mu
     });
     cx.simulate_keystrokes("cmd-shift-e");
     view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
+    cx.simulate_keystrokes("cmd-alt-t");
+    view.read_with(cx, |model, _| {
+        assert!(
+            matches!(&model.overlay, Some(Overlay::Sessions(picker)) if picker.project == project)
+        );
+    });
 }

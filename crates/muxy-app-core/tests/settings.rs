@@ -228,9 +228,7 @@ fn every_default_binding_round_trips_and_resolves_both_directions() -> Result {
     for action in Keymap::ACTIONS {
         if matches!(
             action,
-            ShortcutId::SelectCommandOutput
-                | ShortcutId::ExistingTerminals
-                | ShortcutId::DetachTerminal
+            ShortcutId::SelectCommandOutput | ShortcutId::DetachTerminal
         ) {
             assert!(keymap.chord(action).is_none());
             continue;

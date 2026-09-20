@@ -49,7 +49,7 @@ from another client are discoverable within their project.
 Existing Terminals lists sessions in the selected project that this client is
 not attached to and shows their owner, or No owner. The desktop tabstrip provides
 a stack-icon button, hidden when none are available. Its keyboard shortcut is
-unassigned by default and can be configured in settings. The TUI shows availability
+Command–Option–T by default and can be configured in settings. The TUI shows availability
 beside its tabs and keeps its keyboard picker.
 
 On launch, desktop restores every project, its tabs, and window view state. It
