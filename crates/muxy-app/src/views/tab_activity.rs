@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Bounds, Hsla, IntoElement, ParentElement, PathBuilder, Pixels, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, point, px, svg,
+    AnyElement, AppContext, Bounds, Hsla, IntoElement, ParentElement, PathBuilder, Pixels,
+    SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px, svg,
 };
 use muxy_app_core::{
     PaneContent, ProjectId, Tab,
@@ -11,9 +11,8 @@ use muxy_app_core::{
 use muxy_protocol::{AgentProvider, ProgressState, SessionId, TerminalProgress};
 use muxy_ui::components::Tooltip;
 use muxy_ui::spinner::NativeSpinner;
-use std::cell::RefCell;
-use std::collections::hash_map::{Entry, HashMap};
-use std::rc::Rc;
+use std::cell::{Cell, RefCell};
+use std::rc::{Rc, Weak};
 
 use crate::model::AppModel;
 use gpui::InteractiveElement;
@@ -209,33 +208,45 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
         .into_any_element()
 }
 
-/// Indeterminate progress glyphs are native Core Animation layers, so a
-/// turning spinner costs the app no frames.
 #[derive(Clone, Default)]
 pub(crate) struct Spinners(Rc<RefCell<Registry>>);
 
 #[derive(Default)]
 struct Registry {
-    frame: u64,
     blocked: bool,
-    natives: HashMap<String, Native>,
+    natives: Vec<Weak<Native>>,
 }
 
 struct Native {
-    spinner: NativeSpinner,
-    seen: u64,
+    spinner: Option<NativeSpinner>,
+    in_bounds: Cell<bool>,
+    visible: Cell<bool>,
+}
+
+impl Native {
+    fn set_blocked(&self, blocked: bool) {
+        let visible = !blocked && self.in_bounds.get();
+        self.visible.set(visible);
+        if let Some(spinner) = &self.spinner {
+            spinner.set_visible(visible);
+        }
+    }
 }
 
 impl Spinners {
-    /// Starts a frame. Spinners that were not painted last frame are removed.
-    pub(crate) fn begin_frame(&self, blocked: bool) {
+    pub(crate) fn set_blocked(&self, blocked: bool) {
         let mut registry = self.0.borrow_mut();
-        registry.frame += 1;
+        let changed = registry.blocked != blocked;
         registry.blocked = blocked;
-        let current = registry.frame;
-        registry
-            .natives
-            .retain(|_, native| native.seen + 1 >= current);
+        registry.natives.retain(|native| {
+            let Some(native) = native.upgrade() else {
+                return false;
+            };
+            if changed {
+                native.set_blocked(blocked);
+            }
+            true
+        });
     }
 
     fn glyph(&self, id: String, size: Pixels, color: Hsla) -> AnyElement {
@@ -243,38 +254,39 @@ impl Spinners {
         canvas(
             |_, _, _| (),
             move |bounds, (), window, _| {
-                registry
-                    .borrow_mut()
-                    .paint(id, bounds, color.into(), window);
+                window.with_global_id(SharedString::from(id).into(), |id, window| {
+                    window.with_element_state(id, |state: Option<Rc<Native>>, window| {
+                        let mut registry = registry.borrow_mut();
+                        let native = state.unwrap_or_else(|| {
+                            let native = Rc::new(Native {
+                                spinner: if cfg!(test) {
+                                    None
+                                } else {
+                                    NativeSpinner::new(window).ok()
+                                },
+                                in_bounds: Cell::new(false),
+                                visible: Cell::new(false),
+                            });
+                            registry.natives.retain(|native| native.strong_count() > 0);
+                            registry.natives.push(Rc::downgrade(&native));
+                            native
+                        });
+                        let mask = window.content_mask().bounds;
+                        native.in_bounds.set(
+                            mask.contains(&bounds.origin) && mask.contains(&bounds.bottom_right()),
+                        );
+                        let visible = !registry.blocked && native.in_bounds.get();
+                        native.visible.set(visible);
+                        if let Some(spinner) = &native.spinner {
+                            spinner.show(bounds, color.into(), visible, window.scale_factor());
+                        }
+                        ((), native)
+                    });
+                });
             },
         )
         .size(size)
         .into_any_element()
-    }
-}
-
-impl Registry {
-    fn paint(&mut self, id: String, bounds: Bounds<Pixels>, color: Rgba, window: &Window) {
-        // Test windows have no native view to attach to.
-        if cfg!(test) {
-            return;
-        }
-        let (frame, blocked) = (self.frame, self.blocked);
-        let native = match self.natives.entry(id) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => match NativeSpinner::new(window) {
-                Ok(spinner) => entry.insert(Native {
-                    spinner,
-                    seen: frame,
-                }),
-                Err(_) => return,
-            },
-        };
-        native.seen = frame;
-        let mask = window.content_mask().bounds;
-        let visible =
-            !blocked && mask.contains(&bounds.origin) && mask.contains(&bounds.bottom_right());
-        native.spinner.show(bounds, color, visible);
     }
 }
 
@@ -450,5 +462,151 @@ fn provider_icon(provider: AgentProvider, size: Pixels, model: &AppModel) -> Any
             .size(size)
             .text_color(model.theme.fg)
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{AnyView, Context, Entity, Render, TestAppContext, Window};
+
+    struct Glyphs {
+        spinners: Spinners,
+        shown: bool,
+        clipped: bool,
+        renders: usize,
+    }
+
+    impl Render for Glyphs {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            self.renders += 1;
+            div()
+                .size_full()
+                .overflow_hidden()
+                .when(self.shown, |view| {
+                    view.child(
+                        div()
+                            .mt(if self.clipped { px(100.0) } else { px(0.0) })
+                            .child(self.spinners.glyph("busy".into(), px(14.0), gpui::red())),
+                    )
+                })
+        }
+    }
+
+    struct Host {
+        spinners: Spinners,
+        glyphs: Entity<Glyphs>,
+        blocked: bool,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            self.spinners.set_blocked(self.blocked);
+            AnyView::from(self.glyphs.clone()).cached(div().size(px(40.0)).style().clone())
+        }
+    }
+
+    #[gpui::test]
+    fn spinner_survives_cached_frames_and_drops_when_removed(cx: &mut TestAppContext) {
+        let spinners = Spinners::default();
+        let glyphs = cx.new(|_| Glyphs {
+            spinners: spinners.clone(),
+            shown: true,
+            clipped: false,
+            renders: 0,
+        });
+        let (host, cx) = cx.add_window_view(|_, _| Host {
+            spinners: spinners.clone(),
+            glyphs: glyphs.clone(),
+            blocked: false,
+        });
+        cx.run_until_parked();
+        let native = spinners.0.borrow().natives[0].clone();
+        let renders = glyphs.read_with(cx, |glyphs, _| glyphs.renders);
+        for _ in 0..5 {
+            host.update(cx, |_, cx| cx.notify());
+            cx.run_until_parked();
+            assert!(
+                native.upgrade().is_some(),
+                "cached paint must retain the animation"
+            );
+            assert_eq!(spinners.0.borrow().natives.len(), 1);
+            assert_eq!(glyphs.read_with(cx, |glyphs, _| glyphs.renders), renders);
+        }
+        glyphs.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        assert!(
+            native.upgrade().is_some(),
+            "repainting must reuse the animation"
+        );
+        assert_eq!(spinners.0.borrow().natives.len(), 1);
+
+        glyphs.update(cx, |glyphs, cx| {
+            glyphs.shown = false;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(
+            native.upgrade().is_none(),
+            "removal must release in the same frame"
+        );
+        host.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        assert!(spinners.0.borrow().natives.is_empty());
+    }
+
+    #[gpui::test]
+    fn cached_spinner_visibility_tracks_overlays_and_clipping(cx: &mut TestAppContext) {
+        let spinners = Spinners::default();
+        let glyphs = cx.new(|_| Glyphs {
+            spinners: spinners.clone(),
+            shown: true,
+            clipped: false,
+            renders: 0,
+        });
+        let (host, cx) = cx.add_window_view(|_, _| Host {
+            spinners: spinners.clone(),
+            glyphs: glyphs.clone(),
+            blocked: false,
+        });
+        cx.run_until_parked();
+        let native = spinners.0.borrow().natives[0].clone();
+        let renders = glyphs.read_with(cx, |glyphs, _| glyphs.renders);
+        for blocked in [true, false, true, false] {
+            host.update(cx, |host, cx| {
+                host.blocked = blocked;
+                cx.notify();
+            });
+            cx.run_until_parked();
+            assert_eq!(native.upgrade().expect("native").visible.get(), !blocked);
+            assert_eq!(glyphs.read_with(cx, |glyphs, _| glyphs.renders), renders);
+        }
+        glyphs.update(cx, |glyphs, cx| {
+            glyphs.clipped = true;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(native.upgrade().is_none_or(|native| !native.visible.get()));
+        for blocked in [true, false] {
+            host.update(cx, |host, cx| {
+                host.blocked = blocked;
+                cx.notify();
+            });
+            cx.run_until_parked();
+            assert!(native.upgrade().is_none_or(|native| !native.visible.get()));
+        }
+        glyphs.update(cx, |glyphs, cx| {
+            glyphs.clipped = false;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(
+            spinners
+                .0
+                .borrow()
+                .natives
+                .iter()
+                .any(|native| { native.upgrade().is_some_and(|native| native.visible.get()) })
+        );
     }
 }

@@ -11,7 +11,8 @@ use objc2_app_kit::NSView;
 use objc2_core_graphics::{CGColor, CGPath};
 use objc2_foundation::{NSNumber, NSPoint, NSRect, NSSize, ns_string};
 use objc2_quartz_core::{
-    CABasicAnimation, CAMediaTiming, CAShapeLayer, CATransaction, kCALineCapRound,
+    CABasicAnimation, CAMediaTiming, CAMediaTimingFunction, CAShapeLayer, CATransaction,
+    kCALineCapRound, kCAMediaTimingFunctionLinear,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -26,6 +27,7 @@ pub struct NativeSpinner {
     arc: Retained<CAShapeLayer>,
     frame: Cell<Option<NSRect>>,
     color: Cell<Option<Rgba>>,
+    scale_factor: Cell<Option<f32>>,
     visible: Cell<bool>,
 }
 
@@ -68,16 +70,30 @@ impl NativeSpinner {
             arc,
             frame: Cell::new(None),
             color: Cell::new(None),
+            scale_factor: Cell::new(None),
             visible: Cell::new(false),
         })
     }
 
-    pub fn show(&self, bounds: Bounds<Pixels>, color: Rgba, visible: bool) {
+    pub fn show(&self, bounds: Bounds<Pixels>, color: Rgba, visible: bool, scale_factor: f32) {
+        CATransaction::begin();
+        CATransaction::setDisableActions(true);
         let frame = self.frame_in_parent(bounds);
         if self.frame.get() != Some(frame) {
             self.view.setFrame(frame);
-            self.layout(frame.size);
+            if self
+                .frame
+                .get()
+                .is_none_or(|previous| previous.size != frame.size)
+            {
+                self.layout(frame.size);
+            }
             self.frame.set(Some(frame));
+        }
+        if self.scale_factor.replace(Some(scale_factor)) != Some(scale_factor) {
+            for shape in [&self.track, &self.arc] {
+                shape.setContentsScale(f64::from(scale_factor));
+            }
         }
         if self.color.get() != Some(color) {
             let track = Rgba {
@@ -88,6 +104,11 @@ impl NativeSpinner {
             stroke(&self.arc, color);
             self.color.set(Some(color));
         }
+        CATransaction::commit();
+        self.set_visible(visible);
+    }
+
+    pub fn set_visible(&self, visible: bool) {
         if self.visible.replace(visible) != visible {
             self.view.setHidden(!visible);
             if visible {
@@ -123,14 +144,11 @@ impl NativeSpinner {
             NSSize::new(diameter - line, diameter - line),
         );
         let path = unsafe { CGPath::with_ellipse_in_rect(inset, ptr::null()) };
-        CATransaction::begin();
-        CATransaction::setDisableActions(true);
         for shape in [&self.track, &self.arc] {
             shape.setFrame(NSRect::new(NSPoint::ZERO, size));
             shape.setPath(Some(&path));
             shape.setLineWidth(line);
         }
-        CATransaction::commit();
     }
 
     fn turn(&self) {
@@ -142,7 +160,10 @@ impl NativeSpinner {
             animation.setFromValue(Some(&from));
             animation.setToValue(Some(&to));
         }
-        animation.setDuration(1.0);
+        let timing =
+            unsafe { CAMediaTimingFunction::functionWithName(kCAMediaTimingFunctionLinear) };
+        animation.setTimingFunction(Some(&timing));
+        animation.setDuration(0.8);
         animation.setRepeatCount(f32::INFINITY);
         self.arc
             .addAnimation_forKey(&animation, Some(ns_string!("turn")));
@@ -151,6 +172,7 @@ impl NativeSpinner {
 
 impl Drop for NativeSpinner {
     fn drop(&mut self) {
+        self.arc.removeAllAnimations();
         self.view.removeFromSuperview();
     }
 }

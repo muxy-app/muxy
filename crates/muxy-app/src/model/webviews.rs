@@ -113,7 +113,7 @@ impl AppModel {
                 .view
                 .as_ref()
                 .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active());
-        self.spinners.begin_frame(blocked);
+        self.spinners.set_blocked(blocked);
         let shortcuts = self.webview_shortcuts();
         for (id, surface) in &self.webviews.panes {
             surface
