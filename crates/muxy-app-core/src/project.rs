@@ -85,15 +85,19 @@ pub enum ProjectStatus {
     Missing,
 }
 
-pub const PROJECT_COLORS: [(&str, &str); 8] = [
-    ("Blue", "#7aa2f7"),
-    ("Cyan", "#7dcfff"),
-    ("Teal", "#73daca"),
-    ("Green", "#9ece6a"),
-    ("Yellow", "#e0af68"),
-    ("Orange", "#ff9e64"),
-    ("Red", "#f7768e"),
-    ("Purple", "#bb9af7"),
+pub const PROJECT_COLORS: [(&str, &str); 12] = [
+    ("Red", "#e5484d"),
+    ("Orange", "#f76b15"),
+    ("Amber", "#f5a623"),
+    ("Yellow", "#ebcb00"),
+    ("Lime", "#9bcd1e"),
+    ("Green", "#30a46c"),
+    ("Teal", "#12a594"),
+    ("Cyan", "#05a2c2"),
+    ("Blue", "#3e63dd"),
+    ("Indigo", "#5b5bd6"),
+    ("Violet", "#8e4ec6"),
+    ("Pink", "#d6409f"),
 ];
 
 impl Project {

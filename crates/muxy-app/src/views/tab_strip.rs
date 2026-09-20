@@ -323,14 +323,8 @@ fn tab_cell(
     let shows_title = width >= 80.0;
     let id = tab.id;
     let group = SharedString::from(format!("tab-{id}"));
-    let close = close_control(
-        id,
-        active && shows_title,
-        shows_title,
-        group.clone(),
-        theme,
-        cx,
-    );
+    let show_close = active && shows_title;
+    let close = close_control(id, show_close, shows_title, group.clone(), theme, cx);
     let foreground = if active { theme.fg } else { theme.fg_muted };
     div()
         .id(group.clone())
@@ -352,7 +346,10 @@ fn tab_cell(
         .text_color(foreground)
         .when(active, |tab| tab.bg(theme.surface))
         .when_some(color, |cell, color| {
-            cell.bg(color.opacity(if active { 0.18 } else { 0.06 }))
+            cell.bg(color.opacity(if active { 0.18 } else { 0.04 }))
+                .when(!model.tab_drag.is_active(), |cell| {
+                    cell.hover(|style| style.bg(color.opacity(if active { 0.18 } else { 0.08 })))
+                })
         })
         .on_mouse_down(
             MouseButton::Right,

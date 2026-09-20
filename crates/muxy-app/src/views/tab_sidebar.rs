@@ -474,6 +474,9 @@ fn tab_row(
         .and_then(|color| muxy_ui::theme::parse_hex(color.as_str()))
         .map(gpui::Hsla::from);
     let group = SharedString::from(format!("sidebar-tab-{id}"));
+    let hover = color.map_or(if active { theme.surface } else { theme.hover }, |color| {
+        color.opacity(if active { 0.18 } else { 0.08 })
+    });
     div()
         .id(group.clone())
         .debug_selector(move || format!("sidebar-tab-{id}"))
@@ -492,9 +495,11 @@ fn tab_row(
         .text_size(m.font_headline())
         .text_color(if active { theme.fg } else { theme.fg_muted })
         .when(active, |row| row.bg(theme.surface))
-        .hover(|style| style.bg(if active { theme.surface } else { theme.hover }))
         .when_some(color, |row, color| {
-            row.bg(color.opacity(if active { 0.18 } else { 0.06 }))
+            row.bg(color.opacity(if active { 0.18 } else { 0.04 }))
+        })
+        .when(!model.tab_drag.is_active(), |row| {
+            row.hover(|style| style.bg(hover))
         })
         .on_mouse_down(
             MouseButton::Right,

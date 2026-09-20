@@ -38,6 +38,24 @@ fn menu(cx: &mut VisualTestContext, label: &str) {
     click(cx, &format!("menu-label-{label}"), MouseButton::Left);
 }
 
+fn color_picker(cx: &mut VisualTestContext, selected: Option<usize>) {
+    let first = cx.debug_bounds("color-swatch-0").expect("first swatch");
+    let sixth = cx.debug_bounds("color-swatch-5").expect("sixth swatch");
+    let last = cx.debug_bounds("color-swatch-11").expect("last swatch");
+    assert_eq!(first.top(), sixth.top());
+    assert!(last.top() > sixth.bottom());
+    assert_eq!(last.left(), sixth.left());
+    let ring = cx.debug_bounds("color-selection-ring");
+    if let Some(index) = selected {
+        let swatch = cx
+            .debug_bounds(format!("color-swatch-{index}").leak())
+            .expect("selected swatch");
+        assert!(swatch.contains(&ring.expect("selection ring").center()));
+    } else {
+        assert!(ring.is_none());
+    }
+}
+
 #[gpui::test]
 fn tab_context_customization_targets_inactive_tabs_in_both_layouts(cx: &mut TestAppContext) {
     for layout in [AppLayout::ProjectFocused, AppLayout::TabFocused] {
@@ -87,6 +105,7 @@ fn tab_context_customization_targets_inactive_tabs_in_both_layouts(cx: &mut Test
         );
         click(cx, &selector, MouseButton::Right);
         menu(cx, "Set Tab Color…");
+        color_picker(cx, None);
         cx.simulate_keystrokes("right enter");
         cx.run_until_parked();
         view.read_with(cx, |model, _| {
@@ -112,15 +131,18 @@ fn tab_context_customization_targets_inactive_tabs_in_both_layouts(cx: &mut Test
         });
         click(cx, &selector, MouseButton::Right);
         menu(cx, "Unpin Tab");
-        for label in ["Reset Title", "Reset Tab Color"] {
-            click(cx, &selector, MouseButton::Right);
-            menu(cx, label);
-        }
+        click(cx, &selector, MouseButton::Right);
+        menu(cx, "Reset Title");
+        click(cx, &selector, MouseButton::Right);
+        menu(cx, "Set Tab Color…");
+        color_picker(cx, Some(1));
+        click(cx, "reset-tab-color", MouseButton::Left);
         view.read_with(cx, |model, _| {
             let tab = model.tab(ids[0]).expect("tab");
             assert!(tab.custom_title.is_none());
             assert!(tab.color.is_none());
             assert!(!tab.pinned);
+            assert_eq!(store::load(&model.path).expect("saved"), model.state);
         });
         click(cx, &selector, MouseButton::Right);
         menu(cx, "Close Tabs to the Left");
