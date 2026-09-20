@@ -90,8 +90,8 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         Button(action: action) {
             HStack(spacing: UIMetrics.spacing4) {
                 if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: UIMetrics.fontBody))
+                    Image(systemName: icon).resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 }
                 Text(title)
                     .font(.system(size: UIMetrics.fontBody, weight: .medium))

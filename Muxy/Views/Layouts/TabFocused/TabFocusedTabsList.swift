@@ -65,8 +65,8 @@ struct AgentsFocusedTabActions: View {
         Button {
             presentProviders()
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: "plus").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 .foregroundStyle(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
                 .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
                 .background {
@@ -662,8 +662,8 @@ struct TabFocusedTabRow: View {
     @ViewBuilder
     private var statusAccessory: some View {
         if tab.isPinned {
-            Image(systemName: "pin.fill")
-                .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+            Image(systemName: "pin.fill").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else if let shortcutNumber, let combo = shortcutHint {
@@ -679,8 +679,8 @@ struct TabFocusedTabRow: View {
                 .frame(width: UIMetrics.scaled(7), height: UIMetrics.scaled(7))
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else if isIdle, !active {
-            Image(systemName: "moon.zzz")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+            Image(systemName: "moon.zzz").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 .help(L10n.string("Idle — terminal freed to save memory. Reopens when selected."))
@@ -698,8 +698,8 @@ struct TabFocusedTabRow: View {
             if let agentIconName {
                 ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
             } else {
-                Image(systemName: "terminal")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                Image(systemName: "terminal").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
             }
         case .browser:
             if let favicon = tab.content.browserState?.faviconImage {
@@ -708,8 +708,8 @@ struct TabFocusedTabRow: View {
                     .interpolation(.high)
                     .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
             } else {
-                Image(systemName: "globe")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                Image(systemName: "globe").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
             }
         case .extensionWebView:
             extensionIcon
@@ -724,8 +724,8 @@ struct TabFocusedTabRow: View {
         {
             ExtensionIconView(icon: customIcon, muxyExtension: muxyExtension, size: 12)
         } else {
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+            Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
         }
     }
 

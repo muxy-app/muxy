@@ -6,8 +6,8 @@ struct BrowserErrorView: View {
 
     var body: some View {
         VStack(spacing: UIMetrics.spacing6) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: UIMetrics.iconXXL, weight: .regular))
+            Image(systemName: "exclamationmark.triangle").resizable().scaledToFit()
+                .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
                 .foregroundStyle(MuxyTheme.fgMuted)
 
             VStack(spacing: UIMetrics.spacing3) {

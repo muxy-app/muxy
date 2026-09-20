@@ -19,8 +19,8 @@ struct ExtensionIconView: View {
     private var glyphSize: CGFloat { UIMetrics.scaled(size) }
 
     private func symbolImage(_ name: String) -> some View {
-        Image(systemName: name)
-            .font(.system(size: glyphSize, weight: weight))
+        Image(systemName: name).resizable().scaledToFit()
+            .frame(width: glyphSize, height: glyphSize)
     }
 
     @ViewBuilder

@@ -128,8 +128,8 @@ struct UnreachableSessionPlaceholder: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
             Spacer()
-            Image(systemName: "bolt.horizontal.circle")
-                .font(.system(size: UIMetrics.fontMega))
+            Image(systemName: "bolt.horizontal.circle").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMega, height: UIMetrics.fontMega)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(L10n.resource("Background session unreachable"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
@@ -171,8 +171,8 @@ struct SleepingTabPlaceholder: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
             Spacer()
-            Image(systemName: "moon.zzz")
-                .font(.system(size: UIMetrics.fontMega))
+            Image(systemName: "moon.zzz").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMega, height: UIMetrics.fontMega)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(L10n.resource("Tab is asleep"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
@@ -214,8 +214,8 @@ struct RemoteControlledPlaceholder: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
             Spacer()
-            Image(systemName: "iphone.gen3")
-                .font(.system(size: UIMetrics.fontMega))
+            Image(systemName: "iphone.gen3").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMega, height: UIMetrics.fontMega)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(L10n.resource("Controlled by \(deviceName)"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))

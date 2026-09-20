@@ -51,8 +51,8 @@ private struct TabFocusedNewWorktreeButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "plus")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                     .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                 Text(L10n.resource("New Worktree"))

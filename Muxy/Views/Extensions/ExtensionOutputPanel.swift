@@ -42,8 +42,8 @@ struct ExtensionOutputPanel: View {
                 HStack(spacing: 4) {
                     Text(activeLabel)
                         .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: UIMetrics.fontCaption))
+                    Image(systemName: "chevron.down").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 }
                 .foregroundStyle(MuxyTheme.fg)
                 .padding(.horizontal, 6)

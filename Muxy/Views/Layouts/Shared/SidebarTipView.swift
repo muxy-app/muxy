@@ -66,8 +66,8 @@ private struct SidebarTipContent: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "lightbulb.fill")
-                .font(.system(size: UIMetrics.iconXS, weight: .semibold))
+            Image(systemName: "lightbulb.fill").resizable().scaledToFit()
+                .frame(width: UIMetrics.iconXS, height: UIMetrics.iconXS)
                 .foregroundStyle(MuxyTheme.accent)
                 .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                 .background(MuxyTheme.accentSoft, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
@@ -83,8 +83,8 @@ private struct SidebarTipContent: View {
             Button {
                 showHideConfirmation = true
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: UIMetrics.iconXS, weight: .semibold))
+                Image(systemName: "xmark").resizable().scaledToFit()
+                    .frame(width: UIMetrics.iconXS, height: UIMetrics.iconXS)
                     .foregroundStyle(MuxyTheme.fgDim)
                     .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                     .contentShape(Rectangle())
@@ -122,8 +122,8 @@ private struct SidebarTipContent: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: UIMetrics.iconXS, weight: .semibold))
+            Image(systemName: symbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.iconXS, height: UIMetrics.iconXS)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlSmall)
                 .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))

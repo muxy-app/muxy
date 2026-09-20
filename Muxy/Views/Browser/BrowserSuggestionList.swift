@@ -74,8 +74,8 @@ struct BrowserSuggestionList: View {
                 .resizable()
                 .interpolation(.high)
         } else {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: UIMetrics.fontCaption))
+            Image(systemName: "clock.arrow.circlepath").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(MuxyTheme.fgDim)
         }
     }

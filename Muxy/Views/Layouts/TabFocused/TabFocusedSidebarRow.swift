@@ -10,8 +10,8 @@ struct SidebarActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: symbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 .foregroundStyle(foreground)
                 .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
                 .background {

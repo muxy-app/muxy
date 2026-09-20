@@ -15,8 +15,8 @@ struct LayoutPickerMenu: View {
                     }
                 }
             } label: {
-                Image(systemName: "rectangle.split.2x2")
-                    .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+                Image(systemName: "rectangle.split.2x2").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontEmphasis, height: UIMetrics.fontEmphasis)
                     .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                     .contentShape(Rectangle())
             }

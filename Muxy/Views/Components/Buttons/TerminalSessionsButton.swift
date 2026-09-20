@@ -44,8 +44,8 @@ struct TerminalSessionsButton: View {
             showingPopover.toggle()
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "rectangle.stack")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: "rectangle.stack").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 Text(verbatim: "\(sessions.count)")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .monospacedDigit()

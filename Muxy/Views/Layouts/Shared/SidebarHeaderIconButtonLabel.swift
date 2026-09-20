@@ -6,8 +6,8 @@ struct SidebarHeaderIconButtonLabel: View {
     @State private var hovered = false
 
     var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+        Image(systemName: systemName).resizable().scaledToFit()
+            .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
             .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
             .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
             .background(
