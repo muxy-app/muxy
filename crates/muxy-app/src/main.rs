@@ -25,6 +25,7 @@ mod views {
     pub(crate) mod project_menu;
     pub(crate) mod project_picker;
     pub(crate) mod quick_terminal;
+    pub(crate) mod server_status;
     pub(crate) mod session_picker;
     pub(crate) mod settings;
     pub(crate) mod sidebar;

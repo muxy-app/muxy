@@ -89,10 +89,11 @@ selection may restore a pane from the window's focus history.
 ## Disconnected and ended sessions
 
 An unreachable server leaves the project loaded and app-only panes usable.
-The bottom status bar shows disconnection with a connect action; healthy
-connections need no indicator. Terminal panes retain their last available
-content. Existing project edits and closes remain available while disconnected
-and replay in order on reconnection.
+The bottom status bar always shows the current project's server status at the
+far right, beside updates. Its upward-opening panel offers restart and stop
+with confirmation, or connect while disconnected. Terminal panes retain their
+last available content. Existing project edits and closes remain available
+while disconnected and replay in order on reconnection.
 
 When a terminal session ends, every client immediately removes its panes,
 including those in inactive tabs and projects. Closing the last pane closes

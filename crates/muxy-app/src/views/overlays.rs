@@ -8,6 +8,7 @@ use crate::model::AppModel;
 
 pub(crate) enum Overlay {
     Updates,
+    Server,
     Webview,
     Native(Entity<super::native_modal::NativeModal>),
     Commands {
@@ -56,6 +57,17 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
     let content = match &model.overlay {
         None => return div().into_any_element(),
         Some(Overlay::Webview) => return super::webview::modal::render(model, window, cx),
+        Some(Overlay::Server) => {
+            let content = super::server_status::render(model, window, cx);
+            let anchor = model.server_anchor();
+            if !model.appearance.status_bar_visible {
+                anchor.set(None);
+            }
+            let model = cx.entity().downgrade();
+            muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
+                let _ = model.update(cx, AppModel::dismiss_overlay);
+            })
+        }
         Some(Overlay::Updates) => {
             let content = super::updates::render(model, window, cx);
             let anchor = model.update_anchor();

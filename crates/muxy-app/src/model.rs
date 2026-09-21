@@ -6,6 +6,8 @@ pub(crate) mod git;
 mod links;
 mod preferences;
 mod quick_terminal;
+mod server_status;
+pub(crate) use server_status::ServerStatus;
 mod tabs;
 mod updates;
 pub(crate) use updates::UpdateAction;
@@ -99,6 +101,7 @@ pub(crate) struct AppModel {
     pub(crate) settings: muxy_app_core::settings::Settings,
     terminal: muxy_app_core::settings::TerminalSettings,
     server_preferences: preferences::ServerPreferences,
+    server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
     font_sizes: HashMap<PaneId, f32>,
     initial_directories: HashMap<PaneId, PathBuf>,
@@ -421,6 +424,7 @@ impl AppModel {
             settings: boot.settings,
             terminal: boot.terminal,
             server_preferences: preferences::ServerPreferences::default(),
+            server_anchor: Rc::default(),
             settings_window: None,
             font_sizes: HashMap::new(),
             initial_directories: HashMap::new(),
@@ -2250,6 +2254,7 @@ mod tests {
     mod quick_terminal;
     mod rendering;
     mod scrollback;
+    mod server_status;
     mod session_ownership;
     mod sidebar;
     mod splits;

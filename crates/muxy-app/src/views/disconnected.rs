@@ -1,4 +1,4 @@
-use gpui::{Context, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, div};
+use gpui::{Context, ParentElement, Styled, div};
 use muxy_protocol::ExitReason;
 
 use super::terminal::pane::PaneState;
@@ -22,17 +22,12 @@ pub(crate) fn label(state: PaneState) -> Option<String> {
 
 pub(crate) fn status(model: &AppModel, cx: &mut Context<AppModel>) -> Option<gpui::Div> {
     let state = model.status(cx);
+    if !matches!(state, PaneState::Exited { .. }) {
+        return None;
+    }
     let text = label(state)?;
     let m = model.metrics;
     let theme = &model.theme;
-    let connect = (state == PaneState::Disconnected).then(|| {
-        div()
-            .id("connect-server")
-            .cursor_pointer()
-            .text_color(theme.fg)
-            .on_click(cx.listener(|model, _, _, cx| model.connect(cx)))
-            .child("Connect")
-    });
     Some(
         div()
             .flex()
@@ -40,7 +35,6 @@ pub(crate) fn status(model: &AppModel, cx: &mut Context<AppModel>) -> Option<gpu
             .gap(m.spacing4())
             .text_color(theme.fg_muted)
             .text_size(m.font_footnote())
-            .child(text)
-            .children(connect),
+            .child(text),
     )
 }

@@ -489,11 +489,11 @@ impl AppModel {
                     self.connect(cx);
                 }
             }
-            Err(error) => self.preference_result(
-                "server",
-                Some(&format!("Could not stop server: {error}")),
-                cx,
-            ),
+            Err(error) => {
+                let message = format!("Could not stop server: {error}");
+                self.preference_result("server", Some(&message), cx);
+                self.fail(message, cx);
+            }
         }
         self.sync_preferences(cx);
     }
@@ -504,13 +504,7 @@ impl AppModel {
         window: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        if self.quitting != Quitting::Idle
-            || self.close_prompt.is_some()
-            || self.server_preferences.control_busy
-            || self.updates.replacing()
-            || self.server_preferences.busy
-            || self.connection != ConnectionState::Ready
-        {
+        if !self.server_control_enabled() {
             return;
         }
         self.dismiss_overlay(cx);

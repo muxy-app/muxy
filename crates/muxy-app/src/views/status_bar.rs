@@ -44,12 +44,8 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .h_full()
                 .px(px(10.0))
                 .children(update_control(model, cx))
-                .children(super::disconnected::status(model, cx).map(|status| {
-                    div()
-                        .debug_selector(|| "project-connection-status".into())
-                        .flex_none()
-                        .child(status)
-                })),
+                .children(super::disconnected::status(model, cx))
+                .child(super::server_status::control(model, cx)),
         )
 }
 
