@@ -98,10 +98,8 @@ impl AppModel {
         let composer_dialog = (self.composer.view.is_some() || self.composer.closing.is_some())
             && self.settings.composer.presentation
                 == muxy_app_core::settings::ComposerPresentation::Floating;
-        let blocked = composer_dialog
-            || self.overlay.is_some()
-            || self.close_prompt.is_some()
-            || self.sidebar_resize.is_some()
+        let blocked = composer_dialog || self.overlay.is_some() || self.close_prompt.is_some();
+        let resizing = self.sidebar_resize.is_some()
             || self.split_resize.active()
             || self
                 .webviews
@@ -113,7 +111,7 @@ impl AppModel {
                 .view
                 .as_ref()
                 .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active());
-        self.spinners.set_blocked(blocked);
+        self.spinners.set_blocked(blocked || resizing);
         let shortcuts = self.webview_shortcuts();
         for (id, surface) in &self.webviews.panes {
             surface
@@ -125,6 +123,7 @@ impl AppModel {
                 continue;
             };
             surface.view.update(cx, |view, cx| {
+                view.native.set_mouse_passthrough(resizing);
                 view.update_content(descriptor.data.clone(), &self.theme, self.metrics, cx);
                 view.present(
                     visible.contains(id),
@@ -135,7 +134,7 @@ impl AppModel {
                 );
             });
         }
-        self.sync_webview_panels(blocked, window, cx);
+        self.sync_webview_panels(blocked, resizing, window, cx);
         if let Some(modal) = &self.webviews.modal {
             modal
                 .surface

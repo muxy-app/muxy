@@ -291,11 +291,46 @@ fn fail_asset(task: &ProtocolObject<dyn WKURLSchemeTask>) {
     }
 }
 
+#[derive(Debug, Default)]
+struct HitTestRegions {
+    occluded: RefCell<Vec<NSRect>>,
+    passthrough_left: Cell<f64>,
+    passthrough_all: Cell<bool>,
+}
+
+impl HitTestRegions {
+    fn excludes(&self, point: NSPoint, bounds: NSRect) -> bool {
+        if self.passthrough_all.get() {
+            return true;
+        }
+        let grip = NSRect::new(
+            bounds.origin,
+            NSSize::new(
+                self.passthrough_left.get().min(bounds.size.width),
+                bounds.size.height,
+            ),
+        );
+        contains_point(grip, point)
+            || self
+                .occluded
+                .borrow()
+                .iter()
+                .any(|rect| contains_point(*rect, point))
+    }
+}
+
+fn contains_point(rect: NSRect, point: NSPoint) -> bool {
+    point.x >= rect.origin.x
+        && point.y >= rect.origin.y
+        && point.x < rect.origin.x + rect.size.width
+        && point.y < rect.origin.y + rect.size.height
+}
+
 define_class!(
     #[unsafe(super(WKWebView))]
     #[thread_kind = MainThreadOnly]
     #[name = "MuxyMaskedWebview"]
-    #[ivars = RefCell<Vec<NSRect>>]
+    #[ivars = HitTestRegions]
     #[derive(Debug)]
     struct MaskedWebview;
     unsafe impl NSObjectProtocol for MaskedWebview {}
@@ -303,7 +338,7 @@ define_class!(
         #[unsafe(method_id(hitTest:))]
         fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
             let local = self.convertPoint_fromView(point, unsafe { self.superview() }.as_deref());
-            if self.ivars().borrow().iter().any(|rect| local.x >= rect.origin.x && local.y >= rect.origin.y && local.x < rect.origin.x + rect.size.width && local.y < rect.origin.y + rect.size.height) { None }
+            if self.ivars().excludes(local, self.bounds()) { None }
             else { unsafe { msg_send![super(self), hitTest: point] } }
         }
     }
@@ -385,7 +420,7 @@ impl NativeWebview {
             );
         }
         install_script(&controller, script, mtm);
-        let allocated = MaskedWebview::alloc(mtm).set_ivars(RefCell::default());
+        let allocated = MaskedWebview::alloc(mtm).set_ivars(HitTestRegions::default());
         let view: Retained<MaskedWebview> = unsafe {
             msg_send![super(allocated), initWithFrame: NSRect::ZERO, configuration: &*configuration]
         };
@@ -429,6 +464,17 @@ impl NativeWebview {
     pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
         self.delegate.ivars().modal.set(modal);
         *self.delegate.ivars().shortcuts.borrow_mut() = shortcuts;
+    }
+
+    pub fn set_mouse_passthrough_left(&self, width: Pixels) {
+        self.view
+            .ivars()
+            .passthrough_left
+            .set(f64::from(f32::from(width)));
+    }
+
+    pub fn set_mouse_passthrough(&self, enabled: bool) {
+        self.view.ivars().passthrough_all.set(enabled);
     }
 
     pub fn generation(&self) -> u64 {
@@ -555,7 +601,7 @@ impl NativeWebview {
         }
         self.applied.borrow_mut().mask = Some(mask);
         let (regions, excluded) = composition_regions(bounds, clip, &occlusions);
-        *self.view.ivars().borrow_mut() = excluded
+        *self.view.ivars().occluded.borrow_mut() = excluded
             .into_iter()
             .map(|region| self.local_rect(region))
             .collect();
@@ -1078,6 +1124,61 @@ mod tests {
                 value
             );
         }
+    }
+
+    #[test]
+    fn resize_passthrough_tracks_live_bounds_and_restores_content_hit_testing() {
+        let regions = HitTestRegions::default();
+        regions.passthrough_left.set(9.0);
+        let occlusion = NSRect::new(NSPoint::new(100.0, 100.0), NSSize::new(40.0, 40.0));
+        regions.occluded.borrow_mut().push(occlusion);
+        for (width, height) in [(360.0, 300.0), (520.0, 700.0), (240.0, 500.0)] {
+            let bounds = NSRect::new(NSPoint::ZERO, NSSize::new(width, height));
+            let content = NSPoint::new(width - 1.0, height - 1.0);
+            assert!(!regions.excludes(content, bounds));
+            regions.passthrough_all.set(true);
+            assert!(regions.excludes(content, bounds));
+            assert!(regions.excludes(NSPoint::new(0.0, 0.0), bounds));
+            assert_eq!(*regions.occluded.borrow(), vec![occlusion]);
+            regions.passthrough_all.set(false);
+            assert!(!regions.excludes(content, bounds));
+            assert!(regions.excludes(NSPoint::new(8.0, height - 1.0), bounds));
+            assert!(!regions.excludes(NSPoint::new(9.0, height - 1.0), bounds));
+            assert!(regions.excludes(NSPoint::new(110.0, 110.0), bounds));
+        }
+    }
+
+    #[test]
+    fn resize_mouse_passthrough_preserves_webview_pixels_and_other_hit_regions() {
+        let bounds = NSRect::new(NSPoint::new(12.0, 20.0), NSSize::new(360.0, 300.0));
+        let regions = HitTestRegions::default();
+        let edge = NSPoint::new(12.0, 100.0);
+        assert!(!regions.excludes(edge, bounds));
+        for width in [9.0, 14.0] {
+            regions.passthrough_left.set(width);
+            assert!(regions.excludes(edge, bounds));
+            assert!(regions.excludes(NSPoint::new(12.0 + width - 0.5, 100.0), bounds));
+            assert!(!regions.excludes(NSPoint::new(12.0 + width, 100.0), bounds));
+            assert!(!regions.excludes(NSPoint::new(11.0, 100.0), bounds));
+            assert!(!regions.excludes(NSPoint::new(12.0, 19.0), bounds));
+            assert!(!regions.excludes(NSPoint::new(12.0, 320.0), bounds));
+        }
+        let canvas = Bounds::new(point(px(0.0), px(0.0)), size(px(360.0), px(300.0)));
+        assert_eq!(
+            composition_regions(canvas, canvas, &[]),
+            (vec![canvas], vec![])
+        );
+        regions.occluded.borrow_mut().push(NSRect::new(
+            NSPoint::new(100.0, 100.0),
+            NSSize::new(40.0, 40.0),
+        ));
+        assert!(regions.excludes(NSPoint::new(110.0, 110.0), bounds));
+        assert!(regions.excludes(edge, bounds));
+        regions.passthrough_left.set(0.0);
+        assert!(!regions.excludes(edge, bounds));
+        assert!(regions.excludes(NSPoint::new(110.0, 110.0), bounds));
+        regions.occluded.borrow_mut().clear();
+        assert!(!regions.excludes(NSPoint::new(110.0, 110.0), bounds));
     }
 
     #[test]

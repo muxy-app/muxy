@@ -113,14 +113,10 @@ pub struct PanelHost {
 
 impl PanelHost {
     pub fn place(&mut self, placement: PanelPlacement) -> Option<PanelDisplacement> {
-        if let Some(previous) = self.placements.remove(&placement.id) {
-            self.slots.remove(&previous.slot());
-        }
-
-        let displaced = self
-            .slots
-            .insert(placement.slot(), placement.id.clone())
-            .and_then(|id| self.placements.remove(&id));
+        self.placements.remove(&placement.id);
+        let displaced = self.placements.pop_first().map(|(_, panel)| panel);
+        self.slots.clear();
+        self.slots.insert(placement.slot(), placement.id.clone());
         self.placements
             .insert(placement.id.clone(), placement.clone());
 
@@ -715,7 +711,12 @@ fn panel_resize_listener(
             let move_state = resize_state.clone();
             let move_handler = handler.clone();
             window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
-                if phase != DispatchPhase::Bubble {
+                if phase != DispatchPhase::Capture || !move_state.is_active() {
+                    return;
+                }
+                if event.pressed_button != Some(MouseButton::Left) {
+                    move_state.end();
+                    window.refresh();
                     return;
                 }
                 let Some(dimension) = move_state.dimension_at(Point::new(
@@ -725,12 +726,24 @@ fn panel_resize_listener(
                     return;
                 };
                 move_handler(dimension, window, cx);
+                cx.stop_propagation();
             });
             let end_state = resize_state.clone();
-            window.on_mouse_event(move |_: &MouseUpEvent, phase, window, _| {
-                if phase == DispatchPhase::Bubble && end_state.end() {
-                    window.refresh();
+            let end_handler = handler.clone();
+            window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                if phase != DispatchPhase::Capture || event.button != MouseButton::Left {
+                    return;
                 }
+                let Some(dimension) = end_state.dimension_at(Point::new(
+                    f32::from(event.position.x),
+                    f32::from(event.position.y),
+                )) else {
+                    return;
+                };
+                end_state.end();
+                end_handler(dimension, window, cx);
+                window.refresh();
+                cx.stop_propagation();
             });
         },
     )
@@ -739,6 +752,10 @@ fn panel_resize_listener(
 }
 
 impl RenderOnce for PanelFrame {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Panel chrome and its overlaid resize grip share one layout"
+    )]
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let position = self.placement.position;
         let dimension = self.sizing.layout().dimension();
@@ -746,6 +763,7 @@ impl RenderOnce for PanelFrame {
         let resize_state = self.sizing.resize_state.clone();
         let down_resize_state = resize_state.clone();
         let group = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
+        let selector = group.clone();
         let separator = div()
             .absolute()
             .bg(if resize_state.is_active() {
@@ -757,7 +775,9 @@ impl RenderOnce for PanelFrame {
         let resize_handle = div()
             .id(group.clone())
             .group(group)
+            .debug_selector(move || selector.to_string())
             .absolute()
+            .occlude()
             .on_mouse_down(
                 MouseButton::Left,
                 move |event: &MouseDownEvent, window, cx| {
@@ -767,6 +787,7 @@ impl RenderOnce for PanelFrame {
                         Point::new(f32::from(event.position.x), f32::from(event.position.y)),
                         bounds,
                     ));
+                    window.prevent_default();
                     window.refresh();
                     cx.stop_propagation();
                 },
@@ -873,6 +894,9 @@ impl std::fmt::Debug for PanelFrame {
 }
 
 #[cfg(test)]
+mod interaction_tests;
+
+#[cfg(test)]
 #[allow(
     clippy::float_cmp,
     reason = "These geometry cases use exactly representable values."
@@ -885,22 +909,36 @@ mod tests {
     use gpui::Point;
 
     #[test]
-    fn one_slot_displaces_deterministically() -> Result<(), Box<dyn std::error::Error>> {
-        let mut host = PanelHost::default();
-        let first = PanelPlacement::new("first", PanelPosition::Right, PanelMode::Pinned);
-        let second = PanelPlacement::new("second", PanelPosition::Right, PanelMode::Pinned);
-        assert!(host.place(first.clone()).is_none());
-        let displacement = host.place(second.clone()).ok_or("missing displacement")?;
-        assert_eq!(displacement.displaced, first);
-        assert_eq!(displacement.replacement, second.clone());
-        assert_eq!(host.len(), 1);
-        assert_eq!(
-            host.occupant(PanelSlot {
-                position: PanelPosition::Right,
-                mode: PanelMode::Pinned,
-            }),
-            Some(&PanelId::from("second"))
-        );
+    fn every_placement_displaces_the_previous_panel() -> Result<(), Box<dyn std::error::Error>> {
+        let slots = [PanelPosition::Right, PanelPosition::Bottom]
+            .into_iter()
+            .flat_map(|position| {
+                [PanelMode::Pinned, PanelMode::Floating].map(|mode| PanelSlot { position, mode })
+            })
+            .collect::<Vec<_>>();
+        for first_slot in &slots {
+            for second_slot in &slots {
+                let mut host = PanelHost::default();
+                let first = PanelPlacement::new("first", first_slot.position, first_slot.mode);
+                let second = PanelPlacement::new("second", second_slot.position, second_slot.mode);
+                assert!(host.place(first.clone()).is_none());
+                let displacement = host.place(second.clone()).ok_or("missing displacement")?;
+                assert_eq!(displacement.displaced, first);
+                assert_eq!(displacement.replacement, second);
+                assert_eq!(host.placements().collect::<Vec<_>>(), vec![&second]);
+                assert!(host.placement(&first.id).is_none());
+                assert!(host.remove(&first.id).is_none());
+                for slot in &slots {
+                    assert_eq!(
+                        host.occupant(*slot),
+                        (slot == second_slot).then_some(&second.id)
+                    );
+                }
+                assert_eq!(host.remove(&second.id), Some(second));
+                assert!(host.is_empty());
+                assert!(slots.iter().all(|slot| host.occupant(*slot).is_none()));
+            }
+        }
         Ok(())
     }
 

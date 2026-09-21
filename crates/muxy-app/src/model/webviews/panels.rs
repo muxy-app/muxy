@@ -191,8 +191,11 @@ impl AppModel {
             let id = displacement.displaced.id;
             if id.as_str() == crate::views::composer::PANEL {
                 self.dismiss_composer(false, cx);
+            } else if let Some(panel) = self.webviews.panels.get(&id) {
+                panel.resize.end();
             }
         }
+        cx.notify();
     }
 
     pub(crate) fn move_webview_panel(
@@ -268,6 +271,7 @@ impl AppModel {
     pub(super) fn sync_webview_panels(
         &mut self,
         blocked: bool,
+        resizing: bool,
         window: &Window,
         cx: &mut Context<Self>,
     ) {
@@ -277,6 +281,14 @@ impl AppModel {
             panel.focused = panel.is_focused(window, cx);
             panel.surface.view.update(cx, |view, cx| {
                 view.native.set_shortcuts(false, shortcuts.to_vec());
+                view.native.set_mouse_passthrough(resizing);
+                view.native.set_mouse_passthrough_left(
+                    if panel.placement.position == PanelPosition::Right {
+                        self.metrics.resize_handle_hit_area() - gpui::px(1.0)
+                    } else {
+                        gpui::px(0.0)
+                    },
+                );
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     visible,

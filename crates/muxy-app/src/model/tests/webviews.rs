@@ -192,7 +192,9 @@ fn unavailable_webview_click_selects_and_closes_only_its_own_split(cx: &mut Test
 }
 
 #[gpui::test]
-fn composer_and_webview_panels_share_slots_without_losing_the_draft(cx: &mut TestAppContext) {
+fn composer_and_webview_panels_replace_each_other_without_losing_the_draft(
+    cx: &mut TestAppContext,
+) {
     use muxy_app_core::settings::ComposerPresentation;
     use muxy_ui::panel::{PanelId, PanelPlacement};
     let state = AppState::bootstrap().expect("state");
@@ -213,11 +215,17 @@ fn composer_and_webview_panels_share_slots_without_losing_the_draft(cx: &mut Tes
             .read(cx)
             .placement();
         model.place_panel(
-            PanelPlacement::new(webview.clone(), composer.position, composer.mode),
+            PanelPlacement::new(
+                webview.clone(),
+                composer.position.moved(),
+                composer.mode.toggled(),
+            ),
             cx,
         );
         assert!(model.composer.view.is_none());
-        assert_eq!(model.panels.occupant(composer.slot()), Some(&webview));
+        assert!(model.panels.occupant(composer.slot()).is_none());
+        assert!(model.panels.placement(&webview).is_some());
+        assert_eq!(model.panels.len(), 1);
         assert!(
             model
                 .panels
