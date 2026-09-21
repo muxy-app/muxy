@@ -302,6 +302,10 @@ impl Owner {
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::SetColors(colors))) => {
                     set_colors(&mut self.terminal, &colors)?;
+                    let answers = self.terminal.take_pty_output();
+                    if !answers.is_empty() {
+                        self.input.send(answers.into())?;
+                    }
                     self.output_pending = true;
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::Resize(size))) => {

@@ -8,8 +8,8 @@ use libghostty_vt::render::{
 use libghostty_vt::screen::{CellContentTag, CellWide, Screen, TrackedGridRef};
 use libghostty_vt::style::{PaletteIndex, RgbColor, StyleColor, Underline as EngineUnderline};
 use libghostty_vt::terminal::{
-    CompressionMode, Mode, Options, Point, PointCoordinate, PointSpace, ScrollViewport,
-    Terminal as Engine,
+    ColorScheme, CompressionMode, Mode, Options, Point, PointCoordinate, PointSpace,
+    ScrollViewport, Terminal as Engine,
 };
 use libghostty_vt::{key, mouse};
 
@@ -89,6 +89,14 @@ impl Terminal {
             .on_pwd_changed(move |_| directory.set(true))
             .map_err(create)?;
         engine.on_bell(move |_| bell.set(true)).map_err(create)?;
+        engine
+            .on_color_scheme(|terminal| {
+                terminal
+                    .default_bg_color()
+                    .ok()
+                    .map(|background| background.map_or(ColorScheme::Dark, color_scheme))
+            })
+            .map_err(create)?;
         Ok(Self {
             engine,
             render: RenderState::new().map_err(create)?,
@@ -125,6 +133,12 @@ impl Terminal {
         defaults: &muxy_protocol::TerminalColors,
     ) -> Result<(), TerminalError> {
         let colors = |error| TerminalError::wrap(TerminalStep::Colors, error);
+        let previous_colors = (
+            self.engine.default_fg_color().map_err(colors)?,
+            self.engine.default_bg_color().map_err(colors)?,
+            self.engine.default_cursor_color().map_err(colors)?,
+        );
+        let previous_palette = self.engine.default_color_palette().map_err(colors)?;
         self.engine
             .set_default_color_palette(None)
             .map_err(colors)?;
@@ -151,6 +165,26 @@ impl Terminal {
             .map_err(colors)?
             .set_default_cursor_blink(Some(defaults.cursor_blink.unwrap_or(true)))
             .map_err(colors)?;
+        let current_colors = (
+            self.engine.default_fg_color().map_err(colors)?,
+            self.engine.default_bg_color().map_err(colors)?,
+            self.engine.default_cursor_color().map_err(colors)?,
+        );
+        if (previous_colors != current_colors || previous_palette.0 != palette.0)
+            && self
+                .engine
+                .mode(Mode::COLOR_SCHEME_REPORT)
+                .map_err(colors)?
+        {
+            let [r, g, b] = defaults.background;
+            let mut report = [0; 16];
+            let len = color_scheme(RgbColor { r, g, b })
+                .encode_report(&mut report)
+                .map_err(colors)?;
+            self.pty_output
+                .borrow_mut()
+                .extend_from_slice(&report[..len]);
+        }
         Ok(())
     }
 
@@ -767,6 +801,14 @@ fn cell_style(cell: &CellIteration<'static, '_>) -> EngineResult<Style> {
         strikethrough: style.strikethrough,
         faint: style.faint,
     })
+}
+
+fn color_scheme(background: RgbColor) -> ColorScheme {
+    if background.perceived_luminance() > 0.5 {
+        ColorScheme::Light
+    } else {
+        ColorScheme::Dark
+    }
 }
 
 fn color(color: StyleColor) -> Color {

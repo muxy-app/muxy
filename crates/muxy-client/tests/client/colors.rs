@@ -118,6 +118,52 @@ fn terminal_colors_follow_theme_changes_and_colored_reattaches() -> TestResult {
 }
 
 #[test]
+fn theme_changes_notify_an_idle_tui_and_refresh_its_color_queries() -> TestResult {
+    let updated = colors(true);
+    let expected_queries = replies(&updated);
+    let script = format!(
+        "stty -echo -icanon min 1 time 0
+printf '\\033[?1049h\\033[?2031h\\033[?996n'
+dd bs=1 count=9 of=initial-theme.bin 2>/dev/null
+touch theme.ready
+dd bs=1 count=9 of=colors.bin 2>/dev/null
+printf '\\033]10;?\\007\\033]11;?\\007\\033]12;?\\007\\033]4;196;?\\007'
+dd bs=1 count={} >>colors.bin 2>/dev/null
+printf '\\033[?2031l\\033[?1049l'
+stty sane
+touch colors.done",
+        expected_queries.len()
+    );
+    let fixture = Fixture::with_startup(&script)?;
+    let connection = fixture.connect()?;
+    connection.client.set_terminal_colors(colors(false))?;
+    let session = fixture.create(&connection.client)?;
+    let mut attachment = connection.client.attach(session.id, SIZE)?;
+    let ready = fixture.directory.join("theme.ready");
+    let deadline = Instant::now() + TIMEOUT;
+    while !ready.exists() {
+        if Instant::now() > deadline {
+            return Err("terminal program did not receive its initial theme report".into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        fs::read(fixture.directory.join("initial-theme.bin"))?,
+        b"\x1b[?997;1n"
+    );
+    connection.quiet(&mut attachment)?;
+    connection.client.set_terminal_colors(updated)?;
+    let mut expected = b"\x1b[?997;2n".to_vec();
+    expected.extend_from_slice(&expected_queries);
+    verify_replies(&fixture, &expected)?;
+    connection.client.end_session(session.id)?;
+    for file in ["shell", "theme.ready", "initial-theme.bin"] {
+        fs::remove_file(fixture.directory.join(file))?;
+    }
+    Ok(())
+}
+
+#[test]
 fn changing_cursor_defaults_repaints_an_idle_terminal() -> TestResult {
     let fixture = Fixture::new()?;
     let connection = fixture.connect()?;
