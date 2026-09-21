@@ -110,3 +110,46 @@ fn keyboard_activation_skips_disabled_controls_and_stops_at_the_control(cx: &mut
         );
     });
 }
+
+#[gpui::test]
+fn selected_segment_keeps_its_size_when_focused(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|window, cx| {
+        let focus = cx.focus_handle();
+        focus.focus(window);
+        Controls {
+            focus,
+            activations: Vec::new(),
+        }
+    });
+    cx.run_until_parked();
+    let selector = "settings-segment-segmented-segment";
+    let before = cx.debug_bounds(selector).expect("selected segment");
+
+    for _ in 0..4 {
+        cx.update(|window, _| window.focus_next());
+    }
+    cx.run_until_parked();
+
+    let focused = cx.debug_bounds(selector).expect("focused segment");
+    assert_eq!(focused.size, before.size);
+
+    cx.update(|window, cx| view.read(cx).focus.focus(window));
+    cx.run_until_parked();
+    cx.simulate_mouse_down(
+        before.center(),
+        MouseButton::Left,
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    let pressed = cx.debug_bounds(selector).expect("pressed segment");
+    assert_eq!(pressed.size, before.size);
+
+    cx.simulate_mouse_up(
+        before.center(),
+        MouseButton::Left,
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    let released = cx.debug_bounds(selector).expect("released segment");
+    assert_eq!(released.size, before.size);
+}

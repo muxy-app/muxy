@@ -281,10 +281,11 @@ pub fn segmented(
                 .when(choice.enabled, |element| {
                     element
                         .focus(|focus| {
-                            focus
-                                .bg(theme.accent)
-                                .text_color(theme.accent_foreground)
-                                .font_weight(FontWeight::MEDIUM)
+                            focus.bg(if is_selected {
+                                theme.accent
+                            } else {
+                                theme.hover
+                            })
                         })
                         .button_interaction(move |_, window, cx| handler(&value, window, cx))
                 })
