@@ -260,21 +260,13 @@ pub(crate) fn render(
         size(px(300.0), px(190.0)),
         window.viewport_size(),
     );
-    div()
+    muxy_ui::popover::surface(theme, m)
         .absolute()
         .left(origin.x)
         .top(origin.y)
         .w(px(300.0))
-        .flex()
-        .flex_col()
         .gap(m.spacing4())
         .p(m.spacing5())
-        .rounded(m.radius_lg())
-        .bg(theme.raised())
-        .border_1()
-        .border_color(theme.border)
-        .shadow_lg()
-        .occlude()
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
             div()
@@ -338,7 +330,7 @@ pub(crate) fn render_colors(
         ),
         window.viewport_size(),
     );
-    div()
+    muxy_ui::popover::surface(theme, m)
         .debug_selector(|| "color-picker".into())
         .key_context("ProjectColors")
         .track_focus(&model.overlay_focus)
@@ -350,16 +342,8 @@ pub(crate) fn render_colors(
         .left(origin.x)
         .top(origin.y)
         .w(m.scaled(216.0))
-        .flex()
-        .flex_col()
         .gap(m.spacing5())
         .p(m.spacing6())
-        .rounded(m.radius_lg())
-        .bg(theme.raised())
-        .border_1()
-        .border_color(theme.border)
-        .shadow_lg()
-        .occlude()
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
             div()

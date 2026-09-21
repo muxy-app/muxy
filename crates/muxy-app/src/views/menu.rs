@@ -358,7 +358,7 @@ pub(crate) fn render(
         .collect();
     let dimensions = menu.dimensions(&shortcuts, model, window);
     let origin = super::overlays::clamp(menu.position, dimensions, window.viewport_size());
-    let mut panel = div()
+    let mut panel = muxy_ui::popover::surface(theme, m)
         .debug_selector(|| "context-menu".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -373,19 +373,11 @@ pub(crate) fn render(
             cx.listener(|model, _: &ConfirmHighlighted, window, cx| model.confirm_menu(window, cx)),
         )
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .occlude()
         .absolute()
         .left(origin.x)
         .top(origin.y)
-        .flex()
-        .flex_col()
         .w(dimensions.width)
-        .py(m.spacing2())
-        .rounded(m.radius_lg())
-        .bg(theme.raised())
-        .border_1()
-        .border_color(theme.border)
-        .shadow_lg();
+        .py(m.spacing2());
     for (index, item) in menu.items.iter().enumerate() {
         if item.separator_before {
             panel = panel.child(

@@ -3,7 +3,9 @@ use muxy_core::shortcuts::ShortcutId;
 use crate::components::IconGlyph;
 #[cfg(target_os = "macos")]
 use crate::components::SymbolGlyph;
+use crate::controls::{self, Style};
 use crate::icon::Icon;
+use crate::popover;
 use crate::scrollbar::{MINIMUM_THUMB_LENGTH, ThumbGeometry};
 use crate::text_input::{self, InputEvent, InputStyle, TextInput};
 use crate::theme::{Metrics, Theme};
@@ -1334,14 +1336,7 @@ impl Picker {
                         .flex()
                         .items_center()
                         .gap(self.metrics.spacing1())
-                        .bg(
-                            if self.config.presentation == PickerPresentation::Embedded {
-                                self.theme.raised()
-                            } else {
-                                self.theme.bg
-                            }
-                            .blend(self.theme.hover),
-                        )
+                        .bg(self.theme.raised().blend(self.theme.hover))
                         .invisible()
                         .group_hover(group, Styled::visible);
                     for action in row.actions {
@@ -1589,55 +1584,39 @@ impl Picker {
         if self.config.footer_actions.is_empty() {
             return None;
         }
-        let footer = div()
-            .flex()
-            .items_center()
-            .justify_end()
-            .gap(self.metrics.spacing2())
-            .p(self.metrics.spacing3())
-            .border_t_1()
-            .border_color(self.theme.border);
-        let mut actions = div()
-            .flex()
-            .items_center()
-            .justify_end()
-            .gap(self.metrics.spacing2());
+        let mut footer = popover::footer(&self.theme, self.metrics);
         for action in self.config.footer_actions.clone() {
             let action_id = action.id.clone();
-            let button = div()
-                .id(SharedString::from(format!("picker-footer-{}", action.id)))
-                .px(self.metrics.spacing4())
-                .h(self.metrics.control_medium())
-                .flex()
-                .items_center()
-                .gap(self.metrics.spacing2())
-                .rounded(self.metrics.radius_sm())
-                .text_size(self.metrics.font_footnote())
-                .text_color(if action.destructive {
-                    self.theme.danger
-                } else {
-                    self.theme.fg
-                })
-                .when(action.disabled, |element| element.opacity(0.4))
-                .when(!action.disabled, |element| {
-                    element
-                        .cursor_pointer()
-                        .hover(|style| style.bg(self.theme.hover))
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(PickerEvent::FooterAction(action_id.clone()));
-                        }))
-                })
-                .when_some(action.icon, |element, icon| {
-                    element.child(Self::render_leading(
-                        &icon,
-                        self.theme.fg_muted,
-                        self.metrics,
-                    ))
-                })
-                .child(action.label);
-            actions = actions.child(button);
+            let id = format!("picker-footer-{}", action.id);
+            let button = controls::button(
+                Style {
+                    theme: &self.theme,
+                    metrics: &self.metrics,
+                },
+                &id,
+                &action.label,
+                !action.disabled,
+                cx.listener(move |_, _, _, cx| {
+                    cx.emit(PickerEvent::FooterAction(action_id.clone()));
+                }),
+            )
+            .debug_selector(move || id.clone())
+            .gap(self.metrics.spacing2())
+            .text_color(if action.destructive {
+                self.theme.danger
+            } else {
+                self.theme.fg
+            })
+            .when_some(action.icon, |element, icon| {
+                element.child(Self::render_leading(
+                    &icon,
+                    self.theme.fg_muted,
+                    self.metrics,
+                ))
+            });
+            footer = footer.child(button);
         }
-        Some(footer.child(actions).into_any_element())
+        Some(footer.into_any_element())
     }
 
     #[allow(
@@ -1819,7 +1798,19 @@ impl Render for Picker {
             );
         }
         geometry.height = self.fitted_height(layout).min(geometry.height);
-        let mut panel = div()
+        let surface = if self.config.presentation == PickerPresentation::Embedded {
+            div()
+                .occlude()
+                .flex()
+                .flex_col()
+                .bg(self.theme.surface)
+                .rounded(self.metrics.scaled(layout.panel_radius))
+                .border_1()
+                .border_color(self.theme.border)
+        } else {
+            popover::surface(&self.theme, self.metrics)
+        };
+        let mut panel = surface
             .id(self.config.id.clone())
             .debug_selector(|| self.config.id.to_string())
             .key_context(KEY_CONTEXT)
@@ -1843,9 +1834,6 @@ impl Render for Picker {
                 gpui::MouseButton::Left,
                 cx.listener(Self::end_scrollbar_drag),
             )
-            .occlude()
-            .flex()
-            .flex_col()
             .when(
                 self.config.presentation == PickerPresentation::Embedded,
                 Styled::w_full,
@@ -1855,42 +1843,15 @@ impl Render for Picker {
                 |element| element.w(px(geometry.width)),
             )
             .h(px(geometry.height))
-            .bg(
-                if self.config.presentation == PickerPresentation::Embedded {
-                    self.theme.surface
-                } else {
-                    self.theme.bg
-                },
-            )
             .overflow_hidden();
-        if self.config.presentation == PickerPresentation::Embedded {
-            panel = panel
-                .rounded(self.metrics.scaled(layout.panel_radius))
-                .border_1()
-                .border_color(self.theme.border);
-        } else {
-            panel = panel
-                .rounded(self.metrics.scaled(layout.panel_radius))
-                .border_1()
-                .border_color(self.theme.border)
-                .shadow_lg();
-        }
         if self.config.tabs.len() > 1 && !layout.inline_tabs {
             panel = panel.child(self.render_tabs(cx));
         }
         panel = if let Some((title, _)) = &self.detail {
             let title = title.clone();
             panel.child(
-                div()
+                popover::header(&self.theme, self.metrics)
                     .id("picker-detail-header")
-                    .h(self.metrics.scaled(layout.header_height))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(self.metrics.spacing3())
-                    .px(self.metrics.spacing5())
-                    .border_b_1()
-                    .border_color(self.theme.border)
                     .cursor_pointer()
                     .hover(|style| style.bg(self.theme.hover))
                     .on_click(cx.listener(|popover, _, window, cx| {
@@ -1907,15 +1868,7 @@ impl Render for Picker {
             let has_inline_tabs = self.config.tabs.len() > 1 && layout.inline_tabs;
             let inline_tabs = has_inline_tabs.then(|| self.render_tab_strip(cx));
             panel.child(
-                div()
-                    .h(self.metrics.scaled(layout.header_height))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(self.metrics.spacing3())
-                    .px(self.metrics.scaled(layout.horizontal_inset))
-                    .border_b_1()
-                    .border_color(self.theme.border)
+                popover::header(&self.theme, self.metrics)
                     .when(
                         !self.can_navigate_back
                             && self.config.presentation != PickerPresentation::Popover,
@@ -2225,7 +2178,7 @@ mod tests {
 mod gpui_regression_tests {
     use super::*;
     use crate::theme::ColorScheme;
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{Modifiers, TestAppContext, VisualTestContext};
 
     struct Host {
         popover: Entity<Picker>,
@@ -2295,6 +2248,71 @@ mod gpui_regression_tests {
                 popover.read(cx).input.focus_handle(cx).is_focused(window),
                 "input lost focus in {:?}",
                 popover.read(cx).config.presentation,
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn footer_buttons_preserve_disabled_actions_and_support_keyboard_activation(
+        cx: &mut TestAppContext,
+    ) {
+        let (host, cx) = open(cx, PickerPresentation::Popover, false);
+        cx.update(|_, cx| {
+            let mut registry = crate::shortcuts::Registry::new(&muxy_core::shortcuts::Defaults);
+            crate::components::register_shortcuts(&mut registry);
+            cx.bind_keys(registry.into_bindings());
+        });
+        let picker = host.read_with(cx, |host, _| host.popover.clone());
+        picker.update(cx, |picker, cx| {
+            picker.set_items(vec![PickerItem::row("branch")], cx);
+            picker.set_footer_actions(
+                vec![
+                    PickerAction::new("disabled", "Disabled").disabled(true),
+                    PickerAction::new("create", "New Branch…"),
+                ],
+                cx,
+            );
+        });
+        cx.simulate_resize(gpui::size(px(600.0), px(400.0)));
+        cx.run_until_parked();
+        let panel = cx.debug_bounds("tested-popover").expect("panel");
+        let disabled = cx.debug_bounds("picker-footer-disabled").expect("disabled");
+        let create = cx.debug_bounds("picker-footer-create").expect("create");
+        assert!(create.bottom() < panel.bottom());
+        assert!(disabled.left() > panel.left() && create.right() < panel.right());
+        cx.simulate_click(disabled.center(), Modifiers::none());
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert!(
+                !host
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, PickerEvent::FooterAction(_)))
+            );
+        });
+        cx.simulate_click(create.center(), Modifiers::none());
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.focus(&picker.read(cx).input.focus_handle(cx));
+            window.focus_next();
+        });
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            let actions: Vec<_> = host
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    PickerEvent::FooterAction(action) => Some(action.as_ref()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(actions, ["create", "create"]);
+            assert!(
+                !host
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, PickerEvent::Confirmed(_)))
             );
         });
     }

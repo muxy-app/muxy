@@ -7,6 +7,53 @@ use std::{cell::Cell, rc::Rc};
 
 pub type PopoverAnchor = Rc<Cell<Option<Bounds<Pixels>>>>;
 
+pub fn surface(theme: &Theme, metrics: Metrics) -> gpui::Div {
+    div()
+        .occlude()
+        .flex()
+        .flex_col()
+        .rounded(metrics.radius_lg())
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.raised())
+        .shadow_lg()
+        .text_color(theme.fg)
+        .text_size(metrics.font_body())
+}
+
+pub fn header(theme: &Theme, metrics: Metrics) -> gpui::Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(metrics.control_large())
+        .px(metrics.spacing4())
+        .gap(metrics.spacing3())
+        .border_b_1()
+        .border_color(theme.border)
+}
+
+pub fn body(metrics: Metrics) -> gpui::Div {
+    div()
+        .flex()
+        .flex_none()
+        .flex_col()
+        .p(metrics.spacing6())
+        .gap(metrics.spacing4())
+}
+
+pub fn footer(theme: &Theme, metrics: Metrics) -> gpui::Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_end()
+        .p(metrics.spacing3())
+        .gap(metrics.spacing2())
+        .border_t_1()
+        .border_color(theme.border)
+}
+
 pub fn anchored_popover(
     anchor: PopoverAnchor,
     content: AnyElement,
@@ -135,18 +182,10 @@ impl PopoverSurface {
 
 impl RenderOnce for PopoverSurface {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        div()
-            .occlude()
-            .flex()
-            .flex_col()
+        surface(&self.theme, self.metrics)
             .w(self.metrics.scaled(self.width))
             .h(self.metrics.scaled(self.height))
             .overflow_hidden()
-            .rounded(self.metrics.radius_lg())
-            .border_1()
-            .border_color(self.theme.border)
-            .bg(self.theme.bg)
-            .shadow_lg()
             .child(self.content)
     }
 }

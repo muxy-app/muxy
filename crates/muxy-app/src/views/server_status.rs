@@ -4,6 +4,7 @@ use gpui::{
 };
 use muxy_ui::components::ButtonInteraction;
 use muxy_ui::controls::{self, Style};
+use muxy_ui::popover;
 
 use crate::model::{AppModel, ServerStatus};
 
@@ -71,53 +72,9 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
     let width = m
         .scaled(360.0)
         .min((window.viewport_size().width - px(16.0)).max(px(0.0)));
-    let panel = div()
-        .id("server-popover")
-        .debug_selector(|| "server-popover".into())
-        .key_context("Menu")
-        .track_focus(&model.overlay_focus)
-        .on_action(
-            cx.listener(|model, _: &super::menu::DismissMenu, _, cx| model.dismiss_overlay(cx)),
-        )
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .occlude()
-        .flex()
-        .flex_col()
-        .w(width)
-        .max_h((window.viewport_size().height - m.status_bar_height() - px(16.0)).max(px(0.0)))
-        .overflow_y_scroll()
-        .p(m.spacing7())
-        .gap(m.spacing6())
-        .rounded(m.radius_lg())
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.raised())
-        .shadow_lg()
-        .text_color(theme.fg)
-        .text_size(m.font_body())
+    let content = popover::body(m)
         .child(
             div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Project server"),
-                )
-                .child(controls::button(
-                    Style { theme, metrics: &m },
-                    "close-server-status",
-                    "Close",
-                    true,
-                    cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
-                )),
-        )
-        .child(
-            div()
-                .border_t_1()
-                .border_color(theme.border)
-                .pt(m.spacing6())
                 .flex()
                 .justify_between()
                 .gap(m.spacing6())
@@ -134,6 +91,35 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
                 .text_color(theme.fg_muted)
                 .child("Restarting or stopping this server ends all terminal sessions on this device, including sessions in other projects and clients."),
         );
+    let panel = popover::surface(theme, m)
+        .id("server-popover")
+        .debug_selector(|| "server-popover".into())
+        .key_context("Menu")
+        .track_focus(&model.overlay_focus)
+        .on_action(
+            cx.listener(|model, _: &super::menu::DismissMenu, _, cx| model.dismiss_overlay(cx)),
+        )
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .w(width)
+        .max_h((window.viewport_size().height - m.status_bar_height() - px(16.0)).max(px(0.0)))
+        .overflow_y_scroll()
+        .child(
+            popover::header(theme, m)
+                .justify_between()
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Project server"),
+                )
+                .child(controls::button(
+                    Style { theme, metrics: &m },
+                    "close-server-status",
+                    "Close",
+                    true,
+                    cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
+                )),
+        )
+        .child(content);
     panel.child(actions(model, cx)).into_any_element()
 }
 
@@ -141,7 +127,7 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     let m = model.metrics;
     let theme = &model.theme;
     let status = model.server_status();
-    let mut actions = div().flex().justify_end().gap(m.spacing6());
+    let mut actions = popover::footer(theme, m);
     if matches!(
         status,
         ServerStatus::Disconnected | ServerStatus::Connecting

@@ -653,7 +653,7 @@ pub(crate) fn render_form(
     if let Some(chooser) = &form.chooser {
         return chooser.clone().into_any_element();
     }
-    let mut view = div()
+    let mut view = muxy_ui::popover::surface(&model.theme, model.metrics)
         .id("git-form-scroll")
         .debug_selector(|| "git-form".into())
         .w(model
@@ -663,16 +663,7 @@ pub(crate) fn render_form(
         .max_h((window.viewport_size().height - model.metrics.scaled(80.0)).max(px(0.0)))
         .overflow_y_scroll()
         .p(model.metrics.spacing8())
-        .flex()
-        .flex_col()
         .gap(model.metrics.spacing5())
-        .bg(model.theme.raised())
-        .text_color(model.theme.fg)
-        .border_1()
-        .border_color(model.theme.border)
-        .rounded(model.metrics.radius_lg())
-        .shadow_lg()
-        .occlude()
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(if form.worktree {
             "New Worktree"
