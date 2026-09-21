@@ -67,7 +67,9 @@ fn terminal_context_menu_detaches_clicked_split_and_last_pane_without_closing_se
     cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
     cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
     cx.run_until_parked();
-    let detach = cx.debug_bounds("menu-item-4").expect("Detach Terminal");
+    let detach = cx
+        .debug_bounds("menu-label-Detach Terminal")
+        .expect("Detach Terminal");
     cx.simulate_click(detach.center(), Modifiers::default());
     cx.run_until_parked();
     view.update(cx, |model, cx| {

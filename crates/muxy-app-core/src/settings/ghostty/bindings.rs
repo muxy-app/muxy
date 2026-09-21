@@ -36,6 +36,20 @@ static DEFAULT_BINDINGS: LazyLock<BTreeMap<KeyChord, TerminalAction>> = LazyLock
 });
 
 impl TerminalBindings {
+    pub fn chords_for_action<'a>(
+        &'a self,
+        action: &'a TerminalAction,
+    ) -> impl Iterator<Item = &'a KeyChord> {
+        self.bindings
+            .iter()
+            .chain(
+                DEFAULT_BINDINGS.iter().filter(|(chord, _)| {
+                    !self.clear_defaults && !self.bindings.contains_key(chord)
+                }),
+            )
+            .filter_map(move |(chord, bound)| (bound == action).then_some(chord))
+    }
+
     pub fn action(&self, chord: &KeyChord) -> Option<&TerminalAction> {
         self.bindings.get(chord).or_else(|| {
             if self.clear_defaults {

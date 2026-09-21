@@ -2,6 +2,8 @@ use super::*;
 use gpui::{MouseButton, point};
 use muxy_protocol::{ChannelId, InputModes, MetadataEvent};
 
+mod panes;
+
 #[gpui::test]
 fn terminal_menu_focuses_the_clicked_split_and_routes_clipboard_actions(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");

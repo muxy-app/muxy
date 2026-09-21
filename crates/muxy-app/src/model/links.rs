@@ -1,6 +1,6 @@
 use gpui::Context;
 use muxy_app_core::{
-    PaneId,
+    Direction, PaneId, ProjectStatus,
     opener::{OpenContext, OpenRequest, Target},
 };
 
@@ -113,6 +113,14 @@ impl AppModel {
         let Some(pane) = self.terminal(&id) else {
             return;
         };
+        let project = self.state.current_project();
+        let Some(tab) = project
+            .tabs
+            .iter()
+            .find(|tab| tab.panes.iter().any(|pane| pane.id == id))
+        else {
+            return;
+        };
         let pane = pane.view.read(cx);
         let mut copy = Item::action("Copy", Command::TerminalCopy(id));
         if pane.selection.is_none() {
@@ -137,7 +145,40 @@ impl AppModel {
         if !self.can_detach_terminal(id) {
             detach = detach.disabled();
         }
-        let items = vec![copy, paste, all, output, detach];
+        let mut split_right =
+            Item::action("Split Right", Command::SplitPane(id, Direction::Right)).separated();
+        let mut split_down = Item::action("Split Down", Command::SplitPane(id, Direction::Down));
+        let mut zoom = Item::action(
+            if tab.zoomed == Some(id) {
+                "Restore Pane"
+            } else {
+                "Maximize Pane"
+            },
+            Command::ToggleZoomPane(id),
+        );
+        let mut close = Item::action("Close Pane", Command::ClosePane(id));
+        if project.status() == ProjectStatus::Missing {
+            split_right = split_right.disabled();
+            split_down = split_down.disabled();
+            close = close.disabled();
+        }
+        if tab.panes.len() < 2 && tab.zoomed.is_none() {
+            zoom = zoom.disabled();
+        }
+        if tab.pinned && tab.panes.len() == 1 {
+            close = close.disabled();
+        }
+        let items = vec![
+            copy,
+            paste,
+            all,
+            output,
+            split_right,
+            split_down,
+            zoom,
+            detach.separated(),
+            close,
+        ];
         let model = cx.entity().downgrade();
         let window = self.window;
         cx.defer(move |cx| {

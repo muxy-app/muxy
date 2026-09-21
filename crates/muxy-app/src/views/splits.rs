@@ -50,30 +50,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
         .iter()
         .find(|tab| Some(tab.id) == model.active_tab())?;
     if let Some(zoomed) = tab.zoomed {
-        return Some(
-            div()
-                .debug_selector(|| "zoomed-pane-frame".into())
-                .flex()
-                .size_full()
-                .min_w(px(0.0))
-                .min_h(px(0.0))
-                .border(model.metrics.spacing7())
-                .border_color(model.theme.bg)
-                .child(
-                    div()
-                        .flex()
-                        .size_full()
-                        .min_w(px(0.0))
-                        .min_h(px(0.0))
-                        .rounded(model.metrics.radius_lg())
-                        .border(px(1.0))
-                        .border_color(model.theme.border)
-                        .shadow_md()
-                        .overflow_hidden()
-                        .child(pane_element(zoomed, model, cx)),
-                )
-                .into_any_element(),
-        );
+        return Some(zoomed_frame(zoomed, model, cx));
     }
     let content = node(&tab.layout, tab.id, Vec::new(), model, cx);
     let state = model.split_resize.clone();
@@ -132,6 +109,52 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
             )
             .into_any_element(),
     )
+}
+
+fn zoomed_frame(
+    pane: muxy_app_core::PaneId,
+    model: &AppModel,
+    cx: &Context<AppModel>,
+) -> AnyElement {
+    let radius = model.metrics.radius_lg();
+    let background = model.theme.bg;
+    div()
+        .debug_selector(|| "zoomed-pane-frame".into())
+        .relative()
+        .flex()
+        .size_full()
+        .min_w(px(0.0))
+        .min_h(px(0.0))
+        .border(model.metrics.spacing7())
+        .border_color(background)
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds, (), window, _| {
+                    window.paint_quad(
+                        gpui::outline(bounds.dilate(radius), background, gpui::BorderStyle::Solid)
+                            .corner_radii(radius * 2.0)
+                            .border_widths(radius + px(1.0)),
+                    );
+                },
+            )
+            .absolute()
+            .size_full(),
+        )
+        .child(
+            div()
+                .flex()
+                .size_full()
+                .min_w(px(0.0))
+                .min_h(px(0.0))
+                .rounded(radius)
+                .border(px(1.0))
+                .border_color(model.theme.border_solid())
+                .shadow_md()
+                .overflow_hidden()
+                .child(pane_element(pane, model, cx)),
+        )
+        .into_any_element()
 }
 
 fn node(

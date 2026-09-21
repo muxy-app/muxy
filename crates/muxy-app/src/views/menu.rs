@@ -10,6 +10,8 @@ use muxy_ui::components::SymbolGlyph;
 use super::overlays::Overlay;
 use crate::model::AppModel;
 
+mod shortcuts;
+
 actions!(
     menu,
     [
@@ -38,6 +40,9 @@ pub(crate) enum Command {
     Dismiss,
     ExistingSessions(muxy_app_core::ProjectId),
     DetachTerminal(muxy_app_core::PaneId),
+    SplitPane(muxy_app_core::PaneId, muxy_app_core::Direction),
+    ToggleZoomPane(muxy_app_core::PaneId),
+    ClosePane(muxy_app_core::PaneId),
     TerminalCopy(muxy_app_core::PaneId),
     TerminalPaste(muxy_app_core::PaneId),
     TerminalSelectAll(muxy_app_core::PaneId),
@@ -100,7 +105,12 @@ impl Menu {
         }
     }
 
-    fn dimensions(&self) -> gpui::Size<Pixels> {
+    fn dimensions(
+        &self,
+        shortcuts: &[Option<String>],
+        model: &AppModel,
+        window: &Window,
+    ) -> gpui::Size<Pixels> {
         let count = f32::from(u16::try_from(self.items.len()).unwrap_or(u16::MAX));
         let separators = f32::from(
             u16::try_from(
@@ -111,7 +121,7 @@ impl Menu {
             )
             .unwrap_or(u16::MAX),
         );
-        let width = px(
+        let mut width = px(
             if self
                 .items
                 .iter()
@@ -122,6 +132,31 @@ impl Menu {
                 180.0
             },
         );
+        let m = model.metrics;
+        let mut style = window.text_style();
+        style.font_weight = FontWeight::NORMAL;
+        let measure = |text: &str, font_size| {
+            window
+                .text_system()
+                .shape_line(
+                    text.to_owned().into(),
+                    font_size,
+                    &[style.to_run(text.len())],
+                    None,
+                )
+                .width
+        };
+        for (item, shortcut) in self.items.iter().zip(shortcuts) {
+            let mut row_width = measure(item.label, m.font_emphasis())
+                + px(12.0)
+                + m.spacing2() * 3.0
+                + m.spacing3() * 2.0
+                + px(2.0);
+            if let Some(shortcut) = shortcut {
+                row_width += m.spacing2() + measure(shortcut, m.font_footnote());
+            }
+            width = width.max(row_width);
+        }
         gpui::size(width, px(count * 22.0 + separators * 9.0 + 10.0))
     }
 
@@ -228,21 +263,14 @@ impl AppModel {
                 return;
             }
             Command::DetachTerminal(pane) => self.detach_terminal(pane, cx),
-            Command::TerminalCopy(id)
+            Command::SplitPane(id, _)
+            | Command::ToggleZoomPane(id)
+            | Command::ClosePane(id)
+            | Command::TerminalCopy(id)
             | Command::TerminalPaste(id)
             | Command::TerminalSelectAll(id)
             | Command::TerminalSelectCommandOutput(id) => {
-                if let Some(pane) = self.terminal(&id) {
-                    pane.view.update(cx, |pane, cx| match command {
-                        Command::TerminalCopy(_) => pane.copy_selection(cx),
-                        Command::TerminalPaste(_) => pane.paste_clipboard(cx),
-                        Command::TerminalSelectAll(_) => pane.select_all(cx),
-                        Command::TerminalSelectCommandOutput(_) => {
-                            pane.select_command_output(Some(position), cx);
-                        }
-                        _ => {}
-                    });
-                }
+                self.perform_pane_menu(id, command, position, cx);
             }
             Command::CopyPath(id) => {
                 if let Some(project) = self.state.project(id)
@@ -272,6 +300,47 @@ impl AppModel {
         }
         self.focus_active(window, cx);
     }
+
+    fn perform_pane_menu(
+        &mut self,
+        id: muxy_app_core::PaneId,
+        command: Command,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        match command {
+            Command::SplitPane(_, direction) => {
+                self.focus_pane(id, cx);
+                if self.active_pane() == Some(id) {
+                    self.split_pane(direction, cx);
+                }
+            }
+            Command::ToggleZoomPane(_) => {
+                self.focus_pane(id, cx);
+                if self.active_pane() == Some(id) {
+                    self.toggle_zoom_pane(cx);
+                }
+            }
+            Command::ClosePane(_) => self.close_pane(id, cx),
+            Command::TerminalCopy(id)
+            | Command::TerminalPaste(id)
+            | Command::TerminalSelectAll(id)
+            | Command::TerminalSelectCommandOutput(id) => {
+                if let Some(pane) = self.terminal(&id) {
+                    pane.view.update(cx, |pane, cx| match command {
+                        Command::TerminalCopy(_) => pane.copy_selection(cx),
+                        Command::TerminalPaste(_) => pane.paste_clipboard(cx),
+                        Command::TerminalSelectAll(_) => pane.select_all(cx),
+                        Command::TerminalSelectCommandOutput(_) => {
+                            pane.select_command_output(Some(position), cx);
+                        }
+                        _ => {}
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(crate) fn render(
@@ -282,9 +351,15 @@ pub(crate) fn render(
 ) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
-    let dimensions = menu.dimensions();
+    let shortcuts: Vec<_> = menu
+        .items
+        .iter()
+        .map(|item| item.command.shortcut(model, cx))
+        .collect();
+    let dimensions = menu.dimensions(&shortcuts, model, window);
     let origin = super::overlays::clamp(menu.position, dimensions, window.viewport_size());
     let mut panel = div()
+        .debug_selector(|| "context-menu".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
         .on_action(cx.listener(|model, _: &DismissMenu, _, cx| model.dismiss_overlay(cx)))
@@ -304,7 +379,7 @@ pub(crate) fn render(
         .top(origin.y)
         .flex()
         .flex_col()
-        .min_w(dimensions.width)
+        .w(dimensions.width)
         .py(m.spacing2())
         .rounded(m.radius_lg())
         .bg(theme.raised())
@@ -322,6 +397,29 @@ pub(crate) fn render(
                     .bg(theme.border),
             );
         }
+        panel = panel.child(item.render(
+            index,
+            menu.highlighted == Some(index),
+            shortcuts[index].clone(),
+            model,
+            cx,
+        ));
+    }
+    panel.into_any_element()
+}
+
+impl Item {
+    fn render(
+        &self,
+        index: usize,
+        highlighted: bool,
+        shortcut: Option<String>,
+        model: &AppModel,
+        cx: &Context<AppModel>,
+    ) -> AnyElement {
+        let item = self;
+        let m = model.metrics;
+        let theme = &model.theme;
         let command = item.command;
         let mut mark = div()
             .flex()
@@ -332,47 +430,64 @@ pub(crate) fn render(
         if item.checked {
             mark = mark.child(SymbolGlyph::new("checkmark", m.font_caption(), theme.fg));
         }
-        panel = panel.child(
-            div()
-                .id(SharedString::from(format!("menu-item-{index}")))
-                .debug_selector(move || format!("menu-item-{index}"))
-                .flex()
-                .items_center()
-                .gap(m.spacing2())
-                .h(px(22.0))
-                .px(m.spacing3())
-                .mx(m.spacing2())
-                .rounded(m.radius_sm())
-                .font_weight(FontWeight::NORMAL)
-                .when(menu.highlighted == Some(index) && !item.disabled, |row| {
-                    row.bg(theme.fg_alpha(0.1))
-                })
-                .child(mark)
-                .child(
+        div()
+            .id(SharedString::from(format!("menu-item-{index}")))
+            .debug_selector(move || format!("menu-item-{index}"))
+            .flex()
+            .items_center()
+            .gap(m.spacing2())
+            .h(px(22.0))
+            .px(m.spacing3())
+            .mx(m.spacing2())
+            .rounded(m.radius_sm())
+            .font_weight(FontWeight::NORMAL)
+            .when(highlighted && !item.disabled, |row| {
+                row.bg(theme.fg_alpha(0.1))
+            })
+            .child(mark)
+            .child(
+                div()
+                    .debug_selector({
+                        let label = item.label;
+                        move || format!("menu-label-{label}")
+                    })
+                    .flex_grow()
+                    .whitespace_nowrap()
+                    .text_size(m.font_emphasis())
+                    .text_color(if item.disabled {
+                        theme.fg_dim
+                    } else {
+                        theme.fg
+                    })
+                    .child(item.label),
+            )
+            .when_some(shortcut, |row, shortcut| {
+                row.child(
                     div()
                         .debug_selector({
                             let label = item.label;
-                            move || format!("menu-label-{label}")
+                            move || format!("menu-shortcut-{label}")
                         })
-                        .flex_grow()
-                        .text_size(m.font_emphasis())
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_size(m.font_footnote())
                         .text_color(if item.disabled {
                             theme.fg_dim
                         } else {
-                            theme.fg
+                            theme.fg_muted
                         })
-                        .child(item.label),
+                        .child(shortcut),
                 )
-                .when(!item.disabled, |row| {
-                    row.cursor_pointer()
-                        .hover(|style| style.bg(theme.fg_alpha(0.1)))
-                        .on_click(cx.listener(move |model, _, window, cx| {
-                            model.perform_menu(command, window, cx);
-                        }))
-                }),
-        );
+            })
+            .when(!item.disabled, |row| {
+                row.cursor_pointer()
+                    .hover(|style| style.bg(theme.fg_alpha(0.1)))
+                    .on_click(cx.listener(move |model, _, window, cx| {
+                        model.perform_menu(command, window, cx);
+                    }))
+            })
+            .into_any_element()
     }
-    panel.into_any_element()
 }
 
 #[cfg(test)]
