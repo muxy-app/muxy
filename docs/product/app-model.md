@@ -134,12 +134,14 @@ will end and their terminal panes will close.
 
 ## AI indicators and notifications
 
-Desktop tabs and projects show server-reported AI activity, including
-hidden tabs and detached sessions. Blocked agents take priority over working
-agents and unread completions. The notification list opens the corresponding
-terminal when it is still running.
+Activity indicators, progress, and notifications belong to open panes, including
+those in hidden tabs. Tabs and projects aggregate their panes only; detached
+sessions contribute no indicators or desktop alerts. Blocked agents take priority
+over working agents and unread completions. Removing a pane removes its signals
+from its tab and project; ending a session clears them everywhere.
 
-Viewing a session in the active desktop or marking an event read acknowledges it
-for every client. Desktop notifications announce new background attention and
-completion events; reconnecting restores history without replaying old alerts.
+Viewing a session in the active desktop acknowledges its pending event for every
+client. Desktop notifications announce new background attention and completion
+events; reconnecting restores pending indicators without replaying old alerts.
+There is no in-app notification list or saved notification history.
 The TUI shares the protocol but its AI presentation is deferred.

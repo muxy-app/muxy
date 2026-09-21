@@ -222,8 +222,10 @@ was truncated, timed out, or cancelled.
 Session title updates follow open-pane references independently of screen attachments.
 
 Reading activity subscribes to coalesced revision invalidations. Snapshots include
-all detected sessions and the latest 200 durable events, independently of terminal
-attachments. Acknowledgements name observed event IDs, are idempotent, and confirm
-durable shared read state. Delivery claims are limited to the elected desktop
+all detected sessions and up to 200 pending events, at most one per session,
+independently of terminal attachments. Acknowledgements name observed event IDs
+and idempotently remove them from shared memory. Ending a session removes its
+activity; server restart starts with no activity history. Delivery claims are
+limited to the elected desktop
 client and prevent duplicate alerts within a server lifetime. Clients establish a
 fresh notification baseline on reconnect.

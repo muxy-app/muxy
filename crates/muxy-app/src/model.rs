@@ -115,7 +115,6 @@ pub(crate) struct AppModel {
     pub(crate) tab_sidebar_selection: Option<(ProjectId, Option<TabId>)>,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
-    pub(crate) notification_anchor: Option<gpui::Bounds<gpui::Pixels>>,
     pub(crate) overlay_subscription: Option<Subscription>,
     pub(crate) picker_search: crate::picker::search::SearchService,
     pub(crate) navigation: crate::navigation::Navigation,
@@ -437,7 +436,6 @@ impl AppModel {
             tab_drag: crate::views::tab_strip::TabDragState::default(),
             #[cfg(target_os = "macos")]
             window_drag: muxy_ui::window_drag::WindowDrag::new(&window.window_title()),
-            notification_anchor: None,
             overlay_subscription: None,
             picker_search: crate::picker::search::SearchService::default(),
             navigation: crate::navigation::Navigation::default(),
@@ -1329,6 +1327,7 @@ impl AppModel {
         self.completions.retain(|id| panes.contains(id));
         let sessions = self.state.session_references();
         self.progress.retain(|id, _| sessions.contains(id));
+        self.sync_activity_panes(sessions);
         self.font_sizes.retain(|id, _| panes.contains(id));
         self.initial_directories.retain(|id, _| panes.contains(id));
         self.snapshots.retain(|id, _| panes.contains(id));
@@ -1685,7 +1684,6 @@ impl AppModel {
             Update::ActivityAcknowledged { ids, result } => {
                 self.activity_acknowledged(&ids, result, cx);
             }
-            Update::ActivitySession(result) => self.open_activity_session(result, cx),
             Update::Git { request, result } => self.receive_git(&request, result, cx),
             Update::ProjectSessions { project, result } => {
                 self.receive_session_page(project, result, cx);
@@ -2074,6 +2072,7 @@ impl AppModel {
     }
 
     fn close_ended_session(&mut self, session: SessionId, cx: &mut Context<Self>) {
+        self.forget_session_activity(session, cx);
         if !self.state.session_references().contains(&session) {
             return;
         }

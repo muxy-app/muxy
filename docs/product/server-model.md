@@ -74,6 +74,8 @@ terminal screens, without provider hooks or plugins. Detection continues without
 attached clients. Screen recognition is best effort; unfamiliar interfaces may
 not expose every state.
 
-Agent status and the latest 200 attention/completion events belong to the server.
-History and read acknowledgements survive restart and are shared across clients.
-Reading an event does not change a blocked agent's live status.
+Agent status and pending attention/completion indicators belong to the server.
+The server keeps at most one unread event per session, up to 200 total, in memory.
+Acknowledging an event removes it for every client without changing a blocked
+agent's live status. Ending a session clears its state; server restart clears all
+activity. No notification history is saved.

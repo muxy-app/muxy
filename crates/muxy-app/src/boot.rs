@@ -71,10 +71,6 @@ pub(crate) enum Work {
         completion: async_channel::Sender<Result<(), String>>,
     },
     ReadActivity,
-    OpenActivitySession {
-        project: muxy_protocol::ProjectId,
-        session: SessionId,
-    },
     AcknowledgeActivity(Vec<u64>),
     ClaimActivity(Vec<u64>),
     Git(muxy_protocol::GitRequest),
@@ -152,7 +148,6 @@ impl Work {
             Self::ExtensionClient(..) => "ExtensionClient",
             Self::WriteInput { .. } => "WriteInput",
             Self::ReadActivity => "ReadActivity",
-            Self::OpenActivitySession { .. } => "OpenActivitySession",
             Self::AcknowledgeActivity(..) => "AcknowledgeActivity",
             Self::ClaimActivity(..) => "ClaimActivity",
             Self::Git(..) => "Git",
@@ -193,7 +188,6 @@ impl Work {
 
 #[derive(Debug)]
 pub(crate) enum Update {
-    ActivitySession(Result<Option<muxy_protocol::ProjectSession>, ClientError>),
     Activity(Result<muxy_protocol::ActivitySnapshot, ClientError>),
     ActivityAcknowledged {
         ids: Vec<u64>,
@@ -475,7 +469,6 @@ fn rejected(work: Work, error: ClientError) -> Update {
             let _ = completion.try_send(Err(error.to_string()));
             Update::Error(error.to_string())
         }
-        Work::OpenActivitySession { .. } => Update::ActivitySession(Err(error)),
         Work::ReadActivity => Update::Activity(Err(error)),
         Work::AcknowledgeActivity(ids) => Update::ActivityAcknowledged {
             ids,
@@ -549,15 +542,6 @@ fn rejected(work: Work, error: ClientError) -> Update {
 )]
 fn perform(work: Work, client: &Client) -> Option<Update> {
     let result = match work {
-        Work::OpenActivitySession { project, session } => {
-            return Some(Update::ActivitySession(
-                client.available_project_sessions(project).map(|page| {
-                    page.sessions
-                        .into_iter()
-                        .find(|entry| entry.info.id == session)
-                }),
-            ));
-        }
         Work::ReadActivity => return Some(Update::Activity(client.activity())),
         Work::AcknowledgeActivity(ids) => {
             return Some(Update::ActivityAcknowledged {

@@ -717,7 +717,7 @@ impl Owner {
             } else {
                 self.detector = crate::detection::Detector::default();
                 self.detection_screen.clear();
-                self.activity.remove(self.info.id);
+                self.activity.clear_agent(self.info.id);
             }
         }
         self.next_metadata = Instant::now()

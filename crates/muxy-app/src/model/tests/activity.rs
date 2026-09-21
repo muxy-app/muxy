@@ -8,7 +8,7 @@ use muxy_protocol::{
 fn hidden_agent_status_and_shared_reads_do_not_require_terminal_views(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
-    let tab = state.open_terminal_tab(home).expect("tab");
+    state.open_terminal_tab(home).expect("tab");
     let pane = state.home().tabs[0].panes[0].id;
     let session = SessionId::new(42).expect("session");
     state
@@ -52,7 +52,7 @@ fn hidden_agent_status_and_shared_reads_do_not_require_terminal_views(cx: &mut T
                 ActivityIndicator::Blocked
             );
             assert_eq!(
-                model.unread_activity_count(),
+                model.activity.snapshot.events.len(),
                 usize::from(!snapshot.events[0].read)
             );
         });
@@ -61,17 +61,14 @@ fn hidden_agent_status_and_shared_reads_do_not_require_terminal_views(cx: &mut T
         snapshot.revision += 1;
         view.update(cx, |model, cx| {
             model.receive_activity(Ok(snapshot.clone()), cx);
-            assert_eq!(model.unread_activity_count(), 0);
+            assert_eq!(model.activity.snapshot.events.len(), 0);
             assert_eq!(
                 indicator(&model.activity.snapshot, |_| true),
                 ActivityIndicator::Blocked
             );
-            model.navigate_activity(1, cx);
-            assert_eq!(model.active_tab(), Some(tab));
-            assert_eq!(model.active_pane(), Some(pane));
             model.disconnect(cx);
             assert!(model.activity.snapshot.agents.is_empty());
-            assert_eq!(model.activity.snapshot.events.len(), 1);
+            assert!(model.activity.snapshot.events.is_empty());
         });
     }
 }
@@ -119,6 +116,82 @@ fn native_click_waits_for_connection_catalog_and_activity(cx: &mut TestAppContex
         assert_eq!(model.active_tab(), Some(target));
         assert_eq!(model.active_pane(), Some(pane));
     });
+}
+
+#[gpui::test]
+fn ended_sessions_clear_indicators_even_when_an_old_activity_read_arrives_later(
+    cx: &mut TestAppContext,
+) {
+    for attached in [true, false] {
+        let mut state = AppState::bootstrap().expect("state");
+        let project = state.home().id;
+        let tab = state.open_terminal_tab(project).expect("tab");
+        let survivor = state.window().active_pane.expect("pane");
+        state
+            .set_pane_session(survivor, SessionId::new(43))
+            .expect("session");
+        let session = SessionId::new(42).expect("ended session");
+        if attached {
+            let pane = state.split_pane(survivor, Direction::Right).expect("split");
+            state
+                .set_pane_session(pane, Some(session))
+                .expect("session");
+        }
+        let snapshot = ActivitySnapshot {
+            revision: 1,
+            agents: vec![AgentActivity {
+                session,
+                project,
+                provider: AgentProvider::Codex,
+                state: AgentState::Blocked,
+            }],
+            events: vec![ActivityEvent {
+                id: 1,
+                session,
+                project,
+                provider: AgentProvider::Codex,
+                kind: ActivityKind::Attention,
+                read: false,
+                timestamp: 0,
+            }],
+        };
+        let (boot, _requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.connection = ConnectionState::Ready;
+            model.window_active = false;
+            model.receive_activity(Ok(snapshot.clone()), cx);
+            assert_eq!(
+                indicator(&model.activity.snapshot, |_| true),
+                ActivityIndicator::Blocked
+            );
+            model.refresh_activity(cx);
+            assert!(model.activity.pending);
+            model.receive_event(
+                ClientEvent::SessionEnded {
+                    session,
+                    reason: ExitReason::Ended,
+                },
+                cx,
+            );
+            assert!(model.activity.snapshot.events.is_empty());
+            assert!(model.activity.snapshot.agents.is_empty());
+            let tab = model.tab(tab).expect("surviving tab");
+            assert_eq!(tab.panes.len(), 1);
+            assert_eq!(tab.panes[0].id, survivor);
+            assert_eq!(
+                indicator(&model.activity.snapshot, |_| true),
+                ActivityIndicator::None
+            );
+            model.receive_activity(Ok(snapshot), cx);
+            assert!(model.activity.snapshot.events.is_empty());
+            assert!(model.activity.snapshot.agents.is_empty());
+            assert_eq!(
+                indicator(&model.activity.snapshot, |_| true),
+                ActivityIndicator::None
+            );
+        });
+    }
 }
 
 fn title_update(session: SessionId, title: &str) -> ClientEvent {
@@ -435,9 +508,7 @@ fn pinned_sidebar_tabs_keep_provider_and_trailing_pin(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn project_indicators_include_terminal_progress_completion_and_detached_agents(
-    cx: &mut TestAppContext,
-) {
+fn project_indicators_only_include_current_panes(cx: &mut TestAppContext) {
     use muxy_app_core::settings::AppLayout;
     use muxy_protocol::{ProgressState, SessionProgress, TerminalProgress};
     for (layout, expanded) in [
@@ -446,82 +517,93 @@ fn project_indicators_include_terminal_progress_completion_and_detached_agents(
         (AppLayout::TabFocused, false),
         (AppLayout::TabFocused, true),
     ] {
-        for kind in ["progress", "completion", "blocked", "unread"] {
-            let mut state = AppState::bootstrap().expect("state");
-            let home = state.home().id;
-            state.open_terminal_tab(home).expect("tab");
-            let pane = state.window().active_pane.expect("pane");
-            let session = SessionId::new(42).expect("session");
-            state
-                .set_pane_session(pane, Some(session))
-                .expect("session");
-            state.open_terminal_tab(home).expect("other");
-            let (boot, _requests) = stub_boot(state);
-            let (_view, window) = cx.add_window_view(|window, cx| {
-                let mut model = AppModel::new(boot, window, cx);
-                model.appearance.layout = layout;
-                model.appearance.sidebar_expanded = layout == AppLayout::TabFocused || expanded;
-                model.appearance.tab_focused_expanded.insert(home, expanded);
-                match kind {
-                    "progress" => {
-                        model.progress.insert(
-                            session,
-                            SessionProgress {
-                                progress: Some(TerminalProgress {
-                                    state: ProgressState::Running,
-                                    percent: Some(42),
-                                }),
-                                completed: 0,
-                            },
+        for detached in [false, true] {
+            for kind in ["progress", "completion", "blocked", "unread"] {
+                let mut state = AppState::bootstrap().expect("state");
+                let home = state.home().id;
+                state.open_terminal_tab(home).expect("tab");
+                let pane = state.window().active_pane.expect("pane");
+                let session = SessionId::new(42).expect("session");
+                state
+                    .set_pane_session(pane, Some(session))
+                    .expect("session");
+                state.open_terminal_tab(home).expect("other");
+                let (boot, _requests) = stub_boot(state);
+                let (_view, window) = cx.add_window_view(|window, cx| {
+                    let mut model = AppModel::new(boot, window, cx);
+                    model.appearance.layout = layout;
+                    model.appearance.sidebar_expanded = layout == AppLayout::TabFocused || expanded;
+                    model.appearance.tab_focused_expanded.insert(home, expanded);
+                    match kind {
+                        "progress" => {
+                            model.progress.insert(
+                                session,
+                                SessionProgress {
+                                    progress: Some(TerminalProgress {
+                                        state: ProgressState::Running,
+                                        percent: Some(42),
+                                    }),
+                                    completed: 0,
+                                },
+                            );
+                        }
+                        "completion" => {
+                            model.completions.insert(pane);
+                        }
+                        "blocked" => {
+                            model.activity.snapshot.agents.push(AgentActivity {
+                                session,
+                                project: home,
+                                provider: AgentProvider::Codex,
+                                state: AgentState::Blocked,
+                            });
+                        }
+                        "unread" => {
+                            model.activity.snapshot.events.push(ActivityEvent {
+                                id: 1,
+                                session,
+                                project: home,
+                                provider: AgentProvider::Codex,
+                                kind: ActivityKind::Completed,
+                                read: false,
+                                timestamp: 0,
+                            });
+                        }
+                        _ => unreachable!(),
+                    }
+                    if detached {
+                        model.detach_terminal(pane, cx);
+                        assert!(
+                            model.pane_session(pane).is_none(),
+                            "detach failed: {:?}",
+                            model.error
                         );
+                        assert!(!model.progress.contains_key(&session));
+                        // A late snapshot still contains this session after detachment.
+                        model.receive_activity(Ok(model.activity.snapshot.clone()), cx);
                     }
-                    "completion" => {
-                        model.completions.insert(pane);
+                    model
+                });
+                window.run_until_parked();
+                let bounds = window.debug_bounds(format!("project-activity-{home}-{kind}").leak());
+                let visible_tab_status = layout == AppLayout::TabFocused && expanded;
+                assert_eq!(
+                    bounds.is_some(),
+                    !detached && !visible_tab_status,
+                    "{layout:?} expanded={expanded}, detached={detached}, {kind}"
+                );
+                if let Some(bounds) = bounds {
+                    let row = if layout == AppLayout::TabFocused {
+                        window
+                            .debug_bounds(format!("tab-project-{home}").leak())
+                            .expect("project")
+                    } else {
+                        window.debug_bounds("project-row-0").expect("project")
+                    };
+                    assert!(row.contains(&bounds.center()), "badge stays on the project");
+                    if layout == AppLayout::TabFocused || expanded {
+                        assert_eq!(row.center().y, bounds.center().y);
                     }
-                    "blocked" => {
-                        model.activity.snapshot.agents.push(AgentActivity {
-                            session: SessionId::new(99).expect("detached"),
-                            project: home,
-                            provider: AgentProvider::Codex,
-                            state: AgentState::Blocked,
-                        });
-                    }
-                    "unread" => {
-                        model.activity.snapshot.events.push(ActivityEvent {
-                            id: 1,
-                            session: SessionId::new(99).expect("detached"),
-                            project: home,
-                            provider: AgentProvider::Codex,
-                            kind: ActivityKind::Completed,
-                            read: false,
-                            timestamp: 0,
-                        });
-                    }
-                    _ => unreachable!(),
-                }
-                model
-            });
-            window.run_until_parked();
-            let bounds = window.debug_bounds(format!("project-activity-{home}-{kind}").leak());
-            let visible_tab_status = layout == AppLayout::TabFocused
-                && expanded
-                && matches!(kind, "progress" | "completion");
-            assert_eq!(
-                bounds.is_some(),
-                !visible_tab_status,
-                "{layout:?} expanded={expanded}, {kind}"
-            );
-            if let Some(bounds) = bounds {
-                let row = if layout == AppLayout::TabFocused {
-                    window
-                        .debug_bounds(format!("tab-project-{home}").leak())
-                        .expect("project")
-                } else {
-                    window.debug_bounds("project-row-0").expect("project")
-                };
-                assert!(row.contains(&bounds.center()), "badge stays on the project");
-                if layout == AppLayout::TabFocused || expanded {
-                    assert_eq!(row.center().y, bounds.center().y);
                 }
             }
         }
@@ -545,6 +627,12 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
         let child = state
             .add_project(directory.path().to_owned())
             .expect("child");
+        state.open_terminal_tab(child).expect("child tab");
+        let pane = state.window().active_pane.expect("child pane");
+        let session = SessionId::new(99).expect("session");
+        state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
         state.select_project(home).expect("home");
         let mut stored = serde_json::to_value(state).expect("serialize");
         let child_record = stored["projects"]
@@ -565,8 +653,9 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
                 .appearance
                 .tab_focused_expanded
                 .insert(parent, expanded);
+            model.appearance.tab_focused_expanded.insert(child, false);
             model.activity.snapshot.agents.push(AgentActivity {
-                session: SessionId::new(99).expect("detached"),
+                session,
                 project: child,
                 provider: AgentProvider::Codex,
                 state: AgentState::Blocked,
@@ -584,4 +673,82 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
             "{layout:?}: child"
         );
     }
+}
+
+#[gpui::test]
+fn detached_sessions_do_not_claim_alerts_or_reopen_from_notification_clicks(
+    cx: &mut TestAppContext,
+) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    state.open_terminal_tab(home).expect("tab");
+    let pane = state.window().active_pane.expect("pane");
+    let session = SessionId::new(42).expect("session");
+    let sibling = state.split_pane(pane, Direction::Right).expect("split");
+    let (boot, requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        model.window_active = false;
+        assert!(model.activity.pane_sessions.is_empty());
+        model.receive_attached(pane, session, attachment(), true, cx);
+        model.receive_attached(sibling, session, attachment(), false, cx);
+        model.activity.loaded = true;
+        let mut snapshot = ActivitySnapshot {
+            events: [42, 99]
+                .into_iter()
+                .map(|id| ActivityEvent {
+                    id,
+                    session: SessionId::new(id).expect("session"),
+                    project: home,
+                    provider: AgentProvider::Codex,
+                    kind: ActivityKind::Completed,
+                    read: false,
+                    timestamp: 0,
+                })
+                .collect(),
+            ..ActivitySnapshot::default()
+        };
+        model.receive_activity(Ok(snapshot.clone()), cx);
+        assert_eq!(
+            model.activity.pane_sessions,
+            vec![session],
+            "track ownership before delivering alerts"
+        );
+        let claims: Vec<_> = requests
+            .try_iter()
+            .filter_map(|(_, work)| match work {
+                Work::ClaimActivity(ids) => Some(ids),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            claims,
+            vec![vec![42]],
+            "only an open pane can claim an alert"
+        );
+        model.detach_terminal(pane, cx);
+        snapshot.events[0].id = 100;
+        model.receive_activity(Ok(snapshot.clone()), cx);
+        assert!(
+            requests
+                .try_iter()
+                .any(|(_, work)| matches!(work, Work::ClaimActivity(ids) if ids == vec![100])),
+            "the remaining pane still owns the session's alerts"
+        );
+        model.detach_terminal(sibling, cx);
+        assert!(model.state.home().tabs.is_empty());
+        model.navigate_activity(100, cx);
+        assert!(
+            model.state.home().tabs.is_empty(),
+            "stale clicks cannot reopen detached panes"
+        );
+        snapshot.events[0].id = 101;
+        model.receive_activity(Ok(snapshot), cx);
+        assert!(
+            !requests
+                .try_iter()
+                .any(|(_, work)| matches!(work, Work::ClaimActivity(_)))
+        );
+    });
 }

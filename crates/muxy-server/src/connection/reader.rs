@@ -292,9 +292,7 @@ fn ordered_request(
             ReplyBody::Activity(registry.activity.snapshot())
         }
         RequestBody::AcknowledgeActivity(ids) => {
-            registry.activity.acknowledge(&ids).map_err(|error| {
-                ServerError::new(ErrorCode::PersistenceFailed, error.to_string())
-            })?;
+            registry.activity.acknowledge(&ids);
             ReplyBody::ActivityAcknowledged
         }
         RequestBody::ClaimActivity(ids) => {

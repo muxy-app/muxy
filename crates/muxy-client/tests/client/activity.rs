@@ -22,7 +22,7 @@ fn wait_state(
 }
 
 #[test]
-fn activity_tracks_unattached_sessions_and_shares_history_reads_and_delivery() -> TestResult {
+fn activity_tracks_unattached_sessions_and_clears_acknowledged_or_ended_events() -> TestResult {
     let fixture = Fixture::new()?;
     let first = fixture.connect()?;
     let second = fixture.connect()?;
@@ -52,7 +52,7 @@ fn activity_tracks_unattached_sessions_and_shares_history_reads_and_delivery() -
     );
     assert!(first.client.claim_activity(vec![attention])?.is_empty());
     second.client.acknowledge_activity(vec![attention])?;
-    assert!(first.client.activity()?.events[0].read);
+    assert!(first.client.activity()?.events.is_empty());
     assert_eq!(
         first.client.activity()?.agents[0].state,
         AgentState::Blocked
@@ -74,7 +74,7 @@ fn activity_tracks_unattached_sessions_and_shares_history_reads_and_delivery() -
         thread::sleep(Duration::from_millis(10));
     }
     assert!(first.client.activity()?.agents.is_empty());
-    assert_eq!(first.client.activity()?.events, done.events);
+    assert!(first.client.activity()?.events.is_empty());
     Ok(())
 }
 
@@ -122,15 +122,12 @@ fn xal_development_activity_and_notifications_work_without_a_screen_attachment()
     };
     let working = report("⠋ Working · Esc interrupt", AgentState::Working)?;
     assert!(working.events.is_empty());
-    for (index, status) in [
+    for status in [
         "? Input needed · answer above",
         "! Approval needed · choose above",
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ] {
         let blocked = report(status, AgentState::Blocked)?;
-        assert_eq!(blocked.events.len(), index + 1);
+        assert_eq!(blocked.events.len(), 1);
         let event = &blocked.events[0];
         assert_eq!(event.session, session.id);
         assert_eq!(event.provider, muxy_protocol::AgentProvider::Xal);
@@ -143,13 +140,13 @@ fn xal_development_activity_and_notifications_work_without_a_screen_attachment()
         assert!(connection.client.claim_activity(vec![event.id])?.is_empty());
         connection.client.acknowledge_activity(vec![event.id])?;
         let acknowledged = connection.client.activity()?;
-        assert!(acknowledged.events[0].read);
+        assert!(acknowledged.events.is_empty());
         assert_eq!(acknowledged.agents[0].state, AgentState::Blocked);
         let resumed = report("⠙ Working · Esc interrupt", AgentState::Working)?;
-        assert_eq!(resumed.events.len(), blocked.events.len());
+        assert!(resumed.events.is_empty());
     }
     let finished = report("✓ Finished in 4s", AgentState::Idle)?;
-    assert_eq!(finished.events.len(), 3);
+    assert_eq!(finished.events.len(), 1);
     let event = &finished.events[0];
     assert_eq!(event.kind, muxy_protocol::ActivityKind::Completed);
     assert_eq!(event.provider, muxy_protocol::AgentProvider::Xal);

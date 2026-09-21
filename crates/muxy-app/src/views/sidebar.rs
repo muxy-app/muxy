@@ -21,7 +21,7 @@ use super::{
     menu::{Command, Item},
     tab_sidebar,
 };
-use muxy_ui::components::{IconButton, IconGlyph, SymbolGlyph};
+use muxy_ui::components::{IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::{contrasting_foreground, parse_hex};
 
@@ -98,7 +98,6 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .child(div().h(m.title_bar_height()).flex_none())
         .child(header)
         .child(contents)
-        .child(footer(model, cx))
         .into_any_element()
 }
 
@@ -164,76 +163,6 @@ impl AppModel {
                 }))
             })
             .collect()
-    }
-}
-
-pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
-    let theme = &model.theme;
-    let view = cx.weak_entity();
-    let notifications = div()
-        .flex()
-        .flex_none()
-        .child(
-            IconButton::new(
-                "notifications",
-                Icon::Bell,
-                m.scaled(13.0),
-                m.control_medium(),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(
-                format!("Notifications, {} unread", model.unread_activity_count()),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-            )
-            .on_click(cx.listener(|model, _, window, cx| model.toggle_notifications(window, cx))),
-        )
-        .when(model.unread_activity_count() > 0, |row| {
-            row.child(
-                div()
-                    .text_size(m.font_caption())
-                    .text_color(theme.accent)
-                    .child(model.unread_activity_count().to_string()),
-            )
-        })
-        .on_children_prepainted(move |bounds, _, cx| {
-            if let Some(bounds) = bounds.first() {
-                let _ = view.update(cx, |model, _| model.notification_anchor = Some(*bounds));
-            }
-        });
-    let themes = div().flex().flex_none().child(
-        IconButton::new(
-            "theme-picker",
-            Icon::Palette,
-            m.scaled(13.0),
-            m.control_medium(),
-            theme.fg_muted,
-            theme.fg,
-        )
-        .on_click(cx.listener(|model, _, window, cx| model.open_theme_picker(window, cx))),
-    );
-    let footer = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(m.spacing2())
-        .pb(m.spacing4());
-    if model.appearance.sidebar_expanded {
-        footer
-            .px(m.spacing5())
-            .child(notifications)
-            .child(div().flex_grow())
-            .child(themes)
-            .into_any_element()
-    } else {
-        footer
-            .flex_col()
-            .child(themes)
-            .child(notifications)
-            .into_any_element()
     }
 }
 

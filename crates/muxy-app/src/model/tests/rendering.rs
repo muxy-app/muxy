@@ -25,7 +25,7 @@ fn dismissing_overlay_restarts_idle_cursor_blink(cx: &mut TestAppContext) {
     assert!(!terminal.read_with(cx, |pane, _| pane.cursor_blink.visible));
 
     cx.update(|window, cx| {
-        model.update(cx, |model, cx| model.toggle_notifications(window, cx));
+        model.update(cx, |model, cx| model.open_theme_picker(window, cx));
     });
     cx.run_until_parked();
     assert!(terminal.read_with(cx, |pane, _| pane.cursor_blink.visible));

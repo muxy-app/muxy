@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use gpui::Context;
 use muxy_client::ClientError;
-use muxy_protocol::{ActivitySnapshot, ProjectSession, SessionId};
+use muxy_protocol::{ActivitySnapshot, SessionId};
 
 use super::{AppModel, ConnectionState, Work};
 
@@ -13,7 +13,9 @@ pub(crate) struct ActivityView {
     pub(crate) pending: bool,
     pub(crate) loaded: bool,
     pub(super) navigation: Option<u64>,
+    pub(super) pane_sessions: Vec<SessionId>,
     acknowledging: HashSet<u64>,
+    ended_during_read: HashSet<SessionId>,
     ack_failed: bool,
 }
 
@@ -25,6 +27,59 @@ impl AppModel {
         if self.send(Work::ReadActivity, cx) {
             self.activity.pending = true;
         }
+    }
+
+    fn has_activity_pane(&self, session: SessionId) -> bool {
+        self.state
+            .projects()
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .chain(self.state.quick_terminal())
+            .any(|pane| matches!(pane.content, muxy_app_core::PaneContent::Terminal { session: Some(id) } if id == session))
+    }
+
+    pub(super) fn sync_activity_panes(&mut self, sessions: Vec<SessionId>) {
+        if self.activity.pane_sessions == sessions {
+            return;
+        }
+        let removed: Vec<_> = self
+            .activity
+            .snapshot
+            .events
+            .iter()
+            .filter(|event| {
+                self.activity.pane_sessions.contains(&event.session)
+                    && !sessions.contains(&event.session)
+            })
+            .map(|event| event.id)
+            .collect();
+        if self
+            .activity
+            .navigation
+            .is_some_and(|id| removed.contains(&id))
+        {
+            self.activity.navigation = None;
+        }
+        #[cfg(target_os = "macos")]
+        if !removed.is_empty()
+            && let Some(notifications) = &self.notifications
+        {
+            notifications.clear(&removed.iter().map(u64::to_string).collect::<Vec<_>>());
+        }
+        self.activity.pane_sessions = sessions;
+    }
+
+    fn activity_notification_events<'a>(
+        &'a self,
+        ids: &'a [u64],
+    ) -> impl Iterator<Item = &'a muxy_protocol::ActivityEvent> {
+        self.activity.snapshot.events.iter().filter(move |event| {
+            ids.contains(&event.id)
+                && !event.read
+                && self.has_activity_pane(event.session)
+                && Some(event.session) != self.focused_activity_session()
+        })
     }
 
     fn focused_activity_session(&self) -> Option<SessionId> {
@@ -41,16 +96,27 @@ impl AppModel {
     ) {
         self.activity.pending = false;
         match result {
-            Ok(snapshot) => {
+            Ok(mut snapshot) => {
+                snapshot
+                    .agents
+                    .retain(|agent| !self.activity.ended_during_read.contains(&agent.session));
+                snapshot.events.retain(|event| {
+                    !event.read && !self.activity.ended_during_read.contains(&event.session)
+                });
+                self.activity.ended_during_read.clear();
                 #[cfg(target_os = "macos")]
                 if let Some(notifications) = &self.notifications {
-                    let read: Vec<_> = snapshot
+                    let retained: HashSet<_> =
+                        snapshot.events.iter().map(|event| event.id).collect();
+                    let removed: Vec<_> = self
+                        .activity
+                        .snapshot
                         .events
                         .iter()
-                        .filter(|event| event.read)
+                        .filter(|event| !retained.contains(&event.id))
                         .map(|event| event.id.to_string())
                         .collect();
-                    notifications.clear(&read);
+                    notifications.clear(&removed);
                 }
                 let ids = muxy_app_core::activity::new_notifications(
                     self.activity.loaded.then_some(&self.activity.snapshot),
@@ -58,6 +124,11 @@ impl AppModel {
                     self.focused_activity_session(),
                 );
                 self.activity.snapshot = snapshot;
+                self.sync_activity_panes(self.state.session_references());
+                let ids: Vec<_> = self
+                    .activity_notification_events(&ids)
+                    .map(|event| event.id)
+                    .collect();
                 let agent_panes: Vec<_> = self
                     .state
                     .projects()
@@ -93,13 +164,35 @@ impl AppModel {
         cx.notify();
     }
 
-    pub(crate) fn unread_activity_count(&self) -> usize {
-        self.activity
+    pub(super) fn forget_session_activity(&mut self, session: SessionId, cx: &mut Context<Self>) {
+        if self.activity.pending {
+            self.activity.ended_during_read.insert(session);
+        }
+        let ids: Vec<_> = self
+            .activity
             .snapshot
             .events
             .iter()
-            .filter(|event| !event.read)
-            .count()
+            .filter(|event| event.session == session)
+            .map(|event| event.id)
+            .collect();
+        self.activity
+            .snapshot
+            .agents
+            .retain(|agent| agent.session != session);
+        self.activity
+            .snapshot
+            .events
+            .retain(|event| event.session != session);
+        self.activity.acknowledging.retain(|id| !ids.contains(id));
+        if self.activity.navigation.is_some_and(|id| ids.contains(&id)) {
+            self.activity.navigation = None;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(notifications) = &self.notifications {
+            notifications.clear(&ids.iter().map(u64::to_string).collect::<Vec<_>>());
+        }
+        cx.notify();
     }
 
     pub(crate) fn acknowledge_focused_activity(&mut self, cx: &mut Context<Self>) {
@@ -143,11 +236,13 @@ impl AppModel {
         }
         match result {
             Ok(()) => {
-                // A server-confirmed cache update; the next snapshot remains authoritative.
-                for event in &mut self.activity.snapshot.events {
-                    if ids.contains(&event.id) {
-                        event.read = true;
-                    }
+                self.activity
+                    .snapshot
+                    .events
+                    .retain(|event| !ids.contains(&event.id));
+                #[cfg(target_os = "macos")]
+                if let Some(notifications) = &self.notifications {
+                    notifications.clear(&ids.iter().map(u64::to_string).collect::<Vec<_>>());
                 }
                 self.refresh_activity(cx);
             }
@@ -165,11 +260,7 @@ impl AppModel {
         };
         #[cfg(target_os = "macos")]
         if let Some(notifications) = &self.notifications {
-            for event in self.activity.snapshot.events.iter().filter(|event| {
-                ids.contains(&event.id)
-                    && !event.read
-                    && Some(event.session) != self.focused_activity_session()
-            }) {
+            for event in self.activity_notification_events(&ids) {
                 let project = self
                     .state
                     .project(event.project)
@@ -202,6 +293,9 @@ impl AppModel {
         else {
             return;
         };
+        if !self.has_activity_pane(event.session) {
+            return;
+        }
         self.acknowledge_activity(vec![id], cx);
         let existing = self.state.projects().iter().flat_map(|p| p.tabs.iter().map(move |t| (p.id, t))).find_map(|(project, tab)| {
             tab.panes.iter().find(|pane| matches!(pane.content, muxy_app_core::PaneContent::Terminal { session: Some(session) } if session == event.session)).map(|pane| (project, tab.id, pane.id))
@@ -212,36 +306,14 @@ impl AppModel {
             self.focus_pane(pane, cx);
             self.dismiss_overlay(cx);
             self.focus_requested = true;
-        } else if self.state.project(event.project).is_some() {
-            self.send(
-                Work::OpenActivitySession {
-                    project: event.project,
-                    session: event.session,
-                },
-                cx,
-            );
+        } else if !self.quick.visible {
+            self.toggle_quick_terminal(cx);
         }
     }
 
     pub(super) fn resume_activity_navigation(&mut self, cx: &mut Context<Self>) {
         if let Some(id) = self.activity.navigation.take() {
             self.navigate_activity(id, cx);
-        }
-    }
-
-    pub(super) fn open_activity_session(
-        &mut self,
-        result: Result<Option<ProjectSession>, ClientError>,
-        cx: &mut Context<Self>,
-    ) {
-        match result {
-            Ok(Some(session)) if session.status == muxy_protocol::SessionStatus::Live => {
-                self.select_project(session.info.project, cx);
-                self.open_existing_session(session.info.project, &session, cx);
-                self.focus_requested = true;
-            }
-            Ok(_) => self.fail("This terminal session has ended".into(), cx),
-            Err(error) => self.fail(format!("Could not open terminal: {error}"), cx),
         }
     }
 

@@ -86,11 +86,11 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
 pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
     let tabs_visible =
         model.appearance.layout == AppLayout::TabFocused && model.project_expanded(id);
-    let children_hidden = if model.appearance.layout == AppLayout::TabFocused {
-        !tabs_visible
-    } else {
-        !model.appearance.sidebar_expanded
-    };
+    if tabs_visible {
+        return Status::None;
+    }
+    let children_hidden =
+        model.appearance.layout == AppLayout::TabFocused || !model.appearance.sidebar_expanded;
     let includes_project = |candidate| {
         candidate == id
             || (children_hidden
@@ -107,37 +107,16 @@ pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
         .flat_map(|project| &project.tabs)
         .flat_map(|tab| &tab.panes)
         .collect();
-    let visible_sessions: Vec<_> = panes
+    let sessions: Vec<_> = panes
         .iter()
         .filter_map(|pane| match pane.content {
             PaneContent::Terminal { session } => session,
             PaneContent::Settings | PaneContent::Webview(_) => None,
         })
         .collect();
-    let includes = |project, session| {
-        includes_project(project) && (!tabs_visible || !visible_sessions.contains(&session))
-    };
-    let snapshot = &model.activity.snapshot;
-    let mut sessions: Vec<_> = snapshot
-        .agents
+    let completion = panes
         .iter()
-        .filter(|agent| includes(agent.project, agent.session))
-        .map(|agent| agent.session)
-        .chain(
-            snapshot
-                .events
-                .iter()
-                .filter(|event| includes(event.project, event.session))
-                .map(|event| event.session),
-        )
-        .collect();
-    if !tabs_visible {
-        sessions.extend(visible_sessions);
-    }
-    let completion = !tabs_visible
-        && panes
-            .iter()
-            .any(|pane| model.completions.contains(&pane.id));
+        .any(|pane| model.completions.contains(&pane.id));
     resolve(&sessions, completion, true, model)
 }
 

@@ -1,87 +1,66 @@
 use std::collections::{BTreeMap, HashSet};
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc};
+use std::fs;
+use std::io;
+use std::path::Path;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::{
     ACTIVITY_HISTORY_LIMIT, ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity,
     AgentState, SessionId,
 };
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct History {
-    next_id: u64,
-    events: Vec<ActivityEvent>,
-}
 
 #[derive(Debug, Default)]
 struct State {
     revision: u64,
+    next_id: u64,
     agents: BTreeMap<SessionId, AgentActivity>,
-    history: History,
+    events: Vec<ActivityEvent>,
     claimed: HashSet<u64>,
 }
 
-/// Detection only changes memory and wakes the coalescing persistence worker.
-#[derive(Debug, Default)]
-pub(crate) struct Activity {
-    state: Arc<Mutex<State>>,
-    writer: Option<Arc<Writer>>,
-    wake: Option<mpsc::SyncSender<()>>,
-    worker: Option<std::thread::JoinHandle<()>>,
+impl State {
+    fn retain_events(&mut self, mut keep: impl FnMut(&ActivityEvent) -> bool) -> bool {
+        let previous = self.events.len();
+        self.events.retain(|event| {
+            if keep(event) {
+                true
+            } else {
+                self.claimed.remove(&event.id);
+                false
+            }
+        });
+        previous != self.events.len()
+    }
 }
 
-#[derive(Debug)]
-struct Writer {
-    path: PathBuf,
-    serial: Mutex<()>,
+/// Live agent state and at most one unread indicator event per session, held only in memory.
+#[derive(Debug, Default)]
+pub(crate) struct Activity {
+    state: Mutex<State>,
 }
 
 impl Activity {
     pub(crate) fn open(directory: &Path) -> io::Result<Self> {
-        let path = directory.join("activity.json");
-        let mut history: History = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => History::default(),
+        match fs::remove_file(directory.join("activity.json")) {
+            Ok(()) => (),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
             Err(error) => return Err(error),
-        };
-        history.events.truncate(ACTIVITY_HISTORY_LIMIT);
-        history.next_id = history
-            .next_id
-            .max(history.events.iter().map(|e| e.id).max().unwrap_or(0));
-        let state = Arc::new(Mutex::new(State {
-            revision: 1,
-            history,
-            ..State::default()
-        }));
-        let writer = Arc::new(Writer {
-            path,
-            serial: Mutex::new(()),
-        });
-        let (wake, receiver) = mpsc::sync_channel(1);
-        let pending = Arc::clone(&state);
-        let output = Arc::clone(&writer);
-        let worker = std::thread::Builder::new()
-            .name("activity-history".into())
-            .spawn(move || {
-                while receiver.recv().is_ok() {
-                    if let Err(error) = output.save(&pending) {
-                        log::error!("Could not save activity history: {error}");
-                    }
-                }
-                if let Err(error) = output.save(&pending) {
-                    log::error!("Could not save final activity history: {error}");
-                }
-            })?;
+        }
+        // Native notifications from an earlier server must never target a new event.
+        let next_id = u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros(),
+        )
+        .unwrap_or(0);
         Ok(Self {
-            state,
-            writer: Some(writer),
-            wake: Some(wake),
-            worker: Some(worker),
+            state: Mutex::new(State {
+                revision: 1,
+                next_id,
+                ..State::default()
+            }),
         })
     }
 
@@ -94,7 +73,7 @@ impl Activity {
         ActivitySnapshot {
             revision: state.revision,
             agents: state.agents.values().cloned().collect(),
-            events: state.history.events.clone(),
+            events: state.events.clone(),
         }
     }
 
@@ -115,9 +94,10 @@ impl Activity {
             None
         };
         if let Some(kind) = kind {
-            state.history.next_id += 1;
-            let id = state.history.next_id;
-            state.history.events.insert(
+            state.retain_events(|event| event.session != activity.session);
+            state.next_id += 1;
+            let id = state.next_id;
+            state.events.insert(
                 0,
                 ActivityEvent {
                     id,
@@ -132,117 +112,51 @@ impl Activity {
                     read: false,
                 },
             );
-            state.history.events.truncate(ACTIVITY_HISTORY_LIMIT);
-            let retained: HashSet<_> = state.history.events.iter().map(|event| event.id).collect();
-            state.claimed.retain(|id| retained.contains(id));
-            self.save_later();
+            if state.events.len() > ACTIVITY_HISTORY_LIMIT
+                && let Some(expired) = state.events.pop()
+            {
+                state.claimed.remove(&expired.id);
+            }
         }
         state.agents.insert(activity.session, activity);
         state.revision += 1;
     }
 
-    pub(crate) fn remove(&self, session: SessionId) {
+    pub(crate) fn clear_agent(&self, session: SessionId) {
         let mut state = lock(&self.state);
         if state.agents.remove(&session).is_some() {
             state.revision += 1;
         }
     }
 
-    pub(crate) fn acknowledge(&self, ids: &[u64]) -> io::Result<()> {
-        let _serial = self.writer.as_ref().map(|writer| lock(&writer.serial));
-        if let Some(writer) = &self.writer {
-            let mut history = lock(&self.state).history.clone();
-            for event in &mut history.events {
-                if ids.contains(&event.id) {
-                    event.read = true;
-                }
-            }
-            writer.write(&history)?;
-        }
+    pub(crate) fn remove(&self, session: SessionId) {
         let mut state = lock(&self.state);
-        let mut changed = false;
-        for event in &mut state.history.events {
-            if ids.contains(&event.id) && !event.read {
-                event.read = true;
-                changed = true;
-            }
-        }
-        if changed {
+        let agent_removed = state.agents.remove(&session).is_some();
+        let event_removed = state.retain_events(|event| event.session != session);
+        if agent_removed || event_removed {
             state.revision += 1;
         }
-        Ok(())
+    }
+
+    pub(crate) fn acknowledge(&self, ids: &[u64]) {
+        let mut state = lock(&self.state);
+        if state.retain_events(|event| !ids.contains(&event.id)) {
+            state.revision += 1;
+        }
     }
 
     pub(crate) fn claim(&self, ids: &[u64]) -> Vec<u64> {
         let mut state = lock(&self.state);
         let eligible: Vec<_> = state
-            .history
             .events
             .iter()
-            .filter(|event| !event.read && ids.contains(&event.id))
+            .filter(|event| ids.contains(&event.id))
             .map(|event| event.id)
             .collect();
         eligible
             .into_iter()
             .filter(|id| state.claimed.insert(*id))
             .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn flush(&self) -> io::Result<()> {
-        self.writer
-            .as_ref()
-            .map_or(Ok(()), |writer| writer.save(&self.state))
-    }
-
-    fn save_later(&self) {
-        if let Some(wake) = &self.wake {
-            let _ = wake.try_send(());
-        }
-    }
-}
-
-impl Drop for Activity {
-    fn drop(&mut self) {
-        self.wake.take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
-}
-
-impl Writer {
-    fn save(&self, state: &Mutex<State>) -> io::Result<()> {
-        let _serial = lock(&self.serial);
-        let history = lock(state).history.clone();
-        self.write(&history)
-    }
-
-    fn write(&self, history: &History) -> io::Result<()> {
-        let bytes = serde_json::to_vec(history)?;
-        let temporary = self
-            .path
-            .with_extension(format!("{}.tmp", muxy_protocol::OperationId::new()));
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            fs::rename(&temporary, &self.path)?;
-            File::open(
-                self.path
-                    .parent()
-                    .ok_or_else(|| io::Error::other("activity path has no parent"))?,
-            )?
-            .sync_all()
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(temporary);
-        }
-        result
     }
 }
 
@@ -265,56 +179,63 @@ mod tests {
     }
 
     #[test]
-    fn event_identity_read_acknowledgement_and_delivery_are_shared() -> io::Result<()> {
+    fn unread_events_are_replaced_acknowledged_and_removed_with_the_session() {
         let activity = Activity::default();
-        activity.update(agent(AgentState::Working), false);
-        activity.update(agent(AgentState::Blocked), false);
         activity.update(agent(AgentState::Blocked), false);
         let first = activity.snapshot().events[0].id;
-        assert_eq!(activity.snapshot().events.len(), 1);
+        assert_eq!(activity.claim(&[first]), vec![first]);
+        assert!(activity.claim(&[first]).is_empty());
         activity.update(agent(AgentState::Working), false);
         activity.update(agent(AgentState::Idle), true);
-        let second = activity.snapshot().events[0].id;
-        activity.acknowledge(&[first])?;
-        assert!(!activity.snapshot().events[0].read);
-        assert!(activity.snapshot().events[1].read);
-        assert_eq!(activity.claim(&[first, second]), vec![second]);
-        assert!(activity.claim(&[second]).is_empty());
+        let snapshot = activity.snapshot();
+        assert_eq!(snapshot.events.len(), 1);
+        let second = snapshot.events[0].id;
+        assert!(second > first);
+        assert!(lock(&activity.state).claimed.is_empty());
+        activity.acknowledge(&[first]);
+        assert_eq!(activity.snapshot().events, snapshot.events);
+        activity.acknowledge(&[second]);
+        assert!(activity.snapshot().events.is_empty());
         activity.update(agent(AgentState::Blocked), false);
         let blocked = activity.snapshot().events[0].id;
-        activity.acknowledge(&[blocked])?;
+        activity.acknowledge(&[blocked]);
         assert_eq!(activity.snapshot().agents[0].state, AgentState::Blocked);
-        activity.remove(agent(AgentState::Idle).session);
+        activity.update(agent(AgentState::Working), false);
+        activity.update(agent(AgentState::Idle), true);
+        let completed = activity.snapshot().events[0].id;
+        activity.claim(&[completed]);
+        activity.clear_agent(agent(AgentState::Idle).session);
         assert!(activity.snapshot().agents.is_empty());
-        assert_eq!(activity.snapshot().events.len(), 3);
-        Ok(())
+        assert_eq!(activity.snapshot().events.len(), 1);
+        let revision = activity.revision();
+        activity.remove(agent(AgentState::Idle).session);
+        assert!(activity.snapshot().events.is_empty());
+        assert!(lock(&activity.state).claimed.is_empty());
+        assert!(activity.revision() > revision);
     }
 
     #[test]
-    fn bounded_history_survives_restart_without_reviving_live_state() -> io::Result<()> {
+    fn pending_events_are_bounded_and_legacy_history_is_not_restored() -> io::Result<()> {
         let directory = std::env::temp_dir().join(format!(
             "muxy-activity-{}",
             muxy_protocol::OperationId::new()
         ));
         fs::create_dir(&directory)?;
+        fs::write(directory.join("activity.json"), b"obsolete history")?;
         let activity = Activity::open(&directory)?;
-        for _ in 0..220 {
-            activity.update(agent(AgentState::Working), false);
-            activity.update(agent(AgentState::Idle), true);
+        assert!(activity.snapshot().events.is_empty());
+        assert!(!directory.join("activity.json").exists());
+        for id in 1..=220 {
+            let mut state = agent(AgentState::Blocked);
+            state.session = SessionId::new(id).expect("session");
+            activity.update(state, false);
         }
-        let snapshot = activity.snapshot();
-        assert_eq!(snapshot.events.len(), ACTIVITY_HISTORY_LIMIT);
-        activity.acknowledge(&[snapshot.events[0].id])?;
-        let saved = activity.snapshot().events;
+        assert_eq!(activity.snapshot().events.len(), ACTIVITY_HISTORY_LIMIT);
         drop(activity);
         let restored = Activity::open(&directory)?;
         assert!(restored.snapshot().agents.is_empty());
-        assert_eq!(restored.snapshot().events, saved);
-        restored.update(agent(AgentState::Blocked), false);
-        assert!(restored.snapshot().events[0].id > snapshot.events[0].id);
-        restored.flush()?;
-        drop(restored);
-        fs::remove_dir_all(directory)?;
-        Ok(())
+        assert!(restored.snapshot().events.is_empty());
+        assert!(!directory.join("activity.json").exists());
+        fs::remove_dir_all(directory)
     }
 }

@@ -1,8 +1,6 @@
-use gpui::StatefulInteractiveElement;
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, Entity, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Point, Styled, Window, div, point, px, size,
+    AnyElement, Context, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Pixels, Point, Styled, Window, div,
 };
 
 use super::menu::{self, Item, Menu};
@@ -22,9 +20,6 @@ pub(crate) enum Overlay {
     ProjectEditor(super::project_editor::Editor),
     ProjectColors(super::project_editor::Colors),
     Projects(Entity<super::project_picker::ProjectPicker>),
-    Notifications {
-        anchor: Option<Bounds<Pixels>>,
-    },
 }
 
 impl AppModel {
@@ -49,19 +44,6 @@ impl AppModel {
     ) {
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Menu(Menu::new(items, position)));
-        self.overlay_focus.focus(window);
-        cx.notify();
-    }
-
-    pub(crate) fn toggle_notifications(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.overlay, Some(Overlay::Notifications { .. })) {
-            self.dismiss_overlay(cx);
-            return;
-        }
-        self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Notifications {
-            anchor: self.notification_anchor,
-        });
         self.overlay_focus.focus(window);
         cx.notify();
     }
@@ -113,7 +95,6 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         Some(Overlay::Sessions(picker)) => picker.picker.clone().into_any_element(),
         Some(Overlay::Projects(picker)) => picker.clone().into_any_element(),
         Some(Overlay::Commands { palette, .. }) => palette.clone().into_any_element(),
-        Some(Overlay::Notifications { anchor }) => notifications(*anchor, model, window, cx),
     };
     div()
         .absolute()
@@ -143,126 +124,5 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                 ),
         )
         .child(content)
-        .into_any_element()
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "Declarative notification popover layout"
-)]
-fn notifications(
-    anchor: Option<Bounds<Pixels>>,
-    model: &AppModel,
-    window: &Window,
-    cx: &mut Context<AppModel>,
-) -> AnyElement {
-    let theme = &model.theme;
-    let m = model.metrics;
-    let viewport = window.viewport_size();
-    let height = px(400.0).min(viewport.height - px(16.0));
-    let origin = anchor.map_or(
-        point(px(8.0), viewport.height - height - px(8.0)),
-        |anchor| point(anchor.origin.x, anchor.origin.y - height - px(4.0)),
-    );
-    let origin = clamp(origin, size(px(320.0), height), viewport);
-    div()
-        .key_context("Menu")
-        .track_focus(&model.overlay_focus)
-        .on_action(cx.listener(|model, _: &menu::DismissMenu, _, cx| model.dismiss_overlay(cx)))
-        .absolute()
-        .left(origin.x)
-        .top(origin.y)
-        .w(px(320.0))
-        .h(height)
-        .flex()
-        .flex_col()
-        .occlude()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .rounded(m.radius_lg())
-        .bg(theme.raised())
-        .border_1()
-        .border_color(theme.border)
-        .shadow_lg()
-        .child(
-            div()
-                .px(m.spacing5())
-                .py(m.spacing4())
-                .border_b_1()
-                .border_color(theme.border)
-                .text_size(m.font_body())
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Notifications"),
-        )
-        .when(model.unread_activity_count() > 0, |panel| {
-            panel.child(
-                div()
-                    .id("activity-mark-all-read")
-                    .px(m.spacing5())
-                    .py(m.spacing2())
-                    .cursor_pointer()
-                    .text_size(m.font_caption())
-                    .text_color(theme.accent)
-                    .child("Mark all read")
-                    .on_click(cx.listener(|model, _, _, cx| {
-                        let ids = model
-                            .activity
-                            .snapshot
-                            .events
-                            .iter()
-                            .filter(|event| !event.read)
-                            .map(|event| event.id)
-                            .collect();
-                        model.acknowledge_activity(ids, cx);
-                    })),
-            )
-        })
-        .child(
-            div()
-                .id("activity-history")
-                .flex_1()
-                .min_h(px(0.0))
-                .overflow_y_scroll()
-                .when(model.activity.snapshot.events.is_empty(), |list| {
-                    list.child(
-                        div()
-                            .p(m.spacing5())
-                            .text_color(theme.fg_muted)
-                            .child("No notifications"),
-                    )
-                })
-                .children(model.activity.snapshot.events.iter().map(|event| {
-                    let id = event.id;
-                    let project = model.state.project(event.project).map_or_else(
-                        || "Removed project".to_owned(),
-                        |project| project.name.clone(),
-                    );
-                    div()
-                        .id(gpui::SharedString::from(format!("activity-{id}")))
-                        .flex()
-                        .flex_col()
-                        .gap(m.spacing1())
-                        .px(m.spacing5())
-                        .py(m.spacing3())
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.hover))
-                        .text_size(m.font_body())
-                        .text_color(if event.read { theme.fg_muted } else { theme.fg })
-                        .child(format!(
-                            "{} · {}",
-                            event.provider.name(),
-                            event.kind.description()
-                        ))
-                        .child(
-                            div()
-                                .text_size(m.font_caption())
-                                .text_color(theme.fg_muted)
-                                .child(project),
-                        )
-                        .on_click(cx.listener(move |model, _, window, cx| {
-                            model.navigate_activity(id, cx);
-                            model.focus_active(window, cx);
-                        }))
-                })),
-        )
         .into_any_element()
 }
