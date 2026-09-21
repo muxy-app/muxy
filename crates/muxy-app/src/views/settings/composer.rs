@@ -1,7 +1,6 @@
-use super::{Category, Change, SettingsEvent, SettingsView};
-use gpui::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, div};
+use super::{Category, Change, PickerKind, SettingsEvent, SettingsView};
+use gpui::{AnyElement, Context};
 use muxy_app_core::composer::submission::ImageSubmissionStrategy;
-use muxy_ui::components::ButtonInteraction;
 use muxy_ui::controls::{self, Choice};
 
 pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<AnyElement> {
@@ -66,27 +65,19 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         ));
     }
     if view.matches(Category::Composer, "Dictation language") {
-        rows.push(
-            view.row(
-                "composer-language",
-                "Dictation language",
-                div()
-                    .id("composer-language")
-                    .px(view.metrics.spacing4())
-                    .py(view.metrics.spacing2())
-                    .rounded(view.metrics.radius_md())
-                    .bg(view.theme.surface)
-                    .child(if settings.language.is_empty() {
-                        "System language".to_owned()
-                    } else {
-                        settings.language.clone()
-                    })
-                    .button_interaction(
-                        cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::DictationLanguage)),
-                    )
-                    .into_any_element(),
+        rows.push(view.row(
+            "composer-language",
+            "Dictation language",
+            view.picker(
+                PickerKind::Language,
+                if settings.language.is_empty() {
+                    "System language"
+                } else {
+                    &settings.language
+                },
+                cx,
             ),
-        );
+        ));
     }
     rows
 }

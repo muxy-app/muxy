@@ -38,7 +38,7 @@ impl FontPicker {
         names.dedup();
         let picker = cx.new(|cx| {
             Picker::new(
-                PickerConfig::popover("font-browser", "Search fonts…"),
+                PickerConfig::dropdown("font-browser", "Search fonts…"),
                 theme,
                 metrics,
                 cx,

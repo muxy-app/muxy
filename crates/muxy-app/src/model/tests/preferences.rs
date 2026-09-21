@@ -9,33 +9,6 @@ use crate::views::settings::{Change, SettingsEvent};
 use muxy_core::shortcuts::ShortcutSettings;
 
 #[gpui::test]
-fn dictation_language_selection_updates_the_open_settings_window(cx: &mut TestAppContext) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = settings_window(boot, cx);
-    view.update(cx, |model, cx| {
-        model.composer_language(cx);
-        let Some(Overlay::Native(modal)) = &model.overlay else {
-            panic!("language picker");
-        };
-        modal.update(cx, |modal, cx| {
-            let token = modal.token();
-            modal.feed(
-                token,
-                vec![muxy_app_core::modal::ModalItem::new("fr-FR", "French")],
-                cx,
-            );
-            modal.finish(token, cx);
-            modal.complete(Some("fr-FR"), cx);
-        });
-    });
-    cx.run_until_parked();
-    view.read_with(cx, |model, cx| {
-        assert_eq!(model.settings.composer.language, "fr-FR");
-        assert_eq!(settings_view(model).read(cx).dictation_language(), "fr-FR");
-    });
-}
-
-#[gpui::test]
 fn ghostty_configuration_is_discoverable_and_reload_reports_errors(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let path = boot.state_path.with_file_name("ghostty.conf");

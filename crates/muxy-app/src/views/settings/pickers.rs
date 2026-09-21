@@ -7,6 +7,7 @@ use super::{SettingsEvent, SettingsView};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum PickerKind {
     FontFamily,
+    Language,
     Theme(bool),
 }
 
@@ -14,6 +15,7 @@ impl PickerKind {
     pub(super) fn id(self) -> &'static str {
         match self {
             Self::FontFamily => "font-family",
+            Self::Language => "composer-language",
             Self::Theme(false) => "light-theme",
             Self::Theme(true) => "dark-theme",
         }

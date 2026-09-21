@@ -1,6 +1,132 @@
 use super::*;
 use crate::views::settings::window::SettingsOverlay as Overlay;
 
+fn load_languages(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
+    let picker = view.read_with(cx, |model, cx| {
+        let Some(Overlay::Languages { picker, .. }) = &settings_root(model, cx).overlay else {
+            panic!("language dropdown missing");
+        };
+        picker.clone()
+    });
+    picker.update(cx, |picker, cx| {
+        picker.set_languages(
+            vec![
+                muxy_ui::voice::Language {
+                    id: "en-US".into(),
+                    name: "English (United States)".into(),
+                    preferred: true,
+                },
+                muxy_ui::voice::Language {
+                    id: "fr-FR".into(),
+                    name: "French (France)".into(),
+                    preferred: false,
+                },
+            ],
+            cx,
+        );
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn language_dropdown_stays_in_settings_filters_saves_and_cancels(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = settings_window(boot, cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    click_preference(cx, "settings-category-Composer");
+    click_preference(cx, "settings-disclosure-Composer");
+    click_preference(cx, "settings-subcategory-Voice");
+    click_preference(cx, "settings-picker-composer-language");
+    cx.simulate_input("fr");
+    load_languages(&view, cx);
+    let trigger = cx
+        .debug_bounds("settings-picker-composer-language")
+        .expect("language trigger");
+    let dropdown = cx
+        .debug_bounds("language-browser")
+        .expect("language dropdown");
+    assert!(dropdown.top() >= trigger.bottom() || dropdown.bottom() <= trigger.top());
+    assert!(dropdown.left() <= trigger.right() && dropdown.right() >= trigger.left());
+    assert_eq!(dropdown.size.width, Metrics::new(1.15).scaled(260.0));
+    assert!(
+        (cx.debug_bounds("picker-row-fr-FR")
+            .expect("language row")
+            .size
+            .height
+            - Metrics::new(1.15).scaled(24.0))
+        .abs()
+            <= px(0.5)
+    );
+    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, cx| {
+        assert!(model.overlay.is_none());
+        assert!(settings_root(model, cx).overlay.is_none());
+        assert_eq!(model.settings.composer.language, "fr-FR");
+        assert_eq!(settings_view(model).read(cx).dictation_language(), "fr-FR");
+        let saved =
+            muxy_app_core::settings::Settings::load(&model.path.with_file_name("settings.toml"))
+                .expect("saved settings");
+        assert_eq!(saved.composer.language, "fr-FR");
+    });
+    let settings = view.read_with(cx, |model, _| settings_view(model));
+    cx.update(|window, cx| assert!(settings.read(cx).focus.is_focused(window)));
+    click_preference(cx, "settings-picker-composer-language");
+    load_languages(&view, cx);
+    cx.simulate_keystrokes("z z z enter");
+    view.read_with(cx, |model, cx| {
+        assert!(settings_root(model, cx).overlay.is_some());
+    });
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    view.read_with(cx, |model, cx| {
+        assert!(settings_root(model, cx).overlay.is_none());
+        assert_eq!(model.settings.composer.language, "fr-FR");
+    });
+    click_preference(cx, "settings-picker-composer-language");
+    load_languages(&view, cx);
+    cx.simulate_input("system");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, cx| {
+        assert!(settings_root(model, cx).overlay.is_none());
+        assert!(model.settings.composer.language.is_empty());
+    });
+}
+
+#[gpui::test]
+fn language_dropdown_reports_failed_saves_without_changing_the_preference(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = settings_window(boot, cx);
+    click_preference(cx, "settings-category-Composer");
+    click_preference(cx, "settings-disclosure-Composer");
+    click_preference(cx, "settings-subcategory-Voice");
+    click_preference(cx, "settings-picker-composer-language");
+    load_languages(&view, cx);
+    view.read_with(cx, |model, _| {
+        let path = model.path.with_file_name("settings.toml");
+        if path.is_file() {
+            std::fs::remove_file(&path).expect("remove fixture settings");
+        }
+        std::fs::create_dir(&path).expect("block settings path");
+    });
+    cx.simulate_input("French");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, cx| {
+        assert!(model.settings.composer.language.is_empty());
+        assert!(
+            settings_view(model)
+                .read(cx)
+                .errors
+                .contains_key("composer-language")
+        );
+    });
+}
+
 #[gpui::test]
 fn font_dropdown_filters_saves_and_cancels_without_expanding_the_settings_rows(
     cx: &mut TestAppContext,
@@ -29,6 +155,18 @@ fn font_dropdown_filters_saves_and_cancels_without_expanding_the_settings_rows(
         assert_eq!(model.terminal.font_size, 21.0);
     });
     assert_eq!(cx.debug_bounds("settings-section-Terminal"), Some(section));
+    let dropdown = cx.debug_bounds("font-browser").expect("font dropdown");
+    assert_eq!(dropdown.size.width, Metrics::new(1.15).scaled(260.0));
+    assert!(dropdown.size.height <= Metrics::new(1.15).scaled(260.0));
+    assert!(
+        (cx.debug_bounds("picker-row-font-0")
+            .expect("font row")
+            .size
+            .height
+            - Metrics::new(1.15).scaled(24.0))
+        .abs()
+            <= px(0.5)
+    );
     let font = cx
         .text_system()
         .all_font_names()
@@ -83,7 +221,9 @@ fn font_dropdown_filters_saves_and_cancels_without_expanding_the_settings_rows(
 }
 
 #[gpui::test]
-fn settings_theme_palettes_are_centered_and_update_only_the_selected_mode(cx: &mut TestAppContext) {
+fn settings_theme_dropdowns_are_compact_anchored_and_update_only_the_selected_mode(
+    cx: &mut TestAppContext,
+) {
     let state = AppState::bootstrap().expect("state");
     let (boot, _requests) = stub_boot(state);
     let themes = boot.state_path.with_file_name("themes");
@@ -104,11 +244,13 @@ fn settings_theme_palettes_are_centered_and_update_only_the_selected_mode(cx: &m
         let before = view.read_with(cx, |model, _| model.appearance.clone());
         click_preference(cx, selector);
         let palette = cx.debug_bounds("command-palette").expect("theme palette");
-        assert_eq!(palette.center().x, px(600.0));
-        assert_eq!(palette.top(), px(48.0));
-        assert!(palette.size.width > px(400.0));
+        let trigger = cx.debug_bounds(selector).expect("theme trigger");
+        assert!(palette.top() >= trigger.bottom() || palette.bottom() <= trigger.top());
+        assert!(palette.left() <= trigger.right() && palette.right() >= trigger.left());
+        assert_eq!(palette.size.width, Metrics::new(1.15).scaled(260.0));
+        assert!(palette.size.height <= Metrics::new(1.15).scaled(260.0));
         assert!(cx.debug_bounds("picker-back").is_none());
-        assert!(cx.debug_bounds("settings-dropdown").is_none());
+        assert!(cx.debug_bounds("settings-dropdown").is_some());
         view.read_with(cx, |model, cx| {
             let Some(Overlay::Themes { source, .. }) = &settings_root(model, cx).overlay else {
                 panic!("settings theme picker")

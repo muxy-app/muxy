@@ -6,6 +6,7 @@ use gpui::{
 
 use muxy_ui::command_palette::{CommandPalette, CommandPaletteEvent};
 
+use super::languages::{LanguageEvent, LanguagePicker};
 use super::{Change, PickerRequest, SettingsEvent, SettingsView, pickers};
 use crate::model::AppModel;
 use crate::views::{
@@ -25,12 +26,18 @@ pub(crate) enum SettingsOverlay {
         picker: Entity<FontPicker>,
         source: PickerRequest,
     },
+    Languages {
+        picker: Entity<LanguagePicker>,
+        source: PickerRequest,
+    },
 }
 
 impl SettingsOverlay {
     pub(crate) fn source(&self) -> &PickerRequest {
         match self {
-            Self::Themes { source, .. } | Self::Fonts { source, .. } => source,
+            Self::Themes { source, .. }
+            | Self::Fonts { source, .. }
+            | Self::Languages { source, .. } => source,
         }
     }
 }
@@ -58,9 +65,6 @@ impl SettingsWindow {
                 &view,
                 window,
                 |root: &mut Self, _, event, window, cx| match event {
-                    SettingsEvent::DictationLanguage => {
-                        let _ = root.model.update(cx, AppModel::composer_language);
-                    }
                     SettingsEvent::Change(change) => {
                         let _ = root
                             .model
@@ -122,6 +126,9 @@ impl SettingsWindow {
                     SettingsOverlay::Fonts { picker, .. } => {
                         picker.update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
                     }
+                    SettingsOverlay::Languages { picker, .. } => {
+                        picker.update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
+                    }
                 }
             }
             cx.notify();
@@ -153,6 +160,9 @@ impl SettingsWindow {
         match &self.overlay {
             Some(SettingsOverlay::Themes { picker, .. }) => picker.focus_handle(cx).focus(window),
             Some(SettingsOverlay::Fonts { picker, .. }) => picker.focus_handle(cx).focus(window),
+            Some(SettingsOverlay::Languages { picker, .. }) => {
+                picker.focus_handle(cx).focus(window);
+            }
             None => self.view.read(cx).focus.focus(window),
         }
     }
@@ -209,7 +219,7 @@ impl SettingsWindow {
                 else {
                     return;
                 };
-                let picker = cx.new(|cx| CommandPalette::new(registry, theme, metrics, cx));
+                let picker = cx.new(|cx| CommandPalette::dropdown(registry, theme, metrics, cx));
                 picker.update(cx, |picker, cx| {
                     picker.open_root_page(theme_picker::PAGE_ID, cx);
                 });
@@ -250,8 +260,40 @@ impl SettingsWindow {
                     source: request,
                 });
             }
+            super::PickerKind::Language => self.open_language_picker(request, window, cx),
         }
         cx.notify();
+    }
+
+    fn open_language_picker(
+        &mut self,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let active = view.snapshot.settings.composer.language.clone();
+        let theme = view.theme.clone();
+        let metrics = view.metrics;
+        let picker = cx.new(|cx| LanguagePicker::new(active, theme, metrics, cx));
+        self.overlay_subscription =
+            Some(
+                cx.subscribe_in(&picker, window, |root, _, event, window, cx| {
+                    if let LanguageEvent::Selected(language) = event {
+                        let _ = root.model.update(cx, |model, cx| {
+                            model.change_preference(
+                                Change::Field("composer-language", language.clone()),
+                                cx,
+                            );
+                        });
+                    }
+                    root.dismiss_overlay(window, cx);
+                }),
+            );
+        self.overlay = Some(SettingsOverlay::Languages {
+            picker,
+            source: request,
+        });
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -313,10 +355,10 @@ impl SettingsWindow {
         };
         let picker = match overlay {
             SettingsOverlay::Themes { picker, .. } => picker.clone().into_any_element(),
-            SettingsOverlay::Fonts { picker, source } => {
-                pickers::dropdown(picker.clone().into_any_element(), source.clone(), cx)
-            }
+            SettingsOverlay::Fonts { picker, .. } => picker.clone().into_any_element(),
+            SettingsOverlay::Languages { picker, .. } => picker.clone().into_any_element(),
         };
+        let picker = pickers::dropdown(picker, overlay.source().clone(), cx);
         div()
             .absolute()
             .top_0()

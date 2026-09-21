@@ -222,14 +222,38 @@ impl<A: Clone + 'static> CommandPalette<A> {
         metrics: Metrics,
         cx: &mut Context<Self>,
     ) -> Self {
-        let picker = cx.new(|cx| {
-            Picker::new(
-                PickerConfig::new("command-palette", "Search commands…"),
-                theme,
-                metrics,
-                cx,
-            )
-        });
+        Self::with_config(
+            commands,
+            PickerConfig::new("command-palette", "Search commands…"),
+            theme,
+            metrics,
+            cx,
+        )
+    }
+
+    pub fn dropdown(
+        commands: Registry<A>,
+        theme: Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::with_config(
+            commands,
+            PickerConfig::dropdown("command-palette", "Search commands…"),
+            theme,
+            metrics,
+            cx,
+        )
+    }
+
+    fn with_config(
+        commands: Registry<A>,
+        config: PickerConfig,
+        theme: Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let picker = cx.new(|cx| Picker::new(config, theme, metrics, cx));
         let subscription = cx.subscribe(&picker, |palette: &mut Self, _, event, cx| match event {
             PickerEvent::QueryChanged { query, .. } => {
                 palette.page.query = query.to_string();

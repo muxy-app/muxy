@@ -3,6 +3,7 @@ mod catalog;
 mod composer;
 pub(crate) mod extensions;
 mod keyboard;
+mod languages;
 mod layout;
 mod pickers;
 mod quick_terminal;
@@ -97,7 +98,6 @@ pub(crate) enum Change {
 }
 
 pub(crate) enum SettingsEvent {
-    DictationLanguage,
     Change(Change),
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
@@ -221,6 +221,7 @@ impl SettingsView {
             compact: false,
             picker_anchors: [
                 PickerKind::FontFamily,
+                PickerKind::Language,
                 PickerKind::Theme(false),
                 PickerKind::Theme(true),
             ]

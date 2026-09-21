@@ -24,11 +24,7 @@ use muxy_ui::panel::PanelId;
 use super::AppModel;
 use crate::{
     boot::Work,
-    views::{
-        composer::{Composer, ComposerEvent, PANEL},
-        native_modal::NativeModal,
-        overlays::Overlay,
-    },
+    views::composer::{Composer, ComposerEvent, PANEL},
 };
 
 pub(crate) struct ComposerRuntime {
@@ -552,63 +548,6 @@ impl AppModel {
             });
         })
         .detach();
-    }
-
-    pub(crate) fn composer_language(&mut self, cx: &mut Context<Self>) {
-        let key = self.composer.key.clone();
-        let mut receivers = None;
-        let modal = cx.new(|cx| {
-            let (modal, result, queries) = NativeModal::new(
-                muxy_app_core::modal::ModalOptions {
-                    placeholder: "Choose dictation language…".into(),
-                    empty_label: "No on-device speech languages available".into(),
-                    ..Default::default()
-                },
-                self.theme.clone(),
-                self.metrics,
-                cx,
-            );
-            receivers = Some((result, queries));
-            modal
-        });
-        let Some((result, _queries)) = receivers else {
-            return;
-        };
-        let token = modal.read(cx).token();
-        let weak = modal.downgrade();
-        let focus = modal.focus_handle(cx);
-        let window = self.window;
-        let _ = window.update(cx, |_, window, _| {
-            window.activate_window();
-            focus.focus(window);
-        });
-        self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Native(modal));
-        cx.notify();
-        cx.spawn(async move |model, cx| {
-            let languages = cx.background_executor().spawn(async { muxy_ui::voice::languages() }).await;
-            let _ = weak.update(cx, |modal, cx| {
-                modal.feed(token, languages.into_iter().map(|language| muxy_app_core::modal::ModalItem::new(language.id, language.name)).collect(), cx);
-                modal.finish(token, cx);
-            });
-            let choice = result.recv().await.ok().flatten();
-            let _ = model.update(cx, |model, cx| {
-                if matches!(&model.overlay, Some(Overlay::Native(modal)) if modal.read(cx).token().id == token.id) { model.dismiss_overlay(cx); }
-                if model.composer.key != key { return; }
-                if let Some(choice) = choice {
-                    model.settings.composer.language = choice.id;
-                    model.composer.preferences_dirty = true;
-                    if let Some(view) = &model.composer.view { view.update(cx, |view, _| view.settings = model.settings.composer.clone()); }
-                    model.save_composer(cx);
-                    model.sync_preferences(cx);
-                }
-                if model.overlay.is_none() && let Some(view) = &model.composer.view {
-                    let focus = view.focus_handle(cx);
-                    let _ = model.window.update(cx, |_, window, _| focus.focus(window));
-                    model.focus_requested = false;
-                }
-            });
-        }).detach();
     }
 }
 

@@ -78,7 +78,7 @@ struct PickerLayout {
 }
 
 impl PickerLayout {
-    fn resolve(presentation: PickerPresentation) -> Self {
+    fn resolve(presentation: PickerPresentation, compact: bool) -> Self {
         let mut layout = Self {
             inline_tabs: presentation == PickerPresentation::Popover,
             header_height: 32.0,
@@ -99,6 +99,12 @@ impl PickerLayout {
             layout.outer_item_inset = 0.0;
             layout.row_radius = 0.0;
             layout.list_vertical_inset = 0.0;
+        }
+        if compact {
+            layout.header_height = 28.0;
+            layout.row_height = 24.0;
+            layout.section_height = 20.0;
+            layout.status_height = 40.0;
         }
         layout
     }
@@ -656,6 +662,7 @@ pub struct PickerConfig {
     pub placeholder: SharedString,
     pub footer_actions: Vec<PickerAction>,
     pub width: Option<f32>,
+    pub compact: bool,
     pub completion_on_tab: bool,
     pub confirm_on_click: bool,
 }
@@ -669,6 +676,7 @@ impl PickerConfig {
             placeholder: placeholder.into(),
             footer_actions: Vec::new(),
             width: None,
+            compact: false,
             completion_on_tab: false,
             confirm_on_click: true,
         }
@@ -678,6 +686,14 @@ impl PickerConfig {
         Self {
             presentation: PickerPresentation::Popover,
             ..Self::new(id, placeholder)
+        }
+    }
+
+    pub fn dropdown(id: impl Into<SharedString>, placeholder: impl Into<SharedString>) -> Self {
+        Self {
+            compact: true,
+            width: Some(260.0),
+            ..Self::popover(id, placeholder)
         }
     }
 }
@@ -765,7 +781,7 @@ impl Picker {
             },
         );
         let state = PickerState::new(config.tabs.iter().map(|tab| tab.id.clone()));
-        let row_height = PickerLayout::resolve(config.presentation).row_height;
+        let row_height = PickerLayout::resolve(config.presentation, config.compact).row_height;
         Self {
             config,
             state,
@@ -1117,7 +1133,7 @@ impl Picker {
         let Some(item) = self.state.items().get(index).cloned() else {
             return div().into_any_element();
         };
-        let layout = PickerLayout::resolve(self.config.presentation);
+        let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         match item {
             PickerItem::Section(label) => div()
                 .w_full()
@@ -1288,7 +1304,9 @@ impl Picker {
                         }),
                 );
                 if !swatches.is_empty() {
-                    let diameter = self.metrics.scaled(20.0);
+                    let diameter =
+                        self.metrics
+                            .scaled(if self.config.compact { 12.0 } else { 20.0 });
                     let step = diameter / 2.0;
                     let width = swatches
                         .iter()
@@ -1417,7 +1435,7 @@ impl Picker {
     }
 
     fn render_confirmation(&mut self, row: &PickerRow, cx: &mut Context<Self>) -> AnyElement {
-        let layout = PickerLayout::resolve(self.config.presentation);
+        let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         let action_id = self
             .state
             .inline_action()
@@ -1525,7 +1543,7 @@ impl Picker {
         if self.config.tabs.len() <= 1 {
             return div().into_any_element();
         }
-        let layout = PickerLayout::resolve(self.config.presentation);
+        let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         let mut strip = div()
             .flex()
             .items_center()
@@ -1626,7 +1644,7 @@ impl Picker {
     fn scrollbar_geometry(&self) -> Option<PickerScrollbarGeometry> {
         let viewport = self.scroll.viewport_bounds();
         let visible = f64::from(viewport.size.height);
-        let layout = PickerLayout::resolve(self.config.presentation);
+        let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         let scale = f32::from(self.metrics.scaled(1.0));
         let heights = scrollbar_item_heights(
             layout,
@@ -1705,7 +1723,7 @@ impl Picker {
         let grab = self.scrollbar_drag.unwrap_or(geometry.thumb_length / 2.0);
         let origin = (pointer_y - geometry.track_origin - grab).clamp(px(0.0), travel);
         let offset = geometry.maximum_offset * (origin / travel);
-        let layout = PickerLayout::resolve(self.config.presentation);
+        let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         let heights = scrollbar_item_heights(
             layout,
             f32::from(self.metrics.scaled(1.0)),
@@ -1785,7 +1803,7 @@ impl Render for Picker {
             }
         }
         let viewport = window.viewport_size();
-        let layout = PickerLayout::resolve(self.config.presentation);
+        let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         let mut geometry = PickerMetrics::default().scaled(self.metrics).resolve(
             self.config.presentation,
             f32::from(viewport.width),
@@ -1796,6 +1814,9 @@ impl Render for Picker {
                 (f32::from(viewport.width) - PickerMetrics::default().viewport_margin * 2.0)
                     .max(0.0),
             );
+        }
+        if self.config.compact {
+            geometry.height = geometry.height.min(f32::from(self.metrics.scaled(260.0)));
         }
         geometry.height = self.fitted_height(layout).min(geometry.height);
         let surface = if self.config.presentation == PickerPresentation::Embedded {
@@ -1852,6 +1873,7 @@ impl Render for Picker {
             panel.child(
                 popover::header(&self.theme, self.metrics)
                     .id("picker-detail-header")
+                    .h(self.metrics.scaled(layout.header_height))
                     .cursor_pointer()
                     .hover(|style| style.bg(self.theme.hover))
                     .on_click(cx.listener(|popover, _, window, cx| {
@@ -1869,6 +1891,7 @@ impl Render for Picker {
             let inline_tabs = has_inline_tabs.then(|| self.render_tab_strip(cx));
             panel.child(
                 popover::header(&self.theme, self.metrics)
+                    .h(self.metrics.scaled(layout.header_height))
                     .when(
                         !self.can_navigate_back
                             && self.config.presentation != PickerPresentation::Popover,
@@ -2159,7 +2182,7 @@ mod tests {
 
     #[test]
     fn scrollbar_maps_the_full_unmeasured_logical_list() {
-        let layout = PickerLayout::resolve(PickerPresentation::Popover);
+        let layout = PickerLayout::resolve(PickerPresentation::Popover, false);
         let mut items = vec![PickerItem::section("Providers")];
         items.extend((0..20).map(|index| PickerItem::row(index.to_string())));
         let heights = scrollbar_item_heights(layout, 1.0, &items, None);
@@ -2219,6 +2242,7 @@ mod gpui_regression_tests {
                         footer_actions: Vec::new(),
 
                         width: None,
+                        compact: false,
                         completion_on_tab,
                         confirm_on_click: false,
                     },

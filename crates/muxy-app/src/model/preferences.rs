@@ -215,10 +215,9 @@ impl AppModel {
     }
 
     fn apply_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
-        if matches!(
-            &change,
-            Change::Composer(..) | Change::Field("composer-font" | "composer-line-height", _)
-        ) {
+        let composer = matches!(&change, Change::Composer(..))
+            || matches!(&change, Change::Field(id, _) if id.starts_with("composer-"));
+        if composer {
             return self.apply_composer_preference(change, cx);
         }
         let path = self.path.with_file_name("settings.toml");
@@ -336,11 +335,14 @@ impl AppModel {
                 }
                 settings.save_composer(&path)?;
             }
-            Change::Field(id @ ("composer-font" | "composer-line-height"), value) => {
-                if id == "composer-font" {
-                    settings.composer.font_family = value;
-                } else {
-                    settings.composer.line_height = value.parse()?;
+            Change::Field(
+                id @ ("composer-font" | "composer-line-height" | "composer-language"),
+                value,
+            ) => {
+                match id {
+                    "composer-font" => settings.composer.font_family = value,
+                    "composer-language" => settings.composer.language = value,
+                    _ => settings.composer.line_height = value.parse()?,
                 }
                 settings.save_composer(&path)?;
             }
