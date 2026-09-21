@@ -43,21 +43,6 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .gap(px(8.0))
                 .h_full()
                 .px(px(10.0))
-                .child(
-                    div()
-                        .id("status-composer")
-                        .text_size(m.font_footnote())
-                        .text_color(if model.composer.view.is_some() {
-                            theme.accent
-                        } else {
-                            theme.fg_muted
-                        })
-                        .cursor_pointer()
-                        .child("Composer")
-                        .on_click(
-                            cx.listener(|model, _, window, cx| model.toggle_composer(window, cx)),
-                        ),
-                )
                 .children(model.update_status().map(|status| {
                     div()
                         .id("beta-update-status")
