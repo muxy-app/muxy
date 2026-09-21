@@ -133,11 +133,11 @@ pub(crate) async fn prompt_update(
         )
     } else if compatible {
         format!(
-            "Install Muxy {version} and restart the app? Running terminals will continue. The server will update when all terminal sessions end."
+            "Install Muxy {version} and restart the app? Running terminals will continue. After the app reopens, restart the server from the update status, or let it update when all terminal sessions end."
         )
     } else {
         format!(
-            "Muxy {version} requires a server restart. You can update automatically when all terminal sessions end, or end them now. Your tabs, saved terminal output, and settings will remain."
+            "Muxy {version} requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain."
         )
     };
     let labels: &[&str] = if scheduled {
@@ -175,7 +175,7 @@ pub(crate) async fn prompt_update(
         (false, false, 0) => UpdateChoice::Schedule,
         _ => UpdateChoice::Later,
     };
-    if choice == UpdateChoice::EndSessions && !server_prompt(window, "Update and End All Sessions?", "Update and End Sessions", "All terminal processes on this device will end, including sessions used by other clients. Your tabs, saved terminal output, and settings will remain.", cx).await? {
+    if choice == UpdateChoice::EndSessions && !server_prompt(window, "Update and End All Sessions?", "Update and End Sessions", "All terminal processes on this device will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain.", cx).await? {
         return Ok(UpdateChoice::Later);
     }
     Ok(choice)

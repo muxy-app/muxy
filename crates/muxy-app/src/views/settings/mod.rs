@@ -443,11 +443,6 @@ impl SettingsView {
         cx.notify();
     }
 
-    pub(crate) fn show_server(&mut self, cx: &mut Context<Self>) {
-        self.category = Category::Server;
-        cx.notify();
-    }
-
     fn matches(&self, category: Category, label: &str) -> bool {
         let setting = catalog::SETTINGS
             .iter()

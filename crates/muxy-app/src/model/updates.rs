@@ -1,3 +1,7 @@
+mod status;
+#[cfg(test)]
+mod tests;
+
 use std::time::Duration;
 
 use gpui::{Context, Task};
@@ -5,14 +9,19 @@ use gpui::{Context, Task};
 use super::{AppModel, ConnectionState, Quitting};
 use crate::boot::Work;
 use crate::server::{ServerUpdate, UpdateMode};
-use crate::updater::{Installation, PreparedUpdate};
+use crate::updater::{Installation, PreparedUpdate, Release};
+
+pub(crate) use status::UpdateAction;
 use std::io::Write;
 
 #[derive(Default)]
 pub(super) struct Updater {
     installation: Option<Installation>,
     unavailable: Option<String>,
-    checking: bool,
+    download: AppUpdatePhase,
+    app_error: Option<String>,
+    server_error: Option<String>,
+    pub(crate) anchor: muxy_ui::popover::PopoverAnchor,
     manual: bool,
     pub(super) ready: Option<PreparedUpdate>,
     task: Option<Task<()>>,
@@ -29,6 +38,14 @@ pub(super) struct Updater {
 }
 
 #[derive(Default, Eq, PartialEq)]
+enum AppUpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Downloading,
+}
+
+#[derive(Default, Eq, PartialEq)]
 enum ServerUpdatePhase {
     #[default]
     Idle,
@@ -40,6 +57,10 @@ enum ServerUpdatePhase {
 }
 
 impl Updater {
+    fn checking(&self) -> bool {
+        self.download != AppUpdatePhase::Idle
+    }
+
     pub(super) fn replacing(&self) -> bool {
         matches!(
             self.phase,
@@ -74,8 +95,8 @@ impl AppModel {
                     }
                     model.updates.installation = Some(installation);
                     if let Some(server) = model.updates.server.clone() { model.receive_server_info(server, cx); }
+                    model.check_for_updates(false, cx);
                     model.start_server_update_poll(cx);
-                    if model.updates.ready.is_none() { model.check_for_updates(false, cx); }
                     model.updates.poll = Some(cx.spawn(async move |model, cx| {
                         loop {
                             cx.background_executor()
@@ -93,31 +114,6 @@ impl AppModel {
                 Err(error) => model.updates.unavailable = Some(error.to_string()),
             });
         }));
-    }
-
-    pub(crate) fn update_status(&self) -> Option<String> {
-        if self.quitting == Quitting::Update {
-            Some("Installing update…".into())
-        } else if self.updates.phase == ServerUpdatePhase::Failed {
-            Some("Update paused · Retry…".into())
-        } else if self.updates.scheduled {
-            Some(format!(
-                "Waiting for {} terminal sessions to end…",
-                self.updates.sessions
-            ))
-        } else if self.updates.retry_preparation.is_some() {
-            Some("Waiting for another update…".into())
-        } else if self.updates.ready.is_some() {
-            Some("Update available…".into())
-        } else if self.updates.replacing() {
-            Some("Updating server…".into())
-        } else if self.server_update_pending() {
-            Some("Server update pending…".into())
-        } else if self.updates.checking {
-            Some("Checking for updates…".into())
-        } else {
-            None
-        }
     }
 
     pub(super) fn expect_server_restart(&mut self) {
@@ -140,29 +136,36 @@ impl AppModel {
         }
     }
 
-    pub(crate) fn show_update_status(&mut self, cx: &mut Context<Self>) {
-        if self.updates.phase != ServerUpdatePhase::Failed
-            && self.updates.ready.is_none()
-            && self.server_update_pending()
-        {
-            self.open_settings_for_update(cx);
-        } else {
-            self.check_for_updates(true, cx);
-        }
-    }
-
-    fn open_settings_for_update(&mut self, cx: &mut Context<Self>) {
-        self.show_settings(cx);
-        if let Some(settings) = &self.settings_window {
-            settings
-                .view
-                .update(cx, crate::views::settings::SettingsView::show_server);
-        }
-    }
-
     pub(super) fn update_connect_failed(&mut self) {
         if self.updates.replacing() {
             self.updates.phase = ServerUpdatePhase::Failed;
+            self.updates.server_error = Some("Could not reconnect to the updated server.".into());
+        }
+    }
+
+    pub(super) fn server_update_control_started(&mut self, restart: bool) {
+        if restart {
+            self.updates.phase = ServerUpdatePhase::Replacing;
+            self.updates.server_error = None;
+        }
+    }
+
+    pub(super) fn server_update_control_finished(
+        &mut self,
+        result: &Result<(), muxy_client::ClientError>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.updates.replacing() {
+            return;
+        }
+        match result {
+            Ok(()) => self.updates.phase = ServerUpdatePhase::Reconnecting,
+            Err(error) => {
+                self.updates.phase = ServerUpdatePhase::Failed;
+                let message = format!("Could not restart the server: {error}");
+                self.updates.server_error = Some(message.clone());
+                self.fail(message, cx);
+            }
         }
     }
 
@@ -177,7 +180,7 @@ impl AppModel {
         }
     }
 
-    fn server_update_pending(&self) -> bool {
+    pub(crate) fn server_update_pending(&self) -> bool {
         self.updates
             .server
             .as_ref()
@@ -213,6 +216,8 @@ impl AppModel {
             || self.quitting != Quitting::Idle
             || self.updates.phase != ServerUpdatePhase::Idle
             || self.close_prompt.is_some()
+            || self.updates.checking()
+            || (self.updates.scheduled && self.updates.app_error.is_some())
             || !self.pending.is_empty()
             || !self.discarding.is_empty()
             || self.server_preferences.control_busy
@@ -247,9 +252,8 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         self.updates.server = Some(server);
-        if self.updates.phase != ServerUpdatePhase::Failed {
-            self.updates.phase = ServerUpdatePhase::Idle;
-        }
+        self.updates.phase = ServerUpdatePhase::Idle;
+        self.updates.server_error = None;
         if let Some(installation) = self.updates.installation.clone() {
             let socket = self.path.with_file_name("server.sock");
             cx.background_executor()
@@ -285,6 +289,8 @@ impl AppModel {
                 } else if self.updates.scheduled
                     && status.sessions == 0
                     && self.close_prompt.is_none()
+                    && !self.updates.checking()
+                    && self.updates.app_error.is_none()
                 {
                     self.updates.mode = Some(UpdateMode::WhenIdle);
                     self.begin_update(cx);
@@ -294,10 +300,9 @@ impl AppModel {
             }
             Err(error) => {
                 self.updates.phase = ServerUpdatePhase::Failed;
-                self.fail(
-                    format!("Update paused: {error}. Use the update status to retry."),
-                    cx,
-                );
+                let message = format!("Could not update the server: {error}");
+                self.updates.server_error = Some(message.clone());
+                self.fail(message, cx);
                 self.ensure_visible(cx);
             }
         }
@@ -307,24 +312,11 @@ impl AppModel {
     }
 
     pub(crate) fn check_for_updates(&mut self, manual: bool, cx: &mut Context<Self>) {
-        if self.quitting != Quitting::Idle {
-            return;
-        }
-        if manual && self.updates.phase == ServerUpdatePhase::Failed {
-            self.updates.phase = ServerUpdatePhase::Idle;
-            if self.connection == ConnectionState::Disconnected {
-                self.updates.phase = ServerUpdatePhase::Reconnecting;
-                self.connect_to_server(true, cx);
-            }
-        }
-        if self.updates.ready.is_some() {
-            if manual {
-                self.confirm_update(cx);
-            }
+        if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
             return;
         }
         self.updates.manual |= manual;
-        if self.updates.checking {
+        if self.updates.checking() {
             return;
         }
         let Some(installation) = self.updates.installation.clone() else {
@@ -340,41 +332,116 @@ impl AppModel {
             self.updates.manual = false;
             return;
         };
-        self.updates.checking = true;
-        let record = self.path.with_file_name("pending-update.json");
-        let prepare = cx.background_executor().spawn(async move {
-            let update = installation.prepare()?;
-            if let Some(update) = &update {
-                update.persist(&record, false)?;
-            }
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(update)
-        });
+        self.updates.download = AppUpdatePhase::Checking;
+        self.updates.app_error = None;
+        let check = cx
+            .background_executor()
+            .spawn(async move { Installation::latest() });
         self.updates.task = Some(cx.spawn(async move |model, cx| {
-            let result = prepare.await;
+            let result = check.await;
+            let release = model.update(cx, |model, cx| model.receive_update_release(result, cx));
+            let Ok(Some(release)) = release else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move { installation.prepare(release) })
+                .await;
             let _ = model.update(cx, |model, cx| {
-                model.updates.checking = false;
-                let manual = std::mem::take(&mut model.updates.manual);
-                match result {
-                    Ok(update) => {
-                        model.updates.ready = update;
-                        if manual {
-                            if model.updates.ready.is_some() {
-                                model.confirm_update(cx);
-                            } else {
-                                model
-                                    .update_message("You’re running the latest Muxy 2.x beta.", cx);
-                            }
-                        }
-                    }
-                    Err(error) if manual => {
-                        model.update_message(&format!("Could not check for updates: {error}"), cx);
-                    }
-                    Err(_) => {}
-                }
-                cx.notify();
+                model.finish_update_check(result.map(Some), cx);
             });
         }));
         cx.notify();
+    }
+
+    fn receive_update_release(
+        &mut self,
+        result: crate::updater::Result<Option<Release>>,
+        cx: &mut Context<Self>,
+    ) -> Option<Release> {
+        match result {
+            Ok(Some(release))
+                if self
+                    .updates
+                    .ready
+                    .as_ref()
+                    .is_none_or(|ready| release.is_newer_than(&ready.version)) =>
+            {
+                self.updates.download = AppUpdatePhase::Downloading;
+                cx.notify();
+                Some(release)
+            }
+            Ok(_) => {
+                self.finish_update_check(Ok(None), cx);
+                None
+            }
+            Err(error) => {
+                self.finish_update_check(Err(error), cx);
+                None
+            }
+        }
+    }
+
+    fn finish_update_check(
+        &mut self,
+        result: crate::updater::Result<Option<PreparedUpdate>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.updates.download = AppUpdatePhase::Idle;
+        let manual = std::mem::take(&mut self.updates.manual);
+        let result = result.and_then(|update| {
+            let Some(update) = update else {
+                return Ok(());
+            };
+            if let Err(error) = update.persist(
+                &self.path.with_file_name("pending-update.json"),
+                self.updates.scheduled,
+            ) {
+                self.discard_update(update, cx);
+                return Err(error);
+            }
+            if let Some(previous) = self.updates.ready.replace(update) {
+                self.discard_update(previous, cx);
+            }
+            self.updates.retry_preparation = None;
+            self.updates.mode = None;
+            Ok(())
+        });
+        match result {
+            Ok(()) => {
+                self.updates.app_error = None;
+                if manual {
+                    if self.updates.ready.is_some() {
+                        self.confirm_update(cx);
+                    } else {
+                        self.update_message("You’re running the latest Muxy 2.x beta.", cx);
+                    }
+                }
+            }
+            Err(error) => {
+                let message =
+                    format!("Could not check for or download the latest app update: {error}");
+                self.updates.app_error = Some(message.clone());
+                if manual {
+                    self.update_message(&message, cx);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn discard_update(&self, update: PreparedUpdate, cx: &Context<Self>) {
+        let socket = self.path.with_file_name("server.sock");
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(error) = update.discard(&socket) {
+                    let _ = writeln!(
+                        std::io::stderr(),
+                        "Could not remove superseded update: {error}"
+                    );
+                }
+            })
+            .detach();
     }
 
     fn update_message(&self, message: &str, cx: &mut Context<Self>) {
@@ -393,8 +460,9 @@ impl AppModel {
         });
     }
 
-    fn confirm_update(&mut self, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() || self.quitting != Quitting::Idle {
+    pub(super) fn confirm_update(&mut self, cx: &mut Context<Self>) {
+        if self.close_prompt.is_some() || self.quitting != Quitting::Idle || self.updates.checking()
+        {
             return;
         }
         let Some(update) = &self.updates.ready else {
@@ -411,6 +479,7 @@ impl AppModel {
         let sessions = self.updates.sessions;
         let window = self.window;
         let generation = self.generation;
+        self.dismiss_overlay(cx);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = crate::views::confirm::prompt_update(
                 window, &version, compatible, scheduled, sessions, cx,
@@ -456,7 +525,13 @@ impl AppModel {
         match update.persist(&self.path.with_file_name("pending-update.json"), scheduled) {
             Ok(()) => {
                 self.updates.scheduled = scheduled;
-                self.updates.phase = ServerUpdatePhase::Idle;
+                if scheduled {
+                    self.updates.phase = ServerUpdatePhase::Idle;
+                } else {
+                    self.updates.manual = false;
+                    self.updates.retry_preparation = None;
+                    self.updates.mode = None;
+                }
                 self.reconcile_server_update(cx);
                 cx.notify();
             }
@@ -467,6 +542,9 @@ impl AppModel {
     pub(super) fn begin_update(&mut self, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle
             || self.updates.ready.is_none()
+            || self.updates.checking()
+            || self.updates.replacing()
+            || self.server_preferences.control_busy
             || !self.preferences_before_quit(cx)
         {
             return;
@@ -478,7 +556,7 @@ impl AppModel {
         if self.updates.server.is_none() {
             return;
         }
-        self.updates.phase = ServerUpdatePhase::Idle;
+        self.updates.app_error = None;
         self.quitting = Quitting::Update;
         if !self.send(Work::Flush, cx) {
             self.quitting = Quitting::Idle;
@@ -535,7 +613,7 @@ impl AppModel {
             }
             Err(error) => {
                 self.quitting = Quitting::Idle;
-                self.updates.phase = ServerUpdatePhase::Failed;
+                self.updates.app_error = Some(format!("Could not prepare the app update: {error}"));
                 if matches!(&error, muxy_client::ClientError::Io(error) if error.kind() == std::io::ErrorKind::InvalidData)
                 {
                     self.updates.ready = None;
@@ -570,7 +648,8 @@ impl AppModel {
                 }
                 Err(error) => {
                     model.quitting = Quitting::Idle;
-                    model.updates.phase = ServerUpdatePhase::Failed;
+                    model.updates.app_error =
+                        Some(format!("Could not install the app update: {error}"));
                     model.connect(cx);
                     model.fail(format!("Could not install the beta: {error}"), cx);
                 }

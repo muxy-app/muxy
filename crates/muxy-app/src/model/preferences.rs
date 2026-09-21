@@ -481,6 +481,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         self.server_preferences.control_busy = false;
+        self.server_update_control_finished(&result, cx);
         match result {
             Ok(()) => {
                 self.disconnect(cx);
@@ -529,6 +530,9 @@ impl AppModel {
                                 },
                                 cx,
                             );
+                            if model.server_preferences.control_busy {
+                                model.server_update_control_started(restart);
+                            }
                             model.sync_preferences(cx);
                         }
                         Ok(false) => {}

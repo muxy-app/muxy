@@ -3,7 +3,7 @@ use gpui::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, StatefulInteractiveElement, Styled, canvas, div, px,
 };
-use muxy_ui::components::IconGlyph;
+use muxy_ui::components::{ButtonInteraction, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::popover::PopoverAnchor;
 
@@ -43,16 +43,7 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .gap(px(8.0))
                 .h_full()
                 .px(px(10.0))
-                .children(model.update_status().map(|status| {
-                    div()
-                        .id("beta-update-status")
-                        .flex_none()
-                        .text_size(m.font_footnote())
-                        .text_color(theme.fg_muted)
-                        .cursor_pointer()
-                        .child(status)
-                        .on_click(cx.listener(|model, _, _, cx| model.show_update_status(cx)))
-                }))
+                .children(update_control(model, cx))
                 .children(super::disconnected::status(model, cx).map(|status| {
                     div()
                         .debug_selector(|| "project-connection-status".into())
@@ -60,6 +51,66 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                         .child(status)
                 })),
         )
+}
+
+fn update_control(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyElement> {
+    let details = model.update_details();
+    if details.is_none() && !matches!(model.overlay, Some(super::overlays::Overlay::Updates)) {
+        model.update_anchor().set(None);
+        return None;
+    }
+    let m = model.metrics;
+    let theme = &model.theme;
+    let color = if details.as_ref().is_some_and(|details| details.failed) {
+        theme.warning
+    } else {
+        theme.accent
+    };
+    let label = details.map_or_else(|| "Updates".into(), |details| details.label);
+    let anchor = model.update_anchor();
+    Some(
+        div()
+            .id("beta-update-status")
+            .debug_selector(|| "beta-update-status".into())
+            .relative()
+            .flex()
+            .flex_none()
+            .items_center()
+            .h_full()
+            .gap(px(6.0))
+            .pl(px(8.0))
+            .border_l_1()
+            .border_color(theme.border)
+            .text_color(theme.fg_muted)
+            .cursor_pointer()
+            .hover(|style| style.text_color(theme.fg))
+            .focus(|style| style.bg(theme.hover))
+            .button_interaction(
+                cx.listener(|model, _, window, cx| model.toggle_update_popover(window, cx)),
+            )
+            .child(
+                canvas(
+                    move |bounds, _, _| anchor.set(Some(bounds)),
+                    |_, (), _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+            .child(
+                div()
+                    .size(m.scaled(5.0))
+                    .flex_none()
+                    .rounded_full()
+                    .bg(color),
+            )
+            .child(
+                div()
+                    .text_size(m.font_footnote())
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(label),
+            )
+            .into_any_element(),
+    )
 }
 
 fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {

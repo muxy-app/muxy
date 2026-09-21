@@ -36,6 +36,7 @@ mod views {
     pub(crate) mod tab_strip;
     pub(crate) mod theme_picker;
     pub(crate) mod titlebar;
+    pub(crate) mod updates;
     pub(crate) mod terminal {
         pub(crate) mod clipboard;
         pub(crate) mod colors;

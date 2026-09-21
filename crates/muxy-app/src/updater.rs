@@ -23,13 +23,26 @@ pub(crate) fn build_number(version: &str) -> Option<u64> {
 }
 
 #[derive(Debug, PartialEq)]
-struct Release {
-    version: String,
+pub(crate) struct Release {
+    pub(crate) version: String,
     url: String,
     size: u64,
 }
 
 impl Release {
+    #[cfg(test)]
+    pub(crate) fn fixture(version: &str) -> Self {
+        Self {
+            version: version.into(),
+            url: String::new(),
+            size: 1,
+        }
+    }
+
+    pub(crate) fn is_newer_than(&self, version: &str) -> bool {
+        build_number(&self.version) > build_number(version)
+    }
+
     fn parse(bytes: &[u8], current: &str, platform: &str, arch: &str) -> Result<Option<Self>> {
         let metadata: serde_json::Value = serde_json::from_slice(bytes)?;
         if metadata["schema"].as_u64() != Some(1) {
@@ -77,6 +90,7 @@ fn latest(
     let mut bytes = Vec::new();
     client
         .get(FEED)
+        .header(reqwest::header::CACHE_CONTROL, "no-cache")
         .send()?
         .error_for_status()?
         .take(65_537)

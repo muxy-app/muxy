@@ -8,6 +8,7 @@ mod preferences;
 mod quick_terminal;
 mod tabs;
 mod updates;
+pub(crate) use updates::UpdateAction;
 mod voice;
 mod webviews;
 

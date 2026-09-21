@@ -2,7 +2,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{Result, build_number, client, download, latest, replacement};
+use super::{Release, Result, build_number, client, download, latest, replacement};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Installation {
@@ -61,16 +61,18 @@ impl Installation {
         Ok(installation)
     }
 
-    pub(crate) fn prepare(&self) -> Result<Option<PreparedUpdate>> {
+    pub(crate) fn latest() -> Result<Option<Release>> {
         let client = client()?;
         let (platform, arch) = if cfg!(target_arch = "aarch64") {
             ("macos-aarch64", "arm64")
         } else {
             ("macos-x86_64", "x86_64")
         };
-        let Some(release) = latest(&client, platform, arch)? else {
-            return Ok(None);
-        };
+        latest(&client, platform, arch)
+    }
+
+    pub(crate) fn prepare(&self, release: Release) -> Result<PreparedUpdate> {
+        let client = client()?;
         let staging = tempfile::Builder::new()
             .prefix(".muxy-beta-update-")
             .tempdir_in(
@@ -96,12 +98,12 @@ impl Installation {
         {
             return Err("The server version does not match the signed app".into());
         }
-        Ok(Some(PreparedUpdate {
+        Ok(PreparedUpdate {
             version: release.version,
             installation: self.clone(),
             staging: staging.keep(),
             build,
-        }))
+        })
     }
 
     pub(crate) fn restore(&self, path: &Path) -> Result<Option<(PreparedUpdate, bool)>> {
@@ -249,6 +251,30 @@ impl Installation {
 }
 
 impl PreparedUpdate {
+    pub(crate) fn discard(&self, socket: &Path) -> Result<()> {
+        if !self.installation.owns_staging(&self.staging) {
+            return Ok(());
+        }
+        let _server_lock = match crate::server::lock_for_update(socket) {
+            Ok(lock) => lock,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        let _bundle_lock = replacement::lock(
+            self.installation
+                .bundle
+                .parent()
+                .ok_or("Missing application directory")?,
+        )?;
+        if self.installation.owns_staging(&self.staging)
+            && !self.staging.join("retained.json").exists()
+            && !self.staging.join("previous.app").exists()
+        {
+            std::fs::remove_dir_all(&self.staging)?;
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn fixture() -> Result<Self> {
         let staging = tempfile::tempdir()?;
@@ -485,6 +511,38 @@ mod smoke;
 #[cfg(test)]
 mod retirement_tests {
     use super::*;
+
+    #[test]
+    fn discarded_downloads_respect_installation_locks_and_recovery_files() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let staging = root.path().join(".muxy-beta-update-superseded");
+        std::fs::create_dir(&staging)?;
+        let update = PreparedUpdate {
+            version: "2.0.0-beta-10".into(),
+            installation: Installation {
+                bundle: root.path().join("Muxy Beta.app"),
+                team: "TESTTEAM00".into(),
+            },
+            staging: staging.clone(),
+            build: None,
+        };
+        let socket = root.path().join("server.sock");
+        let lock = crate::server::lock_for_update(&socket)?;
+        update.discard(&socket)?;
+        assert!(staging.exists());
+        drop(lock);
+        std::fs::write(staging.join("retained.json"), b"{}")?;
+        update.discard(&socket)?;
+        assert!(staging.exists());
+        std::fs::remove_file(staging.join("retained.json"))?;
+        std::fs::create_dir(staging.join("previous.app"))?;
+        update.discard(&socket)?;
+        assert!(staging.exists());
+        std::fs::remove_dir(staging.join("previous.app"))?;
+        update.discard(&socket)?;
+        assert!(!staging.exists());
+        Ok(())
+    }
 
     #[test]
     fn only_committed_unused_bundles_are_retired() -> Result<()> {
