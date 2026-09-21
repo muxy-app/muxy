@@ -280,7 +280,12 @@ pub fn segmented(
                 })
                 .when(choice.enabled, |element| {
                     element
-                        .focus(|focus| focus.bg(theme.accent_soft))
+                        .focus(|focus| {
+                            focus
+                                .bg(theme.accent)
+                                .text_color(theme.accent_foreground)
+                                .font_weight(FontWeight::MEDIUM)
+                        })
                         .button_interaction(move |_, window, cx| handler(&value, window, cx))
                 })
                 .child(SharedString::from(choice.label.clone())),
