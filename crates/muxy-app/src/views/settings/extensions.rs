@@ -25,6 +25,50 @@ enum Tab {
     Marketplace,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Mutation {
+    Install,
+    Enable,
+    Disable,
+    Remove,
+    LoadUnpacked,
+    Reload,
+    ResetPermissions,
+}
+
+impl Mutation {
+    fn button(self) -> &'static str {
+        match self {
+            Self::Install => "extension-install",
+            Self::Enable | Self::Disable => "extension-enable",
+            Self::Remove => "extension-remove",
+            Self::LoadUnpacked => "extension-load",
+            Self::Reload => "extension-reload",
+            Self::ResetPermissions => "extension-reset-permissions",
+        }
+    }
+
+    fn label(self, idle: &str) -> &str {
+        match self {
+            Self::Install => "Installing…",
+            Self::Enable => "Enabling…",
+            Self::Disable => "Disabling…",
+            Self::Remove if idle == "Unload folder" => "Unloading…",
+            Self::Remove => "Uninstalling…",
+            Self::LoadUnpacked => "Loading…",
+            Self::Reload => "Reloading…",
+            Self::ResetPermissions => "Resetting…",
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Loading {
+    Search,
+    More,
+    Details(String),
+}
+
 pub(crate) struct ExtensionsView {
     model: WeakEntity<AppModel>,
     theme: Theme,
@@ -36,8 +80,9 @@ pub(crate) struct ExtensionsView {
     has_next: bool,
     query: String,
     revision: u64,
-    busy: bool,
-    mutating: bool,
+    loading: Option<Loading>,
+    mutation: Option<Mutation>,
+    completed: Option<Mutation>,
     error: Option<String>,
     selected: Option<Value>,
     folder: Option<muxy_ui::dialog::FolderPicker>,
@@ -59,6 +104,7 @@ impl ExtensionsView {
             if matches!(event, InputEvent::Changed) {
                 view.query = view.search.read(cx).text().to_owned();
                 view.selected = None;
+                view.completed = None;
                 if view.tab == Tab::Marketplace {
                     view.fetch(true, cx);
                 }
@@ -80,8 +126,9 @@ impl ExtensionsView {
             has_next: false,
             query: String::new(),
             revision: 0,
-            busy: false,
-            mutating: false,
+            loading: None,
+            mutation: None,
+            completed: None,
             error: None,
             selected: None,
             folder: None,
@@ -98,7 +145,7 @@ impl ExtensionsView {
     }
 
     fn fetch(&mut self, reset: bool, cx: &mut Context<Self>) {
-        if self.mutating {
+        if self.mutation.is_some() {
             return;
         }
         self.revision += 1;
@@ -106,10 +153,15 @@ impl ExtensionsView {
         if reset {
             self.page = 1;
             self.items.clear();
+            self.has_next = false;
         }
-        let page = self.page;
+        let page = if reset { 1 } else { self.page + 1 };
         let query = self.query.clone();
-        self.busy = true;
+        self.loading = Some(if reset {
+            Loading::Search
+        } else {
+            Loading::More
+        });
         self.error = None;
         cx.spawn(async move |view, cx| {
             cx.background_executor()
@@ -126,11 +178,12 @@ impl ExtensionsView {
                 if view.revision != revision {
                     return;
                 }
-                view.busy = false;
+                view.loading = None;
                 match result {
                     Ok(result) => {
                         view.has_next = result["links"]["next"].is_string();
                         if let Some(items) = result["data"].as_array() {
+                            view.page = page;
                             view.items.extend(items.clone());
                         } else {
                             view.error = Some("Invalid marketplace response".into());
@@ -146,9 +199,12 @@ impl ExtensionsView {
     }
 
     fn details(&mut self, name: String, cx: &mut Context<Self>) {
+        if self.loading.is_some() || self.mutation.is_some() {
+            return;
+        }
         self.revision += 1;
         let revision = self.revision;
-        self.busy = true;
+        self.loading = Some(Loading::Details(name.clone()));
         self.error = None;
         cx.spawn(async move |view, cx| {
             let result = crate::extensions::io::run(move || marketplace::detail(&name)).await;
@@ -156,7 +212,7 @@ impl ExtensionsView {
                 if view.revision != revision {
                     return;
                 }
-                view.busy = false;
+                view.loading = None;
                 match result {
                     Ok(details) => view.selected = Some(details),
                     Err(error) => view.error = Some(error),
@@ -165,10 +221,11 @@ impl ExtensionsView {
             });
         })
         .detach();
+        cx.notify();
     }
 
     fn load_unpacked(&mut self, cx: &mut Context<Self>) {
-        if self.folder.is_some() || self.mutating {
+        if self.folder.is_some() || self.mutation.is_some() {
             return;
         }
         let (sender, receiver) = async_channel::bounded(1);
@@ -181,7 +238,8 @@ impl ExtensionsView {
         ) {
             Ok(folder) => {
                 self.folder = Some(folder);
-                self.mutating = true;
+                self.mutation = Some(Mutation::LoadUnpacked);
+                self.error = None;
             }
             Err(error) => {
                 self.error = Some(error.to_string());
@@ -203,7 +261,7 @@ impl ExtensionsView {
                 Ok(Some(Err(error))) | Err(error) => Err(error.to_string()),
             };
             let _ = view.update(cx, |view, cx| {
-                view.mutating = false;
+                view.mutation = None;
                 match result {
                     Ok(()) => {
                         view.tab = Tab::Installed;
@@ -219,7 +277,7 @@ impl ExtensionsView {
     }
 
     fn install(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.mutating {
+        if self.loading.is_some() || self.mutation.is_some() {
             return;
         }
         let Some(details) = self.selected.clone() else {
@@ -232,7 +290,7 @@ impl ExtensionsView {
             return;
         };
         let directory = model.read(cx).extensions.registry.directory();
-        self.mutating = true;
+        self.mutation = Some(Mutation::Install);
         self.error = None;
         cx.spawn(async move |view, cx| {
             let installed_name = name.clone();
@@ -256,7 +314,7 @@ impl ExtensionsView {
     }
 
     fn finish_install(&mut self, name: &str, result: Result<(), String>, cx: &mut Context<Self>) {
-        self.mutating = false;
+        self.mutation = None;
         match result {
             Ok(()) => {
                 let details = self.model.upgrade().and_then(|model| {
@@ -292,7 +350,7 @@ impl ExtensionsView {
     }
 
     fn change_extension(&mut self, name: &str, enabled: Option<bool>, cx: &mut Context<Self>) {
-        if self.busy || self.mutating {
+        if self.loading.is_some() || self.mutation.is_some() {
             return;
         }
         let name = name.to_owned();
@@ -305,7 +363,12 @@ impl ExtensionsView {
                 })
                 .unwrap_or_default()
         };
-        self.mutating = true;
+        self.mutation = Some(match enabled {
+            Some(true) => Mutation::Enable,
+            Some(false) => Mutation::Disable,
+            None => Mutation::Remove,
+        });
+        self.error = None;
         cx.spawn(async move |view, cx| {
             let mut prevented = false;
             for surface in checks {
@@ -333,7 +396,7 @@ impl ExtensionsView {
                 }
             };
             let _ = view.update(cx, |view, cx| {
-                view.mutating = false;
+                view.mutation = None;
                 match result {
                     Ok(()) => {
                         view.error = None;
@@ -350,25 +413,72 @@ impl ExtensionsView {
     }
 
     fn reset_permissions(&mut self, owner: &str, cx: &mut Context<Self>) {
-        if self.mutating {
+        if self.mutation.is_some() {
             return;
         }
         let task = self
             .model
             .update(cx, |model, cx| model.reset_extension_permissions(owner, cx));
-        self.mutating = true;
+        self.mutation = Some(Mutation::ResetPermissions);
+        self.completed = None;
+        self.error = None;
         cx.spawn(async move |view, cx| {
             let result = match task {
                 Ok(task) => task.await,
                 Err(error) => Err(error.to_string()),
             };
             let _ = view.update(cx, |view, cx| {
-                view.mutating = false;
+                view.mutation = None;
+                view.completed = result.is_ok().then_some(Mutation::ResetPermissions);
                 view.error = result.err();
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        if self.mutation.is_some() {
+            return;
+        }
+        let task = self.model.update(cx, AppModel::reload_extensions);
+        self.mutation = Some(Mutation::Reload);
+        self.completed = None;
+        self.error = None;
+        cx.spawn(async move |view, cx| {
+            let result = match task {
+                Ok(task) => task.await,
+                Err(error) => Err(error.to_string()),
+            };
+            let _ = view.update(cx, |view, cx| {
+                view.mutation = None;
+                view.completed = result.is_ok().then_some(Mutation::Reload);
+                view.error = result.err();
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn button_label<'a>(&self, id: &str, idle: &'a str) -> &'a str {
+        if let Some(mutation) = self.mutation
+            && mutation.button() == id
+        {
+            return mutation.label(idle);
+        }
+        match self.completed {
+            Some(Mutation::Reload) if id == "extension-reload" => return "Reloaded",
+            Some(Mutation::ResetPermissions) if id == "extension-reset-permissions" => {
+                return "Permissions reset";
+            }
+            _ => {}
+        }
+        match &self.loading {
+            Some(Loading::More) if id == "extension-more" => "Loading…",
+            Some(Loading::Details(name)) if id.strip_prefix("details-") == Some(name) => "Loading…",
+            _ => idle,
+        }
     }
 
     fn button(
@@ -378,16 +488,18 @@ impl ExtensionsView {
         action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
         cx: &Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
+        let id = id.into();
         controls::button(
             Style {
                 theme: &self.theme,
                 metrics: &self.metrics,
             },
-            &id.into(),
-            label,
-            !self.mutating,
+            &id,
+            self.button_label(&id, label),
+            self.mutation.is_none() && self.loading.is_none(),
             cx.listener(move |view, _, window, cx| {
-                if !view.mutating {
+                if view.mutation.is_none() && view.loading.is_none() {
+                    view.completed = None;
                     action(view, window, cx);
                     cx.notify();
                 }
@@ -460,17 +572,6 @@ impl Render for ExtensionsView {
                                     .iter()
                                     .map(|error| form::note(self.style(), error, true)),
                             )
-                            .when(self.busy || self.mutating, |body| {
-                                body.child(form::note(
-                                    self.style(),
-                                    if self.mutating {
-                                        "Applying changes…"
-                                    } else {
-                                        "Loading extensions…"
-                                    },
-                                    false,
-                                ))
-                            })
                             .child(body),
                     ),
             )
@@ -487,14 +588,15 @@ impl ExtensionsView {
     }
 
     fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        if self.mutating {
+        if self.mutation.is_some() {
             return;
         }
         self.tab = tab;
         self.selected = None;
         self.error = None;
+        self.completed = None;
         self.revision += 1;
-        self.busy = false;
+        self.loading = None;
         if tab == Tab::Marketplace {
             self.fetch(true, cx);
         }
@@ -570,7 +672,7 @@ impl ExtensionsView {
             Choice::new("marketplace", "Browse"),
         ]
         .map(|mut choice| {
-            choice.enabled = !self.mutating;
+            choice.enabled = self.mutation.is_none();
             choice
         });
         controls::segmented(
@@ -609,10 +711,7 @@ impl ExtensionsView {
             .child(self.button(
                 "extension-reload",
                 "Reload",
-                |view, _, cx| {
-                    let _ = view.model.update(cx, AppModel::reload_extensions);
-                    cx.notify();
-                },
+                |view, _, cx| view.reload(cx),
                 cx,
             ))
     }
@@ -956,9 +1055,10 @@ impl ExtensionsView {
             .hover(|row| row.bg(self.theme.hover))
             .focus(|row| row.bg(self.theme.accent_soft))
             .button_interaction(cx.listener(move |view, _, _, cx| {
-                if !view.mutating {
+                if view.mutation.is_none() {
                     view.selected = Some(details.clone());
                     view.error = None;
+                    view.completed = None;
                     cx.notify();
                 }
             }))
@@ -992,6 +1092,13 @@ impl ExtensionsView {
 
     fn marketplace_body(&self, cx: &mut Context<Self>) -> gpui::Div {
         let mut body = div().flex().flex_col().gap(self.metrics.spacing6());
+        if self.loading == Some(Loading::Search) {
+            body = body.child(
+                div()
+                    .text_color(self.theme.fg_muted)
+                    .child("Loading extensions…"),
+            );
+        }
         for item in &self.items {
             let name = item["name"].as_str().unwrap_or("").to_owned();
             let selected = name.clone();
@@ -1030,18 +1137,17 @@ impl ExtensionsView {
                     )),
             );
         }
-        if !self.busy && self.items.is_empty() && self.error.is_none() {
+        if self.loading.is_none() && self.items.is_empty() && self.error.is_none() {
             body = body.child(self.empty_state(
                 "No extensions found",
                 "Try a different search to find extensions.",
             ));
         }
-        if self.has_next && !self.busy {
+        if self.has_next {
             body = body.child(div().flex().justify_center().child(self.button(
                 "extension-more",
                 "Load more",
                 |view, _, cx| {
-                    view.page += 1;
                     view.fetch(false, cx);
                 },
                 cx,

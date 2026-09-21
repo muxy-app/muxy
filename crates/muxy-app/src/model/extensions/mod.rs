@@ -322,28 +322,37 @@ impl AppModel {
         )
     }
 
-    pub(crate) fn reload_extensions(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload_extensions(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<Result<(), String>> {
         let checks = self.extension_close_checks(None, cx);
         let epoch = self.extensions.epoch;
         cx.spawn(async move |model, cx| {
             for view in checks {
                 let Ok(check) = view.update(cx, Webview::before_close) else {
-                    return;
+                    return Err(
+                        "The extension view could not be closed. Try reloading again.".into(),
+                    );
                 };
                 if check.recv().await.unwrap_or(true) {
-                    return;
+                    return Err(
+                        "The extension kept an open view. Save or close it before reloading."
+                            .into(),
+                    );
                 }
             }
-            let _ = model.update(cx, |model, cx| {
-                if model.extensions.epoch != epoch {
-                    return;
-                }
-                model.stop_extensions(cx);
-                model.refresh_installed_extensions(cx);
-                cx.notify();
-            });
+            let task = model
+                .update(cx, |model, cx| {
+                    if model.extensions.epoch != epoch {
+                        return Err("Extensions changed while reloading. Try again.".to_owned());
+                    }
+                    model.stop_extensions(cx);
+                    Ok(model.refresh_installed_extensions_task(cx))
+                })
+                .map_err(|error| error.to_string())??;
+            task.await
         })
-        .detach();
     }
 
     fn stop_extension(&mut self, owner: &str, cx: &mut Context<Self>) {
