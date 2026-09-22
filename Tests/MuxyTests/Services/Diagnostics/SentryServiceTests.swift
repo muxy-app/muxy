@@ -97,8 +97,8 @@ struct SentryServiceTests {
         #expect(!service.needsPrompt)
     }
 
-    @Test("environment is derived from the injected defaults' update channel")
-    func startContextEnvironmentReflectsChannel() {
+    @Test("environment reflects the installed build, not a previously selected update channel")
+    func startContextEnvironmentReflectsVersion() {
         var capturedEnvironments: [String] = []
         let (service, defaults, suiteName) = makeService(
             dsn: "https://public@example.ingest.sentry.io/1",
@@ -106,10 +106,11 @@ struct SentryServiceTests {
         )
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(UpdateChannel.beta.rawValue, forKey: UpdateChannel.storageKey)
+        defaults.set("beta", forKey: "muxy.update.channel")
         service.setConsent(.allowed)
 
-        #expect(capturedEnvironments == ["beta"])
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        #expect(capturedEnvironments == [version?.contains("-beta") == true ? "beta" : "production"])
     }
 
     private func makeService(

@@ -2,39 +2,28 @@ import AppKit
 import SwiftUI
 
 struct GeneralSettingsView: View {
-    @AppStorage(UpdateChannel.storageKey)
-    private var updateChannelRaw = UpdateChannel.stable.rawValue
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
     private var confirmQuit = true
     @AppStorage(ProfilerService.enabledKey)
     private var profilerEnabled = false
     @State private var sentry = SentryService.shared
-    @State private var updateService = UpdateService.shared
 
     var body: some View {
         SettingsContainer {
             SettingsSection(
                 "Updates",
                 footer: """
-                The Beta channel ships every change merged to main and may be unstable. Switch back to Stable to \
-                receive only tagged releases.
+                Muxy 2 Beta is a separate app that can live next to this version and you can try it out. Install \
+                Muxy Beta.app from the linked release; it will not replace this app or share its settings and sessions.
                 """
             ) {
-                SettingsRow("Update channel") {
-                    Picker("", selection: channelBinding) {
-                        ForEach(UpdateChannel.allCases) { channel in
-                            Text(L10n.resource(key: channel.displayName)).tag(channel)
-                        }
+                SettingsRow("Try Muxy 2 Beta") {
+                    Link(destination: HelpLinks.v2BetaReleasesURL) {
+                        Text(L10n.resource("View beta releases"))
                     }
-                    .labelsHidden()
-                    .settingsControl()
+                    .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
+                    .foregroundStyle(SettingsStyle.accent)
                 }
-                SettingsToggleRow(
-                    label: L10n.resource("Install Downloaded Updates on Quit"),
-                    isOn: automaticUpdatesBinding
-                )
-                .disabled(!updateService.allowsAutomaticUpdates)
-                .help(L10n.string("Automatic updates are unavailable for this configuration."))
             }
 
             SettingsSection("Quit") {
@@ -114,22 +103,5 @@ struct GeneralSettingsView: View {
         )
         let targetURL = FileManager.default.fileExists(atPath: fileURL.path) ? fileURL : directoryURL
         NSWorkspace.shared.activateFileViewerSelecting([targetURL])
-    }
-
-    private var channelBinding: Binding<UpdateChannel> {
-        Binding(
-            get: { UpdateChannel(rawValue: updateChannelRaw) ?? .stable },
-            set: { newValue in
-                updateChannelRaw = newValue.rawValue
-                UpdateService.shared.channel = newValue
-            }
-        )
-    }
-
-    private var automaticUpdatesBinding: Binding<Bool> {
-        Binding(
-            get: { updateService.automaticallyDownloadsUpdates },
-            set: { updateService.setAutomaticallyDownloadsUpdates($0) }
-        )
     }
 }

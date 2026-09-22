@@ -46,10 +46,11 @@ final class SentryService {
 
     func start() {
         guard hasDSN, let dsn, consent == .allowed, !started else { return }
+        let releaseName = Self.releaseName
         let context = SentryStartContext(
             dsn: dsn,
-            releaseName: Self.releaseName,
-            environment: Self.environment(from: defaults)
+            releaseName: releaseName,
+            environment: releaseName?.contains("-beta") == true ? "beta" : "production"
         )
         starter(context)
         started = true
@@ -95,12 +96,6 @@ final class SentryService {
 
     private static var releaseName: String? {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    }
-
-    private static func environment(from defaults: UserDefaults) -> String {
-        let channel = defaults.string(forKey: UpdateChannel.storageKey)
-            .flatMap { UpdateChannel(rawValue: $0) } ?? .stable
-        return channel == .beta ? "beta" : "production"
     }
 
     private static let defaultStarter: (SentryStartContext) -> Void = { context in

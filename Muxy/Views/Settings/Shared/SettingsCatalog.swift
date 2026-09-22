@@ -149,15 +149,6 @@ enum SettingsCatalog {
 
     static let items: [SettingsCatalogItem] = [
         SettingsCatalogItem(
-            key: UpdateChannel.storageKey,
-            title: "Update Channel",
-            description: "Controls whether Muxy receives stable releases or beta builds.",
-            category: .general,
-            section: "Updates",
-            defaultValue: UpdateChannel.stable.rawValue,
-            aliases: ["release", "beta"]
-        ),
-        SettingsCatalogItem(
             key: ProfilerService.enabledKey,
             title: "Record Anonymous Performance Samples",
             description: "Records local CPU and memory samples for diagnosing long-running performance issues.",
@@ -359,8 +350,8 @@ enum SettingsCatalog {
             key: UpdateService.automaticallyUpdatesKey,
             title: "Install Downloaded Updates on Quit",
             description: "Downloads updates in the background and installs them when Muxy quits.",
-            category: .general,
-            section: "Updates",
+            category: .json,
+            section: "JSON",
             defaultValue: true
         ),
         SettingsCatalogItem(

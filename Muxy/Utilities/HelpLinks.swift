@@ -7,6 +7,7 @@ enum HelpLinks {
     static let mobileRepoURL = url("https://github.com/muxy-app/mobile")
     static let discordURL = url("https://discord.gg/4eMXAmJQ2n")
     static let issuesURL = url("https://github.com/muxy-app/muxy/issues")
+    static let v2BetaReleasesURL = url("https://github.com/muxy-app/muxy/releases?q=v2.0.0-beta-")
 
     private static func url(_ string: String) -> URL {
         URL(string: string) ?? URL(fileURLWithPath: "/")
