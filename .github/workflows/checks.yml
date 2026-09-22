@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s "/Applications/Xcode_$(grep '^xcode ' .tool-versions | awk '{print $2}').app"
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       - name: Read tool versions
         run: |
