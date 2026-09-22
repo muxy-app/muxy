@@ -1,9 +1,8 @@
+mod form;
+
 use super::overlays::Overlay;
 use crate::model::{AppModel, git::Repository};
-use gpui::{
-    AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
-};
+use gpui::{AppContext, Context, Entity, Focusable, Window};
 use muxy_protocol::{
     GitAction, OperationId, ProjectId, ServerPath, WorktreeAction, WorktreeIntent,
 };
@@ -51,6 +50,8 @@ pub(crate) struct Form {
     directory: Entity<TextInput>,
     base: Entity<TextInput>,
     subscriptions: Vec<gpui::Subscription>,
+    error: Option<String>,
+    suggested_directory: String,
 }
 impl AppModel {
     pub(crate) fn open_git_picker(
@@ -192,11 +193,16 @@ impl AppModel {
                 }
                 Kind::Worktrees => {
                     for worktree in &repository.worktrees {
+                        let target = self
+                            .state
+                            .project(picker.project)
+                            .and_then(|parent| worktree_project(parent, worktree));
                         let mut row = PickerRow::new(
                             path_key(&worktree.directory),
-                            worktree
-                                .branch
-                                .clone()
+                            target
+                                .and_then(|id| self.state.project(id))
+                                .map(|project| project.name.clone())
+                                .or_else(|| worktree.branch.clone())
                                 .unwrap_or_else(|| "Detached HEAD".into()),
                         );
                         row.detail = Some(
@@ -205,7 +211,7 @@ impl AppModel {
                                 .into(),
                         );
                         row.trailing = Some(
-                            if worktree.primary {
+                            if target == Some(picker.project) || worktree.primary {
                                 "Primary"
                             } else if worktree.registered.is_some() {
                                 "Registered"
@@ -214,7 +220,18 @@ impl AppModel {
                             }
                             .into(),
                         );
-                        row.disabled = busy || worktree.primary;
+                        row.current = target == Some(self.state.current_project().id);
+                        row.disabled = busy
+                            || worktree.bare
+                            || worktree.prunable
+                            || (worktree.primary && target.is_none());
+                        if !worktree.primary && target.is_some_and(|id| id != picker.project) {
+                            row.actions.push(
+                                PickerAction::new("remove-worktree", "Remove Worktree…")
+                                    .destructive(true)
+                                    .disabled(busy),
+                            );
+                        }
                         items.push(row);
                     }
                 }
@@ -329,12 +346,20 @@ impl AppModel {
                 else {
                     return;
                 };
-                if worktree.primary {
-                    return;
-                }
-                if let Some(id) = worktree.registered {
+                if let Some(id) = self
+                    .state
+                    .project(project)
+                    .and_then(|parent| worktree_project(parent, worktree))
+                {
+                    if action == Some("remove-worktree") && id != project {
+                        self.git_request(id, GitAction::InspectRemoval, cx);
+                        return;
+                    }
                     self.dismiss_overlay(cx);
                     self.select_project(id, cx);
+                    return;
+                }
+                if worktree.primary || worktree.bare || worktree.prunable {
                     return;
                 }
                 GitAction::Worktree(WorktreeIntent {
@@ -468,7 +493,11 @@ impl AppModel {
             .parent()
             .unwrap_or(&record.directory)
             .join(format!("{}-worktree", record.name));
-        let branch = cx.new(|cx| TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx));
+        let suggested_directory = directory.to_string_lossy().into_owned();
+        let branch = cx.new(|cx| {
+            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_placeholder("feature-x")
+        });
         let directory = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_text(directory.to_string_lossy().into_owned())
@@ -481,7 +510,7 @@ impl AppModel {
             subscriptions.push(cx.subscribe(input, |model, _, event, cx| match event {
                 InputEvent::Submitted => model.submit_git_form(cx),
                 InputEvent::Cancelled => model.dismiss_overlay(cx),
-                InputEvent::Changed => (),
+                InputEvent::Changed => model.git_form_changed(cx),
             }));
         }
         let focus = branch.focus_handle(cx);
@@ -496,6 +525,8 @@ impl AppModel {
             directory,
             base,
             subscriptions,
+            error: None,
+            suggested_directory,
         }));
         if worktree {
             self.git_request(project, GitAction::Branches, cx);
@@ -503,9 +534,40 @@ impl AppModel {
         cx.notify();
     }
 
-    fn toggle_worktree_branch(&mut self, cx: &mut Context<Self>) {
+    fn set_worktree_branch_mode(&mut self, existing: bool, cx: &mut Context<Self>) {
         if let Some(Overlay::GitForm(form)) = &mut self.overlay {
-            form.existing = !form.existing;
+            form.existing = existing;
+            form.error = None;
+            form.chooser = None;
+        }
+        cx.notify();
+    }
+
+    fn git_form_changed(&mut self, cx: &mut Context<Self>) {
+        if let Some(Overlay::GitForm(form)) = &mut self.overlay {
+            form.error = None;
+            if form.worktree && form.directory.read(cx).text() == form.suggested_directory {
+                let branch = form.branch.read(cx).text().trim();
+                if let Some(project) = self.state.project(form.project) {
+                    let suffix = if branch.is_empty() {
+                        "worktree".to_owned()
+                    } else {
+                        branch.replace(['/', '\\'], "-")
+                    };
+                    let path = project
+                        .directory
+                        .parent()
+                        .unwrap_or(&project.directory)
+                        .join(format!("{}-{suffix}", project.name))
+                        .to_string_lossy()
+                        .into_owned();
+                    if path != form.suggested_directory {
+                        form.suggested_directory.clone_from(&path);
+                        form.directory
+                            .update(cx, |input, cx| input.set_text(path, cx));
+                    }
+                }
+            }
         }
         cx.notify();
     }
@@ -531,6 +593,11 @@ impl AppModel {
         } else {
             form.branch.clone()
         };
+        let return_focus = if base {
+            form.branch.focus_handle(cx)
+        } else {
+            form.directory.focus_handle(cx)
+        };
         let subscription = cx.subscribe(&chooser, move |model, chooser, event, cx| {
             match event {
                 PickerEvent::Confirmed(selection) => {
@@ -538,13 +605,18 @@ impl AppModel {
                     if let Some(Overlay::GitForm(form)) = &mut model.overlay {
                         form.chooser = None;
                     }
-                    let focus = target.focus_handle(cx);
-                    let _ = model.window.update(cx, |_, window, _| focus.focus(window));
+                    model.git_form_changed(cx);
+                    let _ = model
+                        .window
+                        .update(cx, |_, window, _| return_focus.focus(window));
                 }
                 PickerEvent::Dismissed => {
                     if let Some(Overlay::GitForm(form)) = &mut model.overlay {
                         form.chooser = None;
                     }
+                    let _ = model
+                        .window
+                        .update(cx, |_, window, _| return_focus.focus(window));
                 }
                 PickerEvent::QueryChanged { query, .. } => {
                     model.worktree_branch_choices(project, &chooser, query.as_ref(), base, cx);
@@ -591,7 +663,14 @@ impl AppModel {
         let Some(Overlay::GitForm(form)) = &self.overlay else {
             return;
         };
-        if form.project != project || form.base.read(cx).text() != "HEAD" {
+        if form.project != project {
+            return;
+        }
+        if let Some(chooser) = &form.chooser {
+            let query = chooser.read(cx).query().to_string();
+            self.worktree_branch_choices(project, chooser, &query, !form.existing, cx);
+        }
+        if form.base.read(cx).text() != "HEAD" {
             return;
         }
         if let Some(branch) = self.git.projects.get(&project).and_then(|r| {
@@ -610,9 +689,28 @@ impl AppModel {
         let Some(Overlay::GitForm(form)) = &self.overlay else {
             return;
         };
+        if !self.session_listing_ready()
+            || self
+                .git
+                .projects
+                .get(&form.project)
+                .is_some_and(Repository::busy)
+        {
+            return;
+        }
         let branch = form.branch.read(cx).text().trim().to_owned();
-        if branch.is_empty() {
-            self.fail("Enter a branch name".into(), cx);
+        let error = if branch.is_empty() {
+            Some("Enter a branch name.")
+        } else if form.worktree && form.directory.read(cx).text().trim().is_empty() {
+            Some("Choose a location for the worktree.")
+        } else {
+            None
+        };
+        if let Some(error) = error {
+            if let Some(Overlay::GitForm(form)) = &mut self.overlay {
+                form.error = Some(error.into());
+            }
+            cx.notify();
             return;
         }
         let project = form.project;
@@ -644,90 +742,18 @@ impl AppModel {
     }
 }
 
-pub(crate) fn render_form(
-    form: &Form,
-    model: &AppModel,
-    window: &Window,
-    cx: &mut Context<AppModel>,
-) -> gpui::AnyElement {
-    if let Some(chooser) = &form.chooser {
-        return chooser.clone().into_any_element();
+pub(crate) use form::render as render_form;
+
+fn worktree_project(
+    parent: &muxy_app_core::Project,
+    worktree: &muxy_protocol::GitWorktree,
+) -> Option<ProjectId> {
+    use std::os::unix::ffi::OsStrExt;
+    if parent.directory.as_os_str().as_bytes() == worktree.directory.0 {
+        Some(parent.id)
+    } else {
+        worktree.registered
     }
-    let mut view = muxy_ui::popover::surface(&model.theme, model.metrics)
-        .id("git-form-scroll")
-        .debug_selector(|| "git-form".into())
-        .w(model
-            .metrics
-            .scaled(520.0)
-            .min(window.viewport_size().width - px(16.0)))
-        .max_h((window.viewport_size().height - model.metrics.scaled(80.0)).max(px(0.0)))
-        .overflow_y_scroll()
-        .p(model.metrics.spacing8())
-        .gap(model.metrics.spacing5())
-        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(if form.worktree {
-            "New Worktree"
-        } else {
-            "New Branch"
-        })
-        .child("Branch name")
-        .child(form.branch.clone());
-    if form.worktree {
-        view = view.child(
-            div()
-                .id("worktree-branch-mode")
-                .cursor_pointer()
-                .child(if form.existing {
-                    "Use existing branch · Switch to new branch"
-                } else {
-                    "Create new branch · Switch to existing branch"
-                })
-                .on_click(cx.listener(|model, _, _, cx| model.toggle_worktree_branch(cx))),
-        );
-        if form.existing {
-            view = view.child(
-                div()
-                    .id("choose-existing-branch")
-                    .cursor_pointer()
-                    .child("Choose existing branch…")
-                    .on_click(
-                        cx.listener(|model, _, _, cx| model.choose_worktree_branch(false, cx)),
-                    ),
-            );
-        } else {
-            view = view.child("Base branch").child(form.base.clone()).child(
-                div()
-                    .id("choose-base-branch")
-                    .cursor_pointer()
-                    .child("Choose base branch…")
-                    .on_click(
-                        cx.listener(|model, _, _, cx| model.choose_worktree_branch(true, cx)),
-                    ),
-            );
-        }
-        view = view.child("Directory").child(form.directory.clone());
-    }
-    if let Some(error) = model
-        .git
-        .projects
-        .get(&form.project)
-        .and_then(|r| r.error.clone())
-    {
-        view = view.child(div().text_color(model.theme.danger).child(error));
-    }
-    let busy = model
-        .git
-        .projects
-        .get(&form.project)
-        .is_some_and(Repository::busy);
-    view.child(
-        div()
-            .id("git-submit")
-            .cursor_pointer()
-            .child(if busy { "Creating…" } else { "Create" })
-            .on_click(cx.listener(|model, _, _, cx| model.submit_git_form(cx))),
-    )
-    .into_any_element()
 }
 
 fn picker_items(mut rows: Vec<PickerRow>, query: &str, group_by_status: bool) -> Vec<PickerItem> {
@@ -775,6 +801,39 @@ fn path_key(path: &ServerPath) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_targets_use_the_parent_directory_even_for_linked_checkouts() {
+        use std::os::unix::ffi::OsStrExt;
+        let directory = tempfile::tempdir().expect("linked checkout");
+        let mut state = muxy_app_core::AppState::bootstrap().expect("state");
+        let id = state
+            .add_project(directory.path().to_owned())
+            .expect("parent");
+        let parent = state.project(id).expect("parent");
+        let mut worktree = muxy_protocol::GitWorktree {
+            directory: ServerPath(b"/different-primary-checkout".to_vec()),
+            head: None,
+            branch: Some("main".into()),
+            primary: true,
+            locked: false,
+            bare: false,
+            detached: false,
+            prunable: false,
+            registered: None,
+        };
+        assert_eq!(worktree_project(parent, &worktree), None);
+        worktree.primary = false;
+        worktree.directory = ServerPath(parent.directory.as_os_str().as_bytes().to_vec());
+        assert_eq!(worktree_project(parent, &worktree), Some(parent.id));
+        worktree.primary = true;
+        assert_eq!(worktree_project(parent, &worktree), Some(parent.id));
+        let child = ProjectId::new();
+        worktree.directory = ServerPath(b"/another-linked-checkout".to_vec());
+        worktree.primary = false;
+        worktree.registered = Some(child);
+        assert_eq!(worktree_project(parent, &worktree), Some(child));
+    }
 
     #[test]
     fn changes_are_grouped_by_searchable_status() {

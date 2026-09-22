@@ -1,3 +1,6 @@
+pub(crate) mod icons;
+pub(crate) mod logo;
+
 use muxy_core::shortcuts::ShortcutId;
 
 use gpui::prelude::FluentBuilder;
@@ -40,7 +43,6 @@ enum Target {
 
 pub(crate) struct Editor {
     target: Target,
-    field: Field,
     input: Entity<TextInput>,
     position: Point<Pixels>,
     error: Option<String>,
@@ -68,11 +70,12 @@ impl AppModel {
         else {
             return;
         };
-        let text = match field {
-            Field::Name => project.name.clone(),
-            Field::Icon => project.icon.clone().unwrap_or_default(),
-        };
-        self.open_metadata_editor(Target::Project(id), field, text, position, window, cx);
+        if matches!(field, Field::Icon) {
+            self.open_project_icons(id, position, window, cx);
+            return;
+        }
+        let text = project.name.clone();
+        self.open_metadata_editor(Target::Project(id), text, position, window, cx);
     }
 
     pub(crate) fn open_tab_editor(
@@ -86,13 +89,12 @@ impl AppModel {
             return;
         };
         let text = tab.title(self.state.window().active_pane).to_owned();
-        self.open_metadata_editor(Target::Tab(id), Field::Name, text, position, window, cx);
+        self.open_metadata_editor(Target::Tab(id), text, position, window, cx);
     }
 
     fn open_metadata_editor(
         &mut self,
         target: Target,
-        field: Field,
         text: String,
         position: Point<Pixels>,
         window: &mut Window,
@@ -115,7 +117,6 @@ impl AppModel {
         }));
         self.overlay = Some(Overlay::ProjectEditor(Editor {
             target,
-            field,
             input,
             position,
             error: None,
@@ -128,17 +129,10 @@ impl AppModel {
             return;
         };
         let target = editor.target;
-        let field = editor.field;
         let text = editor.input.read(cx).text().trim().to_owned();
         let saved = match target {
             Target::Tab(id) => self.edit_tab(|state| state.set_tab_title(id, Some(text)), cx),
-            Target::Project(id) => self.edit_project(
-                |state| match field {
-                    Field::Name => state.rename_project(id, &text),
-                    Field::Icon => state.set_project_icon(id, (!text.is_empty()).then_some(text)),
-                },
-                cx,
-            ),
+            Target::Project(id) => self.edit_project(|state| state.rename_project(id, &text), cx),
         };
         if saved {
             self.dismiss_overlay(cx);
@@ -257,14 +251,15 @@ pub(crate) fn render(
     let theme = &model.theme;
     let origin = clamp(
         editor.position,
-        size(px(300.0), px(190.0)),
+        size(m.scaled(320.0), m.scaled(220.0)),
         window.viewport_size(),
     );
     muxy_ui::popover::surface(theme, m)
         .absolute()
         .left(origin.x)
         .top(origin.y)
-        .w(px(300.0))
+        .w(m.scaled(320.0)
+            .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
         .gap(m.spacing4())
         .p(m.spacing5())
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -272,19 +267,17 @@ pub(crate) fn render(
             div()
                 .text_size(m.font_body())
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(match (editor.target, editor.field) {
-                    (Target::Tab(_), _) => "Rename Tab",
-                    (_, Field::Name) => "Rename Project",
-                    (_, Field::Icon) => "Change Icon",
+                .child(match editor.target {
+                    Target::Tab(_) => "Rename Tab",
+                    Target::Project(_) => "Rename Project",
                 }),
         )
-        .child(editor.input.clone())
-        .children(matches!(editor.field, Field::Icon).then(|| {
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child("Enter one emoji, or leave empty to use the default.")
-        }))
+        .child(muxy_ui::controls::text_field(
+            muxy_ui::controls::Style { theme, metrics: &m },
+            "project-editor",
+            &editor.input,
+            None,
+        ))
         .children(editor.error.as_ref().map(|error| {
             div()
                 .text_size(m.font_footnote())
@@ -292,19 +285,33 @@ pub(crate) fn render(
                 .child(error.clone())
         }))
         .child(
-            div().flex().justify_end().child(
-                div()
-                    .id("save-project-editor")
-                    .cursor_pointer()
-                    .px(m.spacing4())
-                    .py(m.spacing2())
-                    .rounded(m.radius_md())
-                    .bg(theme.accent)
-                    .text_color(theme.accent_foreground)
-                    .text_size(m.font_body())
-                    .child("Save")
-                    .on_click(cx.listener(|model, _, _, cx| model.submit_project_editor(cx))),
-            ),
+            div()
+                .flex()
+                .justify_end()
+                .gap(m.spacing3())
+                .child(muxy_ui::controls::button(
+                    muxy_ui::controls::Style { theme, metrics: &m },
+                    "project-editor-cancel",
+                    "Cancel",
+                    true,
+                    cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
+                ))
+                .child(
+                    div()
+                        .id("save-project-editor")
+                        .cursor_pointer()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .h(m.control_medium())
+                        .px(m.spacing5())
+                        .rounded(m.radius_md())
+                        .bg(theme.accent)
+                        .text_color(theme.accent_foreground)
+                        .text_size(m.font_body())
+                        .child("Save")
+                        .on_click(cx.listener(|model, _, _, cx| model.submit_project_editor(cx))),
+                ),
         )
         .into_any_element()
 }

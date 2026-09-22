@@ -49,7 +49,9 @@ impl AppModel {
             })
         });
         let Some(target) = target else {
-            self.error = Some("Open a live terminal before starting dictation.".into());
+            self.set_banner_error(Some(
+                "Open a live terminal before starting dictation.".into(),
+            ));
             cx.notify();
             return;
         };
@@ -133,7 +135,7 @@ impl AppModel {
                 super::composer::deliver(&worker, target.generation, target.channel, bytes).await
             {
                 let _ = model.update(cx, |model, cx| {
-                    model.error = Some(format!("Dictation delivery failed: {error}"));
+                    model.set_banner_error(Some(format!("Dictation delivery failed: {error}")));
                     cx.notify();
                 });
             }

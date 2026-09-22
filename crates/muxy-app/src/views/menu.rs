@@ -36,6 +36,8 @@ pub(crate) enum Command {
     FocusProject(bool),
     SortProjects(muxy_app_core::settings::ProjectOrder),
     Worktrees(muxy_app_core::ProjectId),
+    NewWorktree(muxy_app_core::ProjectId),
+    NewProjectTab(muxy_app_core::ProjectId),
     RemoveWorktree(muxy_app_core::ProjectId),
     Dismiss,
     ExistingSessions(muxy_app_core::ProjectId),
@@ -51,6 +53,8 @@ pub(crate) enum Command {
     RevealPath(muxy_app_core::ProjectId),
     EditProject(muxy_app_core::ProjectId, super::project_editor::Field),
     ProjectColor(muxy_app_core::ProjectId),
+    ProjectLogo(muxy_app_core::ProjectId),
+    RemoveProjectLogo(muxy_app_core::ProjectId),
     RemoveProject(muxy_app_core::ProjectId),
 }
 
@@ -207,6 +211,7 @@ impl AppModel {
         }
     }
 
+    #[allow(clippy::too_many_lines, reason = "Exhaustive menu command dispatch")]
     fn perform_menu(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         let position = match &self.overlay {
             Some(Overlay::Menu(menu)) => menu.position,
@@ -247,6 +252,14 @@ impl AppModel {
                 cx.notify();
             }
             Command::Dismiss => {}
+            Command::NewWorktree(id) => {
+                self.open_git_form(id, true, cx);
+                return;
+            }
+            Command::NewProjectTab(id) => {
+                self.select_project(id, cx);
+                self.new_tab(cx);
+            }
             Command::Worktrees(id) => {
                 self.git.worktrees_anchor.set(Some(gpui::Bounds::new(
                     position,
@@ -295,6 +308,10 @@ impl AppModel {
             Command::ProjectColor(id) => {
                 self.open_project_colors(id, position, window, cx);
                 return;
+            }
+            Command::ProjectLogo(id) => self.choose_project_logo(id, cx),
+            Command::RemoveProjectLogo(id) => {
+                self.edit_project(|state| state.set_project_logo(id, None), cx);
             }
             Command::RemoveProject(id) => self.confirm_remove_project(id, cx),
         }

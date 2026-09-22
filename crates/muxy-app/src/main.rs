@@ -11,6 +11,7 @@ mod server;
 mod theme;
 mod updater;
 mod views {
+    pub(crate) mod banners;
     pub(crate) mod cached;
     pub(crate) mod command_palette;
     pub(crate) mod composer;

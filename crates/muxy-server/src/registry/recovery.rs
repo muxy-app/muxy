@@ -166,6 +166,7 @@ fn deletion_and_cancellation_resume_after_their_durable_marker() -> TestResult {
             home: false,
             name: "Delete".into(),
             icon: None,
+            logo: None,
             color: "#808080".into(),
             directory: ServerPath(profile.0.as_os_str().as_bytes().into()),
             kind: None,

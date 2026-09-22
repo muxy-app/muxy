@@ -84,6 +84,7 @@ impl State {
             directory: ServerPath(home.as_os_str().as_bytes().into()),
             name: "Home".into(),
             icon: None,
+            logo: None,
             color: "#808080".into(),
             kind: None,
             parent_id: None,
@@ -312,7 +313,21 @@ impl Catalog {
         let mut entries = state.projects.values().filter(|project| {
             !state.deleting.contains(&project.id) && after.is_none_or(|after| project.id > after)
         });
-        let projects: Vec<_> = entries.by_ref().take(CATALOG_PAGE_SIZE).cloned().collect();
+        let mut bytes = 0;
+        let mut projects = Vec::new();
+        let mut entries = entries.by_ref().peekable();
+        while projects.len() < CATALOG_PAGE_SIZE {
+            let Some(project) = entries.peek() else {
+                break;
+            };
+            let size = project.logo.as_ref().map_or(0, |logo| logo.len()) + 8192;
+            if bytes + size > 4 * 1024 * 1024 {
+                break;
+            }
+            bytes += size;
+            projects.push((*project).clone());
+            entries.next();
+        }
         let next = entries
             .next()
             .and_then(|_| projects.last().map(|project| project.id));

@@ -203,7 +203,7 @@ impl AppModel {
                         self.webviews.panes.insert(*id, surface);
                     }
                     Err(error) => {
-                        self.error = Some(error);
+                        self.set_banner_error(Some(error));
                     }
                 }
             }

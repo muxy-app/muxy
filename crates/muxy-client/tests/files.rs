@@ -25,6 +25,7 @@ fn register(client: &Client, path: &std::path::Path) -> Result<ProjectId, Box<dy
             directory: ServerPath(path.as_os_str().as_bytes().to_vec()),
             name: "Files".into(),
             icon: None,
+            logo: None,
             color: "#ffffff".into(),
             kind: None,
             parent_id: None,

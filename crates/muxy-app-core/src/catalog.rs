@@ -14,6 +14,7 @@ impl Project {
             home: self.home,
             name: self.name.clone(),
             icon: self.icon.clone(),
+            logo: self.logo.clone(),
             color: self.color.to_string(),
             directory: ServerPath(self.directory.as_os_str().as_bytes().into()),
             kind: self.kind,
@@ -25,6 +26,7 @@ impl Project {
         self.home = descriptor.home;
         self.name.clone_from(&descriptor.name);
         self.icon.clone_from(&descriptor.icon);
+        self.logo.clone_from(&descriptor.logo);
         self.color = descriptor.color.parse()?;
         self.directory =
             PathBuf::from(std::ffi::OsString::from_vec(descriptor.directory.0.clone()));
@@ -155,6 +157,7 @@ impl AppState {
                 home: descriptor.home,
                 name: String::new(),
                 icon: None,
+                logo: None,
                 color: crate::Color::default(),
                 server_id: ServerId::local(),
                 directory: PathBuf::new(),

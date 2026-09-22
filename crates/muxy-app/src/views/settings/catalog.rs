@@ -157,6 +157,27 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: "Interface",
     },
     Setting {
+        id: "auto-expand-worktrees",
+        label: "Expand worktrees when switching projects",
+        description: "Reveal worktrees when selecting a project in Project Focused.",
+        category: Category::Appearance,
+        section: "Interface",
+    },
+    Setting {
+        id: "worktree-order",
+        label: "Order worktrees by recent use",
+        description: "List recently selected worktrees first, after the primary worktree.",
+        category: Category::Appearance,
+        section: "Interface",
+    },
+    Setting {
+        id: "worktree-unread",
+        label: "Show unread worktree indicators",
+        description: "Show unread completion counts beside worktrees.",
+        category: Category::Appearance,
+        section: "Interface",
+    },
+    Setting {
         id: "font-family",
         label: "Font family",
         description: "The typeface used to render text in every terminal pane.",

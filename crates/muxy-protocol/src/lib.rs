@@ -45,9 +45,9 @@ pub use graphics::{
 
 mod project;
 pub use project::{
-    CATALOG_PAGE_SIZE, CatalogPage, ClientId, MAX_PROJECTS, OperationId, ProjectDescriptor,
-    ProjectId, ProjectIntent, ProjectKind, ProjectMutation, ProjectPatch, ProjectSession,
-    ProjectSessions, ServerIdentity, SessionStatus,
+    CATALOG_PAGE_SIZE, CatalogPage, ClientId, MAX_PROJECT_LOGO_BYTES, MAX_PROJECTS, OperationId,
+    ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind, ProjectMutation, ProjectPatch,
+    ProjectSession, ProjectSessions, ServerIdentity, SessionStatus, is_project_symbol,
 };
 
 pub mod wire;

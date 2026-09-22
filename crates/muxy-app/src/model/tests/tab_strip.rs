@@ -92,14 +92,14 @@ fn configuration_diagnostics_stay_below_the_titlebar(cx: &mut TestAppContext) {
             for message in ["Unknown setting".to_owned(), "Unknown setting\n".repeat(20)] {
                 model.update(cx, |model, cx| {
                     model.configuration_error = Some(message);
-                    model.error = Some("Server unavailable".into());
+                    model.error = None;
                     cx.notify();
                 });
                 cx.run_until_parked();
                 assert_eq!(cx.debug_bounds(selector), Some(titlebar));
                 assert_eq!(cx.debug_bounds("nav-back"), Some(navigation));
                 let diagnostics = cx
-                    .debug_bounds("terminal-configuration-diagnostics")
+                    .debug_bounds("workspace-banner-message")
                     .expect("diagnostics");
                 assert!(diagnostics.top() >= titlebar.bottom());
                 assert!(diagnostics.size.height <= px(100.0));

@@ -1,3 +1,4 @@
+mod banners;
 mod catalog;
 mod composer;
 mod diagnostics;
@@ -116,6 +117,9 @@ pub(crate) struct AppModel {
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
     pub(crate) tab_drag: crate::views::tab_strip::TabDragState,
+    pub(crate) project_logo_task: Option<Task<()>>,
+    pub(crate) project_logos: crate::views::project_editor::logo::Cache,
+    pub(crate) expanded_worktrees: HashSet<ProjectId>,
     pub(crate) tab_sidebar_selection: Option<(ProjectId, Option<TabId>)>,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
@@ -123,6 +127,7 @@ pub(crate) struct AppModel {
     pub(crate) picker_search: crate::picker::search::SearchService,
     pub(crate) navigation: crate::navigation::Navigation,
     pub(crate) configuration_error: Option<String>,
+    dismissed_banners: [Option<String>; 2],
     path: PathBuf,
     bounds_save: Option<Task<()>>,
     webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
@@ -173,7 +178,7 @@ impl AppModel {
                 .unwrap_or_else(|| std::path::Path::new(".")),
         ) {
             Ok(palette) => self.palette = palette,
-            Err(error) => self.configuration_error = Some(error),
+            Err(error) => self.set_configuration_error(Some(error)),
         }
         if self.connection == ConnectionState::Ready
             && previous_colors != self.palette.terminal_colors()
@@ -227,13 +232,13 @@ impl AppModel {
                         .parent()
                         .unwrap_or_else(|| std::path::Path::new(".")),
                 ) {
-                    self.configuration_error = Some(error);
+                    self.set_configuration_error(Some(error));
                     cx.notify();
                     return;
                 }
                 self.terminal = terminal;
                 self.themes = themes;
-                self.configuration_error = None;
+                self.set_configuration_error(None);
                 for pane in self.grids.values() {
                     let old = pane.view.read(cx);
                     let zoom = (old.terminal.font_size.to_bits()
@@ -251,19 +256,21 @@ impl AppModel {
                 self.refresh_theme(cx);
             }
             Err(error) => {
-                self.configuration_error = Some(format!("Could not reload configuration: {error}"));
+                self.set_configuration_error(Some(format!(
+                    "Could not reload configuration: {error}"
+                )));
                 cx.notify();
             }
         }
     }
 
     pub(crate) fn reload_themes(&mut self, cx: &mut Context<Self>) {
-        if self.error.as_deref() == Some(self.themes.errors.join("; ").as_str()) {
-            self.error = None;
-        }
+        let was_theme_error = self.error.as_deref() == Some(self.themes.errors.join("; ").as_str());
         self.themes = crate::theme::Catalog::load(&self.path.with_file_name("themes"));
         if !self.themes.errors.is_empty() {
             self.fail(self.themes.errors.join("; "), cx);
+        } else if was_theme_error {
+            self.set_banner_error(None);
         }
         self.refresh_theme(cx);
     }
@@ -396,6 +403,12 @@ impl AppModel {
                 fallback
             });
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
+        cx.on_release(|model: &mut Self, cx| {
+            for (_, (_, image)) in model.project_logos.drain() {
+                image.remove_asset(cx);
+            }
+        })
+        .detach();
         let mut model = Self {
             extensions: extensions::Runtime::new(
                 boot.state_path
@@ -420,6 +433,9 @@ impl AppModel {
             error: theme_error,
             focus: cx.focus_handle(),
             appearance: boot.settings.appearance.clone(),
+            project_logo_task: None,
+            project_logos: HashMap::new(),
+            expanded_worktrees: HashSet::new(),
             tab_sidebar_selection: None,
             settings: boot.settings,
             terminal: boot.terminal,
@@ -445,6 +461,7 @@ impl AppModel {
             picker_search: crate::picker::search::SearchService::default(),
             navigation: crate::navigation::Navigation::default(),
             configuration_error,
+            dismissed_banners: [None, None],
             path: boot.state_path,
             bounds_save: None,
             webview_shortcuts: None,
@@ -638,7 +655,12 @@ impl AppModel {
         }
         let next = projects
             .iter()
-            .position(|id| *id == self.state.current_project().id)
+            .position(|id| {
+                *id == self.state.current_project().id
+                    || (self.appearance.layout
+                        == muxy_app_core::settings::AppLayout::ProjectFocused
+                        && Some(*id) == self.state.current_project().parent_id)
+            })
             .map_or(0, |index| {
                 if forward {
                     (index + 1) % projects.len()
@@ -646,7 +668,13 @@ impl AppModel {
                     (index + projects.len() - 1) % projects.len()
                 }
             });
-        self.select_project(projects[next], cx);
+        let target = if self.appearance.layout == muxy_app_core::settings::AppLayout::ProjectFocused
+        {
+            self.preferred_worktree(projects[next])
+        } else {
+            projects[next]
+        };
+        self.select_project(target, cx);
     }
 
     pub(crate) fn add_project(&mut self, directory: PathBuf, cx: &mut Context<Self>) -> bool {
@@ -1657,7 +1685,7 @@ impl AppModel {
         self.references = None;
         self.existing_sessions = crate::views::session_picker::ExistingSessions::default();
         self.sync_preferences(cx);
-        self.error = None;
+        self.set_banner_error(None);
         if !self.send(Work::Colors(self.palette.terminal_colors()), cx) {
             return;
         }
@@ -2221,7 +2249,7 @@ impl AppModel {
     }
 
     pub(crate) fn fail(&mut self, error: String, cx: &mut Context<Self>) {
-        self.error = Some(error);
+        self.set_banner_error(Some(error));
         cx.notify();
     }
 }
@@ -2239,6 +2267,7 @@ mod tests {
     mod webviews;
     use muxy_protocol::ExitReason;
     mod activity;
+    mod banners;
     mod clipboard;
     mod colors;
     mod command_palette;
@@ -2250,6 +2279,7 @@ mod tests {
     mod mouse;
     mod preferences;
     mod progress;
+    mod project_artwork;
     mod projects;
     mod quick_terminal;
     mod rendering;

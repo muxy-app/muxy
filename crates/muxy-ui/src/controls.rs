@@ -427,10 +427,16 @@ pub fn text_field(
     let Style { theme, metrics } = style;
     div()
         .id(SharedString::from(format!("settings-field-{id}")))
+        .debug_selector({
+            let selector = format!("settings-field-{id}");
+            move || selector.clone()
+        })
         .flex()
         .flex_row()
         .items_center()
         .h(metrics.control_medium())
+        .min_h(metrics.control_medium())
+        .max_h(metrics.control_medium())
         .px(metrics.spacing4())
         .rounded(metrics.radius_sm())
         .bg(theme.surface)

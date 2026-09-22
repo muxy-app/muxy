@@ -84,26 +84,34 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
 }
 
 pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
-    let tabs_visible =
-        model.appearance.layout == AppLayout::TabFocused && model.project_expanded(id);
-    if tabs_visible {
-        return Status::None;
-    }
-    let children_hidden =
-        model.appearance.layout == AppLayout::TabFocused || !model.appearance.sidebar_expanded;
-    let includes_project = |candidate| {
-        candidate == id
-            || (children_hidden
+    let expanded = match model.appearance.layout {
+        AppLayout::TabFocused => model.project_expanded(id),
+        AppLayout::ProjectFocused => {
+            model.appearance.sidebar_expanded
+                && model.expanded_worktrees.contains(&id)
                 && model
                     .state
-                    .project(candidate)
-                    .is_some_and(|project| project.parent_id == Some(id)))
+                    .project(id)
+                    .is_some_and(|project| model.has_worktrees(project))
+        }
     };
+    if expanded {
+        return Status::None;
+    }
+    let include_children = model.appearance.layout == AppLayout::ProjectFocused;
+    project_scope_status(id, include_children, model)
+}
+
+pub(super) fn worktree_status(id: ProjectId, model: &AppModel) -> Status {
+    project_scope_status(id, false, model)
+}
+
+fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel) -> Status {
     let panes: Vec<_> = model
         .state
         .projects()
         .iter()
-        .filter(|project| includes_project(project.id))
+        .filter(|project| project.id == id || (include_children && project.parent_id == Some(id)))
         .flat_map(|project| &project.tabs)
         .flat_map(|tab| &tab.panes)
         .collect();
@@ -117,7 +125,12 @@ pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
     let completion = panes
         .iter()
         .any(|pane| model.completions.contains(&pane.id));
-    resolve(&sessions, completion, true, model)
+    resolve(
+        &sessions,
+        completion,
+        model.appearance.worktree_show_unread,
+        model,
+    )
 }
 
 pub(super) fn icon(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElement) -> AnyElement {

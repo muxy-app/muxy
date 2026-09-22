@@ -271,6 +271,7 @@ impl AppState {
             home: false,
             name,
             icon: None,
+            logo: None,
             color,
             server_id: ServerId::local(),
             directory,
@@ -306,9 +307,19 @@ impl AppState {
     ) -> Result<(), AppError> {
         let project = self.project_mut(id)?;
         project.require_available()?;
-        crate::project::validate_icon(icon.as_deref())?;
         self.patch_project(id, muxy_protocol::ProjectPatch::Icon(icon.clone()))?;
         self.project_mut(id)?.icon = icon;
+        Ok(())
+    }
+
+    pub fn set_project_logo(
+        &mut self,
+        id: ProjectId,
+        logo: Option<std::sync::Arc<[u8]>>,
+    ) -> Result<(), AppError> {
+        self.project_mut(id)?.require_available()?;
+        self.patch_project(id, muxy_protocol::ProjectPatch::Logo(logo.clone()))?;
+        self.project_mut(id)?.logo = logo;
         Ok(())
     }
 
@@ -825,7 +836,6 @@ impl AppState {
             {
                 return Err(AppError::InvalidState("invalid project parent".into()));
             }
-            crate::project::validate_icon(project.icon.as_deref())?;
         }
         let mut tabs = HashSet::new();
         let mut panes = HashSet::new();

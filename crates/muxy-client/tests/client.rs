@@ -821,6 +821,7 @@ fn two_clients_observe_project_metadata_deletion_and_explicit_session_membership
         home: false,
         name: "First".into(),
         icon: None,
+        logo: None,
         color: "#808080".into(),
         directory: ServerPath(fixture.directory.as_os_str().as_bytes().into()),
         kind: None,

@@ -3,6 +3,10 @@ use gpui::{AnyElement, Context};
 use muxy_app_core::settings::{CloseBehavior, SidebarCollapsedStyle};
 use muxy_ui::controls::{self, Choice};
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Declarative appearance settings rows"
+)]
 pub(super) fn rows(
     pane: &SettingsView,
     category: Category,
@@ -81,6 +85,31 @@ pub(super) fn rows(
     }
     if category == Category::Appearance && pane.matches(category, "Collapsed sidebar style") {
         rows.push(collapsed_sidebar_style(pane, cx));
+    }
+    for (id, label, value) in [
+        (
+            "auto-expand-worktrees",
+            "Expand worktrees when switching projects",
+            appearance.auto_expand_worktrees,
+        ),
+        (
+            "worktree-order",
+            "Order worktrees by recent use",
+            appearance.worktree_order_by_mru,
+        ),
+        (
+            "worktree-unread",
+            "Show unread worktree indicators",
+            appearance.worktree_show_unread,
+        ),
+    ] {
+        if category == Category::Appearance && pane.matches(category, label) {
+            rows.push(pane.row(
+                id,
+                label,
+                pane.toggle(id, value, Change::Worktrees(id, !value), cx),
+            ));
+        }
     }
     for (id, label) in [
         ("width", "Default window width"),

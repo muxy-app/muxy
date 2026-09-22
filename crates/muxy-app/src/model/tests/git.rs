@@ -362,3 +362,223 @@ fn successful_refresh_recovers_a_rejected_branch_switch(cx: &mut TestAppContext)
         assert_eq!(repository.branches[0].name, "main");
     });
 }
+
+fn click_form(cx: &mut VisualTestContext, selector: &str) {
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let bounds = cx
+        .debug_bounds(selector.to_owned().leak())
+        .expect("control");
+    let position = gpui::point(bounds.center().x, bounds.bottom() - px(10.0));
+    cx.simulate_event(gpui::MouseDownEvent {
+        position,
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    cx.simulate_event(gpui::MouseUpEvent {
+        position,
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn branch_form_validates_inline_and_submits_once(cx: &mut TestAppContext) {
+    let (state, project, _, _, _) = two_projects();
+    let (boot, requests) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        model.git.projects.entry(project).or_default().disconnect();
+        model.open_git_form(project, false, cx);
+    });
+    cx.run_until_parked();
+    requests.try_iter().for_each(drop);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("git-form-error").is_some());
+    assert!(
+        !requests
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Git(_)))
+    );
+    cx.simulate_input("feature-ui");
+    cx.simulate_keystrokes("enter enter");
+    cx.run_until_parked();
+    let creations: Vec<_> = requests
+        .try_iter()
+        .filter_map(|(_, work)| match work {
+            Work::Git(GitRequest {
+                action: GitAction::CreateBranch(branch),
+                ..
+            }) => Some(branch),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(creations, ["feature-ui"]);
+}
+
+#[gpui::test]
+fn worktree_form_derives_location_and_preserves_a_manual_location(cx: &mut TestAppContext) {
+    let (state, project, _, _, _) = two_projects();
+    let (boot, requests) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        model.git.projects.entry(project).or_default().disconnect();
+        model.open_git_form(project, true, cx);
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::Branches,
+            },
+            Ok(GitReply::Branches(vec![muxy_protocol::GitBranch {
+                name: "main".into(),
+                current: true,
+                checked_out: true,
+                default: true,
+            }])),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    cx.simulate_input("feature/ui");
+    cx.run_until_parked();
+    click_form(cx, "git-field-Location");
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("/tmp/custom-worktree");
+    click_form(cx, "git-field-Branch name");
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("feature/changed");
+    requests.try_iter().for_each(drop);
+    click_form(cx, "git-submit");
+    let action = requests
+        .try_iter()
+        .find_map(|(_, work)| match work {
+            Work::Git(GitRequest {
+                action: GitAction::Worktree(intent),
+                ..
+            }) => Some(intent.action),
+            _ => None,
+        })
+        .expect("creation");
+    let muxy_protocol::WorktreeAction::Create {
+        directory,
+        branch,
+        base,
+        ..
+    } = action
+    else {
+        panic!("creation action")
+    };
+    assert_eq!(directory.0, b"/tmp/custom-worktree");
+    assert_eq!(branch, "feature/changed");
+    assert_eq!(base.as_deref(), Some("main"));
+}
+
+#[gpui::test]
+fn worktree_branch_picker_keeps_the_form_and_cancel_restores_input(cx: &mut TestAppContext) {
+    let (state, project, _, _, _) = two_projects();
+    let (boot, _requests) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    view.update(cx, |model, cx| model.open_git_form(project, true, cx));
+    cx.run_until_parked();
+    cx.simulate_input("feature-ui");
+    click_form(cx, "git-field-Base branch");
+    assert!(cx.debug_bounds("git-form").is_some());
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert!(matches!(model.overlay, Some(Overlay::GitForm(_))));
+    });
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
+    view.update(cx, |model, cx| model.open_git_form(project, true, cx));
+    click_form(cx, "git-cancel");
+    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
+}
+
+#[gpui::test]
+fn existing_branch_choices_update_only_automatic_worktree_locations(cx: &mut TestAppContext) {
+    for manual in [false, true] {
+        let (state, project, _, _, _) = two_projects();
+        let (boot, requests) = stub_boot(state);
+        cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        cx.run_until_parked();
+        view.update(cx, |model, cx| {
+            model.connection = ConnectionState::Ready;
+            model.git.projects.entry(project).or_default().disconnect();
+            model.open_git_form(project, true, cx);
+            model.receive_git(
+                &GitRequest {
+                    project,
+                    action: GitAction::Branches,
+                },
+                Ok(GitReply::Branches(vec![
+                    muxy_protocol::GitBranch {
+                        name: "main".into(),
+                        current: true,
+                        checked_out: true,
+                        default: true,
+                    },
+                    muxy_protocol::GitBranch {
+                        name: "feature/existing".into(),
+                        current: false,
+                        checked_out: false,
+                        default: false,
+                    },
+                ])),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        click_form(cx, "settings-segment-worktree-branch-mode-existing");
+        if manual {
+            click_form(cx, "git-field-Location");
+            cx.simulate_keystrokes("cmd-a");
+            cx.simulate_input("/tmp/keep-my-location");
+        }
+        click_form(cx, "git-field-Branch");
+        cx.simulate_keystrokes("down enter");
+        cx.run_until_parked();
+        requests.try_iter().for_each(drop);
+        click_form(cx, "git-submit");
+        let action = requests
+            .try_iter()
+            .find_map(|(_, work)| match work {
+                Work::Git(GitRequest {
+                    action: GitAction::Worktree(intent),
+                    ..
+                }) => Some(intent.action),
+                _ => None,
+            })
+            .expect("worktree creation");
+        let muxy_protocol::WorktreeAction::Create {
+            directory,
+            branch,
+            base,
+            ..
+        } = action
+        else {
+            panic!("creation action")
+        };
+        assert_eq!(branch, "feature/existing");
+        assert!(base.is_none());
+        if manual {
+            assert_eq!(directory.0, b"/tmp/keep-my-location");
+        } else {
+            assert!(directory.0.ends_with(b"-feature-existing"));
+        }
+    }
+}

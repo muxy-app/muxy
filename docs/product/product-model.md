@@ -36,9 +36,9 @@ Changing a terminal's working directory never changes this ownership.
 ## Project identity and location
 
 A generated project ID defines identity. The server and directory define
-location. Each project also has a name, optional emoji icon, assigned color,
-nullable `type`, and nullable `parent_id`. New names default to the directory
-name; clients can edit shared names, icons, and colors.
+location. Each project also has a name, optional symbol or emoji icon, optional
+logo image, assigned color, nullable `type`, and nullable `parent_id`. New names default to the directory
+name; clients can edit shared names, icons, logos, and colors.
 
 Two projects may point to the same server and directory. They share the files
 and Git state there, while retaining distinct identities, metadata, and client

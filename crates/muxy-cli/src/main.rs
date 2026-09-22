@@ -88,6 +88,7 @@ fn add_project(directory: &Path, name: Option<String>) -> Result<(), Box<dyn std
         home: false,
         name,
         icon: None,
+        logo: None,
         color: "#808080".into(),
         directory: ServerPath(directory.as_os_str().as_bytes().into()),
         kind: None,

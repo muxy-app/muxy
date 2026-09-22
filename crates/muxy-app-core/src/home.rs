@@ -81,6 +81,7 @@ fn new_home(directory: PathBuf) -> Project {
         home: true,
         name: "Home".into(),
         icon: None,
+        logo: None,
         color: Color::default(),
         server_id: ServerId::local(),
         directory,

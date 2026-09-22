@@ -1,4 +1,5 @@
 mod resize;
+pub(super) mod worktrees;
 
 pub(crate) use resize::SidebarResize;
 pub(super) use resize::handle as resize_handle;
@@ -10,7 +11,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Bounds, Context, DragMoveEvent, Empty, FontWeight, InteractiveElement,
     IntoElement, ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, px,
+    StyledImage, Window, div, px,
 };
 use muxy_app_core::{
     Project, ProjectId, ProjectStatus,
@@ -156,11 +157,17 @@ impl AppModel {
             .into_iter()
             .filter(|project| !self.appearance.sidebar_focus || project.id == focused)
             .flat_map(|parent| {
-                std::iter::once(parent).chain(projects.iter().filter(move |child| {
-                    child.parent_id == Some(parent.id)
-                        && (self.appearance.layout == AppLayout::ProjectFocused
-                            || self.project_expanded(parent.id))
-                }))
+                let children = if self.appearance.layout == AppLayout::TabFocused {
+                    self.worktree_children(parent.id)
+                } else {
+                    Vec::new()
+                };
+                let children = children.into_iter().filter(move |child| {
+                    !child.tabs.is_empty()
+                        || child.id == active.id
+                        || child.status() == ProjectStatus::Missing
+                });
+                std::iter::once(parent).chain(children)
             })
             .collect()
     }
@@ -394,7 +401,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                     projects
                         .iter()
                         .enumerate()
-                        .map(|(index, project)| project_row(project, index, model, cx)),
+                        .map(|(index, project)| worktrees::group(project, index, model, cx)),
                 )
                 .when(!model.appearance.sidebar_focus, |list| {
                     list.child(add_project_button(model, cx))
@@ -425,7 +432,9 @@ fn project_row(
     let wide = model.appearance.sidebar_expanded;
     let id = project.id;
     let missing = project.status() == ProjectStatus::Missing;
-    let active = model.state.current_project().id == id;
+    let active = model.state.current_project().id == id
+        || model.state.current_project().parent_id == Some(id);
+    let has_worktrees = model.has_worktrees(project) && !missing;
     let group = SharedString::from(format!("project-{id}"));
     let tile = project_tile(project, model, group.clone());
     let activity = super::tab_activity::project_status(id, model);
@@ -457,8 +466,18 @@ fn project_row(
         .when(!missing, |row| {
             row.cursor_pointer()
                 .on_click(cx.listener(move |model, _, window, cx| {
-                    model.select_project(id, cx);
-                    model.focus_active(window, cx);
+                    if active && has_worktrees && wide {
+                        model.toggle_worktree_list(id, cx);
+                    } else if active && has_worktrees {
+                        model.git.worktrees_anchor.set(Some(Bounds::new(
+                            window.mouse_position(),
+                            gpui::size(px(0.0), px(0.0)),
+                        )));
+                        model.open_git_picker(id, super::git::Kind::Worktrees, window, cx);
+                    } else {
+                        model.select_project(model.preferred_worktree(id), cx);
+                        model.focus_active(window, cx);
+                    }
                 }))
         })
         .on_mouse_down(
@@ -487,15 +506,37 @@ fn project_row(
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .truncate()
-                    .text_size(m.font_emphasis())
-                    .font_weight(if active {
-                        FontWeight::SEMIBOLD
-                    } else {
-                        FontWeight::MEDIUM
-                    })
+                    .flex()
+                    .flex_col()
+                    .gap(m.scaled(1.0))
                     .text_color(theme.fg)
-                    .child(project.name.clone()),
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(m.font_emphasis())
+                            .font_weight(if active {
+                                FontWeight::SEMIBOLD
+                            } else {
+                                FontWeight::MEDIUM
+                            })
+                            .child(project.name.clone()),
+                    )
+                    .when(has_worktrees, |label| {
+                        let selected = model.state.project(model.preferred_worktree(id));
+                        label.child(
+                            div()
+                                .truncate()
+                                .text_size(m.font_footnote())
+                                .font_family(".AppleSystemUIFontMonospaced")
+                                .font_weight(FontWeight::NORMAL)
+                                .child(
+                                    selected
+                                        .filter(|p| p.parent_id.is_some())
+                                        .map_or("primary", |p| p.name.as_str())
+                                        .to_owned(),
+                                ),
+                        )
+                    }),
             )
         })
         .when(activity != super::tab_activity::Status::None, |row| {
@@ -517,6 +558,9 @@ fn project_row(
                         model,
                     )),
             )
+        })
+        .when(wide && has_worktrees, |row| {
+            row.child(worktrees::disclosure(project, model, cx))
         })
         .when(!wide && active, |row| {
             row.child(
@@ -585,13 +629,28 @@ pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -
 
 fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> AnyElement {
     let m = model.metrics;
-    let color = parse_hex(project.color.as_str()).unwrap_or(gpui::rgb(0x80_80_80));
+    let color = if project.home {
+        model.theme.accent.to_rgb()
+    } else {
+        parse_hex(project.color.as_str()).unwrap_or(gpui::rgb(0x80_80_80))
+    };
     let foreground = contrasting_foreground(color);
-    let glyph = if let Some(icon) = &project.icon {
-        div()
-            .text_size(m.font_title_large())
-            .child(icon.clone())
+    let glyph = if let Some((_, logo)) = model.project_logos.get(&project.id) {
+        gpui::img(logo.clone())
+            .size(m.icon_xxl())
+            .rounded(m.radius_md())
+            .object_fit(gpui::ObjectFit::Cover)
             .into_any_element()
+    } else if let Some(icon) = &project.icon {
+        if let Some(symbol) = icon.strip_prefix("sf:") {
+            SymbolGlyph::new(symbol.to_owned(), m.font_title_large(), foreground.into())
+                .into_any_element()
+        } else {
+            div()
+                .text_size(m.font_title_large())
+                .child(icon.clone())
+                .into_any_element()
+        }
     } else if project.home {
         SymbolGlyph::new("house.fill", m.font_title_large(), foreground.into()).into_any_element()
     } else {
@@ -599,7 +658,7 @@ fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> Any
             .text_size(m.font_emphasis())
             .font_weight(FontWeight::BOLD)
             .text_color(foreground)
-            .child(project.initial().to_owned())
+            .child(project.initial().to_uppercase())
             .into_any_element()
     };
     div()
@@ -609,7 +668,10 @@ fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> Any
         .justify_center()
         .size(m.icon_xxl())
         .rounded(m.radius_md())
-        .bg(color)
+        .when(!model.project_logos.contains_key(&project.id), |tile| {
+            tile.bg(color)
+        })
+        .overflow_hidden()
         .group_hover(group, |style| style.opacity(0.85))
         .child(glyph)
         .into_any_element()

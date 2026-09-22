@@ -80,6 +80,7 @@ fn project(path: &Path) -> ProjectDescriptor {
         home: false,
         name: "Test".into(),
         icon: None,
+        logo: None,
         color: "#808080".into(),
         directory: ServerPath(path.as_os_str().as_bytes().into()),
         kind: None,
@@ -306,5 +307,78 @@ fn non_utf8_project_paths_and_failed_creation_survive_restart() -> Result {
         .ok_or("retry started a shell")?;
     assert_eq!(repeated, failure);
     assert!(registry.list().is_empty());
+    Ok(())
+}
+
+#[test]
+fn project_artwork_is_shared_and_persists_replacement_and_removal() -> Result {
+    let fixture = Fixture::new()?;
+    let logo: Arc<[u8]> = include_bytes!("../../muxy-protocol/tests/fixtures/project-logo.png")
+        .as_slice()
+        .into();
+    let project = project(Path::new("/tmp"));
+    let id = project.id;
+    {
+        let registry = fixture.registry(LegacyImport::default())?;
+        registry.mutate_project(&intent(ProjectMutation::Create(project)))?;
+        for patch in [
+            ProjectPatch::Icon(Some("sf:terminal.fill".into())),
+            ProjectPatch::Logo(Some(logo.clone())),
+        ] {
+            registry.mutate_project(&intent(ProjectMutation::Patch { project: id, patch }))?;
+        }
+    }
+    {
+        let registry = fixture.registry(LegacyImport::default())?;
+        let page = registry.read_catalog(None, None)?;
+        let project = page.projects.iter().find(|p| p.id == id).ok_or("project")?;
+        assert_eq!(project.logo.as_ref(), Some(&logo));
+        assert_eq!(project.icon.as_deref(), Some("sf:terminal.fill"));
+        registry.mutate_project(&intent(ProjectMutation::Patch {
+            project: id,
+            patch: ProjectPatch::Logo(None),
+        }))?;
+    }
+    let registry = fixture.registry(LegacyImport::default())?;
+    let page = registry.read_catalog(None, None)?;
+    let project = page.projects.iter().find(|p| p.id == id).ok_or("project")?;
+    assert!(project.logo.is_none());
+    assert_eq!(project.icon.as_deref(), Some("sf:terminal.fill"));
+    Ok(())
+}
+
+#[test]
+fn logo_heavy_catalog_pages_fit_the_wire_and_continue_without_losing_projects() -> Result {
+    let (events, _) = mpsc::channel();
+    let registry = Registry::new(ServerSettings::default(), events);
+    let mut logo = include_bytes!("../../muxy-protocol/tests/fixtures/project-logo.png").to_vec();
+    logo.resize(muxy_protocol::MAX_PROJECT_LOGO_BYTES, 0);
+    let logo: Arc<[u8]> = logo.into();
+    for _ in 0..60 {
+        let mut project = project(Path::new("/tmp"));
+        project.logo = Some(logo.clone());
+        registry.mutate_project(&intent(ProjectMutation::Create(project)))?;
+    }
+    let mut after = None;
+    let mut count = 0;
+    loop {
+        let page = registry.read_catalog(after, None)?;
+        count += page.projects.len();
+        after = page.next;
+        let mut bytes = Vec::new();
+        muxy_protocol::wire::encode(
+            &muxy_protocol::Message::Reply {
+                id: muxy_protocol::RequestId(1),
+                body: muxy_protocol::ReplyBody::Catalog(page),
+            },
+            muxy_protocol::CONTROL,
+            &mut bytes,
+        )?;
+        assert!(bytes.len() < 4 * 1024 * 1024);
+        if after.is_none() {
+            break;
+        }
+    }
+    assert_eq!(count, 61);
     Ok(())
 }

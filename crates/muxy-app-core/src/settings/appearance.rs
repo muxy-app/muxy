@@ -33,6 +33,10 @@ pub enum SidebarCollapsedStyle {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent appearance preferences"
+)]
 pub struct Appearance {
     pub layout: AppLayout,
     pub dark_theme: String,
@@ -41,6 +45,10 @@ pub struct Appearance {
     pub sidebar_expanded_width: Option<f32>,
     pub sidebar_collapsed_style: SidebarCollapsedStyle,
     pub status_bar_visible: bool,
+    pub auto_expand_worktrees: bool,
+    pub worktree_order_by_mru: bool,
+    pub worktree_show_unread: bool,
+    pub worktree_recent: Vec<crate::ProjectId>,
     pub tab_focused_expanded: std::collections::BTreeMap<crate::ProjectId, bool>,
     #[serde(rename = "tab_focused_focus")]
     pub sidebar_focus: bool,
@@ -58,6 +66,10 @@ impl Default for Appearance {
             sidebar_expanded_width: None,
             sidebar_collapsed_style: SidebarCollapsedStyle::default(),
             status_bar_visible: true,
+            auto_expand_worktrees: false,
+            worktree_order_by_mru: true,
+            worktree_show_unread: true,
+            worktree_recent: Vec::new(),
             tab_focused_expanded: std::collections::BTreeMap::new(),
             sidebar_focus: false,
             sidebar_project_order: ProjectOrder::default(),

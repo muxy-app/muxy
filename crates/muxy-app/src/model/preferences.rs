@@ -214,6 +214,10 @@ impl AppModel {
         cx.notify();
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Exhaustive preference change dispatch"
+    )]
     fn apply_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
         let composer = matches!(&change, Change::Composer(..))
             || matches!(&change, Change::Field(id, _) if id.starts_with("composer-"));
@@ -245,6 +249,15 @@ impl AppModel {
                     settings.appearance.dark_theme = name;
                 } else {
                     settings.appearance.light_theme = name;
+                }
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::Worktrees(key, value) => {
+                match key {
+                    "auto-expand-worktrees" => settings.appearance.auto_expand_worktrees = value,
+                    "worktree-order" => settings.appearance.worktree_order_by_mru = value,
+                    "worktree-unread" => settings.appearance.worktree_show_unread = value,
+                    _ => return Ok(()),
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
@@ -377,7 +390,7 @@ impl AppModel {
         let effective = requested.save(&self.path.with_file_name("ghostty.conf"))?;
         let changed_size = self.terminal.font_size.to_bits() != effective.font_size.to_bits();
         self.terminal = effective;
-        self.configuration_error = None;
+        self.set_configuration_error(None);
         if changed_size {
             self.font_sizes.clear();
         }
@@ -547,6 +560,7 @@ fn change_id(change: &Change) -> &str {
         Change::Theme(false, _) => "light-theme",
         Change::Theme(true, _) => "dark-theme",
         Change::Sidebar(_) => "sidebar",
+        Change::Worktrees(key, _) => key,
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
         Change::StatusBar(_) => "status-bar",
         Change::ConfirmProcess(_) => "confirm-process",

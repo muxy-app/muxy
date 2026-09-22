@@ -83,8 +83,9 @@ it across retries. Disconnecting or quitting a client never ends its sessions.
 ## Projects and membership
 
 Project descriptors carry stable identity, Home status, Unix directory bytes,
-shared metadata, kind, and parent. Catalog pages are bounded; coalesced revision
-invalidations tell clients when to refetch without losing changes during a fetch.
+shared metadata, kind, and parent. Icons retain existing emoji values or identify
+SF Symbols; optional logos carry bounded square PNG images. Catalog pages are
+bounded by count and bytes; coalesced revision invalidations tell clients when to refetch without losing changes during a fetch.
 Mutations acknowledge durable storage. Each session creation carries an explicit
 project and a durable client operation token; retrying returns the same result,
 including an ended result. Live-session lists remain live-only; project-filtered

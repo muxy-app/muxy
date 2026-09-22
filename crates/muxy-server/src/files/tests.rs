@@ -35,6 +35,7 @@ impl Workspace {
                     directory: wire_path(&path),
                     name: "Test".into(),
                     icon: None,
+                    logo: None,
                     color: "#ffffff".into(),
                     kind: None,
                     parent_id: None,

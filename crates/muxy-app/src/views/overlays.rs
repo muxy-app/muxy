@@ -20,6 +20,8 @@ pub(crate) enum Overlay {
     Sessions(super::session_picker::SessionPicker),
     Menu(Menu),
     ProjectEditor(super::project_editor::Editor),
+    ProjectIcons(super::project_editor::icons::Icons),
+    ProjectLogo(super::project_editor::logo::Cropper),
     ProjectColors(super::project_editor::Colors),
     Projects(Entity<super::project_picker::ProjectPicker>),
 }
@@ -30,6 +32,7 @@ impl AppModel {
             self.dismiss_webview_modal(cx);
             return;
         }
+        self.project_logo_task = None;
         self.git.interaction = self.git.interaction.wrapping_add(1);
         self.overlay = None;
         self.overlay_subscription = None;
@@ -44,6 +47,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.project_logo_task = None;
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Menu(Menu::new(items, position)));
         self.overlay_focus.focus(window);
@@ -53,6 +57,10 @@ impl AppModel {
 
 pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Exhaustive overlay rendering dispatch"
+)]
 pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let content = match &model.overlay {
         None => return div().into_any_element(),
@@ -112,6 +120,12 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         Some(Overlay::Menu(menu)) => menu::render(menu, model, window, cx),
         Some(Overlay::ProjectEditor(editor)) => {
             super::project_editor::render(editor, model, window, cx)
+        }
+        Some(Overlay::ProjectIcons(picker)) => {
+            super::project_editor::icons::render(picker, model, window, cx)
+        }
+        Some(Overlay::ProjectLogo(cropper)) => {
+            super::project_editor::logo::render(cropper, model, window, cx)
         }
         Some(Overlay::ProjectColors(colors)) => {
             super::project_editor::render_colors(colors, model, window, cx)

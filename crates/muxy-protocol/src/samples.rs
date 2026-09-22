@@ -342,6 +342,7 @@ fn project_samples() -> Vec<Message> {
         name: "Example".into(),
         directory: ServerPath(b"/tmp".to_vec()),
         icon: None,
+        logo: None,
         color: "#808080".into(),
         kind: None,
         parent_id: None,

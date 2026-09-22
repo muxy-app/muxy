@@ -30,7 +30,7 @@ impl AppModel {
             .copied()
             .unwrap_or_else(|| {
                 let active = self.state.current_project();
-                active.id == id || active.parent_id == Some(id)
+                active.id == id
             })
     }
 
@@ -45,19 +45,32 @@ impl AppModel {
     pub(crate) fn sync_tab_sidebar(&mut self, cx: &mut Context<Self>) {
         let selected = (self.state.current_project().id, self.active_tab());
         let previous = self.tab_sidebar_selection.replace(selected);
-        if self.appearance.layout != AppLayout::TabFocused || previous == Some(selected) {
+        if previous == Some(selected) {
             return;
         }
         let project = self.state.current_project();
-        let ids = [Some(project.id), project.parent_id];
+        let id = project.id;
+        let parent = project.parent_id.unwrap_or(id);
+        let switched = previous.is_none_or(|previous| previous.0 != id);
         let mut changed = false;
-        for id in ids.into_iter().flatten() {
-            if !self.appearance.tab_focused_expanded.contains_key(&id)
-                || (previous.is_some() && !self.project_expanded(id))
-            {
-                self.appearance.tab_focused_expanded.insert(id, true);
-                changed = true;
+        if switched {
+            self.appearance
+                .worktree_recent
+                .retain(|candidate| *candidate != id && self.state.project(*candidate).is_some());
+            self.appearance.worktree_recent.insert(0, id);
+            self.expanded_worktrees
+                .retain(|id| self.state.project(*id).is_some());
+            if self.appearance.auto_expand_worktrees {
+                self.expanded_worktrees.insert(parent);
             }
+            changed = true;
+        }
+        if self.appearance.layout == AppLayout::TabFocused
+            && (!self.appearance.tab_focused_expanded.contains_key(&id)
+                || (previous.is_some() && !self.project_expanded(id)))
+        {
+            self.appearance.tab_focused_expanded.insert(id, true);
+            changed = true;
         }
         if changed {
             self.save_appearance(cx);
@@ -180,9 +193,6 @@ fn project_group(
     let mut group = div()
         .flex()
         .flex_col()
-        .when(project.parent_id.is_some(), |group| {
-            group.ml(model.metrics.spacing6())
-        })
         .child(project_header(project, model, cx));
     if expanded && !missing {
         let ids: Vec<_> = project.tabs.iter().map(|tab| tab.id).collect();
@@ -358,6 +368,13 @@ fn project_accessory(
                 .group_hover(group, |style| style.opacity(1.0))
                 .child(project_controls(project, model, cx)),
         )
+        .when(project.parent_id.is_some() && !has_activity, |row| {
+            row.child(IconGlyph::new(
+                Icon::GitBranch,
+                m.icon_sm(),
+                model.theme.fg_muted,
+            ))
+        })
         .when(has_activity, |row| {
             row.child(
                 div()
@@ -411,8 +428,9 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                         cx.stop_propagation();
                         let focus = !model.appearance.sidebar_focus;
                         if focus {
-                            model.select_project(id, cx);
-                            model.appearance.tab_focused_expanded.insert(id, true);
+                            let selected = model.preferred_worktree(id);
+                            model.select_project(selected, cx);
+                            model.appearance.tab_focused_expanded.insert(selected, true);
                         }
                         model.appearance.sidebar_focus = focus;
                         model.save_appearance(cx);
@@ -717,9 +735,9 @@ impl AppModel {
         self.appearance.sidebar_focus = focused;
         if focused {
             let project = self.state.current_project();
-            for id in [Some(project.id), project.parent_id].into_iter().flatten() {
-                self.appearance.tab_focused_expanded.insert(id, true);
-            }
+            self.appearance
+                .tab_focused_expanded
+                .insert(project.id, true);
         }
         self.save_appearance(cx);
         cx.notify();

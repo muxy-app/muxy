@@ -654,6 +654,9 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
                 .tab_focused_expanded
                 .insert(parent, expanded);
             model.appearance.tab_focused_expanded.insert(child, false);
+            if layout == AppLayout::ProjectFocused && expanded {
+                model.expanded_worktrees.insert(parent);
+            }
             model.activity.snapshot.agents.push(AgentActivity {
                 session,
                 project: child,
@@ -665,11 +668,25 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
         window.run_until_parked();
         let parent_status =
             window.debug_bounds(format!("project-activity-{parent}-blocked").leak());
-        let child_status = window.debug_bounds(format!("project-activity-{child}-blocked").leak());
-        assert_eq!(parent_status.is_some(), !expanded, "{layout:?}: parent");
+        let child_status = window.debug_bounds(
+            format!(
+                "{}-activity-{child}-blocked",
+                if layout == AppLayout::ProjectFocused {
+                    "worktree"
+                } else {
+                    "project"
+                }
+            )
+            .leak(),
+        );
+        assert_eq!(
+            parent_status.is_some(),
+            layout == AppLayout::ProjectFocused && !expanded,
+            "{layout:?}: parent"
+        );
         assert_eq!(
             child_status.is_some(),
-            layout == AppLayout::ProjectFocused || expanded,
+            layout == AppLayout::TabFocused || expanded,
             "{layout:?}: child"
         );
     }

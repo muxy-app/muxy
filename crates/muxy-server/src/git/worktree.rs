@@ -242,6 +242,7 @@ impl Registry {
             home: false,
             name: name.into(),
             icon: None,
+            logo: None,
             color: parent.color.clone(),
             kind: Some(ProjectKind::Worktree),
             parent_id: Some(parent.id),

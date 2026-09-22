@@ -712,6 +712,7 @@ mod tests {
                 home: true,
                 name: "Home".into(),
                 icon: None,
+                logo: None,
                 color: "#808080".into(),
                 directory: ServerPath(b"/tmp".to_vec()),
                 kind: None,

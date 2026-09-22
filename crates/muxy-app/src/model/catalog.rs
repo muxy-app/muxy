@@ -87,6 +87,13 @@ impl AppModel {
             && context == self.git.interaction
             && self.state.project(project).is_some()
         {
+            if let Some(parent) = self
+                .state
+                .project(project)
+                .and_then(|project| project.parent_id)
+            {
+                self.expanded_worktrees.insert(parent);
+            }
             self.select_project(project, cx);
         }
         self.sync_visible(cx);

@@ -546,7 +546,7 @@ fn project_editor_and_color_shortcuts_apply_to_the_requested_project(cx: &mut Te
             );
         });
     });
-    cx.simulate_input("👩🏽‍💻");
+    cx.simulate_input("terminal fill");
     cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     assert_eq!(
@@ -556,7 +556,7 @@ fn project_editor_and_color_shortcuts_apply_to_the_requested_project(cx: &mut Te
             .expect("first")
             .icon
             .clone()),
-        Some("👩🏽‍💻".into())
+        Some("sf:terminal.fill".into())
     );
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {

@@ -531,7 +531,7 @@ fn later_appearance_edits_preserve_another_instances_saved_sidebar_choice(cx: &m
 }
 
 #[gpui::test]
-fn selecting_a_worktree_reveals_its_saved_parent_and_tabs(cx: &mut TestAppContext) {
+fn selecting_a_worktree_reveals_its_tabs_without_expanding_its_parent(cx: &mut TestAppContext) {
     let (mut boot, _requests, [home, project], _) = fixture();
     let directory = tempfile::tempdir().expect("worktree folder");
     std::fs::write(directory.path().join(".git"), "gitdir: /tmp/unused").expect("worktree marker");
@@ -570,13 +570,13 @@ fn selecting_a_worktree_reveals_its_saved_parent_and_tabs(cx: &mut TestAppContex
     let child_bounds = cx
         .debug_bounds(format!("tab-project-{child}").leak())
         .expect("child row");
-    assert!(child_bounds.origin.x > parent_bounds.origin.x);
+    assert_eq!(child_bounds.origin.x, parent_bounds.origin.x);
     assert!(child_bounds.origin.y > parent_bounds.origin.y);
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().id, child);
         assert!(model.navigation_tabs().contains(&tab));
         let saved = Settings::load(&model.path.with_file_name("settings.toml")).expect("saved");
-        assert!(saved.appearance.tab_focused_expanded[&project]);
+        assert!(!saved.appearance.tab_focused_expanded[&project]);
         assert!(saved.appearance.tab_focused_expanded[&child]);
     });
 }

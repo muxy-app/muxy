@@ -10,6 +10,10 @@ pub(crate) fn items(project: &Project) -> Vec<Item> {
     let id = project.id;
     let mut items = Vec::new();
     if project.status() == ProjectStatus::Available {
+        items.push(Item::action("Set Logo…", Command::ProjectLogo(id)));
+        if project.logo.is_some() {
+            items.push(Item::action("Remove Logo", Command::RemoveProjectLogo(id)));
+        }
         items.extend([
             Item::action("Rename…", Command::EditProject(id, Field::Name)),
             Item::action("Change Icon…", Command::EditProject(id, Field::Icon)),
@@ -22,6 +26,7 @@ pub(crate) fn items(project: &Project) -> Vec<Item> {
     if !project.home && project.status() == ProjectStatus::Available {
         if project.parent_id.is_none() {
             items.push(Item::action("Worktrees…", Command::Worktrees(id)));
+            items.push(Item::action("New Worktree…", Command::NewWorktree(id)));
         } else {
             items.push(Item::action(
                 "Remove Worktree and Files…",
@@ -30,6 +35,30 @@ pub(crate) fn items(project: &Project) -> Vec<Item> {
         }
     }
     if !project.home {
+        items.push(Item::action("Remove Project…", Command::RemoveProject(id)));
+    }
+    items
+}
+
+pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
+    if project.status() == ProjectStatus::Missing {
+        return items(project);
+    }
+    let id = project.id;
+    let mut items = vec![
+        Item::action("New Terminal Tab", Command::NewProjectTab(id)),
+        Item::action("Reveal in Finder", Command::RevealPath(id)),
+        Item::action("Copy Path", Command::CopyPath(id)),
+    ];
+    if !primary {
+        items.push(Item::action(
+            "Rename Worktree…",
+            Command::EditProject(id, Field::Name),
+        ));
+        items.push(Item::action(
+            "Remove Worktree and Files…",
+            Command::RemoveWorktree(id),
+        ));
         items.push(Item::action("Remove Project…", Command::RemoveProject(id)));
     }
     items

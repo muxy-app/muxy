@@ -11,7 +11,7 @@ publish.workspace = true
 
 [dependencies]
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 muxy-core = { path = "../muxy-core" }
 muxy-ui = { path = "../muxy-ui" }
 async-channel = "2"

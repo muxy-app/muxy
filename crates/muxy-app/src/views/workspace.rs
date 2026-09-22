@@ -496,13 +496,14 @@ impl Render for AppModel {
             self.sync_webviews(window, cx);
         }
         self.prepare_workspace(window, cx);
+        self.sync_project_logos(window, cx);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused;
         let sidebar_width = self.sidebar_width();
         let content = super::splits::render(self, cx).unwrap_or_else(|| empty(self, cx));
         let content = self.webview_panel_content(content, window, cx);
         let content = self.composer_content(content, window, cx);
-        let error = self.error.as_ref().map(|message| banner(message, theme));
+        let banner = super::banners::render(self, cx);
         let workspace = action_handlers(cx)
             .on_action(cx.listener(|model, _: &ToggleVoiceRecording, window, cx| {
                 model.toggle_voice(window, cx);
@@ -543,14 +544,7 @@ impl Render for AppModel {
                                 tab_strip::tab_strip(self, sidebar_width, window, cx)
                             })
                             .child(div().h(px(1.0)).flex_none().bg(theme.border))
-                            .children(error)
-                            .children(self.configuration_error.as_ref().map(|message| {
-                                banner(message, theme)
-                                    .id("terminal-configuration-diagnostics")
-                                    .debug_selector(|| "terminal-configuration-diagnostics".into())
-                                    .max_h(px(100.0))
-                                    .overflow_y_scroll()
-                            })),
+                            .children(banner),
                     )
                     .child(
                         div()
@@ -589,16 +583,6 @@ impl Render for AppModel {
             .child(self.apply_webview_occlusions(cx));
         crate::profiler::workspace(workspace)
     }
-}
-
-fn banner(message: &str, theme: &muxy_ui::theme::Theme) -> gpui::Div {
-    div()
-        .px(px(12.0))
-        .py(px(8.0))
-        .bg(theme.surface)
-        .text_color(theme.fg)
-        .text_size(px(12.0))
-        .child(message.to_owned())
 }
 
 fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::AnyElement {

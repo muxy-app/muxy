@@ -347,6 +347,7 @@ fn projects_existing_terminals_and_other_client_changes_share_sessions_without_s
             directory: ServerPath(directory.as_os_str().as_bytes().into()),
             name: "Shared project".into(),
             icon: None,
+            logo: None,
             color: "#123456".into(),
             kind: None,
             parent_id: None,

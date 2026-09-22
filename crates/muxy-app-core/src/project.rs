@@ -67,6 +67,8 @@ pub struct Project {
     pub home: bool,
     pub name: String,
     pub icon: Option<String>,
+    #[serde(default)]
+    pub logo: Option<std::sync::Arc<[u8]>>,
     pub color: Color,
     pub server_id: ServerId,
     #[serde(with = "crate::catalog::directory")]
@@ -125,16 +127,6 @@ impl Project {
         } else {
             Ok(())
         }
-    }
-}
-
-pub(crate) fn validate_icon(icon: Option<&str>) -> Result<(), AppError> {
-    if icon.is_some_and(|icon| icon.trim().is_empty() || icon.graphemes(true).count() != 1) {
-        Err(AppError::InvalidState(
-            "project icon must be one character or empty".into(),
-        ))
-    } else {
-        Ok(())
     }
 }
 

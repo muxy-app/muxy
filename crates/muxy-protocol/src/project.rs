@@ -68,6 +68,8 @@ pub struct ProjectDescriptor {
     pub directory: ServerPath,
     pub name: String,
     pub icon: Option<String>,
+    #[serde(default)]
+    pub logo: Option<std::sync::Arc<[u8]>>,
     pub color: String,
     pub kind: Option<ProjectKind>,
     pub parent_id: Option<ProjectId>,
@@ -78,6 +80,7 @@ impl ProjectDescriptor {
         validate_name(&self.name)?;
         validate_icon(self.icon.as_deref())?;
         validate_color(&self.color)?;
+        validate_logo(self.logo.as_deref())?;
         if !self.directory.0.starts_with(b"/")
             || self.directory.0.len() > 4096
             || self.directory.0.contains(&0)
@@ -101,12 +104,53 @@ fn validate_name(name: &str) -> Result<(), ErrorCode> {
 
 fn validate_icon(icon: Option<&str>) -> Result<(), ErrorCode> {
     if icon.is_some_and(|value| {
-        value.len() > 128 || value.trim().is_empty() || value.graphemes(true).count() != 1
+        value.len() > 128
+            || value.trim().is_empty()
+            || (value.graphemes(true).count() != 1 && !is_project_symbol(value))
     }) {
         Err(ErrorCode::BadRequest)
     } else {
         Ok(())
     }
+}
+
+/// SF Symbol names are tagged so existing one-grapheme icons keep their meaning.
+pub fn is_project_symbol(value: &str) -> bool {
+    value.strip_prefix("sf:").is_some_and(|name| {
+        !name.is_empty()
+            && name.len() <= 125
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.')
+    })
+}
+
+pub const MAX_PROJECT_LOGO_BYTES: usize = 300 * 1024;
+
+fn validate_logo(logo: Option<&[u8]>) -> Result<(), ErrorCode> {
+    let Some(bytes) = logo else {
+        return Ok(());
+    };
+    if bytes.len() > MAX_PROJECT_LOGO_BYTES
+        || bytes.len() < 33
+        || !bytes.starts_with(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR")
+    {
+        return Err(ErrorCode::BadRequest);
+    }
+    let width = u32::from_be_bytes(
+        bytes[16..20]
+            .try_into()
+            .map_err(|_| ErrorCode::BadRequest)?,
+    );
+    let height = u32::from_be_bytes(
+        bytes[20..24]
+            .try_into()
+            .map_err(|_| ErrorCode::BadRequest)?,
+    );
+    if width == 0 || width > 256 || height != width {
+        return Err(ErrorCode::BadRequest);
+    }
+    Ok(())
 }
 
 fn validate_color(color: &str) -> Result<(), ErrorCode> {
@@ -125,6 +169,7 @@ pub enum ProjectPatch {
     Name(String),
     Icon(Option<String>),
     Color(String),
+    Logo(Option<std::sync::Arc<[u8]>>),
 }
 
 impl ProjectPatch {
@@ -133,6 +178,7 @@ impl ProjectPatch {
             Self::Name(name) => validate_name(name),
             Self::Icon(icon) => validate_icon(icon.as_deref()),
             Self::Color(color) => validate_color(color),
+            Self::Logo(logo) => validate_logo(logo.as_deref()),
         }
     }
     pub fn apply(&self, project: &mut ProjectDescriptor) {
@@ -140,6 +186,7 @@ impl ProjectPatch {
             Self::Name(name) => project.name = name.trim().into(),
             Self::Icon(icon) => project.icon.clone_from(icon),
             Self::Color(color) => project.color = color.to_ascii_lowercase(),
+            Self::Logo(logo) => project.logo.clone_from(logo),
         }
     }
 }
