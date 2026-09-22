@@ -103,19 +103,11 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             let dismiss = move |_: &mut Window, cx: &mut gpui::App| {
                 let _ = model.update(cx, AppModel::dismiss_overlay);
             };
-            if picker.kind == super::git::Kind::Worktrees {
-                muxy_ui::popover::anchored_popover(
-                    picker.anchor.clone(),
-                    picker.picker.clone().into_any_element(),
-                    dismiss,
-                )
-            } else {
-                muxy_ui::popover::anchored_popover_above(
-                    picker.anchor.clone(),
-                    picker.picker.clone().into_any_element(),
-                    dismiss,
-                )
-            }
+            muxy_ui::popover::anchored_popover_above(
+                picker.anchor.clone(),
+                picker.picker.clone().into_any_element(),
+                dismiss,
+            )
         }
         Some(Overlay::Menu(menu)) => menu::render(menu, model, window, cx),
         Some(Overlay::ProjectEditor(editor)) => {

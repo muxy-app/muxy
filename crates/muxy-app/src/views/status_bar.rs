@@ -236,7 +236,6 @@ fn repository_chip(
             Icon::ArrowUpDown,
             model.git.changes_anchor.clone(),
         ),
-        Kind::Worktrees => unreachable!(),
     };
     let project = model.state.current_project().id;
     let color = if enabled { color } else { model.theme.fg_dim };

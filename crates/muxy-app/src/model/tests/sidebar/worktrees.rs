@@ -53,6 +53,131 @@ fn click(cx: &mut VisualTestContext, selector: &str) {
     cx.run_until_parked();
 }
 
+fn toggle_from_menu(cx: &mut VisualTestContext) {
+    let position = cx.debug_bounds("project-row-1").expect("project").center();
+    cx.simulate_event(MouseDownEvent {
+        position,
+        button: MouseButton::Right,
+        click_count: 1,
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    click(cx, "menu-label-Worktrees");
+}
+
+#[gpui::test]
+fn worktree_checkbox_hides_details_preserves_tabs_and_survives_restart(cx: &mut TestAppContext) {
+    let (mut state, _directory, [home, parent, child], tab) = fixture();
+    state.select_project(child).expect("child");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.sidebar_expanded = true;
+    boot.settings.appearance.auto_expand_worktrees = true;
+    let path = boot.state_path.clone();
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds(format!("worktree-{child}").leak())
+            .is_some()
+    );
+    toggle_from_menu(cx);
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert_eq!(model.state.current_project().id, parent);
+        assert_eq!(model.state.project(child).expect("child").tabs[0].id, tab);
+        assert!(!model.worktrees_visible(parent));
+        assert!(!model.has_worktrees(model.state.project(parent).expect("parent")));
+        assert!(!model.expanded_worktrees.contains(&parent));
+    });
+    click(cx, "project-row-0");
+    click(cx, "project-row-1");
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().id, parent);
+    });
+    let mut state = view.read_with(cx, |model, _| model.state.clone());
+    state.select_project(home).expect("home");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.state_path = path.clone();
+    boot.settings = Settings::load(&path.with_file_name("settings.toml")).expect("saved");
+    let (restarted, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    click(cx, "project-row-1");
+    restarted.read_with(cx, |model, _| {
+        assert!(!model.worktrees_visible(parent));
+        assert_eq!(model.state.current_project().id, parent);
+    });
+    for selector in [
+        format!("project-worktree-label-{parent}"),
+        format!("project-worktrees-toggle-{parent}"),
+        format!("worktree-{child}"),
+    ] {
+        assert!(
+            cx.debug_bounds(selector.clone().leak()).is_none(),
+            "{selector}"
+        );
+    }
+    toggle_from_menu(cx);
+    assert!(
+        cx.debug_bounds(format!("project-worktree-label-{parent}").leak())
+            .is_some()
+    );
+    click(cx, &format!("project-worktrees-toggle-{parent}"));
+    click(cx, &format!("worktree-{child}"));
+    restarted.read_with(cx, |model, _| {
+        assert!(model.worktrees_visible(parent));
+        assert_eq!(model.state.current_project().id, child);
+        assert_eq!(model.active_tab(), Some(tab));
+        assert!(model.overlay.is_none());
+    });
+}
+
+#[gpui::test]
+fn collapsed_worktree_icon_opens_inline_list_without_a_picker(cx: &mut TestAppContext) {
+    let (state, _directory, [_, parent, child], _) = fixture();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    click(cx, "project-row-1");
+    view.read_with(cx, |model, _| {
+        assert!(model.appearance.sidebar_expanded);
+        assert!(model.expanded_worktrees.contains(&parent));
+        assert!(model.overlay.is_none());
+    });
+    assert!(
+        cx.debug_bounds(format!("worktree-{child}").leak())
+            .is_some()
+    );
+}
+
+#[gpui::test]
+fn hidden_worktrees_are_excluded_from_tab_sidebar_navigation(cx: &mut TestAppContext) {
+    let (state, _directory, [home, parent, child], tab) = fixture();
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.layout = AppLayout::TabFocused;
+    boot.settings.appearance.hidden_worktrees.insert(parent);
+    boot.settings
+        .appearance
+        .tab_focused_expanded
+        .insert(child, true);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            model
+                .sidebar_projects()
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>(),
+            [home, parent]
+        );
+        assert!(!model.navigation_tabs().contains(&tab));
+    });
+    view.update(cx, |model, cx| model.toggle_worktree_visibility(parent, cx));
+    view.read_with(cx, |model, _| {
+        assert!(model.sidebar_projects().iter().any(|p| p.id == child));
+        assert!(model.navigation_tabs().contains(&tab));
+    });
+}
+
 #[gpui::test]
 fn project_worktrees_expand_select_and_restore_the_last_selected_child(cx: &mut TestAppContext) {
     let (state, _directory, [home, parent, child], _) = fixture();

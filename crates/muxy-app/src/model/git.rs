@@ -1,9 +1,7 @@
 use super::{AppModel, Work};
 use crate::views::overlays::Overlay;
 use gpui::Context;
-use muxy_protocol::{
-    GitAction, GitBranch, GitFile, GitReply, GitRequest, GitSummary, GitWorktree, ProjectId,
-};
+use muxy_protocol::{GitAction, GitBranch, GitFile, GitReply, GitRequest, GitSummary, ProjectId};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
@@ -11,7 +9,6 @@ pub(crate) struct Repository {
     pub(crate) summary: Option<GitSummary>,
     pub(crate) branches: Vec<GitBranch>,
     pub(crate) files: Vec<GitFile>,
-    pub(crate) worktrees: Vec<GitWorktree>,
     pub(crate) error: Option<String>,
     pub(crate) pending: bool,
     mutating: bool,
@@ -58,7 +55,6 @@ impl Repository {
 pub(crate) struct GitState {
     pub(crate) branch_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) changes_anchor: muxy_ui::popover::PopoverAnchor,
-    pub(crate) worktrees_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) projects: HashMap<ProjectId, Repository>,
     current: Option<ProjectId>,
     pub(crate) select_after_catalog: Option<(ProjectId, u64)>,
@@ -247,7 +243,6 @@ impl AppModel {
                 }
             }
             Ok(GitReply::Changes(files)) => repository.files = files,
-            Ok(GitReply::Worktrees(worktrees)) => repository.worktrees = worktrees,
             Ok(GitReply::Removal(expected)) if context_matches => {
                 self.confirm_git_action(request.project, GitAction::Worktree(muxy_protocol::WorktreeIntent {
                     operation: muxy_protocol::OperationId::new(), action: muxy_protocol::WorktreeAction::Remove { expected: expected.clone() },

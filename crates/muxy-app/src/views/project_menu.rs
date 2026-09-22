@@ -6,7 +6,7 @@ use super::menu::{Command, Item};
 use super::project_editor::Field;
 use crate::model::AppModel;
 
-pub(crate) fn items(project: &Project) -> Vec<Item> {
+pub(crate) fn items(project: &Project, worktrees_visible: bool) -> Vec<Item> {
     let id = project.id;
     let mut items = Vec::new();
     if project.status() == ProjectStatus::Available {
@@ -25,7 +25,9 @@ pub(crate) fn items(project: &Project) -> Vec<Item> {
     }
     if !project.home && project.status() == ProjectStatus::Available {
         if project.parent_id.is_none() {
-            items.push(Item::action("Worktrees…", Command::Worktrees(id)));
+            items.push(
+                Item::action("Worktrees", Command::Worktrees(id)).checked_if(worktrees_visible),
+            );
             items.push(Item::action("New Worktree…", Command::NewWorktree(id)));
         } else {
             items.push(Item::action(
@@ -42,7 +44,7 @@ pub(crate) fn items(project: &Project) -> Vec<Item> {
 
 pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
     if project.status() == ProjectStatus::Missing {
-        return items(project);
+        return items(project, false);
     }
     let id = project.id;
     let mut items = vec![

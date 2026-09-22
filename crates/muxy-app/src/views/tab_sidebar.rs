@@ -60,7 +60,7 @@ impl AppModel {
             self.appearance.worktree_recent.insert(0, id);
             self.expanded_worktrees
                 .retain(|id| self.state.project(*id).is_some());
-            if self.appearance.auto_expand_worktrees {
+            if self.appearance.auto_expand_worktrees && self.worktrees_visible(parent) {
                 self.expanded_worktrees.insert(parent);
             }
             changed = true;
@@ -262,7 +262,7 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 if let Some(project) = model.state.project(id) {
                     model.open_menu(
-                        super::project_menu::items(project),
+                        super::project_menu::items(project, model.worktrees_visible(id)),
                         event.position,
                         window,
                         cx,

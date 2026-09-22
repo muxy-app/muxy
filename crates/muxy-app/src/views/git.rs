@@ -16,21 +16,18 @@ use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 pub(crate) enum Kind {
     Branches,
     Changes,
-    Worktrees,
 }
 impl Kind {
     pub(crate) fn action(self) -> GitAction {
         match self {
             Self::Branches => GitAction::Branches,
             Self::Changes => GitAction::Changes,
-            Self::Worktrees => GitAction::Worktrees,
         }
     }
     fn title(self) -> &'static str {
         match self {
             Self::Branches => "Branches",
             Self::Changes => "Changes",
-            Self::Worktrees => "Worktrees",
         }
     }
 }
@@ -70,11 +67,9 @@ impl AppModel {
         let anchor = match kind {
             Kind::Branches => self.git.branch_anchor.clone(),
             Kind::Changes => self.git.changes_anchor.clone(),
-            Kind::Worktrees => self.git.worktrees_anchor.clone(),
         };
         let width = match kind {
             Kind::Branches => 440.0,
-            Kind::Worktrees => 480.0,
             Kind::Changes => 400.0,
         };
         let picker = cx.new(|cx| {
@@ -118,7 +113,7 @@ impl AppModel {
 
     #[allow(
         clippy::too_many_lines,
-        reason = "Render the three Git picker contents together"
+        reason = "Render the Git picker contents together"
     )]
     pub(crate) fn update_git_picker(&self, cx: &mut Context<Self>) {
         let Some(Overlay::Git(picker)) = &self.overlay else {
@@ -191,50 +186,6 @@ impl AppModel {
                         items.push(row);
                     }
                 }
-                Kind::Worktrees => {
-                    for worktree in &repository.worktrees {
-                        let target = self
-                            .state
-                            .project(picker.project)
-                            .and_then(|parent| worktree_project(parent, worktree));
-                        let mut row = PickerRow::new(
-                            path_key(&worktree.directory),
-                            target
-                                .and_then(|id| self.state.project(id))
-                                .map(|project| project.name.clone())
-                                .or_else(|| worktree.branch.clone())
-                                .unwrap_or_else(|| "Detached HEAD".into()),
-                        );
-                        row.detail = Some(
-                            String::from_utf8_lossy(&worktree.directory.0)
-                                .into_owned()
-                                .into(),
-                        );
-                        row.trailing = Some(
-                            if target == Some(picker.project) || worktree.primary {
-                                "Primary"
-                            } else if worktree.registered.is_some() {
-                                "Registered"
-                            } else {
-                                "Register"
-                            }
-                            .into(),
-                        );
-                        row.current = target == Some(self.state.current_project().id);
-                        row.disabled = busy
-                            || worktree.bare
-                            || worktree.prunable
-                            || (worktree.primary && target.is_none());
-                        if !worktree.primary && target.is_some_and(|id| id != picker.project) {
-                            row.actions.push(
-                                PickerAction::new("remove-worktree", "Remove Worktree…")
-                                    .destructive(true)
-                                    .disabled(busy),
-                            );
-                        }
-                        items.push(row);
-                    }
-                }
             }
         }
         let items = picker_items(items, &query, picker.kind == Kind::Changes);
@@ -242,9 +193,6 @@ impl AppModel {
         match picker.kind {
             Kind::Branches => {
                 actions.push(PickerAction::new("create", "New Branch…").disabled(busy));
-            }
-            Kind::Worktrees => {
-                actions.push(PickerAction::new("create", "New Worktree…").disabled(busy));
             }
             Kind::Changes => {
                 let selected = !picker.selected.is_empty();
@@ -338,38 +286,6 @@ impl AppModel {
                     }
                 }
             }
-            Kind::Worktrees => {
-                let Some(worktree) = repository
-                    .worktrees
-                    .iter()
-                    .find(|worktree| path_key(&worktree.directory) == row)
-                else {
-                    return;
-                };
-                if let Some(id) = self
-                    .state
-                    .project(project)
-                    .and_then(|parent| worktree_project(parent, worktree))
-                {
-                    if action == Some("remove-worktree") && id != project {
-                        self.git_request(id, GitAction::InspectRemoval, cx);
-                        return;
-                    }
-                    self.dismiss_overlay(cx);
-                    self.select_project(id, cx);
-                    return;
-                }
-                if worktree.primary || worktree.bare || worktree.prunable {
-                    return;
-                }
-                GitAction::Worktree(WorktreeIntent {
-                    operation: OperationId::new(),
-                    action: WorktreeAction::Register {
-                        project: ProjectId::new(),
-                        directory: worktree.directory.clone(),
-                    },
-                })
-            }
         };
         match &operation {
             GitAction::DeleteBranch(branch) => self.confirm_git_action(project, operation.clone(), format!("Permanently delete branch “{branch}”? Unmerged commits may become unreachable."), cx),
@@ -388,7 +304,7 @@ impl AppModel {
             return;
         }
         if action == "create" {
-            self.open_git_form(project, picker.kind == Kind::Worktrees, cx);
+            self.open_git_form(project, false, cx);
             return;
         }
         let Some(repository) = self.git.projects.get(&project) else {
@@ -744,18 +660,6 @@ impl AppModel {
 
 pub(crate) use form::render as render_form;
 
-fn worktree_project(
-    parent: &muxy_app_core::Project,
-    worktree: &muxy_protocol::GitWorktree,
-) -> Option<ProjectId> {
-    use std::os::unix::ffi::OsStrExt;
-    if parent.directory.as_os_str().as_bytes() == worktree.directory.0 {
-        Some(parent.id)
-    } else {
-        worktree.registered
-    }
-}
-
 fn picker_items(mut rows: Vec<PickerRow>, query: &str, group_by_status: bool) -> Vec<PickerItem> {
     rows.retain(|row| {
         format!(
@@ -801,39 +705,6 @@ fn path_key(path: &ServerPath) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn worktree_targets_use_the_parent_directory_even_for_linked_checkouts() {
-        use std::os::unix::ffi::OsStrExt;
-        let directory = tempfile::tempdir().expect("linked checkout");
-        let mut state = muxy_app_core::AppState::bootstrap().expect("state");
-        let id = state
-            .add_project(directory.path().to_owned())
-            .expect("parent");
-        let parent = state.project(id).expect("parent");
-        let mut worktree = muxy_protocol::GitWorktree {
-            directory: ServerPath(b"/different-primary-checkout".to_vec()),
-            head: None,
-            branch: Some("main".into()),
-            primary: true,
-            locked: false,
-            bare: false,
-            detached: false,
-            prunable: false,
-            registered: None,
-        };
-        assert_eq!(worktree_project(parent, &worktree), None);
-        worktree.primary = false;
-        worktree.directory = ServerPath(parent.directory.as_os_str().as_bytes().to_vec());
-        assert_eq!(worktree_project(parent, &worktree), Some(parent.id));
-        worktree.primary = true;
-        assert_eq!(worktree_project(parent, &worktree), Some(parent.id));
-        let child = ProjectId::new();
-        worktree.directory = ServerPath(b"/another-linked-checkout".to_vec());
-        worktree.primary = false;
-        worktree.registered = Some(child);
-        assert_eq!(worktree_project(parent, &worktree), Some(child));
-    }
 
     #[test]
     fn changes_are_grouped_by_searchable_status() {

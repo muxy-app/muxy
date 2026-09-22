@@ -287,7 +287,12 @@ fn an_open_overlay_prevents_project_reordering(cx: &mut TestAppContext) {
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
             let project = model.state.project(ids[1]).expect("project");
-            model.open_menu(crate::views::project_menu::items(project), from, window, cx);
+            model.open_menu(
+                crate::views::project_menu::items(project, model.worktrees_visible(project.id)),
+                from,
+                window,
+                cx,
+            );
         });
     });
     pointer(cx, to, true);

@@ -261,12 +261,7 @@ impl AppModel {
                 self.new_tab(cx);
             }
             Command::Worktrees(id) => {
-                self.git.worktrees_anchor.set(Some(gpui::Bounds::new(
-                    position,
-                    gpui::size(px(0.0), px(0.0)),
-                )));
-                self.open_git_picker(id, super::git::Kind::Worktrees, window, cx);
-                return;
+                self.toggle_worktree_visibility(id, cx);
             }
             Command::RemoveWorktree(id) => {
                 self.git_request(id, muxy_protocol::GitAction::InspectRemoval, cx);
@@ -503,6 +498,28 @@ impl Item {
 mod tests {
     use super::*;
     use muxy_app_core::AppState;
+
+    #[test]
+    fn worktrees_menu_tracks_the_visibility_checkbox() {
+        let mut state = AppState::bootstrap().expect("state");
+        let id = state.add_project(std::env::temp_dir()).expect("project");
+        for checked in [true, false] {
+            let items =
+                super::super::project_menu::items(state.project(id).expect("project"), checked);
+            let item = items
+                .iter()
+                .find(|item| item.label == "Worktrees")
+                .expect("checkbox");
+            assert_eq!(item.checked, checked);
+            assert!(matches!(item.command, Command::Worktrees(project) if project == id));
+            assert!(!items.iter().any(|item| item.label == "Worktrees…"));
+        }
+        assert!(
+            !super::super::project_menu::items(state.home(), true)
+                .iter()
+                .any(|item| matches!(item.command, Command::Worktrees(_)))
+        );
+    }
 
     #[test]
     fn tab_menu_only_exposes_applicable_resets_and_closes() -> Result<(), Box<dyn std::error::Error>>

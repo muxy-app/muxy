@@ -51,6 +51,7 @@ pub struct Appearance {
     pub worktree_order_by_mru: bool,
     pub worktree_show_unread: bool,
     pub worktree_recent: Vec<crate::ProjectId>,
+    pub hidden_worktrees: std::collections::BTreeSet<crate::ProjectId>,
     pub tab_focused_expanded: std::collections::BTreeMap<crate::ProjectId, bool>,
     #[serde(rename = "tab_focused_focus")]
     pub sidebar_focus: bool,
@@ -74,6 +75,7 @@ impl Default for Appearance {
             worktree_order_by_mru: true,
             worktree_show_unread: true,
             worktree_recent: Vec::new(),
+            hidden_worktrees: std::collections::BTreeSet::new(),
             tab_focused_expanded: std::collections::BTreeMap::new(),
             sidebar_focus: false,
             sidebar_project_order: ProjectOrder::default(),
@@ -100,7 +102,10 @@ impl Appearance {
         let mut changes = toml::Table::new();
         if let Some(current) = current.as_table() {
             for (key, value) in current {
-                if key != "tab_focused_expanded" && previous_values.get(key) != Some(value) {
+                if key != "tab_focused_expanded"
+                    && key != "hidden_worktrees"
+                    && previous_values.get(key) != Some(value)
+                {
                     changes.insert(key.clone(), value.clone());
                 }
             }
@@ -112,6 +117,16 @@ impl Appearance {
             .ok_or_else(|| io::Error::other("appearance must be a table"))?;
         target.extend(changes);
         let mut saved: Self = toml::Value::Table(target.clone()).try_into()?;
+        for project in self.hidden_worktrees.difference(&previous.hidden_worktrees) {
+            saved.hidden_worktrees.insert(*project);
+        }
+        for project in previous.hidden_worktrees.difference(&self.hidden_worktrees) {
+            saved.hidden_worktrees.remove(project);
+        }
+        target.insert(
+            "hidden_worktrees".into(),
+            toml::Value::try_from(&saved.hidden_worktrees)?,
+        );
         for (project, expanded) in &self.tab_focused_expanded {
             if previous.tab_focused_expanded.get(project) != Some(expanded) {
                 saved.tab_focused_expanded.insert(*project, *expanded);
@@ -194,6 +209,31 @@ fn read_document(path: &Path) -> Result<toml::Table> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_visibility_defaults_and_independent_saved_choices() -> Result<()> {
+        let first = crate::ProjectId::new();
+        let second = crate::ProjectId::new();
+        let directory = std::env::temp_dir().join(format!("muxy-worktree-visibility-{first}"));
+        let path = directory.join("settings.toml");
+        let initial = Appearance::load(&path)?;
+        assert!(initial.hidden_worktrees.is_empty());
+        initial.save(&path)?;
+        let mut one = initial.clone();
+        one.hidden_worktrees.insert(first);
+        one.save_changes(&initial, &path)?;
+        let mut two = initial.clone();
+        two.hidden_worktrees.insert(second);
+        let saved = two.save_changes(&initial, &path)?;
+        assert_eq!(saved.hidden_worktrees, [first, second].into());
+        let previous_one = one.clone();
+        one.hidden_worktrees.remove(&first);
+        let saved = one.save_changes(&previous_one, &path)?;
+        assert_eq!(saved.hidden_worktrees, [second].into());
+        assert_eq!(Appearance::load(&path)?, saved);
+        fs::remove_dir_all(directory)?;
+        Ok(())
+    }
 
     #[test]
     fn independent_project_expansion_changes_preserve_the_latest_saved_choices() -> Result<()> {

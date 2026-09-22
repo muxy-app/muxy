@@ -158,7 +158,9 @@ impl AppModel {
             .into_iter()
             .filter(|project| !self.appearance.sidebar_focus || project.id == focused)
             .flat_map(|parent| {
-                let children = if self.appearance.layout == AppLayout::TabFocused {
+                let children = if self.appearance.layout == AppLayout::TabFocused
+                    && self.worktrees_visible(parent.id)
+                {
                     self.worktree_children(parent.id)
                 } else {
                     Vec::new()
@@ -470,11 +472,8 @@ fn project_row(
                     if active && has_worktrees && wide {
                         model.toggle_worktree_list(id, cx);
                     } else if active && has_worktrees {
-                        model.git.worktrees_anchor.set(Some(Bounds::new(
-                            window.mouse_position(),
-                            gpui::size(px(0.0), px(0.0)),
-                        )));
-                        model.open_git_picker(id, super::git::Kind::Worktrees, window, cx);
+                        model.expanded_worktrees.insert(id);
+                        model.toggle_sidebar(window, cx);
                     } else {
                         model.select_project(model.preferred_worktree(id), cx);
                         model.focus_active(window, cx);
@@ -486,7 +485,7 @@ fn project_row(
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 if let Some(project) = model.state.project(id) {
                     model.open_menu(
-                        super::project_menu::items(project),
+                        super::project_menu::items(project, model.worktrees_visible(id)),
                         event.position,
                         window,
                         cx,
@@ -515,17 +514,14 @@ fn project_row(
                         div()
                             .truncate()
                             .text_size(m.font_emphasis())
-                            .font_weight(if active {
-                                FontWeight::SEMIBOLD
-                            } else {
-                                FontWeight::MEDIUM
-                            })
+                            .font_weight(FontWeight::MEDIUM)
                             .child(project.name.clone()),
                     )
                     .when(has_worktrees, |label| {
                         let selected = model.state.project(model.preferred_worktree(id));
                         label.child(
                             div()
+                                .debug_selector(move || format!("project-worktree-label-{id}"))
                                 .truncate()
                                 .text_size(m.font_footnote())
                                 .font_family(".AppleSystemUIFontMonospaced")

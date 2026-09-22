@@ -12,9 +12,28 @@ use muxy_ui::{
 use crate::model::AppModel;
 
 impl AppModel {
+    pub(crate) fn worktrees_visible(&self, id: ProjectId) -> bool {
+        !self.appearance.hidden_worktrees.contains(&id)
+    }
+
+    pub(crate) fn toggle_worktree_visibility(&mut self, id: ProjectId, cx: &mut Context<Self>) {
+        if !self.appearance.hidden_worktrees.remove(&id) {
+            self.appearance.hidden_worktrees.insert(id);
+        }
+        self.save_appearance(cx);
+        if !self.worktrees_visible(id) {
+            self.expanded_worktrees.remove(&id);
+            if self.state.current_project().parent_id == Some(id) {
+                self.select_project(id, cx);
+            }
+        }
+        cx.notify();
+    }
+
     pub(crate) fn has_worktrees(&self, project: &Project) -> bool {
         !project.home
             && project.parent_id.is_none()
+            && self.worktrees_visible(project.id)
             && (self
                 .state
                 .projects()
@@ -47,6 +66,9 @@ impl AppModel {
     }
 
     pub(crate) fn preferred_worktree(&self, parent: ProjectId) -> ProjectId {
+        if !self.worktrees_visible(parent) {
+            return parent;
+        }
         let active = self.state.current_project();
         if (active.id == parent || active.parent_id == Some(parent))
             && active.status() == ProjectStatus::Available
