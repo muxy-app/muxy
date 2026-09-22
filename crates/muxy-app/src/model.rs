@@ -123,6 +123,8 @@ pub(crate) struct AppModel {
     pub(crate) tab_sidebar_selection: Option<(ProjectId, Option<TabId>)>,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
+    #[cfg(target_os = "macos")]
+    pub(crate) sidebar_vibrancy: Option<muxy_ui::vibrancy::SidebarVibrancy>,
     pub(crate) overlay_subscription: Option<Subscription>,
     pub(crate) picker_search: crate::picker::search::SearchService,
     pub(crate) navigation: crate::navigation::Navigation,
@@ -457,6 +459,8 @@ impl AppModel {
             tab_drag: crate::views::tab_strip::TabDragState::default(),
             #[cfg(target_os = "macos")]
             window_drag: muxy_ui::window_drag::WindowDrag::new(&window.window_title()),
+            #[cfg(target_os = "macos")]
+            sidebar_vibrancy: None,
             overlay_subscription: None,
             picker_search: crate::picker::search::SearchService::default(),
             navigation: crate::navigation::Navigation::default(),

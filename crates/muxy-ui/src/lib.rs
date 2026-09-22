@@ -31,6 +31,9 @@ pub mod symbols;
 pub mod text_input;
 pub mod theme;
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code, reason = "Main-thread native sidebar background view")]
+pub mod vibrancy;
+#[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 pub mod window_drag;
 

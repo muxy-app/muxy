@@ -1,4 +1,5 @@
 mod resize;
+mod vibrancy;
 pub(super) mod worktrees;
 
 pub(crate) use resize::SidebarResize;
@@ -95,7 +96,7 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .w(px(model.sidebar_width()))
         .h_full()
         .min_h(px(0.0))
-        .bg(model.theme.raised())
+        .bg(model.sidebar_background())
         .child(div().h(m.title_bar_height()).flex_none())
         .child(header)
         .child(contents)

@@ -269,6 +269,20 @@ impl AppModel {
                 settings.appearance.sidebar_collapsed_style = style;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::SidebarVibrancy(value) => {
+                settings.appearance.sidebar_vibrancy = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::Field("sidebar-vibrancy-level", value) => {
+                let level: u8 = value
+                    .parse()
+                    .map_err(|_| "Enter a whole number from 0 to 100")?;
+                if level > 100 {
+                    return Err("Enter a whole number from 0 to 100".into());
+                }
+                settings.appearance.sidebar_vibrancy_level = level;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::StatusBar(value) => {
                 settings.appearance.status_bar_visible = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
@@ -560,6 +574,7 @@ fn change_id(change: &Change) -> &str {
         Change::Theme(false, _) => "light-theme",
         Change::Theme(true, _) => "dark-theme",
         Change::Sidebar(_) => "sidebar",
+        Change::SidebarVibrancy(_) => "sidebar-vibrancy",
         Change::Worktrees(key, _) => key,
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
         Change::StatusBar(_) => "status-bar",

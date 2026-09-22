@@ -14,6 +14,28 @@ use muxy_app_core::settings::{CellHeight, KeyChord, Keymap, Settings, TerminalSe
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[test]
+fn sidebar_vibrancy_defaults_and_changes_preserve_other_preferences() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ndark_theme = 'Dracula'\n")?;
+    let original = Settings::load(&path)?.appearance;
+    assert!(original.sidebar_vibrancy);
+    assert_eq!(original.sidebar_vibrancy_level, 50);
+    let mut changed = original.clone();
+    changed.sidebar_vibrancy = false;
+    changed.sidebar_vibrancy_level = 35;
+    changed.save_changes(&original, &path)?;
+    let mut collapsed = original.clone();
+    collapsed.sidebar_expanded = true;
+    let saved = collapsed.save_changes(&original, &path)?;
+    assert!(!saved.sidebar_vibrancy);
+    assert_eq!(saved.sidebar_vibrancy_level, 35);
+    assert!(saved.sidebar_expanded);
+    assert_eq!(saved.dark_theme, "Dracula");
+    assert_eq!(Settings::load(&path)?.appearance, saved);
+    Ok(())
+}
+
+#[test]
 fn panel_pins_survive_reload_and_override_defaults_independently() -> Result {
     let fixture = Fixture::new()?;
     let path = fixture.write(

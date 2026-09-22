@@ -497,6 +497,8 @@ impl Render for AppModel {
         }
         self.prepare_workspace(window, cx);
         self.sync_project_logos(window, cx);
+        #[cfg(all(target_os = "macos", not(test)))]
+        self.sync_sidebar_vibrancy(window);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused;
         let sidebar_width = self.sidebar_width();

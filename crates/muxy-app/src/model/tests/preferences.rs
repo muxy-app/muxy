@@ -2,6 +2,7 @@
 
 mod pickers;
 mod resize;
+mod vibrancy;
 mod window;
 
 use super::*;

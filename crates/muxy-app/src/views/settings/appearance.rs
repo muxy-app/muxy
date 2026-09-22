@@ -86,6 +86,25 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, "Collapsed sidebar style") {
         rows.push(collapsed_sidebar_style(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, "Sidebar vibrancy") {
+        rows.push(pane.row(
+            "sidebar-vibrancy",
+            "Sidebar vibrancy",
+            pane.toggle(
+                "sidebar-vibrancy",
+                appearance.sidebar_vibrancy,
+                Change::SidebarVibrancy(!appearance.sidebar_vibrancy),
+                cx,
+            ),
+        ));
+    }
+    if category == Category::Appearance && pane.matches(category, "Sidebar vibrancy level") {
+        rows.push(pane.row(
+            "sidebar-vibrancy-level",
+            "Sidebar vibrancy level",
+            pane.field("sidebar-vibrancy-level"),
+        ));
+    }
     for (id, label, value) in [
         (
             "auto-expand-worktrees",

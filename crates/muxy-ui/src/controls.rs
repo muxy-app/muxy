@@ -59,6 +59,10 @@ pub fn toggle(
 
     div()
         .id(SharedString::from(format!("settings-toggle-{id}")))
+        .debug_selector({
+            let selector = format!("settings-toggle-{id}");
+            move || selector.clone()
+        })
         .flex()
         .flex_row()
         .items_center()

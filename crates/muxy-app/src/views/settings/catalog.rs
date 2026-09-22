@@ -157,6 +157,20 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: "Interface",
     },
     Setting {
+        id: "sidebar-vibrancy",
+        label: "Sidebar vibrancy",
+        description: "Use a translucent macOS background while the sidebar is expanded.",
+        category: Category::Appearance,
+        section: "Interface",
+    },
+    Setting {
+        id: "sidebar-vibrancy-level",
+        label: "Sidebar vibrancy level",
+        description: "How much of the macOS background effect shows through the theme color, from 0 to 100. Collapsed sidebars stay solid.",
+        category: Category::Appearance,
+        section: "Interface",
+    },
+    Setting {
         id: "auto-expand-worktrees",
         label: "Expand worktrees when switching projects",
         description: "Reveal worktrees when selecting a project in Project Focused.",

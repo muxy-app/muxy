@@ -68,7 +68,7 @@ pub(crate) fn navigation(
         .pr(m.spacing4())
         .gap(m.spacing1())
         .bg(if model.appearance.sidebar_expanded {
-            theme.raised()
+            gpui::transparent_black()
         } else {
             theme.bg
         })
