@@ -1,4 +1,5 @@
-mod banners;
+pub(crate) mod ai;
+pub(crate) mod banners;
 mod catalog;
 mod composer;
 mod diagnostics;
@@ -90,6 +91,7 @@ pub(crate) struct AppModel {
     pub(crate) composer: composer::ComposerRuntime,
     pub(crate) voice: voice::VoiceRuntime,
     pub(crate) git: git::GitState,
+    pub(crate) ai: ai::Runtime,
     catalog: catalog::Synchronization,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
     pub(crate) quick: quick_terminal::QuickTerminalRuntime,
@@ -97,6 +99,11 @@ pub(crate) struct AppModel {
     pub(crate) state: AppState,
     pub(crate) grids: HashMap<PaneId, PaneView>,
     pub(crate) error: Option<String>,
+    error_detail: Option<String>,
+    problem_serial: u64,
+    pub(crate) notice: Option<String>,
+    notice_body: Option<String>,
+    notice_serial: u64,
     pub(crate) focus: FocusHandle,
     pub(crate) appearance: muxy_app_core::settings::Appearance,
     pub(crate) settings: muxy_app_core::settings::Settings,
@@ -130,6 +137,10 @@ pub(crate) struct AppModel {
     pub(crate) navigation: crate::navigation::Navigation,
     pub(crate) configuration_error: Option<String>,
     dismissed_banners: [Option<String>; 2],
+    pub(crate) problem_toast: Option<banners::Toast>,
+    pub(crate) notice_toast: Option<banners::Toast>,
+    problem_task: Option<Task<()>>,
+    notice_task: Option<Task<()>>,
     path: PathBuf,
     bounds_save: Option<Task<()>>,
     webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
@@ -384,6 +395,8 @@ impl AppModel {
             model.sync_pane_focus(cx);
         });
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
+            #[cfg(not(test))]
+            crate::ai::terminate_all();
             model.close_voice(cx);
             model.save(cx);
             model.flush_composer(cx)
@@ -426,6 +439,7 @@ impl AppModel {
             composer: composer::ComposerRuntime::new(boot.composer),
             voice: voice::VoiceRuntime::default(),
             git: git::GitState::default(),
+            ai: ai::Runtime::default(),
             catalog: catalog::Synchronization::default(),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
             quick: quick_terminal::QuickTerminalRuntime::new(&boot.settings.quick_terminal, cx),
@@ -433,6 +447,11 @@ impl AppModel {
             state: boot.state,
             grids: HashMap::new(),
             error: theme_error,
+            error_detail: None,
+            problem_serial: 0,
+            notice: None,
+            notice_body: None,
+            notice_serial: 0,
             focus: cx.focus_handle(),
             appearance: boot.settings.appearance.clone(),
             project_logo_task: None,
@@ -466,6 +485,10 @@ impl AppModel {
             navigation: crate::navigation::Navigation::default(),
             configuration_error,
             dismissed_banners: [None, None],
+            problem_toast: None,
+            notice_toast: None,
+            problem_task: None,
+            notice_task: None,
             path: boot.state_path,
             bounds_save: None,
             webview_shortcuts: None,
@@ -499,6 +522,8 @@ impl AppModel {
             _quit: quit,
         };
         model.refresh_installed_extensions(cx);
+        #[cfg(not(test))]
+        Self::discover_ai_providers(cx);
         model.sync_visible(cx);
         model.sync_pane_focus(cx);
         model.save_bounds(window, cx);
@@ -2271,6 +2296,7 @@ mod tests {
     mod webviews;
     use muxy_protocol::ExitReason;
     mod activity;
+    mod ai;
     mod banners;
     mod clipboard;
     mod colors;

@@ -10,6 +10,34 @@ pub(super) struct Setting {
 
 pub(super) const SETTINGS: &[Setting] = &[
     Setting {
+        id: "ai-commit-provider",
+        label: "Commit provider",
+        description: "AI CLI that drafts commit messages. Auto uses the first installed provider.",
+        category: Category::Ai,
+        section: "Commit and Push",
+    },
+    Setting {
+        id: "ai-commit-prompt",
+        label: "Commit prompt",
+        description: "AI drafts only the commit message. You review it before Muxy commits every change and pushes. An empty prompt uses the default. Do not include secrets.",
+        category: Category::Ai,
+        section: "Commit and Push",
+    },
+    Setting {
+        id: "ai-create-pr-provider",
+        label: "Pull request provider",
+        description: "AI CLI that drafts pull requests. Auto uses the first installed provider.",
+        category: Category::Ai,
+        section: "Create Pull Request",
+    },
+    Setting {
+        id: "ai-create-pr-prompt",
+        label: "Pull request prompt",
+        description: "AI drafts the title, summary, branch name, and target branch. You review them before Muxy commits, pushes, and opens the pull request. An empty prompt uses the default.",
+        category: Category::Ai,
+        section: "Create Pull Request",
+    },
+    Setting {
         id: "voice-auto-send",
         label: "Send after recording",
         description: "Press Return after inserting standalone voice dictation into the terminal.",

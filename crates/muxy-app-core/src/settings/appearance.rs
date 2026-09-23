@@ -162,6 +162,41 @@ pub(crate) fn save_section(path: &Path, section: &str, values: &impl Serialize) 
     write_document(path, &document)
 }
 
+pub(crate) fn save_entry(
+    path: &Path,
+    section: &str,
+    table: &str,
+    key: &str,
+    value: Option<&str>,
+) -> Result<toml::Value> {
+    let mut document = read_document(path)?;
+    let values = document
+        .entry(section)
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    let values = values
+        .as_table_mut()
+        .ok_or_else(|| io::Error::other(format!("{section} must be a table")))?;
+    let entries = values
+        .entry(table)
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if !entries.is_table() {
+        *entries = toml::Value::Table(toml::Table::new());
+    }
+    if let Some(entries) = entries.as_table_mut() {
+        match value {
+            Some(value) => {
+                entries.insert(key.into(), value.into());
+            }
+            None => {
+                entries.remove(key);
+            }
+        }
+    }
+    let saved = toml::Value::Table(values.clone());
+    write_document(path, &document)?;
+    Ok(saved)
+}
+
 pub(crate) fn replace_section(path: &Path, section: &str, values: &impl Serialize) -> Result<()> {
     let mut document = read_document(path)?;
     document.insert(section.into(), toml::Value::try_from(values)?);

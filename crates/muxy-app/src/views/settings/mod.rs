@@ -1,3 +1,4 @@
+mod ai;
 mod appearance;
 mod catalog;
 mod composer;
@@ -12,6 +13,7 @@ mod server;
 mod terminal;
 pub(crate) mod window;
 
+pub(crate) use ai::prompt_action;
 pub(crate) use pickers::{PickerAnchor, PickerKind, PickerRequest};
 
 use std::collections::{HashMap, HashSet};
@@ -45,6 +47,7 @@ pub(crate) fn register_commands(
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Category {
     General,
+    Ai,
     Composer,
     QuickTerminal,
     Appearance,
@@ -55,7 +58,7 @@ pub(crate) enum Category {
 }
 
 impl Category {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -64,11 +67,13 @@ impl Category {
         Self::Terminal,
         Self::Server,
         Self::Extensions,
+        Self::Ai,
     ];
 
     fn label(self) -> &'static str {
         match self {
             Self::General => "General",
+            Self::Ai => "AI",
             Self::Composer => "Composer",
             Self::QuickTerminal => "Quick Terminal",
             Self::Appearance => "Appearance",
@@ -119,6 +124,7 @@ pub(crate) struct Snapshot {
     pub(crate) server_busy: bool,
     pub(crate) server_update: Option<String>,
     pub(crate) pending_server_fields: HashSet<String>,
+    pub(crate) ai_installed: Vec<&'static str>,
 }
 
 pub(crate) struct SettingsView {
@@ -226,6 +232,8 @@ impl SettingsView {
                 PickerKind::Language,
                 PickerKind::Theme(false),
                 PickerKind::Theme(true),
+                PickerKind::AiProvider(crate::repository_actions::Action::Commit),
+                PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
             ]
             .into_iter()
             .map(|kind| (kind, PickerAnchor::default()))
@@ -236,7 +244,14 @@ impl SettingsView {
             #[cfg(test)]
             shortcut_row_count: 0,
         };
-        for id in [
+        pane.create_fields(cx);
+        pane.sync_fields(cx);
+        pane
+    }
+
+    fn create_fields(&mut self, cx: &mut Context<Self>) {
+        let (theme, metrics) = (self.theme.clone(), self.metrics);
+        for (id, multiline) in [
             "composer-font",
             "composer-line-height",
             "quick-width",
@@ -248,9 +263,15 @@ impl SettingsView {
             "adjust-cell-height",
             "default-shell",
             "history-budget",
-        ] {
-            let input =
-                cx.new(|cx| TextInput::new(InputStyle::field(&pane.theme, &pane.metrics), cx));
+        ]
+        .into_iter()
+        .map(|id| (id, false))
+        .chain(ai::PROMPTS.iter().map(|(_, id)| (*id, true)))
+        {
+            let input = cx.new(|cx| {
+                let input = TextInput::new(InputStyle::field(&theme, &metrics), cx);
+                if multiline { input.multiline() } else { input }
+            });
             let changed = cx.subscribe(&input, move |pane: &mut Self, _, event, cx| match event {
                 InputEvent::Changed => {
                     pane.dirty.insert(id);
@@ -266,11 +287,9 @@ impl SettingsView {
                     cx.notify();
                 }
             });
-            pane.fields.insert(id, input);
-            pane.subscriptions.push(changed);
+            self.fields.insert(id, input);
+            self.subscriptions.push(changed);
         }
-        pane.sync_fields(cx);
-        pane
     }
 
     pub(crate) fn sync(&mut self, snapshot: Snapshot, theme: Theme, cx: &mut Context<Self>) {
@@ -358,7 +377,20 @@ impl SettingsView {
             ("adjust-cell-height", terminal.cell_height.to_string()),
             ("default-shell", shell),
             ("history-budget", budget),
-        ] {
+        ]
+        .into_iter()
+        .chain(ai::PROMPTS.iter().map(|(action, id)| {
+            (
+                *id,
+                settings
+                    .ai
+                    .prompts
+                    .get(action.key())
+                    .filter(|prompt| !prompt.trim().is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| action.default_prompt().into()),
+            )
+        })) {
             if !self.dirty.contains(id)
                 && !self.errors.contains_key(id)
                 && !self.snapshot.pending_server_fields.contains(id)
@@ -506,6 +538,10 @@ impl SettingsView {
     }
 
     fn row(&self, id: &str, label: &str, control: AnyElement) -> AnyElement {
+        self.row_with(id, label, control, self.compact)
+    }
+
+    fn row_with(&self, id: &str, label: &str, control: AnyElement, stacked: bool) -> AnyElement {
         let setting = catalog::setting(id);
         let description = setting.map(|setting| setting.description);
         let section = setting
@@ -540,7 +576,7 @@ impl SettingsView {
                 label,
                 description,
                 control,
-                self.compact,
+                stacked,
             ))
             .when_some(self.errors.get(id), |row, error| {
                 row.child(self.note(error, true).pt_0())

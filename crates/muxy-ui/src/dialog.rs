@@ -204,10 +204,15 @@ pub fn present(
         .ok_or_else(|| io::Error::other("dialogs require the main thread"))?;
     let windows = NSApplication::sharedApplication(main_thread).windows();
     let title = window.window_title();
-    let parent = (0..windows.count())
+    let mut matches = (0..windows.count())
         .map(|index| windows.objectAtIndex(index))
-        .find(|window| window.title().to_string() == title)
+        .filter(|window| window.title().to_string() == title);
+    let parent = matches
+        .next()
         .ok_or_else(|| io::Error::other("dialog parent is closed"))?;
+    if matches.next().is_some() {
+        return Err(io::Error::other("dialog parent window is ambiguous"));
+    }
     if parent.attachedSheet().is_some() {
         return Err(io::Error::other("an application dialog is already open"));
     }

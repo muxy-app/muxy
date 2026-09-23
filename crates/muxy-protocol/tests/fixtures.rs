@@ -36,11 +36,42 @@ fn generate_fixtures() -> Result<(), Box<dyn Error>> {
 
 fn fixture_path(message: &Message) -> PathBuf {
     let name = exec_fixture_name(message)
+        .or_else(|| git_fixture_name(message))
         .or_else(|| project_fixture_name(message))
         .unwrap_or_else(|| legacy_fixture_name(message));
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(format!("{name}.bin"))
+}
+
+fn git_fixture_name(message: &Message) -> Option<&'static str> {
+    use muxy_protocol::{GitAction, GitPullRequestAction, GitReply, GitRequest};
+
+    Some(match message {
+        Message::Request {
+            body: RequestBody::Git(GitRequest { action, .. }),
+            ..
+        } => match action {
+            GitAction::BranchDiff { .. } => "git_branch_diff",
+            GitAction::ChangesPreview { .. } => "git_changes_preview",
+            GitAction::CommitAll { .. } => "git_commit_all",
+            GitAction::PublishBranch { .. } => "git_publish_branch",
+            GitAction::SwitchToBase(_) => "git_switch_to_base",
+            GitAction::PullRequest(GitPullRequestAction::UpdateBranch { .. }) => {
+                "git_update_pr_branch"
+            }
+            _ => return None,
+        },
+        Message::Reply {
+            body: ReplyBody::Git(reply),
+            ..
+        } => match reply {
+            GitReply::ChangesPreview(_) => "git_changes_preview_reply",
+            GitReply::BaseSwitch(_) => "git_base_switch_reply",
+            _ => return None,
+        },
+        _ => return None,
+    })
 }
 
 fn exec_fixture_name(message: &Message) -> Option<&'static str> {

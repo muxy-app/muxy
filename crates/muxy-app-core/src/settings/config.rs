@@ -10,6 +10,7 @@ use crate::settings::{Appearance, Error, Keymap, Result};
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    pub ai: AiSettings,
     pub composer: super::ComposerSettings,
     pub panel_pins: BTreeMap<String, BTreeMap<String, bool>>,
     pub quick_terminal: crate::settings::QuickTerminalSettings,
@@ -20,6 +21,29 @@ pub struct Settings {
     pub panes: PaneSettings,
     pub clipboard: ClipboardSettings,
     pub openers: OpenerSettings,
+}
+
+/// Per-action AI choices. Hand edits are expected here, so unknown keys and
+/// non-text values are ignored instead of stopping the app from starting.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AiSettings {
+    #[serde(deserialize_with = "text_entries")]
+    pub providers: BTreeMap<String, String>,
+    #[serde(deserialize_with = "text_entries")]
+    pub prompts: BTreeMap<String, String>,
+}
+
+fn text_entries<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<BTreeMap<String, String>, D::Error> {
+    let value = toml::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_table()
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
+        .collect())
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -69,6 +93,19 @@ impl Default for WindowSettings {
 }
 
 impl Settings {
+    /// Saves one AI entry over the file's current contents, keeping hand edits,
+    /// and returns the AI settings as saved.
+    pub fn save_ai_entry(
+        path: &Path,
+        table: &str,
+        key: &str,
+        value: Option<&str>,
+    ) -> Result<AiSettings> {
+        crate::settings::appearance::save_entry(path, "ai", table, key, value)
+            .and_then(|saved| saved.try_into().map_err(Into::into))
+            .map_err(|error| Error::new("ai", error))
+    }
+
     pub fn panel_pinned(&self, owner: &str, panel: &str, default: bool) -> bool {
         self.panel_pins
             .get(owner)
@@ -226,5 +263,34 @@ impl Default for OpenerSettings {
             file: "system.editor".into(),
             project_target: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ai_settings_ignore_hand_edit_mistakes_and_saves_keep_hand_edits() -> Result<()> {
+        let directory = tempfile::tempdir().map_err(|error| Error::new("test", error))?;
+        let path = directory.path().join("settings.toml");
+        fs::write(
+            &path,
+            "[ai]\nprompt = \"typo\"\n[ai.prompts]\ncommit = \"Use Conventional Commits\"\ncreate_pr = 5\n",
+        )
+        .map_err(|error| Error::new("test", error))?;
+        let loaded = Settings::load(&path)?;
+        assert_eq!(
+            loaded.ai.prompts,
+            BTreeMap::from([("commit".into(), "Use Conventional Commits".into())])
+        );
+
+        let saved = Settings::save_ai_entry(&path, "providers", "commit", Some("claude"))?;
+        assert_eq!(saved.providers["commit"], "claude");
+        assert_eq!(saved.prompts["commit"], "Use Conventional Commits");
+        let saved = Settings::save_ai_entry(&path, "prompts", "commit", None)?;
+        assert!(saved.prompts.is_empty());
+        assert_eq!(Settings::load(&path)?.ai, saved);
+        Ok(())
     }
 }

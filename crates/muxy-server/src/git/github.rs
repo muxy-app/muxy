@@ -1,4 +1,4 @@
-use super::{Result, command, diff, error, mutate, read, run, text, validate_branch};
+use super::{Result, command, diff, error, read, run, snapshot, text, validate_branch};
 use muxy_protocol::{
     GitChecks, GitMergeMethod, GitPullRequest, GitPullRequestAction, GitPullRequestFilter, GitReply,
 };
@@ -137,6 +137,7 @@ impl Github {
                 number,
                 method,
                 delete_branch,
+                expected_head,
             } => {
                 let flag = match method {
                     GitMergeMethod::Merge => "--merge",
@@ -147,6 +148,9 @@ impl Github {
                 let mut args = vec!["pr", "merge", &number, "--repo", &identity, flag];
                 if *delete_branch {
                     args.push("--delete-branch");
+                }
+                if let Some(head) = expected_head {
+                    args.extend(["--match-head-commit", head]);
                 }
                 self.run(repository, &args)?;
                 Ok(GitReply::Done)
@@ -163,7 +167,98 @@ impl Github {
                 run(repository, &["switch", "--", &branch])?;
                 Ok(GitReply::Done)
             }
+            GitPullRequestAction::UpdateBranch {
+                number,
+                expected_head,
+            } => self.update_branch(repository, &identity, *number, expected_head),
         }
+    }
+
+    fn update_branch(
+        &self,
+        repository: &Path,
+        identity: &str,
+        number: u64,
+        expected_head: &str,
+    ) -> Result<GitReply> {
+        let pr = self
+            .current(repository, identity)?
+            .filter(|pr| pr.number == number)
+            .ok_or_else(|| {
+                error("This branch no longer has that pull request; refresh and try again")
+            })?;
+        if pr.state != "OPEN" {
+            return Err(error("The pull request is no longer open"));
+        }
+        if pr.head_oid != expected_head {
+            return Err(error(
+                "The pull request changed on GitHub; refresh and try again",
+            ));
+        }
+        if pr.cross_repository {
+            return Err(error("Pull requests from forks can't be updated here"));
+        }
+        validate_branch(repository, &pr.base_branch)?;
+        let summary = read::summary(repository)?;
+        let branch = summary
+            .branch
+            .clone()
+            .filter(|branch| {
+                *branch == pr.head_branch
+                    || run(
+                        repository,
+                        &[
+                            "config",
+                            "--get",
+                            &format!("branch.{branch}.muxy-pr-number"),
+                        ],
+                    )
+                    .ok()
+                    .and_then(|bytes| text(&bytes).ok())
+                    .is_some_and(|value| value == number.to_string())
+            })
+            .ok_or_else(|| {
+                error(format!(
+                    "Switch to {} before updating the pull request",
+                    pr.head_branch
+                ))
+            })?;
+        if summary.head.as_deref() != Some(expected_head) {
+            return Err(error(
+                "This branch isn't at the pull request's head commit; pull or push it first",
+            ));
+        }
+        if summary.changed > summary.untracked {
+            return Err(error(
+                "Commit or stash your changes before updating the branch",
+            ));
+        }
+        let destination = snapshot::destination(repository, &branch)?
+            .ok_or_else(|| error("No remote to push the updated branch to"))?;
+        command::network(repository, &["fetch", "origin", &pr.base_branch])?;
+        if let Err(cause) = run(
+            repository,
+            &[
+                "merge",
+                "--no-edit",
+                &format!("refs/remotes/origin/{}", pr.base_branch),
+            ],
+        ) {
+            let _ = run(repository, &["merge", "--abort"]);
+            return Err(error(format!(
+                "Couldn't merge origin/{}, so the merge was aborted: {}",
+                pr.base_branch,
+                cause.message()
+            )));
+        }
+        snapshot::publish(repository, &branch, &destination).map_err(|cause| {
+            error(format!(
+                "Merged origin/{} into {branch} locally, but couldn't push it: {}. Push the branch to finish.",
+                pr.base_branch,
+                cause.message()
+            ))
+        })?;
+        Ok(GitReply::Done)
     }
 
     fn create(
@@ -185,14 +280,16 @@ impl Github {
                 .unwrap_or_else(|| "main".into())
         };
         validate_branch(repository, &base)?;
-        mutate::push(repository, false)?;
+        let destination = snapshot::destination(repository, &branch)?
+            .ok_or_else(|| error("No remote to push the pull request branch to"))?;
+        snapshot::publish(repository, &branch, &destination)?;
         let mut args = vec![
             "pr",
             "create",
             "--repo",
             identity,
             "--head",
-            &branch,
+            &destination.branch,
             "--base",
             &base,
             "--title",
@@ -232,7 +329,11 @@ impl Github {
 
     fn number(&self, repository: &Path, identity: &str) -> Result<GitReply> {
         let number = self
-            .lookup_current(repository, identity, "number,headRefName")?
+            .lookup_current(
+                repository,
+                identity,
+                "number,headRefName,headRefOid,state,isCrossRepository",
+            )?
             .map(|value| {
                 value
                     .get("number")
@@ -316,11 +417,12 @@ impl Github {
         identity: &str,
         fields: &str,
     ) -> Result<Option<Value>> {
-        let Some(selector) = current_selector(repository)? else {
+        let Some(current) = current_branch(repository)? else {
             return Ok(None);
         };
-        let result = match &selector {
-            PullRequestSelector::Number(number) => self.run(
+        let mut first_error = None;
+        if let Some(number) = current.configured_number {
+            match self.run(
                 repository,
                 &[
                     "pr",
@@ -331,39 +433,76 @@ impl Github {
                     "--json",
                     fields,
                 ],
-            ),
-            PullRequestSelector::Branch(branch) => self.run(
+            ) {
+                Ok(bytes) => return serde_json::from_slice(&bytes).map(Some).map_err(error),
+                Err(cause) if no_pr(&cause) => (),
+                Err(cause) => first_error = Some(cause),
+            }
+        }
+        match self.run(repository, &["pr", "view", "--json", fields]) {
+            Ok(bytes) => {
+                let value: Value = serde_json::from_slice(&bytes).map_err(error)?;
+                if current.matches_view(&value) {
+                    return Ok(Some(value));
+                }
+            }
+            Err(cause) if no_pr(&cause) => (),
+            Err(cause) => {
+                first_error.get_or_insert(cause);
+            }
+        }
+        if current.branch.parse::<u64>().is_err() {
+            match self.run(
                 repository,
                 &[
-                    "pr", "list", "--repo", identity, "--head", branch, "--state", "all",
-                    "--limit", "100", "--json", fields,
+                    "pr",
+                    "view",
+                    &current.branch,
+                    "--repo",
+                    identity,
+                    "--json",
+                    fields,
                 ],
-            ),
-        };
-        let bytes = match result {
+            ) {
+                Ok(bytes) => {
+                    let value: Value = serde_json::from_slice(&bytes).map_err(error)?;
+                    if current.matches_view(&value) {
+                        return Ok(Some(value));
+                    }
+                }
+                Err(cause) if no_pr(&cause) => (),
+                Err(cause) => {
+                    first_error.get_or_insert(cause);
+                }
+            }
+        }
+        let bytes = match self.run(
+            repository,
+            &[
+                "pr",
+                "list",
+                "--repo",
+                identity,
+                "--head",
+                &current.branch,
+                "--state",
+                "all",
+                "--limit",
+                "100",
+                "--json",
+                fields,
+            ],
+        ) {
             Ok(bytes) => bytes,
-            Err(cause) if no_pr(&cause) => return Ok(None),
+            Err(cause) if no_pr(&cause) => return first_error.map_or(Ok(None), Err),
             Err(cause) => return Err(cause),
         };
-        match selector {
-            PullRequestSelector::Number(_) => {
-                serde_json::from_slice(&bytes).map(Some).map_err(error)
-            }
-            PullRequestSelector::Branch(branch) => {
-                let values: Vec<Value> = serde_json::from_slice(&bytes).map_err(error)?;
-                Ok(values
-                    .iter()
-                    .find(|value| {
-                        value.get("headRefName").and_then(Value::as_str) == Some(&branch)
-                            && value.get("state").and_then(Value::as_str) == Some("OPEN")
-                    })
-                    .or_else(|| {
-                        values.iter().find(|value| {
-                            value.get("headRefName").and_then(Value::as_str) == Some(&branch)
-                        })
-                    })
-                    .cloned())
-            }
+        let values: Vec<Value> = serde_json::from_slice(&bytes).map_err(error)?;
+        let matched = values.into_iter().find(|value| current.matches_head(value));
+        match (matched, first_error) {
+            (Some(value), _) => Ok(Some(value)),
+            (None, Some(cause)) => Err(cause),
+            (None, None) => Ok(None),
         }
     }
 
@@ -477,13 +616,32 @@ impl Github {
     }
 }
 
-enum PullRequestSelector {
-    Number(u64),
-    Branch(String),
+struct CurrentBranch {
+    branch: String,
+    head: String,
+    configured_number: Option<u64>,
 }
 
-fn current_selector(repository: &Path) -> Result<Option<PullRequestSelector>> {
-    let Some(branch) = read::summary(repository)?.branch else {
+impl CurrentBranch {
+    fn matches_head(&self, value: &Value) -> bool {
+        value.get("headRefName").and_then(Value::as_str) == Some(&self.branch)
+            && value
+                .get("headRefOid")
+                .and_then(Value::as_str)
+                .is_some_and(|head| head.eq_ignore_ascii_case(&self.head))
+    }
+
+    fn matches_view(&self, value: &Value) -> bool {
+        value.get("headRefName").and_then(Value::as_str) == Some(&self.branch)
+            && ((value.get("state").and_then(Value::as_str) == Some("OPEN")
+                && value.get("isCrossRepository").and_then(Value::as_bool) == Some(false))
+                || self.matches_head(value))
+    }
+}
+
+fn current_branch(repository: &Path) -> Result<Option<CurrentBranch>> {
+    let summary = read::summary(repository)?;
+    let (Some(branch), Some(head)) = (summary.branch, summary.head) else {
         return Ok(None);
     };
     let number = run(
@@ -498,10 +656,11 @@ fn current_selector(repository: &Path) -> Result<Option<PullRequestSelector>> {
     .and_then(|bytes| text(&bytes).ok())
     .and_then(|value| value.parse::<u64>().ok())
     .filter(|number| *number > 0);
-    Ok(Some(number.map_or_else(
-        || PullRequestSelector::Branch(branch),
-        PullRequestSelector::Number,
-    )))
+    Ok(Some(CurrentBranch {
+        branch,
+        head,
+        configured_number: number,
+    }))
 }
 
 fn fields(checks: bool) -> String {
@@ -513,7 +672,10 @@ fn fields(checks: bool) -> String {
 }
 fn no_pr(cause: &crate::ServerError) -> bool {
     let message = cause.message().to_ascii_lowercase();
-    message.contains("no pull requests found") || message.contains("no pull request found")
+    message.contains("no pull requests found")
+        || message.contains("no pull request found")
+        || message.contains("could not resolve")
+        || message.contains("no commits between")
 }
 fn valid_segment(value: &str) -> bool {
     !matches!(value, "" | "." | "..")

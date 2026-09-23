@@ -122,12 +122,18 @@ pub enum GitPullRequestAction {
         number: u64,
         method: GitMergeMethod,
         delete_branch: bool,
+        /// Refuse the merge when the pull request head moved past this commit.
+        expected_head: Option<String>,
     },
     Close {
         number: u64,
     },
     Checkout {
         number: u64,
+    },
+    UpdateBranch {
+        number: u64,
+        expected_head: String,
     },
 }
 
@@ -236,8 +242,21 @@ impl GitPullRequestAction {
                 }
                 Ok(())
             }
-            Self::Merge { number, .. } | Self::Close { number } | Self::Checkout { number } => {
-                validate_number(*number)
+            Self::Merge {
+                number,
+                expected_head,
+                ..
+            } => {
+                validate_number(*number)?;
+                expected_head.as_deref().map_or(Ok(()), validate_hash)
+            }
+            Self::Close { number } | Self::Checkout { number } => validate_number(*number),
+            Self::UpdateBranch {
+                number,
+                expected_head,
+            } => {
+                validate_number(*number)?;
+                validate_hash(expected_head)
             }
         }
     }

@@ -554,6 +554,7 @@ fn linked_worktree_watch_detects_common_refs_and_stops_when_dropped() {
 }
 
 mod extensions;
+mod review;
 
 #[test]
 fn repository_reads_overlap_and_mutations_wait_for_readers() {

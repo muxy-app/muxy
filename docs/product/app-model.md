@@ -135,6 +135,13 @@ will end and their terminal panes will close.
 
 ## AI indicators and notifications
 
+For Git projects, the desktop footer shows the current branch and changes, an
+AI-assisted commit action, and either Create PR or the current pull request.
+A selected installed AI CLI drafts commit or pull request text; users review and
+edit it before Muxy commits, pushes, or opens the pull request. Providers and
+prompts are set in Settings → AI. The pull request control shows its state and
+checks and offers refresh, open, update, merge, and close actions.
+
 Activity indicators, progress, and notifications belong to open panes, including
 those in hidden tabs. Tabs and projects aggregate their panes only; detached
 sessions contribute no indicators or desktop alerts. Blocked agents take priority

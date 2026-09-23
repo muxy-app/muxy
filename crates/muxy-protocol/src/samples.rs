@@ -95,6 +95,7 @@ impl Message {
         });
         samples.extend(exec_samples());
         samples.extend(git_samples());
+        samples.extend(git_review_samples());
         samples.extend(files_samples());
         samples.extend(snapshot.into_iter().flat_map(history_samples));
         samples.extend(input_samples());
@@ -474,6 +475,26 @@ fn git_samples() -> Vec<Message> {
                 action: crate::GitAction::Summary,
             }),
         },
+        Message::Request {
+            id: RequestId(101),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::BranchDiff {
+                    base: "main".into(),
+                    line_limit: Some(800),
+                },
+            }),
+        },
+        Message::Request {
+            id: RequestId(103),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::PullRequest(crate::GitPullRequestAction::UpdateBranch {
+                    number: 42,
+                    expected_head: "def456".into(),
+                }),
+            }),
+        },
         Message::Reply {
             id: RequestId(100),
             body: ReplyBody::Git(crate::GitReply::Changes(vec![crate::GitFile {
@@ -484,6 +505,80 @@ fn git_samples() -> Vec<Message> {
                 added: None,
                 removed: None,
             }])),
+        },
+    ]
+}
+
+/// Samples for reviewing and applying AI-drafted commits and pull requests.
+fn git_review_samples() -> Vec<Message> {
+    let destination = crate::GitPushDestination {
+        remote: "origin".into(),
+        branch: "feature".into(),
+    };
+    vec![
+        Message::Request {
+            id: RequestId(102),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::ChangesPreview {
+                    line_limit: Some(800),
+                },
+            }),
+        },
+        Message::Reply {
+            id: RequestId(102),
+            body: ReplyBody::Git(crate::GitReply::ChangesPreview(Box::new(
+                crate::GitChangesPreview {
+                    branch: Some("feature".into()),
+                    head: Some("abc123".into()),
+                    tree: "def456".into(),
+                    diff: crate::GitRawDiff {
+                        diff: "diff --git a/file b/file\n".into(),
+                        truncated: false,
+                    },
+                    files: vec![crate::GitPreviewFile {
+                        path: ServerPath(b"file".to_vec()),
+                        added: Some(1),
+                        removed: Some(0),
+                        untracked: true,
+                    }],
+                    destination: Some(destination.clone()),
+                },
+            ))),
+        },
+        Message::Request {
+            id: RequestId(104),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::CommitAll {
+                    message: "Message".into(),
+                    expected_head: Some("abc123".into()),
+                    expected_tree: "def456".into(),
+                },
+            }),
+        },
+        Message::Request {
+            id: RequestId(105),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::PublishBranch {
+                    branch: "feature".into(),
+                    destination,
+                },
+            }),
+        },
+        Message::Request {
+            id: RequestId(106),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::SwitchToBase("main".into()),
+            }),
+        },
+        Message::Reply {
+            id: RequestId(106),
+            body: ReplyBody::Git(crate::GitReply::BaseSwitch(
+                crate::GitBaseSwitch::CheckedOutElsewhere(ServerPath(b"/tmp/main".to_vec())),
+            )),
         },
     ]
 }

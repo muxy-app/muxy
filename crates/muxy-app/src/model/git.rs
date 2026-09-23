@@ -1,7 +1,10 @@
 use super::{AppModel, Work};
 use crate::views::overlays::Overlay;
 use gpui::Context;
-use muxy_protocol::{GitAction, GitBranch, GitFile, GitReply, GitRequest, GitSummary, ProjectId};
+use muxy_protocol::{
+    GitAction, GitBaseSwitch, GitBranch, GitFile, GitPullRequest, GitPullRequestAction, GitReply,
+    GitRequest, GitSummary, ProjectId,
+};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
@@ -9,6 +12,7 @@ pub(crate) struct Repository {
     pub(crate) summary: Option<GitSummary>,
     pub(crate) branches: Vec<GitBranch>,
     pub(crate) files: Vec<GitFile>,
+    pub(crate) pull_request: Option<GitPullRequest>,
     pub(crate) error: Option<String>,
     pub(crate) pending: bool,
     mutating: bool,
@@ -17,9 +21,20 @@ pub(crate) struct Repository {
     pub(crate) loaded: bool,
     reading: Option<GitAction>,
     refresh: VecDeque<GitAction>,
-    read_loaded: [bool; 5],
-    read_errors: [Option<String>; 5],
+    read_loaded: [bool; 6],
+    read_errors: [Option<String>; 6],
+    /// The merged pull request number and base while the local base branch is updated.
+    post_merge: Option<(u64, String)>,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Presence {
+    Loading,
+    None,
+    Unavailable,
+    Found,
+}
+const PULL_REQUEST_SLOT: usize = 5;
 fn read_slot(action: &GitAction) -> Option<usize> {
     match action {
         GitAction::Summary => Some(0),
@@ -27,6 +42,7 @@ fn read_slot(action: &GitAction) -> Option<usize> {
         GitAction::Changes => Some(2),
         GitAction::Worktrees => Some(3),
         GitAction::Watch => Some(4),
+        GitAction::PullRequest(GitPullRequestAction::Info) => Some(PULL_REQUEST_SLOT),
         _ => None,
     }
 }
@@ -45,16 +61,30 @@ impl Repository {
         self.queued = None;
         self.reading = None;
         self.refresh.clear();
+        self.post_merge = None;
     }
 
     pub(crate) fn busy(&self) -> bool {
         self.mutating || self.queued.is_some()
+    }
+
+    pub(crate) fn pull_request_presence(&self) -> Presence {
+        if !self.read_loaded[PULL_REQUEST_SLOT] {
+            Presence::Loading
+        } else if self.pull_request.is_some() {
+            Presence::Found
+        } else if self.read_errors[PULL_REQUEST_SLOT].is_some() {
+            Presence::Unavailable
+        } else {
+            Presence::None
+        }
     }
 }
 #[derive(Default)]
 pub(crate) struct GitState {
     pub(crate) branch_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) changes_anchor: muxy_ui::popover::PopoverAnchor,
+    pub(crate) pull_request_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) projects: HashMap<ProjectId, Repository>,
     current: Option<ProjectId>,
     pub(crate) select_after_catalog: Option<(ProjectId, u64)>,
@@ -96,6 +126,10 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         if !self.session_listing_ready() {
+            return;
+        }
+        if read_slot(&action).is_none() && self.ai.running(project) {
+            self.fail("Wait for the AI repository action to finish".into(), cx);
             return;
         }
         if action == GitAction::Watch && self.git.current != Some(project) {
@@ -140,13 +174,33 @@ impl AppModel {
     }
     pub(super) fn sync_git(&mut self, cx: &mut Context<Self>) {
         let current = self.state.current_project().id;
+        if self.project_creation_pending(current) {
+            return;
+        }
         if self.git.current != Some(current) {
             self.git.current = Some(current);
             self.git.interaction = self.git.interaction.wrapping_add(1);
-            if matches!(self.overlay, Some(Overlay::Git(_) | Overlay::GitForm(_))) {
+            if matches!(
+                self.overlay,
+                Some(
+                    Overlay::Git(_)
+                        | Overlay::GitForm(_)
+                        | Overlay::PullRequest(_)
+                        | Overlay::AiAction(_)
+                )
+            ) {
                 self.dismiss_overlay(cx);
             }
-            self.queue_git_refresh(current, vec![GitAction::Watch, GitAction::Summary], cx);
+            self.queue_git_refresh(
+                current,
+                vec![
+                    GitAction::Watch,
+                    GitAction::Summary,
+                    GitAction::Branches,
+                    GitAction::PullRequest(GitPullRequestAction::Info),
+                ],
+                cx,
+            );
         }
     }
     pub(crate) fn refresh_git(&mut self, cx: &mut Context<Self>) {
@@ -160,6 +214,7 @@ impl AppModel {
         {
             actions.push(GitAction::Branches);
         }
+        actions.push(GitAction::PullRequest(GitPullRequestAction::Info));
         if let Some(Overlay::Git(picker)) = &self.overlay {
             if picker.project == current {
                 actions.push(picker.kind.action());
@@ -180,7 +235,7 @@ impl AppModel {
         actions: Vec<GitAction>,
         cx: &mut Context<Self>,
     ) {
-        if !self.session_listing_ready() {
+        if !self.session_listing_ready() || self.project_creation_pending(project) {
             return;
         }
         let repository = self.git.projects.entry(project).or_default();
@@ -202,6 +257,10 @@ impl AppModel {
             self.git_request(project, action, cx);
         }
     }
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Handle all Git reply variants in one place"
+    )]
     pub(super) fn receive_git(
         &mut self,
         request: &GitRequest,
@@ -226,14 +285,33 @@ impl AppModel {
                 repository.summary = summary;
                 repository.loaded = true;
                 if repository.summary.is_none() {
+                    repository.pull_request = None;
+                    repository.read_loaded[PULL_REQUEST_SLOT] = false;
                     repository.refresh.retain(|action| {
-                        !matches!(action, GitAction::Branches | GitAction::Changes)
+                        !matches!(
+                            action,
+                            GitAction::Branches
+                                | GitAction::Changes
+                                | GitAction::PullRequest(GitPullRequestAction::Info)
+                        )
                     });
                 } else if head_changed
                     && request.project == self.state.current_project().id
                     && !repository.refresh.contains(&GitAction::Branches)
                 {
                     repository.refresh.push_back(GitAction::Branches);
+                }
+                if head_changed && repository.summary.is_some() {
+                    repository.pull_request = None;
+                    repository.read_loaded[PULL_REQUEST_SLOT] = false;
+                    if !repository
+                        .refresh
+                        .contains(&GitAction::PullRequest(GitPullRequestAction::Info))
+                    {
+                        repository
+                            .refresh
+                            .push_back(GitAction::PullRequest(GitPullRequestAction::Info));
+                    }
                 }
             }
             Ok(GitReply::Branches(branches)) => {
@@ -243,6 +321,7 @@ impl AppModel {
                 }
             }
             Ok(GitReply::Changes(files)) => repository.files = files,
+            Ok(GitReply::PullRequest(pr)) => repository.pull_request = pr.map(|pr| *pr),
             Ok(GitReply::Removal(expected)) if context_matches => {
                 self.confirm_git_action(request.project, GitAction::Worktree(muxy_protocol::WorktreeIntent {
                     operation: muxy_protocol::OperationId::new(), action: muxy_protocol::WorktreeAction::Remove { expected: expected.clone() },
@@ -257,6 +336,42 @@ impl AppModel {
             }
             Ok(GitReply::Done) if request.action == GitAction::Watch => (),
             Ok(GitReply::Done) => {
+                let active = request.project == self.state.current_project().id;
+                let merged = match &request.action {
+                    GitAction::PullRequest(GitPullRequestAction::Merge { number, .. }) => {
+                        Some(*number)
+                    }
+                    _ => None,
+                };
+                let follow_up = merged.filter(|_| active).and_then(|number| {
+                    repository
+                        .pull_request
+                        .as_ref()
+                        .filter(|pr| pr.number == number)
+                        .map(|pr| (number, pr.base_branch.clone()))
+                });
+                repository.post_merge.clone_from(&follow_up);
+                let notice =
+                    if active {
+                        match &request.action {
+                            GitAction::PullRequest(GitPullRequestAction::Merge {
+                                number, ..
+                            }) if follow_up.is_none() => Some(format!("Merged PR #{number}")),
+                            GitAction::PullRequest(GitPullRequestAction::Close { number }) => {
+                                Some(format!("Closed PR #{number}"))
+                            }
+                            GitAction::PullRequest(GitPullRequestAction::UpdateBranch {
+                                number,
+                                ..
+                            }) => Some(format!("Updated branch for PR #{number}")),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                if let Some(notice) = notice {
+                    self.show_notice(notice, cx);
+                }
                 if context_matches && matches!(self.overlay, Some(Overlay::GitForm(_))) {
                     self.dismiss_overlay(cx);
                 }
@@ -266,13 +381,45 @@ impl AppModel {
                     }
                     self.refresh_catalog(cx);
                 }
-                let mut actions = vec![GitAction::Summary];
-                if let Some(Overlay::Git(picker)) = &self.overlay
-                    && picker.project == request.project
-                {
-                    actions.push(picker.kind.action());
+                if let Some((_, base)) = follow_up {
+                    self.git_request(request.project, GitAction::SwitchToBase(base), cx);
+                } else {
+                    let mut actions = vec![GitAction::Summary];
+                    if matches!(request.action, GitAction::PullRequest(_)) {
+                        actions.push(GitAction::PullRequest(GitPullRequestAction::Info));
+                    }
+                    if let Some(Overlay::Git(picker)) = &self.overlay
+                        && picker.project == request.project
+                    {
+                        actions.push(picker.kind.action());
+                    }
+                    self.queue_git_refresh(request.project, actions, cx);
                 }
-                self.queue_git_refresh(request.project, actions, cx);
+            }
+            Ok(GitReply::BaseSwitch(result)) => {
+                let merged = repository.post_merge.take();
+                if let Some((number, base)) = merged
+                    && request.project == self.state.current_project().id
+                {
+                    let detail = match result {
+                        GitBaseSwitch::Updated => {
+                            format!("Switched to {base} and brought it up to date.")
+                        }
+                        GitBaseSwitch::CheckedOutElsewhere(_) => format!(
+                            "{base} is checked out in another worktree, so this one stays on its branch."
+                        ),
+                    };
+                    self.show_toast(format!("Merged PR #{number} into {base}"), Some(detail), cx);
+                }
+                self.queue_git_refresh(
+                    request.project,
+                    vec![
+                        GitAction::Summary,
+                        GitAction::Branches,
+                        GitAction::PullRequest(GitPullRequestAction::Info),
+                    ],
+                    cx,
+                );
             }
             Ok(_) => (),
             Err(error) => {
@@ -281,13 +428,46 @@ impl AppModel {
                     if matches!(request.action, GitAction::Summary) {
                         repository.summary = None;
                         repository.loaded = true;
+                    } else if matches!(
+                        request.action,
+                        GitAction::PullRequest(GitPullRequestAction::Info)
+                    ) {
+                        repository.pull_request = None;
                     }
                 } else {
-                    repository.error = Some(error.to_string());
-                    if context_matches {
-                        self.fail(error.to_string(), cx);
+                    let failed = match &request.action {
+                        GitAction::SwitchToBase(base) => {
+                            repository.post_merge.take().map(|(number, _)| {
+                                format!("Merged PR #{number}, but couldn't update {base}")
+                            })
+                        }
+                        GitAction::PullRequest(GitPullRequestAction::Merge { number, .. }) => {
+                            Some(format!("Couldn't merge PR #{number}"))
+                        }
+                        GitAction::PullRequest(GitPullRequestAction::Close { number }) => {
+                            Some(format!("Couldn't close PR #{number}"))
+                        }
+                        GitAction::PullRequest(GitPullRequestAction::UpdateBranch {
+                            number,
+                            ..
+                        }) => Some(format!("Couldn't update PR #{number}")),
+                        _ => None,
+                    };
+                    repository.error = Some(failed.clone().unwrap_or_else(|| error.to_string()));
+                    let active = request.project == self.state.current_project().id;
+                    match failed {
+                        Some(title) if active => self.fail_detail(title, &error.to_string(), cx),
+                        None if context_matches => self.fail(error.to_string(), cx),
+                        _ => (),
                     }
                     let mut actions = vec![GitAction::Summary];
+                    if matches!(
+                        request.action,
+                        GitAction::SwitchToBase(_) | GitAction::PullRequest(_)
+                    ) {
+                        actions.push(GitAction::Branches);
+                        actions.push(GitAction::PullRequest(GitPullRequestAction::Info));
+                    }
                     if let Some(Overlay::Git(picker)) = &self.overlay
                         && picker.project == request.project
                     {

@@ -56,10 +56,11 @@ pub mod transport;
 
 mod git;
 pub use git::{
-    GitAction, GitBranch, GitChecks, GitCommit, GitDiff, GitDiffKind, GitDiffRequest, GitDiffRow,
-    GitFile, GitFileStatus, GitLineStat, GitMergeMethod, GitPullRequest, GitPullRequestAction,
-    GitPullRequestFilter, GitRawDiff, GitRef, GitRefKind, GitReply, GitRepoInfo, GitRequest,
-    GitStatus, GitSummary, GitWorktree, WorktreeAction, WorktreeIntent, WorktreeRemoval,
+    GitAction, GitBaseSwitch, GitBranch, GitChangesPreview, GitChecks, GitCommit, GitDiff,
+    GitDiffKind, GitDiffRequest, GitDiffRow, GitFile, GitFileStatus, GitLineStat, GitMergeMethod,
+    GitPreviewFile, GitPullRequest, GitPullRequestAction, GitPullRequestFilter, GitPushDestination,
+    GitRawDiff, GitRef, GitRefKind, GitReply, GitRepoInfo, GitRequest, GitStatus, GitSummary,
+    GitWorktree, WorktreeAction, WorktreeIntent, WorktreeRemoval,
 };
 
 mod activity;

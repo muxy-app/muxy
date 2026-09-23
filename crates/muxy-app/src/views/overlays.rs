@@ -17,6 +17,8 @@ pub(crate) enum Overlay {
     },
     Git(super::git::GitPicker),
     GitForm(super::git::Form),
+    AiAction(super::git::AiSheet),
+    PullRequest(super::git::PullRequestPopover),
     Sessions(super::session_picker::SessionPicker),
     Menu(Menu),
     ProjectEditor(super::project_editor::Editor),
@@ -34,6 +36,9 @@ impl AppModel {
         }
         self.project_logo_task = None;
         self.git.interaction = self.git.interaction.wrapping_add(1);
+        if let Some(Overlay::AiAction(sheet)) = self.overlay.take() {
+            self.ai_sheet_dismissed(&sheet);
+        }
         self.overlay = None;
         self.overlay_subscription = None;
         self.focus_requested = true;
@@ -98,6 +103,16 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             .justify_center()
             .child(super::git::render_form(form, model, window, cx))
             .into_any_element(),
+        Some(Overlay::AiAction(sheet)) => div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(super::git::render_sheet(sheet, model, window, cx))
+            .into_any_element(),
         Some(Overlay::Git(picker)) => {
             let model = cx.entity().downgrade();
             let dismiss = move |_: &mut Window, cx: &mut gpui::App| {
@@ -107,6 +122,16 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                 picker.anchor.clone(),
                 picker.picker.clone().into_any_element(),
                 dismiss,
+            )
+        }
+        Some(Overlay::PullRequest(popover)) => {
+            let model_entity = cx.entity().downgrade();
+            muxy_ui::popover::anchored_popover_above(
+                model.git.pull_request_anchor.clone(),
+                super::git::render_pr(popover, model, cx),
+                move |_, cx| {
+                    let _ = model_entity.update(cx, AppModel::dismiss_overlay);
+                },
             )
         }
         Some(Overlay::Menu(menu)) => menu::render(menu, model, window, cx),

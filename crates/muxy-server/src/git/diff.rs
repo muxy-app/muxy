@@ -60,6 +60,25 @@ pub(super) fn read(repository: &Path, request: &GitDiffRequest) -> Result<GitRep
     }
 }
 
+pub(super) fn branch(repository: &Path, base: &str, line_limit: Option<u32>) -> Result<GitReply> {
+    let range = format!("refs/remotes/origin/{base}...HEAD");
+    let (bytes, truncated) = command::diff(
+        repository,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            &range,
+            "--",
+        ],
+        false,
+    )?;
+    Ok(GitReply::RawDiff(bounded(&bytes, truncated, line_limit)))
+}
+
 pub(super) fn bounded(bytes: &[u8], mut truncated: bool, line_limit: Option<u32>) -> GitRawDiff {
     let mut end = bytes.len();
     if let Some(limit) = line_limit {

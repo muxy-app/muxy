@@ -1,9 +1,15 @@
 use super::{AppModel, ConnectionState, Work};
 use gpui::Context;
 use muxy_client::ClientError;
-use muxy_protocol::{CatalogPage, ErrorCode, OperationId};
+use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation};
 
 impl AppModel {
+    pub(super) fn project_creation_pending(&self, project: ProjectId) -> bool {
+        self.state.project_intents().iter().any(|intent| {
+            matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project)
+        })
+    }
+
     pub(super) fn refresh_catalog(&mut self, cx: &mut Context<Self>) {
         if self.connection == ConnectionState::Ready && !self.catalog.pending {
             self.catalog.pending = self.send(Work::ReadCatalog, cx);
@@ -25,6 +31,7 @@ impl AppModel {
         result: Result<u64, ClientError>,
         cx: &mut Context<Self>,
     ) {
+        let accepted = result.is_ok();
         self.catalog.replaying = false;
         match result {
             Ok(revision) => self.catalog.dirty = self.catalog.dirty.max(revision),
@@ -44,6 +51,9 @@ impl AppModel {
         if !self.save(cx) {
             self.state = previous;
             return;
+        }
+        if accepted {
+            self.sync_git(cx);
         }
         if self.state.project_intents().is_empty() {
             self.refresh_catalog(cx);
@@ -168,7 +178,7 @@ impl AppModel {
 
     pub(crate) fn open_existing_session(
         &mut self,
-        project: muxy_app_core::ProjectId,
+        project: ProjectId,
         session: &muxy_protocol::ProjectSession,
         cx: &mut Context<Self>,
     ) {

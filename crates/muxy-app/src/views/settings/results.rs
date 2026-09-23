@@ -136,6 +136,7 @@ impl SettingsView {
                 Category::Keyboard,
                 Category::Server,
                 Category::Extensions,
+                Category::Ai,
             ]
         };
         for category in order {
@@ -191,6 +192,7 @@ impl SettingsView {
         match category {
             Category::General | Category::Appearance => appearance::rows(self, category, cx),
             Category::Composer => super::composer::rows(self, cx),
+            Category::Ai => super::ai::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),
             Category::Server => server::rows(self, cx),
             Category::Keyboard => Vec::new(),

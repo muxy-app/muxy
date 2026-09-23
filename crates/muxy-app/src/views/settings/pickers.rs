@@ -9,6 +9,7 @@ pub(crate) enum PickerKind {
     FontFamily,
     Language,
     Theme(bool),
+    AiProvider(crate::repository_actions::Action),
 }
 
 impl PickerKind {
@@ -18,6 +19,7 @@ impl PickerKind {
             Self::Language => "composer-language",
             Self::Theme(false) => "light-theme",
             Self::Theme(true) => "dark-theme",
+            Self::AiProvider(action) => super::ai::provider_id(action),
         }
     }
 }

@@ -1,6 +1,202 @@
 use super::projects::two_projects;
 use super::*;
-use muxy_protocol::{GitAction, GitReply, GitRequest, GitSummary};
+use muxy_protocol::{
+    ErrorCode, GitAction, GitBaseSwitch, GitChecks, GitMergeMethod, GitPullRequest,
+    GitPullRequestAction, GitReply, GitRequest, GitSummary, ProjectMutation, ServerPath,
+};
+
+pub(super) fn open_pull_request() -> GitPullRequest {
+    GitPullRequest {
+        number: 12,
+        url: "https://github.com/example/repo/pull/12".into(),
+        title: "Feature".into(),
+        author: "author".into(),
+        head_branch: "feature".into(),
+        head_oid: "abc".into(),
+        base_branch: "main".into(),
+        state: "OPEN".into(),
+        draft: false,
+        updated_at: None,
+        mergeable: Some(true),
+        merge_state: "CLEAN".into(),
+        cross_repository: false,
+        checks: GitChecks::default(),
+    }
+}
+
+pub(super) fn registered_current_project() -> (AppState, ProjectId) {
+    let (mut state, _, project, _, _) = two_projects();
+    while let Some(intent) = state.project_intents().first().cloned() {
+        state
+            .complete_project_intent(intent.operation)
+            .expect("projects registered");
+    }
+    (state, project)
+}
+
+fn merge_request(project: ProjectId) -> GitRequest {
+    GitRequest {
+        project,
+        action: GitAction::PullRequest(GitPullRequestAction::Merge {
+            number: 12,
+            method: GitMergeMethod::Squash,
+            delete_branch: false,
+            expected_head: Some("abc".into()),
+        }),
+    }
+}
+
+#[gpui::test]
+fn merged_pull_request_updates_the_base_branch_then_reports_it(cx: &mut TestAppContext) {
+    let (state, project) = registered_current_project();
+    let (boot, requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        requests.try_iter().for_each(drop);
+        model.git.projects.entry(project).or_default().pull_request = Some(open_pull_request());
+        let merge = merge_request(project);
+        model.git_request(project, merge.action.clone(), cx);
+        requests.try_iter().for_each(drop);
+
+        model.dismiss_overlay(cx);
+        model.receive_git(&merge, Ok(GitReply::Done), cx);
+        assert!(model.notice.is_none(), "the merge is reported with the base update");
+        assert!(requests.try_iter().any(|(_, work)| {
+            matches!(work, Work::Git(GitRequest { project: target, action: GitAction::SwitchToBase(base) }) if target == project && base == "main")
+        }));
+        model.receive_git(
+            &GitRequest { project, action: GitAction::SwitchToBase("main".into()) },
+            Ok(GitReply::BaseSwitch(GitBaseSwitch::Updated)),
+            cx,
+        );
+        assert_eq!(model.notice.as_deref(), Some("Merged PR #12 into main"));
+        let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
+        assert!(work.iter().any(|work| {
+            matches!(work, Work::Git(GitRequest { project: target, action: GitAction::Summary }) if *target == project)
+        }), "{work:?}");
+    });
+}
+
+#[gpui::test]
+fn merged_pull_request_leaves_worktrees_whose_base_is_checked_out_elsewhere(
+    cx: &mut TestAppContext,
+) {
+    let (state, project) = registered_current_project();
+    let (boot, requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        requests.try_iter().for_each(drop);
+        model.git.projects.entry(project).or_default().pull_request = Some(open_pull_request());
+        let merge = merge_request(project);
+        model.git_request(project, merge.action.clone(), cx);
+        model.receive_git(&merge, Ok(GitReply::Done), cx);
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::SwitchToBase("main".into()),
+            },
+            Ok(GitReply::BaseSwitch(GitBaseSwitch::CheckedOutElsewhere(
+                ServerPath(b"/repo".to_vec()),
+            ))),
+            cx,
+        );
+        assert_eq!(model.notice.as_deref(), Some("Merged PR #12 into main"));
+        assert!(model.error.is_none());
+    });
+}
+
+#[gpui::test]
+fn failed_base_update_reports_that_the_merge_succeeded(cx: &mut TestAppContext) {
+    let (state, project) = registered_current_project();
+    let (boot, requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        requests.try_iter().for_each(drop);
+        model.git.projects.entry(project).or_default().pull_request = Some(open_pull_request());
+        let merge = merge_request(project);
+        model.git_request(project, merge.action.clone(), cx);
+        model.receive_git(&merge, Ok(GitReply::Done), cx);
+        requests.try_iter().for_each(drop);
+        model.dismiss_overlay(cx);
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::SwitchToBase("main".into()),
+            },
+            Err(muxy_client::ClientError::Invalid(ErrorCode::BadRequest)),
+            cx,
+        );
+        assert_eq!(
+            model.error.as_deref(),
+            Some("Merged PR #12, but couldn't update main")
+        );
+        assert!(requests.try_iter().any(|(_, work)| {
+            matches!(work, Work::Git(GitRequest { project: target, action: GitAction::Summary }) if target == project)
+        }));
+    });
+}
+
+#[gpui::test]
+fn newly_added_project_starts_git_after_server_registration(cx: &mut TestAppContext) {
+    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        requests.try_iter().for_each(drop);
+        assert!(model.add_project(std::env::temp_dir(), cx));
+        let project = model.state.current_project().id;
+        let create = model
+            .state
+            .project_intents()
+            .iter()
+            .find(|intent| matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project))
+            .expect("pending project create")
+            .operation;
+        assert!(
+            !requests
+                .try_iter()
+                .any(|(_, work)| matches!(work, Work::Git(request) if request.project == project)),
+            "Git must wait until the server knows this project"
+        );
+
+        model.receive_project_mutation(create, Ok(1), cx);
+        assert!(requests.try_iter().any(|(_, work)| {
+            matches!(work, Work::Git(request) if request.project == project && request.action == GitAction::Watch)
+        }));
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::Watch,
+            },
+            Ok(GitReply::Done),
+            cx,
+        );
+        assert!(requests.try_iter().any(|(_, work)| {
+            matches!(work, Work::Git(request) if request.project == project && request.action == GitAction::Summary)
+        }));
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::Summary,
+            },
+            Ok(GitReply::Summary(Some(GitSummary {
+                branch: Some("feature".into()),
+                ..GitSummary::default()
+            }))),
+            cx,
+        );
+        assert_eq!(
+            model.git.projects[&project]
+                .summary
+                .as_ref()
+                .and_then(|summary| summary.branch.as_deref()),
+            Some("feature")
+        );
+    });
+}
 
 #[gpui::test]
 fn git_results_stay_with_the_requested_project_after_switching(cx: &mut TestAppContext) {
@@ -118,7 +314,7 @@ fn stale_git_mutations_and_inspections_do_not_change_a_new_form(cx: &mut TestApp
         model.git_request(first, GitAction::InspectRemoval, cx);
         model.open_git_form(second, false, cx);
         let expected = muxy_protocol::WorktreeRemoval {
-            directory: muxy_protocol::ServerPath(b"/unused".to_vec()),
+            directory: ServerPath(b"/unused".to_vec()),
             device: 1,
             inode: 1,
             dirty: false,
@@ -260,7 +456,12 @@ fn background_git_errors_do_not_raise_alerts_or_retry_on_idle(cx: &mut TestAppCo
 
 #[gpui::test]
 fn filesystem_invalidations_refresh_only_the_active_project(cx: &mut TestAppContext) {
-    let (state, _, _, _, _) = two_projects();
+    let (mut state, _, _, _, _) = two_projects();
+    while let Some(intent) = state.project_intents().first().cloned() {
+        state
+            .complete_project_intent(intent.operation)
+            .expect("projects registered");
+    }
     let project = state.current_project().id;
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -295,6 +496,14 @@ fn filesystem_invalidations_refresh_only_the_active_project(cx: &mut TestAppCont
             Ok(GitReply::Branches(vec![])),
             cx,
         );
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::PullRequest(GitPullRequestAction::Info),
+            },
+            Ok(GitReply::PullRequest(None)),
+            cx,
+        );
         requests.try_iter().for_each(drop);
         model.git_invalidated(ProjectId::new(), cx);
         assert!(requests.try_iter().next().is_none());
@@ -320,9 +529,7 @@ fn successful_refresh_recovers_a_rejected_branch_switch(cx: &mut TestAppContext)
         model.git_request(project, request.action.clone(), cx);
         model.receive_git(
             &request,
-            Err(muxy_client::ClientError::Invalid(
-                muxy_protocol::ErrorCode::BadRequest,
-            )),
+            Err(muxy_client::ClientError::Invalid(ErrorCode::BadRequest)),
             cx,
         );
         assert!(
@@ -581,4 +788,54 @@ fn existing_branch_choices_update_only_automatic_worktree_locations(cx: &mut Tes
             assert!(directory.0.ends_with(b"-feature-existing"));
         }
     }
+}
+
+#[gpui::test]
+fn pull_request_toasts_report_success_only_for_the_active_project(cx: &mut TestAppContext) {
+    let (state, project) = registered_current_project();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        model.git_request(
+            project,
+            GitAction::PullRequest(GitPullRequestAction::Close { number: 12 }),
+            cx,
+        );
+        for (action, expected) in [
+            (GitPullRequestAction::Close { number: 12 }, "Closed PR #12"),
+            (
+                GitPullRequestAction::UpdateBranch {
+                    number: 12,
+                    expected_head: "abc".into(),
+                },
+                "Updated branch for PR #12",
+            ),
+        ] {
+            model.receive_git(
+                &GitRequest {
+                    project,
+                    action: GitAction::PullRequest(action),
+                },
+                Ok(GitReply::Done),
+                cx,
+            );
+            assert_eq!(model.notice.as_deref(), Some(expected));
+        }
+        model.notice = None;
+        model.receive_git(
+            &merge_request(project),
+            Err(muxy_client::ClientError::Invalid(ErrorCode::BadRequest)),
+            cx,
+        );
+        assert!(model.notice.is_none());
+        assert_eq!(model.error.as_deref(), Some("Couldn't merge PR #12"));
+        model.set_banner_error(None);
+        model
+            .state
+            .select_project(model.state.home().id)
+            .expect("select home");
+        model.receive_git(&merge_request(project), Ok(GitReply::Done), cx);
+        assert!(model.notice.is_none());
+    });
 }

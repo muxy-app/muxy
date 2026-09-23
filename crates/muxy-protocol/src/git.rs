@@ -60,6 +60,28 @@ pub enum GitAction {
         hash: String,
     },
     PullRequest(GitPullRequestAction),
+    /// Preview committed changes on this branch relative to an origin branch.
+    BranchDiff {
+        base: String,
+        line_limit: Option<u32>,
+    },
+    /// Snapshot every working-tree change without touching the index.
+    ChangesPreview {
+        line_limit: Option<u32>,
+    },
+    /// Stage every change and commit only while the tree still matches its preview.
+    CommitAll {
+        message: String,
+        expected_head: Option<String>,
+        expected_tree: String,
+    },
+    /// Push the current branch to the destination its preview reported.
+    PublishBranch {
+        branch: String,
+        destination: GitPushDestination,
+    },
+    /// Switch to a merged pull request's base branch and fast-forward it.
+    SwitchToBase(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -170,6 +192,38 @@ pub struct WorktreeRemoval {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GitPushDestination {
+    pub remote: String,
+    pub branch: String,
+}
+
+/// Every change as it would be committed, computed without touching the index.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GitChangesPreview {
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub tree: String,
+    pub diff: GitRawDiff,
+    pub files: Vec<GitPreviewFile>,
+    pub destination: Option<GitPushDestination>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GitPreviewFile {
+    pub path: ServerPath,
+    pub added: Option<u64>,
+    pub removed: Option<u64>,
+    pub untracked: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum GitBaseSwitch {
+    Updated,
+    /// The base branch is checked out by another worktree, so nothing changed.
+    CheckedOutElsewhere(ServerPath),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum GitReply {
     /// None means an existing directory without a Git repository.
     Summary(Option<GitSummary>),
@@ -189,6 +243,8 @@ pub enum GitReply {
     PullRequest(Option<Box<GitPullRequest>>),
     PullRequestNumber(Option<u64>),
     PullRequests(Vec<GitPullRequest>),
+    ChangesPreview(Box<GitChangesPreview>),
+    BaseSwitch(GitBaseSwitch),
 }
 
 impl GitRequest {
@@ -216,6 +272,7 @@ impl GitRequest {
             | GitAction::CreateBranch(s)
             | GitAction::DeleteBranch(s)
             | GitAction::DeleteRemoteBranch(s)
+            | GitAction::SwitchToBase(s)
             | GitAction::DeleteLocalBranch { name: s, .. } => text(s),
             GitAction::Checkout(hash) | GitAction::CherryPick(hash) | GitAction::Revert(hash) => {
                 validate_hash(hash)
@@ -232,6 +289,28 @@ impl GitRequest {
                 }
                 validate_line_limit(request.line_limit)?;
                 request.path.as_ref().map_or(Ok(()), path)
+            }
+            GitAction::BranchDiff { base, line_limit } => {
+                text(base)?;
+                validate_line_limit(*line_limit)
+            }
+            GitAction::ChangesPreview { line_limit } => validate_line_limit(*line_limit),
+            GitAction::CommitAll {
+                message,
+                expected_head,
+                expected_tree,
+            } => {
+                validate_message(message, 64 * 1024)?;
+                expected_head.as_deref().map_or(Ok(()), validate_hash)?;
+                validate_hash(expected_tree)
+            }
+            GitAction::PublishBranch {
+                branch,
+                destination,
+            } => {
+                text(branch)?;
+                text(&destination.remote)?;
+                text(&destination.branch)
             }
             GitAction::PullRequest(action) => action.validate(),
             GitAction::Stage(paths) | GitAction::Unstage(paths) | GitAction::Discard(paths) => {

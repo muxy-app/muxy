@@ -499,13 +499,13 @@ impl Render for AppModel {
         self.sync_project_logos(window, cx);
         #[cfg(all(target_os = "macos", not(test)))]
         self.sync_sidebar_vibrancy(window);
+        self.sync_toast(cx);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused;
         let sidebar_width = self.sidebar_width();
         let content = super::splits::render(self, cx).unwrap_or_else(|| empty(self, cx));
         let content = self.webview_panel_content(content, window, cx);
         let content = self.composer_content(content, window, cx);
-        let banner = super::banners::render(self, cx);
         let workspace = action_handlers(cx)
             .on_action(cx.listener(|model, _: &ToggleVoiceRecording, window, cx| {
                 model.toggle_voice(window, cx);
@@ -545,11 +545,11 @@ impl Render for AppModel {
                             } else {
                                 tab_strip::tab_strip(self, sidebar_width, window, cx)
                             })
-                            .child(div().h(px(1.0)).flex_none().bg(theme.border))
-                            .children(banner),
+                            .child(div().h(px(1.0)).flex_none().bg(theme.border)),
                     )
                     .child(
                         div()
+                            .debug_selector(|| "workspace-content".into())
                             .flex_1()
                             .min_h(px(0.0))
                             .overflow_hidden()
@@ -581,6 +581,7 @@ impl Render for AppModel {
             })
             .child(self.floating_composer(window, cx))
             .child(self.voice_panel())
+            .children(super::banners::render(self, window, cx))
             .child(overlays::layer(self, window, cx))
             .child(self.apply_webview_occlusions(cx));
         crate::profiler::workspace(workspace)

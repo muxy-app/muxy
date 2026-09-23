@@ -1,7 +1,7 @@
 use muxy_protocol::{
     CONTROL, GitAction, GitDiffRequest, GitMergeMethod, GitPullRequestAction as Pr,
-    GitPullRequestFilter, GitRequest, Message, OperationId, ProjectId, RequestBody, RequestId,
-    ServerPath, WorktreeAction, WorktreeIntent,
+    GitPullRequestFilter, GitPushDestination, GitRequest, Message, OperationId, ProjectId,
+    RequestBody, RequestId, ServerPath, WorktreeAction, WorktreeIntent,
     wire::{Decoder, encode},
 };
 
@@ -22,6 +22,10 @@ fn extension_operations_round_trip_through_the_control_wire()
             raw: false,
             line_limit: Some(100),
         }),
+        GitAction::BranchDiff {
+            base: "main".into(),
+            line_limit: Some(800),
+        },
         GitAction::Init,
         GitAction::Commit {
             message: "Message\n\nBody".into(),
@@ -65,9 +69,14 @@ fn extension_operations_round_trip_through_the_control_wire()
             number: 42,
             method: GitMergeMethod::Squash,
             delete_branch: true,
+            expected_head: Some("abc123".into()),
         }),
         GitAction::PullRequest(Pr::Close { number: 42 }),
         GitAction::PullRequest(Pr::Checkout { number: 42 }),
+        GitAction::PullRequest(Pr::UpdateBranch {
+            number: 42,
+            expected_head: "abc123".into(),
+        }),
         GitAction::Worktree(WorktreeIntent {
             operation: OperationId::new(),
             action: WorktreeAction::CheckoutPullRequest {
@@ -78,6 +87,43 @@ fn extension_operations_round_trip_through_the_control_wire()
         }),
     ];
     for action in actions {
+        let request = GitRequest {
+            project: ProjectId::new(),
+            action,
+        };
+        assert_eq!(request.validate(), Ok(()));
+        let message = Message::Request {
+            id: RequestId(1),
+            body: RequestBody::Git(request),
+        };
+        let mut bytes = Vec::new();
+        encode(&message, CONTROL, &mut bytes)?;
+        assert_eq!(Decoder::new(bytes.as_slice()).next()?, (CONTROL, message));
+    }
+    Ok(())
+}
+
+#[test]
+fn review_operations_round_trip_through_the_control_wire() -> Result<(), Box<dyn std::error::Error>>
+{
+    for action in [
+        GitAction::ChangesPreview {
+            line_limit: Some(800),
+        },
+        GitAction::CommitAll {
+            message: "Message".into(),
+            expected_head: Some("abc123".into()),
+            expected_tree: "def456".into(),
+        },
+        GitAction::PublishBranch {
+            branch: "feature".into(),
+            destination: GitPushDestination {
+                remote: "origin".into(),
+                branch: "feature".into(),
+            },
+        },
+        GitAction::SwitchToBase("main".into()),
+    ] {
         let request = GitRequest {
             project: ProjectId::new(),
             action,
@@ -147,6 +193,33 @@ fn extension_requests_reject_missing_values_option_injection_and_excessive_limit
             base_branch: None,
             draft: false,
         }),
+        GitAction::PullRequest(Pr::Merge {
+            number: 42,
+            method: GitMergeMethod::Merge,
+            delete_branch: false,
+            expected_head: Some("HEAD~1".into()),
+        }),
+        GitAction::ChangesPreview {
+            line_limit: Some(0),
+        },
+        GitAction::CommitAll {
+            message: "Message".into(),
+            expected_head: None,
+            expected_tree: "--amend".into(),
+        },
+        GitAction::CommitAll {
+            message: " ".into(),
+            expected_head: None,
+            expected_tree: "abc123".into(),
+        },
+        GitAction::PublishBranch {
+            branch: "feature".into(),
+            destination: GitPushDestination {
+                remote: "--mirror".into(),
+                branch: "feature".into(),
+            },
+        },
+        GitAction::SwitchToBase("--detach".into()),
     ];
     actions.push(GitAction::Stage(vec![ServerPath(b"file".to_vec()); 4097]));
     for action in actions {

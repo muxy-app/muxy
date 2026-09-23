@@ -7,6 +7,7 @@ mod mutate;
 mod operations;
 mod processes;
 mod read;
+mod snapshot;
 #[cfg(test)]
 mod tests;
 pub(crate) mod watch;
@@ -83,6 +84,8 @@ pub(crate) fn is_read(action: &GitAction) -> bool {
             | GitAction::RemoteBranches
             | GitAction::Log { .. }
             | GitAction::Diff(_)
+            | GitAction::BranchDiff { .. }
+            | GitAction::ChangesPreview { .. }
             | GitAction::PullRequest(Pr::Info | Pr::Number | Pr::Diff { .. } | Pr::List { .. })
     )
 }
@@ -185,6 +188,14 @@ impl Registry {
                 Ok(GitReply::Log(details::log(directory, *max_count, *skip)?))
             }
             GitAction::Diff(request) => diff::read(directory, request),
+            GitAction::BranchDiff { base, line_limit } => {
+                validate_branch(directory, base)?;
+                diff::branch(directory, base, *line_limit)
+            }
+            GitAction::ChangesPreview { .. }
+            | GitAction::CommitAll { .. }
+            | GitAction::PublishBranch { .. }
+            | GitAction::SwitchToBase(_) => review(directory, action),
             GitAction::PullRequest(action) => self.git.github.apply(directory, action),
             GitAction::Commit { .. }
             | GitAction::Push { .. }
@@ -228,6 +239,36 @@ impl Registry {
             GitAction::Worktree(_) | GitAction::Init => unreachable!(),
             GitAction::Watch => Err(error("Git watches require a client connection")),
         }
+    }
+}
+
+/// Previews, commits, and publishes exactly what the user reviewed.
+fn review(directory: &Path, action: &GitAction) -> Result<GitReply> {
+    match action {
+        GitAction::ChangesPreview { line_limit } => Ok(GitReply::ChangesPreview(Box::new(
+            snapshot::preview(directory, *line_limit)?,
+        ))),
+        GitAction::CommitAll {
+            message,
+            expected_head,
+            expected_tree,
+        } => Ok(GitReply::Commit(snapshot::commit_all(
+            directory,
+            message,
+            expected_head.as_deref(),
+            expected_tree,
+        )?)),
+        GitAction::PublishBranch {
+            branch,
+            destination,
+        } => {
+            snapshot::publish(directory, branch, destination)?;
+            Ok(GitReply::Done)
+        }
+        GitAction::SwitchToBase(base) => Ok(GitReply::BaseSwitch(snapshot::switch_to_base(
+            directory, base,
+        )?)),
+        _ => Err(error("Unsupported review action")),
     }
 }
 

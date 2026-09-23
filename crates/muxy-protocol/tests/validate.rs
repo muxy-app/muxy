@@ -289,6 +289,8 @@ fn metadata_and_exit_reasons_without_limited_fields_are_valid() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
+    use muxy_protocol::{GitAction, GitPullRequestAction, GitReply};
+
     let mut seen = BTreeSet::new();
     for message in Message::samples() {
         let (name, channel) = match &message {
@@ -474,9 +476,22 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("SavedHistoryRequest", ChannelKind::Control),
             Message::Request {
-                body: RequestBody::Git(_),
+                body: RequestBody::Git(request),
                 ..
-            } => ("GitRequest", ChannelKind::Control),
+            } => (
+                match &request.action {
+                    GitAction::BranchDiff { .. } => "GitBranchDiff",
+                    GitAction::ChangesPreview { .. } => "GitChangesPreview",
+                    GitAction::CommitAll { .. } => "GitCommitAll",
+                    GitAction::PublishBranch { .. } => "GitPublishBranch",
+                    GitAction::SwitchToBase(_) => "GitSwitchToBase",
+                    GitAction::PullRequest(GitPullRequestAction::UpdateBranch { .. }) => {
+                        "GitUpdatePrBranch"
+                    }
+                    _ => "GitRequest",
+                },
+                ChannelKind::Control,
+            ),
             Message::Request {
                 body: RequestBody::WriteInput { .. },
                 ..
@@ -494,9 +509,16 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } if !snapshot.history.is_empty() => ("HistoryAttach", ChannelKind::Control),
             Message::Reply {
-                body: ReplyBody::Git(_),
+                body: ReplyBody::Git(reply),
                 ..
-            } => ("GitReply", ChannelKind::Control),
+            } => (
+                match reply {
+                    GitReply::ChangesPreview(_) => "GitChangesPreviewReply",
+                    GitReply::BaseSwitch(_) => "GitBaseSwitchReply",
+                    _ => "GitReply",
+                },
+                ChannelKind::Control,
+            ),
             Message::Reply {
                 body: ReplyBody::InputWritten,
                 ..
@@ -547,6 +569,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "GitChanged",
             "GitRequest",
             "GitReply",
+            "GitBranchDiff",
+            "GitChangesPreview",
+            "GitChangesPreviewReply",
+            "GitCommitAll",
+            "GitPublishBranch",
+            "GitSwitchToBase",
+            "GitBaseSwitchReply",
+            "GitUpdatePrBranch",
             "CatalogChanged",
             "SessionsChanged",
             "IdentifyClient",

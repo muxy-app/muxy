@@ -127,6 +127,17 @@ impl AppModel {
                 return;
             }
             "toast" | "notifications.notify" => {
+                self.show_toast(
+                    call.args["title"]
+                        .as_str()
+                        .unwrap_or(&call.owner)
+                        .to_owned(),
+                    call.args["body"]
+                        .as_str()
+                        .or(call.args["message"].as_str())
+                        .map(str::to_owned),
+                    cx,
+                );
                 if let Some(notifications) = &self.notifications {
                     self.extensions.next += 1;
                     notifications.deliver(

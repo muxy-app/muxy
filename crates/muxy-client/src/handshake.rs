@@ -104,18 +104,23 @@ mod tests {
     }
     #[test]
     fn beta_mismatches_report_a_server_update_without_hiding_other_failures() {
-        let mut server = muxy_protocol::ServerInfo::current();
-        server.build.compatibility += 1;
-        assert!(matches!(
-            accept(Ok((
-                CONTROL,
-                Message::HelloReply {
-                    versions: SUPPORTED.to_vec(),
-                    server
-                }
-            ))),
-            Err(ClientError::VersionUnsupported)
-        ));
+        for compatibility in [
+            muxy_protocol::COMPATIBILITY - 1,
+            muxy_protocol::COMPATIBILITY + 1,
+        ] {
+            let mut server = muxy_protocol::ServerInfo::current();
+            server.build.compatibility = compatibility;
+            assert!(matches!(
+                accept(Ok((
+                    CONTROL,
+                    Message::HelloReply {
+                        versions: SUPPORTED.to_vec(),
+                        server
+                    }
+                ))),
+                Err(ClientError::VersionUnsupported)
+            ));
+        }
         let legacy_reply = [9, 0, 0, 0, 1, 0, 0, 0, 0, 0, 4, 1, 1];
         assert!(matches!(
             accept(muxy_protocol::wire::Decoder::new(legacy_reply.as_slice()).next()),

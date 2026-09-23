@@ -124,6 +124,12 @@ impl AppModel {
                 || self.server_preferences.control_busy
                 || self.updates.replacing(),
             pending_server_fields: self.pending_server_fields(),
+            ai_installed: self
+                .ai
+                .installed
+                .iter()
+                .map(|provider| provider.id)
+                .collect(),
         }
     }
 
@@ -186,6 +192,12 @@ impl AppModel {
 
     pub(crate) fn change_preference(&mut self, change: Change, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle {
+            return;
+        }
+        if let Change::Field(id, prompt) = &change
+            && let Some(action) = crate::views::settings::prompt_action(id)
+        {
+            self.set_ai_prompt(action, prompt, cx);
             return;
         }
         let id = change_id(&change).to_owned();

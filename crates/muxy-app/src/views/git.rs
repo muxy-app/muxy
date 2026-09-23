@@ -1,4 +1,8 @@
+mod ai;
 mod form;
+mod pr;
+pub(crate) use ai::{ADDITIONAL_PROMPT_LIMIT, AiReview, AiSheet, AiStep, render_sheet};
+pub(crate) use pr::{PullRequestPopover, render_pr};
 
 use super::overlays::Overlay;
 use crate::model::{AppModel, git::Repository};

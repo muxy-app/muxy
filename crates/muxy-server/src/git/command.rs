@@ -14,6 +14,16 @@ pub(super) fn run(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>> {
     capture(git_command(path, args))
 }
 
+pub(super) fn run_with_index(
+    path: &Path,
+    index: &Path,
+    args: &[impl AsRef<OsStr>],
+) -> Result<Vec<u8>> {
+    let mut command = git_command(path, args);
+    command.env("GIT_INDEX_FILE", index);
+    capture(command)
+}
+
 pub(super) fn network(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>> {
     let mut arguments: Vec<std::ffi::OsString> = Vec::new();
     if let Some(helper) = github_credential_helper() {

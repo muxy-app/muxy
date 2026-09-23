@@ -190,6 +190,7 @@ pub fn git_action(verb: &str, args: &Value) -> Result<GitAction, String> {
                 _ => return Err("invalid merge method".into()),
             },
             delete_branch: args["deleteBranch"].as_bool().unwrap_or(true),
+            expected_head: None,
         }),
         "git.pr.close" => GitAction::PullRequest(GitPullRequestAction::Close {
             number: number64("number")?,

@@ -31,6 +31,7 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Command {
+    AiProvider(crate::repository_actions::Action, &'static str),
     Tab(muxy_app_core::TabId, super::tab_menu::Action),
     Layout(muxy_app_core::settings::AppLayout),
     FocusProject(bool),
@@ -60,7 +61,7 @@ pub(crate) enum Command {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Item {
-    label: &'static str,
+    label: SharedString,
     command: Command,
     disabled: bool,
     checked: bool,
@@ -68,9 +69,9 @@ pub(crate) struct Item {
 }
 
 impl Item {
-    pub(crate) fn action(label: &'static str, command: Command) -> Self {
+    pub(crate) fn action(label: impl Into<SharedString>, command: Command) -> Self {
         Self {
-            label,
+            label: label.into(),
             command,
             disabled: false,
             checked: false,
@@ -151,7 +152,7 @@ impl Menu {
                 .width
         };
         for (item, shortcut) in self.items.iter().zip(shortcuts) {
-            let mut row_width = measure(item.label, m.font_emphasis())
+            let mut row_width = measure(&item.label, m.font_emphasis())
                 + px(12.0)
                 + m.spacing2() * 3.0
                 + m.spacing3() * 2.0
@@ -219,6 +220,7 @@ impl AppModel {
         };
         self.dismiss_overlay(cx);
         match command {
+            Command::AiProvider(action, id) => self.set_ai_provider(action, id, cx),
             Command::Tab(id, action) => {
                 use super::tab_menu::Action;
                 match action {
@@ -452,7 +454,7 @@ impl Item {
             .child(
                 div()
                     .debug_selector({
-                        let label = item.label;
+                        let label = item.label.clone();
                         move || format!("menu-label-{label}")
                     })
                     .flex_grow()
@@ -463,13 +465,13 @@ impl Item {
                     } else {
                         theme.fg
                     })
-                    .child(item.label),
+                    .child(item.label.clone()),
             )
             .when_some(shortcut, |row, shortcut| {
                 row.child(
                     div()
                         .debug_selector({
-                            let label = item.label;
+                            let label = item.label.clone();
                             move || format!("menu-shortcut-{label}")
                         })
                         .flex_none()

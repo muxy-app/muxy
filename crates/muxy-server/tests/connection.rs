@@ -1053,15 +1053,20 @@ fn idle_shutdown_counts_sessions_from_other_clients_and_blocks_new_spawns() -> T
 fn incompatible_beta_hello_never_opens_a_request_channel() -> TestResult {
     let fixture = Fixture::new()?;
     let session = fixture.registry.create(&fixture.directory, SIZE)?;
-    let mut client = fixture.client(false)?;
-    client.send(
-        CONTROL,
-        Message::Hello {
-            versions: SUPPORTED.to_vec(),
-            compatibility: muxy_protocol::COMPATIBILITY + 1,
-        },
-    )?;
-    assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
+    for compatibility in [
+        muxy_protocol::COMPATIBILITY - 1,
+        muxy_protocol::COMPATIBILITY + 1,
+    ] {
+        let mut client = fixture.client(false)?;
+        client.send(
+            CONTROL,
+            Message::Hello {
+                versions: SUPPORTED.to_vec(),
+                compatibility,
+            },
+        )?;
+        assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
+    }
     assert_eq!(fixture.registry.list(), vec![session]);
     Ok(())
 }

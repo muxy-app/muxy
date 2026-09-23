@@ -98,8 +98,12 @@ fn configuration_diagnostics_stay_below_the_titlebar(cx: &mut TestAppContext) {
                 cx.run_until_parked();
                 assert_eq!(cx.debug_bounds(selector), Some(titlebar));
                 assert_eq!(cx.debug_bounds("nav-back"), Some(navigation));
+                cx.executor()
+                    .advance_clock(crate::model::banners::TOAST_TRANSITION);
+                cx.update(|window, _| window.refresh());
+                cx.run_until_parked();
                 let diagnostics = cx
-                    .debug_bounds("workspace-banner-message")
+                    .debug_bounds("workspace-toast-message")
                     .expect("diagnostics");
                 assert!(diagnostics.top() >= titlebar.bottom());
                 assert!(diagnostics.size.height <= px(100.0));

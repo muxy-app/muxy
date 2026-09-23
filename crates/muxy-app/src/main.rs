@@ -1,3 +1,4 @@
+mod ai;
 mod boot;
 mod cli_install;
 mod diagnostics;
@@ -7,6 +8,7 @@ mod navigation;
 mod opener;
 mod picker;
 mod profiler;
+mod repository_actions;
 mod server;
 mod theme;
 mod updater;

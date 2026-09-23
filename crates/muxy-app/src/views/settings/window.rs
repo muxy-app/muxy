@@ -5,6 +5,7 @@ use gpui::{
 };
 
 use muxy_ui::command_palette::{CommandPalette, CommandPaletteEvent};
+use muxy_ui::picker::{Picker, PickerConfig, PickerEvent, PickerItem, PickerRow};
 
 use super::languages::{LanguageEvent, LanguagePicker};
 use super::{Change, PickerRequest, SettingsEvent, SettingsView, pickers};
@@ -30,6 +31,10 @@ pub(crate) enum SettingsOverlay {
         picker: Entity<LanguagePicker>,
         source: PickerRequest,
     },
+    Providers {
+        picker: Entity<Picker>,
+        source: PickerRequest,
+    },
 }
 
 impl SettingsOverlay {
@@ -37,7 +42,8 @@ impl SettingsOverlay {
         match self {
             Self::Themes { source, .. }
             | Self::Fonts { source, .. }
-            | Self::Languages { source, .. } => source,
+            | Self::Languages { source, .. }
+            | Self::Providers { source, .. } => source,
         }
     }
 }
@@ -129,6 +135,7 @@ impl SettingsWindow {
                     SettingsOverlay::Languages { picker, .. } => {
                         picker.update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
                     }
+                    SettingsOverlay::Providers { .. } => (),
                 }
             }
             cx.notify();
@@ -161,6 +168,9 @@ impl SettingsWindow {
             Some(SettingsOverlay::Themes { picker, .. }) => picker.focus_handle(cx).focus(window),
             Some(SettingsOverlay::Fonts { picker, .. }) => picker.focus_handle(cx).focus(window),
             Some(SettingsOverlay::Languages { picker, .. }) => {
+                picker.focus_handle(cx).focus(window);
+            }
+            Some(SettingsOverlay::Providers { picker, .. }) => {
                 picker.focus_handle(cx).focus(window);
             }
             None => self.view.read(cx).focus.focus(window),
@@ -261,6 +271,9 @@ impl SettingsWindow {
                 });
             }
             super::PickerKind::Language => self.open_language_picker(request, window, cx),
+            super::PickerKind::AiProvider(action) => {
+                self.open_provider_picker(action, request, window, cx);
+            }
         }
         cx.notify();
     }
@@ -291,6 +304,57 @@ impl SettingsWindow {
                 }),
             );
         self.overlay = Some(SettingsOverlay::Languages {
+            picker,
+            source: request,
+        });
+    }
+
+    fn open_provider_picker(
+        &mut self,
+        action: crate::repository_actions::Action,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let installed = view.snapshot.ai_installed.clone();
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("ai-provider", "Search providers…"),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = std::iter::once(PickerItem::Row(PickerRow::new("", "Auto")))
+            .chain(crate::ai::PROVIDERS.iter().map(|provider| {
+                let title = if installed.contains(&provider.id) {
+                    provider.name.to_owned()
+                } else {
+                    format!("{} · Not installed", provider.name)
+                };
+                PickerItem::Row(PickerRow::new(provider.id, title))
+            }))
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let id = selection.id.to_string();
+                    let _ = root
+                        .model
+                        .update(cx, |model, cx| model.set_ai_provider(action, &id, cx));
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
             picker,
             source: request,
         });
@@ -357,6 +421,7 @@ impl SettingsWindow {
             SettingsOverlay::Themes { picker, .. } => picker.clone().into_any_element(),
             SettingsOverlay::Fonts { picker, .. } => picker.clone().into_any_element(),
             SettingsOverlay::Languages { picker, .. } => picker.clone().into_any_element(),
+            SettingsOverlay::Providers { picker, .. } => picker.clone().into_any_element(),
         };
         let picker = pickers::dropdown(picker, overlay.source().clone(), cx);
         div()
