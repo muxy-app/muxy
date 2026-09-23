@@ -23,6 +23,7 @@ final class TerminalPaneState: Identifiable {
     let externalEditorFilePath: String?
     var isOffline = false
     var sessionRecoveryFailed = false
+    var remoteSessionRecoveryFailed = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
 
