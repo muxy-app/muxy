@@ -83,7 +83,12 @@ struct ExtensionPanelView: View {
     }
 
     private func togglePin() {
-        let nextMode: PanelMode = placement.mode == .pinned ? .floating : .pinned
+        let nextMode: PanelMode
+        switch placement.mode {
+        case .pinned: nextMode = .floating
+        case .floating: nextMode = .compact
+        case .compact: nextMode = .pinned
+        }
         ExtensionPanelRegistry.shared.setMode(nextMode, forHostPanelID: state.hostPanelID)
     }
 

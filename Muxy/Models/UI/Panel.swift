@@ -29,6 +29,7 @@ enum PanelPosition: String, CaseIterable, Identifiable, Codable {
 enum PanelMode: String, CaseIterable, Identifiable, Codable {
     case pinned
     case floating
+    case compact
 
     var id: String { rawValue }
 }
