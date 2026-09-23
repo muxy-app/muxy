@@ -32,6 +32,8 @@ pub struct AiSettings {
     pub providers: BTreeMap<String, String>,
     #[serde(deserialize_with = "text_entries")]
     pub prompts: BTreeMap<String, String>,
+    #[serde(deserialize_with = "text_entries")]
+    pub project_pr_prompts: BTreeMap<String, String>,
 }
 
 fn text_entries<'de, D: serde::Deserializer<'de>>(
@@ -288,8 +290,22 @@ mod tests {
         let saved = Settings::save_ai_entry(&path, "providers", "commit", Some("claude"))?;
         assert_eq!(saved.providers["commit"], "claude");
         assert_eq!(saved.prompts["commit"], "Use Conventional Commits");
+        let saved = Settings::save_ai_entry(
+            &path,
+            "project_pr_prompts",
+            "project-id",
+            Some("Project instructions"),
+        )?;
+        assert_eq!(
+            saved.project_pr_prompts["project-id"],
+            "Project instructions"
+        );
         let saved = Settings::save_ai_entry(&path, "prompts", "commit", None)?;
         assert!(saved.prompts.is_empty());
+        assert_eq!(
+            saved.project_pr_prompts["project-id"],
+            "Project instructions"
+        );
         assert_eq!(Settings::load(&path)?.ai, saved);
         Ok(())
     }

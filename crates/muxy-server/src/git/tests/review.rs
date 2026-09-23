@@ -472,3 +472,58 @@ fn update_branch_explains_each_refusal_and_partial_failure() {
     let error = update(&repo, &head).unwrap_err();
     assert!(error.message().contains("forks"));
 }
+
+#[test]
+fn pull_request_from_the_default_branch_moves_uncommitted_work_to_a_new_branch() {
+    let mut repo = Repo::new(true);
+    let remote = remote(&repo);
+    run(&repo.path, &["push", "-u", "origin", "main"]).unwrap();
+    let main_before = run(&repo.path, &["rev-parse", "main"]).unwrap();
+    fake_gh(&mut repo);
+    std::fs::write(repo.path.join(".git/gh-error"), "no pull requests found").unwrap();
+    assert_eq!(pr(&repo, Pr::Info).unwrap(), GitReply::PullRequest(None));
+    std::fs::remove_file(repo.path.join(".git/gh-error")).unwrap();
+    std::fs::write(repo.path.join("work"), "uncommitted work\n").unwrap();
+    let preview = preview(&repo);
+    assert_eq!(preview.destination, Some(destination("origin", "main")));
+
+    repo.git(GitAction::CreateBranch("fix/status".into()))
+        .unwrap();
+    let GitReply::Commit(hash) = commit_preview(&repo, &preview).unwrap() else {
+        panic!()
+    };
+    repo.git(GitAction::PublishBranch {
+        branch: "fix/status".into(),
+        destination: destination("origin", "fix/status"),
+    })
+    .unwrap();
+    let GitReply::PullRequest(Some(created)) = pr(
+        &repo,
+        Pr::Create {
+            title: "Fix status".into(),
+            body: "Summary".into(),
+            base_branch: Some("main".into()),
+            draft: false,
+        },
+    )
+    .unwrap() else {
+        panic!()
+    };
+
+    assert_eq!(created.number, 42);
+    assert_eq!(repo.summary().branch.as_deref(), Some("fix/status"));
+    assert_eq!(repo.summary().changed, 0);
+    assert_eq!(
+        text(&run(&remote, &["rev-parse", "fix/status"]).unwrap()).unwrap(),
+        hash
+    );
+    assert_eq!(
+        run(&repo.path, &["rev-parse", "main"]).unwrap(),
+        main_before
+    );
+    assert_eq!(run(&remote, &["rev-parse", "main"]).unwrap(), main_before);
+    let calls = std::fs::read_to_string(repo.path.join(".git/gh-calls")).unwrap();
+    assert!(calls.contains(
+        "create\n--repo\nhttps://github.com/example/repository\n--head\nfix/status\n--base\nmain\n"
+    ));
+}

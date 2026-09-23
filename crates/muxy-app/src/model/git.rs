@@ -174,6 +174,14 @@ impl AppModel {
     }
     pub(super) fn sync_git(&mut self, cx: &mut Context<Self>) {
         let current = self.state.current_project().id;
+        if self
+            .ai
+            .confirmation
+            .as_ref()
+            .is_some_and(|pending| pending.project != current)
+        {
+            self.ai.confirmation = None;
+        }
         if self.project_creation_pending(current) {
             return;
         }
@@ -186,7 +194,7 @@ impl AppModel {
                     Overlay::Git(_)
                         | Overlay::GitForm(_)
                         | Overlay::PullRequest(_)
-                        | Overlay::AiAction(_)
+                        | Overlay::AiProvider(_)
                 )
             ) {
                 self.dismiss_overlay(cx);

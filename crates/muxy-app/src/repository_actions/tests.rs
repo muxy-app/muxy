@@ -228,9 +228,10 @@ fn conflicts_and_stale_branches_are_refused_before_reading_changes() {
 }
 
 #[test]
-fn commit_plan_reads_changes_without_mutating() {
+fn confirmed_commit_stages_all_changes_before_generating_metadata() {
     let git = FakeGit::new(vec![
         Ok(status("feature", 0)),
+        Ok(GitReply::Done),
         Ok(preview("feature", &[("file", false), ("new", true)], true)),
         Ok(log()),
     ]);
@@ -244,10 +245,17 @@ fn commit_plan_reads_changes_without_mutating() {
     .unwrap();
     assert_eq!(plan.mode, Mode::Commit);
     assert_eq!(plan.preview.files.len(), 2);
-    assert!(git.actions().iter().all(is_read));
+    assert_eq!(git.actions()[1], GitAction::Stage(vec![]));
+    assert!(
+        git.actions()
+            .iter()
+            .enumerate()
+            .all(|(index, action)| index == 1 || is_read(action))
+    );
 
     let git = FakeGit::new(vec![
         Ok(status("feature", 0)),
+        Ok(GitReply::Done),
         Ok(preview("feature", &[], true)),
     ]);
     assert_eq!(
@@ -317,23 +325,25 @@ fn commit_uses_the_reviewed_tree_then_pushes_to_its_destination() {
 }
 
 #[test]
-fn commit_without_a_remote_stays_local() {
+fn commit_without_a_remote_reports_the_failed_push() {
     let mut plan = plan(Action::Commit, Mode::Commit, "feature", &[("file", false)]);
     plan.preview.destination = None;
     let git = FakeGit::new(vec![
         Ok(status("feature", 0)),
         Ok(GitReply::Commit("deadbeef00".into())),
+        Err("origin is not a remote".into()),
     ]);
-    let outcome = apply(
+    let failure = apply(
         &git,
         &plan,
         &Draft::Commit {
             message: "Local".into(),
         },
     )
-    .unwrap();
-    assert!(matches!(outcome, Outcome::Committed { pushed: None, .. }));
-    assert_eq!(git.actions().len(), 2);
+    .unwrap_err();
+    assert!(failure.title.contains("couldn't push"));
+    assert!(failure.detail.contains("saved locally"));
+    assert_eq!(git.actions().len(), 3);
 }
 
 #[test]
@@ -382,7 +392,7 @@ fn repository_changes_before_apply_are_refused_without_mutating() {
         },
     )
     .unwrap_err();
-    assert_eq!(failure.title, "Nothing was changed");
+    assert_eq!(failure.title, "No commit was created");
     assert_eq!(git.actions().len(), 1);
 }
 
@@ -393,9 +403,14 @@ fn pull_requests_from_the_default_branch_move_changes_to_a_new_branch() {
         ..FakeGit::new(vec![
             Ok(status("main", 0)),
             Ok(GitReply::PullRequest(None)),
+            Ok(GitReply::Done),
             Ok(preview("main", &[("file", false)], true)),
             Ok(log()),
             Ok(GitReply::RemoteBranches(vec!["main".into()])),
+            Ok(GitReply::RawDiff(GitRawDiff {
+                diff: String::new(),
+                truncated: false,
+            })),
         ])
     };
     let plan = prepare(
@@ -410,7 +425,7 @@ fn pull_requests_from_the_default_branch_move_changes_to_a_new_branch() {
     assert_eq!(plan.template.as_deref(), Some("## Summary"));
     let draft = parse_draft(
         &plan,
-        r#"{"title":"Fix status","summary":"Summary","newBranchName":"fix/status","targetBranchName":"missing"}"#,
+        r#"{"title":"Fix status","summary":"Summary","newBranchName":"fix/status","targetBranchName":"main"}"#,
     )
     .unwrap();
     assert_eq!(
@@ -457,15 +472,16 @@ fn pull_requests_from_the_default_branch_move_changes_to_a_new_branch() {
 }
 
 #[test]
-fn committed_work_on_a_feature_branch_opens_a_pull_request_without_a_new_commit() {
+fn pull_requests_from_feature_branches_also_create_a_new_branch() {
     let git = FakeGit::new(vec![
         Ok(status("feature", 0)),
         Ok(GitReply::PullRequest(None)),
-        Ok(preview("feature", &[], true)),
+        Ok(GitReply::Done),
+        Ok(preview("feature", &[("file", false)], true)),
         Ok(log()),
         Ok(GitReply::RemoteBranches(vec!["main".into()])),
         Ok(GitReply::RawDiff(GitRawDiff {
-            diff: "diff --git a/feature b/feature\n".into(),
+            diff: "earlier feature work".into(),
             truncated: false,
         })),
     ]);
@@ -477,46 +493,66 @@ fn committed_work_on_a_feature_branch_opens_a_pull_request_without_a_new_commit(
         Some("abc"),
     )
     .unwrap();
-    assert_eq!(plan.mode, Mode::CurrentBranch);
-    let draft = parse_draft(
-        &plan,
-        r#"{"title":"Feature","summary":"Summary","newBranchName":"ignored","targetBranchName":"main"}"#,
-    )
-    .unwrap();
-    assert!(matches!(&draft, Draft::PullRequest { branch, .. } if branch == "feature"));
+    assert_eq!(plan.mode, Mode::NewBranch);
+    assert_eq!(
+        plan.branch_diff.as_ref().unwrap().diff,
+        "earlier feature work"
+    );
+    let draft = parse_draft(&plan, r#"{"title":"Feature","summary":"Summary","newBranchName":"feature-pr","targetBranchName":"main"}"#).unwrap();
     let git = FakeGit::new(vec![
         Ok(status("feature", 0)),
+        Ok(GitReply::Done),
+        Ok(GitReply::Commit("def0000".into())),
         Ok(GitReply::Done),
         Ok(pull_request("https://github.com/example/repo/pull/13")),
     ]);
     apply(&git, &plan, &draft).unwrap();
     let actions = git.actions();
-    assert_eq!(actions.len(), 3);
-    assert!(matches!(actions[1], GitAction::PublishBranch { .. }));
+    assert_eq!(actions[1], GitAction::CreateBranch("feature-pr".into()));
+    assert!(matches!(
+        &actions[4],
+        GitAction::PullRequest(GitPullRequestAction::Create { draft: false, .. })
+    ));
+}
 
-    let git = FakeGit::new(vec![
-        Ok(status("feature", 0)),
-        Ok(GitReply::PullRequest(None)),
-        Ok(preview("feature", &[], true)),
-        Ok(log()),
-        Ok(GitReply::RemoteBranches(vec!["main".into()])),
-        Ok(GitReply::RawDiff(GitRawDiff {
-            diff: String::new(),
-            truncated: false,
-        })),
-    ]);
+#[test]
+fn clean_feature_branches_cannot_start_pull_request_creation() {
+    let mut clean = status("feature", 0);
+    if let GitReply::Status(status) = &mut clean {
+        status.summary.changed = 0;
+    }
+    let git = FakeGit::new(vec![Ok(clean), Ok(GitReply::PullRequest(None))]);
     assert_eq!(
         prepare(
             &git,
             ProjectId::new(),
             Action::CreatePullRequest,
             "feature",
-            Some("abc"),
+            Some("abc")
         )
         .err()
         .unwrap(),
-        "feature has no changes compared to main"
+        "The working tree is clean"
     );
+    assert!(
+        !git.actions()
+            .iter()
+            .any(|action| matches!(action, GitAction::Stage(_)))
+    );
+}
+
+#[test]
+fn invalid_generated_target_is_not_silently_replaced() {
+    let plan = plan(
+        Action::CreatePullRequest,
+        Mode::NewBranch,
+        "feature",
+        &[("file", false)],
+    );
+    let draft = parse_draft(&plan, r#"{"title":"Feature","summary":"Summary","newBranchName":"feature-pr","targetBranchName":"missing"}"#).unwrap();
+    let git = FakeGit::default();
+    assert!(apply(&git, &plan, &draft).is_err());
+    assert!(git.actions().is_empty());
 }
 
 #[test]
@@ -549,7 +585,11 @@ fn failures_after_the_branch_is_created_name_every_completed_step() {
         failure.title,
         "Created branch fix-x and committed abc1234, but couldn't push"
     );
-    assert!(failure.detail.contains("Create PR will try again"));
+    assert!(
+        failure
+            .detail
+            .contains("push it and open the pull request manually")
+    );
 
     let git = FakeGit::new(vec![
         Ok(status("main", 0)),
@@ -563,7 +603,7 @@ fn failures_after_the_branch_is_created_name_every_completed_step() {
         failure.title,
         "Created branch fix-x, committed abc1234 and pushed origin/fix-x, but couldn't open the pull request"
     );
-    assert!(failure.detail.contains("Use Create PR to try again"));
+    assert!(failure.detail.contains("published branch fix-x"));
 }
 
 #[test]
@@ -604,7 +644,44 @@ fn reviewed_drafts_are_validated_before_any_change() {
     ] {
         let git = FakeGit::new(vec![]);
         let failure = apply(&git, &plan, &draft).unwrap_err();
-        assert_eq!(failure.detail, error);
+        assert_eq!(
+            failure.detail,
+            format!("{error}\n\nChanges were staged before generating AI metadata.")
+        );
         assert!(git.actions().is_empty());
     }
+}
+
+#[test]
+fn invalid_metadata_after_preparation_reports_staging_without_a_commit() {
+    let git = FakeGit::new(vec![
+        Ok(status("feature", 0)),
+        Ok(GitReply::PullRequest(None)),
+        Ok(GitReply::Done),
+        Ok(preview("feature", &[("file", false)], true)),
+        Ok(log()),
+        Ok(GitReply::RemoteBranches(vec!["main".into()])),
+        Ok(GitReply::RawDiff(GitRawDiff {
+            diff: String::new(),
+            truncated: false,
+        })),
+    ]);
+    let plan = prepare(
+        &git,
+        ProjectId::new(),
+        Action::CreatePullRequest,
+        "feature",
+        Some("abc"),
+    )
+    .unwrap();
+    let draft = parse_draft(&plan, r#"{"title":"Feature","summary":"Summary","newBranchName":"feature-pr","targetBranchName":"missing"}"#).unwrap();
+    let failure = apply(&git, &plan, &draft).unwrap_err();
+    assert_eq!(failure.title, "No commit was created");
+    assert!(failure.detail.contains("Changes were staged"));
+    let actions = git.actions();
+    assert_eq!(actions[2], GitAction::Stage(vec![]));
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        GitAction::CommitAll { .. } | GitAction::CreateBranch(_) | GitAction::PublishBranch { .. }
+    )));
 }

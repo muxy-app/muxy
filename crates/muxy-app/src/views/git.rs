@@ -1,7 +1,9 @@
 mod ai;
+mod ai_provider;
 mod form;
 mod pr;
-pub(crate) use ai::{ADDITIONAL_PROMPT_LIMIT, AiReview, AiSheet, AiStep, render_sheet};
+pub(crate) use ai::AiConfirmation;
+pub(crate) use ai_provider::{AiProviderMenu, render_provider_menu};
 pub(crate) use pr::{PullRequestPopover, render_pr};
 
 use super::overlays::Overlay;

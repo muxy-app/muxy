@@ -19,7 +19,7 @@ pub(crate) enum Overlay {
     },
     Git(super::git::GitPicker),
     GitForm(super::git::Form),
-    AiAction(super::git::AiSheet),
+    AiProvider(super::git::AiProviderMenu),
     PullRequest(super::git::PullRequestPopover),
     Sessions(super::session_picker::SessionPicker),
     Menu(Menu),
@@ -42,9 +42,6 @@ impl AppModel {
         }
         self.project_logo_task = None;
         self.git.interaction = self.git.interaction.wrapping_add(1);
-        if let Some(Overlay::AiAction(sheet)) = self.overlay.take() {
-            self.ai_sheet_dismissed(&sheet);
-        }
         self.overlay = None;
         self.overlay_subscription = None;
         self.focus_requested = true;
@@ -110,16 +107,16 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             .justify_center()
             .child(super::git::render_form(form, model, window, cx))
             .into_any_element(),
-        Some(Overlay::AiAction(sheet)) => div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(super::git::render_sheet(sheet, model, window, cx))
-            .into_any_element(),
+        Some(Overlay::AiProvider(menu)) => {
+            let entity = cx.entity().downgrade();
+            muxy_ui::popover::anchored_popover_above(
+                model.ai.anchors[menu.action.index()].clone(),
+                super::git::render_provider_menu(menu, model, window, cx),
+                move |_, cx| {
+                    let _ = entity.update(cx, AppModel::dismiss_overlay);
+                },
+            )
+        }
         Some(Overlay::Git(picker)) => {
             let model = cx.entity().downgrade();
             let dismiss = move |_: &mut Window, cx: &mut gpui::App| {

@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -40,19 +40,8 @@ pub(super) fn network(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>
 }
 
 fn github_credential_helper() -> Option<std::ffi::OsString> {
-    use std::os::unix::{
-        ffi::{OsStrExt, OsStringExt},
-        fs::PermissionsExt,
-    };
-    let search = std::env::var_os("PATH")?;
-    let gh = std::env::split_paths(&search)
-        .map(|directory| directory.join("gh"))
-        .find(|path| {
-            path.is_absolute()
-                && path.metadata().is_ok_and(|metadata| {
-                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                })
-        })?;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let gh = github_cli()?;
     let mut value = b"credential.https://github.com.helper=!'".to_vec();
     for byte in gh.as_os_str().as_bytes() {
         if *byte == b'\'' {
@@ -63,6 +52,39 @@ fn github_credential_helper() -> Option<std::ffi::OsString> {
     }
     value.extend_from_slice(b"' auth git-credential");
     Some(std::ffi::OsString::from_vec(value))
+}
+
+/// Finds `gh` beyond the system PATH that a server started from the app inherits,
+/// checking Homebrew's folders before asking the login shell.
+pub(super) fn github_cli() -> Option<PathBuf> {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    find_executable(
+        "gh",
+        std::env::split_paths(&inherited)
+            .chain(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from))
+            .chain(
+                std::iter::once_with(crate::exec::login_path)
+                    .flatten()
+                    .flat_map(std::env::split_paths),
+            ),
+    )
+}
+
+/// Stops at the first match, so later directories are only computed when needed.
+pub(super) fn find_executable(
+    name: &str,
+    directories: impl IntoIterator<Item = PathBuf>,
+) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    directories
+        .into_iter()
+        .map(|directory| directory.join(name))
+        .find(|path| {
+            path.is_absolute()
+                && path.metadata().is_ok_and(|metadata| {
+                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                })
+        })
 }
 
 pub(super) fn diff(

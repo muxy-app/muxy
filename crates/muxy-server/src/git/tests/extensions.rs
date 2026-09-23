@@ -366,7 +366,7 @@ esac
     }"#
     .replace("abc123", &repo.summary().head.unwrap());
     std::fs::write(repo.path.join(".git/gh-pr"), response).unwrap();
-    repo.registry.git.github.executable = executable;
+    repo.registry.git.github.executable = Some(executable);
 }
 
 pub(super) fn pr(repo: &Repo, action: Pr) -> Result<GitReply> {
@@ -631,7 +631,7 @@ fn github_distinguishes_absent_prs_authentication_missing_tools_and_invalid_data
     std::fs::remove_file(repo.path.join(".git/gh-error")).unwrap();
     std::fs::write(repo.path.join(".git/gh-pr"), "bad JSON").unwrap();
     assert!(pr(&repo, Pr::Info).is_err());
-    repo.registry.git.github.executable = repo.path.join("missing-gh");
+    repo.registry.git.github.executable = Some(repo.path.join("missing-gh"));
     assert!(
         pr(&repo, Pr::Info)
             .unwrap_err()
@@ -639,6 +639,29 @@ fn github_distinguishes_absent_prs_authentication_missing_tools_and_invalid_data
             .contains("GitHub CLI")
     );
     repo.git(GitAction::Status { local: true }).unwrap();
+}
+
+#[test]
+fn executable_lookup_takes_the_first_runnable_file_and_stops_searching() {
+    let repo = Repo::new(false);
+    let [missing, plain, folder, installed] =
+        ["missing", "plain", "folder", "installed"].map(|name| repo.path.join(name));
+    std::fs::create_dir_all(folder.join("gh")).unwrap();
+    for directory in [&plain, &installed] {
+        std::fs::create_dir(directory).unwrap();
+        std::fs::write(directory.join("gh"), "#!/bin/sh\n").unwrap();
+    }
+    std::fs::set_permissions(installed.join("gh"), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let never_searched = std::iter::once_with(|| -> PathBuf { panic!("searched past a match") });
+    assert_eq!(
+        command::find_executable(
+            "gh",
+            [missing, plain, folder, installed.clone()]
+                .into_iter()
+                .chain(never_searched),
+        ),
+        Some(installed.join("gh"))
+    );
 }
 
 #[test]

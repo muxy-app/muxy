@@ -143,10 +143,12 @@ will end and their terminal panes will close.
 
 For Git projects, the desktop footer shows the current branch and changes, an
 AI-assisted commit action, and either Create PR or the current pull request.
-A selected installed AI CLI drafts commit or pull request text; users review and
-edit it before Muxy commits, pushes, or opens the pull request. Providers and
-prompts are set in Settings → AI. The pull request control shows its state and
-checks and offers refresh, open, update, merge, and close actions.
+After confirmation, a selected installed AI CLI generates the text and Muxy
+commits and pushes in the background. Create PR moves uncommitted changes to a
+new branch and opens a ready pull request. Providers and prompts are set in
+Settings → AI; the Create PR menu also offers a project prompt override.
+The pull request control shows its state and checks and offers refresh, open,
+update, merge, and close actions.
 
 Activity indicators, progress, and notifications belong to open panes, including
 those in hidden tabs. Tabs and projects aggregate their panes only; detached

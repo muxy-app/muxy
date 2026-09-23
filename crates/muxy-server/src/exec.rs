@@ -122,7 +122,8 @@ impl Jobs {
     }
 }
 
-fn login_path() -> Option<&'static str> {
+/// The user's login-shell PATH, which a server started from the app doesn't inherit.
+pub(crate) fn login_path() -> Option<&'static str> {
     static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     PATH.get_or_init(|| {
         let request = ExecRequest {

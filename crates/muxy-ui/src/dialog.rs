@@ -11,6 +11,13 @@ use objc2_app_kit::{
 };
 use objc2_foundation::NSString;
 
+#[allow(
+    unsafe_code,
+    reason = "AppKit text delegates and target/action use Objective-C FFI."
+)]
+mod prompt;
+pub use prompt::{ADDITIONAL_PROMPT_LIMIT, PromptConfirmation, confirm_with_prompt};
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ConfirmationResponse {
     #[default]

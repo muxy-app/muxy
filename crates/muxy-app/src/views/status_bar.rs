@@ -4,7 +4,7 @@ use gpui::{
     MouseButton, ParentElement, StatefulInteractiveElement, Styled, canvas, div, px,
 };
 use muxy_app_core::extensions::Side;
-use muxy_ui::components::{ButtonInteraction, IconGlyph, Tooltip};
+use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph, Tooltip};
 use muxy_ui::icon::Icon;
 use muxy_ui::popover::PopoverAnchor;
 
@@ -283,6 +283,10 @@ fn tooltip(
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Split action button with independent hover targets"
+)]
 fn ai_action_chip(
     action: AiAction,
     model: &AppModel,
@@ -290,14 +294,13 @@ fn ai_action_chip(
 ) -> Option<AnyElement> {
     let project = model.state.current_project().id;
     let running = model.ai.running_action(project) == Some(action);
-    let (can_run, help) = match model.ai_availability(action) {
+    let can_run = match model.ai_availability(action) {
         Availability::Hidden => return None,
-        Availability::Available(provider) => (
-            true,
-            format!("{} with {}", action.settings_title(), provider.name),
-        ),
-        Availability::Disabled(reason) => (false, reason),
+        Availability::Available(_) => true,
+        Availability::Disabled(_) => false,
     };
+    let m = model.metrics;
+    let theme = &model.theme;
     let label = if running {
         action.running_title()
     } else {
@@ -307,17 +310,39 @@ fn ai_action_chip(
         AiAction::Commit => "ai-commit-status",
         AiAction::CreatePullRequest => "ai-create-pr-status",
     };
-    let color = if can_run || running {
-        model.theme.fg_muted
-    } else {
-        model.theme.fg_dim
+    let menu_id = match action {
+        AiAction::Commit => "ai-commit-provider",
+        AiAction::CreatePullRequest => "ai-create-pr-provider",
     };
+    let color = if can_run || running {
+        theme.fg_muted
+    } else {
+        theme.fg_dim
+    };
+    let menu_enabled = !model.ai.running(project);
+    let menu_color = if menu_enabled {
+        theme.fg_muted
+    } else {
+        theme.fg_dim
+    };
+    let chevron = IconGlyph::new(Icon::ChevronDown, m.font_caption(), menu_color);
+    let anchor = model.ai.anchors[action.index()].clone();
     Some(
         div()
+            .relative()
             .flex()
             .flex_none()
             .items_center()
             .h_full()
+            .gap(px(4.0))
+            .child(
+                canvas(
+                    move |bounds, _, _| anchor.set(Some(bounds)),
+                    |_, (), _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
             .child(
                 div()
                     .id(id)
@@ -326,79 +351,49 @@ fn ai_action_chip(
                     .items_center()
                     .h_full()
                     .gap(px(4.0))
-                    .px(px(4.0))
                     .text_color(color)
-                    .tooltip(tooltip(help, model))
                     .when(can_run, |button| {
                         button
                             .cursor_pointer()
-                            .hover(|style| style.text_color(model.theme.fg))
+                            .hover(|style| style.text_color(theme.fg))
                             .button_interaction(cx.listener(move |model, _, window, cx| {
                                 model.open_ai_action(action, window, cx);
                             }))
                     })
-                    .child(IconGlyph::new(
-                        Icon::ArrowUp,
-                        model.metrics.font_caption(),
-                        color,
-                    ))
+                    .child(SymbolGlyph::new(action.symbol(), m.font_caption(), color))
                     .child(
                         div()
-                            .text_size(model.metrics.font_footnote())
+                            .text_size(m.font_footnote())
                             .font_weight(FontWeight::MEDIUM)
                             .child(label),
                     ),
             )
-            .child(provider_menu(action, color, running, model, cx))
+            .child(
+                div()
+                    .id(menu_id)
+                    .debug_selector(move || menu_id.into())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h_full()
+                    .px(px(2.0))
+                    .text_color(menu_color)
+                    .when(menu_enabled, |button| {
+                        button
+                            .group(menu_id)
+                            .cursor_pointer()
+                            .button_interaction(cx.listener(move |model, _, window, cx| {
+                                model.open_ai_provider_menu(action, window, cx);
+                            }))
+                    })
+                    .child(if menu_enabled {
+                        chevron.hover_in_group(menu_id, theme.fg)
+                    } else {
+                        chevron
+                    }),
+            )
             .into_any_element(),
     )
-}
-
-fn provider_menu(
-    action: AiAction,
-    color: Hsla,
-    running: bool,
-    model: &AppModel,
-    cx: &mut Context<AppModel>,
-) -> AnyElement {
-    let id = match action {
-        AiAction::Commit => "ai-commit-provider",
-        AiAction::CreatePullRequest => "ai-create-pr-provider",
-    };
-    let project = model.state.current_project().id;
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .flex()
-        .items_center()
-        .h_full()
-        .px(px(2.0))
-        .text_color(if running {
-            model.theme.fg_dim
-        } else {
-            model.theme.fg_muted
-        })
-        .tooltip(tooltip(
-            format!("Choose the AI provider for {}", action.title()),
-            model,
-        ))
-        .when(!model.ai.running(project), |button| {
-            button
-                .cursor_pointer()
-                .hover(|style| style.text_color(model.theme.fg))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
-                        model.open_ai_provider_menu(action, event.position, window, cx);
-                    }),
-                )
-        })
-        .child(IconGlyph::new(
-            Icon::ChevronDown,
-            model.metrics.font_caption(),
-            color,
-        ))
-        .into_any_element()
 }
 
 fn pull_request_chip(

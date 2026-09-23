@@ -31,7 +31,6 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Command {
-    AiProvider(crate::repository_actions::Action, &'static str),
     Tab(muxy_app_core::TabId, super::tab_menu::Action),
     Layout(muxy_app_core::settings::AppLayout),
     FocusProject(bool),
@@ -226,7 +225,6 @@ impl AppModel {
         };
         self.dismiss_overlay(cx);
         match command {
-            Command::AiProvider(action, id) => self.set_ai_provider(action, id, cx),
             Command::Tab(id, action) => {
                 use super::tab_menu::Action;
                 match action {

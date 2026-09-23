@@ -10,24 +10,21 @@ use std::time::Duration;
 
 const FIELDS: &str = "number,url,title,author,headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,mergeable,mergeStateStatus,isCrossRepository";
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct Github {
-    pub(super) executable: PathBuf,
+    /// Runs this GitHub CLI instead of the installed one.
+    pub(super) executable: Option<PathBuf>,
     default_branches: super::metadata::DefaultBranches,
-}
-
-impl Default for Github {
-    fn default() -> Self {
-        Self {
-            executable: "gh".into(),
-            default_branches: super::metadata::DefaultBranches::default(),
-        }
-    }
 }
 
 impl Github {
     fn command(&self, repository: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(&self.executable);
+        let executable = self
+            .executable
+            .clone()
+            .or_else(command::github_cli)
+            .unwrap_or_else(|| "gh".into());
+        let mut command = Command::new(executable);
         command
             .args(args)
             .current_dir(repository)
