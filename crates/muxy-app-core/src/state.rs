@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AppError, Branch, Color, Direction, PROJECT_COLORS, Pane, PaneContent, PaneId, Project,
-    ProjectId, ProjectStatus, ServerId, Tab, TabId, WindowBounds, WindowState,
+    ProjectId, ProjectStatus, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
 };
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -21,6 +21,8 @@ pub struct AppState {
     pub(crate) quick_terminal: Option<Pane>,
     pub(crate) version: u32,
     pub(crate) projects: Vec<Project>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) workspaces: Vec<Workspace>,
     pub(crate) window: WindowState,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) pending_discards: Vec<SessionId>,
@@ -43,6 +45,8 @@ struct StoredState {
     quick_terminal: Option<Pane>,
     version: u32,
     projects: Vec<Project>,
+    #[serde(default)]
+    workspaces: Vec<Workspace>,
     window: WindowState,
     #[serde(default)]
     pending_discards: Vec<SessionId>,
@@ -66,6 +70,7 @@ impl TryFrom<StoredState> for AppState {
             quick_terminal: stored.quick_terminal,
             version: 2,
             projects: stored.projects,
+            workspaces: stored.workspaces,
             window: stored.window,
             pending_discards: stored.pending_discards,
             close_operations: stored.close_operations,
@@ -73,6 +78,7 @@ impl TryFrom<StoredState> for AppState {
         let previous_project = state.window.current_project;
         let previous_tab = state.window.selected_tab.get(&previous_project).copied();
         state.ensure_home()?;
+        state.retain_workspace_members();
         if state.window.current_project != previous_project
             || state
                 .window
@@ -282,6 +288,7 @@ impl AppState {
         };
         self.queue_project(muxy_protocol::ProjectMutation::Create(project.descriptor()))?;
         self.projects.push(project);
+        self.join_active_workspace(id);
         self.window.current_project = id;
         self.window.active_pane = None;
         Ok(id)
@@ -361,6 +368,7 @@ impl AppState {
         }
         self.queue_project(muxy_protocol::ProjectMutation::Delete(id))?;
         let project = self.projects.remove(index);
+        self.retain_workspace_members();
         self.window.selected_tab.remove(&id);
         self.window
             .focus_history

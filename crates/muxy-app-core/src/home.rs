@@ -12,6 +12,7 @@ impl AppState {
             current_project: home.id,
             selected_tab: HashMap::new(),
             bounds: None,
+            workspace: None,
         };
         Ok(Self {
             pending_cancellations: Vec::new(),
@@ -22,6 +23,7 @@ impl AppState {
             quick_terminal: None,
             version: 2,
             projects: vec![home],
+            workspaces: Vec::new(),
             window,
             pending_discards: Vec::new(),
             close_operations: std::collections::BTreeMap::new(),

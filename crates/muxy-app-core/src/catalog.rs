@@ -176,6 +176,7 @@ impl AppState {
             .ok_or_else(|| AppError::InvalidState("catalog has no Home".into()))?;
         let home = self.projects.remove(home);
         self.projects.insert(0, home);
+        self.retain_workspace_members();
         let projects: HashSet<_> = self.projects.iter().map(|project| project.id).collect();
         self.window
             .selected_tab

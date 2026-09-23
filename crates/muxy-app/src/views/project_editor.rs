@@ -9,7 +9,7 @@ use gpui::{
     IntoElement, ParentElement, Pixels, Point, StatefulInteractiveElement, Styled, Window, actions,
     div, px, size,
 };
-use muxy_app_core::{PROJECT_COLORS, ProjectId, ProjectStatus, TabId};
+use muxy_app_core::{PROJECT_COLORS, ProjectId, ProjectStatus, TabId, WorkspaceId};
 use muxy_ui::components::{SymbolGlyph, Tooltip};
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::theme::parse_hex;
@@ -39,6 +39,8 @@ pub(crate) enum Field {
 enum Target {
     Project(ProjectId),
     Tab(TabId),
+    Workspace(WorkspaceId),
+    NewWorkspace(Option<ProjectId>),
 }
 
 pub(crate) struct Editor {
@@ -92,6 +94,31 @@ impl AppModel {
         self.open_metadata_editor(Target::Tab(id), text, position, window, cx);
     }
 
+    pub(crate) fn open_workspace_editor(
+        &mut self,
+        id: WorkspaceId,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(workspace) = self.state.workspace(id) {
+            let text = workspace.name.clone();
+            self.open_metadata_editor(Target::Workspace(id), text, position, window, cx);
+        }
+    }
+
+    /// Creates a workspace, adding `project` when it starts from a project menu.
+    pub(crate) fn open_new_workspace_editor(
+        &mut self,
+        project: Option<ProjectId>,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = Target::NewWorkspace(project);
+        self.open_metadata_editor(target, String::new(), position, window, cx);
+    }
+
     fn open_metadata_editor(
         &mut self,
         target: Target,
@@ -133,6 +160,16 @@ impl AppModel {
         let saved = match target {
             Target::Tab(id) => self.edit_tab(|state| state.set_tab_title(id, Some(text)), cx),
             Target::Project(id) => self.edit_project(|state| state.rename_project(id, &text), cx),
+            Target::Workspace(id) => {
+                self.edit_workspaces(|state| state.rename_workspace(id, &text), cx)
+            }
+            Target::NewWorkspace(project) => {
+                let created = self.create_workspace(&text, project, cx);
+                if project.is_none() && created.is_some() {
+                    self.select_workspace(created, cx);
+                }
+                created.is_some()
+            }
         };
         if saved {
             self.dismiss_overlay(cx);
@@ -221,6 +258,7 @@ impl AppModel {
                     self.edit_project(|state| state.set_project_color(id, color), cx)
                 }
                 Target::Tab(id) => self.edit_tab(|state| state.set_tab_color(id, Some(color)), cx),
+                Target::Workspace(_) | Target::NewWorkspace(_) => false,
             }
         {
             self.dismiss_overlay(cx);
@@ -270,6 +308,8 @@ pub(crate) fn render(
                 .child(match editor.target {
                     Target::Tab(_) => "Rename Tab",
                     Target::Project(_) => "Rename Project",
+                    Target::Workspace(_) => "Rename Workspace",
+                    Target::NewWorkspace(_) => "New Workspace",
                 }),
         )
         .child(muxy_ui::controls::text_field(
@@ -309,7 +349,11 @@ pub(crate) fn render(
                         .bg(theme.accent)
                         .text_color(theme.accent_foreground)
                         .text_size(m.font_body())
-                        .child("Save")
+                        .child(if matches!(editor.target, Target::NewWorkspace(_)) {
+                            "Create"
+                        } else {
+                            "Save"
+                        })
                         .on_click(cx.listener(|model, _, _, cx| model.submit_project_editor(cx))),
                 ),
         )
@@ -326,7 +370,7 @@ pub(crate) fn render_colors(
     let m = model.metrics;
     let tab = match colors.target {
         Target::Tab(id) => model.tab(id),
-        Target::Project(_) => None,
+        Target::Project(_) | Target::Workspace(_) | Target::NewWorkspace(_) => None,
     };
     let can_reset = tab.is_some_and(|tab| tab.color.is_some());
     let origin = clamp(

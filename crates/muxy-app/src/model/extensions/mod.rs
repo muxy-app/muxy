@@ -740,6 +740,14 @@ impl AppModel {
                 )));
             }
             "projects.create" => {
+                if let Some(workspace) = call.args["workspace"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|workspace| !workspace.is_empty())
+                    && self.find_workspace(workspace).is_none()
+                {
+                    return Err(format!("workspace not found '{workspace}'"));
+                }
                 let path = workspace::standardized(call.args["path"].as_str().unwrap_or(""));
                 return Ok((call.args["createIfMissing"].as_bool() == Some(true)
                     && !path.exists())

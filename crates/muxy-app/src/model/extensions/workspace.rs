@@ -4,12 +4,13 @@
 use std::path::{Component, PathBuf};
 
 use gpui::Context;
-use muxy_app_core::{PaneContent, PaneId, Project, ProjectId, TabId, webview::WebviewDescriptor};
+use muxy_app_core::{
+    PaneContent, PaneId, Project, ProjectId, TabId, Workspace, WorkspaceId,
+    webview::WebviewDescriptor,
+};
 use serde_json::{Value, json};
 
 use super::{AppModel, Call};
-
-const NO_WORKSPACES: &str = "workspaces are not available in this version of Muxy";
 
 /// Expands `~` and resolves `.`/`..` lexically, like `standardizedFileURL`.
 pub(super) fn standardized(path: &str) -> PathBuf {
@@ -127,6 +128,43 @@ impl AppModel {
             .collect()
     }
 
+    /// Resolves main's workspace selector: an ID or a case-insensitive name.
+    pub(super) fn find_workspace(&self, identifier: &str) -> Option<&Workspace> {
+        let id = identifier.parse::<WorkspaceId>().ok();
+        self.state.workspaces().iter().find(|workspace| {
+            Some(workspace.id) == id || workspace.name.to_lowercase() == identifier.to_lowercase()
+        })
+    }
+
+    fn workspace_list(&self) -> Vec<Value> {
+        let active = self.state.active_workspace().map(|workspace| workspace.id);
+        self.state
+            .workspaces()
+            .iter()
+            .map(|workspace| {
+                json!({
+                    "id": workspace.id.to_string(),
+                    "name": workspace.name,
+                    "projectCount": workspace.projects.len(),
+                    "isActive": Some(workspace.id) == active,
+                })
+            })
+            .collect()
+    }
+
+    /// Membership belongs to top-level projects; a worktree resolves to its parent.
+    fn member_project(&self, identifier: &str, action: &str) -> Result<ProjectId, String> {
+        let project = self
+            .find_project(identifier)
+            .ok_or_else(|| format!("project not found {identifier}"))?;
+        if project.home {
+            return Err(format!(
+                "home and SSH workspace projects cannot be {action} a workspace"
+            ));
+        }
+        Ok(project.parent_id.unwrap_or(project.id))
+    }
+
     fn mutable_project(&self, identifier: &str) -> Result<ProjectId, String> {
         let project = self
             .find_project(identifier)
@@ -212,29 +250,146 @@ impl AppModel {
                 self.apply_project_edit(|state| state.set_project_logo(id, None), cx)
             }
             "projects.reorder" => self.reorder_projects(&call.args, cx),
-            "projects.attach" => Err(format!(
-                "workspace not found '{}'",
-                call.args["workspace"].as_str().unwrap_or("")
-            )),
-            "projects.detach" => {
-                let project = self.find_project(text("identifier")?).ok_or_else(|| {
-                    format!("project not found {}", text("identifier").unwrap_or(""))
-                })?;
-                if project.home {
-                    return Err(
-                        "home and SSH workspace projects cannot be detached from a workspace"
-                            .into(),
-                    );
+            _ => Err(format!("unsupported extension API: {}", call.verb)),
+        }
+    }
+
+    /// `projects.attach`/`detach` and `workspaces.*`.
+    pub(super) fn workspaces_call(
+        &mut self,
+        call: &Call,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let text = |field: &str| {
+            call.args[field]
+                .as_str()
+                .ok_or_else(|| format!("missing argument '{field}'"))
+        };
+        match call.verb.as_str() {
+            "projects.attach" => {
+                let project = self.member_project(text("identifier")?, "attached to")?;
+                let (workspace, name) = self.workspace_named(text("workspace")?)?;
+                if self.edit_workspaces(
+                    |state| state.set_workspace_member(workspace, project, true),
+                    cx,
+                ) {
+                    Ok(Value::Null)
+                } else {
+                    Err(format!("project cannot be added to workspace '{name}'"))
                 }
+            }
+            "projects.detach" => {
+                let project = self.member_project(text("identifier")?, "detached from")?;
+                let workspaces: Vec<_> = self
+                    .state
+                    .workspaces()
+                    .iter()
+                    .filter(|workspace| workspace.projects.contains(&project))
+                    .map(|workspace| workspace.id)
+                    .collect();
+                self.apply_workspace_edit(
+                    |state| {
+                        for workspace in workspaces {
+                            state.set_workspace_member(workspace, project, false)?;
+                        }
+                        Ok(())
+                    },
+                    cx,
+                )
+            }
+            "workspaces.list" => Ok(Value::Array(self.workspace_list())),
+            "workspaces.create" => {
+                let name = text("name")?.trim();
+                let name = if name.is_empty() {
+                    "New Workspace"
+                } else {
+                    name
+                };
+                let workspace = self
+                    .create_workspace(name, None, cx)
+                    .ok_or("could not save workspace changes")?;
+                self.select_workspace(Some(workspace), cx);
+                Ok(json!(workspace.to_string()))
+            }
+            "workspaces.switch" => {
+                let (workspace, _) = self.workspace_named(text("identifier")?)?;
+                self.select_workspace(Some(workspace), cx);
                 Ok(Value::Null)
             }
-            "workspaces.list" => Ok(json!([])),
-            "workspaces.create" => Err(NO_WORKSPACES.into()),
-            verb if verb.starts_with("workspaces.") => Err(format!(
-                "workspace not found '{}'",
-                call.args["identifier"].as_str().unwrap_or("")
-            )),
+            "workspaces.rename" => {
+                let name = text("name")?.trim().to_owned();
+                if name.is_empty() {
+                    return Err("name cannot be empty".into());
+                }
+                let (workspace, _) = self.workspace_named(text("identifier")?)?;
+                self.apply_workspace_edit(|state| state.rename_workspace(workspace, &name), cx)
+            }
+            "workspaces.delete" => {
+                let identifier = text("identifier")?;
+                let workspace = self
+                    .find_workspace(identifier)
+                    .ok_or_else(|| format!("workspace not found '{identifier}'"))?;
+                if !workspace.projects.is_empty() {
+                    return Err(format!(
+                        "workspace '{}' still contains projects",
+                        workspace.name
+                    ));
+                }
+                let workspace = workspace.id;
+                if self.edit_workspaces(|state| state.delete_workspace(workspace), cx) {
+                    Ok(Value::Null)
+                } else {
+                    Err("could not save workspace deletion".into())
+                }
+            }
             _ => Err(format!("unsupported extension API: {}", call.verb)),
+        }
+    }
+
+    /// Like main, a project created for `workspace` joins only that workspace
+    /// and the sidebar follows it; `active` is the filter from before opening.
+    pub(super) fn file_created_project(
+        &mut self,
+        project: ProjectId,
+        workspace: WorkspaceId,
+        active: Option<&Workspace>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let opened_into = active
+            .filter(|active| active.id != workspace && !active.projects.contains(&project))
+            .map(|active| active.id);
+        !self
+            .state
+            .project(project)
+            .is_some_and(|project| project.home)
+            && self.edit_workspaces(
+                |state| {
+                    state.set_workspace_member(workspace, project, true)?;
+                    if let Some(active) = opened_into {
+                        state.set_workspace_member(active, project, false)?;
+                    }
+                    state.reveal_current_project();
+                    Ok(())
+                },
+                cx,
+            )
+    }
+
+    fn workspace_named(&self, identifier: &str) -> Result<(WorkspaceId, String), String> {
+        self.find_workspace(identifier)
+            .map(|workspace| (workspace.id, workspace.name.clone()))
+            .ok_or_else(|| format!("workspace not found '{identifier}'"))
+    }
+
+    fn apply_workspace_edit(
+        &mut self,
+        edit: impl FnOnce(&mut muxy_app_core::AppState) -> Result<(), muxy_app_core::AppError>,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        if self.edit_workspaces(edit, cx) {
+            Ok(Value::Null)
+        } else {
+            Err("could not save workspace changes".into())
         }
     }
 
@@ -253,6 +408,7 @@ impl AppModel {
             .find(|project| project.parent_id.is_none() && project.directory == directory)
             .map(|project| project.id)
         {
+            self.join_active_workspace(existing, cx);
             self.select_project(existing, cx);
             return Ok(existing);
         }

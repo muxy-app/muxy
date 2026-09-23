@@ -22,8 +22,8 @@ log output. Reloading, disabling, and uninstalling honor open views’ close
 handlers. Extensions written for main load unchanged: they can add tabs, panels,
 popovers, topbar and status-bar items, background scripts, runtime shortcuts,
 and a sidebar chosen in Settings → Appearance. Sensitive actions ask first, and
-remembered answers can be reset. The built-in browser, workspaces,
-localizations, and remote methods are not available yet.
+remembered answers can be reset. The built-in browser, localizations, and
+remote methods are not available yet.
 
 The desktop and keyboard TUI are clients of the same server. The
 [product model](./product-model.md) defines what clients own; this document
@@ -75,6 +75,8 @@ flowchart LR
 
 The sidebar defaults to **All projects**, listing each top-level project once.
 A workspace filter restricts that list to its members; Home always stays first.
+Users create, switch, rename, and delete workspaces from the sidebar filter and
+add projects to them from each project's menu.
 One user-defined top-level order applies under every filter. Worktree children
 appear beneath their parent. Selecting a top-level or worktree project changes
 the current directory context and visible tab set. Filtering never changes

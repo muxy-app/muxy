@@ -15,6 +15,7 @@ mod updates;
 pub(crate) use updates::UpdateAction;
 mod voice;
 mod webviews;
+mod workspaces;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -1278,6 +1279,7 @@ impl AppModel {
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
+        self.state.reveal_current_project();
         self.sync_extension_events(cx);
         self.split_resize.end();
         if let Some(tab) = self.active_tab() {
@@ -2336,6 +2338,7 @@ mod tests {
     mod tui;
     mod updates;
     mod window_bounds;
+    mod workspaces;
 
     use muxy_client::Client;
     use std::io::{self, Write};

@@ -558,6 +558,7 @@ impl AppModel {
             .map(|project| project.id);
         if let Some(id) = existing {
             self.refresh_project_statuses(cx);
+            self.join_active_workspace(id, cx);
             self.select_project(id, cx);
             self.dismiss_overlay(cx);
         } else if self.add_project(path, cx) {

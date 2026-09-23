@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AppError, PaneId, ProjectId, TabId};
+use crate::{AppError, PaneId, ProjectId, TabId, WorkspaceId};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WindowState {
@@ -13,6 +13,8 @@ pub struct WindowState {
     pub current_project: ProjectId,
     pub selected_tab: HashMap<ProjectId, TabId>,
     pub bounds: Option<WindowBounds>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

@@ -35,6 +35,12 @@ pub(crate) enum Command {
     Tab(muxy_app_core::TabId, super::tab_menu::Action),
     Layout(muxy_app_core::settings::AppLayout),
     FocusProject(bool),
+    SelectWorkspace(Option<muxy_app_core::WorkspaceId>),
+    NewWorkspace(Option<muxy_app_core::ProjectId>),
+    RenameWorkspace(muxy_app_core::WorkspaceId),
+    DeleteWorkspace(muxy_app_core::WorkspaceId),
+    ProjectWorkspaces(muxy_app_core::ProjectId),
+    ToggleWorkspaceMember(muxy_app_core::WorkspaceId, muxy_app_core::ProjectId),
     SortProjects(muxy_app_core::settings::ProjectOrder),
     Worktrees(muxy_app_core::ProjectId),
     NewWorktree(muxy_app_core::ProjectId),
@@ -248,6 +254,31 @@ impl AppModel {
             }
             Command::Layout(layout) => self.set_layout(layout, cx),
             Command::FocusProject(focused) => self.set_project_focus(focused, cx),
+            Command::SelectWorkspace(workspace) => self.select_workspace(workspace, cx),
+            Command::NewWorkspace(project) => {
+                self.open_new_workspace_editor(project, position, window, cx);
+                return;
+            }
+            Command::RenameWorkspace(id) => {
+                self.open_workspace_editor(id, position, window, cx);
+                return;
+            }
+            Command::DeleteWorkspace(id) => self.confirm_delete_workspace(id, cx),
+            Command::ProjectWorkspaces(project) => {
+                let items = super::project_menu::workspace_items(&self.state, project);
+                self.open_menu(items, position, window, cx);
+                return;
+            }
+            Command::ToggleWorkspaceMember(workspace, project) => {
+                let member = self
+                    .state
+                    .workspace(workspace)
+                    .is_some_and(|workspace| workspace.projects.contains(&project));
+                self.edit_workspaces(
+                    |state| state.set_workspace_member(workspace, project, !member),
+                    cx,
+                );
+            }
             Command::SortProjects(order) => {
                 self.appearance.sidebar_project_order = order;
                 self.save_appearance(cx);
@@ -521,6 +552,44 @@ mod tests {
                 .iter()
                 .any(|item| matches!(item.command, Command::Worktrees(_)))
         );
+    }
+
+    #[test]
+    fn workspace_menus_check_memberships_for_top_level_projects() {
+        let mut state = AppState::bootstrap().expect("state");
+        let project = state.add_project(std::env::temp_dir()).expect("project");
+        let items = super::super::project_menu::workspace_items(&state, project);
+        assert_eq!(items.len(), 1);
+        assert!(!items[0].separator_before);
+        assert!(matches!(items[0].command, Command::NewWorkspace(Some(id)) if id == project));
+        let work = state.create_workspace("Work").expect("work");
+        state.create_workspace("Other").expect("other");
+        state
+            .set_workspace_member(work, project, true)
+            .expect("member");
+        let items = super::super::project_menu::workspace_items(&state, project);
+        let marks: Vec<_> = items
+            .iter()
+            .map(|item| (item.label.as_ref(), item.checked, item.separator_before))
+            .collect();
+        assert_eq!(
+            marks,
+            [
+                ("Work", true, false),
+                ("Other", false, false),
+                ("New Workspace…", false, true),
+            ]
+        );
+        assert!(
+            matches!(items[0].command, Command::ToggleWorkspaceMember(id, target) if id == work && target == project)
+        );
+        let has_workspaces = |project: &muxy_app_core::Project| {
+            super::super::project_menu::items(project, true)
+                .iter()
+                .any(|item| matches!(item.command, Command::ProjectWorkspaces(_)))
+        };
+        assert!(has_workspaces(state.project(project).expect("project")));
+        assert!(!has_workspaces(state.home()));
     }
 
     #[test]

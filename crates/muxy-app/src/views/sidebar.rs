@@ -44,6 +44,7 @@ pub(crate) fn register_commands(
         "Open Project…",
         super::workspace::AddProject,
     ));
+    let has_workspaces = !model.state.workspaces().is_empty();
     let model = cx.weak_entity();
     registry.register(Command::list(
         "switch_project",
@@ -77,6 +78,33 @@ pub(crate) fn register_commands(
                 );
             }
             projects
+        },
+    ));
+    if !has_workspaces {
+        return;
+    }
+    let model = cx.weak_entity();
+    registry.register(Command::list(
+        "switch_workspace",
+        "Switch Workspace…",
+        move |cx| {
+            let mut workspaces = Registry::default();
+            let Some(model) = model.upgrade() else {
+                return workspaces;
+            };
+            let model = model.read(cx);
+            let all = std::iter::once((None, "All Projects".to_owned()));
+            let named = model
+                .state
+                .workspaces()
+                .iter()
+                .map(|workspace| (Some(workspace.id), workspace.name.clone()));
+            for (id, title) in all.chain(named) {
+                let handler: Handler = Rc::new(move |model, _, cx| model.select_workspace(id, cx));
+                let key = id.map_or_else(|| "all".to_owned(), |id| id.to_string());
+                workspaces.register(Command::new(key, title, handler));
+            }
+            workspaces
         },
     ));
 }
@@ -164,18 +192,34 @@ impl AppModel {
         )
     }
 
-    pub(crate) fn sidebar_projects(&self) -> Vec<&Project> {
-        let projects = self.state.projects();
-        let active = self.state.current_project();
-        let focused = active.parent_id.unwrap_or(active.id);
-        let mut parents: Vec<_> = projects
+    pub(crate) fn sidebar_filter_label(&self) -> SharedString {
+        if self.appearance.sidebar_focus {
+            return "Focused Project".into();
+        }
+        self.state.active_workspace().map_or_else(
+            || "All Projects".into(),
+            |workspace| workspace.name.clone().into(),
+        )
+    }
+
+    /// Top-level projects the workspace filter lists, in sidebar order.
+    pub(crate) fn listed_parents(&self) -> Vec<&Project> {
+        let mut parents: Vec<_> = self
+            .state
+            .projects()
             .iter()
-            .filter(|project| project.parent_id.is_none())
+            .filter(|project| project.parent_id.is_none() && self.state.is_listed(project))
             .collect();
         if self.appearance.sidebar_project_order == ProjectOrder::Name {
             parents.sort_by_cached_key(|project| (!project.home, project.name.to_lowercase()));
         }
         parents
+    }
+
+    pub(crate) fn sidebar_projects(&self) -> Vec<&Project> {
+        let active = self.state.current_project();
+        let focused = active.parent_id.unwrap_or(active.id);
+        self.listed_parents()
             .into_iter()
             .filter(|project| !self.appearance.sidebar_focus || project.id == focused)
             .flat_map(|parent| {
@@ -228,23 +272,15 @@ fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.fg_muted)
                 .on_click(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-                    model.open_menu(
-                        vec![
-                            Item::action("All Projects", Command::FocusProject(false))
-                                .checked_if(!model.appearance.sidebar_focus),
-                            Item::action("Focus Current Project", Command::FocusProject(true))
-                                .checked_if(model.appearance.sidebar_focus),
-                        ],
-                        event.position(),
-                        window,
-                        cx,
-                    );
+                    model.open_menu(filter_items(model), event.position(), window, cx);
                 }))
-                .child(if model.appearance.sidebar_focus {
-                    "Focused Project"
-                } else {
-                    "All Projects"
-                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .truncate()
+                        .child(model.sidebar_filter_label()),
+                )
                 .child(IconGlyph::new(
                     Icon::ChevronDown,
                     m.font_caption(),
@@ -291,6 +327,39 @@ fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         )
         .child(layout_selector(model, cx))
         .into_any_element()
+}
+
+fn filter_items(model: &AppModel) -> Vec<Item> {
+    let focused = model.appearance.sidebar_focus;
+    let active = model.state.active_workspace().map(|workspace| workspace.id);
+    let mut items = vec![
+        Item::action("All Projects", Command::SelectWorkspace(None))
+            .checked_if(!focused && active.is_none()),
+    ];
+    items.extend(model.state.workspaces().iter().map(|workspace| {
+        Item::action(
+            workspace.name.clone(),
+            Command::SelectWorkspace(Some(workspace.id)),
+        )
+        .checked_if(!focused && active == Some(workspace.id))
+    }));
+    items.push(
+        Item::action("Focus Current Project", Command::FocusProject(true))
+            .checked_if(focused)
+            .separated(),
+    );
+    items.push(Item::action("New Workspace…", Command::NewWorkspace(None)).separated());
+    if let Some(id) = active {
+        items.push(Item::action(
+            "Rename Workspace…",
+            Command::RenameWorkspace(id),
+        ));
+        items.push(Item::action(
+            "Delete Workspace…",
+            Command::DeleteWorkspace(id),
+        ));
+    }
+    items
 }
 
 fn layout_selector(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {

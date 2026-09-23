@@ -848,6 +848,135 @@ fn project_and_agent_lists_use_main_shapes(cx: &mut TestAppContext) {
     assert_eq!(rename["error"], "permission denied (projects:write)");
 }
 
+type Requests = std::sync::mpsc::Receiver<(u64, crate::boot::Work)>;
+
+fn grouper(
+    cx: &mut TestAppContext,
+) -> (
+    Entity<AppModel>,
+    &mut gpui::VisualTestContext,
+    tempfile::TempDir,
+    Requests,
+) {
+    let mut state = AppState::bootstrap().expect("state");
+    let alpha = state.add_project(std::env::temp_dir()).expect("alpha");
+    state.rename_project(alpha, "Alpha").expect("name");
+    enabled(
+        cx,
+        "grouper",
+        r#"{"permissions": ["projects:read", "projects:write"]}"#,
+        state,
+    )
+}
+
+#[gpui::test]
+fn workspace_verbs_manage_workspaces_with_main_shapes(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = grouper(cx);
+    let mut call = |verb: &str, args: Value| script_call(&view, cx, "grouper", 1, verb, args);
+    assert_eq!(call("workspaces.list", json!({}))["value"], json!([]));
+    let created = call("workspaces.create", json!({"name": " "}));
+    let id = created["value"].as_str().expect("workspace id").to_owned();
+    assert_eq!(
+        call("workspaces.list", json!({}))["value"],
+        json!([{"id": id, "name": "New Workspace", "projectCount": 0, "isActive": true}])
+    );
+    assert_eq!(
+        call("workspaces.rename", json!({"identifier": id, "name": " "}))["error"],
+        "name cannot be empty"
+    );
+    let renamed = json!({"identifier": "new workspace", "name": "Work"});
+    assert_eq!(call("workspaces.rename", renamed)["ok"], true);
+    assert_eq!(
+        call("workspaces.switch", json!({"identifier": "Missing"}))["error"],
+        "workspace not found 'Missing'"
+    );
+    let attached = json!({"identifier": "Alpha", "workspace": "Work"});
+    assert_eq!(call("projects.attach", attached)["ok"], true);
+    assert_eq!(
+        call("workspaces.delete", json!({"identifier": "Work"}))["error"],
+        "workspace 'Work' still contains projects"
+    );
+    assert_eq!(
+        call("projects.detach", json!({"identifier": "Alpha"}))["ok"],
+        true
+    );
+    assert_eq!(
+        call("workspaces.switch", json!({"identifier": id}))["ok"],
+        true
+    );
+    assert_eq!(
+        call("workspaces.delete", json!({"identifier": id}))["ok"],
+        true
+    );
+    assert_eq!(call("workspaces.list", json!({}))["value"], json!([]));
+    view.read_with(cx, |model, _| {
+        assert!(model.state.active_workspace().is_none());
+        assert_eq!(model.state.projects().len(), 2);
+    });
+}
+
+#[gpui::test]
+fn project_verbs_file_projects_into_workspaces_like_main(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = grouper(cx);
+    let mut call = |verb: &str, args: Value| script_call(&view, cx, "grouper", 1, verb, args);
+    let work = call("workspaces.create", json!({"name": "Work"}));
+    let work = work["value"].as_str().expect("work id").to_owned();
+    let other = call("workspaces.create", json!({"name": "Other"}));
+    let other = other["value"].as_str().expect("other id").to_owned();
+    assert_eq!(
+        call(
+            "projects.attach",
+            json!({"identifier": "home", "workspace": "Work"})
+        )["error"],
+        "home and SSH workspace projects cannot be attached to a workspace"
+    );
+    assert_eq!(
+        call(
+            "projects.attach",
+            json!({"identifier": "Alpha", "workspace": "Missing"})
+        )["error"],
+        "workspace not found 'Missing'"
+    );
+    for workspace in ["work", "Other"] {
+        let attached = json!({"identifier": "Alpha", "workspace": workspace});
+        assert_eq!(call("projects.attach", attached)["ok"], true);
+    }
+    let folder = tempfile::tempdir().expect("folder");
+    let created = call(
+        "projects.create",
+        json!({"path": folder.path(), "name": "Beta", "workspace": work}),
+    );
+    assert_eq!(created["value"]["name"], "Beta", "{created}");
+    assert_eq!(
+        call("workspaces.list", json!({}))["value"],
+        json!([
+            {"id": work, "name": "Work", "projectCount": 2, "isActive": true},
+            {"id": other, "name": "Other", "projectCount": 1, "isActive": false},
+        ]),
+        "a created project joins only the requested workspace, which becomes active"
+    );
+    let missing = json!({"path": folder.path(), "workspace": "Missing"});
+    assert_eq!(
+        call("projects.create", missing)["error"],
+        "workspace not found 'Missing'"
+    );
+    assert_eq!(
+        call("projects.detach", json!({"identifier": "Alpha"}))["ok"],
+        true
+    );
+    let counts: Vec<_> = call("workspaces.list", json!({}))["value"]
+        .as_array()
+        .expect("workspaces")
+        .iter()
+        .map(|workspace| workspace["projectCount"].clone())
+        .collect();
+    assert_eq!(
+        counts,
+        [json!(1), json!(0)],
+        "detach leaves every workspace"
+    );
+}
+
 #[gpui::test]
 fn tab_titles_switch_only_within_the_current_project(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");

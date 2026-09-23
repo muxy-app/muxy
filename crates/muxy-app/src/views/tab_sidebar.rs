@@ -416,9 +416,13 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                     )
                     .tooltip(
                         if model.appearance.sidebar_focus {
-                            "Show All Projects"
+                            let listed = model.state.active_workspace().map_or_else(
+                                || "All Projects".to_owned(),
+                                |workspace| format!("“{}”", workspace.name),
+                            );
+                            format!("Show {listed}")
                         } else {
-                            "Focus Project"
+                            "Focus Project".to_owned()
                         },
                         theme.raised(),
                         theme.fg,

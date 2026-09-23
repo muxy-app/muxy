@@ -73,9 +73,9 @@ impl AppModel {
                     None => Err("project not found".into()),
                 }
             }
-            verb if verb.starts_with("projects.") || verb.starts_with("workspaces.") => {
-                self.projects_call(&call, cx)
-            }
+            "projects.attach" | "projects.detach" => self.workspaces_call(&call, cx),
+            verb if verb.starts_with("workspaces.") => self.workspaces_call(&call, cx),
+            verb if verb.starts_with("projects.") => self.projects_call(&call, cx),
             "worktrees.list" => Ok(self.worktree_list(call.project)),
             "worktrees.switch" | "git.worktree.switch" | "worktrees.refresh" => {
                 self.extension_server_call(call, cx);
@@ -378,19 +378,23 @@ impl AppModel {
 
     /// `projects.create`: optionally creates the folder on the server first.
     fn create_extension_project(&mut self, call: Call, cx: &mut Context<Self>) {
-        if let Some(workspace) = call.args["workspace"]
+        let mut workspace = None;
+        if let Some(identifier) = call.args["workspace"]
             .as_str()
-            .filter(|w| !w.trim().is_empty())
+            .map(str::trim)
+            .filter(|w| !w.is_empty())
         {
-            call.reply.send(
-                Err(format!("workspace not found '{}'", workspace.trim())),
-                cx,
-            );
-            return;
+            let Some(found) = self.find_workspace(identifier) else {
+                call.reply
+                    .send(Err(format!("workspace not found '{identifier}'")), cx);
+                return;
+            };
+            workspace = Some((found.id, found.name.clone()));
         }
         let directory = super::workspace::standardized(call.args["path"].as_str().unwrap_or(""));
         let finish = move |model: &mut Self, call: Call, cx: &mut Context<Self>| {
             let path = call.args["path"].as_str().unwrap_or("").to_owned();
+            let active = model.state.active_workspace().cloned();
             let result = model.add_extension_project(&path, cx).and_then(|id| {
                 if let Some(name) = call.args["name"]
                     .as_str()
@@ -401,6 +405,11 @@ impl AppModel {
                     if !model.edit_project(|state| state.rename_project(id, &name), cx) {
                         return Err("could not save project changes".into());
                     }
+                }
+                if let Some((workspace, name)) = &workspace
+                    && !model.file_created_project(id, *workspace, active.as_ref(), cx)
+                {
+                    return Err(format!("project cannot be added to workspace '{name}'"));
                 }
                 let project = model
                     .state

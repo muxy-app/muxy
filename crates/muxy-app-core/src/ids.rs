@@ -44,6 +44,7 @@ id!(ServerId);
 pub use muxy_protocol::ProjectId;
 id!(TabId);
 id!(PaneId);
+id!(WorkspaceId);
 
 impl ServerId {
     pub const fn local() -> Self {
