@@ -17,9 +17,13 @@ and focus updates and may veto user closes.
 
 Settings → Extensions manages installed packages and the marketplace. Users can
 load an unpacked folder, install a package, and enable it after reviewing its
-permissions. Reloading, disabling, and uninstalling honor open views’ close
-handlers. The first compatibility target is main’s unchanged Git and Files
-extensions; other extension capabilities remain deferred.
+permissions. An extension’s details also show its declared settings and recent
+log output. Reloading, disabling, and uninstalling honor open views’ close
+handlers. Extensions written for main load unchanged: they can add tabs, panels,
+popovers, topbar and status-bar items, background scripts, runtime shortcuts,
+and a sidebar chosen in Settings → Appearance. Sensitive actions ask first, and
+remembered answers can be reset. The built-in browser, workspaces,
+localizations, and remote methods are not available yet.
 
 The desktop and keyboard TUI are clients of the same server. The
 [product model](./product-model.md) defines what clients own; this document

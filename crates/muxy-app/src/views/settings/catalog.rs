@@ -220,6 +220,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: "Interface",
     },
     Setting {
+        id: "extension-sidebar",
+        label: "Active sidebar",
+        description: "Show an enabled extension's sidebar in place of the built-in one.",
+        category: Category::Appearance,
+        section: "Interface",
+    },
+    Setting {
         id: "font-family",
         label: "Font family",
         description: "The typeface used to render text in every terminal pane.",

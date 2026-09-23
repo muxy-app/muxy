@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const source = readFileSync(`${__dirname}/bridge.js`, 'utf8');
 const apiSource = readFileSync(`${__dirname}/../../extensions/bridge.js`, 'utf8');
 
-function page(reply = () => null, { rootPresent = true, surface = "tab" } = {}) {
+function page(reply = () => null, { rootPresent = true, surface = "tab", console = false } = {}) {
   const messages = [], css = new Map(), events = new Map(), observers = [];
   const authoredStyle = { tagName: 'STYLE', textContent: 'html { background: pink; }' };
   const root = {
@@ -25,8 +25,9 @@ function page(reply = () => null, { rootPresent = true, surface = "tab" } = {}) 
     document.documentElement = root;
     for (const observer of observers) if (observer.active) observer.callback();
   };
-  const context = vm.createContext({ document, MutationObserver });
+  const context = vm.createContext({ document, MutationObserver, setTimeout });
   context.window = context;
+  if (console) context.console = { log() {}, warn() {}, error() {} };
   context.webkit = { messageHandlers: { muxy: { postMessage: async message => {
     messages.push(JSON.parse(JSON.stringify(message)));
     return { ok: true, value: await reply(message) };
@@ -168,4 +169,96 @@ test('panel close handlers receive their surface identity and can veto', async (
   context.__muxyBeforeClose(10, 'panel', 'instance');
   await settled();
   assert.deepEqual(messages.at(-1).args, {callID:'10', prevent:true});
+});
+
+test('pages expose main\'s API surface', () => {
+  const { muxy } = page();
+  for (const path of [
+    'popover.close', 'popover.resize', 'http.fetch', 'events.emit', 'events.subscribe',
+    'tabs.new', 'tabs.next', 'tabs.previous', 'tabs.open', 'tabs.setTitle', 'panes.list',
+    'panes.readScreen', 'projects.list', 'projects.reorder', 'worktrees.list', 'agents.list',
+    'gh.user', 'shortcuts.register', 'shortcuts.list', 'statusbar.set', 'topbar.hide',
+    'browser.list', 'workspaces.list', 'dialog.pickFolder', 'modal.open', 'storage.keys',
+  ]) {
+    const value = path.split('.').reduce((object, key) => object && object[key], muxy);
+    assert.equal(typeof value, 'function', path);
+  }
+});
+
+test('http, popover, and item calls forward main\'s payloads', async () => {
+  const { muxy, messages } = page();
+  await muxy.http.fetch('https://example.com', { method: 'post', headers: { a: 'b' }, body: 1, timeoutMs: '5' });
+  await muxy.popover.resize('100', 50);
+  await muxy.statusbar.set({ id: 3, text: null, visible: 0 });
+  await muxy.topbar.show('star');
+  assert.deepEqual(messages.map(message => [message.verb, message.args]), [
+    ['http.fetch', { url: 'https://example.com', method: 'post', headers: { a: 'b' }, body: '1', timeoutMs: 5 }],
+    ['popover.resize', { width: 100, height: 50 }],
+    ['statusbar.set', { id: '3', text: null, visible: false }],
+    ['topbar.set', { id: 'star', visible: true }],
+  ]);
+});
+
+test('extension events are checked before they reach the host', async () => {
+  const { muxy, messages } = page();
+  await assert.rejects(muxy.events.emit('ready', {}), /extension events must start with extension\./);
+  await muxy.events.emit('extension.ready', { n: 1 });
+  await muxy.events.emit('extension.empty');
+  assert.deepEqual(messages.map(message => message.args), [
+    { event: 'extension.ready', payload: { n: 1 } },
+    { event: 'extension.empty', payload: null },
+  ]);
+});
+
+test('page modals resolve the choice and call onSelect', async () => {
+  const { muxy, messages } = page(message => ({
+    'modal.open': { requestID: 'native:1' },
+    'modal.await': { id: 'b', title: 'Beta' },
+  })[message.verb] ?? null);
+  const selected = [];
+  const choice = await muxy.modal.open({
+    placeholder: 'Pick',
+    items: [{ id: 'a', title: 'Alpha' }, { id: 'b', title: 'Beta', subtitle: 2 }, { title: 'missing id' }],
+    onSelect: item => selected.push(item),
+  });
+  assert.deepEqual(choice, { id: 'b', title: 'Beta' });
+  assert.deepEqual(selected, [{ id: 'b', title: 'Beta' }]);
+  assert.deepEqual(messages.map(message => message.verb), ['modal.open', 'modal.feed', 'modal.finish', 'modal.await']);
+  assert.deepEqual(messages[1].args.items, [
+    { id: 'a', title: 'Alpha', subtitle: null },
+    { id: 'b', title: 'Beta', subtitle: '2' },
+  ]);
+  assert.deepEqual(messages[3].args, { requestID: 'native:1' });
+});
+
+test('page modals run async onQuery handlers for each query', async () => {
+  const { context, muxy, messages } = page(message => ({
+    'modal.open': { requestID: 'native:3' },
+    'modal.await': new Promise(() => {}),
+  })[message.verb] ?? null);
+  const queries = [];
+  const opened = muxy.modal.open({
+    items: [],
+    onQuery: async query => { queries.push(query); return [{ id: query, title: query.toUpperCase() }]; },
+  });
+  await settled();
+  await context.__muxyDeliverModalQuery('native:3', '2', 'needle', {});
+  assert.deepEqual(queries, ['needle']);
+  const verbs = messages.map(message => [message.verb, message.args]);
+  assert.deepEqual(verbs.slice(-2), [
+    ['modal.feed', { items: [{ id: 'needle', title: 'NEEDLE', subtitle: null }], queryID: '2' }],
+    ['modal.finish', { queryID: '2' }],
+  ]);
+  void opened;
+});
+
+test('page console lines reach the host in one batch per tick', async () => {
+  const { context, messages } = page(undefined, { console: true });
+  for (let index = 0; index < 300; index++) context.console.log('line', index);
+  context.console.warn({ a: 1 });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const batches = messages.filter(message => message.verb === 'console');
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].args.lines.length, 301);
+  assert.deepEqual(batches[0].args.lines[300], { level: 'warn', message: '{"a":1}' });
 });

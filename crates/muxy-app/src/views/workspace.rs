@@ -501,7 +501,8 @@ impl Render for AppModel {
         self.sync_sidebar_vibrancy(window);
         self.sync_toast(cx);
         let theme = &self.theme;
-        let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused;
+        let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused
+            && !self.extension_sidebar_active();
         let sidebar_width = self.sidebar_width();
         let content = super::splits::render(self, cx).unwrap_or_else(|| empty(self, cx));
         let content = self.webview_panel_content(content, window, cx);

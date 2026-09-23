@@ -1,16 +1,13 @@
-use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, px,
-};
-use muxy_app_core::extensions::Icon;
+use gpui::Context;
+use muxy_app_core::extensions::Action;
 use muxy_app_core::settings::KeyChord;
 use muxy_core::shortcuts::ShortcutSettings;
 use muxy_ui::command_palette::{Command, Registry};
-use muxy_ui::components::{ButtonInteraction, SymbolGlyph, Tooltip};
 
 use super::AppModel;
 use crate::views::command_palette::Handler;
 
+/// Runs an extension command, or fires `command.<id>` for a runtime shortcut.
 #[derive(Clone, PartialEq, gpui::Action)]
 #[action(namespace = muxy, no_json)]
 pub(crate) struct RunCommand {
@@ -19,7 +16,9 @@ pub(crate) struct RunCommand {
 }
 
 impl AppModel {
-    fn extension_bindings(&self) -> Vec<(RunCommand, KeyChord)> {
+    /// Key bindings for extension commands: manifest defaults (or the user's
+    /// rebinding) first, then runtime shortcuts; the first claim on a key wins.
+    pub(super) fn extension_bindings(&self) -> Vec<(RunCommand, KeyChord)> {
         let mut used: std::collections::HashSet<String> = muxy_core::shortcuts::ALL
             .iter()
             .flat_map(|shortcut| {
@@ -36,8 +35,9 @@ impl AppModel {
                 let key = self.settings.keymap.binding(&id).cloned().or_else(|| {
                     command
                         .default_shortcut
-                        .as_ref()
-                        .and_then(|key| key.replace('+', "-").parse().ok())
+                        .as_deref()
+                        .and_then(super::surfaces::parse_combo)
+                        .map(|(chord, _)| chord)
                 });
                 if let Some(key) = key
                     && used.insert(key.as_str().to_owned())
@@ -50,6 +50,17 @@ impl AppModel {
                         key,
                     ));
                 }
+            }
+        }
+        for (owner, id, chord) in self.runtime_bindings() {
+            if used.insert(chord.as_str().to_owned()) {
+                bindings.push((
+                    RunCommand {
+                        owner: owner.into(),
+                        command: id.into(),
+                    },
+                    chord.clone(),
+                ));
             }
         }
         bindings
@@ -72,10 +83,15 @@ impl AppModel {
             .collect()
     }
 
+    /// Palette entries for extension commands. Popover commands need an item
+    /// to anchor to, so main leaves them out of the palette.
     pub(crate) fn register_extension_commands(&self, registry: &mut Registry<Handler>) {
         let bindings = self.extension_bindings();
         for extension in self.extensions.registry.active() {
             for command in &extension.manifest.commands {
+                if matches!(command.action, Action::OpenPopover { .. }) {
+                    continue;
+                }
                 let owner = extension.name.clone();
                 let id = command.id.clone();
                 let handler: Handler = std::rc::Rc::new(move |model, window, cx| {
@@ -85,7 +101,12 @@ impl AppModel {
                     format!("extension.{}.{}", extension.name, command.id),
                     command.title.clone(),
                     handler,
-                );
+                )
+                .keywords(format!(
+                    "{} {}",
+                    extension.name,
+                    command.subtitle.as_deref().unwrap_or("")
+                ));
                 if let Some((_, key)) = bindings.iter().find(|(binding, _)| {
                     binding.owner == extension.name && binding.command == command.id
                 }) {
@@ -107,67 +128,5 @@ impl AppModel {
             "Manage Extensions",
             manage,
         ));
-    }
-
-    pub(crate) fn extension_toolbar_width(&self) -> f32 {
-        let count = self
-            .extensions
-            .registry
-            .active()
-            .map(|extension| extension.manifest.topbar_items.len())
-            .sum::<usize>();
-        f32::from(u16::try_from(count).unwrap_or(u16::MAX)) * 28.0
-    }
-
-    pub(crate) fn extension_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut bar = div().flex().items_center().gap(px(2.0));
-        for extension in self.extensions.registry.active() {
-            for item in &extension.manifest.topbar_items {
-                let owner = extension.name.clone();
-                let command = item.command.clone();
-                let symbol = match &item.icon {
-                    Icon::Name(name) | Icon::Symbol { symbol: name } => name.as_str(),
-                    Icon::Svg { .. } => "puzzlepiece.extension",
-                };
-                let tooltip = item.tooltip.clone().unwrap_or_else(|| item.command.clone());
-                let theme = self.theme.clone();
-                bar = bar.child(
-                    div()
-                        .debug_selector(|| "extension-toolbar-item".into())
-                        .id(gpui::SharedString::from(format!(
-                            "extension-toolbar-{}-{}",
-                            extension.name, item.id
-                        )))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(26.0))
-                        .rounded(px(4.0))
-                        .cursor_pointer()
-                        .hover(|view| view.bg(self.theme.hover))
-                        .tooltip(move |_, cx| {
-                            cx.new(|_| {
-                                Tooltip::new(
-                                    tooltip.clone(),
-                                    theme.raised(),
-                                    theme.fg,
-                                    theme.border,
-                                )
-                            })
-                            .into()
-                        })
-                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .button_interaction(cx.listener(move |model, _, window, cx| {
-                            model.run_extension_command(&owner, &command, window, cx);
-                        }))
-                        .child(SymbolGlyph::new(
-                            symbol.to_owned(),
-                            px(14.0),
-                            self.theme.fg_muted,
-                        )),
-                );
-            }
-        }
-        bar.into_any_element()
     }
 }

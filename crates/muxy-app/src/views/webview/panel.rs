@@ -2,7 +2,6 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
 };
-use muxy_ui::components::SymbolGlyph;
 use muxy_ui::panel::{
     PanelAction, PanelChrome, PanelControl, PanelFrame, PanelId, PanelMode, PanelPosition,
     PanelSizeBounds, PanelSizing, PanelStyle,
@@ -37,7 +36,9 @@ impl AppModel {
             );
             let extent = px(sizing.layout().dimension() + 1.0);
             let style = PanelStyle::new(self.theme.clone(), self.metrics);
-            let chrome = self.webview_panel_chrome(id, cx);
+            let chrome = self
+                .webview_panel_chrome(id, cx)
+                .map_or_else(|| div().into_any_element(), IntoElement::into_any_element);
             let resize_id = id.clone();
             let model = cx.weak_entity();
             let frame = PanelFrame::new(
@@ -156,77 +157,85 @@ impl AppModel {
         (pinned_space, floating_space)
     }
 
-    fn webview_panel_chrome(&self, id: &PanelId, cx: &Context<Self>) -> PanelChrome {
+    /// main's panel header: icon, title, header buttons, and the position,
+    /// pin, and close controls, each hideable; `None` when nothing shows.
+    fn webview_panel_chrome(&self, id: &PanelId, cx: &Context<Self>) -> Option<PanelChrome> {
+        use muxy_app_core::extensions::PanelControl as Hidden;
         let panel = &self.webviews.panels[id];
-        let owner = &panel.surface.view.read(cx).source.owner;
-        let kind = &panel.surface.view.read(cx).instance;
-        let definition = self
-            .extensions
-            .registry
-            .enabled(owner)
-            .and_then(|extension| {
-                extension
-                    .manifest
-                    .panels
-                    .iter()
-                    .find(|p| &p.surface.id == kind)
-            });
-        let symbol = definition
-            .and_then(|p| p.surface.icon.as_ref())
-            .and_then(|icon| match icon {
-                muxy_app_core::extensions::Icon::Name(name)
-                | muxy_app_core::extensions::Icon::Symbol { symbol: name } => Some(name.as_str()),
-                muxy_app_core::extensions::Icon::Svg { .. } => None,
-            })
-            .unwrap_or("puzzlepiece.extension");
-        let mut chrome = PanelChrome::new(
-            panel.title.clone(),
-            Some(
-                SymbolGlyph::new(
-                    symbol.to_owned(),
+        let extension = self.extensions.registry.enabled(&panel.owner);
+        let definition = extension.and_then(|extension| extension.manifest.panel(&panel.kind));
+        let hides = |control| definition.is_some_and(|definition| definition.hides(control));
+        if definition.is_some_and(|definition| definition.hide_topbar) {
+            return None;
+        }
+        let icon = extension
+            .zip(definition.and_then(|definition| definition.icon.as_ref()))
+            .filter(|_| !hides(Hidden::Icon))
+            .map(|(extension, icon)| {
+                self.extension_icon(
+                    &extension.directory,
+                    icon,
                     self.metrics.font_footnote(),
                     self.theme.fg_muted,
                 )
-                .into_any_element(),
-            ),
+            });
+        let title = panel.title.clone().filter(|_| !hides(Hidden::Title));
+        let buttons = definition.map_or(&[][..], |definition| &definition.header_buttons[..]);
+        if icon.is_none()
+            && title.is_none()
+            && buttons.is_empty()
+            && [Hidden::Position, Hidden::Pin, Hidden::Close]
+                .into_iter()
+                .all(hides)
+        {
+            return None;
+        }
+        let mut chrome = PanelChrome::new(
+            title.unwrap_or_default(),
+            icon,
             panel.controls[0].clone(),
             self.webview_panel_action(id, PanelControl::Move(panel.placement.position), 1, cx),
             self.webview_panel_action(id, PanelControl::Mode(panel.placement.mode), 2, cx),
             self.webview_panel_action(id, PanelControl::Close, 3, cx),
             PanelStyle::new(self.theme.clone(), self.metrics),
         );
-        if let Some(definition) = definition {
-            for control in &definition.hidden_controls {
-                chrome = match control.as_str() {
-                    "position" => chrome.without_move_action(),
-                    "mode" => chrome.without_mode_action(),
-                    "close" => chrome.without_close_action(),
-                    _ => chrome,
-                };
-            }
-            for (index, item) in definition.header_buttons.iter().enumerate() {
-                let owner = owner.clone();
-                let command = item.command.clone();
-                let model = cx.weak_entity();
-                let symbol = match &item.icon {
-                    muxy_app_core::extensions::Icon::Name(name)
-                    | muxy_app_core::extensions::Icon::Symbol { symbol: name } => name.clone(),
-                    muxy_app_core::extensions::Icon::Svg { .. } => "puzzlepiece.extension".into(),
-                };
-                chrome = chrome.with_trailing_action(PanelAction::symbol(
-                    gpui::SharedString::from(format!("extension-panel-{}-{}", owner, item.id)),
-                    item.tooltip.clone().unwrap_or_else(|| item.command.clone()),
-                    symbol,
-                    panel.header_controls[index].clone(),
-                    move |window, cx| {
-                        let _ = model.update(cx, |model, cx| {
-                            model.run_extension_command(&owner, &command, window, cx);
-                        });
-                    },
-                ));
-            }
+        if hides(Hidden::Position) {
+            chrome = chrome.without_move_action();
         }
-        chrome
+        if hides(Hidden::Pin) {
+            chrome = chrome.without_mode_action();
+        }
+        if hides(Hidden::Close) {
+            chrome = chrome.without_close_action();
+        }
+        for (index, item) in buttons.iter().enumerate() {
+            let Some(focus) = panel.header_controls.get(index) else {
+                break;
+            };
+            let owner = panel.owner.clone();
+            let command = item.command.clone();
+            let model = cx.weak_entity();
+            let root = extension
+                .map(|extension| extension.directory.clone())
+                .unwrap_or_default();
+            chrome = chrome.with_trailing_action(PanelAction::element(
+                gpui::SharedString::from(format!("extension-panel-{}-{}", owner, item.id)),
+                item.tooltip.clone().unwrap_or_else(|| item.id.clone()),
+                self.extension_icon(
+                    &root,
+                    &item.icon,
+                    self.metrics.font_emphasis(),
+                    self.theme.fg_muted,
+                ),
+                focus.clone(),
+                move |window, cx| {
+                    let _ = model.update(cx, |model, cx| {
+                        model.run_extension_command(&owner, &command, window, cx);
+                    });
+                },
+            ));
+        }
+        Some(chrome)
     }
 
     fn webview_panel_action(

@@ -135,8 +135,10 @@ muxy-app retains and coordinates surfaces, focus, presentation, and the page
 bridge. Hidden pages remain alive; they have no terminal session or server state.
 The app owns extension discovery, permissions, commands, and the main-compatible
 bridge. Each page or script has an app-bound owner; disabled or stale callers
-cannot issue API operations. JavaScriptCore runs command scripts on dedicated
-threads, while filesystem, Git, and cancellable process execution use the server.
+cannot issue API operations. JavaScriptCore runs command and background scripts
+on dedicated threads, while filesystem, Git, and cancellable process execution
+use the server. Extension HTTP requests run in the app after the same permission
+and consent checks and never reach loopback or private hosts.
 Marketplace archives are bounded and verified before installation. Packages,
 developer folders, grants, and extension storage remain scoped to the app profile.
 

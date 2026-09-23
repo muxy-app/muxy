@@ -1,5 +1,6 @@
 pub(crate) mod modal;
 pub(crate) mod panel;
+pub(crate) mod popover;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -37,6 +38,8 @@ pub(crate) enum SurfaceKind {
     Tab,
     Panel,
     Modal,
+    Popover,
+    Sidebar,
 }
 
 impl SurfaceKind {
@@ -45,6 +48,17 @@ impl SurfaceKind {
             Self::Tab => "tab",
             Self::Panel => "panel",
             Self::Modal => "modalWebview",
+            Self::Popover => "popover",
+            Self::Sidebar => "sidebar",
+        }
+    }
+
+    /// Popover pages paint over the popover's own surface, as on main.
+    fn background(self, theme: &Theme) -> gpui::Rgba {
+        if self == Self::Popover {
+            theme.raised().into()
+        } else {
+            theme.bg.into()
         }
     }
 }
@@ -125,8 +139,8 @@ impl Webview {
             window,
             source.clone(),
             &script,
-            theme.bg.into(),
-            kind == SurfaceKind::Modal,
+            kind.background(theme),
+            matches!(kind, SurfaceKind::Modal | SurfaceKind::Popover),
         )?;
         Ok(cx.new(move |cx| {
             cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
@@ -149,7 +163,7 @@ impl Webview {
                 icon_revision: 0,
                 data,
                 theme: theme_values,
-                background: theme.bg.into(),
+                background: kind.background(theme),
                 presentation: Presentation::default(),
                 snapshot: None,
                 error: None,
@@ -290,7 +304,7 @@ impl Webview {
         cx: &mut Context<Self>,
     ) {
         let values = theme_snapshot(theme, metrics);
-        self.background = theme.bg.into();
+        self.background = self.kind.background(theme);
         let data_changed = self.data != data;
         let theme_changed = self.theme != values;
         if data_changed || theme_changed {
@@ -449,8 +463,10 @@ impl Render for Webview {
                 self.snapshot
                     .clone()
                     .filter(|_| {
-                        self.presentation
-                            .show_snapshot(self.kind == SurfaceKind::Modal, failed)
+                        self.presentation.show_snapshot(
+                            matches!(self.kind, SurfaceKind::Modal | SurfaceKind::Popover),
+                            failed,
+                        )
                     })
                     .map(|image| img(image).absolute().size_full()),
             )
@@ -485,7 +501,12 @@ fn bridge_script(owner: &str, id: &str, kind: SurfaceKind, data: &Value, theme: 
 fn theme_snapshot(theme: &Theme, metrics: Metrics) -> Value {
     let color = |color: gpui::Hsla| -> String {
         let rgba: gpui::Rgba = color.into();
-        format!("#{:08x}", u32::from(rgba))
+        let hex = u32::from(rgba);
+        if rgba.a >= 0.999 {
+            format!("#{:06x}", hex >> 8)
+        } else {
+            format!("#{hex:08x}")
+        }
     };
     json!({
         "background": color(theme.bg), "foreground": color(theme.fg), "foregroundMuted": color(theme.fg_muted),

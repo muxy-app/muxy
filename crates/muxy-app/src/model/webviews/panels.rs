@@ -1,21 +1,26 @@
 use gpui::{Context, Entity, FocusHandle, Window};
 use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition, PanelResizeState};
 use muxy_ui::webview::assets::Source;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::{AppModel, Request, Surface, SurfaceKind, Webview};
 
 #[derive(Clone)]
 pub(super) struct Definition {
     pub source: Source,
-    pub title: String,
+    pub title: Option<String>,
     pub position: PanelPosition,
     pub mode: PanelMode,
+    pub default_data: Value,
+    /// Whether the user's pin choice overrides the declared mode.
+    pub allows_mode_selection: bool,
 }
 
 pub(crate) struct Panel {
     pub surface: Surface,
-    pub title: String,
+    pub owner: String,
+    pub kind: String,
+    pub title: Option<String>,
     pub placement: PanelPlacement,
     pub width: f32,
     pub height: f32,
@@ -52,12 +57,43 @@ impl AppModel {
                             .join("fixtures/webview"),
                         entry: "panel.html".into(),
                     },
-                    title: "Webview Panel".into(),
+                    title: Some("Webview Panel".into()),
                     position,
                     mode: PanelMode::Floating,
+                    default_data: Value::Null,
+                    allows_mode_selection: true,
                 },
             );
         }
+    }
+
+    pub(super) fn register_extension_panel(
+        &mut self,
+        extension: &muxy_app_core::extensions::Extension,
+        panel: &muxy_app_core::extensions::Panel,
+    ) {
+        use muxy_app_core::extensions::{PanelMode as Mode, PanelPosition as Position};
+        self.webviews.registered_panels.insert(
+            (extension.name.clone(), panel.id.clone()),
+            Definition {
+                source: Source {
+                    owner: extension.name.clone(),
+                    directory: extension.directory.clone(),
+                    entry: panel.entry.clone(),
+                },
+                title: panel.title.clone(),
+                position: match panel.position {
+                    Position::Right => PanelPosition::Right,
+                    Position::Bottom => PanelPosition::Bottom,
+                },
+                mode: match panel.mode {
+                    Mode::Floating => PanelMode::Floating,
+                    Mode::Pinned => PanelMode::Pinned,
+                },
+                default_data: panel.default_data.clone(),
+                allows_mode_selection: panel.allows_mode_selection(),
+            },
+        );
     }
 
     pub(super) fn panel_request(
@@ -78,6 +114,8 @@ impl AppModel {
         )
     }
 
+    /// `panels.open|toggle|close`. Toggling closes without asking the page;
+    /// closing asks it first. Closing an unknown panel is not an error.
     pub(in crate::model) fn panel_operation(
         &mut self,
         owner: &str,
@@ -87,22 +125,29 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<Value, String> {
         let owner = owner.to_owned();
-        let kind = args["panelID"].as_str().ok_or("panelID is required")?;
+        let kind = args["panelID"].as_str().filter(|kind| !kind.is_empty());
+        if verb == "panels.close" {
+            if let Some(kind) = kind {
+                self.dismiss_webview_panel(&panel_id(&owner, kind), cx);
+            }
+            return Ok(Value::Null);
+        }
+        let kind = kind.ok_or("missing argument 'panel'")?;
         let definition = self
             .webviews
             .registered_panels
             .get(&(owner.clone(), kind.into()))
             .cloned()
-            .ok_or("panel is not registered for this owner")?;
+            .ok_or_else(|| format!("unknown panel '{kind}'"))?;
         let id = panel_id(&owner, kind);
-        let open = self.panels.placement(&id).is_some();
-        if verb == "panels.close" || (verb == "panels.toggle" && open) {
-            self.dismiss_webview_panel(&id, cx);
+        if verb == "panels.toggle" && self.panels.placement(&id).is_some() {
+            self.remove_webview_panel(&id, cx);
             return Ok(Value::Null);
         }
+        let data = Some(&args["data"]).filter(|data| !data.is_null());
         if let Some(panel) = self.webviews.panels.get(&id) {
             panel.surface.view.update(cx, |view, cx| {
-                if let Some(data) = args.get("data") {
+                if let Some(data) = data {
                     view.update_content(data.clone(), &self.theme, self.metrics, cx);
                 }
                 if self.overlay.is_none() {
@@ -112,67 +157,63 @@ impl AppModel {
             let placement = panel.placement.clone();
             self.place_panel(placement, cx);
             self.focus_requested = false;
-            if !open {
-                self.emit_extension_event(
-                    Some(&owner),
-                    "panel.opened",
-                    serde_json::json!({"panelID":kind,"extensionID":owner}),
-                    cx,
-                );
-            }
+            self.panel_event("panel.opened", &owner, kind, cx);
             return Ok(Value::Null);
         }
         let surface = self.create_webview(
             definition.source,
             kind.into(),
-            args["data"].clone(),
+            data.cloned().unwrap_or(definition.default_data),
             SurfaceKind::Panel,
             window,
             cx,
         )?;
-        let mode = self.webview_panel_mode(&owner, kind, definition.mode);
+        let mode = if definition.allows_mode_selection {
+            self.webview_panel_mode(&owner, kind, definition.mode)
+        } else {
+            definition.mode
+        };
         let placement = PanelPlacement::new(id.clone(), definition.position, mode);
         self.place_panel(placement.clone(), cx);
         if self.overlay.is_none() {
             surface.view.read(cx).focus.focus(window);
         }
+        let header_buttons = self
+            .extensions
+            .registry
+            .enabled(&owner)
+            .and_then(|extension| extension.manifest.panel(kind))
+            .map_or(0, |panel| panel.header_buttons.len());
         self.webviews.panels.insert(
             id,
             Panel {
                 surface,
+                owner: owner.clone(),
+                kind: kind.into(),
                 title: definition.title,
                 placement,
                 width: 360.0,
                 height: 260.0,
                 resize: PanelResizeState::default(),
                 controls: std::array::from_fn(|_| cx.focus_handle()),
-                header_controls: (0..self
-                    .extensions
-                    .registry
-                    .enabled(&owner)
-                    .and_then(|extension| {
-                        extension
-                            .manifest
-                            .panels
-                            .iter()
-                            .find(|panel| panel.surface.id == kind)
-                    })
-                    .map_or(0, |panel| panel.header_buttons.len()))
-                    .map(|_| cx.focus_handle())
-                    .collect(),
+                header_controls: (0..header_buttons).map(|_| cx.focus_handle()).collect(),
                 closing: false,
                 focused: false,
             },
         );
         self.focus_requested = false;
-        self.emit_extension_event(
-            Some(&owner),
-            "panel.opened",
-            serde_json::json!({"panelID":kind,"extensionID":owner}),
-            cx,
-        );
+        self.panel_event("panel.opened", &owner, kind, cx);
         cx.notify();
         Ok(Value::Null)
+    }
+
+    fn panel_event(&self, event: &str, owner: &str, kind: &str, cx: &gpui::App) {
+        self.emit_extension_event(
+            None,
+            event,
+            &json!({"extensionID": owner, "panelID": kind}),
+            cx,
+        );
     }
 
     fn webview_panel_mode(&self, owner: &str, kind: &str, default: PanelMode) -> PanelMode {
@@ -193,6 +234,7 @@ impl AppModel {
                 self.dismiss_composer(false, cx);
             } else if let Some(panel) = self.webviews.panels.get(&id) {
                 panel.resize.end();
+                self.panel_event("panel.closed", &panel.owner, &panel.kind, cx);
             }
         }
         cx.notify();
@@ -208,10 +250,9 @@ impl AppModel {
             return;
         };
         if toggle_mode {
-            let view = panel.surface.view.read(cx);
             if let Err(error) = self.settings.set_panel_pinned(
-                &view.source.owner,
-                &view.instance,
+                &panel.owner,
+                &panel.kind,
                 panel.placement.mode != PanelMode::Pinned,
                 &self.path.with_file_name("settings.toml"),
             ) {
@@ -228,6 +269,7 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Closes a panel once its page allows it (`onBeforeClose`).
     pub(crate) fn dismiss_webview_panel(&mut self, id: &PanelId, cx: &mut Context<Self>) {
         let Some(panel) = self
             .webviews
@@ -262,7 +304,9 @@ impl AppModel {
 
     pub(super) fn remove_webview_panel(&mut self, id: &PanelId, cx: &mut Context<Self>) {
         if let Some(panel) = self.webviews.panels.remove(id) {
-            self.panels.remove(id);
+            if self.panels.remove(id).is_some() {
+                self.panel_event("panel.closed", &panel.owner, &panel.kind, cx);
+            }
             self.focus_requested |= panel.focused;
             cx.notify();
         }

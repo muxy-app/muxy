@@ -25,15 +25,111 @@ pub struct Confirmation {
     alert: Retained<NSAlert>,
     parent: Retained<NSWindow>,
     completed: Rc<Cell<bool>>,
+    /// The response reported when the sheet is dismissed by dropping it.
+    dismissal: NSModalResponse,
 }
 
 impl Drop for Confirmation {
     fn drop(&mut self) {
         if !self.completed.replace(true) {
             self.parent
-                .endSheet_returnCode(&self.alert.window(), NSAlertSecondButtonReturn);
+                .endSheet_returnCode(&self.alert.window(), self.dismissal);
         }
     }
+}
+
+/// A choice in an extension consent prompt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConsentResponse {
+    AllowAndRemember,
+    Allow,
+    Cancel,
+    DenyAndRemember,
+    Block,
+}
+
+fn consent_choice(response: NSModalResponse, block: bool) -> ConsentResponse {
+    let index = response - NSAlertFirstButtonReturn;
+    match (index, block) {
+        (..0 | 2 | 4.., _) => ConsentResponse::Cancel,
+        (_, true) => ConsentResponse::Block,
+        (0, false) => ConsentResponse::AllowAndRemember,
+        (1, false) => ConsentResponse::Allow,
+        (_, false) => ConsentResponse::DenyAndRemember,
+    }
+}
+
+/// Asks whether an extension may perform a gated action. Dropping the returned
+/// handle dismisses the sheet as a cancel.
+pub fn consent(
+    window: &gpui::Window,
+    title: &str,
+    message: &str,
+    block_label: &str,
+    on_complete: impl FnOnce(ConsentResponse) + 'static,
+) -> io::Result<Confirmation> {
+    let main_thread = MainThreadMarker::new()
+        .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
+    let parent = parent_window(window, main_thread)?;
+    let alert = NSAlert::new(main_thread);
+    alert.setMessageText(&NSString::from_str(title));
+    alert.setInformativeText(&NSString::from_str(message));
+    alert.setAlertStyle(NSAlertStyle::Warning);
+    for (label, key) in [
+        ("Allow & Remember", "\r"),
+        ("Allow", ""),
+        ("Cancel", "\u{1b}"),
+        ("Deny & Remember", ""),
+    ] {
+        alert
+            .addButtonWithTitle(&NSString::from_str(label))
+            .setKeyEquivalent(&NSString::from_str(key));
+    }
+    alert.setShowsSuppressionButton(true);
+    let suppression = alert.suppressionButton();
+    if let Some(button) = &suppression {
+        button.setTitle(&NSString::from_str(block_label));
+    }
+    let completed = Rc::new(Cell::new(false));
+    let finished = Rc::clone(&completed);
+    let callback = Cell::new(Some(on_complete));
+    let handler = RcBlock::new(move |response| {
+        finished.set(true);
+        let block = suppression
+            .as_ref()
+            .is_some_and(|button| button.state() == NSControlStateValueOn);
+        if let Some(callback) = callback.take() {
+            callback(consent_choice(response, block));
+        }
+    });
+    alert.beginSheetModalForWindow_completionHandler(&parent, Some(&handler));
+    Ok(Confirmation {
+        alert,
+        parent,
+        completed,
+        dismissal: NSAlertFirstButtonReturn + 2,
+    })
+}
+
+fn parent_window(
+    window: &gpui::Window,
+    main_thread: MainThreadMarker,
+) -> io::Result<Retained<NSWindow>> {
+    let windows = NSApplication::sharedApplication(main_thread).windows();
+    let title = window.window_title();
+    let mut matches = (0..windows.count())
+        .map(|index| windows.objectAtIndex(index))
+        .filter(|window| window.title().to_string() == title);
+    let parent = matches
+        .next()
+        .ok_or_else(|| io::Error::other("native dialog parent window is closed"))?;
+    if matches.next().is_some() {
+        return Err(io::Error::other("native dialog parent window is ambiguous"));
+    }
+    if parent.attachedSheet().is_some() {
+        return Err(io::Error::other("an application dialog is already open"));
+    }
+    Ok(parent)
 }
 
 pub fn confirm(
@@ -93,6 +189,7 @@ pub fn confirm(
         alert,
         parent,
         completed,
+        dismissal: NSAlertSecondButtonReturn,
     })
 }
 
@@ -107,6 +204,28 @@ fn classify(response: NSModalResponse, dont_ask_again: bool) -> ConfirmationResp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consent_buttons_map_to_main_choices_and_block_overrides_allowing() {
+        let button = |index| NSAlertFirstButtonReturn + index;
+        let choices = [
+            ConsentResponse::AllowAndRemember,
+            ConsentResponse::Allow,
+            ConsentResponse::Cancel,
+            ConsentResponse::DenyAndRemember,
+        ];
+        for (index, choice) in (0..).zip(choices) {
+            assert_eq!(consent_choice(button(index), false), choice);
+            let blocked = if choice == ConsentResponse::Cancel {
+                ConsentResponse::Cancel
+            } else {
+                ConsentResponse::Block
+            };
+            assert_eq!(consent_choice(button(index), true), blocked);
+        }
+        assert_eq!(consent_choice(0, false), ConsentResponse::Cancel);
+        assert_eq!(consent_choice(button(7), true), ConsentResponse::Cancel);
+    }
 
     #[test]
     fn only_the_confirmation_button_can_suppress_future_prompts() {
@@ -151,10 +270,23 @@ pub fn choose_folder(
     directory: &std::path::Path,
     on_complete: impl FnOnce(Option<std::path::PathBuf>) + 'static,
 ) -> io::Result<FolderPicker> {
+    choose_folder_with(message, "", directory, on_complete)
+}
+
+/// A folder picker whose confirm button reads `prompt`, when it is not empty.
+pub fn choose_folder_with(
+    message: &str,
+    prompt: &str,
+    directory: &std::path::Path,
+    on_complete: impl FnOnce(Option<std::path::PathBuf>) + 'static,
+) -> io::Result<FolderPicker> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
     let panel = objc2_app_kit::NSOpenPanel::openPanel(main_thread);
     panel.setMessage(Some(&NSString::from_str(message)));
+    if !prompt.is_empty() {
+        panel.setPrompt(Some(&NSString::from_str(prompt)));
+    }
     panel.setCanChooseFiles(false);
     panel.setCanChooseDirectories(true);
     panel.setAllowsMultipleSelection(false);
@@ -275,5 +407,6 @@ pub fn present(
         alert,
         parent,
         completed,
+        dismissal: objc2_app_kit::NSModalResponseAbort,
     })
 }

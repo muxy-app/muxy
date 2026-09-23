@@ -130,6 +130,21 @@ pub(super) fn rows(
             ));
         }
     }
+    let sidebars = &pane.snapshot.sidebars;
+    if category == Category::Appearance
+        && !sidebars.is_empty()
+        && pane.matches(category, "Active sidebar")
+    {
+        let selected = sidebars
+            .iter()
+            .find(|(id, _)| *id == appearance.extension_sidebar)
+            .map_or("Built-in", |(_, label)| label.as_str());
+        rows.push(pane.row(
+            "extension-sidebar",
+            "Active sidebar",
+            pane.picker(PickerKind::ExtensionSidebar, selected, cx),
+        ));
+    }
     for (id, label) in [
         ("width", "Default window width"),
         ("height", "Default window height"),

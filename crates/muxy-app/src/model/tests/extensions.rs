@@ -59,7 +59,11 @@ fn extension_permissions_shortcuts_and_toolbar_follow_enable_disable_and_unload(
     )
     .expect("load");
     view.update(cx, |model, _| {
-        assert!(model.authorize_page("reader", "files.read").is_err());
+        assert!(
+            model
+                .authorize_page("reader", "files.read", &serde_json::Value::Null)
+                .is_err()
+        );
     });
     cx.run_until_parked();
     assert!(cx.debug_bounds("extension-toolbar-item").is_none());
@@ -71,9 +75,21 @@ fn extension_permissions_shortcuts_and_toolbar_follow_enable_disable_and_unload(
     )
     .expect("enable");
     view.update(cx, |model, _| {
-        assert!(model.authorize_page("reader", "files.read").is_ok());
-        assert!(model.authorize_page("reader", "files.write").is_err());
-        assert!(model.authorize_page("reader", "exec.start").is_err());
+        assert!(
+            model
+                .authorize_page("reader", "files.read", &serde_json::Value::Null)
+                .is_ok()
+        );
+        assert!(
+            model
+                .authorize_page("reader", "files.write", &serde_json::Value::Null)
+                .is_err()
+        );
+        assert!(
+            model
+                .authorize_page("reader", "exec.start", &serde_json::Value::Null)
+                .is_err()
+        );
         assert_eq!(model.extension_keystrokes().len(), 1);
     });
     cx.run_until_parked();
@@ -89,7 +105,11 @@ fn extension_permissions_shortcuts_and_toolbar_follow_enable_disable_and_unload(
     )
     .expect("disable");
     view.update(cx, |model, _| {
-        assert!(model.authorize_page("reader", "files.read").is_err());
+        assert!(
+            model
+                .authorize_page("reader", "files.read", &serde_json::Value::Null)
+                .is_err()
+        );
         assert!(model.extension_keystrokes().is_empty());
     });
     finish_extension(

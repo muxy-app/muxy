@@ -1427,6 +1427,7 @@ impl AppModel {
         let subscription = cx.subscribe(&view, move |model, _, event, cx| match event {
             PaneEvent::Title(title) => {
                 let _ = model.state.set_pane_title(id, title.clone());
+                model.sync_extension_events(cx);
                 cx.notify();
             }
             PaneEvent::OpenLink(target) => model.open_terminal_link(id, target.clone(), cx),
@@ -1883,6 +1884,12 @@ impl AppModel {
             if let Some(size) = size {
                 self.send(Work::Resize(channel, size), cx);
             }
+            if let Some(command) = self.extensions.startup.remove(&pane) {
+                self.send(
+                    Work::Input(channel, format!("{command}\r").into_bytes()),
+                    cx,
+                );
+            }
         } else {
             self.send(Work::Detach(attachment.channel), cx);
             self.snapshots.insert(pane, attachment.grid);
@@ -1905,6 +1912,7 @@ impl AppModel {
             ),
         );
         self.pending.remove(&pane);
+        self.extensions.startup.remove(&pane);
         let detached = self.detached_pending.remove(&pane);
         if detached {
             self.references = None;
@@ -2072,6 +2080,7 @@ impl AppModel {
         for pane in panes {
             let _ = self.state.set_pane_title(pane, title.clone());
         }
+        self.sync_extension_events(cx);
         cx.notify();
     }
 
@@ -2090,7 +2099,10 @@ impl AppModel {
             ClientEvent::FilesChanged { project, changes } => {
                 self.extension_files_changed(project, changes, cx);
             }
-            ClientEvent::GitChanged { project } => self.git_invalidated(project, cx),
+            ClientEvent::GitChanged { project } => {
+                self.extension_git_changed(project, cx);
+                self.git_invalidated(project, cx);
+            }
             ClientEvent::SessionsChanged { revision } => {
                 self.existing_sessions.revision = self.existing_sessions.revision.max(revision);
                 self.refresh_existing_sessions(cx);
@@ -2336,7 +2348,7 @@ mod tests {
 
     type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-    fn acknowledge_catalog(model: &mut AppModel, cx: &mut Context<AppModel>) {
+    pub(in crate::model) fn acknowledge_catalog(model: &mut AppModel, cx: &mut Context<AppModel>) {
         if let Some(sessions) = &mut model.catalog.restore {
             for session in sessions {
                 if let Some(project) = model.state.projects().iter().find(|project| project.tabs.iter().flat_map(|tab| &tab.panes).any(|pane| matches!(pane.content, PaneContent::Terminal { session: Some(id) } if id == session.id))) {
@@ -3268,7 +3280,7 @@ mod tests {
         assert!(!pane.read_with(cx, |pane, _| pane.bell_flashing));
     }
 
-    fn attachment() -> muxy_client::Attachment {
+    pub(in crate::model) fn attachment() -> muxy_client::Attachment {
         let screen = saved_screen();
         muxy_client::Attachment {
             channel: muxy_protocol::ChannelId(1),

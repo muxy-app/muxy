@@ -10,6 +10,8 @@ pub(crate) enum Overlay {
     Updates,
     Server,
     Webview,
+    /// The open extension popover (`AppModel::webviews.popover`).
+    Popover,
     Native(Entity<super::native_modal::NativeModal>),
     Commands {
         palette: Entity<muxy_ui::command_palette::CommandPalette<super::command_palette::Handler>>,
@@ -32,6 +34,10 @@ impl AppModel {
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
         if matches!(self.overlay, Some(Overlay::Webview)) {
             self.dismiss_webview_modal(cx);
+            return;
+        }
+        if matches!(self.overlay, Some(Overlay::Popover)) {
+            self.close_extension_popover(cx);
             return;
         }
         self.project_logo_task = None;
@@ -70,6 +76,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
     let content = match &model.overlay {
         None => return div().into_any_element(),
         Some(Overlay::Webview) => return super::webview::modal::render(model, window, cx),
+        Some(Overlay::Popover) => super::webview::popover::render(model, cx),
         Some(Overlay::Server) => {
             let content = super::server_status::render(model, window, cx);
             let anchor = model.server_anchor();

@@ -164,6 +164,58 @@ fn unchanged_find_in_files_script_uses_query_callbacks_and_async_exec() {
     assert!(started && fed);
 }
 
+fn request(call: &muxy_ui::javascript::Call) -> Value {
+    serde_json::from_str(&call.request).unwrap()
+}
+
+#[test]
+fn background_scripts_keep_running_with_main_surface() {
+    let (_script, events) = Script::start(format!(
+        "{}(\"ports\", {}, {{ surface: 'background', persistent: true }});\n{}",
+        include_str!("script.js"),
+        include_str!("bridge.js"),
+        r"
+        console.log(JSON.stringify({
+            files: typeof muxy.files, toast: typeof muxy.toast, projects: typeof muxy.projects,
+            emit: typeof muxy.events.emit, remote: typeof muxy.remote.handle,
+            storage: typeof muxy.storage.get, tabs: Object.keys(muxy.tabs),
+        }));
+        try { muxy.events.emit('ready'); } catch (error) { console.log(error.message); }
+        let ticks = 0;
+        const timer = setInterval(() => {
+            if (++ticks === 3) { clearInterval(timer); muxy.storage.keys(); }
+        }, 1);
+        "
+    ))
+    .unwrap();
+    let surface = next(&events);
+    let message = request(&surface);
+    assert_eq!(message["verb"], "console");
+    let shape: Value = serde_json::from_str(message["args"]["message"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        shape,
+        json!({
+            "files": "undefined", "toast": "undefined", "projects": "undefined",
+            "emit": "function", "remote": "function", "storage": "function", "tabs": ["open"],
+        })
+    );
+    reply(&surface, &Value::Null);
+    let rejected = next(&events);
+    assert_eq!(
+        request(&rejected)["args"]["message"],
+        "extension events must start with extension."
+    );
+    reply(&rejected, &Value::Null);
+    let repeated = next(&events);
+    assert_eq!(request(&repeated)["verb"], "storage.keys");
+    reply(&repeated, &json!([]));
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        matches!(events.try_recv(), Err(async_channel::TryRecvError::Empty)),
+        "a background script never reports that it finished"
+    );
+}
+
 #[test]
 fn unchanged_manifests_load_without_api_changes() {
     for source in [
@@ -203,19 +255,34 @@ fn unchanged_manifests_load_without_api_changes() {
 }
 
 #[test]
-#[ignore = "downloads current Git and Files marketplace packages into a temporary profile"]
-fn marketplace_git_and_files_install_without_modifying_the_packages() {
+#[ignore = "downloads every published marketplace package into a temporary profile"]
+fn marketplace_packages_install_and_enable_without_modifying_the_packages() {
     let profile = tempfile::tempdir().unwrap();
     let packages = profile.path().join("extensions");
-    for name in ["git", "files"] {
+    let mut names = Vec::new();
+    for page in 1.. {
+        let listing = super::marketplace::list("", page).unwrap();
+        names.extend(
+            listing["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["name"].as_str().unwrap().to_owned()),
+        );
+        if !listing["links"]["next"].is_string() {
+            break;
+        }
+    }
+    assert!(names.iter().any(|name| name == "git") && names.iter().any(|name| name == "files"));
+    for name in &names {
         let details = super::marketplace::detail(name).unwrap();
         let stage = super::marketplace::download(&details, &packages).unwrap();
         super::marketplace::install(&stage, &packages, name).unwrap();
     }
     let mut registry = muxy_app_core::extensions::Registry::load(profile.path());
     assert!(registry.errors.is_empty(), "{:?}", registry.errors);
-    for name in ["git", "files"] {
+    for name in &names {
         registry.set_enabled(name, true).unwrap();
-        assert!(registry.enabled(name).is_some());
+        assert!(registry.enabled(name).is_some(), "{name} did not enable");
     }
 }

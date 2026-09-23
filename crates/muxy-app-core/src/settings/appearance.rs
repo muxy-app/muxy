@@ -57,6 +57,8 @@ pub struct Appearance {
     pub sidebar_focus: bool,
     #[serde(rename = "tab_focused_project_order")]
     pub sidebar_project_order: ProjectOrder,
+    /// The extension whose sidebar replaces the built-in one; empty for built-in.
+    pub extension_sidebar: String,
 }
 
 impl Default for Appearance {
@@ -79,6 +81,7 @@ impl Default for Appearance {
             tab_focused_expanded: std::collections::BTreeMap::new(),
             sidebar_focus: false,
             sidebar_project_order: ProjectOrder::default(),
+            extension_sidebar: String::new(),
         }
     }
 }

@@ -18,9 +18,14 @@ use objc2_javascript_core::{
     JSContextGetGlobalObject, JSContextRef, JSEvaluateScript, JSGlobalContextCreate,
     JSGlobalContextRef, JSGlobalContextRelease, JSObjectMakeFunctionWithCallback, JSObjectRef,
     JSObjectSetProperty, JSStringCreateWithCharacters, JSStringGetCharactersPtr, JSStringGetLength,
-    JSStringRef, JSStringRelease, JSValueMakeString, JSValueRef, JSValueToStringCopy,
-    kJSPropertyAttributeDontDelete, kJSPropertyAttributeReadOnly,
+    JSStringRef, JSStringRelease, JSValueIsNumber, JSValueMakeString, JSValueRef, JSValueToNumber,
+    JSValueToStringCopy, kJSPropertyAttributeDontDelete, kJSPropertyAttributeReadOnly,
 };
+
+/// How soon to run timers again after the timer function itself failed.
+const RETRY: Duration = Duration::from_millis(16);
+/// The longest a timer can be scheduled ahead, in milliseconds.
+const MAX_DELAY_MS: f64 = 86_400_000.0;
 
 #[derive(Debug)]
 pub struct Call {
@@ -59,18 +64,24 @@ impl Script {
                 if let Err(error) = context.evaluate(&source) {
                     let _ = events.try_send(Event::Error(error));
                 }
+                let mut wait = context.tick();
                 while !stop.load(Ordering::Acquire) {
-                    match scripts.recv_timeout(Duration::from_millis(16)) {
+                    let next = match wait {
+                        Some(wait) => scripts.recv_timeout(wait),
+                        None => scripts
+                            .recv()
+                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+                    };
+                    match next {
                         Ok(script) => {
                             if let Err(error) = context.evaluate(&script) {
                                 let _ = events.try_send(Event::Error(error));
                             }
                         }
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            let _ = context.evaluate("globalThis.__muxyTick?.()");
-                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
+                    wait = context.tick();
                 }
                 HOST.with(|host| host.borrow_mut().take());
             })?;
@@ -150,11 +161,15 @@ impl Context {
     }
 
     fn evaluate(&self, source: &str) -> Result<(), String> {
+        self.value(source).map(|_| ())
+    }
+
+    fn value(&self, source: &str) -> Result<JSValueRef, String> {
         let source = JsString::new(source);
         let mut exception = ptr::null();
         // SAFETY: Context and strings are live on the owning thread; exceptions are inspected before the next evaluation.
         unsafe {
-            JSEvaluateScript(
+            let value = JSEvaluateScript(
                 self.0,
                 source.0,
                 ptr::null_mut(),
@@ -163,11 +178,28 @@ impl Context {
                 &raw mut exception,
             );
             if exception.is_null() {
-                Ok(())
+                Ok(value)
             } else {
                 Err(value_text(self.0, exception))
             }
         }
+    }
+
+    /// Runs due timers. `__muxyTick` answers how many milliseconds remain
+    /// until the next one; anything else means wait for input.
+    fn tick(&self) -> Option<Duration> {
+        let Ok(value) = self.value("globalThis.__muxyTick?.()") else {
+            return Some(RETRY);
+        };
+        // SAFETY: The value was just produced by this context on its own thread.
+        let milliseconds = unsafe {
+            if value.is_null() || !JSValueIsNumber(self.0, value) {
+                return None;
+            }
+            JSValueToNumber(self.0, value, ptr::null_mut())
+        };
+        (milliseconds >= 0.0)
+            .then(|| Duration::from_secs_f64(milliseconds.min(MAX_DELAY_MS) / 1000.0))
     }
 }
 

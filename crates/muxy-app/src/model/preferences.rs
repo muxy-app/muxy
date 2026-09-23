@@ -130,6 +130,7 @@ impl AppModel {
                 .iter()
                 .map(|provider| provider.id)
                 .collect(),
+            sidebars: self.extension_sidebars(),
         }
     }
 
@@ -283,6 +284,10 @@ impl AppModel {
             }
             Change::SidebarVibrancy(value) => {
                 settings.appearance.sidebar_vibrancy = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::ExtensionSidebar(owner) => {
+                settings.appearance.extension_sidebar = owner;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::Field("sidebar-vibrancy-level", value) => {
@@ -587,6 +592,7 @@ fn change_id(change: &Change) -> &str {
         Change::Theme(true, _) => "dark-theme",
         Change::Sidebar(_) => "sidebar",
         Change::SidebarVibrancy(_) => "sidebar-vibrancy",
+        Change::ExtensionSidebar(_) => "extension-sidebar",
         Change::Worktrees(key, _) => key,
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
         Change::StatusBar(_) => "status-bar",

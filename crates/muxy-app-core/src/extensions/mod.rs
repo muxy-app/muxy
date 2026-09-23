@@ -3,9 +3,15 @@ mod permissions;
 mod storage;
 
 pub mod api;
-pub use manifest::{BarItem, Command, Extension, Icon, Manifest, Panel, Surface};
-pub use permissions::{Consent, Grants, required_permission};
-pub use storage::Storage;
+pub use manifest::{
+    Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Localization, Manifest,
+    PERMISSIONS, Panel, PanelControl, PanelMode, PanelPosition, Popover, RemoteMethod, Setting,
+    SettingKind, Side, Sidebar, StatusBarItem, TabType, local_event,
+};
+pub use permissions::{
+    Choice, Consent, Gate, Grants, Request, event_permission, required_permission,
+};
+pub use storage::{Settings, Storage};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -101,12 +107,7 @@ impl Registry {
     }
 
     pub fn unpacked_extension(path: &Path) -> Result<Extension, String> {
-        let dist = path.join("dist");
-        Extension::load(if dist.join("package.json").is_file() {
-            &dist
-        } else {
-            path
-        })
+        Extension::load(path)
     }
 
     pub fn load_unpacked(&mut self, path: &Path) -> Result<String, String> {

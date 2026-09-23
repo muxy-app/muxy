@@ -1,22 +1,32 @@
+mod background;
 mod calls;
 mod commands;
+mod consent;
+mod events;
+mod http;
+mod items;
 mod local;
-pub(crate) use commands::RunCommand;
+mod logs;
 mod scripts;
+mod surfaces;
 #[cfg(test)]
 mod tests;
+mod workspace;
 mod worktrees;
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+pub(crate) use commands::RunCommand;
+
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use gpui::{Context, Entity, Window};
-use muxy_app_core::extensions::{Consent, Grants, Registry, required_permission};
+use muxy_app_core::PaneId;
+use muxy_app_core::extensions::{Grants, Registry, Request, required_permission};
 use muxy_protocol::ProjectId;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::{AppModel, ConnectionState};
-use crate::views::webview::{Request, Webview};
+use crate::views::webview::{Request as PageRequest, Webview};
 
 pub(crate) struct Runtime {
     pub registry: Registry,
@@ -27,19 +37,24 @@ pub(crate) struct Runtime {
     epochs: HashMap<String, u64>,
     client: Option<muxy_client::Client>,
     scripts: HashMap<u64, scripts::Running>,
+    backgrounds: HashMap<String, background::Background>,
     loading_scripts: usize,
+    loading_backgrounds: HashSet<String>,
     jobs: HashMap<(String, String), Job>,
-    cancelled_jobs: std::collections::HashSet<(String, String)>,
+    cancelled_jobs: HashSet<(String, String)>,
     next: u64,
-    pending: VecDeque<Call>,
-    dialog: Option<muxy_ui::dialog::Confirmation>,
-    pub logs: VecDeque<String>,
+    waiting: VecDeque<consent::Waiting>,
+    sheet: Option<consent::Sheet>,
+    pub logs: logs::Logs,
     native_modal: Option<scripts::Picker>,
-    last_project: Option<ProjectId>,
-    watched: std::collections::BTreeSet<ProjectId>,
-    watch_pending: bool,
-    last_tabs: BTreeMap<String, Value>,
-    last_focused: Option<String>,
+    /// Stored overrides for each extension's declared settings.
+    pub settings: BTreeMap<String, Map<String, Value>>,
+    pub(crate) items: surfaces::Items,
+    shortcuts: Vec<surfaces::Shortcut>,
+    events: events::Tracker,
+    /// Startup commands typed into new terminals once their sessions attach.
+    pub(crate) startup: HashMap<PaneId, String>,
+    gh_user: Option<(std::time::Instant, Value)>,
 }
 
 impl Runtime {
@@ -53,19 +68,22 @@ impl Runtime {
             epochs: HashMap::new(),
             client: None,
             scripts: HashMap::new(),
+            backgrounds: HashMap::new(),
             loading_scripts: 0,
+            loading_backgrounds: HashSet::new(),
             jobs: HashMap::new(),
-            cancelled_jobs: std::collections::HashSet::new(),
+            cancelled_jobs: HashSet::new(),
             next: 0,
-            pending: VecDeque::new(),
-            dialog: None,
-            logs: VecDeque::new(),
+            waiting: VecDeque::new(),
+            sheet: None,
+            logs: logs::Logs::new(),
             native_modal: None,
-            last_project: None,
-            watched: std::collections::BTreeSet::new(),
-            watch_pending: false,
-            last_tabs: BTreeMap::new(),
-            last_focused: None,
+            settings: BTreeMap::new(),
+            items: surfaces::Items::default(),
+            shortcuts: Vec::new(),
+            events: events::Tracker::default(),
+            startup: HashMap::new(),
+            gh_user: None,
         }
     }
 
@@ -73,20 +91,11 @@ impl Runtime {
         if let Some(client) = self.client.take() {
             client.disconnect();
         }
-        self.last_project = None;
-        self.watched.clear();
-        self.watch_pending = false;
+        self.events.disconnect();
     }
 
     fn epoch_for(&self, owner: &str) -> u64 {
         self.epochs.get(owner).copied().unwrap_or(0)
-    }
-
-    fn log(&mut self, message: String) {
-        if self.logs.len() == 200 {
-            self.logs.pop_front();
-        }
-        self.logs.push_back(message);
     }
 }
 
@@ -103,7 +112,7 @@ struct Job {
 
 #[derive(Clone)]
 enum Reply {
-    Page(gpui::WeakEntity<Webview>, Request),
+    Page(gpui::WeakEntity<Webview>, PageRequest),
     Script(u64, std::sync::mpsc::SyncSender<String>),
 }
 
@@ -145,6 +154,8 @@ struct Call {
     verb: String,
     args: Value,
     reply: Reply,
+    /// Set once runtime consent has been granted for this call.
+    approved: bool,
 }
 
 impl AppModel {
@@ -191,7 +202,9 @@ impl AppModel {
             let (client, events) = match connected {
                 Ok(connected) => connected,
                 Err(error) => {
-                    let _ = model.update(cx, |model, _| model.extensions.log(error));
+                    let _ = model.update(cx, |model, _| {
+                        model.extension_log("", format!("[muxy] {error}"));
+                    });
                     return;
                 }
             };
@@ -202,7 +215,6 @@ impl AppModel {
                         return false;
                     }
                     model.extensions.client = Some(client.clone());
-                    model.extensions.last_project = None;
                     model.sync_extension_events(cx);
                     true
                 })
@@ -224,9 +236,10 @@ impl AppModel {
                             }
                             muxy_client::ClientEvent::Disconnected => {
                                 model.extensions.disconnect();
-                                model
-                                    .extensions
-                                    .log("extension server connection closed".into());
+                                model.extension_log(
+                                    "",
+                                    "[muxy] extension server connection closed".into(),
+                                );
                                 if model.connection == ConnectionState::Ready
                                     && model.quitting == super::Quitting::Idle
                                 {
@@ -262,10 +275,20 @@ impl AppModel {
         self.extensions.local_revision = snapshot.revision;
         self.extensions.registry = snapshot.registry;
         self.extensions.grants = snapshot.grants;
+        self.extensions.settings = snapshot.settings;
         self.invalidate_webview_shortcuts();
         self.register_extension_surfaces(cx);
+        self.load_extension_icons(cx);
+        self.sync_backgrounds(cx);
         self.sync_extension_events(cx);
+        self.close_hidden_popover(cx);
+        self.sync_preferences(cx);
         cx.notify();
+    }
+
+    /// Whether the installed extensions have been read from disk yet.
+    pub(crate) fn extensions_loaded(&self) -> bool {
+        self.extensions.local_revision > 0
     }
 
     fn change_extensions(
@@ -372,17 +395,30 @@ impl AppModel {
                 self.overlay = None;
             }
         }
+        self.stop_backgrounds(Some(owner));
         self.extensions
             .scripts
             .retain(|_, running| running.owner != owner);
-        self.extensions.pending.retain(|call| {
-            if call.owner == owner {
-                call.reply.send(Err("extension disabled".into()), cx);
-                false
+        self.extensions
+            .shortcuts
+            .retain(|shortcut| shortcut.owner != owner);
+        self.extensions.items.clear(Some(owner));
+        if self
+            .extensions
+            .sheet
+            .as_ref()
+            .is_some_and(|sheet| sheet.owner == owner)
+        {
+            self.extensions.sheet = None;
+        }
+        let waiting = std::mem::take(&mut self.extensions.waiting);
+        for waiting in waiting {
+            if waiting.owner() == owner {
+                waiting.fail("extension disabled", cx);
             } else {
-                true
+                self.extensions.waiting.push_back(waiting);
             }
-        });
+        }
         self.prune_extension_jobs(cx);
         self.remove_owner_surfaces(Some(owner), cx);
     }
@@ -415,6 +451,28 @@ impl AppModel {
     ) -> gpui::Task<Result<(), String>> {
         let owner = owner.to_owned();
         self.change_extensions(move |state| state.registry.set_enabled(&owner, enabled), cx)
+    }
+
+    /// Stores (or with `None`, clears) the user's value for a declared setting.
+    pub(crate) fn set_extension_setting(
+        &mut self,
+        owner: &str,
+        key: &str,
+        value: Option<Value>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<Result<(), String>> {
+        let (owner, key) = (owner.to_owned(), key.to_owned());
+        self.change_extensions(
+            move |state| {
+                let extension = state
+                    .registry
+                    .extensions
+                    .get(&owner)
+                    .ok_or("extension is not installed")?;
+                state.settings.set(extension, &key, value).map(|_| ())
+            },
+            cx,
+        )
     }
 
     pub(crate) fn reset_extension_permissions(
@@ -455,19 +513,27 @@ impl AppModel {
         )
     }
 
+    /// Reloading stops everything extensions started, including background
+    /// scripts and their runtime shortcuts and item changes.
     pub(super) fn stop_extensions(&mut self, cx: &mut Context<Self>) {
         self.stop_extension_tasks(cx);
+        self.stop_backgrounds(None);
+        self.extensions.shortcuts.clear();
+        self.extensions.items.clear(None);
+        self.invalidate_webview_shortcuts();
         self.remove_extension_surfaces(cx);
     }
 
+    /// Cancels in-flight work, as when the server connection ends. Background
+    /// scripts keep running, as open pages do.
     pub(super) fn stop_extension_tasks(&mut self, cx: &mut Context<Self>) {
         self.extensions.epoch = self.extensions.epoch.wrapping_add(1);
         for owner in self.extensions.registry.extensions.keys() {
             *self.extensions.epochs.entry(owner.clone()).or_default() += 1;
         }
-        self.extensions.dialog = None;
-        for call in self.extensions.pending.drain(..) {
-            call.reply.send(Err("extension runtime stopped".into()), cx);
+        self.extensions.sheet = None;
+        for waiting in self.extensions.waiting.drain(..).collect::<Vec<_>>() {
+            waiting.fail("extension runtime stopped", cx);
         }
         let jobs: Vec<_> = self.extensions.jobs.drain().map(|(_, job)| job).collect();
         for job in jobs {
@@ -492,7 +558,15 @@ impl AppModel {
                 .detach();
             }
         }
-        self.extensions.scripts.clear();
+        let backgrounds: HashSet<u64> = self
+            .extensions
+            .backgrounds
+            .values()
+            .map(|background| background.script)
+            .collect();
+        self.extensions
+            .scripts
+            .retain(|id, _| backgrounds.contains(id));
         self.extensions.cancelled_jobs.clear();
         if self.extensions.native_modal.take().is_some()
             && matches!(
@@ -504,7 +578,23 @@ impl AppModel {
         }
     }
 
-    pub(super) fn authorize_page(&self, owner: &str, verb: &str) -> Result<(), String> {
+    /// Appends to an extension's log; an empty owner is the runtime's own log.
+    pub(super) fn extension_log(&mut self, owner: &str, line: String) {
+        let root = self
+            .extensions
+            .registry
+            .extensions
+            .get(owner)
+            .map(|extension| extension.directory.clone());
+        self.extensions.logs.append(owner, root.as_deref(), line);
+    }
+
+    pub(super) fn authorize_page(
+        &self,
+        owner: &str,
+        verb: &str,
+        args: &Value,
+    ) -> Result<(), String> {
         if owner == "foundation" && cfg!(debug_assertions) {
             return Ok(());
         }
@@ -513,7 +603,7 @@ impl AppModel {
             .registry
             .enabled(owner)
             .ok_or("extension is disabled or unloaded")?;
-        if let Some(permission) = required_permission(verb)
+        if let Some(permission) = required_permission(verb, args)
             && !extension.allows(permission)
         {
             return Err(format!("permission denied ({permission})"));
@@ -521,10 +611,38 @@ impl AppModel {
         Ok(())
     }
 
+    /// Every live extension webview: tabs, panels, the modal, the popover, and the sidebar.
+    pub(super) fn extension_views(&self) -> Vec<&Entity<Webview>> {
+        self.webviews
+            .panes
+            .values()
+            .map(|surface| &surface.view)
+            .chain(
+                self.webviews
+                    .panels
+                    .values()
+                    .map(|panel| &panel.surface.view),
+            )
+            .chain(self.webviews.modal.iter().map(|modal| &modal.surface.view))
+            .chain(
+                self.webviews
+                    .popover
+                    .iter()
+                    .map(|popover| &popover.surface.view),
+            )
+            .chain(
+                self.webviews
+                    .sidebar
+                    .iter()
+                    .map(|sidebar| &sidebar.surface.view),
+            )
+            .collect()
+    }
+
     pub(super) fn extension_page_request(
         &mut self,
         view: &Entity<Webview>,
-        request: &Request,
+        request: &PageRequest,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -541,6 +659,7 @@ impl AppModel {
                     verb: request.body["verb"].as_str().unwrap_or("").into(),
                     args,
                     reply: Reply::Page(view.downgrade(), request.clone()),
+                    approved: false,
                 },
                 window,
                 cx,
@@ -564,20 +683,20 @@ impl AppModel {
             .map_or_else(|| self.state.current_project().id, |project| project.id)
     }
 
+    /// The project a call acts on: the `project` selector (a project's active
+    /// worktree, like main) or the caller's default.
     fn extension_project(&self, args: &Value, default: ProjectId) -> Result<ProjectId, String> {
         let Some(identifier) = args["project"].as_str().filter(|id| !id.is_empty()) else {
             return Ok(default);
         };
-        self.state
-            .projects()
-            .iter()
-            .find(|project| {
-                project.id.to_string() == identifier
-                    || project.name == identifier
-                    || project.directory.to_str() == Some(identifier)
-            })
-            .map(|project| project.id)
-            .ok_or_else(|| "project was not found".into())
+        let project = self
+            .find_project(identifier)
+            .ok_or_else(|| format!("project not found {identifier}"))?;
+        Ok(if project.parent_id.is_some() {
+            project.id
+        } else {
+            self.preferred_worktree(project.id)
+        })
     }
 
     fn call_live(&self, call: &Call, cx: &gpui::App) -> bool {
@@ -592,173 +711,76 @@ impl AppModel {
             }
     }
 
+    /// Checks main does before prompting, so users are never asked about calls
+    /// that would fail anyway.
+    fn consent_request(&self, call: &Call) -> Result<Option<Request>, String> {
+        match call.verb.as_str() {
+            "exec" | "exec.start" => {
+                calls::exec_request(call, 0)?;
+            }
+            "panes.send" | "panes.sendKeys" | "panes.readScreen" => {
+                Self::check_pane_request(&call.args)?;
+            }
+            "tabs.open" => self.check_tab_request(&call.args)?,
+            "projects.delete" => {
+                let project = self
+                    .find_project(call.args["identifier"].as_str().unwrap_or(""))
+                    .ok_or_else(|| {
+                        format!(
+                            "project not found {}",
+                            call.args["identifier"].as_str().unwrap_or("")
+                        )
+                    })?;
+                if project.home {
+                    return Err("the home project cannot be deleted".into());
+                }
+                return Ok(Some(Request::project_delete(
+                    &project.name,
+                    &project.directory.display().to_string(),
+                )));
+            }
+            "projects.create" => {
+                let path = workspace::standardized(call.args["path"].as_str().unwrap_or(""));
+                return Ok((call.args["createIfMissing"].as_bool() == Some(true)
+                    && !path.exists())
+                .then(|| Request::file("mkdir", &path.display().to_string())));
+            }
+            _ => (),
+        }
+        let location = self
+            .state
+            .project(call.project)
+            .map(|project| project.directory.display().to_string())
+            .unwrap_or_default();
+        Ok(Request::for_call(
+            &call.owner,
+            &call.verb,
+            &call.args,
+            &location,
+        ))
+    }
+
     fn extension_call(&mut self, call: Call, window: &mut Window, cx: &mut Context<Self>) {
         if !self.call_live(&call, cx) {
             call.reply.send(Err("extension call expired".into()), cx);
             return;
         }
-        if let Err(error) = self.authorize_page(&call.owner, &call.verb) {
+        if let Err(error) = self.authorize_page(&call.owner, &call.verb, &call.args) {
             call.reply.send(Err(error), cx);
             return;
         }
-        if let Some(key) = Grants::key(&call.owner, &call.verb, &call.args) {
-            let decision = self
-                .extensions
-                .grants
-                .as_ref()
-                .map_or(Consent::Deny, |grants| grants.decision(&key));
-            match decision {
-                Consent::Deny => {
-                    call.reply.send(Err("operation denied".into()), cx);
-                    return;
-                }
-                Consent::Ask => {
-                    if self.extensions.pending.len() >= 64 {
-                        call.reply
-                            .send(Err("too many permission requests".into()), cx);
-                        return;
-                    }
-                    self.extensions.pending.push_back(call);
-                    self.next_extension_consent(window, cx);
-                    return;
-                }
-                Consent::Allow => (),
-            }
-        }
-        self.dispatch_extension(call, window, cx);
-    }
-
-    fn next_extension_consent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.extensions.dialog.is_some() {
-            return;
-        }
-        let Some(call) = self.extensions.pending.pop_front() else {
-            return;
-        };
-        if !self.call_live(&call, cx) {
-            call.reply.send(Err("extension call expired".into()), cx);
-            self.next_extension_consent(window, cx);
-            return;
-        }
-        if call.verb.starts_with("dialog.") {
+        if call.approved {
             self.dispatch_extension(call, window, cx);
             return;
         }
-        let key = Grants::key(&call.owner, &call.verb, &call.args).unwrap_or_default();
-        match self
-            .extensions
-            .grants
-            .as_ref()
-            .map_or(Consent::Deny, |grants| grants.decision(&key))
-        {
-            Consent::Allow => {
-                self.dispatch_extension(call, window, cx);
-                self.next_extension_consent(window, cx);
-                return;
-            }
-            Consent::Deny => {
-                call.reply.send(Err("operation denied".into()), cx);
-                self.next_extension_consent(window, cx);
-                return;
-            }
-            Consent::Ask => (),
+        if call.verb == "http.fetch" {
+            self.check_http(call, cx);
+            return;
         }
-        let project = self
-            .state
-            .project(call.project)
-            .map(|project| project.directory.display().to_string())
-            .unwrap_or_default();
-        let detail = if call.verb.starts_with("exec") {
-            call.args["shell"]
-                .as_str()
-                .map_or_else(|| call.args["argv"].to_string(), str::to_owned)
-        } else {
-            call.args.to_string()
-        };
-        let (sender, receiver) = async_channel::bounded(1);
-        let prompt = muxy_ui::dialog::confirm(
-            window,
-            &format!("Allow {} to {}?", call.owner, call.verb),
-            &format!(
-                "Project: {project}\n\n{}",
-                detail.chars().take(3000).collect::<String>()
-            ),
-            "Allow",
-            Some("Remember this permission"),
-            move |response| {
-                let _ = sender.try_send(response);
-            },
-        );
-        match prompt {
-            Ok(prompt) => self.extensions.dialog = Some(prompt),
-            Err(error) => {
-                call.reply.send(Err(error.to_string()), cx);
-                self.next_extension_consent(window, cx);
-                return;
-            }
+        match self.consent_request(&call) {
+            Ok(Some(request)) => self.gate(call, request, window, cx),
+            Ok(None) => self.dispatch_extension(call, window, cx),
+            Err(error) => call.reply.send(Err(error), cx),
         }
-        self.complete_extension_consent(call, key, receiver, cx);
-    }
-
-    fn complete_extension_consent(
-        &mut self,
-        call: Call,
-        key: String,
-        receiver: async_channel::Receiver<muxy_ui::dialog::ConfirmationResponse>,
-        cx: &mut Context<Self>,
-    ) {
-        let handle = self.window;
-        let local = self.extensions.local.clone();
-        cx.spawn(async move |model, cx| {
-            let response = receiver.recv().await.unwrap_or_default();
-            let live = model
-                .update(cx, |model, cx| model.call_live(&call, cx))
-                .unwrap_or(false);
-            let remembered = if live
-                && matches!(
-                    response,
-                    muxy_ui::dialog::ConfirmationResponse::Confirmed {
-                        dont_ask_again: true
-                    }
-                ) {
-                local
-                    .submit(move |state| {
-                        state
-                            .grants
-                            .as_mut()
-                            .map_err(|error| error.clone())?
-                            .remember(&key, Consent::Allow)?;
-                        Ok(Some(state.snapshot()))
-                    })
-                    .await
-            } else {
-                Ok(None)
-            };
-            let _ = handle.update(cx, |_, window, cx| {
-                let _ = model.update(cx, |model, cx| {
-                    model.extensions.dialog = None;
-                    match remembered {
-                        Ok(snapshot) => {
-                            if let Some(snapshot) = snapshot {
-                                model.receive_extension_snapshot(snapshot, cx);
-                            }
-                            if model.call_live(&call, cx)
-                                && matches!(
-                                    response,
-                                    muxy_ui::dialog::ConfirmationResponse::Confirmed { .. }
-                                )
-                            {
-                                model.dispatch_extension(call, window, cx);
-                            } else {
-                                call.reply.send(Err("operation denied".into()), cx);
-                            }
-                        }
-                        Err(error) => call.reply.send(Err(error), cx),
-                    }
-                    model.next_extension_consent(window, cx);
-                });
-            });
-        })
-        .detach();
     }
 }

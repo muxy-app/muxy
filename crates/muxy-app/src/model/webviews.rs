@@ -1,5 +1,7 @@
 mod panels;
+mod popover;
 mod results;
+mod sidebar;
 
 use std::collections::HashMap;
 
@@ -48,6 +50,13 @@ impl Drop for Modal {
 
 type Occlusion = (Option<gpui::EntityId>, gpui::Bounds<gpui::Pixels>);
 
+struct Target {
+    pane: Option<PaneId>,
+    panel: Option<muxy_ui::panel::PanelId>,
+    modal: bool,
+    popover: bool,
+}
+
 #[derive(Default)]
 pub(crate) struct Webviews {
     registered: HashMap<(String, String), Registered>,
@@ -55,6 +64,10 @@ pub(crate) struct Webviews {
     pub modal: Option<Modal>,
     pub panels: std::collections::BTreeMap<muxy_ui::panel::PanelId, panels::Panel>,
     registered_panels: HashMap<(String, String), panels::Definition>,
+    pub popover: Option<popover::Popover>,
+    pub sidebar: Option<sidebar::SidebarSurface>,
+    /// The sidebar page that failed to load, so it is not retried every frame.
+    sidebar_failure: Option<(String, String)>,
     pub occlusions: std::rc::Rc<std::cell::RefCell<Vec<Occlusion>>>,
     results: results::Results,
     sequence: u64,
@@ -67,9 +80,15 @@ impl AppModel {
     pub(crate) fn sync_webviews(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.initialize_webview_demo(cx);
         self.sync_extension_events(cx);
-        if !matches!(self.overlay, Some(Overlay::Webview)) && self.webviews.modal.is_some() {
-            self.webviews.modal = None;
+        if !matches!(self.overlay, Some(Overlay::Webview))
+            && let Some(modal) = self.webviews.modal.take()
+        {
+            self.modal_event("modal.closed", &modal, cx);
         }
+        if !matches!(self.overlay, Some(Overlay::Popover)) {
+            self.close_extension_popover(cx);
+        }
+        self.sync_extension_sidebar(window, cx);
         let descriptors = self.ensure_webview_panes(window, cx);
         self.prune_extension_jobs(cx);
         self.prune_webview_results(cx);
@@ -135,6 +154,7 @@ impl AppModel {
             });
         }
         self.sync_webview_panels(blocked, resizing, window, cx);
+        self.sync_extension_surfaces(&shortcuts, blocked, resizing, window, cx);
         if let Some(modal) = &self.webviews.modal {
             modal
                 .surface
@@ -149,6 +169,45 @@ impl AppModel {
                     self.close_prompt.is_some(),
                     window.is_window_active() && view.focus.is_focused(window),
                     f64::from(f32::from(self.metrics.radius_xl())),
+                    cx,
+                );
+            });
+        }
+    }
+
+    /// Presents the extension sidebar and the open popover.
+    fn sync_extension_surfaces(
+        &self,
+        shortcuts: &[gpui::Keystroke],
+        blocked: bool,
+        resizing: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(sidebar) = &self.webviews.sidebar {
+            let visible = self.extension_sidebar_active() && self.sidebar_width() > 0.0;
+            sidebar.surface.view.update(cx, |view, cx| {
+                view.native.set_shortcuts(false, shortcuts.to_vec());
+                view.native.set_mouse_passthrough(resizing);
+                view.refresh_theme(&self.theme, self.metrics, cx);
+                view.present(
+                    visible,
+                    blocked,
+                    window.is_window_active() && view.focus.is_focused(window),
+                    0.0,
+                    cx,
+                );
+            });
+        }
+        if let Some(popover) = &self.webviews.popover {
+            popover.surface.view.update(cx, |view, cx| {
+                view.native.set_shortcuts(true, shortcuts.to_vec());
+                view.refresh_theme(&self.theme, self.metrics, cx);
+                view.present(
+                    true,
+                    self.close_prompt.is_some(),
+                    window.is_window_active() && view.focus.is_focused(window),
+                    f64::from(f32::from(self.metrics.radius_lg())),
                     cx,
                 );
             });
@@ -224,6 +283,18 @@ impl AppModel {
                     .map(|panel| &panel.surface.view),
             )
             .chain(self.webviews.modal.iter().map(|modal| &modal.surface.view))
+            .chain(
+                self.webviews
+                    .popover
+                    .iter()
+                    .map(|popover| &popover.surface.view),
+            )
+            .chain(
+                self.webviews
+                    .sidebar
+                    .iter()
+                    .map(|sidebar| &sidebar.surface.view),
+            )
             .map(|view| (view.entity_id(), view.read(cx).native.generation()));
         self.webviews.results.retain(live_documents);
     }
@@ -295,6 +366,9 @@ impl AppModel {
                     SurfaceEvent::Escape if view.read(cx).kind == SurfaceKind::Modal => {
                         model.dismiss_webview_modal(cx);
                     }
+                    SurfaceEvent::Escape if view.read(cx).kind == SurfaceKind::Popover => {
+                        model.close_extension_popover(cx);
+                    }
                     SurfaceEvent::Escape => {}
                     SurfaceEvent::Shortcut(key) => {
                         dispatch_shortcut(key.clone(), window, cx);
@@ -356,6 +430,7 @@ impl AppModel {
         if let Err(error) = self.authorize_page(
             &view.read(cx).source.owner,
             request.body["verb"].as_str().unwrap_or(""),
+            &request.body["args"],
         ) {
             view.read(cx).reply(request, Err(error));
             return;
@@ -375,27 +450,14 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Option<Result<Value, String>> {
         let args = &request.body["args"];
-        let pane = self
-            .webviews
-            .panes
-            .iter()
-            .find_map(|(id, surface)| (surface.view == *view).then_some(*id));
-        let is_modal = self
-            .webviews
-            .modal
-            .as_ref()
-            .is_some_and(|modal| modal.surface.view == *view);
-        let panel = self
-            .webviews
-            .panels
-            .iter()
-            .find_map(|(id, panel)| (panel.surface.view == *view).then_some(id.clone()));
-        if pane.is_none() && !is_modal && panel.is_none() {
+        let Some(target) = self.webview_target(view) else {
             return Some(Err("surface is no longer registered".into()));
-        }
+        };
+        let (pane, panel) = (target.pane, target.panel);
+        let (is_modal, is_popover) = (target.modal, target.popover);
         let result = match request.body["verb"].as_str().unwrap_or("") {
             "surface.focus" => {
-                self.focus_webview(view, pane, is_modal, window, cx);
+                self.focus_webview(view, pane, is_modal || is_popover, window, cx);
                 Ok(Value::Null)
             }
             "tabs.setTitle" | "tabs.setIcon" => {
@@ -451,6 +513,8 @@ impl AppModel {
                 view.read(cx).reply(request, Ok(Value::Null));
                 if is_modal {
                     self.complete_webview_modal(Value::Null, cx);
+                } else if is_popover {
+                    self.close_extension_popover(cx);
                 } else if let Some(panel) = panel {
                     self.remove_webview_panel(&panel, cx);
                 } else if let Some(pane) = pane {
@@ -471,15 +535,52 @@ impl AppModel {
         Some(result)
     }
 
+    /// Where a live webview is shown, or `None` once it has been removed.
+    fn webview_target(&self, view: &Entity<Webview>) -> Option<Target> {
+        let target = Target {
+            pane: self
+                .webviews
+                .panes
+                .iter()
+                .find_map(|(id, surface)| (surface.view == *view).then_some(*id)),
+            panel: self
+                .webviews
+                .panels
+                .iter()
+                .find_map(|(id, panel)| (panel.surface.view == *view).then_some(id.clone())),
+            modal: self
+                .webviews
+                .modal
+                .as_ref()
+                .is_some_and(|modal| modal.surface.view == *view),
+            popover: self
+                .webviews
+                .popover
+                .as_ref()
+                .is_some_and(|popover| popover.surface.view == *view),
+        };
+        let sidebar = self
+            .webviews
+            .sidebar
+            .as_ref()
+            .is_some_and(|sidebar| sidebar.surface.view == *view);
+        (target.pane.is_some()
+            || target.panel.is_some()
+            || target.modal
+            || target.popover
+            || sidebar)
+            .then_some(target)
+    }
+
     fn focus_webview(
         &mut self,
         view: &Entity<Webview>,
         pane: Option<PaneId>,
-        is_modal: bool,
+        in_overlay: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if (self.overlay.is_some() && !is_modal)
+        if (self.overlay.is_some() && !in_overlay)
             || self.close_prompt.is_some()
             || pane.is_some_and(|pane| !self.visible_panes().contains(&pane))
             || (view.read(cx).kind == SurfaceKind::Panel
@@ -494,7 +595,7 @@ impl AppModel {
         }
         view.read(cx).focus.focus(window);
         self.focus_requested = false;
-        if !is_modal {
+        if !in_overlay {
             let outside: Vec<_> = self
                 .webviews
                 .panels
@@ -570,24 +671,49 @@ impl AppModel {
             opener.read(cx).native.generation(),
         )?;
         surface.view.read(cx).focus.focus(window);
-        self.webviews.modal = Some(Modal {
-            id: id.clone(),
-            surface,
-            options,
-            completion,
-            result: ModalResult::default(),
-            closing: false,
-            opener: Some(opener.downgrade()),
-        });
+        self.show_webview_modal(
+            Modal {
+                id: id.clone(),
+                surface,
+                options,
+                completion,
+                result: ModalResult::default(),
+                closing: false,
+                opener: Some(opener.downgrade()),
+            },
+            cx,
+        );
+        Ok(id)
+    }
+
+    /// Shows a modal, replacing (and resolving with `null`) any open one.
+    fn show_webview_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
+        if let Some(previous) = self.webviews.modal.take() {
+            self.modal_event("modal.closed", &previous, cx);
+        }
+        self.modal_event("modal.opened", &modal, cx);
+        self.webviews.modal = Some(modal);
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Webview);
         cx.notify();
-        Ok(id)
+    }
+
+    fn modal_event(&self, event: &str, modal: &Modal, cx: &gpui::App) {
+        self.emit_extension_event(
+            None,
+            event,
+            &json!({
+                "extensionID": modal.surface.view.read(cx).source.owner,
+                "modalID": modal.id,
+            }),
+            cx,
+        );
     }
 
     pub(crate) fn complete_webview_modal(&mut self, value: Value, cx: &mut Context<Self>) {
         if let Some(mut modal) = self.webviews.modal.take() {
             self.webviews.restore_focus.clone_from(&modal.opener);
+            self.modal_event("modal.closed", &modal, cx);
             if let Some(result) = modal.result.complete(value) {
                 let _ = modal.completion.try_send(result);
             }
@@ -710,6 +836,12 @@ impl AppModel {
                     .values()
                     .map(|panel| &panel.surface.view),
             )
+            .chain(
+                self.webviews
+                    .sidebar
+                    .iter()
+                    .map(|sidebar| &sidebar.surface.view),
+            )
         {
             view.read(cx).native.blur();
         }
@@ -746,6 +878,12 @@ impl AppModel {
                     .panels
                     .values()
                     .map(|panel| &panel.surface.view),
+            )
+            .chain(
+                self.webviews
+                    .sidebar
+                    .iter()
+                    .map(|sidebar| &sidebar.surface.view),
             )
             .map(|view| (view.entity_id(), view.read(cx).native.clone()))
             .collect();
@@ -924,7 +1062,8 @@ fn occlusions_for(id: gpui::EntityId, occlusions: &[Occlusion]) -> Vec<gpui::Bou
 impl AppModel {
     pub(super) fn register_extension_surfaces(&mut self, cx: &mut Context<Self>) {
         self.bind_extension_keys(cx);
-        for extension in self.extensions.registry.active() {
+        let extensions: Vec<_> = self.extensions.registry.active().cloned().collect();
+        for extension in &extensions {
             for surface in &extension.manifest.tab_types {
                 self.webviews.registered.insert(
                     (extension.name.clone(), surface.id.clone()),
@@ -939,27 +1078,7 @@ impl AppModel {
                 );
             }
             for panel in &extension.manifest.panels {
-                self.webviews.registered_panels.insert(
-                    (extension.name.clone(), panel.surface.id.clone()),
-                    panels::Definition {
-                        source: Source {
-                            owner: extension.name.clone(),
-                            directory: extension.directory.clone(),
-                            entry: panel.surface.entry.clone(),
-                        },
-                        title: panel.surface.title.clone(),
-                        position: if panel.position == "bottom" {
-                            muxy_ui::panel::PanelPosition::Bottom
-                        } else {
-                            muxy_ui::panel::PanelPosition::Right
-                        },
-                        mode: if panel.mode == "floating" {
-                            muxy_ui::panel::PanelMode::Floating
-                        } else {
-                            muxy_ui::panel::PanelMode::Pinned
-                        },
-                    },
-                );
+                self.register_extension_panel(extension, panel);
             }
         }
         cx.notify();
@@ -1000,6 +1119,23 @@ impl AppModel {
         {
             self.complete_webview_modal(Value::Null, cx);
         }
+        if self
+            .webviews
+            .popover
+            .as_ref()
+            .is_some_and(|popover| !keep(&popover.owner))
+        {
+            self.close_extension_popover(cx);
+        }
+        if self
+            .webviews
+            .sidebar
+            .as_ref()
+            .is_some_and(|sidebar| !keep(&sidebar.owner))
+        {
+            self.webviews.sidebar = None;
+            self.webviews.sidebar_failure = None;
+        }
         if owner.is_none() && matches!(self.overlay, Some(Overlay::Native(_))) {
             self.overlay = None;
         }
@@ -1012,9 +1148,6 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(String, async_channel::Receiver<Value>), String> {
-        if self.webviews.modal.is_some() {
-            return Err("a webview modal is already open".into());
-        }
         let entry = args["entry"].as_str().ok_or("entry is required")?;
         self.webviews.sequence += 1;
         let id = format!("webview:{}:{}", extension.name, self.webviews.sequence);
@@ -1039,18 +1172,18 @@ impl AppModel {
         )?;
         let (completion, result) = async_channel::bounded(1);
         surface.view.read(cx).focus.focus(window);
-        self.webviews.modal = Some(Modal {
-            id: id.clone(),
-            surface,
-            options,
-            result: ModalResult::default(),
-            completion,
-            closing: false,
-            opener: None,
-        });
-        self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Webview);
-        cx.notify();
+        self.show_webview_modal(
+            Modal {
+                id: id.clone(),
+                surface,
+                options,
+                result: ModalResult::default(),
+                completion,
+                closing: false,
+                opener: None,
+            },
+            cx,
+        );
         Ok((id, result))
     }
 }

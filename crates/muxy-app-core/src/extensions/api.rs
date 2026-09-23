@@ -172,7 +172,7 @@ pub fn git_action(verb: &str, args: &Value) -> Result<GitAction, String> {
                 "all" => GitPullRequestFilter::All,
                 _ => return Err("invalid pull request filter".into()),
             },
-            limit: number(args, "limit", 30)?,
+            limit: number(args, "limit", 100)?,
             checks: args["checks"].as_bool().unwrap_or(true),
         }),
         "git.pr.create" => GitAction::PullRequest(GitPullRequestAction::Create {
@@ -183,7 +183,7 @@ pub fn git_action(verb: &str, args: &Value) -> Result<GitAction, String> {
         }),
         "git.pr.merge" => GitAction::PullRequest(GitPullRequestAction::Merge {
             number: number64("number")?,
-            method: match args["method"].as_str().unwrap_or("squash") {
+            method: match args["method"].as_str().unwrap_or("merge") {
                 "merge" => GitMergeMethod::Merge,
                 "squash" => GitMergeMethod::Squash,
                 "rebase" => GitMergeMethod::Rebase,

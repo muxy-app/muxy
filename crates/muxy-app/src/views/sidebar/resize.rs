@@ -76,6 +76,9 @@ pub(in crate::views) fn handle(model: &AppModel, cx: &mut Context<AppModel>) -> 
                 .when(active, |line| line.bg(model.theme.accent))
                 .group_hover("sidebar-resize", |line| line.bg(model.theme.accent)),
         )
+        .when(model.webviews.sidebar.is_some(), |handle| {
+            handle.child(model.webview_occlusion())
+        })
         .child(
             canvas(
                 |_, _, _| (),

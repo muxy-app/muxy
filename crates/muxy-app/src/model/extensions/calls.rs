@@ -1,10 +1,12 @@
 use gpui::{Context, Window};
-use muxy_app_core::extensions::api;
-use muxy_app_core::{PaneContent, webview::WebviewDescriptor};
+use muxy_app_core::PaneContent;
+use muxy_app_core::extensions::{api, event_permission};
 use muxy_protocol::{ExecRequest, FilesRequest, GitRequest, ServerPath};
 use serde_json::{Value, json};
 
-use super::{AppModel, Call, Reply, envelope};
+use super::{AppModel, Call, Reply, envelope, events::strings};
+
+const GH_USER_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 impl AppModel {
     #[allow(
@@ -19,161 +21,101 @@ impl AppModel {
     ) {
         let result = match call.verb.as_str() {
             "script.finished" => {
-                if let Reply::Script(id, _) = &call.reply {
+                if let Reply::Script(id, _) = &call.reply
+                    && !self.is_background(*id)
+                {
                     self.extensions.scripts.remove(id);
                 }
                 Ok(Value::Null)
             }
             "console" => {
-                self.extensions.log(format!(
-                    "{}: {}",
-                    call.owner,
-                    call.args["message"].as_str().unwrap_or("")
-                ));
-                Ok(Value::Null)
-            }
-            "events.subscribe" => {
-                if self
-                    .extensions
-                    .registry
-                    .enabled(&call.owner)
-                    .is_some_and(|extension| {
-                        extension.allows_event(call.args["event"].as_str().unwrap_or(""))
-                    })
-                {
-                    Ok(Value::Null)
-                } else {
-                    Err("event is not declared in the manifest".into())
+                self.console(&call);
+                call.reply.send(Ok(Value::Null), cx);
+                if self.settings_window.is_some() {
+                    cx.notify();
                 }
+                return;
             }
+            "events.subscribe" => self.subscribe_event(&call),
+            "events.unsubscribe" => Ok(Value::Null),
             "events.emit" => {
-                let name = call.args["event"].as_str().unwrap_or("");
-                if name.starts_with("extension.") && name.len() > 10 && name.len() <= 200 {
-                    self.emit_extension_event(
-                        Some(&call.owner),
-                        name,
-                        call.args["payload"].clone(),
-                        cx,
-                    );
-                    Ok(Value::Null)
-                } else {
-                    Err("extension events must start with extension.".into())
-                }
+                let background = matches!(&call.reply, Reply::Script(id, _)
+                    if self.extensions.backgrounds.get(&call.owner)
+                        .is_some_and(|background| background.script == *id));
+                self.emit_local_event(
+                    &call.owner,
+                    background,
+                    call.args["event"].as_str().unwrap_or(""),
+                    &call.args["payload"],
+                    cx,
+                )
+                .map(|()| Value::Null)
             }
             verb if verb.starts_with("storage.") => {
-                let operation = call.clone();
-                let task = self.extensions.local.submit(move |state| {
-                    let extension = state
-                        .registry
-                        .enabled(&operation.owner)
-                        .ok_or("extension disabled")?;
-                    state
-                        .storage
-                        .call(extension, &operation.verb, &operation.args)
-                });
-                cx.spawn(async move |model, cx| {
-                    let result = task.await;
-                    let _ = model.update(cx, |model, cx| {
-                        if model.call_live(&call, cx) {
-                            call.reply.send(result, cx);
-                        } else {
-                            call.reply.send(Err("extension call expired".into()), cx);
-                        }
-                    });
-                })
-                .detach();
+                self.extension_storage(call, cx);
                 return;
             }
-            "tabs.list" => Ok(Value::Array(self.extension_tabs())),
-            "tabs.switch" => {
-                let id = call.args["identifier"].as_str().unwrap_or("");
-                let tab = self
-                    .state
-                    .projects()
-                    .iter()
-                    .flat_map(|project| &project.tabs)
-                    .find(|tab| {
-                        tab.id.to_string() == id
-                            || tab.panes.iter().any(|pane| pane.id.to_string() == id)
-                    })
-                    .map(|tab| tab.id);
-                match tab {
-                    Some(tab) => {
-                        self.select_tab(tab, cx);
+            verb if verb.starts_with("tabs.") => self.tabs_call(&call, cx),
+            verb if verb.starts_with("panes.") => self.panes_call(&call, cx),
+            "projects.create" => {
+                self.create_extension_project(call, cx);
+                return;
+            }
+            "projects.delete" => {
+                let project = self
+                    .find_project(call.args["identifier"].as_str().unwrap_or(""))
+                    .map(|project| project.id);
+                match project {
+                    Some(project) => {
+                        self.remove_project_confirmed(project, cx);
                         Ok(Value::Null)
                     }
-                    None => Err("tab was not found".into()),
+                    None => Err("project not found".into()),
                 }
             }
-            "tabs.open" => self.extension_open_tab(&call.owner, &call.args, cx),
-            "panels.open" | "panels.toggle" | "panels.close" => {
-                self.panel_operation(&call.owner, &call.verb, &call.args, window, cx)
+            verb if verb.starts_with("projects.") || verb.starts_with("workspaces.") => {
+                self.projects_call(&call, cx)
             }
-            "modal.open" | "modal.feed" | "modal.finish" => self.script_modal(&call, window, cx),
-            "modal.openWebview" => self.script_webview_modal(&call, window, cx),
-            "modal.closeWebview" => {
-                if self
-                    .webviews
-                    .modal
-                    .as_ref()
-                    .is_some_and(|modal| modal.surface.view.read(cx).source.owner == call.owner)
-                {
-                    self.dismiss_webview_modal(cx);
-                }
-                Ok(Value::Null)
-            }
-            "dialog.confirm" | "dialog.alert" | "dialog.prompt" => {
-                self.extension_dialog(call, window, cx);
-                return;
-            }
-            "toast" | "notifications.notify" => {
-                self.show_toast(
-                    call.args["title"]
-                        .as_str()
-                        .unwrap_or(&call.owner)
-                        .to_owned(),
-                    call.args["body"]
-                        .as_str()
-                        .or(call.args["message"].as_str())
-                        .map(str::to_owned),
-                    cx,
-                );
-                if let Some(notifications) = &self.notifications {
-                    self.extensions.next += 1;
-                    notifications.deliver(
-                        &format!("extension:{}:{}", call.owner, self.extensions.next),
-                        call.args["title"].as_str().unwrap_or(&call.owner),
-                        call.args["body"]
-                            .as_str()
-                            .or(call.args["message"].as_str())
-                            .unwrap_or(""),
-                    );
-                }
-                self.extensions.log(format!(
-                    "{}: {} {}",
-                    call.owner,
-                    call.args["title"].as_str().unwrap_or(""),
-                    call.args["body"]
-                        .as_str()
-                        .or(call.args["message"].as_str())
-                        .unwrap_or("")
-                ));
-                Ok(Value::Null)
-            }
-            "worktrees.list" => {
-                let root = self
-                    .state
-                    .projects()
-                    .iter()
-                    .find(|p| p.id == call.project)
-                    .map(|p| p.parent_id.unwrap_or(p.id));
-                Ok(json!(self.state.projects().iter().filter(|p| Some(p.id) == root || p.parent_id == root).map(|p| json!({"id":p.id.to_string(),"name":p.name,"path":p.directory.to_str(),"branch":self.git.projects.get(&p.id).and_then(|r|r.summary.as_ref()).and_then(|s|s.branch.as_ref()),"isActive":p.id == self.state.current_project().id})).collect::<Vec<_>>()))
-            }
-            "worktrees.switch" | "git.worktree.switch" => {
+            "worktrees.list" => Ok(self.worktree_list(call.project)),
+            "worktrees.switch" | "git.worktree.switch" | "worktrees.refresh" => {
                 self.extension_server_call(call, cx);
                 return;
             }
-
+            "agents.list" => Ok(Value::Array(self.agent_statuses().into_values().collect())),
+            "gh.user" => {
+                self.gh_user(call, cx);
+                return;
+            }
+            "panels.open" | "panels.toggle" | "panels.close" => {
+                self.panel_operation(&call.owner, &call.verb, &call.args, window, cx)
+            }
+            "popover.close" => {
+                self.request_close_popover(&call.owner, cx);
+                Ok(Value::Null)
+            }
+            "popover.resize" => self.resize_popover(&call.owner, &call.args, cx),
+            "topbar.set" | "statusbar.set" => self.set_item(&call, cx),
+            verb if verb.starts_with("shortcuts.") => self.shortcuts_call(&call, cx),
+            "modal.open" | "modal.feed" | "modal.finish" | "modal.await" => {
+                match self.script_modal(&call, window, cx) {
+                    Some(result) => result,
+                    None => return,
+                }
+            }
+            "modal.openWebview" => self.script_webview_modal(&call, window, cx),
+            "modal.closeWebview" => {
+                self.dismiss_webview_modal(cx);
+                Ok(Value::Null)
+            }
+            verb if verb.starts_with("dialog.") => {
+                self.extension_dialog(call, window, cx);
+                return;
+            }
+            "toast" | "notifications.notify" => self.extension_notify(&call, cx),
+            "http.fetch" => {
+                Self::http_fetch(call, cx);
+                return;
+            }
             "exec.cancel" => {
                 let id = call.args["id"].as_str().unwrap_or("");
                 if let Some(job) = self
@@ -188,27 +130,23 @@ impl AppModel {
                             let _ = client.cancel_exec_async(job).await;
                         })
                         .detach();
-                    Ok(json!(true))
-                } else {
-                    if self.extensions.cancelled_jobs.len() < 128 {
-                        self.extensions
-                            .cancelled_jobs
-                            .insert((call.reply.key(), id.into()));
-                    }
-                    Ok(json!(true))
+                } else if self.extensions.cancelled_jobs.len() < 128 {
+                    self.extensions
+                        .cancelled_jobs
+                        .insert((call.reply.key(), id.into()));
                 }
+                Ok(json!(true))
             }
             "exec" | "exec.start" => {
                 self.extension_exec(call, cx);
                 return;
             }
-            verb if verb.starts_with("git.")
-                || verb.starts_with("files.")
-                || verb == "worktrees.refresh" =>
-            {
+            verb if verb.starts_with("git.") || verb.starts_with("files.") => {
                 self.extension_server_call(call, cx);
                 return;
             }
+            "browser.list" => Ok(json!([])),
+            verb if verb.starts_with("browser.") => Err("the built-in browser is disabled".into()),
             _ => Err(format!("unsupported extension API: {}", call.verb)),
         };
         call.reply.send(result, cx);
@@ -216,30 +154,316 @@ impl AppModel {
         cx.notify();
     }
 
-    pub(super) fn extension_tabs(&self) -> Vec<Value> {
-        self.state.current_project().tabs.iter().enumerate().map(|(index, tab)| json!({"index":index+1,"id":tab.id.to_string(),"kind":if tab.panes.iter().any(|p| matches!(p.content, PaneContent::Webview(_))) {"extensionWebView"} else {"terminal"},"title":tab.title(self.active_pane()),"isActive":Some(tab.id)==self.active_tab()})).collect()
+    /// Log lines from `console.*`: one per script call, or a batch from a page.
+    fn console(&mut self, call: &Call) {
+        let single = [call.args.clone()];
+        let lines = call.args["lines"]
+            .as_array()
+            .map_or(&single[..], Vec::as_slice);
+        for line in lines {
+            let level = match line["level"].as_str() {
+                Some("warn") => "warn",
+                Some("err" | "error") => "err",
+                _ => "log",
+            };
+            let message = line["message"].as_str().unwrap_or("");
+            self.extension_log(&call.owner, format!("[{level}] {message}"));
+        }
     }
 
-    pub(super) fn extension_open_tab(
-        &mut self,
-        owner: &str,
-        args: &Value,
-        cx: &mut Context<Self>,
-    ) -> Result<Value, String> {
-        let target = &args["extension"];
-        if args["kind"] != "extensionWebView" || target["id"].as_str() != Some(owner) {
-            return Err("extension can only open its own registered tab types".into());
+    fn subscribe_event(&self, call: &Call) -> Result<Value, String> {
+        let event = call.args["event"]
+            .as_str()
+            .ok_or("missing argument 'event'")?;
+        let extension = self
+            .extensions
+            .registry
+            .enabled(&call.owner)
+            .ok_or_else(|| format!("extension {} not loaded", call.owner))?;
+        if event.starts_with("extension.") {
+            return if muxy_app_core::extensions::local_event(event) {
+                Ok(json!(event))
+            } else {
+                Err("extension events must start with extension.".into())
+            };
         }
-        let id = self.open_webview_tab(
-            WebviewDescriptor {
-                owner: owner.into(),
-                kind: api::text(target, "tabType")?.into(),
-                data: target["data"].clone(),
-            },
-            target["singleton"].as_bool().unwrap_or(false),
-            cx,
-        )?;
-        Ok(json!(self.pane_tab(id).map(|tab| tab.to_string())))
+        let declared = extension.manifest.events.contains(event)
+            || event
+                .strip_prefix("command.")
+                .is_some_and(|id| extension.manifest.command(id).is_some())
+            || self.runtime_command_event(&call.owner, event);
+        if !declared {
+            return Err(format!("event {event} not declared in manifest"));
+        }
+        if let Some(permission) = event_permission(event)
+            && !extension.allows(permission)
+        {
+            return Err(format!("permission denied ({permission})"));
+        }
+        Ok(json!(event))
+    }
+
+    fn extension_storage(&mut self, call: Call, cx: &mut Context<Self>) {
+        let operation = call.clone();
+        let task = self.extensions.local.submit(move |state| {
+            let extension = state
+                .registry
+                .enabled(&operation.owner)
+                .ok_or("extension disabled")?;
+            state
+                .storage
+                .call(extension, &operation.verb, &operation.args)
+        });
+        cx.spawn(async move |model, cx| {
+            let result = task.await;
+            let _ = model.update(cx, |model, cx| {
+                if model.call_live(&call, cx) {
+                    call.reply.send(result, cx);
+                } else {
+                    call.reply.send(Err("extension call expired".into()), cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn extension_notify(&mut self, call: &Call, cx: &mut Context<Self>) -> Result<Value, String> {
+        let title = call.args["title"].as_str().unwrap_or("").to_owned();
+        let body = call.args["body"]
+            .as_str()
+            .or(call.args["message"].as_str())
+            .unwrap_or("")
+            .to_owned();
+        if title.trim().is_empty() && body.trim().is_empty() {
+            return Err("notification requires title or body".into());
+        }
+        self.show_toast(title.clone(), Some(body.clone()), cx);
+        if let Some(notifications) = &self.notifications {
+            self.extensions.next += 1;
+            notifications.deliver(
+                &format!("extension:{}:{}", call.owner, self.extensions.next),
+                if title.is_empty() {
+                    &call.owner
+                } else {
+                    &title
+                },
+                &body,
+            );
+        }
+        let requested = call.args["paneID"].as_str();
+        let target = self.state.projects().iter().find_map(|project| {
+            project.tabs.iter().find_map(|tab| {
+                tab.panes
+                    .iter()
+                    .find(|pane| {
+                        requested.map_or_else(
+                            || {
+                                project.id == self.state.current_project().id
+                                    && matches!(pane.content, PaneContent::Terminal { .. })
+                            },
+                            |requested| pane.id.to_string() == requested,
+                        )
+                    })
+                    .map(|pane| (project, tab.id, pane.id))
+            })
+        });
+        let (project, tab, pane) = match target {
+            Some((project, tab, pane)) => (project, tab.to_string(), pane.to_string()),
+            None => (self.state.current_project(), String::new(), String::new()),
+        };
+        let payload = strings([
+            ("paneID", pane),
+            ("projectID", super::events::root_of(project).to_string()),
+            ("worktreeID", project.id.to_string()),
+            ("worktreePath", project.directory.display().to_string()),
+            ("tabID", tab),
+            ("source", call.owner.clone()),
+            ("title", title),
+            ("body", body),
+        ]);
+        self.emit_extension_event(None, "notification.posted", &payload, cx);
+        Ok(Value::Null)
+    }
+
+    fn server_exec(
+        &mut self,
+        request: ExecRequest,
+        cx: &mut Context<Self>,
+    ) -> Result<gpui::Task<Result<muxy_protocol::ExecResult, String>>, String> {
+        let client = self
+            .extensions
+            .client
+            .clone()
+            .ok_or("server is disconnected")?;
+        Ok(cx.background_executor().spawn(async move {
+            client
+                .exec_async(request)
+                .await
+                .map_err(|error| error.to_string())
+        }))
+    }
+
+    /// `gh.user`: the signed-in GitHub CLI account, cached for five minutes.
+    fn gh_user(&mut self, call: Call, cx: &mut Context<Self>) {
+        if let Some((fetched, user)) = &self.extensions.gh_user
+            && fetched.elapsed() < GH_USER_TTL
+        {
+            call.reply.send(Ok(user.clone()), cx);
+            return;
+        }
+        self.extensions.next += 1;
+        let home = self.state.home();
+        let request = ExecRequest {
+            job: self.extensions.next,
+            project: home.id,
+            argv: [
+                "gh",
+                "api",
+                "user",
+                "--jq",
+                "{login: .login, name: .name, avatarUrl: .avatar_url}",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            shell: None,
+            cwd: home
+                .directory
+                .to_str()
+                .map(|path| ServerPath(path.as_bytes().into())),
+            env: std::collections::BTreeMap::new(),
+            stdin: Vec::new(),
+            timeout_ms: 30_000,
+        };
+        let task = match self.server_exec(request, cx) {
+            Ok(task) => task,
+            Err(error) => {
+                call.reply.send(Err(error), cx);
+                return;
+            }
+        };
+        cx.spawn(async move |model, cx| {
+            let missing = "GitHub CLI (gh) is not installed. Install it from cli.github.com.";
+            let user = match task.await {
+                Ok(result) if result.exit_code == 0 => {
+                    serde_json::from_str::<Value>(&result.stdout)
+                        .ok()
+                        .filter(|user| user["login"].is_string())
+                        .map(|user| {
+                            json!({
+                                "login": user["login"],
+                                "name": user["name"].as_str().unwrap_or(""),
+                                "avatarUrl": user["avatarUrl"].as_str().unwrap_or(""),
+                            })
+                        })
+                        .ok_or_else(|| "Failed to parse GitHub user info.".to_owned())
+                }
+                Ok(result) if result.exit_code == 127 => Err(missing.into()),
+                Ok(result) => Err(if result.stderr.trim().is_empty() {
+                    result.stdout.trim().to_owned()
+                } else {
+                    result.stderr.trim().to_owned()
+                }),
+                Err(error) if error.contains("No such file") => Err(missing.into()),
+                Err(error) => Err(error),
+            };
+            let _ = model.update(cx, |model, cx| {
+                if let Ok(user) = &user {
+                    model.extensions.gh_user = Some((std::time::Instant::now(), user.clone()));
+                }
+                call.reply.send(user, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// `projects.create`: optionally creates the folder on the server first.
+    fn create_extension_project(&mut self, call: Call, cx: &mut Context<Self>) {
+        if let Some(workspace) = call.args["workspace"]
+            .as_str()
+            .filter(|w| !w.trim().is_empty())
+        {
+            call.reply.send(
+                Err(format!("workspace not found '{}'", workspace.trim())),
+                cx,
+            );
+            return;
+        }
+        let directory = super::workspace::standardized(call.args["path"].as_str().unwrap_or(""));
+        let finish = move |model: &mut Self, call: Call, cx: &mut Context<Self>| {
+            let path = call.args["path"].as_str().unwrap_or("").to_owned();
+            let result = model.add_extension_project(&path, cx).and_then(|id| {
+                if let Some(name) = call.args["name"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty())
+                {
+                    let name = name.to_owned();
+                    if !model.edit_project(|state| state.rename_project(id, &name), cx) {
+                        return Err("could not save project changes".into());
+                    }
+                }
+                let project = model
+                    .state
+                    .project(id)
+                    .ok_or("project not found after creation")?;
+                Ok(json!({
+                    "id": id.to_string(),
+                    "name": project.name,
+                    "path": project.directory.display().to_string(),
+                }))
+            });
+            call.reply.send(result, cx);
+        };
+        if directory.is_dir() {
+            finish(self, call, cx);
+            return;
+        }
+        if directory.exists() {
+            call.reply.send(Err("path is not a directory".into()), cx);
+            return;
+        }
+        if call.args["createIfMissing"].as_bool() != Some(true) {
+            call.reply.send(
+                Err("path does not exist, use --create to create it".into()),
+                cx,
+            );
+            return;
+        }
+        self.extensions.next += 1;
+        let request = ExecRequest {
+            job: self.extensions.next,
+            project: self.state.home().id,
+            argv: vec![
+                "/bin/mkdir".into(),
+                "-p".into(),
+                directory.display().to_string(),
+            ],
+            shell: None,
+            cwd: None,
+            env: std::collections::BTreeMap::new(),
+            stdin: Vec::new(),
+            timeout_ms: 30_000,
+        };
+        let task = match self.server_exec(request, cx) {
+            Ok(task) => task,
+            Err(error) => {
+                call.reply.send(Err(error), cx);
+                return;
+            }
+        };
+        cx.spawn(async move |model, cx| {
+            let created = task.await;
+            let _ = model.update(cx, |model, cx| match created {
+                Ok(result) if result.exit_code == 0 && model.call_live(&call, cx) => {
+                    finish(model, call, cx);
+                }
+                Ok(_) => call
+                    .reply
+                    .send(Err("could not create directory".into()), cx),
+                Err(error) => call.reply.send(Err(error), cx),
+            });
+        })
+        .detach();
     }
 
     fn extension_server_call(&mut self, call: Call, cx: &mut Context<Self>) {
@@ -313,8 +537,7 @@ impl AppModel {
         };
         self.extensions.next += 1;
         let job = self.extensions.next;
-        let request = exec_request(&call, job);
-        let request = match request {
+        let request = match exec_request(&call, job) {
             Ok(request) => request,
             Err(error) => {
                 call.reply.send(Err(error), cx);
@@ -331,9 +554,21 @@ impl AppModel {
             call.reply.send(Err("cancelled".into()), cx);
             return;
         }
-        if self.extensions.jobs.len() >= 32 || self.extensions.jobs.contains_key(&key) {
-            call.reply
-                .send(Err("too many command jobs or duplicate job ID".into()), cx);
+        let running = self
+            .extensions
+            .jobs
+            .values()
+            .filter(|job| job.call.owner == call.owner)
+            .count();
+        if running >= 32 {
+            call.reply.send(
+                Err("exec: too many concurrent commands (limit 32)".into()),
+                cx,
+            );
+            return;
+        }
+        if self.extensions.jobs.contains_key(&key) {
+            call.reply.send(Err("duplicate command job ID".into()), cx);
             return;
         }
         self.extensions.jobs.insert(
@@ -346,13 +581,6 @@ impl AppModel {
         if call.verb == "exec.start" {
             call.reply.send(Ok(json!(id)), cx);
         }
-        self.extensions.log(format!(
-            "{}: executing {}",
-            call.owner,
-            call.args["argv"]
-                .as_array()
-                .map_or("shell", |a| a.first().and_then(Value::as_str).unwrap_or(""))
-        ));
         let trace = crate::diagnostics::Span::new(
             "extension.exec",
             format_args!("owner={} project={:?} job={job}", call.owner, call.project),
@@ -385,78 +613,6 @@ impl AppModel {
                 } else {
                     call.reply.send(result, cx);
                 }
-            });
-        })
-        .detach();
-    }
-
-    fn extension_dialog(&mut self, call: Call, window: &mut Window, cx: &mut Context<Self>) {
-        if self.extensions.dialog.is_some() {
-            if self.extensions.pending.len() >= 64 {
-                call.reply
-                    .send(Err("too many pending extension dialogs".into()), cx);
-            } else {
-                self.extensions.pending.push_back(call);
-            }
-            return;
-        }
-        let prompt = call.verb == "dialog.prompt";
-        let alert = call.verb == "dialog.alert";
-        let text =
-            |field: &str, default: &str| call.args[field].as_str().unwrap_or(default).to_owned();
-        let buttons = if prompt {
-            vec![text("confirm", "OK"), text("cancel", "Cancel")]
-        } else if alert {
-            vec!["OK".into()]
-        } else {
-            call.args["buttons"]
-                .as_array()
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .take(8)
-                        .map(str::to_owned)
-                        .collect()
-                })
-                .filter(|values: &Vec<String>| !values.is_empty())
-                .unwrap_or_else(|| vec!["OK".into(), "Cancel".into()])
-        };
-        let options = muxy_ui::dialog::DialogOptions {
-            title: text("title", &call.owner),
-            message: text("message", ""),
-            buttons,
-            default_button: (!prompt)
-                .then(|| call.args["default"].as_str().map(str::to_owned))
-                .flatten(),
-            cancel_button: Some(text("cancel", "Cancel")),
-            input: prompt.then(|| (text("default", ""), text("placeholder", ""))),
-            style: text("style", "informational"),
-        };
-        let (sender, receiver) = async_channel::bounded(1);
-        match muxy_ui::dialog::present(window, options, move |value| {
-            let _ = sender.try_send(value);
-        }) {
-            Ok(dialog) => self.extensions.dialog = Some(dialog),
-            Err(error) => {
-                call.reply.send(Err(error.to_string()), cx);
-                return;
-            }
-        }
-        let handle = self.window;
-        cx.spawn(async move |model, cx| {
-            let value = receiver.recv().await.ok().flatten();
-            let _ = handle.update(cx, |_, window, cx| {
-                let _ = model.update(cx, |model, cx| {
-                    model.extensions.dialog = None;
-                    if model.call_live(&call, cx) {
-                        call.reply
-                            .send(Ok(if alert { Value::Null } else { json!(value) }), cx);
-                    } else {
-                        call.reply.send(Err("extension call expired".into()), cx);
-                    }
-                    model.next_extension_consent(window, cx);
-                });
             });
         })
         .detach();
@@ -523,38 +679,48 @@ impl AppModel {
     }
 }
 
-fn exec_request(call: &Call, job: u64) -> Result<ExecRequest, String> {
-    let args = &call.args;
-    let arguments = if let Some(values) = args["argv"].as_array() {
-        values
-            .iter()
-            .map(|v| {
-                v.as_str()
-                    .map(str::to_owned)
-                    .ok_or_else(|| "argv must contain strings".into())
-            })
-            .collect::<Result<Vec<_>, String>>()?
-    } else {
-        Vec::new()
-    };
-    let timeout = args["timeoutMs"]
+pub(super) fn exec_request(call: &Call, job: u64) -> Result<ExecRequest, String> {
+    let options = &call.args;
+    let argv = options["argv"].as_array();
+    let shell = options["shell"].as_str();
+    match (argv, shell) {
+        (None, None) => return Err("exec: exec requires argv or shell".into()),
+        (Some(_), Some(_)) => {
+            return Err("exec: exec accepts either argv or shell, not both".into());
+        }
+        (Some(argv), None) if argv.is_empty() => {
+            return Err("exec: exec argv must be non-empty".into());
+        }
+        _ => (),
+    }
+    let arguments = argv
+        .into_iter()
+        .flatten()
+        .map(|v| {
+            v.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "argv must contain strings".to_owned())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let timeout = options["timeoutMs"]
         .as_u64()
         .unwrap_or(30_000)
         .clamp(1, 300_000);
     let mut request = ExecRequest {
         job,
-        env: if args["env"].is_null() {
-            std::collections::BTreeMap::new()
-        } else {
-            serde_json::from_value(args["env"].clone()).map_err(|error| error.to_string())?
-        },
+        env: options["env"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
+            .collect(),
         project: call.project,
         argv: arguments,
-        shell: args["shell"].as_str().map(str::to_owned),
-        cwd: args["cwd"]
+        shell: shell.map(str::to_owned),
+        cwd: options["cwd"]
             .as_str()
             .map(|p| ServerPath(p.as_bytes().into())),
-        stdin: args["stdin"].as_str().unwrap_or("").as_bytes().into(),
+        stdin: options["stdin"].as_str().unwrap_or("").as_bytes().into(),
         timeout_ms: u32::try_from(timeout).map_err(|e| e.to_string())?,
     };
     request

@@ -67,3 +67,45 @@ fn dimension(value: f64) -> Option<u32> {
         None
     }
 }
+
+/// Rasterizes an SVG into an alpha mask that fits a `point_size` square, so
+/// template icons tint like SF Symbols.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Validated AppKit dimensions are converted to GPUI f32 coordinates."
+)]
+pub(super) fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32) -> Option<Mask> {
+    use objc2::AnyThread;
+    let _main_thread = MainThreadMarker::new()?;
+    if !point_size.is_finite()
+        || point_size <= 0.0
+        || point_size > 256.0
+        || !scale.is_finite()
+        || !(0.5..=8.0).contains(&scale)
+    {
+        return None;
+    }
+    autoreleasepool(|_| {
+        let data = objc2_foundation::NSData::with_bytes(bytes);
+        let image = NSImage::initWithData(NSImage::alloc(), &data)?;
+        let natural = image.size();
+        if natural.width <= 0.0 || natural.height <= 0.0 {
+            return None;
+        }
+        let fit = f64::from(point_size) / natural.width.max(natural.height);
+        let (logical_width, logical_height) = (natural.width * fit, natural.height * fit);
+        let width = dimension(logical_width * f64::from(scale))?;
+        let height = dimension(logical_height * f64::from(scale))?;
+        let alpha = bitmap::render_rgba(&image, width, height)?
+            .chunks_exact(4)
+            .map(|pixel| pixel[3])
+            .collect();
+        Some(Mask {
+            width,
+            height,
+            logical_width: logical_width as f32,
+            logical_height: logical_height as f32,
+            alpha,
+        })
+    })
+}

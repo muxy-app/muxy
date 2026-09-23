@@ -1,14 +1,12 @@
 use gpui::{AppContext, Context, Focusable, Window};
-use muxy_app_core::{
-    PaneContent,
-    modal::{ModalItem, ModalOptions, ModalToken},
-};
-use muxy_protocol::{FilesAction, FilesRequest, ProjectId};
+use muxy_app_core::extensions::{Action, Extension};
+use muxy_app_core::modal::{ModalItem, ModalOptions, ModalToken};
+use muxy_protocol::ProjectId;
 use muxy_ui::javascript::{Event, Script};
 use serde_json::{Value, json};
 use std::io::Read;
 
-use super::{AppModel, Call, Reply};
+use super::{AppModel, Call, Reply, events::strings};
 use crate::views::{native_modal::NativeModal, overlays::Overlay};
 
 pub(super) struct Running {
@@ -16,11 +14,41 @@ pub(super) struct Running {
     pub script: Script,
 }
 
+/// The native picker an extension opened; one at a time app-wide.
 pub(super) struct Picker {
     pub owner: String,
-    script: u64,
+    id: String,
+    opener: Reply,
     view: gpui::WeakEntity<NativeModal>,
     token: ModalToken,
+    result: Option<Value>,
+    waiter: Option<Reply>,
+}
+
+/// Wraps script source in the runtime that provides `muxy`, `console`, and timers.
+pub(super) fn runtime(owner: &str, surface: &str, source: &str) -> String {
+    format!(
+        "{}({}, {}, {});\n{}",
+        include_str!("../../extensions/script.js"),
+        json!(owner),
+        include_str!("../../extensions/bridge.js"),
+        json!({"surface": surface, "persistent": surface == "background"}),
+        source
+    )
+}
+
+pub(super) fn read_source(extension: &Extension, path: &str) -> Result<String, String> {
+    let path = extension.resource(path)?;
+    let mut source = String::new();
+    std::fs::File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(8 * 1024 * 1024 + 1)
+        .read_to_string(&mut source)
+        .map_err(|error| error.to_string())?;
+    if source.len() > 8 * 1024 * 1024 {
+        return Err("extension script is too large".into());
+    }
+    Ok(source)
 }
 
 impl AppModel {
@@ -34,32 +62,74 @@ impl AppModel {
         let Some(extension) = self.extensions.registry.enabled(owner).cloned() else {
             return;
         };
-        let Some(command) = extension
-            .manifest
-            .commands
-            .iter()
-            .find(|command| command.id == id)
-        else {
+        let Some(command) = extension.manifest.command(id) else {
+            if self.runtime_command_event(owner, &format!("command.{id}")) {
+                self.emit_extension_event(
+                    Some(owner),
+                    &format!("command.{id}"),
+                    &strings([("extension", owner.to_owned()), ("command", id.to_owned())]),
+                    cx,
+                );
+            }
             return;
         };
-        let result = if let Some(action) = &command.action {
-            match action["kind"].as_str().unwrap_or("") {
-                "togglePanel" | "openPanel" => {
-                    if let Err(error)=self.authorize_page(owner,"panels.open"){Err(error)} else {
-                        self.panel_operation(owner,if action["kind"]=="togglePanel" {"panels.toggle"}else{"panels.open"}, &json!({"panelID":action["panel"],"data":action["data"]}),window,cx).map(|_|())
-                    }
-                }
-                "openTab" => self.authorize_page(owner,"tabs.open").and_then(|()| self.extension_open_tab(owner,&json!({"kind":"extensionWebView","extension":{"id":owner,"tabType":action["tabType"],"data":action["data"],"singleton":action["singleton"]}}),cx).map(|_|())),
-                "openModal" => self.authorize_page(owner,"modal.openWebview").and_then(|()| self.open_extension_modal(&extension,action,window,cx).map(|_|())),
-                "runScript" => self.authorize_page(owner,"runScript").and_then(|()| self.start_extension_script(&extension,action["script"].as_str().unwrap_or(""),cx)),
-                _=>Err("unsupported command action".into()),
+        if let Some(permission) = command.action.permission()
+            && !extension.allows(permission)
+        {
+            self.extension_log(
+                owner,
+                format!("[muxy] command {id} blocked: missing {permission} permission"),
+            );
+            return;
+        }
+        let result = match &command.action {
+            Action::Event => {
+                self.emit_extension_event(
+                    Some(owner),
+                    &format!("command.{id}"),
+                    &strings([("extension", owner.to_owned()), ("command", id.to_owned())]),
+                    cx,
+                );
+                Ok(())
             }
-        } else {
-            self.emit_extension_event(Some(owner), &format!("command.{id}"), Value::Null, cx);
-            Ok(())
+            Action::TogglePanel { panel, toggle } => self
+                .panel_operation(
+                    owner,
+                    if *toggle {
+                        "panels.toggle"
+                    } else {
+                        "panels.open"
+                    },
+                    &json!({ "panelID": panel }),
+                    window,
+                    cx,
+                )
+                .map(|_| ()),
+            Action::OpenTab { tab_type, data } => self
+                .extension_open_tab(
+                    &json!({"kind":"extensionWebView","extension":{"id":owner,"tabType":tab_type,"data":data}}),
+                    cx,
+                )
+                .map(|_| ()),
+            Action::OpenModal {
+                entry,
+                width,
+                height,
+                dismiss_on_outside_click,
+                data,
+            } => self
+                .open_extension_modal(
+                    &extension,
+                    &json!({"entry":entry,"width":width,"height":height,"dismissOnOutsideClick":dismiss_on_outside_click,"data":data}),
+                    window,
+                    cx,
+                )
+                .map(|_| ()),
+            Action::RunScript { script } => self.start_extension_script(&extension, script, cx),
+            Action::OpenPopover { .. } => Ok(()),
         };
         if let Err(error) = result {
-            self.extensions.log(format!("{owner}: {error}"));
+            self.extension_log(owner, format!("[muxy] command {id} failed: {error}"));
             self.fail(error, cx);
         }
         self.sync_extension_events(cx);
@@ -68,7 +138,7 @@ impl AppModel {
 
     fn start_extension_script(
         &mut self,
-        extension: &muxy_app_core::extensions::Extension,
+        extension: &Extension,
         path: &str,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
@@ -83,23 +153,7 @@ impl AppModel {
         let project = self.state.current_project().id;
         self.extensions.loading_scripts += 1;
         let task = crate::extensions::io::run(move || {
-            let path = extension.resource(&path)?;
-            let mut source = String::new();
-            std::fs::File::open(path)
-                .map_err(|error| error.to_string())?
-                .take(8 * 1024 * 1024 + 1)
-                .read_to_string(&mut source)
-                .map_err(|error| error.to_string())?;
-            if source.len() > 8 * 1024 * 1024 {
-                return Err("extension script is too large".into());
-            }
-            Ok(format!(
-                "{}({}, {});\n{}",
-                include_str!("../../extensions/script.js"),
-                json!(extension.name),
-                include_str!("../../extensions/bridge.js"),
-                source
-            ))
+            read_source(&extension, &path).map(|source| runtime(&extension.name, "script", &source))
         });
         cx.spawn(async move |model, cx| {
             let source = task.await;
@@ -113,9 +167,10 @@ impl AppModel {
                     return;
                 }
                 let result = source.and_then(|source| {
-                    model.start_loaded_extension_script(owner, project, source, cx)
+                    model.start_loaded_extension_script(owner.clone(), Some(project), source, cx)
                 });
                 if let Err(error) = result {
+                    model.extension_log(&owner, format!("[muxy] runScript failed: {error}"));
                     model.fail(error, cx);
                 }
             });
@@ -124,18 +179,18 @@ impl AppModel {
         Ok(())
     }
 
-    fn start_loaded_extension_script(
+    /// Runs prepared source on its own `JavaScriptCore` thread. `project` fixes
+    /// the default project for its calls; background scripts use the current one.
+    pub(super) fn start_loaded_extension_script(
         &mut self,
         owner: String,
-        project: ProjectId,
+        project: Option<ProjectId>,
         source: String,
         cx: &mut Context<Self>,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         let (script, events) = Script::start(source).map_err(|e| e.to_string())?;
         self.extensions.next += 1;
         let id = self.extensions.next;
-        let epoch = self.extensions.epoch_for(&owner);
-        let generation = self.generation;
         self.extensions.scripts.insert(
             id,
             Running {
@@ -148,42 +203,8 @@ impl AppModel {
             while let Ok(event) = events.recv().await {
                 if handle
                     .update(cx, |_, window, cx| {
-                        let _ = model.update(cx, |model, cx| match event {
-                            Event::Error(error) => {
-                                model.extensions.log(format!("{owner}: {error}"));
-                                model.fail(format!("{owner}: {error}"), cx);
-                            }
-                            Event::Call(request) => {
-                                match serde_json::from_str::<Value>(&request.request) {
-                                    Ok(body) => {
-                                        let reply = Reply::Script(id, request.reply);
-                                        match model.extension_project(&body["args"], project) {
-                                            Ok(project) => model.extension_call(
-                                                Call {
-                                                    owner: owner.clone(),
-                                                    epoch,
-                                                    generation,
-                                                    project,
-                                                    verb: body["verb"]
-                                                        .as_str()
-                                                        .unwrap_or("")
-                                                        .into(),
-                                                    args: body["args"].clone(),
-                                                    reply,
-                                                },
-                                                window,
-                                                cx,
-                                            ),
-                                            Err(error) => reply.send(Err(error), cx),
-                                        }
-                                    }
-                                    Err(error) => {
-                                        let _ = request.reply.try_send(
-                                            super::envelope(Err(error.to_string())).to_string(),
-                                        );
-                                    }
-                                }
-                            }
+                        let _ = model.update(cx, |model, cx| {
+                            model.script_event(id, &owner, project, event, window, cx);
                         });
                     })
                     .is_err()
@@ -193,7 +214,58 @@ impl AppModel {
             }
         })
         .detach();
-        Ok(())
+        Ok(id)
+    }
+
+    /// Handles one script event. A call belongs to the current epoch and
+    /// connection, so a background script keeps working after a reconnect;
+    /// removing a script from `scripts` is what stops its calls.
+    fn script_event(
+        &mut self,
+        id: u64,
+        owner: &str,
+        project: Option<ProjectId>,
+        event: Event,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            Event::Error(error) => {
+                self.extension_log(owner, format!("[err] {error}"));
+                if !self.is_background(id) {
+                    self.extension_log(owner, "[muxy] runScript failed".into());
+                    self.fail(format!("{owner}: {error}"), cx);
+                }
+            }
+            Event::Call(request) => match serde_json::from_str::<Value>(&request.request) {
+                Ok(body) => {
+                    let reply = Reply::Script(id, request.reply);
+                    let default = project.unwrap_or_else(|| self.state.current_project().id);
+                    match self.extension_project(&body["args"], default) {
+                        Ok(project) => self.extension_call(
+                            Call {
+                                owner: owner.into(),
+                                epoch: self.extensions.epoch_for(owner),
+                                generation: self.generation,
+                                project,
+                                verb: body["verb"].as_str().unwrap_or("").into(),
+                                args: body["args"].clone(),
+                                reply,
+                                approved: false,
+                            },
+                            window,
+                            cx,
+                        ),
+                        Err(error) => reply.send(Err(error), cx),
+                    }
+                }
+                Err(error) => {
+                    let _ = request
+                        .reply
+                        .try_send(super::envelope(Err(error.to_string())).to_string());
+                }
+            },
+        }
     }
 
     pub(super) fn extension_evaluate(&self, target: &Reply, source: &str, cx: &gpui::App) {
@@ -213,78 +285,185 @@ impl AppModel {
         }
     }
 
+    fn deliver_modal_result(&mut self, id: &str, value: Value, cx: &mut Context<Self>) {
+        let Some(picker) = self
+            .extensions
+            .native_modal
+            .as_mut()
+            .filter(|picker| picker.id == id)
+        else {
+            return;
+        };
+        match &picker.opener {
+            Reply::Script(..) => {
+                let opener = picker.opener.clone();
+                self.extension_evaluate(
+                    &opener,
+                    &format!(
+                        "globalThis.__muxiDeliverModalResult?.({}, {value});",
+                        json!(id)
+                    ),
+                    cx,
+                );
+            }
+            Reply::Page(..) => {
+                if let Some(waiter) = picker.waiter.take() {
+                    waiter.send(Ok(value), cx);
+                } else {
+                    picker.result = Some(value);
+                    return;
+                }
+            }
+        }
+        self.extensions.native_modal = None;
+    }
+
     pub(super) fn script_modal(
         &mut self,
         call: &Call,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Result<Value, String> {
-        let Reply::Script(script, _) = &call.reply else {
-            return Err("native picker requires a script context".into());
-        };
-        if call.verb == "modal.open" {
-            let value =
-                |key: &str, default: &str| call.args[key].as_str().unwrap_or(default).to_owned();
-            let options = ModalOptions {
-                placeholder: value("placeholder", "Search…"),
-                empty_label: value("emptyLabel", "No items"),
-                no_match_label: value("noMatchLabel", "No matches"),
-                search_toolbar: call.args["searchToolbar"].as_bool().unwrap_or(false),
-                dynamic: call.args["dynamic"].as_bool().unwrap_or(false),
-            };
-            let mut channels = None;
-            let view = cx.new(|cx| {
-                let (view, result, queries) =
-                    NativeModal::new(options, self.theme.clone(), self.metrics, cx);
-                channels = Some((result, queries));
-                view
-            });
-            let token = view.read(cx).token();
-            let id = format!("native:{}", token.id);
-            let (result, queries) = channels.ok_or("could not create picker")?;
-            self.extensions.native_modal = Some(Picker {
-                owner: call.owner.clone(),
-                script: *script,
-                view: view.downgrade(),
-                token,
-            });
-            view.focus_handle(cx).focus(window);
-            self.overlay_subscription = None;
-            self.overlay = Some(Overlay::Native(view.clone()));
-            let reply = call.reply.clone();
-            let request = id.clone();
-            let weak = view.downgrade();
-            cx.spawn(async move |model,cx|{
-                let selected=result.recv().await.ok().flatten();
-                let _=model.update(cx,|model,cx|{
-                    if matches!(&model.overlay,Some(Overlay::Native(view)) if view.entity_id()==weak.entity_id()){model.overlay=None;model.focus_requested=true;}
-                    let value=selected.map(|item|json!({"id":item.id,"title":item.title,"subtitle":item.subtitle}));
-                    model.extension_evaluate(&reply,&format!("globalThis.__muxiDeliverModalResult?.({}, {});",json!(request),json!(value)),cx);
-                    if model.extensions.native_modal.as_ref().is_some_and(|picker|picker.token.id==token.id){model.extensions.native_modal=None;}
-                    cx.notify();
-                });
-            }).detach();
-            let reply = call.reply.clone();
-            let request = id.clone();
-            cx.spawn(async move |model,cx|{
-                while let Ok(query)=queries.recv().await {
-                    let _=model.update(cx,|model,cx|{
-                        if let Some(picker)=model.extensions.native_modal.as_mut().filter(|picker|picker.token.id==query.token.id){picker.token=query.token;}
-                        model.extension_evaluate(&reply,&format!("globalThis.__muxyDeliverModalQuery?.({}, {}, {}, {});",json!(request),json!(query.token.revision.to_string()),json!(query.query),json!({"caseSensitive":query.options.case_sensitive,"wholeWord":query.options.whole_word,"regex":query.options.regex})),cx);
-                    });
+    ) -> Option<Result<Value, String>> {
+        match call.verb.as_str() {
+            "modal.open" => Some(self.open_picker(call, window, cx)),
+            "modal.await" => {
+                let id = call.args["requestID"].as_str().unwrap_or("");
+                if let Some(picker) = self
+                    .extensions
+                    .native_modal
+                    .as_mut()
+                    .filter(|picker| picker.id == id && picker.opener.key() == call.reply.key())
+                {
+                    if let Some(value) = picker.result.take() {
+                        self.extensions.native_modal = None;
+                        Some(Ok(value))
+                    } else {
+                        picker.waiter = Some(call.reply.clone());
+                        None
+                    }
+                } else {
+                    Some(Ok(Value::Null))
                 }
-            }).detach();
-            return Ok(json!({"requestID":id}));
+            }
+            _ => Some(self.feed_picker(call, cx)),
         }
+    }
+
+    fn open_picker(
+        &mut self,
+        call: &Call,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let value = |key: &str, default: &str| {
+            call.args[key]
+                .as_str()
+                .filter(|text| !text.is_empty())
+                .unwrap_or(default)
+                .chars()
+                .take(muxy_app_core::modal::MAX_FIELD_CHARACTERS)
+                .collect::<String>()
+        };
+        let options = ModalOptions {
+            placeholder: value("placeholder", "Search…"),
+            empty_label: value("emptyLabel", "No items"),
+            no_match_label: value("noMatchLabel", "No matches"),
+            search_toolbar: call.args["searchToolbar"].as_bool().unwrap_or(false),
+            dynamic: call.args["dynamic"].as_bool().unwrap_or(false),
+        };
+        if let Some(previous) = self
+            .extensions
+            .native_modal
+            .as_ref()
+            .map(|picker| picker.id.clone())
+        {
+            self.deliver_modal_result(&previous, Value::Null, cx);
+            self.extensions.native_modal = None;
+        }
+        let mut channels = None;
+        let view = cx.new(|cx| {
+            let (view, result, queries) =
+                NativeModal::new(options, self.theme.clone(), self.metrics, cx);
+            channels = Some((result, queries));
+            view
+        });
+        let token = view.read(cx).token();
+        self.extensions.next += 1;
+        let id = format!("{}:{}", call.owner, self.extensions.next);
+        let (result, queries) = channels.ok_or("could not create picker")?;
+        self.extensions.native_modal = Some(Picker {
+            owner: call.owner.clone(),
+            id: id.clone(),
+            opener: call.reply.clone(),
+            view: view.downgrade(),
+            token,
+            result: None,
+            waiter: None,
+        });
+        view.focus_handle(cx).focus(window);
+        self.overlay_subscription = None;
+        self.overlay = Some(Overlay::Native(view.clone()));
+        let request = id.clone();
+        let weak = view.downgrade();
+        cx.spawn(async move |model, cx| {
+            let selected = result.recv().await.ok().flatten();
+            let _ = model.update(cx, |model, cx| {
+                if matches!(&model.overlay, Some(Overlay::Native(view)) if view.entity_id() == weak.entity_id())
+                {
+                    model.overlay = None;
+                    model.focus_requested = true;
+                }
+                let value = selected.map_or(Value::Null, |item| {
+                    json!({"id": item.id, "title": item.title, "subtitle": item.subtitle})
+                });
+                model.deliver_modal_result(&request, value, cx);
+                cx.notify();
+            });
+        })
+        .detach();
+        let opener = call.reply.clone();
+        let request = id.clone();
+        cx.spawn(async move |model, cx| {
+            while let Ok(query) = queries.recv().await {
+                let _ = model.update(cx, |model, cx| {
+                    if let Some(picker) = model
+                        .extensions
+                        .native_modal
+                        .as_mut()
+                        .filter(|picker| picker.token.id == query.token.id)
+                    {
+                        picker.token = query.token;
+                    }
+                    model.extension_evaluate(
+                        &opener,
+                        &format!(
+                            "globalThis.__muxyDeliverModalQuery?.({}, {}, {}, {});",
+                            json!(request),
+                            json!(query.token.revision.to_string()),
+                            json!(query.query),
+                            json!({"caseSensitive":query.options.case_sensitive,"wholeWord":query.options.whole_word,"regex":query.options.regex})
+                        ),
+                        cx,
+                    );
+                });
+            }
+        })
+        .detach();
+        Ok(json!({"requestID": id}))
+    }
+
+    fn feed_picker(&mut self, call: &Call, cx: &mut Context<Self>) -> Result<Value, String> {
         let picker = self
             .extensions
             .native_modal
             .as_ref()
-            .filter(|picker| picker.script == *script)
+            .filter(|picker| picker.opener.key() == call.reply.key())
             .ok_or("picker is no longer open")?;
         let mut token = picker.token;
         if let Some(revision) = call.args["queryID"]
             .as_str()
+            .map(str::to_owned)
+            .or_else(|| call.args["queryID"].as_u64().map(|value| value.to_string()))
             .and_then(|value| value.parse::<u64>().ok())
         {
             token.revision = revision;
@@ -301,8 +480,8 @@ impl AppModel {
                         .take(muxy_app_core::modal::MAX_ITEMS)
                         .filter_map(|item| {
                             Some(ModalItem {
-                                id: item["id"].as_str()?.into(),
-                                title: item["title"].as_str()?.into(),
+                                id: item["id"].as_str().filter(|id| !id.is_empty())?.into(),
+                                title: item["title"].as_str().filter(|t| !t.is_empty())?.into(),
                                 subtitle: item["subtitle"].as_str().map(str::to_owned),
                             })
                         })
@@ -345,223 +524,5 @@ impl AppModel {
         })
         .detach();
         Ok(json!({"requestID":id}))
-    }
-
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "Events own their transient JSON payload"
-    )]
-    pub(in crate::model) fn emit_extension_event(
-        &self,
-        owner: Option<&str>,
-        event: &str,
-        payload: Value,
-        cx: &gpui::App,
-    ) {
-        let permitted = |name: &str| {
-            owner.is_none_or(|owner| name == owner)
-                && self
-                    .extensions
-                    .registry
-                    .enabled(name)
-                    .is_some_and(|extension| extension.allows_event(event))
-        };
-        let source = format!("globalThis.__muxyEvent?.({}, {});", json!(event), payload);
-        for view in self
-            .webviews
-            .panes
-            .values()
-            .map(|surface| &surface.view)
-            .chain(
-                self.webviews
-                    .panels
-                    .values()
-                    .map(|panel| &panel.surface.view),
-            )
-            .chain(self.webviews.modal.iter().map(|modal| &modal.surface.view))
-        {
-            if permitted(&view.read(cx).source.owner) {
-                view.read(cx).native.evaluate(&source);
-            }
-        }
-        for running in self.extensions.scripts.values() {
-            if permitted(&running.owner) {
-                running.script.evaluate(source.clone());
-            }
-        }
-    }
-
-    pub(in crate::model) fn sync_extension_events(&mut self, cx: &mut Context<Self>) {
-        let project = self.state.current_project();
-        if self.extensions.last_project != Some(project.id) {
-            crate::diagnostics::event(
-                "extension.project",
-                format_args!(
-                    "from={:?} to={:?}",
-                    self.extensions.last_project, project.id
-                ),
-            );
-            self.extensions.last_project = Some(project.id);
-            let payload = json!({"projectID":project.id.to_string(),"projectPath":project.directory.to_str(),"worktreeID":project.id.to_string(),"path":project.directory.to_str()});
-            self.emit_extension_event(None, "project.switched", payload.clone(), cx);
-            self.emit_extension_event(None, "worktree.switched", payload, cx);
-        }
-        self.sync_extension_file_watches(cx);
-        let mut tabs = std::collections::BTreeMap::new();
-        for project in self.state.projects() {
-            for tab in &project.tabs {
-                for pane in &tab.panes {
-                    if let PaneContent::Webview(descriptor) = &pane.content {
-                        let value = json!({"tabID":tab.id.to_string(),"tabInstanceID":pane.id.to_string(),"projectID":project.id.to_string(),"extensionID":descriptor.owner,"tabType":descriptor.kind,"data":descriptor.data,"title":pane.title});
-                        tabs.insert(pane.id.to_string(), value);
-                    }
-                }
-            }
-        }
-        for (id, value) in &tabs {
-            match self.extensions.last_tabs.get(id) {
-                None => self.emit_extension_event(None, "tab.created", value.clone(), cx),
-                Some(old) if old != value => {
-                    self.emit_extension_event(None, "tab.updated", value.clone(), cx);
-                }
-                _ => (),
-            }
-        }
-        for (id, value) in &self.extensions.last_tabs {
-            if !tabs.contains_key(id) {
-                self.emit_extension_event(None, "tab.closed", value.clone(), cx);
-            }
-        }
-        self.extensions.last_tabs = tabs;
-        let focused = self.active_pane().map(|id| id.to_string());
-        if self.extensions.last_focused != focused {
-            self.extensions.last_focused.clone_from(&focused);
-            if let Some(value) = focused
-                .as_ref()
-                .and_then(|id| self.extensions.last_tabs.get(id))
-            {
-                self.emit_extension_event(None, "tab.focused", value.clone(), cx);
-            }
-        }
-    }
-
-    fn sync_extension_file_watches(&mut self, cx: &mut Context<Self>) {
-        if self.extensions.watch_pending {
-            return;
-        }
-        let Some(client) = self.extensions.client.clone() else {
-            return;
-        };
-        let mut desired = std::collections::BTreeSet::new();
-        if self
-            .extensions
-            .registry
-            .active()
-            .any(|ext| ext.allows("files:read") && ext.allows_event("file.changed"))
-        {
-            desired.insert(self.state.current_project().id);
-            for project in self.state.projects() {
-                if desired.len() == 32 {
-                    break;
-                }
-                if project.tabs.iter().flat_map(|tab| &tab.panes).any(|pane| matches!(&pane.content, PaneContent::Webview(d) if self.extensions.registry.enabled(&d.owner).is_some_and(|ext| ext.allows_event("file.changed")))) {
-                    desired.insert(project.id);
-                }
-            }
-        }
-        if desired == self.extensions.watched {
-            return;
-        }
-        let removed: Vec<_> = self
-            .extensions
-            .watched
-            .difference(&desired)
-            .copied()
-            .collect();
-        let added: Vec<_> = desired
-            .difference(&self.extensions.watched)
-            .copied()
-            .collect();
-        self.extensions.watched = desired;
-        self.extensions.watch_pending = true;
-        let generation = self.generation;
-        let trace = crate::diagnostics::Span::new(
-            "extension.watch",
-            format_args!("generation={generation} added={added:?} removed={removed:?}"),
-        );
-        let task = cx.spawn(async move |_, _| {
-            trace.stage(format_args!("phase=started"));
-            let mut errors = Vec::new();
-            for (projects, action) in [(removed, FilesAction::Unwatch), (added, FilesAction::Watch)]
-            {
-                for project in projects {
-                    if let Err(error) = client
-                        .files_async(FilesRequest {
-                            project,
-                            action: action.clone(),
-                        })
-                        .await
-                    {
-                        errors.push(error.to_string());
-                    }
-                }
-            }
-            trace.stage(format_args!("phase=reply errors={}", errors.len()));
-            errors
-        });
-        cx.spawn(async move |model, cx| {
-            let errors = task.await;
-            let _ = model.update(cx, |model, cx| {
-                if generation != model.generation {
-                    return;
-                }
-                model.extensions.watch_pending = false;
-                for error in errors {
-                    model.extensions.log(format!("File watcher: {error}"));
-                }
-                model.sync_extension_file_watches(cx);
-            });
-        })
-        .detach();
-    }
-
-    pub(in crate::model) fn extension_files_changed(
-        &self,
-        project: ProjectId,
-        changes: muxy_protocol::FileChanges,
-        cx: &gpui::App,
-    ) {
-        let root = self
-            .state
-            .projects()
-            .iter()
-            .find(|p| p.id == project)
-            .and_then(|p| p.directory.to_str());
-        if changes.rescan
-            && let Some(project) = self.state.project(project)
-        {
-            for pane in project.tabs.iter().flat_map(|tab| &tab.panes) {
-                if let PaneContent::Webview(descriptor) = &pane.content
-                    && let Some(path) = descriptor.data["filePath"].as_str()
-                {
-                    self.emit_extension_event(
-                        None,
-                        "file.changed",
-                        json!({"path":path,"projectPath":root}),
-                        cx,
-                    );
-                }
-            }
-        }
-        for path in changes.paths {
-            if let Ok(path) = muxy_app_core::extensions::api::path_text(&path) {
-                self.emit_extension_event(
-                    None,
-                    "file.changed",
-                    json!({"path":path,"projectPath":root}),
-                    cx,
-                );
-            }
-        }
     }
 }

@@ -385,6 +385,75 @@ impl RenderOnce for SymbolGlyph {
     }
 }
 
+/// A template SVG tinted like an SF Symbol and fitted to a `size` square.
+/// `key` identifies the bytes for caching; unreadable SVGs fall back to `fallback`.
+#[derive(IntoElement)]
+pub struct TemplateGlyph {
+    key: SharedString,
+    bytes: std::sync::Arc<[u8]>,
+    size: Pixels,
+    color: Hsla,
+    fallback: SharedString,
+}
+
+impl std::fmt::Debug for TemplateGlyph {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TemplateGlyph")
+            .field("key", &self.key)
+            .field("size", &self.size)
+            .finish_non_exhaustive()
+    }
+}
+
+impl TemplateGlyph {
+    pub fn new(
+        key: impl Into<SharedString>,
+        bytes: std::sync::Arc<[u8]>,
+        size: Pixels,
+        color: Hsla,
+        fallback: impl Into<SharedString>,
+    ) -> Self {
+        Self {
+            key: key.into(),
+            bytes,
+            size,
+            color,
+            fallback: fallback.into(),
+        }
+    }
+}
+
+impl RenderOnce for TemplateGlyph {
+    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        #[cfg(target_os = "macos")]
+        if let Some(glyph) = crate::icon::tinted_svg(
+            &self.key,
+            &self.bytes,
+            self.size,
+            self.color,
+            window.scale_factor(),
+        ) {
+            return div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .size(self.size)
+                .child(gpui::img(glyph.image).w(glyph.width).h(glyph.height))
+                .into_any_element();
+        }
+        symbol_layer(
+            &self.fallback,
+            self.size,
+            self.color,
+            window.scale_factor(),
+            0.3,
+        )
+        .into_any_element()
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn symbol_layer(
     symbol: &SharedString,

@@ -100,6 +100,45 @@ pub fn tinted_symbol_weight(
     })
 }
 
+/// A template SVG tinted with `color`; `key` must change whenever the bytes do.
+pub fn tinted_svg(
+    key: &SharedString,
+    bytes: &[u8],
+    size: Pixels,
+    color: Hsla,
+    scale: f32,
+) -> Option<Glyph> {
+    let key = MaskKey {
+        symbol: key.clone(),
+        point_size: f32::from(size).to_bits(),
+        weight: u32::MAX,
+        scale: scale.to_bits(),
+    };
+    let tint = TintKey {
+        mask: key.clone(),
+        color: pack(color),
+    };
+    let mask = MASKS.with(|cache| {
+        cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| sfsymbol::rasterize_svg(bytes, f32::from(size), scale).map(Arc::new))
+            .clone()
+    })?;
+    let image = TINTED
+        .with(|cache| cache.borrow().get(&tint).cloned())
+        .unwrap_or_else(|| {
+            let image = Arc::new(compose(&mask, color));
+            TINTED.with(|cache| cache.borrow_mut().insert(tint, image.clone()));
+            image
+        });
+    Some(Glyph {
+        image,
+        width: px(mask.logical_width),
+        height: px(mask.logical_height),
+    })
+}
+
 fn compose(mask: &Mask, color: Hsla) -> RenderImage {
     let rgba: Rgba = color.into();
     let (r, g, b) = (channel(rgba.r), channel(rgba.g), channel(rgba.b));

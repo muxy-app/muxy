@@ -274,8 +274,57 @@ impl SettingsWindow {
             super::PickerKind::AiProvider(action) => {
                 self.open_provider_picker(action, request, window, cx);
             }
+            super::PickerKind::ExtensionSidebar => self.open_sidebar_picker(request, window, cx),
         }
         cx.notify();
+    }
+
+    /// Chooses between the built-in sidebar and enabled extension sidebars.
+    fn open_sidebar_picker(
+        &mut self,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let sidebars = view.snapshot.sidebars.clone();
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("extension-sidebar", "Search sidebars…"),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = std::iter::once(PickerItem::Row(PickerRow::new("", "Built-in")))
+            .chain(
+                sidebars
+                    .into_iter()
+                    .map(|(id, label)| PickerItem::Row(PickerRow::new(id, label))),
+            )
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let owner = selection.id.to_string();
+                    let _ = root.model.update(cx, |model, cx| {
+                        model.change_preference(Change::ExtensionSidebar(owner), cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
     }
 
     fn open_language_picker(

@@ -83,6 +83,26 @@ pub(crate) fn register_commands(
 
 pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
+    if model.extension_sidebar_active() {
+        return div()
+            .debug_selector(|| "workspace-sidebar".into())
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(model.sidebar_width()))
+            .h_full()
+            .min_h(px(0.0))
+            .bg(model.sidebar_background())
+            .child(div().h(m.title_bar_height()).flex_none())
+            .children(model.webviews.sidebar.as_ref().map(|sidebar| {
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(sidebar.surface.view.clone())
+            }))
+            .into_any_element();
+    }
     let header = header(model, cx);
     let contents = match model.appearance.layout {
         AppLayout::ProjectFocused => project_list(model, cx),
@@ -127,7 +147,8 @@ impl AppModel {
                     |width| self.metrics.scaled(width),
                 );
             f32::from(self.clamp_expanded_sidebar_width(width))
-        } else if self.appearance.layout == AppLayout::ProjectFocused
+        } else if (self.appearance.layout == AppLayout::ProjectFocused
+            || self.extension_sidebar_active())
             && self.appearance.sidebar_collapsed_style == SidebarCollapsedStyle::Icons
         {
             f32::from(self.metrics.sidebar_collapsed_width())

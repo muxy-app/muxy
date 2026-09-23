@@ -51,33 +51,27 @@ impl AppModel {
                     .manifest
                     .file_openers
                     .iter()
-                    .find(|opener| {
-                        opener["patterns"].as_array().is_some_and(|patterns| {
-                            patterns
-                                .iter()
-                                .filter_map(serde_json::Value::as_str)
-                                .any(|pattern| {
-                                    pattern == "*"
-                                        || pattern == relative
-                                        || pattern
-                                            .strip_prefix('*')
-                                            .is_some_and(|suffix| relative.ends_with(suffix))
-                                })
-                        })
-                    })
+                    .find(|opener| opener.matches(relative))
                     .map(|opener| (extension.name.clone(), opener.clone()))
             });
             if let Some((owner, opener)) = opener {
+                let mut data = serde_json::json!({
+                    "filePath": relative,
+                    "source": "terminal",
+                    "replaceable": false,
+                });
+                if let Some(line) = file.line {
+                    data["line"] = line.into();
+                }
+                if let Some(column) = file.column {
+                    data["column"] = column.into();
+                }
                 let descriptor = muxy_app_core::webview::WebviewDescriptor {
                     owner,
-                    kind: opener["tabType"].as_str().unwrap_or("").into(),
-                    data: serde_json::json!({"filePath":relative,"line":file.line,"column":file.column,"replaceable":false}),
+                    kind: opener.tab_type,
+                    data,
                 };
-                match self.open_webview_tab(
-                    descriptor,
-                    opener["singleton"].as_bool().unwrap_or(false),
-                    cx,
-                ) {
+                match self.open_webview_tab(descriptor, opener.singleton, cx) {
                     Ok(_) => return,
                     Err(error) => {
                         self.fail(format!("Could not open file: {error}"), cx);

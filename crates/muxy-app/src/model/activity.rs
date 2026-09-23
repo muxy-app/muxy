@@ -124,6 +124,7 @@ impl AppModel {
                     self.focused_activity_session(),
                 );
                 self.activity.snapshot = snapshot;
+                self.activity_notifications_posted(&ids, cx);
                 self.sync_activity_panes(self.state.session_references());
                 let ids: Vec<_> = self
                     .activity_notification_events(&ids)
@@ -161,6 +162,7 @@ impl AppModel {
             }
             Err(error) => self.fail(format!("Could not read activity: {error}"), cx),
         }
+        self.sync_extension_events(cx);
         cx.notify();
     }
 

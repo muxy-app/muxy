@@ -105,9 +105,9 @@ their panes still disappear when sessions end. Closing the last pane closes its 
 Pane types are either app-only, such as a web view, or server-bound, such as a
 terminal. A server-bound pane inherits its server and directory context through
 its tab's project. Extension views may be either kind; other types may be added.
-The desktop supports terminal and webview panes, webview panels and modals, and
-a separate app-level Settings window. Extension loading and authorization are
-deferred.
+The desktop supports terminal and webview panes, webview panels, popovers, and
+modals, and a separate app-level Settings window. Extensions load in the app,
+which enforces their declared permissions and asks before sensitive actions.
 
 Terminal panes support selection, clipboard, search, links, mouse reporting,
 input methods, and shell integration. A pane's title uses the program-set

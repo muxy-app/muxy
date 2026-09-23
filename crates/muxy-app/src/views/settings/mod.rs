@@ -92,6 +92,8 @@ pub(crate) enum Change {
     Theme(bool, String),
     Sidebar(bool),
     SidebarVibrancy(bool),
+    /// The extension whose sidebar replaces the built-in one; empty for built-in.
+    ExtensionSidebar(String),
     Worktrees(&'static str, bool),
     SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
     StatusBar(bool),
@@ -125,6 +127,8 @@ pub(crate) struct Snapshot {
     pub(crate) server_update: Option<String>,
     pub(crate) pending_server_fields: HashSet<String>,
     pub(crate) ai_installed: Vec<&'static str>,
+    /// Enabled extensions that provide a sidebar, as `(extension, label)`.
+    pub(crate) sidebars: Vec<(String, String)>,
 }
 
 pub(crate) struct SettingsView {
@@ -234,6 +238,7 @@ impl SettingsView {
                 PickerKind::Theme(true),
                 PickerKind::AiProvider(crate::repository_actions::Action::Commit),
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
+                PickerKind::ExtensionSidebar,
             ]
             .into_iter()
             .map(|kind| (kind, PickerAnchor::default()))

@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use crate::{extensions::marketplace, model::AppModel};
 use muxy_app_core::extensions::Extension;
 
+mod configuration;
 #[cfg(test)]
 mod tests;
 
@@ -86,7 +87,9 @@ pub(crate) struct ExtensionsView {
     error: Option<String>,
     selected: Option<Value>,
     folder: Option<muxy_ui::dialog::FolderPicker>,
-    _subscriptions: Vec<Subscription>,
+    /// Text fields for string and number extension settings, by extension and key.
+    setting_inputs: std::collections::HashMap<(String, String), Entity<TextInput>>,
+    subscriptions: Vec<Subscription>,
 }
 
 impl ExtensionsView {
@@ -132,7 +135,8 @@ impl ExtensionsView {
             error: None,
             selected: None,
             folder: None,
-            _subscriptions: subscriptions,
+            setting_inputs: std::collections::HashMap::new(),
+            subscriptions,
         }
     }
 
@@ -513,6 +517,19 @@ impl Render for ExtensionsView {
         let Some(model) = self.model.upgrade() else {
             return div().into_any_element();
         };
+        let selected = self
+            .selected
+            .as_ref()
+            .and_then(|details| details["name"].as_str())
+            .and_then(|name| {
+                let runtime = &model.read(cx).extensions;
+                let extension = runtime.registry.extensions.get(name)?.clone();
+                let stored = runtime.settings.get(name).cloned().unwrap_or_default();
+                Some((extension, stored))
+            });
+        if let Some((extension, stored)) = selected {
+            self.sync_setting_inputs(&extension, &stored, cx);
+        }
         let registry = &model.read(cx).extensions.registry;
         let installed: Vec<_> = registry
             .extensions
@@ -808,6 +825,31 @@ impl ExtensionsView {
             .min_w_0()
             .child(hero)
             .child(self.section("Requested permissions", self.permissions_body(&details)));
+        if let Some((extension, _, _)) = local
+            && let Some(model) = self.model.upgrade()
+        {
+            let model = model.read(cx);
+            let stored = model
+                .extensions
+                .settings
+                .get(&extension.name)
+                .cloned()
+                .unwrap_or_default();
+            let lines: Vec<String> = model
+                .extensions
+                .logs
+                .tail(&extension.name)
+                .map(str::to_owned)
+                .collect();
+            let background = extension
+                .manifest
+                .background
+                .is_some()
+                .then(|| model.background_running(&extension.name));
+            body = body
+                .children(self.settings_section(extension, &stored, cx))
+                .child(self.logs_section(extension, &lines, background));
+        }
         if let Some((_, _, unpacked)) = local {
             let reset = name.clone();
             body = body.child(
