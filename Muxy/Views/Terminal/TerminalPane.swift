@@ -13,6 +13,7 @@ struct TerminalPane: View {
 
     @Bindable private var ownership = PaneOwnershipStore.shared
     @Environment(\.overlayActive) private var overlayActive
+    @Environment(\.paneWorkspaceContext) private var workspaceContext
 
     private var remoteOwnerName: String? {
         if case let .remote(_, name) = ownership.owner(for: state.id) {
@@ -46,7 +47,7 @@ struct TerminalPane: View {
 
     private func reconnectPane() {
         let surface = TerminalViewRegistry.shared.existingView(for: state.id)
-        (surface as? any TerminalSessionRecoverySurface)?.reattachPersistentSession()
+        (surface as? any TerminalSessionRecoverySurface)?.reconnect()
         onFocus()
     }
 
@@ -111,8 +112,12 @@ struct TerminalPane: View {
             }
 
             if showsUnreachableSessionPlaceholder {
-                UnreachableSessionPlaceholder(isFocused: focused, onReconnect: reconnectPane)
-                    .transition(.opacity)
+                UnreachableSessionPlaceholder(
+                    isFocused: focused,
+                    isRemote: workspaceContext.isRemote,
+                    onReconnect: reconnectPane
+                )
+                .transition(.opacity)
             } else if showsSleepingPlaceholder {
                 SleepingTabPlaceholder(isFocused: focused, onWake: wakePane)
                     .transition(.opacity)
@@ -123,7 +128,24 @@ struct TerminalPane: View {
 
 struct UnreachableSessionPlaceholder: View {
     let isFocused: Bool
+    let isRemote: Bool
     let onReconnect: () -> Void
+
+    private var title: String {
+        isRemote ? L10n.string("SSH connection ended") : L10n.string("Background session unreachable")
+    }
+
+    private var message: String {
+        isRemote
+            ? L10n.string("The SSH connection to this project ended. Reconnect to start a new terminal session.")
+            : L10n.string("Muxy could not reconnect to this terminal. The session was left running.")
+    }
+
+    private var accessibilityHint: String {
+        isRemote
+            ? L10n.string("Reconnect to start a new SSH terminal session")
+            : L10n.string("Reconnect to the background terminal session")
+    }
 
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
@@ -131,10 +153,10 @@ struct UnreachableSessionPlaceholder: View {
             Image(systemName: "bolt.horizontal.circle")
                 .font(.system(size: UIMetrics.fontMega))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text(L10n.resource("Background session unreachable"))
+            Text(title)
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
-            Text(L10n.resource("Muxy could not reconnect to this terminal. The session was left running."))
+            Text(message)
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
@@ -159,8 +181,8 @@ struct UnreachableSessionPlaceholder: View {
         .onTapGesture(perform: onReconnect)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(L10n.string("Background session unreachable"))
-        .accessibilityHint(L10n.string("Reconnect to the background terminal session"))
+        .accessibilityLabel(title)
+        .accessibilityHint(accessibilityHint)
     }
 }
 
@@ -499,15 +521,26 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func makeProcessExitHandler(_ surface: any TerminalSurface) -> () -> Void {
-        guard let sessionID = surface.persistentSessionID else { return onProcessExit }
-        let paneID = state.id
-        let closePane = onProcessExit
-        return {
-            PersistentSessionExitHandler.shared.handleExit(
-                paneID: paneID,
-                sessionID: sessionID,
-                closePane: closePane
-            )
+        switch TerminalProcessExitPolicy.disposition(
+            isRemote: workspaceContext.isRemote,
+            persistentSessionID: surface.persistentSessionID
+        ) {
+        case .closePane:
+            return onProcessExit
+        case .recoverRemoteConnection:
+            return {
+                (surface as? any TerminalSessionRecoverySurface)?.reportSessionRecoveryFailure()
+            }
+        case let .recoverPersistentSession(sessionID):
+            let paneID = state.id
+            let closePane = onProcessExit
+            return {
+                PersistentSessionExitHandler.shared.handleExit(
+                    paneID: paneID,
+                    sessionID: sessionID,
+                    closePane: closePane
+                )
+            }
         }
     }
 
