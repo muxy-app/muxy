@@ -8,14 +8,7 @@ struct SidebarTipCard: View {
     var body: some View {
         if store.currentTip != nil {
             SidebarTipContent(store: store, onHide: onHide)
-                .padding(UIMetrics.spacing6)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
-                .overlay {
-                    RoundedRectangle(cornerRadius: UIMetrics.radiusLG)
-                        .stroke(MuxyTheme.border, lineWidth: 1)
-                }
-                .padding(.horizontal, UIMetrics.spacing4)
-                .padding(.bottom, UIMetrics.spacing3)
+                .sidebarCardStyle()
         }
     }
 }
@@ -26,9 +19,7 @@ struct SidebarTipPopover: View {
 
     var body: some View {
         SidebarTipContent(store: store, onHide: onHide)
-            .padding(UIMetrics.spacing7)
-            .frame(width: UIMetrics.scaled(300))
-            .background(MuxyTheme.bg)
+            .sidebarCardPopoverStyle()
     }
 }
 
@@ -40,7 +31,13 @@ private struct SidebarTipContent: View {
     var body: some View {
         if let tip = store.currentTip {
             VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
-                header
+                SidebarCardHeader(
+                    symbol: "lightbulb.fill",
+                    title: L10n.resource("Muxy Tip"),
+                    closeLabel: L10n.string("Hide Tips")
+                ) {
+                    showHideConfirmation = true
+                }
 
                 Text(TipDescriptionPresentation.attributedDescription(tip.description))
                     .font(.system(size: UIMetrics.fontBody))
@@ -61,37 +58,6 @@ private struct SidebarTipContent: View {
                     "You can show tips again in Settings → Interface → Sidebar by turning on Show Tips."
                 ))
             }
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "lightbulb.fill")
-                .font(.system(size: UIMetrics.iconXS, weight: .semibold))
-                .foregroundStyle(MuxyTheme.accent)
-                .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
-                .background(MuxyTheme.accentSoft, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
-
-            Text(L10n.resource("Muxy Tip"))
-                .font(.system(size: UIMetrics.fontCaption, weight: .bold))
-                .tracking(UIMetrics.scaled(0.7))
-                .foregroundStyle(MuxyTheme.accent)
-                .textCase(.uppercase)
-
-            Spacer(minLength: UIMetrics.spacing2)
-
-            Button {
-                showHideConfirmation = true
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: UIMetrics.iconXS, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(L10n.string("Hide Tips"))
-            .help(L10n.string("Hide Tips"))
         }
     }
 

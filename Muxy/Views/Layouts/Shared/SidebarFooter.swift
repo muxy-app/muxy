@@ -7,17 +7,22 @@ struct SidebarFooter: View {
     @State private var showThemePicker = false
     @State private var showNotifications = false
     @State private var showTipsPopover = false
+    @State private var showMuxy2BetaPromoPopover = false
     @State private var extensionStore = ExtensionStore.shared
     @State private var tipsStore = TipsStore.shared
     @AppStorage(TipsPreferences.visibleKey) private var showTips = TipsPreferences.defaultVisible
+    @AppStorage(Muxy2BetaPromoPreferences.dismissedKey)
+    private var muxy2BetaPromoDismissed = Muxy2BetaPromoPreferences.defaultDismissed
 
     private var notificationStore: NotificationStore { NotificationStore.shared }
 
     var body: some View {
         VStack(spacing: 0) {
             if isWide {
-                if showTips, tipsStore.currentTip != nil {
+                if showsTip {
                     SidebarTipCard(store: tipsStore, onHide: hideTips)
+                } else if showsMuxy2BetaPromo {
+                    SidebarMuxy2BetaPromoCard(onDismiss: dismissMuxy2BetaPromo)
                 }
                 expandedFooter
             } else {
@@ -34,6 +39,14 @@ struct SidebarFooter: View {
             guard !isVisible else { return }
             showTipsPopover = false
         }
+    }
+
+    private var showsTip: Bool {
+        showTips && tipsStore.currentTip != nil
+    }
+
+    private var showsMuxy2BetaPromo: Bool {
+        !showsTip && !muxy2BetaPromoDismissed
     }
 
     private func postToggleSidebar() {
@@ -68,8 +81,10 @@ struct SidebarFooter: View {
 
     private var collapsedFooter: some View {
         VStack(spacing: UIMetrics.spacing2) {
-            if showTips, tipsStore.currentTip != nil {
+            if showsTip {
                 tipsButton
+            } else if showsMuxy2BetaPromo {
+                muxy2BetaPromoButton
             }
             notificationsButton
             extensionsButton
@@ -109,6 +124,21 @@ struct SidebarFooter: View {
     private func hideTips() {
         showTipsPopover = false
         showTips = false
+    }
+
+    private var muxy2BetaPromoButton: some View {
+        IconButton(symbol: "sparkles", accessibilityLabel: L10n.string("Try Muxy 2 Beta")) {
+            showMuxy2BetaPromoPopover.toggle()
+        }
+        .help(L10n.string("Try Muxy 2 Beta"))
+        .popover(isPresented: $showMuxy2BetaPromoPopover) {
+            SidebarMuxy2BetaPromoPopover(onDismiss: dismissMuxy2BetaPromo)
+        }
+    }
+
+    private func dismissMuxy2BetaPromo() {
+        showMuxy2BetaPromoPopover = false
+        muxy2BetaPromoDismissed = true
     }
 
     private var notificationsButton: some View {

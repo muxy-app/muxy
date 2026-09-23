@@ -131,6 +131,10 @@ Select the close button on a tip, then confirm **Hide Tips** to hide tips. Turn 
 **Settings → Interface → Sidebar → Show Tips** to show them again. The preference is stored as `muxy.tips.visible` in
 `settings.json`. Extension-provided sidebars control their own content and do not show the built-in tip card.
 
+When tips are hidden, the same area shows a Muxy 2 Beta card with a link to download the beta. In an icon-only sidebar,
+select the sparkles button to open it in a popover. Select its close button to dismiss it permanently. The beta is also
+linked from **Settings → General → Updates**.
+
 ## Background sessions
 
 Open **Settings → Terminal → Background sessions** to keep terminals running after Muxy quits:

@@ -1,5 +1,8 @@
 [
   {
+    "description": "Try Muxy 2 Beta, rewritten in Rust to be faster, more efficient, and a true multiplexer. It installs as a separate app next to this one. [Download Muxy 2 Beta](https://github.com/muxy-app/muxy/releases?q=v2.0.0-beta-)."
+  },
+  {
     "description": "Enable Run new terminals in the background in Settings → Terminal before opening a local terminal to keep it running after Muxy quits."
   },
   {

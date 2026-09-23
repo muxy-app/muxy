@@ -1505,3 +1505,9 @@
 "In a local workspace, open Add Project → Recently Removed to restore a removed project whose folder still exists, without changing its files." = "In a local workspace, open Add Project → Recently Removed to restore a removed project whose folder still exists, without changing its files.";
 "Install the muxy CLI from the Muxy menu to script splits, send keys, and read visible terminal output. [Read the CLI docs](https://muxy.app/docs/features/muxy-cli)." = "Install the muxy CLI from the Muxy menu to script splits, send keys, and read visible terminal output. [Read the CLI docs](https://muxy.app/docs/features/muxy-cli).";
 "Muxy can track supported coding agents and notify you when a turn finishes or needs input. Check Settings → Notifications." = "Muxy can track supported coding agents and notify you when a turn finishes or needs input. Check Settings → Notifications.";
+"Try Muxy 2 Beta, rewritten in Rust to be faster, more efficient, and a true multiplexer. It installs as a separate app next to this one. [Download Muxy 2 Beta](https://github.com/muxy-app/muxy/releases?q=v2.0.0-beta-)." = "Try Muxy 2 Beta, rewritten in Rust to be faster, more efficient, and a true multiplexer. It installs as a separate app next to this one. [Download Muxy 2 Beta](https://github.com/muxy-app/muxy/releases?q=v2.0.0-beta-).";
+"Muxy 2 Beta" = "Muxy 2 Beta";
+"Dismiss Muxy 2 Beta" = "Dismiss Muxy 2 Beta";
+"Download Muxy 2 Beta" = "Download Muxy 2 Beta";
+"Try Muxy 2 Beta" = "Try Muxy 2 Beta";
+"Muxy 2 is rewritten in Rust. It is faster, more efficient, and a true multiplexer. It installs as a separate app next to this one." = "Muxy 2 is rewritten in Rust. It is faster, more efficient, and a true multiplexer. It installs as a separate app next to this one.";
