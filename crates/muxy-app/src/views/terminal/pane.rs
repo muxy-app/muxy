@@ -24,6 +24,7 @@ pub(crate) enum PaneEvent {
     Focused,
     OpenLink(muxy_app_core::opener::Target),
     ContextMenu(gpui::Point<gpui::Pixels>),
+    SelectionCopied,
     Viewport(Size),
     Input(ChannelId, Vec<u8>),
     Mouse(ChannelId, MouseEvent),
@@ -1048,8 +1049,9 @@ impl TerminalPane {
                 .options
                 .copy_on_select
                 .unwrap_or(self.copy_on_select)
+            && self.copy_selection_text(cx)
         {
-            self.copy_selection_text(cx);
+            cx.emit(PaneEvent::SelectionCopied);
         }
     }
 
@@ -1061,13 +1063,15 @@ impl TerminalPane {
         }
     }
 
-    fn copy_selection_text(&self, cx: &mut Context<Self>) {
+    fn copy_selection_text(&self, cx: &mut Context<Self>) -> bool {
         if let (Some(selection), Some(grid)) = (self.selection, self.displayed_grid()) {
             let text = selection.text(grid);
             if !text.is_empty() {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                return true;
             }
         }
+        false
     }
 
     pub(crate) fn select_all(&mut self, cx: &mut Context<Self>) {
@@ -2888,19 +2892,38 @@ mod tests {
     }
     #[gpui::test]
     fn phase20_copy_on_select_runs_only_at_selection_completion(cx: &mut TestAppContext) {
-        let (pane, cx) = cx.add_window_view(|_, cx| {
+        let cx = cx.add_empty_window();
+        let pane = cx.new(|cx| {
             TerminalPane::new(
                 Palette::new(true),
                 muxy_app_core::settings::TerminalSettings::default(),
                 cx,
             )
         });
-        for enabled in [false, true] {
+        let copies = std::rc::Rc::new(std::cell::Cell::new(0));
+        cx.update(|_, cx| {
+            let copies = copies.clone();
+            cx.subscribe(&pane, move |_, event, _| {
+                if let PaneEvent::SelectionCopied = event {
+                    copies.set(copies.get() + 1);
+                }
+            })
+            .detach();
+        });
+        for (enabled, override_value, end_x, should_copy) in [
+            (false, None, 50.0, false),
+            (true, None, 50.0, true),
+            (true, None, 0.0, false),
+            (false, Some(true), 50.0, true),
+            (true, Some(false), 50.0, false),
+        ] {
+            copies.set(0);
             cx.update(|window, cx| {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string("original".into()));
                 pane.update(cx, |pane, cx| {
                     prepare_mouse(pane);
                     pane.copy_on_select = enabled;
+                    pane.terminal.options.copy_on_select = override_value;
                     pane.mouse_down(
                         &gpui::MouseDownEvent {
                             position: point(px(0.0), px(5.0)),
@@ -2912,7 +2935,7 @@ mod tests {
                     );
                     pane.mouse_move(
                         &gpui::MouseMoveEvent {
-                            position: point(px(50.0), px(5.0)),
+                            position: point(px(end_x), px(5.0)),
                             pressed_button: Some(MouseButton::Left),
                             ..gpui::MouseMoveEvent::default()
                         },
@@ -2924,9 +2947,14 @@ mod tests {
                             .as_deref(),
                         Some("original")
                     );
+                });
+            });
+            assert_eq!(copies.get(), 0);
+            cx.update(|window, cx| {
+                pane.update(cx, |pane, cx| {
                     pane.mouse_up(
                         &gpui::MouseUpEvent {
-                            position: point(px(50.0), px(5.0)),
+                            position: point(px(end_x), px(5.0)),
                             ..gpui::MouseUpEvent::default()
                         },
                         window,
@@ -2936,7 +2964,15 @@ mod tests {
                         cx.read_from_clipboard()
                             .and_then(|item| item.text())
                             .as_deref(),
-                        Some(if enabled { "alpha" } else { "original" })
+                        Some(if should_copy { "alpha" } else { "original" })
+                    );
+                    pane.mouse_up(
+                        &gpui::MouseUpEvent {
+                            position: point(px(end_x), px(5.0)),
+                            ..gpui::MouseUpEvent::default()
+                        },
+                        window,
+                        cx,
                     );
                     pane.select_all(cx);
                     pane.copy_selection(cx);
@@ -2948,6 +2984,7 @@ mod tests {
                     );
                 });
             });
+            assert_eq!(copies.get(), usize::from(should_copy));
         }
     }
 

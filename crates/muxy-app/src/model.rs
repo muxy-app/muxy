@@ -1440,6 +1440,7 @@ impl AppModel {
                     model.terminal_menu(id, *position, cx);
                 }
             }
+            PaneEvent::SelectionCopied => model.show_notice("Copied to clipboard".into(), cx),
             PaneEvent::Bell => cx.notify(),
             PaneEvent::Focused => {
                 if !model.is_quick_terminal(id) {

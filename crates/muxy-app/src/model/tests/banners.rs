@@ -132,6 +132,29 @@ fn toast_overlays_both_layouts_without_moving_content_or_focus(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn copy_on_select_shows_a_success_toast(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("terminal");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        let pane = model
+            .terminal(&model.active_pane().expect("pane"))
+            .expect("terminal")
+            .view
+            .clone();
+        pane.update(cx, |_, cx| cx.emit(PaneEvent::SelectionCopied));
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        let toast = model.notice_toast.as_ref().expect("copy toast");
+        assert_eq!(toast.message, "Copied to clipboard");
+        assert_eq!(toast.kind, muxy_ui::toast::ToastKind::Success);
+        assert!(toast.body.is_none());
+    });
+}
+
+#[gpui::test]
 fn problems_stay_until_dismissed_while_notices_expire_beside_them(cx: &mut TestAppContext) {
     use muxy_ui::toast::ToastKind;
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
