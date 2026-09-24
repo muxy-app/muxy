@@ -257,38 +257,25 @@ fn action_button(
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let Style { theme, metrics: m } = style;
-    let (foreground, background) = match tone {
-        ActionTone::Regular => (theme.fg, theme.surface),
-        ActionTone::Primary => (theme.accent_foreground, theme.accent),
-        ActionTone::Disabled => (theme.fg_dim, theme.surface),
-        ActionTone::Danger => (theme.danger, theme.surface),
+    let foreground = if enabled {
+        match tone {
+            ActionTone::Regular => theme.fg,
+            ActionTone::Primary => theme.accent_foreground,
+            ActionTone::Disabled => theme.fg_dim,
+            ActionTone::Danger => theme.danger,
+        }
+    } else {
+        theme.fg_dim
     };
-    div()
-        .id(id)
-        .flex()
+    muxy_ui::popover::row(theme, *m, id, enabled, false)
         .w_full()
-        .items_center()
-        .gap(m.spacing3())
-        .h(m.control_medium())
-        .px(m.spacing4())
-        .rounded(m.radius_sm())
-        .bg(background)
         .text_color(foreground)
-        .text_size(m.font_footnote())
-        .font_weight(FontWeight::MEDIUM)
-        .when(!enabled, |button| button.opacity(0.4))
-        .when(enabled, |button| {
+        .when(enabled && matches!(tone, ActionTone::Primary), |button| {
             button
-                .cursor_pointer()
-                .hover(|button| {
-                    button.bg(if background == theme.accent {
-                        theme.accent
-                    } else {
-                        theme.hover
-                    })
-                })
-                .button_interaction(on_click)
+                .bg(theme.accent)
+                .hover(|button| button.bg(theme.accent))
         })
+        .when(enabled, |button| button.button_interaction(on_click))
         .child(SymbolGlyph::new(symbol, m.font_footnote(), foreground))
         .child(div().min_w(px(0.0)).truncate().child(label))
         .into_any_element()
@@ -384,8 +371,7 @@ pub(crate) fn render_pr(
     let Some(pr) = pr else {
         return muxy_ui::popover::surface(theme, m)
             .w(m.scaled(280.0))
-            .p(m.spacing6())
-            .child("Pull request changed. Reopen its status.")
+            .child(muxy_ui::popover::body(m).child("Pull request changed. Reopen its status."))
             .into_any_element();
     };
     let project = popover.project;
@@ -452,13 +438,8 @@ pub(crate) fn render_pr(
     }
     muxy_ui::popover::surface(theme, m)
         .w(m.scaled(280.0))
-        .p(m.spacing6())
-        .gap(m.spacing5())
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(m.spacing4())
+            muxy_ui::popover::header(theme, m)
                 .child(SymbolGlyph::new(symbol, m.font_headline(), state_color))
                 .child(
                     div()
@@ -504,15 +485,18 @@ pub(crate) fn render_pr(
                 ),
         )
         .child(
-            div()
-                .min_w(px(0.0))
-                .truncate()
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child(pr.title.clone()),
+            muxy_ui::popover::body(m)
+                .child(
+                    div()
+                        .min_w(px(0.0))
+                        .truncate()
+                        .text_size(m.font_footnote())
+                        .text_color(theme.fg_muted)
+                        .child(pr.title.clone()),
+                )
+                .child(details),
         )
-        .child(details)
-        .child(div().w_full().h(px(1.0)).bg(theme.border))
+        .child(muxy_ui::popover::divider(theme, m))
         .child(action_button(
             style,
             "pr-open",

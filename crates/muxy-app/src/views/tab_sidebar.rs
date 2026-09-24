@@ -327,6 +327,7 @@ fn project_disclosure(
                 theme.raised(),
                 theme.fg,
                 theme.border,
+                theme.bg,
             )
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
@@ -427,6 +428,7 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                         theme.raised(),
                         theme.fg,
                         theme.border,
+                        theme.bg,
                     )
                     .on_click(cx.listener(move |model, _, window, cx| {
                         cx.stop_propagation();
@@ -457,7 +459,13 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                             theme.fg_muted,
                             theme.fg,
                         )
-                        .tooltip("New Terminal Tab", theme.raised(), theme.fg, theme.border)
+                        .tooltip(
+                            "New Terminal Tab",
+                            theme.raised(),
+                            theme.fg,
+                            theme.border,
+                            theme.bg,
+                        )
                         .on_click(cx.listener(
                             move |model, _, window, cx| {
                                 cx.stop_propagation();
@@ -628,7 +636,13 @@ pub(super) fn titlebar(
                             theme.fg_muted,
                             theme.fg,
                         )
-                        .tooltip("New Terminal Tab", theme.raised(), theme.fg, theme.border)
+                        .tooltip(
+                            "New Terminal Tab",
+                            theme.raised(),
+                            theme.fg,
+                            theme.border,
+                            theme.bg,
+                        )
                         .on_click(cx.listener(|model, _, _, cx| {
                             cx.stop_propagation();
                             model.new_tab(cx);

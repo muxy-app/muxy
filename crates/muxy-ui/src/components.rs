@@ -142,7 +142,7 @@ pub struct IconButton {
     box_size: Pixels,
     color: Hsla,
     hover_color: Hsla,
-    tooltip: Option<(SharedString, Hsla, Hsla, Hsla)>,
+    tooltip: Option<(SharedString, Hsla, Hsla, Hsla, Hsla)>,
     focus_handle: Option<FocusHandle>,
     selected: Option<(bool, Hsla, Pixels)>,
     on_click: Option<ClickHandler>,
@@ -179,8 +179,15 @@ impl IconButton {
         background: Hsla,
         foreground: Hsla,
         border: Hsla,
+        theme_background: Hsla,
     ) -> Self {
-        self.tooltip = Some((text.into(), background, foreground, border));
+        self.tooltip = Some((
+            text.into(),
+            background,
+            foreground,
+            border,
+            theme_background,
+        ));
         self
     }
 
@@ -255,10 +262,18 @@ impl RenderOnce for IconButton {
                         cx.stop_propagation();
                     });
         }
-        if let Some((text, background, foreground, border)) = self.tooltip {
+        if let Some((text, background, foreground, border, theme_background)) = self.tooltip {
             button = button.tooltip(move |_, cx| {
-                cx.new(|_| Tooltip::new(text.clone(), background, foreground, border))
-                    .into()
+                cx.new(|_| {
+                    Tooltip::new(
+                        text.clone(),
+                        background,
+                        foreground,
+                        border,
+                        theme_background,
+                    )
+                })
+                .into()
             });
         }
         button
@@ -271,6 +286,7 @@ pub struct Tooltip {
     background: Hsla,
     foreground: Hsla,
     border: Hsla,
+    theme_background: Hsla,
 }
 
 impl Tooltip {
@@ -279,18 +295,18 @@ impl Tooltip {
         background: Hsla,
         foreground: Hsla,
         border: Hsla,
+        theme_background: Hsla,
     ) -> Self {
         Self {
             text: text.into(),
             background,
             foreground,
             border,
+            theme_background,
         }
     }
-}
 
-impl Render for Tooltip {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn surface(&self) -> gpui::Div {
         div()
             .max_w(px(320.0))
             .line_clamp(4)
@@ -302,8 +318,14 @@ impl Render for Tooltip {
             .border_color(self.border)
             .text_size(px(11.0))
             .text_color(self.foreground)
-            .shadow_sm()
+            .shadow(crate::theme::Elevation::Elevated.shadow(self.theme_background))
             .child(self.text.clone())
+    }
+}
+
+impl Render for Tooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.surface()
     }
 }
 
@@ -499,5 +521,48 @@ impl std::fmt::Debug for IconButton {
             .field("glyph_size", &self.glyph_size)
             .field("box_size", &self.box_size)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{ColorScheme, Elevation, Metrics, Theme};
+
+    #[test]
+    fn tooltips_keep_theme_shadows_when_the_raised_fill_crosses_the_appearance_threshold() {
+        for (background, foreground, edge_opacity) in [
+            (0x7a_7a_7a, 0xff_ff_ff, 0.06),
+            (0x85_85_85, 0x00_00_00, 0.03),
+        ] {
+            let theme = Theme::from_scheme(&ColorScheme {
+                background: Some(gpui::rgb(background)),
+                foreground: Some(gpui::rgb(foreground)),
+                ..ColorScheme::default()
+            });
+            assert_ne!(theme.bg.l >= 0.5, theme.raised().l >= 0.5);
+            let button = IconButton::new(
+                "tooltip-test",
+                Icon::X,
+                px(12.0),
+                px(24.0),
+                theme.fg,
+                theme.fg,
+            )
+            .tooltip("Close", theme.raised(), theme.fg, theme.border, theme.bg);
+            let (text, background, foreground, border, theme_background) = button.tooltip.unwrap();
+            let tooltip = Tooltip::new(text, background, foreground, border, theme_background);
+            let mut surface = tooltip.surface();
+            let shadows = surface.style().box_shadow.clone().unwrap();
+            assert_eq!(surface.style().background, Some(theme.raised().into()));
+            assert_eq!(shadows, Elevation::Elevated.shadow(theme.bg));
+            assert_eq!(shadows[1].color, gpui::hsla(0.0, 0.0, 0.0, edge_opacity));
+            assert_eq!(
+                Some(shadows),
+                crate::popover::surface(&theme, Metrics::new(1.0))
+                    .style()
+                    .box_shadow
+            );
+        }
     }
 }

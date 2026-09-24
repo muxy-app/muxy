@@ -129,6 +129,7 @@ pub(super) fn disclosure(
                 theme.raised(),
                 theme.fg,
                 theme.border,
+                theme.bg,
             )
             .on_click(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();

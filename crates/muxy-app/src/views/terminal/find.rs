@@ -405,7 +405,7 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
     let find = pane.find.as_ref()?;
     let theme = &find.theme;
     let metrics = find.metrics;
-    let button = |id: &'static str, icon| {
+    let button = |id: &'static str, icon, tooltip: &'static str| {
         IconButton::new(
             id,
             icon,
@@ -414,6 +414,7 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
             theme.fg_muted,
             theme.fg,
         )
+        .tooltip(tooltip, theme.surface, theme.fg, theme.border, theme.bg)
     };
     Some(
         div()
@@ -452,13 +453,11 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     .child(find.results.counter()),
             )
             .child(
-                button("find-previous", Icon::ChevronLeft)
-                    .tooltip("Previous match", theme.surface, theme.fg, theme.border)
+                button("find-previous", Icon::ChevronLeft, "Previous match")
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(true, cx))),
             )
             .child(
-                button("find-next", Icon::ChevronRight)
-                    .tooltip("Next match", theme.surface, theme.fg, theme.border)
+                button("find-next", Icon::ChevronRight, "Next match")
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(false, cx))),
             )
             .child(
@@ -482,8 +481,7 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     .child("Aa"),
             )
             .child(
-                button("find-close", Icon::X)
-                    .tooltip("Close search", theme.surface, theme.fg, theme.border)
+                button("find-close", Icon::X, "Close search")
                     .on_click(cx.listener(|pane, _, _, cx| pane.close_find(cx))),
             )
             .into_any_element(),

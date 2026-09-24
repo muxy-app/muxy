@@ -344,6 +344,7 @@ pub(super) fn status_glyph(
         format!("{id}-{kind}")
     };
     let background = theme.raised();
+    let theme_background = theme.bg;
     let foreground = theme.fg;
     let border = theme.border;
     div()
@@ -356,8 +357,16 @@ pub(super) fn status_glyph(
         .min_w(size)
         .h(size)
         .tooltip(move |_, cx| {
-            cx.new(|_| Tooltip::new(tooltip.clone(), background, foreground, border))
-                .into()
+            cx.new(|_| {
+                Tooltip::new(
+                    tooltip.clone(),
+                    background,
+                    foreground,
+                    border,
+                    theme_background,
+                )
+            })
+            .into()
         })
         .child(glyph)
         .into_any_element()

@@ -374,6 +374,7 @@ pub(crate) fn render(
         .justify_center()
         .child(
             muxy_ui::popover::surface(theme, m)
+                .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
                 .id("project-logo-dialog")
                 .debug_selector(|| "project-logo-cropper".into())
                 .max_h((window.viewport_size().height - px(16.0)).max(px(1.0)))

@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, Styled, Task, Window, actions, div, point, px,
+    ParentElement, Render, Styled, Task, Window, actions, div, px,
 };
 use muxy_ui::{
     components::{ButtonInteraction, SymbolGlyph},
@@ -211,12 +211,7 @@ impl VoicePanel {
                     self.theme.border
                 },
             ))
-            .shadow(vec![gpui::BoxShadow {
-                color: gpui::black().opacity(0.22),
-                offset: point(px(0.0), m.scaled(-6.0)),
-                blur_radius: m.scaled(14.0),
-                spread_radius: px(0.0),
-            }])
+            .shadow(muxy_ui::theme::Elevation::Elevated.shadow(self.theme.bg))
             .child(
                 div()
                     .flex_none()

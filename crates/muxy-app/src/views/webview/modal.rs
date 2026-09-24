@@ -1,7 +1,7 @@
 use crate::model::AppModel;
 use gpui::{
-    AnyElement, BoxShadow, Context, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Styled, Window, div, point, px, rgba,
+    AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
+    Window, div, px, rgba,
 };
 
 pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
@@ -47,12 +47,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
                 .border_1()
                 .border_color(model.theme.border)
                 .overflow_hidden()
-                .shadow(vec![BoxShadow {
-                    color: rgba(0x0000_0066).into(),
-                    offset: point(px(0.0), metrics.scaled(8.0)),
-                    blur_radius: metrics.scaled(20.0),
-                    spread_radius: px(0.0),
-                }])
+                .shadow(muxy_ui::theme::Elevation::Modal.shadow(model.theme.bg))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(request.surface.view.clone()),
         )

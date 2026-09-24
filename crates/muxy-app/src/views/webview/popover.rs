@@ -14,6 +14,8 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
     let content = muxy_ui::popover::surface(&model.theme, metrics)
         .w(metrics.scaled(popover.width as f32))
         .h(metrics.scaled(popover.height as f32))
+        .p_0()
+        .gap_0()
         .overflow_hidden()
         .child(popover.surface.view.clone())
         .into_any_element();

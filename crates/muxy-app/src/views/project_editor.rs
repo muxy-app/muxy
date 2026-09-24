@@ -5,9 +5,9 @@ use muxy_core::shortcuts::ShortcutId;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Entity, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Point, StatefulInteractiveElement, Styled, Window, actions,
-    div, px, size,
+    AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Point, StatefulInteractiveElement, Styled, Window, actions, div, px,
+    size,
 };
 use muxy_app_core::{PROJECT_COLORS, ProjectId, ProjectStatus, TabId, WorkspaceId};
 use muxy_ui::components::{SymbolGlyph, Tooltip};
@@ -298,37 +298,32 @@ pub(crate) fn render(
         .top(origin.y)
         .w(m.scaled(320.0)
             .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
-        .gap(m.spacing4())
-        .p(m.spacing5())
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
-            div()
-                .text_size(m.font_body())
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(match editor.target {
-                    Target::Tab(_) => "Rename Tab",
-                    Target::Project(_) => "Rename Project",
-                    Target::Workspace(_) => "Rename Workspace",
-                    Target::NewWorkspace(_) => "New Workspace",
-                }),
+            muxy_ui::popover::header(theme, m).child(match editor.target {
+                Target::Tab(_) => "Rename Tab",
+                Target::Project(_) => "Rename Project",
+                Target::Workspace(_) => "Rename Workspace",
+                Target::NewWorkspace(_) => "New Workspace",
+            }),
         )
-        .child(muxy_ui::controls::text_field(
-            muxy_ui::controls::Style { theme, metrics: &m },
-            "project-editor",
-            &editor.input,
-            None,
-        ))
-        .children(editor.error.as_ref().map(|error| {
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.danger)
-                .child(error.clone())
-        }))
         .child(
-            div()
-                .flex()
-                .justify_end()
-                .gap(m.spacing3())
+            muxy_ui::popover::body(m)
+                .child(muxy_ui::controls::text_field(
+                    muxy_ui::controls::Style { theme, metrics: &m },
+                    "project-editor",
+                    &editor.input,
+                    None,
+                ))
+                .children(editor.error.as_ref().map(|error| {
+                    div()
+                        .text_size(m.font_footnote())
+                        .text_color(theme.danger)
+                        .child(error.clone())
+                })),
+        )
+        .child(
+            muxy_ui::popover::footer(theme, m)
                 .child(muxy_ui::controls::button(
                     muxy_ui::controls::Style { theme, metrics: &m },
                     "project-editor-cancel",
@@ -393,51 +388,27 @@ pub(crate) fn render_colors(
         .left(origin.x)
         .top(origin.y)
         .w(m.scaled(216.0))
-        .gap(m.spacing5())
-        .p(m.spacing6())
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            div()
-                .text_size(m.font_body())
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.fg)
-                .child(if tab.is_some() {
-                    "Tab Color"
-                } else {
-                    "Project Color"
-                }),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(m.spacing4())
-                .children(PROJECT_COLORS.chunks(6).enumerate().map(|(row, swatches)| {
-                    div()
-                        .flex()
-                        .gap(m.spacing4())
-                        .children(swatches.iter().enumerate().map(|(column, _)| {
-                            color_swatch(row * 6 + column, colors.selected, model, cx)
-                        }))
-                })),
-        )
+        .child(muxy_ui::popover::header(theme, m).child(if tab.is_some() {
+            "Tab Color"
+        } else {
+            "Project Color"
+        }))
+        .child(muxy_ui::popover::body(m).items_center().children(
+            PROJECT_COLORS.chunks(6).enumerate().map(|(row, swatches)| {
+                div().flex().gap(m.spacing4()).children(
+                    swatches.iter().enumerate().map(|(column, _)| {
+                        color_swatch(row * 6 + column, colors.selected, model, cx)
+                    }),
+                )
+            }),
+        ))
         .when(tab.is_some(), |picker| {
-            picker.child(div().h(px(1.0)).bg(theme.border)).child(
-                div()
-                    .id("reset-tab-color")
+            picker.child(muxy_ui::popover::divider(theme, m)).child(
+                muxy_ui::popover::row(theme, m, "reset-tab-color", can_reset, false)
                     .debug_selector(|| "reset-tab-color".into())
-                    .flex()
-                    .items_center()
-                    .gap(m.spacing3())
-                    .text_size(m.font_footnote())
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.fg_muted)
-                    .opacity(if can_reset { 1.0 } else { 0.4 })
                     .when(can_reset, |button| {
-                        button
-                            .cursor_pointer()
-                            .on_click(cx.listener(|model, _, _, cx| model.reset_tab_color(cx)))
+                        button.on_click(cx.listener(|model, _, _, cx| model.reset_tab_color(cx)))
                     })
                     .child(SymbolGlyph::new(
                         "arrow.uturn.backward",
@@ -500,6 +471,7 @@ fn color_swatch(
                     tooltip_theme.raised(),
                     tooltip_theme.fg,
                     tooltip_theme.border,
+                    tooltip_theme.bg,
                 )
             })
             .into()

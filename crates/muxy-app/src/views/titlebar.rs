@@ -89,7 +89,13 @@ pub(crate) fn navigation(
                         theme.fg_muted,
                         theme.fg,
                     )
-                    .tooltip("Toggle Sidebar", theme.raised(), theme.fg, theme.border)
+                    .tooltip(
+                        "Toggle Sidebar",
+                        theme.raised(),
+                        theme.fg,
+                        theme.border,
+                        theme.bg,
+                    )
                     .on_click(cx.listener(|model, _, window, cx| {
                         cx.stop_propagation();
                         model.toggle_sidebar(window, cx);

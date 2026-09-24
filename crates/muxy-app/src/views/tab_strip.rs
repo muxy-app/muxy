@@ -67,6 +67,7 @@ pub(crate) fn tab_strip(
         cells = cells.child(tab_cell(tab, index, width, model, cx));
     }
     let mut cells = drag::measure_tabs(cells, targets.clone(), model);
+    let tooltip = "New Tab (⌘T)";
     let new_button = div()
         .debug_selector(|| "new-tab-button".into())
         .flex()
@@ -86,7 +87,7 @@ pub(crate) fn tab_strip(
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip("New Tab (⌘T)", theme.raised(), theme.fg, theme.border)
+            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(|model, _, _, cx| {
                 cx.stop_propagation();
                 model.new_tab(cx);
@@ -156,7 +157,7 @@ pub(super) fn existing_terminals_button(
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border)
+            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.open_session_picker(project, window, cx);
@@ -192,7 +193,7 @@ pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> A
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border)
+            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(|model, _, window, cx| {
                 cx.stop_propagation();
                 model.open_settings(window, cx);
@@ -245,7 +246,7 @@ pub(super) fn zoom_control(
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border)
+            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(|model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_zoom_pane(cx);

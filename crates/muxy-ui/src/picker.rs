@@ -75,6 +75,10 @@ struct PickerLayout {
     item_gap: f32,
     list_vertical_inset: f32,
     status_height: f32,
+    shell_padding: f32,
+    shell_gap: f32,
+    row_gap: f32,
+    footer_height: f32,
 }
 
 impl PickerLayout {
@@ -93,12 +97,26 @@ impl PickerLayout {
             item_gap: 6.0,
             list_vertical_inset: 4.0,
             status_height: 48.0,
+            shell_padding: if presentation == PickerPresentation::Popover {
+                popover::PADDING
+            } else {
+                0.0
+            },
+            shell_gap: if presentation == PickerPresentation::Popover {
+                popover::ROW_GAP
+            } else {
+                0.0
+            },
+            row_gap: 0.0,
+            footer_height: 37.0,
         };
         if presentation == PickerPresentation::Popover {
-            layout.item_inset += layout.outer_item_inset;
+            layout.item_inset = popover::ROW_PADDING;
+            layout.horizontal_inset = popover::ROW_PADDING;
             layout.outer_item_inset = 0.0;
-            layout.row_radius = 0.0;
             layout.list_vertical_inset = 0.0;
+            layout.row_gap = popover::ROW_GAP;
+            layout.footer_height = popover::ROW_HEIGHT + 5.0;
         }
         if compact {
             layout.header_height = 28.0;
@@ -109,10 +127,22 @@ impl PickerLayout {
         layout
     }
 
+    fn row_height(self, row: &PickerRow) -> f32 {
+        if self.inline_tabs && row.detail.is_none() && row.swatches.is_empty() {
+            popover::ROW_HEIGHT
+        } else {
+            self.row_height
+        }
+    }
+
+    fn item_extent(self, item: &PickerItem, index: usize, count: usize) -> f32 {
+        self.item_height(item) + if index + 1 < count { self.row_gap } else { 0.0 }
+    }
+
     fn item_height(self, item: &PickerItem) -> f32 {
         match item {
             PickerItem::Section(_) => self.section_height,
-            PickerItem::Row(_) => self.row_height,
+            PickerItem::Row(row) => self.row_height(row),
         }
     }
 }
@@ -139,15 +169,26 @@ fn content_height(
     } else if matches!(status, PickerStatus::Ready) && !items.is_empty() {
         items
             .iter()
-            .map(|item| layout.item_height(item))
+            .enumerate()
+            .map(|(index, item)| layout.item_extent(item, index, items.len()))
             .sum::<f32>()
             + layout.list_vertical_inset * 2.0
     } else {
         layout.status_height
     };
-    let footer = if has_footer { 37.0 } else { 0.0 };
+    let footer = if has_footer {
+        layout.footer_height
+    } else {
+        0.0
+    };
+    let gaps = 1 + usize::from(tabs > 0.0) + usize::from(has_footer);
     let border = 2.0;
-    tabs + layout.header_height + body + footer + border
+    tabs + layout.header_height
+        + body
+        + footer
+        + border
+        + layout.shell_padding * 2.0
+        + layout.shell_gap * gaps as f32
 }
 
 fn scrollbar_item_heights(
@@ -161,7 +202,8 @@ fn scrollbar_item_heights(
     }
     items
         .iter()
-        .map(|item| layout.item_height(item) * scale)
+        .enumerate()
+        .map(|(index, item)| layout.item_extent(item, index, items.len()) * scale)
         .collect()
 }
 
@@ -1075,7 +1117,12 @@ impl Picker {
             self.detail.as_ref().map(|(_, lines)| lines.len()),
             !self.config.footer_actions.is_empty(),
         );
-        f32::from(self.metrics.scaled(logical_height))
+        let borders = if self.config.footer_actions.is_empty() {
+            2.0
+        } else {
+            3.0
+        };
+        f32::from(self.metrics.scaled(logical_height - borders)) + borders
     }
 
     fn render_leading(leading: &PickerLeading, color: Hsla, metrics: Metrics) -> AnyElement {
@@ -1135,22 +1182,27 @@ impl Picker {
         };
         let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         match item {
-            PickerItem::Section(label) => div()
-                .w_full()
-                .h(self.metrics.scaled(layout.section_height))
-                .flex()
-                .items_end()
-                .px(self.metrics.scaled(layout.horizontal_inset))
-                .pb(self.metrics.spacing2())
-                .when(
-                    self.config.presentation != PickerPresentation::Popover,
-                    |element| element.border_b_1().border_color(self.theme.border),
-                )
-                .text_size(self.metrics.font_footnote())
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(self.theme.fg_muted)
-                .child(label)
-                .into_any_element(),
+            PickerItem::Section(label) => {
+                let section = if self.config.presentation == PickerPresentation::Popover {
+                    popover::header(&self.theme, self.metrics)
+                } else {
+                    div()
+                        .flex()
+                        .items_end()
+                        .px(self.metrics.scaled(layout.horizontal_inset))
+                        .pb(self.metrics.spacing2())
+                        .border_b_1()
+                        .border_color(self.theme.border)
+                        .text_size(self.metrics.font_footnote())
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(self.theme.fg_muted)
+                };
+                section
+                    .w_full()
+                    .h(self.metrics.scaled(layout.section_height))
+                    .child(label)
+                    .into_any_element()
+            }
             PickerItem::Row(row) => {
                 if self
                     .state
@@ -1160,7 +1212,7 @@ impl Picker {
                     return self.render_confirmation(&row, cx);
                 }
                 let highlighted = self.state.selected_row_id() == Some(row.id.as_ref());
-                let row_height = layout.row_height;
+                let row_height = layout.row_height(&row);
                 let row_inset =
                     self.metrics
                         .scaled(if self.config.presentation == PickerPresentation::Modal {
@@ -1169,11 +1221,6 @@ impl Picker {
                             layout.item_inset
                         });
                 let action_padding = self.metrics.spacing3();
-                let text_right_inset = if self.config.presentation == PickerPresentation::Popover {
-                    row_inset + action_padding
-                } else {
-                    row_inset
-                };
                 let id = row.id.clone();
                 let hover_id = row.id.clone();
                 let group = SharedString::from(format!("command-row-{}", row.id));
@@ -1184,8 +1231,42 @@ impl Picker {
                     } else {
                         self.theme.surface
                     };
-                let mut content = div()
-                    .id(SharedString::from(format!("picker-row-{}", row.id)))
+                let element_id = SharedString::from(format!("picker-row-{}", row.id));
+                let content = if self.config.presentation == PickerPresentation::Popover {
+                    popover::row(
+                        &self.theme,
+                        self.metrics,
+                        element_id,
+                        !row.disabled,
+                        highlighted || row.selected,
+                    )
+                } else {
+                    div()
+                        .id(element_id)
+                        .pl(row_inset)
+                        .pr(row_inset)
+                        .when(
+                            self.config.presentation != PickerPresentation::Modal,
+                            |element| element.rounded(self.metrics.scaled(layout.row_radius)),
+                        )
+                        .flex()
+                        .items_center()
+                        .gap(self.metrics.scaled(layout.item_gap))
+                        .text_color(if row.disabled {
+                            self.theme.fg_dim
+                        } else {
+                            self.theme.fg
+                        })
+                        .when(highlighted || row.selected, |element| {
+                            element.bg(selected_background)
+                        })
+                        .when(!row.disabled, |element| {
+                            element
+                                .cursor_pointer()
+                                .hover(|style| style.bg(self.theme.hover))
+                        })
+                };
+                let mut content = content
                     .debug_selector({
                         let id = row.id.clone();
                         move || format!("picker-row-{id}")
@@ -1194,27 +1275,8 @@ impl Picker {
                     .relative()
                     .w_full()
                     .h(self.metrics.scaled(row_height))
-                    .pl(row_inset)
-                    .pr(text_right_inset)
-                    .when(
-                        self.config.presentation != PickerPresentation::Modal,
-                        |element| element.rounded(self.metrics.scaled(layout.row_radius)),
-                    )
-                    .flex()
-                    .items_center()
-                    .gap(self.metrics.scaled(layout.item_gap))
-                    .text_color(if row.disabled {
-                        self.theme.fg_dim
-                    } else {
-                        self.theme.fg
-                    })
-                    .when(highlighted || row.selected, |element| {
-                        element.bg(selected_background)
-                    })
                     .when(!row.disabled, |element| {
                         element
-                            .cursor_pointer()
-                            .hover(|style| style.bg(self.theme.hover))
                             .on_hover(cx.listener(move |popover, hovered: &bool, _, cx| {
                                 if *hovered {
                                     if popover.detail.is_some()
@@ -1326,7 +1388,7 @@ impl Picker {
                                 .top_0()
                                 .size(diameter)
                                 .rounded_full()
-                                .shadow_sm()
+                                .shadow(crate::theme::Elevation::Elevated.shadow(self.theme.bg))
                                 .bg(color),
                         );
                         left += step;
@@ -1354,7 +1416,11 @@ impl Picker {
                         .flex()
                         .items_center()
                         .gap(self.metrics.spacing1())
-                        .bg(self.theme.raised().blend(self.theme.hover))
+                        .bg(if self.config.presentation == PickerPresentation::Popover {
+                            self.theme.bg.blend(self.theme.hover)
+                        } else {
+                            self.theme.raised().blend(self.theme.hover)
+                        })
                         .invisible()
                         .group_hover(group, Styled::visible);
                     for action in row.actions {
@@ -1452,21 +1518,27 @@ impl Picker {
             .unwrap_or_else(|| format!("{label}?").into());
         let row_id = row.id.clone();
         let confirmed_action = SharedString::from(format!("confirm:{action_id}"));
-        let content = div()
+        let content = if self.config.presentation == PickerPresentation::Popover {
+            popover::row(
+                &self.theme,
+                self.metrics,
+                "picker-confirmation",
+                false,
+                false,
+            )
+        } else {
+            div()
+                .id("picker-confirmation")
+                .px(self.metrics.scaled(layout.item_inset))
+                .rounded(self.metrics.scaled(layout.row_radius))
+                .flex()
+                .items_center()
+                .gap(self.metrics.spacing3())
+                .bg(self.theme.danger.opacity(0.12))
+        };
+        let content = content
             .w_full()
             .h_full()
-            .px(self.metrics.scaled(layout.item_inset))
-            .when(
-                self.config.presentation == PickerPresentation::Popover,
-                |element| {
-                    element.pr(self.metrics.scaled(layout.item_inset) + self.metrics.spacing5())
-                },
-            )
-            .rounded(self.metrics.scaled(layout.row_radius))
-            .flex()
-            .items_center()
-            .gap(self.metrics.spacing3())
-            .bg(self.theme.danger.opacity(0.12))
             .child(
                 div()
                     .min_w(px(0.0))
@@ -1479,6 +1551,7 @@ impl Picker {
             .child(
                 div()
                     .id("picker-confirm-cancel")
+                    .text_color(self.theme.fg)
                     .px(self.metrics.spacing3())
                     .h(self.metrics.control_small())
                     .flex()
@@ -1515,7 +1588,7 @@ impl Picker {
             );
         div()
             .w_full()
-            .h(self.metrics.scaled(layout.row_height))
+            .h(self.metrics.scaled(layout.row_height(row)))
             .px(self.metrics.scaled(layout.outer_item_inset))
             .child(content)
             .into_any_element()
@@ -1598,11 +1671,38 @@ impl Picker {
             .into_any_element()
     }
 
+    fn render_header(&self) -> gpui::Div {
+        if self.config.presentation == PickerPresentation::Popover {
+            popover::header(&self.theme, self.metrics)
+        } else {
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .px(self.metrics.spacing4())
+                .gap(self.metrics.spacing3())
+                .border_b_1()
+                .border_color(self.theme.border)
+        }
+    }
+
     fn render_footer(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.config.footer_actions.is_empty() {
             return None;
         }
-        let mut footer = popover::footer(&self.theme, self.metrics);
+        let mut footer = if self.config.presentation == PickerPresentation::Popover {
+            popover::footer(&self.theme, self.metrics)
+        } else {
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_end()
+                .p(self.metrics.spacing3())
+                .gap(self.metrics.spacing2())
+                .border_t_1()
+                .border_color(self.theme.border)
+        };
         for action in self.config.footer_actions.clone() {
             let action_id = action.id.clone();
             let id = format!("picker-footer-{}", action.id);
@@ -1747,8 +1847,13 @@ impl Picker {
         Some(
             div()
                 .id("picker-scrollbar")
+                .debug_selector(|| "picker-scrollbar".into())
                 .absolute()
                 .right(self.metrics.spacing1())
+                .when(
+                    self.config.presentation == PickerPresentation::Popover,
+                    |element| element.right(-self.metrics.scaled(popover::PADDING)),
+                )
                 .top(self.metrics.spacing2())
                 .w(self.metrics.scaled(8.0))
                 .h(geometry.track_length)
@@ -1829,7 +1934,15 @@ impl Render for Picker {
                 .border_1()
                 .border_color(self.theme.border)
         } else {
-            popover::surface(&self.theme, self.metrics)
+            popover::surface(&self.theme, self.metrics).when(
+                self.config.presentation == PickerPresentation::Modal,
+                |surface| {
+                    surface
+                        .p_0()
+                        .gap_0()
+                        .shadow(crate::theme::Elevation::Modal.shadow(self.theme.bg))
+                },
+            )
         };
         let mut panel = surface
             .id(self.config.id.clone())
@@ -1871,7 +1984,7 @@ impl Render for Picker {
         panel = if let Some((title, _)) = &self.detail {
             let title = title.clone();
             panel.child(
-                popover::header(&self.theme, self.metrics)
+                self.render_header()
                     .id("picker-detail-header")
                     .h(self.metrics.scaled(layout.header_height))
                     .cursor_pointer()
@@ -1890,7 +2003,7 @@ impl Render for Picker {
             let has_inline_tabs = self.config.tabs.len() > 1 && layout.inline_tabs;
             let inline_tabs = has_inline_tabs.then(|| self.render_tab_strip(cx));
             panel.child(
-                popover::header(&self.theme, self.metrics)
+                self.render_header()
                     .h(self.metrics.scaled(layout.header_height))
                     .when(
                         !self.can_navigate_back
@@ -1943,6 +2056,17 @@ impl Render for Picker {
             cx.processor(|popover, index: usize, window, cx| {
                 if popover.detail.is_some() {
                     popover.render_detail_item(index)
+                } else if popover.config.presentation == PickerPresentation::Popover {
+                    let layout =
+                        PickerLayout::resolve(popover.config.presentation, popover.config.compact);
+                    let height = popover.state.items().get(index).map_or(0.0, |item| {
+                        layout.item_extent(item, index, popover.state.item_count())
+                    });
+                    div()
+                        .w_full()
+                        .h(popover.metrics.scaled(height))
+                        .child(popover.render_item(index, window, cx))
+                        .into_any_element()
                 } else {
                     popover.render_item(index, window, cx)
                 }
@@ -2181,6 +2305,90 @@ mod tests {
     }
 
     #[test]
+    fn popover_height_includes_shell_spacing_and_only_inter_item_gaps() {
+        let layout = PickerLayout::resolve(PickerPresentation::Popover, true);
+        let items = vec![
+            PickerItem::row("one"),
+            PickerItem::row("two"),
+            PickerItem::row("three"),
+        ];
+        assert_eq!(layout.row_radius, 4.0);
+        assert_eq!(layout.item_inset, popover::ROW_PADDING);
+        assert_eq!(
+            content_height(layout, 1, &items, &PickerStatus::Ready, None, false),
+            113.0
+        );
+        assert_eq!(
+            content_height(layout, 2, &items, &PickerStatus::Ready, None, true),
+            143.0
+        );
+        assert_eq!(
+            content_height(layout, 1, &[], &PickerStatus::Ready, None, false),
+            79.0
+        );
+        assert_eq!(
+            content_height(layout, 1, &items, &PickerStatus::Ready, Some(3), false),
+            99.0
+        );
+        assert_eq!(
+            scrollbar_item_heights(layout, 1.0, &items, None),
+            [25.0, 25.0, 24.0]
+        );
+    }
+
+    #[test]
+    fn rich_popover_rows_and_sections_share_the_scrollbar_spacing_model() {
+        let layout = PickerLayout::resolve(PickerPresentation::Popover, false);
+        let mut rich = PickerRow::new("rich", "Rich");
+        rich.detail = Some("Detail".into());
+        let items = vec![
+            PickerItem::section("Group"),
+            PickerItem::row("plain"),
+            PickerItem::Row(rich),
+        ];
+        assert_eq!(
+            content_height(layout, 1, &items, &PickerStatus::Ready, None, false),
+            123.0
+        );
+        let heights = scrollbar_item_heights(layout, 1.5, &items, None);
+        assert_eq!(heights, [34.5, 37.5, 48.0]);
+        for target in [0.0, 33.0, 34.0, 34.5, 35.0, 71.0, 72.0, 120.0] {
+            assert_eq!(
+                scrollbar_offset(&heights, scrollbar_list_offset(&heights, target)),
+                target
+            );
+        }
+        assert_eq!(
+            scrollbar_item_heights(layout, 1.5, &items, Some(3)),
+            [30.0; 3]
+        );
+    }
+
+    #[test]
+    fn other_presentations_keep_their_row_heights_and_list_insets() {
+        let items = vec![
+            PickerItem::row("one"),
+            PickerItem::row("two"),
+            PickerItem::row("three"),
+        ];
+        let modal = PickerLayout::resolve(PickerPresentation::Modal, false);
+        let embedded = PickerLayout::resolve(PickerPresentation::Embedded, false);
+        for layout in [modal, embedded] {
+            assert_eq!(scrollbar_item_heights(layout, 1.0, &items, None), [32.0; 3]);
+            assert_eq!(layout.list_vertical_inset, 4.0);
+            assert_eq!(layout.row_gap, 0.0);
+        }
+        assert_eq!(
+            content_height(modal, 2, &items, &PickerStatus::Ready, None, false),
+            174.0
+        );
+        assert_eq!(
+            content_height(embedded, 1, &items, &PickerStatus::Ready, None, false),
+            138.0
+        );
+    }
+
+    #[test]
     fn scrollbar_maps_the_full_unmeasured_logical_list() {
         let layout = PickerLayout::resolve(PickerPresentation::Popover, false);
         let mut items = vec![PickerItem::section("Providers")];
@@ -2337,6 +2545,136 @@ mod gpui_regression_tests {
                     .events
                     .iter()
                     .any(|event| matches!(event, PickerEvent::Confirmed(_)))
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn popover_rows_fit_the_shared_insets_and_gaps_at_each_scale(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, PickerPresentation::Popover, false);
+        let picker = host.read_with(cx, |host, _| host.popover.clone());
+        for (compact, scale, has_footer) in
+            [(true, 1.0, false), (false, 1.5, false), (true, 1.5, true)]
+        {
+            let metrics = Metrics::new(scale);
+            picker.update(cx, |picker, cx| {
+                picker.config.compact = compact;
+                picker.set_items(
+                    vec![
+                        PickerItem::row("one"),
+                        PickerItem::row("two"),
+                        PickerItem::row("three"),
+                    ],
+                    cx,
+                );
+                picker.set_footer_actions(
+                    if has_footer {
+                        vec![PickerAction::new("done", "Done")]
+                    } else {
+                        Vec::new()
+                    },
+                    cx,
+                );
+                picker.set_appearance(Theme::from_scheme(&ColorScheme::default()), metrics, cx);
+            });
+            cx.simulate_resize(gpui::size(px(800.0), px(600.0)));
+            cx.run_until_parked();
+            let panel = cx.debug_bounds("tested-popover").expect("panel");
+            let first = cx.debug_bounds("picker-row-one").expect("first row");
+            let second = cx.debug_bounds("picker-row-two").expect("second row");
+            let last = cx.debug_bounds("picker-row-three").expect("last row");
+            assert_eq!(
+                first.left() - panel.left(),
+                px(1.0) + metrics.scaled(popover::PADDING)
+            );
+            assert_eq!(
+                panel.right() - first.right(),
+                px(1.0) + metrics.scaled(popover::PADDING)
+            );
+            assert_eq!(first.size.height, metrics.scaled(popover::ROW_HEIGHT));
+            assert_eq!(
+                second.top() - first.bottom(),
+                metrics.scaled(popover::ROW_GAP)
+            );
+            assert_eq!(
+                last.top() - second.bottom(),
+                metrics.scaled(popover::ROW_GAP)
+            );
+            let bottom = if has_footer {
+                let footer = cx
+                    .debug_bounds("picker-footer-done")
+                    .expect("footer button");
+                assert_eq!(
+                    footer.top() - last.bottom(),
+                    metrics.scaled(popover::ROW_GAP + 4.0) + px(1.0)
+                );
+                footer.bottom()
+            } else {
+                last.bottom()
+            };
+            assert_eq!(
+                panel.bottom() - bottom,
+                metrics.scaled(popover::PADDING) + px(1.0)
+            );
+            picker.read_with(cx, |picker, _| {
+                let heights = scrollbar_item_heights(
+                    PickerLayout::resolve(PickerPresentation::Popover, compact),
+                    scale,
+                    picker.state.items(),
+                    None,
+                );
+                assert_eq!(
+                    picker.scroll.viewport_bounds().size.height,
+                    px(heights.iter().sum())
+                );
+                assert!(picker.scrollbar_geometry().is_none());
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn popover_scrollbar_stays_in_padded_edge_and_reaches_the_last_row(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, PickerPresentation::Popover, false);
+        let picker = host.read_with(cx, |host, _| host.popover.clone());
+        picker.update(cx, |picker, cx| {
+            picker.set_items(
+                (0..40)
+                    .map(|index| PickerItem::row(format!("row-{index}")))
+                    .collect(),
+                cx,
+            );
+        });
+        cx.simulate_resize(gpui::size(px(800.0), px(600.0)));
+        cx.run_until_parked();
+        let first = cx.debug_bounds("picker-row-row-0").expect("first row");
+        let scrollbar = cx.debug_bounds("picker-scrollbar").expect("scrollbar");
+        let panel = cx.debug_bounds("tested-popover").expect("panel");
+        assert!(scrollbar.left() >= first.right() - px(popover::ROW_PADDING));
+        assert_eq!(scrollbar.right(), panel.right() - px(1.0));
+        picker.update(cx, |picker, cx| {
+            let geometry = picker.scrollbar_geometry().expect("scrollbar geometry");
+            picker.scrollbar_drag = Some(px(0.0));
+            picker.drag_scrollbar_to(geometry.track_origin + geometry.track_length, geometry);
+            picker.scrollbar_drag = None;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let last = cx.debug_bounds("picker-row-row-39").expect("last row");
+        assert_eq!(last.bottom(), panel.bottom() - px(1.0 + popover::PADDING));
+        picker.read_with(cx, |picker, _| {
+            let geometry = picker.scrollbar_geometry().expect("scrollbar geometry");
+            let heights = scrollbar_item_heights(
+                PickerLayout::resolve(PickerPresentation::Popover, false),
+                1.0,
+                picker.state.items(),
+                None,
+            );
+            assert_eq!(
+                px(scrollbar_offset(
+                    &heights,
+                    picker.scroll.logical_scroll_top()
+                )),
+                geometry.maximum_offset
             );
         });
     }

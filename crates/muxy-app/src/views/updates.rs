@@ -40,11 +40,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
         .child(
             popover::header(theme, m)
                 .justify_between()
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Muxy updates"),
-                )
+                .child("Muxy updates")
                 .child(controls::button(
                     Style { theme, metrics: &m },
                     "close-updates",
@@ -80,15 +76,14 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
         );
     }
     if separate_server_action {
-        content = content.child(
-            div()
-                .border_t_1()
-                .border_color(theme.border)
-                .pt(m.spacing4())
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child("The installed app includes a server update. Restarting the server ends all terminal sessions."),
-        );
+        content = content
+            .child(popover::divider(theme, m))
+            .child(
+                div()
+                    .text_size(m.font_footnote())
+                    .text_color(theme.fg_muted)
+                    .child("The installed app includes a server update. Restarting the server ends all terminal sessions."),
+            );
         let (action, label) = model.server_update_action();
         actions.push(action_button(action, label, model, cx));
     }

@@ -52,15 +52,6 @@ impl SurfaceKind {
             Self::Sidebar => "sidebar",
         }
     }
-
-    /// Popover pages paint over the popover's own surface, as on main.
-    fn background(self, theme: &Theme) -> gpui::Rgba {
-        if self == Self::Popover {
-            theme.raised().into()
-        } else {
-            theme.bg.into()
-        }
-    }
 }
 
 pub(crate) struct Page {
@@ -139,7 +130,7 @@ impl Webview {
             window,
             source.clone(),
             &script,
-            kind.background(theme),
+            theme.bg.into(),
             matches!(kind, SurfaceKind::Modal | SurfaceKind::Popover),
         )?;
         Ok(cx.new(move |cx| {
@@ -163,7 +154,7 @@ impl Webview {
                 icon_revision: 0,
                 data,
                 theme: theme_values,
-                background: kind.background(theme),
+                background: theme.bg.into(),
                 presentation: Presentation::default(),
                 snapshot: None,
                 error: None,
@@ -304,7 +295,7 @@ impl Webview {
         cx: &mut Context<Self>,
     ) {
         let values = theme_snapshot(theme, metrics);
-        self.background = self.kind.background(theme);
+        self.background = theme.bg.into();
         let data_changed = self.data != data;
         let theme_changed = self.theme != values;
         if data_changed || theme_changed {

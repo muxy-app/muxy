@@ -8,6 +8,7 @@ use gpui::{
 };
 use muxy_ui::components::IconButton;
 use muxy_ui::icon::Icon;
+use muxy_ui::popover;
 use muxy_ui::quick_terminal::panel::{EffectiveAppearance, QuickTerminalConfiguration};
 use muxy_ui::theme::{Metrics, Theme};
 use std::time::Duration;
@@ -396,7 +397,7 @@ impl Render for QuickTerminalView {
                             bridge_muted,
                             bridge_foreground,
                         )
-                        .tooltip("Settings", theme.raised(), theme.fg, theme.border)
+                        .tooltip("Settings", theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_settings, BridgeAction::OpenSettings, cx);
                         }),
@@ -410,7 +411,7 @@ impl Render for QuickTerminalView {
                             bridge_muted,
                             bridge_foreground,
                         )
-                        .tooltip("Close", theme.raised(), theme.fg, theme.border)
+                        .tooltip("Close", theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_close, BridgeAction::Close, cx);
                         }),
@@ -485,6 +486,7 @@ fn confirmation_dialog(
     muted: gpui::Hsla,
     border: gpui::Hsla,
 ) -> AnyElement {
+    let background = gpui::hsla(0.0, 0.0, 0.08, 0.98);
     let (title, body, approve) = (
         "Close active terminal?",
         "A process is still running in this terminal.",
@@ -518,8 +520,8 @@ fn confirmation_dialog(
                 .rounded(px(14.0))
                 .border_1()
                 .border_color(border)
-                .bg(gpui::hsla(0.0, 0.0, 0.08, 0.98))
-                .shadow_lg()
+                .bg(background)
+                .shadow(muxy_ui::theme::Elevation::Modal.shadow(background))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(
                     div()
@@ -598,26 +600,30 @@ impl QuickTerminalView {
             ConfirmHighlighted, DismissMenu, HighlightNext, HighlightPrevious,
         };
         let (position, highlighted) = self.menu?;
+        let theme = &self.model.theme;
+        let m = self.model.metrics;
+        let width = m
+            .scaled(220.0)
+            .min((window.viewport_size().width - px(16.0)).max(px(0.0)));
+        let height = m
+            .scaled(popover::PADDING * 2.0 + popover::ROW_HEIGHT * 4.0 + popover::ROW_GAP * 3.0)
+            + px(2.0);
         let origin = crate::views::overlays::clamp(
             position,
-            gpui::size(px(180.0), px(98.0)),
+            gpui::size(width, height),
             window.viewport_size(),
         );
-        let theme = &self.model.theme;
-        let mut menu = div()
+        let mut menu = popover::surface(theme, m)
+            .id("quick-context-menu")
+            .debug_selector(|| "quick-context-menu".into())
             .key_context("Menu")
             .track_focus(&self.menu_focus)
             .absolute()
             .left(origin.x)
             .top(origin.y)
-            .w(px(180.0))
-            .py(px(5.0))
-            .rounded(px(8.0))
-            .bg(theme.raised())
-            .border_1()
-            .border_color(theme.border)
-            .shadow_lg()
-            .occlude()
+            .w(width)
+            .max_h((window.viewport_size().height - px(16.0)).max(px(0.0)))
+            .overflow_y_scroll()
             .on_action(cx.listener(|view, _: &DismissMenu, window, cx| {
                 view.menu = None;
                 view.focus_terminal(window, cx);
@@ -651,17 +657,7 @@ impl QuickTerminalView {
             .enumerate()
         {
             menu = menu.child(
-                div()
-                    .id(("quick-menu", index))
-                    .h(px(22.0))
-                    .px(px(10.0))
-                    .mx(px(4.0))
-                    .rounded(px(4.0))
-                    .text_size(px(12.0))
-                    .text_color(theme.fg)
-                    .cursor_pointer()
-                    .when(highlighted == index, |row| row.bg(theme.fg_alpha(0.1)))
-                    .hover(|row| row.bg(theme.fg_alpha(0.1)))
+                popover::row(theme, m, ("quick-menu", index), true, highlighted == index)
                     .on_click(cx.listener(move |view, _, window, cx| {
                         view.menu_command(index, window, cx);
                     }))

@@ -618,6 +618,7 @@ fn panel_action(
     let focus_for_mouse = focus_handle.clone();
     let focused = focus_handle.is_focused(window);
     let tooltip_background = theme.raised();
+    let theme_background = theme.bg;
     let tooltip_foreground = theme.fg;
     let tooltip_border = theme.border;
     div()
@@ -655,6 +656,7 @@ fn panel_action(
                     tooltip_background,
                     tooltip_foreground,
                     tooltip_border,
+                    theme_background,
                 )
             })
             .into()

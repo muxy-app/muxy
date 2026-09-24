@@ -102,7 +102,13 @@ impl Composer {
             .child(SymbolGlyph::new(symbol, glyph_size, color))
             .tooltip(move |_, cx| {
                 cx.new(|_| {
-                    muxy_ui::components::Tooltip::new(label, theme.raised(), theme.fg, theme.border)
+                    muxy_ui::components::Tooltip::new(
+                        label,
+                        theme.raised(),
+                        theme.fg,
+                        theme.border,
+                        theme.bg,
+                    )
                 })
                 .into()
             })
@@ -648,12 +654,7 @@ impl Composer {
             .h(dimensions.height)
             .rounded(m.scaled(18.0))
             .bg(self.theme.raised())
-            .shadow(vec![gpui::BoxShadow {
-                color: gpui::black().opacity(0.45),
-                offset: point(px(0.0), m.scaled(18.0)),
-                blur_radius: m.scaled(36.0),
-                spread_radius: px(0.0),
-            }])
+            .shadow(muxy_ui::theme::Elevation::Elevated.shadow(self.theme.bg))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(Self::resize_listener(cx))
             .child(body)

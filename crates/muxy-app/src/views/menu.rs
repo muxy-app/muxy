@@ -6,6 +6,8 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, Window, actions, div, px,
 };
 use muxy_ui::components::SymbolGlyph;
+use muxy_ui::popover;
+use muxy_ui::theme::Metrics;
 
 use super::overlays::Overlay;
 use crate::model::AppModel;
@@ -69,7 +71,7 @@ pub(crate) struct Item {
     label: SharedString,
     command: Command,
     disabled: bool,
-    checked: bool,
+    checked: Option<bool>,
     separator_before: bool,
 }
 
@@ -79,13 +81,13 @@ impl Item {
             label: label.into(),
             command,
             disabled: false,
-            checked: false,
+            checked: None,
             separator_before: false,
         }
     }
 
     pub(crate) fn checked_if(mut self, checked: bool) -> Self {
-        self.checked = checked;
+        self.checked = Some(checked);
         self
     }
     pub(crate) fn disabled(mut self) -> Self {
@@ -104,6 +106,7 @@ pub(crate) struct Menu {
     pub(crate) items: Vec<Item>,
     pub(crate) position: Point<Pixels>,
     highlighted: Option<usize>,
+    scroll: gpui::ScrollHandle,
 }
 
 impl Menu {
@@ -112,7 +115,12 @@ impl Menu {
             items,
             position,
             highlighted: None,
+            scroll: gpui::ScrollHandle::new(),
         }
+    }
+
+    fn has_checkmarks(&self) -> bool {
+        self.items.iter().any(|item| item.checked.is_some())
     }
 
     fn dimensions(
@@ -121,17 +129,8 @@ impl Menu {
         model: &AppModel,
         window: &Window,
     ) -> gpui::Size<Pixels> {
-        let count = f32::from(u16::try_from(self.items.len()).unwrap_or(u16::MAX));
-        let separators = f32::from(
-            u16::try_from(
-                self.items
-                    .iter()
-                    .filter(|item| item.separator_before)
-                    .count(),
-            )
-            .unwrap_or(u16::MAX),
-        );
-        let mut width = px(
+        let m = model.metrics;
+        let mut width = m.scaled(
             if self
                 .items
                 .iter()
@@ -142,7 +141,6 @@ impl Menu {
                 180.0
             },
         );
-        let m = model.metrics;
         let mut style = window.text_style();
         style.font_weight = FontWeight::NORMAL;
         let measure = |text: &str, font_size| {
@@ -156,18 +154,46 @@ impl Menu {
                 )
                 .width
         };
+        let checkmark_width = if self.has_checkmarks() {
+            m.scaled(12.0 + popover::ROW_PADDING)
+        } else {
+            px(0.0)
+        };
         for (item, shortcut) in self.items.iter().zip(shortcuts) {
-            let mut row_width = measure(&item.label, m.font_emphasis())
-                + px(12.0)
-                + m.spacing2() * 3.0
-                + m.spacing3() * 2.0
+            let mut row_width = measure(&item.label, m.font_body())
+                + checkmark_width
+                + m.scaled(popover::ROW_PADDING) * 2.0
+                + m.scaled(popover::PADDING) * 2.0
                 + px(2.0);
             if let Some(shortcut) = shortcut {
-                row_width += m.spacing2() + measure(shortcut, m.font_footnote());
+                row_width += m.scaled(popover::ROW_PADDING) + measure(shortcut, m.font_footnote());
             }
             width = width.max(row_width);
         }
-        gpui::size(width, px(count * 22.0 + separators * 9.0 + 10.0))
+        let viewport = window.viewport_size();
+        gpui::size(
+            width.min((viewport.width - px(16.0)).max(px(0.0))),
+            self.height(m)
+                .min((viewport.height - px(16.0)).max(px(0.0))),
+        )
+    }
+
+    fn height(&self, m: Metrics) -> Pixels {
+        let count = f32::from(u16::try_from(self.items.len()).unwrap_or(u16::MAX));
+        let separators = f32::from(
+            u16::try_from(
+                self.items
+                    .iter()
+                    .filter(|item| item.separator_before)
+                    .count(),
+            )
+            .unwrap_or(u16::MAX),
+        );
+        m.scaled(popover::PADDING) * 2.0
+            + m.scaled(popover::ROW_HEIGHT) * count
+            + (px(1.0) + m.spacing2() * 2.0) * separators
+            + m.scaled(popover::ROW_GAP) * (count + separators - 1.0).max(0.0)
+            + px(2.0)
     }
 
     fn move_highlight(&mut self, forward: bool) {
@@ -191,7 +217,13 @@ impl Menu {
             (None, true) => 0,
             (None, false) => selectable.len() - 1,
         };
-        self.highlighted = Some(selectable[next]);
+        let index = selectable[next];
+        self.highlighted = Some(index);
+        let separators = self.items[..=index]
+            .iter()
+            .filter(|item| item.separator_before)
+            .count();
+        self.scroll.scroll_to_item(index + separators);
     }
 }
 
@@ -401,7 +433,8 @@ pub(crate) fn render(
         .collect();
     let dimensions = menu.dimensions(&shortcuts, model, window);
     let origin = super::overlays::clamp(menu.position, dimensions, window.viewport_size());
-    let mut panel = muxy_ui::popover::surface(theme, m)
+    let mut panel = popover::surface(theme, m)
+        .id("context-menu")
         .debug_selector(|| "context-menu".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -420,22 +453,25 @@ pub(crate) fn render(
         .left(origin.x)
         .top(origin.y)
         .w(dimensions.width)
-        .py(m.spacing2());
+        .h(dimensions.height)
+        .overflow_y_scroll()
+        .track_scroll(&menu.scroll);
+    let has_checkmarks = menu.has_checkmarks();
     for (index, item) in menu.items.iter().enumerate() {
         if item.separator_before {
             panel = panel.child(
                 div()
+                    .flex()
                     .flex_none()
-                    .h(px(1.0))
-                    .my(px(4.0))
-                    .mx(m.spacing3())
-                    .bg(theme.border),
+                    .flex_col()
+                    .child(popover::divider(theme, m)),
             );
         }
         panel = panel.child(item.render(
             index,
             menu.highlighted == Some(index),
             shortcuts[index].clone(),
+            has_checkmarks,
             model,
             cx,
         ));
@@ -449,6 +485,7 @@ impl Item {
         index: usize,
         highlighted: bool,
         shortcut: Option<String>,
+        has_checkmarks: bool,
         model: &AppModel,
         cx: &Context<AppModel>,
     ) -> AnyElement {
@@ -456,72 +493,63 @@ impl Item {
         let m = model.metrics;
         let theme = &model.theme;
         let command = item.command;
-        let mut mark = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .w(px(12.0));
-        if item.checked {
-            mark = mark.child(SymbolGlyph::new("checkmark", m.font_caption(), theme.fg));
-        }
-        div()
-            .id(SharedString::from(format!("menu-item-{index}")))
-            .debug_selector(move || format!("menu-item-{index}"))
-            .flex()
-            .items_center()
-            .gap(m.spacing2())
-            .h(px(22.0))
-            .px(m.spacing3())
-            .mx(m.spacing2())
-            .rounded(m.radius_sm())
-            .font_weight(FontWeight::NORMAL)
-            .when(highlighted && !item.disabled, |row| {
-                row.bg(theme.fg_alpha(0.1))
-            })
-            .child(mark)
-            .child(
+        popover::row(
+            theme,
+            m,
+            SharedString::from(format!("menu-item-{index}")),
+            !item.disabled,
+            highlighted,
+        )
+        .debug_selector(move || format!("menu-item-{index}"))
+        .font_weight(FontWeight::NORMAL)
+        .when(has_checkmarks, |row| {
+            row.child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .w(m.scaled(12.0))
+                    .when(item.checked == Some(true), |mark| {
+                        mark.child(SymbolGlyph::new("checkmark", m.font_caption(), theme.fg))
+                    }),
+            )
+        })
+        .child(
+            div()
+                .debug_selector({
+                    let label = item.label.clone();
+                    move || format!("menu-label-{label}")
+                })
+                .flex_1()
+                .min_w(px(0.0))
+                .truncate()
+                .child(item.label.clone()),
+        )
+        .when_some(shortcut, |row, shortcut| {
+            row.child(
                 div()
                     .debug_selector({
                         let label = item.label.clone();
-                        move || format!("menu-label-{label}")
+                        move || format!("menu-shortcut-{label}")
                     })
-                    .flex_grow()
+                    .flex_none()
                     .whitespace_nowrap()
-                    .text_size(m.font_emphasis())
+                    .text_size(m.font_footnote())
                     .text_color(if item.disabled {
                         theme.fg_dim
                     } else {
-                        theme.fg
+                        theme.fg_muted
                     })
-                    .child(item.label.clone()),
+                    .child(shortcut),
             )
-            .when_some(shortcut, |row, shortcut| {
-                row.child(
-                    div()
-                        .debug_selector({
-                            let label = item.label.clone();
-                            move || format!("menu-shortcut-{label}")
-                        })
-                        .flex_none()
-                        .whitespace_nowrap()
-                        .text_size(m.font_footnote())
-                        .text_color(if item.disabled {
-                            theme.fg_dim
-                        } else {
-                            theme.fg_muted
-                        })
-                        .child(shortcut),
-                )
-            })
-            .when(!item.disabled, |row| {
-                row.cursor_pointer()
-                    .hover(|style| style.bg(theme.fg_alpha(0.1)))
-                    .on_click(cx.listener(move |model, _, window, cx| {
-                        model.perform_menu(command, window, cx);
-                    }))
-            })
-            .into_any_element()
+        })
+        .when(!item.disabled, |row| {
+            row.on_click(cx.listener(move |model, _, window, cx| {
+                model.perform_menu(command, window, cx);
+            }))
+        })
+        .into_any_element()
     }
 }
 
@@ -529,6 +557,30 @@ impl Item {
 mod tests {
     use super::*;
     use muxy_app_core::AppState;
+
+    #[test]
+    fn menu_height_tracks_shared_rows_separators_and_scale() {
+        let menu = Menu::new(
+            vec![
+                Item::action("First", Command::Dismiss),
+                Item::action("Second", Command::Dismiss).separated(),
+                Item::action("Third", Command::Dismiss),
+            ],
+            gpui::point(px(0.0), px(0.0)),
+        );
+        for scale in [1.0, 1.5, 2.0] {
+            let m = Metrics::new(scale);
+            assert_eq!(menu.height(m), m.scaled(91.0) + px(3.0));
+            let origin = super::super::overlays::clamp(
+                gpui::point(px(780.0), px(590.0)),
+                gpui::size(m.scaled(180.0), menu.height(m)),
+                gpui::size(px(800.0), px(600.0)),
+            );
+            assert!(origin.y + menu.height(m) <= px(592.0));
+        }
+        let empty = Menu::new(Vec::new(), gpui::point(px(0.0), px(0.0)));
+        assert_eq!(empty.height(Metrics::new(1.0)), px(10.0));
+    }
 
     #[test]
     fn worktrees_menu_tracks_the_visibility_checkbox() {
@@ -541,7 +593,7 @@ mod tests {
                 .iter()
                 .find(|item| item.label == "Worktrees")
                 .expect("checkbox");
-            assert_eq!(item.checked, checked);
+            assert_eq!(item.checked, Some(checked));
             assert!(matches!(item.command, Command::Worktrees(project) if project == id));
             assert!(!items.iter().any(|item| item.label == "Worktrees…"));
         }
@@ -573,9 +625,9 @@ mod tests {
         assert_eq!(
             marks,
             [
-                ("Work", true, false),
-                ("Other", false, false),
-                ("New Workspace…", false, true),
+                ("Work", Some(true), false),
+                ("Other", Some(false), false),
+                ("New Workspace…", None, true),
             ]
         );
         assert!(

@@ -276,7 +276,13 @@ impl AppModel {
                     .hover(|view| view.bg(self.theme.hover))
                     .tooltip(move |_, cx| {
                         cx.new(|_| {
-                            Tooltip::new(tooltip.clone(), theme.raised(), theme.fg, theme.border)
+                            Tooltip::new(
+                                tooltip.clone(),
+                                theme.raised(),
+                                theme.fg,
+                                theme.border,
+                                theme.bg,
+                            )
                         })
                         .into()
                     })
@@ -336,7 +342,13 @@ impl AppModel {
                     .hover(|style| style.text_color(self.theme.fg))
                     .tooltip(move |_, cx| {
                         cx.new(|_| {
-                            Tooltip::new(tooltip.clone(), theme.raised(), theme.fg, theme.border)
+                            Tooltip::new(
+                                tooltip.clone(),
+                                theme.raised(),
+                                theme.fg,
+                                theme.border,
+                                theme.bg,
+                            )
                         })
                         .into()
                     })

@@ -94,8 +94,14 @@ fn terminal_menu_shortcuts_follow_bindings_and_fit_beside_labels(cx: &mut TestAp
         });
         cx.run_until_parked();
         let menu = cx.debug_bounds("context-menu").expect("menu");
-        assert!(menu.right() <= px(1000.0));
-        assert!(menu.bottom() <= px(700.0));
+        assert!(menu.right() <= px(992.0));
+        assert!(menu.bottom() <= px(692.0));
+        let first = cx.debug_bounds("menu-item-0").expect("first row");
+        let second = cx.debug_bounds("menu-item-1").expect("second row");
+        assert_eq!(first.size.height, px(24.0 * scale));
+        assert_eq!(second.top() - first.bottom(), px(scale));
+        assert_eq!(first.left() - menu.left(), px(4.0 * scale + 1.0));
+        assert_eq!(first.top() - menu.top(), px(4.0 * scale + 1.0));
         for (label, shortcut) in [
             ("menu-label-Copy", "menu-shortcut-Copy"),
             ("menu-label-Select All", "menu-shortcut-Select All"),
@@ -107,10 +113,109 @@ fn terminal_menu_shortcuts_follow_bindings_and_fit_beside_labels(cx: &mut TestAp
         ] {
             let label = cx.debug_bounds(label).expect("label");
             let shortcut = cx.debug_bounds(shortcut).expect("shortcut");
+            assert_eq!(label.left() - first.left(), px(6.0 * scale));
             assert!(label.right() < shortcut.left());
             assert!(shortcut.right() < menu.right());
         }
     }
+}
+
+#[gpui::test]
+fn context_menus_only_reserve_checkmark_space_for_checkable_options(cx: &mut TestAppContext) {
+    use crate::views::menu::{Command, Item, Menu};
+
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    for scale in [0.75, 1.0, 1.5, 2.0] {
+        let mut plain_width = px(0.0);
+        for checked in [None, Some(false), Some(true)] {
+            view.update(cx, |model, cx| {
+                model.metrics = Metrics::new(scale);
+                let option = Item::action("Option", Command::Dismiss);
+                let option = if let Some(checked) = checked {
+                    option.checked_if(checked)
+                } else {
+                    option
+                };
+                model.overlay = Some(Overlay::Menu(Menu::new(
+                    vec![
+                        Item::action(
+                            "An action with a label wider than the minimum menu width",
+                            Command::Dismiss,
+                        ),
+                        option,
+                    ],
+                    point(px(8.0), px(40.0)),
+                )));
+                cx.notify();
+            });
+            cx.run_until_parked();
+            let menu = cx.debug_bounds("context-menu").expect("menu");
+            let action = cx
+                .debug_bounds("menu-label-An action with a label wider than the minimum menu width")
+                .expect("action");
+            let option = cx.debug_bounds("menu-label-Option").expect("option");
+            let mark_width = if checked.is_some() { 18.0 } else { 0.0 };
+            let expected_inset = px(1.0 + (4.0 + 6.0 + mark_width) * scale);
+            assert!((f32::from(action.left() - menu.left() - expected_inset)).abs() <= 1.0);
+            assert_eq!(action.left(), option.left());
+            if checked.is_none() {
+                plain_width = menu.size.width;
+            } else {
+                assert!((f32::from(menu.size.width - plain_width) - 18.0 * scale).abs() <= 1.0);
+            }
+        }
+    }
+}
+
+#[gpui::test]
+fn tall_context_menus_reveal_keyboard_selection_and_wraparound(cx: &mut TestAppContext) {
+    use crate::views::menu::{Command, Item, Menu};
+
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(640.0), px(400.0)));
+    cx.update(|window, cx| {
+        view.update(cx, |model, cx| {
+            model.metrics = Metrics::new(1.5);
+            let items = (0..16)
+                .map(|index| {
+                    let item = Item::action(format!("Action {index}"), Command::Dismiss);
+                    let item = if index % 3 == 0 {
+                        item.separated()
+                    } else {
+                        item
+                    };
+                    if index == 0 { item.disabled() } else { item }
+                })
+                .collect();
+            model.overlay = Some(Overlay::Menu(Menu::new(items, point(px(630.0), px(390.0)))));
+            model.overlay_focus.focus(window);
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    for (key, row) in [
+        ("up", "menu-item-15"),
+        ("down", "menu-item-1"),
+        ("up", "menu-item-15"),
+        ("down", "menu-item-1"),
+        ("down", "menu-item-2"),
+    ] {
+        cx.simulate_keystrokes(key);
+        cx.run_until_parked();
+        let menu = cx.debug_bounds("context-menu").expect("menu");
+        let selected = cx.debug_bounds(row).expect("selected row");
+        assert!(menu.bottom() <= px(392.0));
+        assert!(selected.top() >= menu.top());
+        assert!(selected.bottom() <= menu.bottom());
+        assert_eq!(selected.size.height, px(36.0));
+    }
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
 }
 
 #[gpui::test]

@@ -150,7 +150,7 @@ fn zoomed_frame(
                 .rounded(radius)
                 .border(px(1.0))
                 .border_color(model.theme.border_solid())
-                .shadow_md()
+                .shadow(muxy_ui::theme::Elevation::Elevated.shadow(model.theme.bg))
                 .overflow_hidden()
                 .child(pane_element(pane, model, cx)),
         )

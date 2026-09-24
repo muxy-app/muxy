@@ -4,9 +4,9 @@ use crate::{
 };
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Entity, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, px, size,
+    AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    px, size,
 };
 use muxy_app_core::ProjectId;
 use muxy_ui::{
@@ -105,67 +105,56 @@ pub(crate) fn render(
         .top(origin.y)
         .w(width)
         .h(height)
-        .p(m.spacing6())
-        .gap(m.spacing5())
         .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
             if event.keystroke.key == "escape" {
                 model.dismiss_overlay(cx);
             }
         }))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(muxy_ui::popover::header(theme, m).child("Icon"))
         .child(
-            div()
-                .flex_none()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Icon"),
-        )
-        .child(muxy_ui::controls::text_field(
-            muxy_ui::controls::Style { theme, metrics: &m },
-            "project-symbol-search",
-            &picker.input,
-            None,
-        ))
-        .child(
-            div()
-                .id("project-symbols-scroll")
-                .debug_selector(|| "project-symbols-scroll".into())
+            muxy_ui::popover::body(m)
                 .flex_1()
                 .min_h(px(0.0))
-                .overflow_y_scroll()
+                .child(muxy_ui::controls::text_field(
+                    muxy_ui::controls::Style { theme, metrics: &m },
+                    "project-symbol-search",
+                    &picker.input,
+                    None,
+                ))
                 .child(
-                    div().flex().flex_wrap().gap(m.spacing4()).children(
-                        picker
-                            .matches
-                            .iter()
-                            .copied()
-                            .map(|symbol| symbol_button(symbol, selected, model, cx)),
-                    ),
+                    div()
+                        .id("project-symbols-scroll")
+                        .debug_selector(|| "project-symbols-scroll".into())
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .overflow_y_scroll()
+                        .child(
+                            div().flex().flex_wrap().gap(m.spacing4()).children(
+                                picker
+                                    .matches
+                                    .iter()
+                                    .copied()
+                                    .map(|symbol| symbol_button(symbol, selected, model, cx)),
+                            ),
+                        )
+                        .when(picker.matches.is_empty(), |grid| {
+                            grid.child(div().text_color(theme.fg_muted).child("No symbols found"))
+                        }),
                 )
-                .when(picker.matches.is_empty(), |grid| {
-                    grid.child(div().text_color(theme.fg_muted).child("No symbols found"))
-                }),
+                .children(
+                    picker
+                        .error
+                        .as_ref()
+                        .map(|error| div().text_color(theme.danger).child(error.clone())),
+                ),
         )
-        .children(
-            picker
-                .error
-                .as_ref()
-                .map(|error| div().text_color(theme.danger).child(error.clone())),
-        )
-        .child(div().flex_none().h(px(1.0)).bg(theme.border))
+        .child(muxy_ui::popover::divider(theme, m))
         .child(
-            div()
-                .id("remove-project-icon")
+            muxy_ui::popover::row(theme, m, "remove-project-icon", selected.is_some(), false)
                 .debug_selector(|| "remove-project-icon".into())
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(m.spacing3())
-                .text_color(theme.fg_muted)
-                .text_size(m.font_footnote())
-                .font_weight(FontWeight::MEDIUM)
-                .opacity(if selected.is_some() { 1.0 } else { 0.4 })
                 .when(selected.is_some(), |button| {
-                    button.cursor_pointer().button_interaction(
+                    button.button_interaction(
                         cx.listener(|model, _, _, cx| model.choose_project_symbol(None, cx)),
                     )
                 })
@@ -209,6 +198,7 @@ fn symbol_button(
                     tooltip_theme.raised(),
                     tooltip_theme.fg,
                     tooltip_theme.border,
+                    tooltip_theme.bg,
                 )
             })
             .into()

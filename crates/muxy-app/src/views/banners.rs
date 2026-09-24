@@ -70,6 +70,7 @@ fn problem(
                     tooltip_theme.raised(),
                     tooltip_theme.fg,
                     tooltip_theme.border,
+                    tooltip_theme.bg,
                 )
             })
             .into()

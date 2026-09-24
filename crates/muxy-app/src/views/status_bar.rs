@@ -278,8 +278,16 @@ fn tooltip(
 ) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
     let theme = model.theme.clone();
     move |_, cx| {
-        cx.new(|_| Tooltip::new(text.clone(), theme.raised(), theme.fg, theme.border))
-            .into()
+        cx.new(|_| {
+            Tooltip::new(
+                text.clone(),
+                theme.raised(),
+                theme.fg,
+                theme.border,
+                theme.bg,
+            )
+        })
+        .into()
     }
 }
 

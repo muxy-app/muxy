@@ -7,6 +7,7 @@ use gpui::{
 use muxy_protocol::ProjectId;
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
 use muxy_ui::controls::{self, Style};
+use muxy_ui::popover;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 
 use crate::ai::{PROVIDERS, Provider};
@@ -199,41 +200,27 @@ fn provider_row(
             )
         },
     );
-    div()
-        .id(("ai-provider-row", index))
-        .debug_selector(move || format!("ai-provider-{id}"))
-        .flex()
-        .items_center()
-        .gap(m.spacing3())
-        .px(m.spacing3())
-        .min_w(m.scaled(220.0))
-        .h(m.control_medium())
-        .rounded(m.radius_sm())
-        .cursor_pointer()
-        .hover(|style| style.bg(model.theme.hover))
-        .when(menu.highlighted == Some(index), |row| {
-            row.bg(model.theme.hover)
-        })
-        .button_interaction(
-            cx.listener(move |model, _, window, cx| model.select_ai_provider(index, window, cx)),
-        )
-        .child(provider_icon(provider, model))
-        .child(div().text_size(m.font_body()).child(title))
-        .child(div().flex_1().min_w(m.spacing6()))
-        .child(
-            div()
-                .opacity(if configured == id { 1.0 } else { 0.0 })
-                .child(SymbolGlyph::new("checkmark", m.font_footnote(), model.theme.accent).bold()),
-        )
-        .into_any_element()
-}
-
-fn divider(model: &AppModel) -> AnyElement {
-    div()
-        .h(px(1.0))
-        .bg(model.theme.border)
-        .my(model.metrics.spacing2())
-        .into_any_element()
+    popover::row(
+        &model.theme,
+        m,
+        ("ai-provider-row", index),
+        true,
+        menu.highlighted == Some(index),
+    )
+    .debug_selector(move || format!("ai-provider-{id}"))
+    .min_w(m.scaled(220.0))
+    .button_interaction(
+        cx.listener(move |model, _, window, cx| model.select_ai_provider(index, window, cx)),
+    )
+    .child(provider_icon(provider, model))
+    .child(div().text_size(m.font_body()).child(title))
+    .child(div().flex_1().min_w(m.spacing6()))
+    .child(
+        div()
+            .opacity(if configured == id { 1.0 } else { 0.0 })
+            .child(SymbolGlyph::new("checkmark", m.font_footnote(), model.theme.accent).bold()),
+    )
+    .into_any_element()
 }
 
 #[allow(
@@ -259,12 +246,11 @@ pub(crate) fn render_provider_menu(
         .project_pr_prompts
         .get(&menu.project.to_string())
         .is_some_and(|prompt| !prompt.trim().is_empty());
-    let mut view = muxy_ui::popover::surface(theme, m)
+    let mut view = popover::surface(theme, m)
         .id("ai-provider-menu")
         .debug_selector(|| "ai-provider-menu".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
-        .bg(theme.bg)
         .max_h((window.viewport_size().height - m.scaled(40.0)).max(px(0.0)))
         .overflow_y_scroll()
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -289,12 +275,11 @@ pub(crate) fn render_provider_menu(
     if let Some(input) = &menu.prompt {
         view = view
             .w(m.scaled(380.0).min(window.viewport_size().width - px(16.0)))
-            .p(m.spacing5())
             .gap(m.spacing4())
             .child(
-                div()
-                    .flex()
+                popover::header(theme, m)
                     .flex_col()
+                    .items_start()
                     .gap(m.spacing1())
                     .child(
                         div()
@@ -321,10 +306,7 @@ pub(crate) fn render_provider_menu(
                     .child("This prompt overrides Settings → AI only for this project."),
             )
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(m.spacing3())
+                popover::footer(theme, m)
                     .child(
                         controls::button(
                             style,
@@ -355,60 +337,45 @@ pub(crate) fn render_provider_menu(
             );
     } else {
         view = view
-            .p(m.spacing4())
-            .gap(m.scaled(1.0))
-            .child(
-                div()
-                    .px(m.spacing3())
-                    .pb(m.spacing2())
-                    .text_size(m.font_footnote())
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.fg_muted)
-                    .child(menu.action.settings_title()),
-            )
+            .child(popover::header(theme, m).child(menu.action.settings_title()))
             .child(provider_row(0, None, menu, model, cx))
-            .child(divider(model));
+            .child(popover::divider(theme, m));
         for (index, provider) in PROVIDERS.iter().enumerate() {
             view = view.child(provider_row(index + 1, Some(*provider), menu, model, cx));
         }
         if menu.action == Action::CreatePullRequest {
-            view = view.child(divider(model)).child(
-                div()
-                    .id("ai-project-prompt-edit")
-                    .debug_selector(|| "ai-project-prompt-edit".into())
-                    .flex()
-                    .items_center()
-                    .gap(m.spacing3())
-                    .px(m.spacing3())
-                    .h(m.scaled(44.0))
-                    .min_w(m.scaled(220.0))
-                    .rounded(m.radius_sm())
-                    .cursor_pointer()
-                    .hover(|style| style.bg(theme.hover))
-                    .when(menu.highlighted == Some(PROVIDERS.len() + 1), |row| {
-                        row.bg(theme.hover)
-                    })
-                    .button_interaction(cx.listener(|model, _, window, cx| {
-                        model.edit_project_pr_prompt(window, cx);
-                    }))
-                    .child(SymbolGlyph::new("text.quote", m.icon_md(), theme.fg))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(m.spacing1())
-                            .child("Edit Project Prompt…")
-                            .child(
-                                div()
-                                    .text_size(m.font_caption())
-                                    .text_color(theme.fg_muted)
-                                    .child(project_name.to_owned()),
-                            ),
-                    )
-                    .child(div().flex_1().min_w(m.spacing6()))
-                    .when(overridden, |row| {
-                        row.child(div().size(m.scaled(6.0)).rounded_full().bg(theme.accent))
-                    }),
+            view = view.child(popover::divider(theme, m)).child(
+                popover::row(
+                    theme,
+                    m,
+                    "ai-project-prompt-edit",
+                    true,
+                    menu.highlighted == Some(PROVIDERS.len() + 1),
+                )
+                .debug_selector(|| "ai-project-prompt-edit".into())
+                .h(m.scaled(44.0))
+                .min_w(m.scaled(220.0))
+                .button_interaction(cx.listener(|model, _, window, cx| {
+                    model.edit_project_pr_prompt(window, cx);
+                }))
+                .child(SymbolGlyph::new("text.quote", m.icon_md(), theme.fg))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(m.spacing1())
+                        .child("Edit Project Prompt…")
+                        .child(
+                            div()
+                                .text_size(m.font_caption())
+                                .text_color(theme.fg_muted)
+                                .child(project_name.to_owned()),
+                        ),
+                )
+                .child(div().flex_1().min_w(m.spacing6()))
+                .when(overridden, |row| {
+                    row.child(div().size(m.scaled(6.0)).rounded_full().bg(theme.accent))
+                }),
             );
         }
     }

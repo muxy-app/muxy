@@ -106,11 +106,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
         .child(
             popover::header(theme, m)
                 .justify_between()
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Project server"),
-                )
+                .child("Project server")
                 .child(controls::button(
                     Style { theme, metrics: &m },
                     "close-server-status",

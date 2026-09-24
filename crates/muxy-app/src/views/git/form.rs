@@ -24,6 +24,7 @@ pub(crate) fn render(
     let valid = !form.branch.read(cx).text().trim().is_empty()
         && (!form.worktree || !form.directory.read(cx).text().trim().is_empty());
     let mut view = muxy_ui::popover::surface(theme, m)
+        .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
         .id("git-form-scroll")
         .debug_selector(|| "git-form".into())
         .w(m.scaled(460.0)
