@@ -47,7 +47,7 @@ impl Theme {
             fg_muted: with_alpha(fg, 0.65).into(),
             fg_dim: with_alpha(fg, 0.4).into(),
             surface: with_alpha(fg, 0.08).into(),
-            border: with_alpha(fg, 0.12).into(),
+            border: blend(with_alpha(fg, 0.12).into(), bg.into()),
             hover: with_alpha(fg, 0.06).into(),
             accent: accent.into(),
             accent_soft: with_alpha(accent, 0.1).into(),
@@ -65,7 +65,7 @@ impl Theme {
     }
 
     pub fn border_solid(&self) -> Hsla {
-        blend(self.border, self.bg)
+        self.border
     }
 
     pub fn fg_alpha(&self, alpha: f32) -> Hsla {
@@ -95,5 +95,49 @@ pub fn contrasting_foreground(color: Rgba) -> Rgba {
         rgb(0x00_00_00)
     } else {
         rgb(0xff_ff_ff)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::Assets;
+
+    #[test]
+    fn borders_are_opaque_and_consistent_across_surfaces_and_overlaps() {
+        let schemes = [
+            ("Fallback", ""),
+            ("Custom dark", "background = 123456\nforeground = abcdef"),
+            ("Custom light", "background = fedcba\nforeground = 654321"),
+        ];
+        for (name, source) in schemes.into_iter().chain(Assets::themes()) {
+            let theme = Theme::from_scheme(&ColorScheme::parse(source));
+            assert!((theme.border.a - 1.0).abs() < f32::EPSILON, "{name}");
+            assert_eq!(theme.border_solid(), theme.border, "{name}");
+            assert_eq!(
+                theme.border,
+                blend(theme.fg_alpha(0.12), theme.bg),
+                "{name}"
+            );
+
+            for background in [
+                theme.bg,
+                theme.raised(),
+                theme.border,
+                rgb(0x00_00_00).into(),
+                rgb(0xff_ff_ff).into(),
+            ] {
+                let painted: Rgba = blend(theme.border, background).into();
+                let border: Rgba = theme.border.into();
+                for (actual, expected) in [
+                    (painted.r, border.r),
+                    (painted.g, border.g),
+                    (painted.b, border.b),
+                    (painted.a, border.a),
+                ] {
+                    assert!((actual - expected).abs() < 1e-6, "{name}");
+                }
+            }
+        }
     }
 }

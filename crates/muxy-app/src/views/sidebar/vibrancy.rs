@@ -13,8 +13,10 @@ impl AppModel {
             let width = self.sidebar_width();
             if let Some(effect) = &mut self.sidebar_vibrancy {
                 effect.set_width(width);
+                effect.set_appearance(self.theme.bg);
             } else {
-                self.sidebar_vibrancy = muxy_ui::vibrancy::SidebarVibrancy::new(window, width);
+                self.sidebar_vibrancy =
+                    muxy_ui::vibrancy::SidebarVibrancy::new(window, width, self.theme.bg);
             }
         } else {
             self.sidebar_vibrancy = None;
@@ -40,10 +42,11 @@ fn background(appearance: &Appearance, theme: &Theme, available: bool) -> Hsla {
     if !appearance.sidebar_expanded {
         return theme.bg;
     }
-    let mut color = theme.raised();
-    if available && enabled(appearance) {
-        color.a = 1.0 - f32::from(appearance.sidebar_vibrancy_level.min(100)) / 100.0;
+    if !available || !enabled(appearance) {
+        return theme.raised();
     }
+    let mut color = theme.bg;
+    color.a = 1.0 - f32::from(appearance.sidebar_vibrancy_level.min(100)) / 100.0;
     color
 }
 
@@ -66,6 +69,38 @@ mod tests {
                 };
                 assert!(!enabled(&appearance));
                 assert_eq!(background(&appearance, &theme, true), theme.bg);
+            }
+        }
+    }
+
+    #[test]
+    fn expanded_vibrancy_uses_the_theme_background_without_a_foreground_tint() {
+        for source in [
+            "background = 19171f\nforeground = c9c2d9",
+            "background = f0f0f5\nforeground = 1e1e2e",
+        ] {
+            let theme = Theme::from_scheme(&ColorScheme::parse(source));
+            for level in [0, 30, 50, 70, 100, 255] {
+                let appearance = Appearance {
+                    sidebar_expanded: true,
+                    sidebar_vibrancy_level: level,
+                    ..Appearance::default()
+                };
+                let mut expected = if level == 0 { theme.raised() } else { theme.bg };
+                expected.a = 1.0 - f32::from(level.min(100)) / 100.0;
+                assert_eq!(background(&appearance, &theme, true), expected);
+                assert_eq!(background(&appearance, &theme, false), theme.raised());
+                assert_eq!(
+                    background(
+                        &Appearance {
+                            sidebar_vibrancy: false,
+                            ..appearance
+                        },
+                        &theme,
+                        true
+                    ),
+                    theme.raised()
+                );
             }
         }
     }
