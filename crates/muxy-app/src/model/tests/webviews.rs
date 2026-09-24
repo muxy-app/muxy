@@ -72,6 +72,61 @@ fn rapid_editor_and_project_switches_preserve_terminal_attachment_and_input(
 }
 
 #[gpui::test]
+fn webview_shortcuts_leave_search_with_the_page(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, _| {
+        let shortcuts = model.webview_shortcuts();
+        for key in ["cmd-f", "cmd-g", "cmd-shift-g", "cmd-c", "cmd-v"] {
+            assert!(!shortcuts.contains(&Keystroke::parse(key).expect("page shortcut")));
+        }
+        for key in [
+            "cmd-w",
+            "cmd-shift-w",
+            "cmd-t",
+            "cmd-]",
+            "cmd-[",
+            "cmd-,",
+            "cmd-q",
+        ] {
+            assert!(shortcuts.contains(&Keystroke::parse(key).expect("app shortcut")));
+        }
+    });
+}
+
+#[gpui::test]
+fn webview_search_passthrough_follows_actions_not_default_keys(cx: &mut TestAppContext) {
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    for (action, key) in [
+        ("find", "cmd-alt-f"),
+        ("find_next", "cmd-alt-g"),
+        ("find_previous", "cmd-alt-shift-g"),
+        ("new_tab", "cmd-f"),
+    ] {
+        boot.settings.keymap = boot
+            .settings
+            .keymap
+            .with_binding(action, Some(key.parse().expect("key chord")))
+            .expect("keymap");
+    }
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, _| {
+        let shortcuts = model.webview_shortcuts();
+        for key in [
+            "cmd-alt-f",
+            "cmd-alt-g",
+            "cmd-alt-shift-g",
+            "cmd-g",
+            "cmd-shift-g",
+        ] {
+            assert!(!shortcuts.contains(&Keystroke::parse(key).expect("page shortcut")));
+        }
+        assert!(shortcuts.contains(&Keystroke::parse("cmd-f").expect("new tab shortcut")));
+        assert!(shortcuts.contains(&Keystroke::parse("cmd-w").expect("close shortcut")));
+    });
+}
+
+#[gpui::test]
 fn forwarded_webview_shortcut_can_close_tabs_including_the_last(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;

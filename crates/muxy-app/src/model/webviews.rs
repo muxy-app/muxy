@@ -906,6 +906,7 @@ impl AppModel {
 fn surface_shortcuts(keymap: &muxy_app_core::settings::Keymap) -> Vec<gpui::Keystroke> {
     use muxy_core::shortcuts::{ALL, ShortcutSettings};
     ALL.iter()
+        .filter(|shortcut| !matches!(shortcut.id, "find" | "find_next" | "find_previous"))
         .flat_map(|shortcut| {
             shortcut
                 .contexts

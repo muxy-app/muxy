@@ -911,26 +911,39 @@ fn monitor(
                                 .is_some_and(|responder| responder.isDescendantOf(view))
                     })
             })
+            && route_key_event(
+                keystroke(event_ref),
+                monitor_delegate.ivars().modal.get(),
+                &monitor_delegate.ivars().shortcuts.borrow(),
+                &sender,
+                || monitor_view.performKeyEquivalent(event_ref),
+            )
         {
-            if event_ref.keyCode() == 53 && monitor_delegate.ivars().modal.get() {
-                let _ = sender.try_send(Event::Escape);
-                return ptr::null_mut();
-            }
-            let keystroke = keystroke(event_ref);
-            if monitor_delegate
-                .ivars()
-                .shortcuts
-                .borrow()
-                .iter()
-                .any(|key| key.key == keystroke.key && key.modifiers == keystroke.modifiers)
-                && sender.try_send(Event::Shortcut(keystroke)).is_ok()
-            {
-                return ptr::null_mut();
-            }
+            return ptr::null_mut();
         }
         event
     });
     unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &monitor) }
+}
+
+fn route_key_event(
+    keystroke: gpui::Keystroke,
+    modal: bool,
+    shortcuts: &[gpui::Keystroke],
+    sender: &Sender<Event>,
+    page_key_equivalent: impl FnOnce() -> bool,
+) -> bool {
+    if keystroke.key == "escape" && modal {
+        let _ = sender.try_send(Event::Escape);
+        return true;
+    }
+    if shortcuts
+        .iter()
+        .any(|key| key.key == keystroke.key && key.modifiers == keystroke.modifiers)
+    {
+        return sender.try_send(Event::Shortcut(keystroke)).is_ok();
+    }
+    keystroke.modifiers.platform && page_key_equivalent()
 }
 
 fn background_color(background: Rgba) -> Retained<NSColor> {
@@ -974,6 +987,87 @@ mod tests {
     use super::*;
     use gpui::{point, px, size};
     use objc2_app_kit::NSBitmapImageRep;
+
+    #[test]
+    fn page_command_shortcuts_bypass_the_host_key_equivalent() {
+        let (sender, receiver) = async_channel::bounded(8);
+        for modal in [false, true] {
+            for binding in [
+                "cmd-f",
+                "cmd-g",
+                "cmd-shift-g",
+                "cmd-s",
+                "cmd-c",
+                "cmd-v",
+                "cmd-z",
+            ] {
+                for page_handled in [false, true] {
+                    let deliveries = Cell::new(0);
+                    let handled = route_key_event(
+                        gpui::Keystroke::parse(binding).expect("binding"),
+                        modal,
+                        &[],
+                        &sender,
+                        || {
+                            deliveries.set(deliveries.get() + 1);
+                            page_handled
+                        },
+                    );
+                    assert_eq!(handled, page_handled);
+                    assert_eq!(deliveries.get(), 1);
+                    assert!(receiver.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn control_and_plain_keys_keep_native_dispatch() {
+        let (sender, receiver) = async_channel::bounded(8);
+        for binding in ["ctrl-f", "ctrl-g", "alt-f", "f", "left", "escape"] {
+            assert!(!route_key_event(
+                gpui::Keystroke::parse(binding).expect("binding"),
+                false,
+                &[],
+                &sender,
+                || panic!("non-command key must use native dispatch"),
+            ));
+            assert!(receiver.is_empty());
+        }
+    }
+
+    #[test]
+    fn app_shortcuts_and_modal_escape_take_priority_over_page_delivery() {
+        let (sender, receiver) = async_channel::bounded(1);
+        for binding in ["cmd-w", "cmd-t", "cmd-f", "ctrl-f"] {
+            let key = gpui::Keystroke::parse(binding).expect("binding");
+            assert!(route_key_event(
+                key.clone(),
+                false,
+                std::slice::from_ref(&key),
+                &sender,
+                || panic!("app shortcut must not reach the page"),
+            ));
+            assert!(matches!(receiver.try_recv(), Ok(Event::Shortcut(actual)) if actual == key));
+        }
+        assert!(route_key_event(
+            gpui::Keystroke::parse("escape").expect("escape"),
+            true,
+            &[],
+            &sender,
+            || panic!("modal escape must not reach the page"),
+        ));
+        let key = gpui::Keystroke::parse("cmd-w").expect("close shortcut");
+        assert!(!route_key_event(
+            key.clone(),
+            false,
+            &[key],
+            &sender,
+            || panic!("a full app queue must not redirect shortcuts to the page"),
+        ));
+        assert!(matches!(receiver.try_recv(), Ok(Event::Escape)));
+        assert!(receiver.is_empty());
+    }
 
     #[test]
     fn snapshots_pack_rows_in_bgra_order() {
