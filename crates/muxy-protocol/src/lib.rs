@@ -1,4 +1,4 @@
-//! Shared protocol contracts, screen types, framing, and local transport.
+//! Shared protocol contracts, screen types, framing, and local and TLS transports.
 //!
 //! Client and server runtime policy, persistence, UI, and native terminal
 //! execution stay with their owners.
@@ -45,9 +45,17 @@ pub use graphics::{
 
 mod project;
 pub use project::{
-    CATALOG_PAGE_SIZE, CatalogPage, ClientId, MAX_PROJECT_LOGO_BYTES, MAX_PROJECTS, OperationId,
-    ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind, ProjectMutation, ProjectPatch,
-    ProjectSession, ProjectSessions, ServerIdentity, SessionStatus, is_project_symbol,
+    CATALOG_PAGE_SIZE, CatalogPage, ClientId, DeviceId, MAX_PROJECT_LOGO_BYTES, MAX_PROJECTS,
+    OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind, ProjectMutation,
+    ProjectPatch, ProjectSession, ProjectSessions, ServerIdentity, SessionStatus,
+    is_project_symbol,
+};
+
+mod remote;
+pub use remote::{
+    DEFAULT_REMOTE_PORT, DeviceCredential, ListenerStatus, MAX_DEVICE_NAME, MAX_DEVICES,
+    MAX_PAIRING_HOSTS, PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer,
+    RemoteAccessSettings, RemoteAccessState, validate_device_name,
 };
 
 pub mod wire;

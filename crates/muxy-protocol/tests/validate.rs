@@ -48,6 +48,52 @@ fn sizes_reject_zero_and_each_dimension_above_its_limit() {
 }
 
 #[test]
+fn screen_frames_validate_their_size() {
+    let frame = Message::samples()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::Frame(frame) => Some(frame),
+            _ => None,
+        })
+        .expect("screen frame");
+    for (size, expected) in [
+        (Size { cols: 1, rows: 1 }, Ok(())),
+        (
+            Size {
+                cols: MAX_COLS,
+                rows: MAX_ROWS,
+            },
+            Ok(()),
+        ),
+        (Size { cols: 0, rows: 1 }, Err(ErrorCode::BadSize)),
+        (Size { cols: 1, rows: 0 }, Err(ErrorCode::BadSize)),
+        (
+            Size {
+                cols: MAX_COLS + 1,
+                rows: 1,
+            },
+            Err(ErrorCode::BadSize),
+        ),
+        (
+            Size {
+                cols: 1,
+                rows: MAX_ROWS + 1,
+            },
+            Err(ErrorCode::BadSize),
+        ),
+    ] {
+        assert_eq!(
+            Message::Frame(muxy_protocol::ScreenFrame {
+                size,
+                ..frame.clone()
+            })
+            .validate(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn input_accepts_empty_and_one_mebibyte_but_rejects_one_more_byte() {
     assert_eq!(MAX_INPUT, 1_048_576);
     assert_eq!(validate_input(&[]), Ok(()));
@@ -294,6 +340,59 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
     let mut seen = BTreeSet::new();
     for message in Message::samples() {
         let (name, channel) = match &message {
+            Message::RemoteAccessChanged { .. } => ("RemoteAccessChanged", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::IdentifyClient(muxy_protocol::ClientKind::Mobile),
+                ..
+            } => ("IdentifyMobile", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::Authenticate(_),
+                ..
+            } => ("Authenticate", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::Pair(_),
+                ..
+            } => ("Pair", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ReadRemoteAccess,
+                ..
+            } => ("ReadRemoteAccess", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::WriteRemoteAccess(_),
+                ..
+            } => ("WriteRemoteAccess", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::StartPairing,
+                ..
+            } => ("StartPairing", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::CancelPairing,
+                ..
+            } => ("CancelPairing", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::RevokeDevice(_),
+                ..
+            } => ("RevokeDevice", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Authenticated,
+                ..
+            } => ("Authenticated", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Paired(_),
+                ..
+            } => ("Paired", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::RemoteAccess(_),
+                ..
+            } => ("RemoteAccess", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Pairing(_),
+                ..
+            } => ("Pairing", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Error(error),
+                ..
+            } if error.code == ErrorCode::Unauthorized => ("Unauthorized", ChannelKind::Control),
             Message::Request {
                 body: RequestBody::Exec(_),
                 ..
@@ -632,6 +731,20 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "Progress",
             "Frame",
             "Metadata",
+            "RemoteAccessChanged",
+            "IdentifyMobile",
+            "Authenticate",
+            "Pair",
+            "ReadRemoteAccess",
+            "WriteRemoteAccess",
+            "StartPairing",
+            "CancelPairing",
+            "RevokeDevice",
+            "Authenticated",
+            "Paired",
+            "RemoteAccess",
+            "Pairing",
+            "Unauthorized",
         ])
     );
 }

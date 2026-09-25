@@ -49,6 +49,16 @@ fn production_dependencies_preserve_client_and_headless_boundaries() -> Result<(
             &["muxy-server", "muxy-terminal", "muxy-app", "muxy-ui"],
         ),
         ("muxy-server", &["muxy-app", "muxy-ui"]),
+        (
+            "muxy-mobile",
+            &[
+                "muxy-server",
+                "muxy-terminal",
+                "muxy-app",
+                "muxy-ui",
+                "muxy-app-core",
+            ],
+        ),
     ];
     for (root, forbidden) in boundaries {
         let mut visited = BTreeSet::new();

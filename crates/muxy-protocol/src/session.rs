@@ -6,6 +6,7 @@ pub enum ClientKind {
     Tui,
     #[default]
     Cli,
+    Mobile,
 }
 
 impl std::fmt::Display for ClientKind {
@@ -14,6 +15,7 @@ impl std::fmt::Display for ClientKind {
             Self::Desktop => "Desktop",
             Self::Tui => "TUI",
             Self::Cli => "CLI",
+            Self::Mobile => "Mobile",
         })
     }
 }

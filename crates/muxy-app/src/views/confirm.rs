@@ -110,6 +110,16 @@ pub(crate) async fn prompt_server(
     server_prompt(window, title, label, message, cx).await
 }
 
+pub(crate) async fn prompt_revoke(
+    window: AnyWindowHandle,
+    device: &str,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = format!("Revoke {device}?");
+    let message = "The device disconnects now and must be paired again to reconnect.";
+    server_prompt(window, &title, "Revoke", message, cx).await
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UpdateChoice {
     Install,

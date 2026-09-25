@@ -33,8 +33,10 @@ defines how users navigate and manage their views.
 
 The desktop bundles the same `muxy` CLI/TUI and `muxy-server` executables
 provided for standalone use. Either client connects to the server on its
-machine, starting it if needed. Remote connections are deferred; users can
-already SSH to another machine and run `muxy` there.
+machine, starting it if needed. Phones are a third client: once paired, the
+Muxy mobile app connects to a running server over the local network or a VPN.
+Desktop and TUI connections to other machines are deferred; users can already
+SSH to another machine and run `muxy` there.
 
 The model allows clients to organize several servers later. A project routes
 to its `server_id`, and its panes inherit that route. Changing projects may
@@ -127,6 +129,10 @@ and buttons. Ordinary terminal keystrokes remain terminal input.
 Server settings apply to the selected server. Stopping or restarting it requires
 confirmation. Existing saved settings panes are removed on restore without
 affecting neighboring terminal panes or sessions.
+
+Settings → Mobile turns [mobile access](./server-model.md#mobile-access) on,
+sets its port, shows a pairing code, and lists paired devices; revoking one
+asks first. `muxy mobile` offers the same where the desktop is not installed.
 
 ## App updates
 

@@ -45,9 +45,19 @@ impl References {
     }
 }
 
+/// Invalidations this connection asked for by reading the matching state.
+#[derive(Clone, Copy, Default)]
+struct Watches {
+    catalog: bool,
+    activity: bool,
+    remote_access: bool,
+}
+
 #[derive(Default)]
 struct State {
     client: muxy_protocol::SessionClient,
+    /// The paired device on the other end of a network connection.
+    device: Option<muxy_protocol::DeviceId>,
     positions: HashMap<SessionId, u64>,
     open_sessions: HashSet<SessionId>,
     created: HashSet<SessionId>,
@@ -55,8 +65,7 @@ struct State {
     references: References,
     progress: HashMap<SessionId, SessionProgress>,
     session_metadata: HashMap<SessionId, muxy_protocol::SessionMetadata>,
-    catalog_watched: bool,
-    activity_watched: bool,
+    watches: Watches,
     colors: Option<TerminalColors>,
     control: VecDeque<Message>,
     pending: HashMap<ChannelId, ScreenFrame>,
@@ -83,6 +92,24 @@ impl Outbox {
             ready: Condvar::default(),
             version,
         }
+    }
+
+    pub(super) fn for_device(
+        version: Version,
+        changes: Arc<AtomicU64>,
+        device: muxy_protocol::DeviceId,
+    ) -> Self {
+        let outbox = Self::new(version, changes);
+        {
+            let mut state = outbox.lock();
+            state.device = Some(device);
+            state.client.kind = muxy_protocol::ClientKind::Mobile;
+        }
+        outbox
+    }
+
+    pub(crate) fn device(&self) -> Option<muxy_protocol::DeviceId> {
+        self.lock().device
     }
 
     pub(crate) fn referenced_sessions(&self) -> Vec<SessionId> {
@@ -130,10 +157,16 @@ impl Outbox {
     }
 
     pub(super) fn watch_activity(&self) {
-        self.lock().activity_watched = true;
+        self.lock().watches.activity = true;
+    }
+    pub(super) fn watch_remote_access(&self) {
+        self.lock().watches.remote_access = true;
+    }
+    pub(super) fn remote_access_watched(&self) -> bool {
+        self.lock().watches.remote_access
     }
     pub(super) fn activity_watched(&self) -> bool {
-        self.lock().activity_watched
+        self.lock().watches.activity
     }
 
     pub(crate) fn client(&self) -> muxy_protocol::SessionClient {
@@ -196,10 +229,10 @@ impl Outbox {
     }
 
     pub(super) fn watch_catalog(&self) {
-        self.lock().catalog_watched = true;
+        self.lock().watches.catalog = true;
     }
     pub(super) fn catalog_watched(&self) -> bool {
-        self.lock().catalog_watched
+        self.lock().watches.catalog
     }
 
     pub(super) fn colors(&self) -> Option<TerminalColors> {
@@ -279,6 +312,15 @@ impl Outbox {
                     .control
                     .iter_mut()
                     .find(|message| matches!(message, Message::SessionsChanged { .. }))
+            {
+                *pending = (*pending).max(*revision);
+                return;
+            }
+            if let Message::RemoteAccessChanged { revision } = &message
+                && let Some(Message::RemoteAccessChanged { revision: pending }) = state
+                    .control
+                    .iter_mut()
+                    .find(|message| matches!(message, Message::RemoteAccessChanged { .. }))
             {
                 *pending = (*pending).max(*revision);
                 return;
@@ -539,7 +581,7 @@ impl Outbox {
         }
     }
 
-    pub(super) fn close(&self) {
+    pub(crate) fn close(&self) {
         self.lock().close();
         self.ready.notify_all();
     }
@@ -671,6 +713,7 @@ mod tests {
 
     fn frame(seq: u64, index: u16) -> ScreenFrame {
         ScreenFrame {
+            size: Size { cols: 80, rows: 24 },
             graphics: None,
             seq,
             reset: false,

@@ -51,6 +51,7 @@ pub struct Registry {
     sessions: Sessions,
     completed: Arc<Condvar>,
     archive: Archive,
+    pub(crate) remote: crate::RemoteAccess,
 }
 
 impl Registry {
@@ -71,6 +72,7 @@ impl Registry {
             events,
             sessions: Sessions::default(),
             completed: Arc::default(),
+            remote: crate::RemoteAccess::memory(),
         }
     }
 
@@ -244,6 +246,102 @@ impl Registry {
             self.catalog.finish_deletions()?;
         }
         Ok(())
+    }
+
+    #[must_use]
+    pub fn with_remote_access(mut self, remote: crate::RemoteAccess) -> Self {
+        self.remote = remote;
+        self
+    }
+
+    #[must_use]
+    pub fn with_remote_listener(
+        mut self,
+        listener: impl Fn(
+            Option<(u16, muxy_protocol::transport::tls::TlsIdentity)>,
+        ) -> muxy_protocol::ListenerStatus
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.remote.set_listener(Box::new(listener));
+        self
+    }
+
+    /// Starts listening for paired devices if mobile access was left on.
+    pub fn resume_remote_access(&self) {
+        self.remote.resume();
+    }
+
+    /// Reserves a slot for a network connection that has not authenticated yet.
+    pub fn admit_remote(&self) -> Option<crate::Admission> {
+        self.remote.admit()
+    }
+
+    pub fn remote_access_state(&self) -> muxy_protocol::RemoteAccessState {
+        let connected = self
+            .live_connections()
+            .iter()
+            .filter_map(|connection| connection.device())
+            .collect();
+        self.remote.state(&connected)
+    }
+
+    pub(crate) fn write_remote_access(
+        &self,
+        settings: muxy_protocol::RemoteAccessSettings,
+    ) -> Result<muxy_protocol::RemoteAccessState, ServerError> {
+        self.remote.configure(settings)?;
+        if !settings.enabled {
+            self.close_devices(None);
+        }
+        Ok(self.remote_access_state())
+    }
+
+    pub(crate) fn revoke_device(
+        &self,
+        device: muxy_protocol::DeviceId,
+    ) -> Result<muxy_protocol::RemoteAccessState, ServerError> {
+        self.remote.revoke(device)?;
+        self.close_devices(Some(device));
+        Ok(self.remote_access_state())
+    }
+
+    pub(crate) fn pair_device(
+        &self,
+        request: &muxy_protocol::PairRequest,
+    ) -> Option<muxy_protocol::Paired> {
+        self.remote.pair(request, self.catalog.identity())
+    }
+
+    pub(crate) fn connection_closed(&self, outbox: &crate::connection::Outbox) {
+        if outbox.device().is_some() {
+            self.remote.changed();
+        } else {
+            self.remote.release_pairing(outbox.client().id);
+        }
+    }
+
+    /// Closes the connections of one paired device, or of every paired device.
+    fn close_devices(&self, device: Option<muxy_protocol::DeviceId>) {
+        for connection in self.live_connections() {
+            if connection
+                .device()
+                .is_some_and(|connected| device.is_none_or(|device| device == connected))
+            {
+                connection.close();
+            }
+        }
+    }
+
+    fn live_connections(&self) -> Vec<Arc<crate::connection::Outbox>> {
+        self.connections
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter_map(Weak::upgrade)
+            .filter(|connection| !connection.is_closed())
+            .collect()
     }
 
     #[must_use]

@@ -11,6 +11,7 @@ pub(super) fn merge(older: &mut ScreenFrame, newer: ScreenFrame) {
     rows.extend(newer.rows.into_iter().map(|row| (row.index, row)));
     older.rows = rows.into_values().collect();
     older.seq = newer.seq;
+    older.size = newer.size;
     older.cursor = newer.cursor;
     older.modes = newer.modes;
     if newer.graphics.is_some() {
@@ -26,6 +27,7 @@ mod tests {
 
     pub(super) fn frame(seq: u64, reset: bool, indexes: &[u16]) -> ScreenFrame {
         ScreenFrame {
+            size: muxy_protocol::Size { cols: 80, rows: 24 },
             graphics: None,
             seq,
             reset,
@@ -71,11 +73,15 @@ mod tests {
     #[test]
     fn newer_reset_drops_old_rows_and_survives_later_deltas() {
         let mut older = frame(1, false, &[0, 5]);
-        let reset = frame(2, true, &[0, 1]);
+        let mut reset = frame(2, true, &[0, 1]);
+        reset.size = muxy_protocol::Size { cols: 20, rows: 2 };
         merge(&mut older, reset.clone());
         assert_eq!(older, reset);
-        merge(&mut older, frame(4, false, &[1]));
-        assert_eq!(older, frame(4, true, &[0, 1]));
+        let mut delta = frame(4, false, &[1]);
+        delta.size = reset.size;
+        merge(&mut older, delta);
+        reset.seq = 4;
+        assert_eq!(older, reset);
     }
     #[test]
     fn image_snapshots_survive_text_deltas_and_explicit_deletion() {

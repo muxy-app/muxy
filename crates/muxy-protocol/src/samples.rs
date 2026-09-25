@@ -77,6 +77,7 @@ impl Message {
             }),
             Self::Input(b"pwd\r".to_vec()),
             Self::Frame(ScreenFrame {
+                size,
                 graphics: None,
                 seq: 1,
                 reset: true,
@@ -107,8 +108,80 @@ impl Message {
         samples.extend(close_samples());
         terminal_metadata_samples(&mut samples);
         samples.extend(activity_samples(session));
+        samples.extend(remote_samples());
         samples
     }
+}
+
+fn remote_samples() -> Vec<Message> {
+    let device = crate::DeviceId::from_u128(3);
+    let credential = crate::DeviceCredential {
+        device,
+        token: [7; 32],
+    };
+    let settings = crate::RemoteAccessSettings {
+        enabled: true,
+        port: crate::DEFAULT_REMOTE_PORT,
+    };
+    let mut messages = vec![Message::RemoteAccessChanged { revision: 7 }];
+    for body in [
+        RequestBody::IdentifyClient(crate::ClientKind::Mobile),
+        RequestBody::Authenticate(credential),
+        RequestBody::Pair(crate::PairRequest {
+            secret: [5; 16],
+            name: "Phone".into(),
+        }),
+        RequestBody::ReadRemoteAccess,
+        RequestBody::WriteRemoteAccess(settings),
+        RequestBody::StartPairing,
+        RequestBody::CancelPairing,
+        RequestBody::RevokeDevice(device),
+    ] {
+        messages.push(Message::Request {
+            id: RequestId(40),
+            body,
+        });
+    }
+    for body in [
+        ReplyBody::Authenticated,
+        ReplyBody::Paired(crate::Paired {
+            credential,
+            server: crate::ServerIdentity::from_u128(4),
+            name: "Mac".into(),
+        }),
+        ReplyBody::RemoteAccess(crate::RemoteAccessState {
+            revision: 7,
+            settings,
+            status: crate::ListenerStatus::Listening,
+            pairing_expires_at: Some(300),
+            devices: vec![crate::PairedDevice {
+                id: device,
+                name: "Phone".into(),
+                paired_at: 100,
+                last_seen: Some(200),
+                connected: true,
+            }],
+        }),
+        ReplyBody::Pairing(crate::PairingOffer {
+            invite: crate::PairingInvite {
+                hosts: vec!["192.168.1.5".into(), "mac.local".into()],
+                port: crate::DEFAULT_REMOTE_PORT,
+                fingerprint: [1; 32],
+                secret: [5; 16],
+            },
+            expires_at: 300,
+        }),
+        ReplyBody::Error(ErrorReply {
+            code: ErrorCode::Unauthorized,
+            message: "unauthorized".into(),
+        }),
+    ] {
+        messages.push(Message::Reply {
+            id: RequestId(40),
+            body,
+        });
+    }
+    messages
 }
 
 fn search_samples(session: SessionId, channel: ChannelId) -> Vec<Message> {

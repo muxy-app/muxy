@@ -1,0 +1,32 @@
+[package]
+name = "muxy-mobile"
+description = "Rust core for the Muxy mobile apps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[lints]
+workspace = true
+
+[dependencies]
+muxy-client = { path = "../muxy-client" }
+muxy-protocol = { path = "../muxy-protocol" }
+uniffi = "=0.32.2"
+
+[dev-dependencies]
+muxy-server = { path = "../muxy-server" }

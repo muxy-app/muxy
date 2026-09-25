@@ -10,6 +10,7 @@ members = [
     "crates/muxy-client",
     "crates/muxy-app",
     "crates/muxy-ui",
+    "crates/muxy-mobile",
 ]
 
 # Current boundary policy, not a permanent crate list. Structural changes update
@@ -24,11 +25,13 @@ muxy-client = ["muxy-core", "muxy-protocol"]
 muxy-cli = ["muxy-core", "muxy-protocol", "muxy-client", "muxy-app-core"]
 muxy-app = ["muxy-core", "muxy-app-core", "muxy-client", "muxy-protocol", "muxy-ui"]
 muxy-ui = ["muxy-core"]
+muxy-mobile = ["muxy-client", "muxy-protocol"]
 
 [workspace.metadata.architecture.allowed-dev-dependencies]
 muxy-app = ["muxy-terminal"]
 muxy-client = ["muxy-server"]
 muxy-cli = ["muxy-terminal"]
+muxy-mobile = ["muxy-server"]
 
 [workspace.package]
 version = "2.0.0-beta-0"

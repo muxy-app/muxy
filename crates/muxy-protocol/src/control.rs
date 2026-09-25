@@ -81,6 +81,13 @@ pub enum RequestBody {
     },
     Exec(crate::ExecRequest),
     CancelExec(u64),
+    Authenticate(crate::DeviceCredential),
+    Pair(crate::PairRequest),
+    ReadRemoteAccess,
+    WriteRemoteAccess(crate::RemoteAccessSettings),
+    StartPairing,
+    CancelPairing,
+    RevokeDevice(crate::DeviceId),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -133,6 +140,10 @@ pub enum ReplyBody {
     InputWritten,
     Exec(crate::ExecResult),
     ExecCancelled,
+    Authenticated,
+    Paired(crate::Paired),
+    RemoteAccess(crate::RemoteAccessState),
+    Pairing(crate::PairingOffer),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -155,6 +166,7 @@ pub enum ErrorCode {
     StaleHistoryCursor,
     HistoryUnavailable,
     PersistenceFailed,
+    Unauthorized,
 }
 
 /// Server-owned configuration, independent of its storage format.

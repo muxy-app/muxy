@@ -66,52 +66,9 @@ impl SettingsWindow {
         cx: &mut Context<Self>,
     ) -> Self {
         view.read(cx).focus.focus(window);
-        let events =
-            cx.subscribe_in(
-                &view,
-                window,
-                |root: &mut Self, _, event, window, cx| match event {
-                    SettingsEvent::Change(change) => {
-                        let _ = root
-                            .model
-                            .update(cx, |model, cx| model.change_preference(change.clone(), cx));
-                    }
-                    SettingsEvent::Picker(kind, anchor) => {
-                        root.open_picker(
-                            PickerRequest {
-                                kind: *kind,
-                                anchor: anchor.clone(),
-                            },
-                            window,
-                            cx,
-                        );
-                    }
-                    SettingsEvent::ServerControl { restart } => {
-                        let _ = root.model.update(cx, |model, cx| {
-                            model.confirm_server_control(*restart, window.window_handle(), cx);
-                        });
-                    }
-                    SettingsEvent::ReadServer => {
-                        let _ = root.model.update(cx, AppModel::read_server_settings);
-                    }
-                    SettingsEvent::Connect => {
-                        let _ = root.model.update(cx, AppModel::connect);
-                    }
-                    SettingsEvent::OpenConfiguration(filename) => {
-                        root.open_configuration(filename, cx);
-                    }
-                    SettingsEvent::ReloadConfiguration => {
-                        if let Ok(error) = root.model.update(cx, |model, cx| {
-                            model.reload_configuration(cx);
-                            model.configuration_error.clone()
-                        }) {
-                            root.view.update(cx, |view, cx| {
-                                view.set_error("configuration", error.as_deref(), cx);
-                            });
-                        }
-                    }
-                },
-            );
+        let events = cx.subscribe_in(&view, window, |root: &mut Self, _, event, window, cx| {
+            root.handle_event(event, window, cx);
+        });
         let appearance = cx.observe(&view, |root: &mut Self, _, cx| {
             let view = root.view.read(cx);
             let theme = view.theme.clone();
@@ -411,11 +368,67 @@ impl SettingsWindow {
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let _ = self.model.update(cx, |model, cx| {
-            model.flush_preferences(cx);
-            model.settings_window = None;
-            cx.notify();
+            model.settings_closed(cx);
         });
         window.remove_window();
+    }
+
+    fn handle_event(&mut self, event: &SettingsEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match event {
+            SettingsEvent::Change(change) => {
+                let _ = self
+                    .model
+                    .update(cx, |model, cx| model.change_preference(change.clone(), cx));
+            }
+            SettingsEvent::Picker(kind, anchor) => {
+                self.open_picker(
+                    PickerRequest {
+                        kind: *kind,
+                        anchor: anchor.clone(),
+                    },
+                    window,
+                    cx,
+                );
+            }
+            SettingsEvent::ServerControl { restart } => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.confirm_server_control(*restart, window.window_handle(), cx);
+                });
+            }
+            SettingsEvent::ReadServer => {
+                let _ = self.model.update(cx, AppModel::read_server_settings);
+            }
+            SettingsEvent::ReadMobile => {
+                let _ = self.model.update(cx, AppModel::read_remote_access);
+            }
+            SettingsEvent::PairPhone => {
+                let _ = self.model.update(cx, AppModel::pair_phone);
+            }
+            SettingsEvent::CancelPairing => {
+                let _ = self.model.update(cx, AppModel::cancel_pairing);
+            }
+            SettingsEvent::RevokeDevice(device) => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.confirm_revoke(*device, window.window_handle(), cx);
+                });
+            }
+            SettingsEvent::Connect => {
+                let _ = self.model.update(cx, AppModel::connect);
+            }
+            SettingsEvent::OpenConfiguration(filename) => {
+                self.open_configuration(filename, cx);
+            }
+            SettingsEvent::ReloadConfiguration => {
+                if let Ok(error) = self.model.update(cx, |model, cx| {
+                    model.reload_configuration(cx);
+                    model.configuration_error.clone()
+                }) {
+                    self.view.update(cx, |view, cx| {
+                        view.set_error("configuration", error.as_deref(), cx);
+                    });
+                }
+            }
+        }
     }
 
     fn open_configuration(&self, filename: &'static str, cx: &mut Context<Self>) {
@@ -542,7 +555,9 @@ impl Render for SettingsWindow {
             )
             .on_action(
                 cx.listener(|root, _: &workspace::OpenConfiguration, _, cx| {
-                    root.open_configuration(root.view.read(cx).configuration_file(), cx);
+                    if let Some(file) = root.view.read(cx).configuration_file() {
+                        root.open_configuration(file, cx);
+                    }
                 }),
             )
             .on_action(cx.listener(|root, _: &BeginWindowMove, _window, _| {

@@ -79,7 +79,7 @@ impl Client {
         Self::from_stream_with_timeout(stream, DEFAULT_TIMEOUT)
     }
 
-    fn from_stream_with_timeout(
+    pub(crate) fn from_stream_with_timeout(
         stream: Box<dyn ByteStream>,
         timeout: Duration,
     ) -> Result<Self, ClientError> {

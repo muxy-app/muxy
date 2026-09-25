@@ -1,6 +1,7 @@
 //! Local command-line and terminal client; the server runs as a separate executable.
 mod args;
 mod input;
+mod mobile;
 mod render;
 mod state;
 mod terminal;
@@ -28,7 +29,10 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let command = args::parse(&std::env::args_os().skip(1).collect::<Vec<_>>())?;
-    let _lease = if matches!(command, Command::Projects | Command::AddProject { .. }) {
+    let _lease = if matches!(
+        command,
+        Command::Projects | Command::AddProject { .. } | Command::Mobile(_)
+    ) {
         muxy_client::local::bundle::acquire_runtime(&muxy_core::executable::current_path()?)?
     } else {
         None
@@ -36,7 +40,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match command {
         Command::Help => writeln!(
             io::stdout(),
-            "Muxy — local terminal sessions\n\nUsage: muxy [COMMAND]\n\n  (no command)  Open the terminal client; Ctrl-B ? shows help\n  project list\n  project add <directory> [--name NAME]\n  --help | --version | --build-info"
+            "Muxy — local terminal sessions\n\nUsage: muxy [COMMAND]\n\n  (no command)  Open the terminal client; Ctrl-B ? shows help\n  project list\n  project add <directory> [--name NAME]\n  mobile [enable [--port PORT] | disable | pair | revoke DEVICE]\n  --help | --version | --build-info"
         )?,
         Command::Version => writeln!(io::stdout(), "muxy {}", env!("CARGO_PKG_VERSION"))?,
         Command::BuildInfo => {
@@ -55,6 +59,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Command::AddProject { directory, name } => add_project(&directory, name)?,
+        Command::Mobile(command) => mobile::run(command, &client()?)?,
     }
     Ok(())
 }

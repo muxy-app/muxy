@@ -51,6 +51,7 @@ for ARCH in arm64 x86_64; do
         MACOS_ARCHITECTURES+=' or Intel (`x86_64`)'
     fi
 done
+ASSETS+=("muxy-mobile-${VERSION}-ios.zip" "muxy-mobile-${VERSION}-android.zip" "muxy-mobile-${VERSION}.json")
 for ASSET in "${ASSETS[@]}"; do
     if [[ ! -f "$ASSET" || ! -s "$ASSET" || -L "$ASSET" ]]; then
         echo "Error: missing regular release asset: $ASSET" >&2

@@ -6,6 +6,7 @@ mod diagnostics;
 pub(crate) mod extensions;
 pub(crate) mod git;
 mod links;
+mod mobile;
 mod preferences;
 mod quick_terminal;
 mod server_status;
@@ -110,6 +111,7 @@ pub(crate) struct AppModel {
     pub(crate) settings: muxy_app_core::settings::Settings,
     terminal: muxy_app_core::settings::TerminalSettings,
     server_preferences: preferences::ServerPreferences,
+    mobile: mobile::MobileAccess,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
     font_sizes: HashMap<PaneId, f32>,
@@ -462,6 +464,7 @@ impl AppModel {
             settings: boot.settings,
             terminal: boot.terminal,
             server_preferences: preferences::ServerPreferences::default(),
+            mobile: mobile::MobileAccess::default(),
             server_anchor: Rc::default(),
             settings_window: None,
             font_sizes: HashMap::new(),
@@ -1732,6 +1735,7 @@ impl AppModel {
         self.refresh_catalog(cx);
         if self.settings_window.is_some() {
             self.read_server_settings(cx);
+            self.read_remote_access(cx);
         }
         cx.notify();
     }
@@ -1764,6 +1768,8 @@ impl AppModel {
             Update::ServerInfo(server) => self.receive_server_info(server, cx),
             Update::ServerChecked(result) => self.receive_server_update(result, cx),
             Update::ServerSettings(result) => self.receive_server_settings(result, cx),
+            Update::RemoteAccess(result) => self.receive_remote_access(result, cx),
+            Update::Pairing(result) => self.receive_pairing(result, cx),
             Update::ServerStopped { restart, result } => {
                 self.receive_server_stopped(restart, result, cx);
             }
@@ -2115,6 +2121,7 @@ impl AppModel {
                 self.refresh_catalog(cx);
                 self.refresh_session_picker(cx);
             }
+            ClientEvent::RemoteAccessChanged { .. } => self.remote_access_changed(cx),
             ClientEvent::Frame { channel, frame } => {
                 let pane = self
                     .grids
@@ -2250,6 +2257,7 @@ impl AppModel {
         }
         self.server_preferences.busy = false;
         self.server_preferences.pending.clear();
+        self.mobile = mobile::MobileAccess::default();
         self.sync_preferences(cx);
         self.pending.clear();
         self.pending_close = None;

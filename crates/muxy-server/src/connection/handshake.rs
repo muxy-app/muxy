@@ -7,6 +7,28 @@ pub(super) fn accept(
     decoder: &mut Decoder<impl Read>,
     encoder: &mut Encoder<impl Write>,
 ) -> Result<Option<Version>, WireError> {
+    negotiate(decoder, encoder, |message| {
+        log::error!("fatal protocol error: {message}");
+    })
+}
+
+/// Unauthenticated network peers are reported at a limited rate instead.
+pub(super) fn accept_remote(
+    decoder: &mut Decoder<impl Read>,
+    encoder: &mut Encoder<impl Write>,
+) -> Result<Option<Version>, WireError> {
+    negotiate(decoder, encoder, super::auth::report)
+}
+
+fn negotiate(
+    decoder: &mut Decoder<impl Read>,
+    encoder: &mut Encoder<impl Write>,
+    report: impl Fn(&str),
+) -> Result<Option<Version>, WireError> {
+    let reject = |message: String| {
+        report(&message);
+        rejection(message)
+    };
     let message = match decoder.next() {
         Ok((
             CONTROL,
@@ -33,10 +55,10 @@ pub(super) fn accept(
             }
             Message::VersionUnsupported
         }
-        Ok(_) => fatal("expected Hello on control"),
+        Ok(_) => reject("expected Hello on control".into()),
         Err(WireError::Closed) => return Ok(None),
         Err(error @ WireError::Io(_)) => return Err(error),
-        Err(error) => fatal(error.to_string()),
+        Err(error) => reject(error.to_string()),
     };
     encoder.send(CONTROL, &message)?;
     Ok(None)
@@ -45,8 +67,12 @@ pub(super) fn accept(
 pub(super) fn fatal(message: impl Into<String>) -> Message {
     let message = message.into();
     log::error!("fatal protocol error: {message}");
+    rejection(message)
+}
+
+pub(super) fn rejection(message: impl Into<String>) -> Message {
     Message::Fatal(ErrorReply {
         code: ErrorCode::BadRequest,
-        message,
+        message: message.into(),
     })
 }

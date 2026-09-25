@@ -28,6 +28,7 @@ flowchart TB
 | Tab | A client-owned container belonging to one project, with at least one pane. |
 | Pane | One typed content view belonging to exactly one tab. A terminal pane references a session in its project. |
 | Session | A terminal process with a server-generated ID and exactly one owning project. |
+| Paired device | A phone the server lets connect over the network; server-owned and revocable. |
 
 Clients own workspace memberships, project order, tabs, pane layouts, and
 presentation state. Shared project metadata and deletions reach every client.

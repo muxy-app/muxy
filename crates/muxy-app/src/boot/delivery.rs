@@ -77,6 +77,15 @@ impl Delivery {
             *previous = (*previous).max(*revision);
             return Ok(Vec::new());
         }
+        if let ClientEvent::RemoteAccessChanged { revision } = &event
+            && let Some(ClientEvent::RemoteAccessChanged { revision: previous }) = self
+                .deferred
+                .iter_mut()
+                .find(|previous| matches!(previous, ClientEvent::RemoteAccessChanged { .. }))
+        {
+            *previous = (*previous).max(*revision);
+            return Ok(Vec::new());
+        }
         if self.deferred.len() == MAX_DEFERRED_EVENTS {
             return Err("too many events arrived before request completion");
         }
@@ -174,6 +183,7 @@ impl Delivery {
                 | ClientEvent::GitChanged { .. }
                 | ClientEvent::SessionsChanged { .. }
                 | ClientEvent::CatalogChanged { .. }
+                | ClientEvent::RemoteAccessChanged { .. }
                 | ClientEvent::SessionEnded { .. }
                 | ClientEvent::ServerRestarting
                 | ClientEvent::Disconnected => false,

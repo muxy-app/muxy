@@ -85,6 +85,7 @@ pub struct Modes {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ScreenFrame {
+    pub size: Size,
     pub graphics: Option<crate::Graphics>,
     pub seq: u64,
     pub reset: bool,

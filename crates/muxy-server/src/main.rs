@@ -3,6 +3,7 @@
 mod args;
 mod legacy;
 mod logging;
+mod remote_listener;
 mod run;
 mod settings_file;
 

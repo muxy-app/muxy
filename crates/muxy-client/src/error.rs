@@ -16,6 +16,8 @@ pub enum ClientError {
     UnexpectedReply(Box<ReplyBody>),
     Timeout,
     Disconnected,
+    /// A paired server presented a certificate other than the pinned one.
+    IdentityMismatch,
 }
 
 impl fmt::Display for ClientError {
@@ -30,6 +32,9 @@ impl fmt::Display for ClientError {
             Self::UnexpectedReply(body) => write!(formatter, "unexpected reply: {body:?}"),
             Self::Timeout => formatter.write_str("request timed out"),
             Self::Disconnected => formatter.write_str("disconnected from server"),
+            Self::IdentityMismatch => formatter.write_str(
+                "The server's identity changed since this device paired. Pair again to trust it.",
+            ),
         }
     }
 }

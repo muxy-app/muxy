@@ -6,6 +6,7 @@ pub(crate) mod extensions;
 mod keyboard;
 mod languages;
 mod layout;
+pub(crate) mod mobile;
 mod pickers;
 mod quick_terminal;
 mod results;
@@ -54,11 +55,12 @@ pub(crate) enum Category {
     Terminal,
     Keyboard,
     Server,
+    Mobile,
     Extensions,
 }
 
 impl Category {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -66,6 +68,7 @@ impl Category {
         Self::Keyboard,
         Self::Terminal,
         Self::Server,
+        Self::Mobile,
         Self::Extensions,
         Self::Ai,
     ];
@@ -80,6 +83,7 @@ impl Category {
             Self::Terminal => "Terminal",
             Self::Keyboard => "Keyboard",
             Self::Server => "Server",
+            Self::Mobile => "Mobile",
             Self::Extensions => "Extensions",
         }
     }
@@ -104,6 +108,7 @@ pub(crate) enum Change {
     Field(&'static str, String),
     Binding(String, Option<muxy_app_core::settings::KeyChord>),
     ShellIntegration(bool),
+    MobileAccess(bool),
 }
 
 pub(crate) enum SettingsEvent {
@@ -111,6 +116,10 @@ pub(crate) enum SettingsEvent {
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
     ReadServer,
+    ReadMobile,
+    PairPhone,
+    CancelPairing,
+    RevokeDevice(muxy_protocol::DeviceId),
     Connect,
     OpenConfiguration(&'static str),
     ReloadConfiguration,
@@ -126,6 +135,10 @@ pub(crate) struct Snapshot {
     pub(crate) server_busy: bool,
     pub(crate) server_update: Option<String>,
     pub(crate) pending_server_fields: HashSet<String>,
+    pub(crate) mobile: Option<muxy_protocol::RemoteAccessState>,
+    pub(crate) mobile_pairing: Option<mobile::Pairing>,
+    pub(crate) mobile_busy: bool,
+    pub(crate) mobile_error: Option<String>,
     pub(crate) ai_installed: Vec<&'static str>,
     /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) sidebars: Vec<(String, String)>,
@@ -268,6 +281,7 @@ impl SettingsView {
             "adjust-cell-height",
             "default-shell",
             "history-budget",
+            "mobile-port",
         ]
         .into_iter()
         .map(|id| (id, false))
@@ -364,6 +378,11 @@ impl SettingsView {
         let budget = server.map_or_else(String::new, |server| {
             (server.history_budget_bytes / (1024 * 1024)).to_string()
         });
+        let mobile_port = self
+            .snapshot
+            .mobile
+            .as_ref()
+            .map_or_else(String::new, |mobile| mobile.settings.port.to_string());
         for (id, value) in [
             ("composer-font", settings.composer.font_family.clone()),
             (
@@ -382,6 +401,7 @@ impl SettingsView {
             ("adjust-cell-height", terminal.cell_height.to_string()),
             ("default-shell", shell),
             ("history-budget", budget),
+            ("mobile-port", mobile_port),
         ]
         .into_iter()
         .chain(ai::PROMPTS.iter().map(|(action, id)| {
@@ -519,11 +539,13 @@ impl SettingsView {
         }
     }
 
-    fn configuration_file(&self) -> &'static str {
+    /// The file behind this category's settings; mobile access is managed only here.
+    fn configuration_file(&self) -> Option<&'static str> {
         match self.category {
-            Category::Terminal => "ghostty.conf",
-            Category::Server => "server.toml",
-            _ => "settings.toml",
+            Category::Terminal => Some("ghostty.conf"),
+            Category::Server => Some("server.toml"),
+            Category::Mobile => None,
+            _ => Some("settings.toml"),
         }
     }
 

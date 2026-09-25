@@ -1,8 +1,8 @@
 # Muxy product model
 
 Muxy is a terminal multiplexer for organizing projects and working in tabs and
-split panes. A separate server owns projects and terminal sessions; desktop and
-terminal clients provide views of that work.
+split panes. A separate server owns projects and terminal sessions; desktop,
+terminal, and paired mobile clients provide views of that work.
 
 These documents define the product's concepts and behavior. Read them in order:
 

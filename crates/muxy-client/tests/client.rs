@@ -473,7 +473,8 @@ fn server_exit_disconnects_the_client() -> TestResult {
             | ClientEvent::Progress { .. }
             | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
-            | ClientEvent::CatalogChanged { .. } => {}
+            | ClientEvent::CatalogChanged { .. }
+            | ClientEvent::RemoteAccessChanged { .. } => {}
             other @ ClientEvent::SessionEnded { .. } => {
                 return Err(format!("expected disconnect, got {other:?}").into());
             }

@@ -203,6 +203,7 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                     }
                     ClientEvent::FilesChanged { .. }
                     | ClientEvent::GitChanged { .. }
+                    | ClientEvent::RemoteAccessChanged { .. }
                     | ClientEvent::Progress { .. } => (),
                     ClientEvent::CatalogChanged { .. } => state.refresh = true,
                     ClientEvent::SessionsChanged { .. } => state.sessions_dirty = true,

@@ -8,8 +8,16 @@ come from the historical [benchmarks](./benchmarks.md).
 - The desktop supports macOS 14+. Standalone CLI/server targets are macOS 14+
   and Linux with glibc 2.35+, each on x86_64 and ARM64. Linux support requires
   native build and runtime verification on both architectures.
-- Server paths are Unix pathname bytes. Connections are local Unix sockets;
-  remote transport, native Windows, and musl/Alpine support are deferred.
+- Server paths are Unix pathname bytes. Local clients use Unix sockets and
+  paired phones use TLS over TCP on IPv4. Desktop and TUI remote transport,
+  native Windows, and musl/Alpine support are deferred.
+- The mobile SDK builds for iOS devices and simulators, and for Android, with
+  `scripts/build-mobile-sdk.sh`. During the beta a phone and its server must
+  share the compatibility identifier, so phone releases follow its bumps.
+- Turning on mobile access may show the macOS firewall prompt for
+  `muxy-server`, and the iOS app needs local-network permission to reach LAN
+  addresses. `MUXY_REMOTE_BIND` limits the listener to one IPv4 address; tests
+  use loopback.
 
 ## Ghostty terminal core
 

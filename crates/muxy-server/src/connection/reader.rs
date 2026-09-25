@@ -19,7 +19,7 @@ use muxy_protocol::{
 use crate::archive::SearchCache;
 use crate::{AttachmentEvent, AttachmentId, Registry, ServerError, SessionCommand};
 
-use super::{POLL, handshake::fatal, outbox::Outbox};
+use super::{POLL, handshake::fatal, outbox::Outbox, policy};
 
 static NEXT_ATTACHMENT: AtomicU64 = AtomicU64::new(1);
 
@@ -159,6 +159,7 @@ impl Requests {
                 "request requires a newer protocol version",
             ));
         }
+        policy::permit(self.outbox.device().is_some(), &body)?;
         let outbox = &self.outbox;
         match body {
             RequestBody::Ping => Ok(Some(ReplyBody::Pong)),
@@ -363,6 +364,29 @@ fn ordered_request(
                 ErrorCode::BadRequest,
                 "commands require a connection",
             ));
+        }
+        RequestBody::Authenticate(_) | RequestBody::Pair(_) => {
+            return Err(ServerError::new(
+                ErrorCode::BadRequest,
+                "the connection is already authenticated",
+            ));
+        }
+        RequestBody::ReadRemoteAccess => {
+            outbox.watch_remote_access();
+            ReplyBody::RemoteAccess(registry.remote_access_state())
+        }
+        RequestBody::WriteRemoteAccess(settings) => {
+            ReplyBody::RemoteAccess(registry.write_remote_access(settings)?)
+        }
+        RequestBody::StartPairing => {
+            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id)?)
+        }
+        RequestBody::CancelPairing => {
+            registry.remote.cancel_pairing();
+            ReplyBody::RemoteAccess(registry.remote_access_state())
+        }
+        RequestBody::RevokeDevice(device) => {
+            ReplyBody::RemoteAccess(registry.revoke_device(device)?)
         }
         RequestBody::ListSessions => ReplyBody::Sessions(registry.list()),
         RequestBody::CreateSession {

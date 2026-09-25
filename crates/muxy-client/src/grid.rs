@@ -279,6 +279,7 @@ mod tests {
 
     fn frame(seq: u64, reset: bool, rows: Vec<Row>) -> ScreenFrame {
         ScreenFrame {
+            size: Size { cols: 10, rows: 3 },
             graphics: None,
             seq,
             reset,
@@ -526,6 +527,7 @@ mod prompt_tests {
     fn future_marks_wait_for_frames_and_reset_frames_cannot_reuse_old_marks() {
         let mut grid = grid();
         let frame = |seq, reset| ScreenFrame {
+            size: Size { cols: 10, rows: 3 },
             graphics: None,
             seq,
             reset,

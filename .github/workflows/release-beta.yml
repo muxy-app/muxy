@@ -189,11 +189,54 @@ jobs:
           fi
           rm -f "$RUNNER_TEMP/muxy-beta-certificate.p12"
 
+  mobile-sdk:
+    name: Build (mobile SDK)
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-build-mobile-sdk
+      cancel-in-progress: true
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_DIR: target/beta/${{ needs.prepare.outputs.version }}/mobile-sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          key: beta-mobile-sdk-baseline
+      - name: Install cargo-ndk for the runner's Android NDK
+        run: cargo install cargo-ndk --locked --version 4.1.2
+      - name: Stamp the build version without committing a bump
+        run: |
+          rm -rf target/beta target/mobile-sdk
+          python3 scripts/beta_release.py stamp "$VERSION"
+      - name: Build the SDK for iOS and Android
+        run: bash scripts/build-mobile-sdk.sh target/mobile-sdk
+      - name: Package the SDK
+        run: python3 scripts/package-mobile-sdk.py "$VERSION" target/mobile-sdk "$PACKAGE_DIR"
+      - name: Upload SDK archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-distribution-mobile-sdk
+          path: ${{ env.PACKAGE_DIR }}/muxy-mobile-${{ env.VERSION }}*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep packaged output out of the build cache
+        if: always()
+        run: rm -rf target/beta target/mobile-sdk
+
   release:
     concurrency:
       group: muxy-beta-2.x-feed
       cancel-in-progress: false
-    needs: [prepare, build]
+    needs: [prepare, build, mobile-sdk]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
