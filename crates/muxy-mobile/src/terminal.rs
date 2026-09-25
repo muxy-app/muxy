@@ -5,6 +5,7 @@ use muxy_protocol::Size;
 
 use crate::MobileError;
 use crate::keys::{self, Key, Modifiers};
+use crate::mouse::{self, MouseButton, ScrollDirection};
 use crate::records::Screen;
 use crate::scrollback::Scrollback;
 use crate::terminals::{Terminals, View};
@@ -35,7 +36,12 @@ impl Terminal {
     /// The visible screen; call again after a `ScreenChanged` event.
     pub fn screen(&self) -> Screen {
         let content = self.view.lock();
-        Screen::new(&content.grid, &content.title, &content.directory.0)
+        Screen::new(
+            &content.grid,
+            &content.title,
+            &content.directory.0,
+            content.input,
+        )
     }
 
     /// Copies the newest history rows and the screen for scrolling back; new
@@ -60,6 +66,33 @@ impl Terminal {
     pub fn paste(&self, text: String) -> Result<(), MobileError> {
         let bracketed = self.view.lock().grid.modes.bracketed_paste;
         self.send_input(keys::paste(&text, bracketed))
+    }
+
+    /// Clicks at a cell: a press, then a release. The program sees it only
+    /// while `Screen::mouse_tracking` is on.
+    pub fn click(
+        &self,
+        button: MouseButton,
+        row: u16,
+        column: u16,
+        modifiers: Modifiers,
+    ) -> Result<(), MobileError> {
+        for event in mouse::click(button, row, column, modifiers) {
+            self.client.send_mouse(self.view.channel, event)?;
+        }
+        Ok(())
+    }
+
+    /// Turns the mouse wheel one step at a cell. The program sees it only
+    /// while `Screen::mouse_tracking` or `Screen::alternate_scroll` is on.
+    pub fn scroll(
+        &self,
+        direction: ScrollDirection,
+        row: u16,
+        column: u16,
+    ) -> Result<(), MobileError> {
+        let event = mouse::scroll(direction, row, column);
+        Ok(self.client.send_mouse(self.view.channel, event)?)
     }
 
     /// Resizes the session for every client viewing it, not just this device.

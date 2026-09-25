@@ -1,6 +1,8 @@
 use std::net::{SocketAddr, TcpListener};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::thread;
@@ -8,12 +10,16 @@ use std::time::{Duration, Instant};
 
 use muxy_client::Client;
 use muxy_mobile::{
-    Connection, ConnectionEvent, ConnectionListener, Key, Line, MobileError, Modifiers,
-    ServerCredential,
+    Connection, ConnectionEvent, ConnectionListener, FilesAction, FilesReply, GitAction,
+    GitDiffKind, GitDiffRequest, GitReply, Key, Line, MobileError, Modifiers, MouseButton,
+    ScrollDirection, ServerCredential,
 };
 use muxy_protocol::transport::Listener;
 use muxy_protocol::transport::tls::TlsListener;
-use muxy_protocol::{ListenerStatus, RemoteAccessSettings};
+use muxy_protocol::{
+    ListenerStatus, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
+    RemoteAccessSettings, ServerPath,
+};
 use muxy_server::connection::{serve, serve_remote};
 use muxy_server::{Registry, ServerEvent, ServerSettings};
 
@@ -144,6 +150,61 @@ fn wait_for(
         if done(&event) {
             return Ok(());
         }
+    }
+}
+
+/// Waits until `done` holds, checking now and after each event.
+fn wait_until(events: &Receiver<ConnectionEvent>, mut done: impl FnMut() -> bool) -> TestResult {
+    if done() {
+        return Ok(());
+    }
+    wait_for(events, |_| done())
+}
+
+fn metadata_changed(event: &ConnectionEvent, session: u64) -> bool {
+    matches!(event, ConnectionEvent::MetadataChanged { session_id } if *session_id == session)
+}
+
+/// A temporary folder, removed when dropped.
+struct Folder(PathBuf);
+
+impl Drop for Folder {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A new folder that the computer registers as a project; returns it with the project's id.
+fn project_folder(local: &Client) -> TestResult<(Folder, String)> {
+    let folder = Folder(std::env::temp_dir().join(format!("muxy-sdk-{}", OperationId::new())));
+    std::fs::create_dir(&folder.0)?;
+    let project = ProjectId::new();
+    local.mutate_project(ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Create(ProjectDescriptor {
+            id: project,
+            home: false,
+            directory: ServerPath(folder.0.as_os_str().as_bytes().to_vec()),
+            name: "Phone".into(),
+            icon: None,
+            logo: None,
+            color: "#ffffff".into(),
+            kind: None,
+            parent_id: None,
+        }),
+    })?;
+    Ok((folder, project.to_string()))
+}
+
+fn run_git(folder: &Path, args: &[&str]) -> TestResult {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(folder)
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).into())
     }
 }
 
@@ -358,5 +419,255 @@ fn terminals_attached_at_the_same_time_all_receive_their_screens() -> TestResult
     for session in sessions {
         connection.end_session(session.id)?;
     }
+    Ok(())
+}
+
+#[test]
+fn taps_and_scrolling_reach_a_program_that_tracks_the_mouse() -> TestResult {
+    let (_server, _local, credential) = paired()?;
+    let (recorder, events) = listener();
+    let connection = Connection::connect(credential, recorder)?;
+    let home = connection
+        .projects()?
+        .into_iter()
+        .find(|project| project.is_home)
+        .ok_or("no Home project")?;
+    let session = connection.create_session(home.id, 40, 6)?;
+    let terminal = connection.attach(session.id, 40, 6)?;
+    assert!(!terminal.screen().mouse_tracking);
+    // Button tracking with SGR reports, printed as soon as each one arrives.
+    terminal
+        .send_input(b"stty -icanon -echo; printf '\\033[?1000h\\033[?1006h'; cat -v\r".to_vec())?;
+    wait_for(&events, |event| {
+        metadata_changed(event, session.id) && terminal.screen().mouse_tracking
+    })?;
+    terminal.click(MouseButton::Left, 2, 4, Modifiers::default())?;
+    terminal.scroll(ScrollDirection::Up, 2, 4)?;
+    wait_until(&events, || {
+        texts(&terminal.screen().lines)
+            .iter()
+            .any(|line| line.contains("^[[<0;5;3M^[[<0;5;3m^[[<64;5;3M"))
+    })?;
+
+    // Attaching again shows the mode the program already turned on.
+    terminal.detach()?;
+    let terminal = connection.attach(session.id, 40, 6)?;
+    wait_until(&events, || terminal.screen().mouse_tracking)?;
+    let control = Modifiers {
+        control: true,
+        ..Modifiers::default()
+    };
+    terminal.send_key(Key::Character { text: "c".into() }, control)?;
+    terminal.send_input(b"printf '\\033[?1000l'\r".to_vec())?;
+    wait_for(&events, |event| {
+        metadata_changed(event, session.id) && !terminal.screen().mouse_tracking
+    })?;
+    connection.end_session(session.id)?;
+    Ok(())
+}
+
+#[test]
+fn scrolling_a_full_screen_program_sends_it_arrow_keys() -> TestResult {
+    let (_server, _local, credential) = paired()?;
+    let (recorder, events) = listener();
+    let connection = Connection::connect(credential, recorder)?;
+    let home = connection
+        .projects()?
+        .into_iter()
+        .find(|project| project.is_home)
+        .ok_or("no Home project")?;
+    let session = connection.create_session(home.id, 40, 6)?;
+    let terminal = connection.attach(session.id, 40, 6)?;
+    assert!(!terminal.screen().alternate_scroll);
+    // The alternate screen scrolls with arrow keys unless the program tracks the mouse.
+    terminal.send_input(b"stty -icanon -echo; printf '\\033[?1049h'; cat -v\r".to_vec())?;
+    wait_for(&events, |event| {
+        metadata_changed(event, session.id) && terminal.screen().alternate_scroll
+    })?;
+    assert!(!terminal.screen().mouse_tracking);
+    terminal.scroll(ScrollDirection::Down, 0, 0)?;
+    wait_until(&events, || {
+        texts(&terminal.screen().lines)
+            .iter()
+            .any(|line| line.contains("^[[B^[[B^[[B"))
+    })?;
+    connection.end_session(session.id)?;
+    Ok(())
+}
+
+#[test]
+fn a_phone_reads_and_changes_a_repository() -> TestResult {
+    let (_server, local, credential) = paired()?;
+    let (folder, project) = project_folder(&local)?;
+    for args in [
+        &["init", "-b", "main"][..],
+        &["config", "user.name", "Test"],
+        &["config", "user.email", "test@example.invalid"],
+        &["config", "commit.gpgsign", "false"],
+    ] {
+        run_git(&folder.0, args)?;
+    }
+    let (recorder, events) = listener();
+    let connection = Connection::connect(credential, recorder)?;
+    let git = |action| connection.git(project.clone(), action);
+    let write = |content: &str| {
+        connection.files(
+            project.clone(),
+            FilesAction::Write {
+                path: "notes.txt".into(),
+                content: content.into(),
+            },
+        )
+    };
+    assert_eq!(git(GitAction::Watch)?, GitReply::Done);
+    write("one\n")?;
+    wait_for(&events, |event| {
+        *event
+            == ConnectionEvent::GitChanged {
+                project_id: project.clone(),
+            }
+    })?;
+    let GitReply::Changes { files } = git(GitAction::Changes)? else {
+        return Err("expected changes".into());
+    };
+    assert_eq!(
+        (files[0].path.as_str(), files[0].index.as_str()),
+        ("notes.txt", "?")
+    );
+    git(GitAction::Stage {
+        paths: vec!["notes.txt".into()],
+    })?;
+    let GitReply::Commit { hash } = git(GitAction::Commit {
+        message: "Add notes".into(),
+        stage_all: false,
+    })?
+    else {
+        return Err("expected a commit".into());
+    };
+    write("one\ntwo\n")?;
+    let request = GitDiffRequest {
+        path: Some("notes.txt".into()),
+        ..GitDiffRequest::default()
+    };
+    let GitReply::Diff { diff } = git(GitAction::Diff { request })? else {
+        return Err("expected a diff".into());
+    };
+    assert_eq!((diff.additions, diff.deletions), (1, 0));
+    assert!(diff.rows.iter().any(|row| {
+        row.kind == GitDiffKind::Addition && row.new_text.as_deref() == Some("two")
+    }));
+    let GitReply::Log { commits } = git(GitAction::Log {
+        max_count: 10,
+        skip: 0,
+    })?
+    else {
+        return Err("expected a log".into());
+    };
+    assert_eq!(
+        (commits[0].hash.as_str(), commits[0].subject.as_str()),
+        (hash.as_str(), "Add notes")
+    );
+    git(GitAction::CreateBranch {
+        name: "feature".into(),
+    })?;
+    let GitReply::Summary {
+        summary: Some(summary),
+    } = git(GitAction::Summary)?
+    else {
+        return Err("expected a summary".into());
+    };
+    assert_eq!(summary.branch.as_deref(), Some("feature"));
+    assert_eq!(summary.unstaged, 1);
+    assert!(matches!(
+        git(GitAction::Checkout {
+            hash: "not a hash".into()
+        }),
+        Err(MobileError::Server { .. })
+    ));
+    Ok(())
+}
+
+#[test]
+fn a_phone_browses_and_edits_project_files() -> TestResult {
+    let (_server, local, credential) = paired()?;
+    let (_folder, project) = project_folder(&local)?;
+    let (recorder, events) = listener();
+    let connection = Connection::connect(credential, recorder)?;
+    let files = |action| connection.files(project.clone(), action);
+    assert_eq!(files(FilesAction::Watch)?, FilesReply::Done);
+    assert_eq!(
+        files(FilesAction::Mkdir {
+            path: "docs".into()
+        })?,
+        FilesReply::Path {
+            path: "docs".into()
+        }
+    );
+    files(FilesAction::Write {
+        path: "docs/a.md".into(),
+        content: "hello".into(),
+    })?;
+    wait_for(&events, |event| {
+        matches!(event, ConnectionEvent::FilesChanged { project_id, paths }
+            if *project_id == project
+                && (paths.is_empty() || paths.iter().any(|path| path.starts_with("docs"))))
+    })?;
+    let FilesReply::Entries { entries } = files(FilesAction::ListDirectory {
+        path: "docs".into(),
+    })?
+    else {
+        return Err("expected entries".into());
+    };
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<Vec<_>>(),
+        ["docs/a.md"]
+    );
+    let FilesReply::Content { file } = files(FilesAction::Read {
+        path: "docs/a.md".into(),
+    })?
+    else {
+        return Err("expected content".into());
+    };
+    assert_eq!((file.content.as_str(), file.size), ("hello", 5));
+    let FilesReply::Info { info } = files(FilesAction::Stat {
+        path: "docs/a.md".into(),
+    })?
+    else {
+        return Err("expected info".into());
+    };
+    assert!(!info.is_directory && info.size == 5);
+    assert_eq!(
+        files(FilesAction::Rename {
+            path: "docs/a.md".into(),
+            name: "b.md".into(),
+        })?,
+        FilesReply::Path {
+            path: "docs/b.md".into()
+        }
+    );
+    assert_eq!(
+        files(FilesAction::Move {
+            paths: vec!["docs/b.md".into()],
+            into: String::new(),
+        })?,
+        FilesReply::Paths {
+            paths: vec!["b.md".into()]
+        }
+    );
+    // An empty delete moves nothing to the computer's Trash.
+    assert_eq!(
+        files(FilesAction::Delete { paths: Vec::new() })?,
+        FilesReply::Done
+    );
+    assert!(matches!(
+        files(FilesAction::Read {
+            path: "../outside".into()
+        }),
+        Err(MobileError::Server { .. })
+    ));
+    assert_eq!(files(FilesAction::Unwatch)?, FilesReply::Done);
     Ok(())
 }

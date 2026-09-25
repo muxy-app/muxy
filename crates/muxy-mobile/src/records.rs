@@ -1,7 +1,18 @@
 //! Plain records the app reads; converted from the protocol's types.
 
 use muxy_client::RunGrid;
-use muxy_protocol::{ProjectDescriptor, ProjectKind, ProjectSession, Row, Run};
+use muxy_protocol::{
+    InputModes, ProjectDescriptor, ProjectKind, ProjectSession, Row, Run, ServerPath,
+};
+
+/// Paths cross the protocol as bytes; names that aren't UTF-8 show replacement characters.
+pub(crate) fn text(path: &ServerPath) -> String {
+    String::from_utf8_lossy(&path.0).into_owned()
+}
+
+pub(crate) fn server_path(path: String) -> ServerPath {
+    ServerPath(path.into_bytes())
+}
 
 /// Everything the app keeps to reconnect; store it in the Keychain or Keystore.
 #[derive(Clone, Eq, PartialEq, uniffi::Record)]
@@ -319,6 +330,7 @@ pub struct Cursor {
     pub shape: CursorShape,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct Screen {
     pub columns: u16,
@@ -331,10 +343,14 @@ pub struct Screen {
     pub history_rows: u64,
     pub application_cursor_keys: bool,
     pub bracketed_paste: bool,
+    /// The program reads taps and scrolling as mouse input; see `Terminal::click`.
+    pub mouse_tracking: bool,
+    /// Without mouse tracking, the program reads scrolling as arrow keys; see `Terminal::scroll`.
+    pub alternate_scroll: bool,
 }
 
 impl Screen {
-    pub(crate) fn new(grid: &RunGrid, title: &str, directory: &[u8]) -> Self {
+    pub(crate) fn new(grid: &RunGrid, title: &str, directory: &[u8], input: InputModes) -> Self {
         Self {
             columns: grid.size.cols,
             rows: grid.size.rows,
@@ -355,6 +371,8 @@ impl Screen {
             history_rows: grid.history_total,
             application_cursor_keys: grid.modes.application_cursor_keys,
             bracketed_paste: grid.modes.bracketed_paste,
+            mouse_tracking: input.mouse_tracking,
+            alternate_scroll: input.alternate_scroll,
         }
     }
 }

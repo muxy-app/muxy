@@ -11,7 +11,9 @@ use muxy_protocol::{
 };
 
 use crate::MobileError;
-use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus};
+use crate::files::{FilesAction, FilesReply};
+use crate::git::{GitAction, GitReply};
+use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
 use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
 
@@ -27,7 +29,7 @@ pub enum ConnectionEvent {
     ScreenChanged {
         session_id: u64,
     },
-    /// The terminal's title or directory changed.
+    /// The terminal's title, directory, history size, or mouse modes changed.
     MetadataChanged {
         session_id: u64,
     },
@@ -40,6 +42,16 @@ pub enum ConnectionEvent {
     SessionsChanged,
     /// Agent activity changed; read it again.
     ActivityChanged,
+    /// The repository of the project that `GitAction::Watch` watches changed.
+    GitChanged {
+        project_id: String,
+    },
+    /// Files changed in a project that `FilesAction::Watch` watches. `paths`
+    /// are relative to the project's folder; empty means anything may have changed.
+    FilesChanged {
+        project_id: String,
+        paths: Vec<String>,
+    },
     /// The server is restarting for an update; connect again shortly.
     ServerRestarting,
     /// The connection closed; connect again, then attach again.
@@ -219,6 +231,28 @@ impl Connection {
         Ok(self.client.acknowledge_activity(event_ids)?)
     }
 
+    /// Runs a Git action in the project's repository, as the desktop does.
+    pub fn git(&self, project_id: String, action: GitAction) -> Result<GitReply, MobileError> {
+        let request = muxy_protocol::GitRequest {
+            project: project(&project_id)?,
+            action: action.into(),
+        };
+        Ok(self.client.git(request)?.into())
+    }
+
+    /// Runs a files action in the project's folder, as the desktop does.
+    pub fn files(
+        &self,
+        project_id: String,
+        action: FilesAction,
+    ) -> Result<FilesReply, MobileError> {
+        let request = muxy_protocol::FilesRequest {
+            project: project(&project_id)?,
+            action: action.into(),
+        };
+        Ok(self.client.files(request)?.into())
+    }
+
     pub fn disconnect(&self) {
         self.client.disconnect();
     }
@@ -298,6 +332,17 @@ fn deliver(
             ClientEvent::CatalogChanged { .. } => Some(ConnectionEvent::CatalogChanged),
             ClientEvent::SessionsChanged { .. } => Some(ConnectionEvent::SessionsChanged),
             ClientEvent::ActivityChanged { .. } => Some(ConnectionEvent::ActivityChanged),
+            ClientEvent::GitChanged { project } => Some(ConnectionEvent::GitChanged {
+                project_id: project.to_string(),
+            }),
+            ClientEvent::FilesChanged { project, changes } => Some(ConnectionEvent::FilesChanged {
+                project_id: project.to_string(),
+                paths: if changes.rescan {
+                    Vec::new()
+                } else {
+                    changes.paths.iter().map(text).collect()
+                },
+            }),
             ClientEvent::ServerRestarting => Some(ConnectionEvent::ServerRestarting),
             ClientEvent::Disconnected => {
                 listener.on_event(ConnectionEvent::Disconnected);
@@ -305,8 +350,6 @@ fn deliver(
             }
             ClientEvent::SessionMetadata { .. }
             | ClientEvent::Progress { .. }
-            | ClientEvent::FilesChanged { .. }
-            | ClientEvent::GitChanged { .. }
             | ClientEvent::RemoteAccessChanged { .. } => None,
         };
         if let Some(notice) = notice {

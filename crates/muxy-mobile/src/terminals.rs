@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use muxy_client::{Attachment, RunGrid};
-use muxy_protocol::{ChannelId, MetadataEvent, ScreenFrame, ServerPath, SessionId};
+use muxy_protocol::{ChannelId, InputModes, MetadataEvent, ScreenFrame, ServerPath, SessionId};
 
 /// Channels still attaching; the server allows one unacknowledged frame each.
 const MAX_EARLY: usize = 16;
@@ -38,6 +38,7 @@ pub(crate) struct Content {
     pub(crate) grid: RunGrid,
     pub(crate) title: String,
     pub(crate) directory: ServerPath,
+    pub(crate) input: InputModes,
 }
 
 pub(crate) enum Delivery {
@@ -62,6 +63,7 @@ impl Terminals {
             grid: attachment.grid,
             title: attachment.title,
             directory: attachment.directory,
+            input: InputModes::default(),
         };
         content.grid.graphics = muxy_protocol::Graphics::default();
         let acknowledge = early.frame.map(|frame| {
@@ -100,18 +102,20 @@ impl Terminals {
         }
     }
 
-    /// Returns the session whose title or directory changed.
+    /// Returns the session whose `Screen` metadata changed.
     pub(crate) fn metadata(&self, channel: ChannelId, event: MetadataEvent) -> Option<SessionId> {
         if !matches!(
             event,
-            MetadataEvent::Title(_) | MetadataEvent::Directory(_) | MetadataEvent::History { .. }
+            MetadataEvent::Title(_)
+                | MetadataEvent::Directory(_)
+                | MetadataEvent::History { .. }
+                | MetadataEvent::InputModes(_)
         ) {
             return None;
         }
         let mut state = self.lock();
         if let Some(view) = state.views.get(&channel) {
-            view.lock().apply(event);
-            return Some(view.session);
+            return view.lock().apply(event).then_some(view.session);
         }
         if let Some(early) = state.early_for(channel) {
             early
@@ -150,12 +154,89 @@ impl View {
 }
 
 impl Content {
-    fn apply(&mut self, event: MetadataEvent) {
+    /// Returns whether the change shows in `Screen`.
+    fn apply(&mut self, event: MetadataEvent) -> bool {
         match event {
             MetadataEvent::Title(title) => self.title = title,
             MetadataEvent::Directory(directory) => self.directory = directory,
             MetadataEvent::History { total_rows } => self.grid.history_total = total_rows,
-            _ => {}
+            MetadataEvent::InputModes(input) => {
+                // Focus reporting alone doesn't show.
+                let shown = |modes: InputModes| (modes.mouse_tracking, modes.alternate_scroll);
+                let changed = shown(input) != shown(self.input);
+                self.input = input;
+                return changed;
+            }
+            _ => return false,
         }
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use muxy_protocol::{AttachSnapshot, Cursor, CursorShape, Graphics, Modes, Size};
+
+    use super::*;
+
+    fn attachment(channel: ChannelId) -> Attachment {
+        let snapshot = AttachSnapshot {
+            graphics: Graphics::default(),
+            prompts: Vec::new(),
+            channel,
+            size: Size { cols: 10, rows: 2 },
+            rows: Vec::new(),
+            cursor: Cursor {
+                shape: CursorShape::Block,
+                row: 0,
+                col: 0,
+                visible: true,
+            },
+            modes: Modes::default(),
+            title: String::new(),
+            directory: ServerPath(Vec::new()),
+            history: Vec::new(),
+            history_cursor: None,
+            history_total: 0,
+        };
+        Attachment {
+            channel,
+            grid: RunGrid::from_snapshot(&snapshot),
+            title: snapshot.title,
+            directory: snapshot.directory,
+            process: None,
+        }
+    }
+
+    fn modes(mouse_tracking: bool, focus_events: bool) -> MetadataEvent {
+        MetadataEvent::InputModes(InputModes {
+            mouse_tracking,
+            alternate_scroll: false,
+            focus_events,
+        })
+    }
+
+    #[test]
+    fn mouse_modes_sent_before_attach_returns_are_kept() {
+        let terminals = Terminals::default();
+        let channel = ChannelId(1);
+        let session = SessionId::new(7).unwrap();
+        assert_eq!(terminals.metadata(channel, modes(true, false)), None);
+        let (view, _) = terminals.install(session, attachment(channel));
+        assert!(view.lock().input.mouse_tracking);
+    }
+
+    #[test]
+    fn only_mode_changes_the_screen_shows_are_reported() {
+        let terminals = Terminals::default();
+        let channel = ChannelId(1);
+        let session = SessionId::new(7).unwrap();
+        terminals.install(session, attachment(channel));
+        assert_eq!(terminals.metadata(channel, modes(false, true)), None);
+        assert_eq!(
+            terminals.metadata(channel, modes(true, true)),
+            Some(session)
+        );
+        assert_eq!(terminals.metadata(channel, modes(true, true)), None);
     }
 }

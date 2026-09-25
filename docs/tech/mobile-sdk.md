@@ -28,7 +28,8 @@ screen and sends input.
   serial queue per connection so keystrokes stay in order.
 - Keep `ConnectionListener.onEvent` short. Hop to the main thread, and never
   call the server from inside it.
-- Events carry no data. Each one means "read this again".
+- Events carry ids, not data. Each one means "read this again";
+  `filesChanged` also says which paths changed.
 - The SDK never reconnects by itself. After `disconnected`, the connection and
   every `Terminal` and `Scrollback` from it are finished.
 - Store `ServerCredential` in the Keychain or behind an Android Keystore key.
@@ -38,21 +39,55 @@ screen and sends input.
   client showing the session.
 - Don't edit the generated bindings. Change the Rust SDK in
   `crates/muxy-mobile`, then rebuild it.
-- During the beta, the SDK and the server must come from the same Muxy build.
-  A mismatch fails with `IncompatibleVersion`.
+- During the beta, the SDK and the server must have the same compatibility
+  identifier; see [Getting the SDK](#getting-the-sdk). A mismatch fails with
+  `IncompatibleVersion`.
 
 ## Suggested order
 
-1. Build the SDK and link it into the app.
+1. Get the SDK and link it into the app.
 2. Pairing: scan or paste a link, confirm the computer, name the device.
 3. Credential storage, and a list of paired computers.
 4. Connecting, event handling, and reconnecting.
 5. Projects and their sessions.
 6. The terminal view: drawing the screen, the keyboard, accessory keys, and
    paste.
-7. Scrollback.
+7. Scrollback, then taps and scrolling for programs that use the mouse.
 8. Agent activity.
-9. Error states for every case in [Errors](#errors).
+9. Git and files.
+10. Error states for every case in [Errors](#errors).
+
+## Getting the SDK
+
+Every beta release publishes the SDK next to the desktop app, on the
+[releases page](https://github.com/muxy-app/muxy/releases):
+
+| File | Contents |
+| --- | --- |
+| `muxy-mobile-<version>-ios.zip` | `MuxyMobile.xcframework` and `muxy_mobile.swift` |
+| `muxy-mobile-<version>-android.zip` | `jniLibs/` and `muxy_mobile.kt` |
+| `muxy-mobile-<version>.json` | `version`, `compatibility`, and the `sha256` of each zip |
+
+Pin one version in the app repository, together with the SHA-256 that its JSON
+lists for the zip. A small script downloads the zip, checks it, and unpacks it
+for [Project setup](#project-setup):
+
+```sh
+set -euo pipefail
+VERSION=2.0.0-beta-1234
+SHA256=<the ios zip's sha256 from muxy-mobile-2.0.0-beta-1234.json>
+ZIP=muxy-mobile-$VERSION-ios.zip
+curl -fsSLO "https://github.com/muxy-app/muxy/releases/download/v$VERSION/$ZIP"
+echo "$SHA256  $ZIP" | shasum -a 256 -c
+unzip -oq "$ZIP" -d MuxyMobile
+```
+
+- On iOS, the zip also works as a Swift Package Manager binary target. Name
+  the target `MuxyMobile` to match the XCFramework, use the zip's URL and
+  SHA-256, and add `muxy_mobile.swift` to a target that depends on it.
+- The phone connects only to a Muxy build with the same `compatibility`.
+  `muxy --build-info` prints it for the computer's build. When a Muxy update
+  changes it, move the pin to that release.
 
 ## Build the SDK
 
@@ -66,9 +101,12 @@ scripts/build-mobile-sdk.sh              # writes target/mobile-sdk
 scripts/build-mobile-sdk.sh ~/muxy-sdk   # or another folder
 
 # For Android too
-cargo install cargo-ndk
+cargo install cargo-ndk --locked --version 4.1.2
 export ANDROID_NDK_HOME=~/Library/Android/sdk/ndk/<version>
 scripts/build-mobile-sdk.sh
+
+# Package a full build into the release files, as CI does
+python3 scripts/package-mobile-sdk.py 2.0.0-beta-1234 target/mobile-sdk ~/muxy-sdk-release
 ```
 
 ```text
@@ -90,8 +128,9 @@ target/mobile-sdk/
 
 1. Add `MuxyMobile.xcframework` to the app target and set it to **Do Not
    Embed**. It is a static library.
-2. Add `swift/muxy_mobile.swift` to the app target. It imports the
-   `muxy_mobileFFI` module that the XCFramework provides.
+2. Add `muxy_mobile.swift` to the app target; a local build has it in
+   `swift/`. It imports the `muxy_mobileFFI` module that the XCFramework
+   provides.
 3. Add these Info.plist keys:
 
 ```xml
@@ -119,7 +158,8 @@ Security exception is needed, because the SDK doesn't use HTTP.
 
 ### Android
 
-1. Copy `android/jniLibs/*` into `app/src/main/jniLibs/`.
+1. Copy `jniLibs/*` into `app/src/main/jniLibs/`; a local build has them in
+   `android/jniLibs/`.
 2. Copy `muxy_mobile.kt` into the Kotlin sources. Its package is
    `uniffi.muxy_mobile`.
 3. Add JNA, which the bindings use to load the library:
@@ -166,12 +206,16 @@ Swift names are shown. Kotlin uses the same names without argument labels.
 | `connection.attach(sessionId:columns:rows:)` | `Terminal` | yes |
 | `connection.activity()` | `Activity` | yes |
 | `connection.acknowledgeActivity(eventIds:)` | — | yes |
+| `connection.git(projectId:action:)` | `GitReply` | yes |
+| `connection.files(projectId:action:)` | `FilesReply` | yes |
 | `connection.disconnect()` | — | no |
 | `terminal.sessionId()` | `UInt64` | no |
 | `terminal.screen()` | `Screen` | no |
 | `terminal.sendInput(bytes:)` | — | yes |
 | `terminal.sendKey(key:modifiers:)` | — | yes |
 | `terminal.paste(text:)` | — | yes |
+| `terminal.click(button:row:column:modifiers:)` | — | yes |
+| `terminal.scroll(direction:row:column:)` | — | yes |
 | `terminal.resize(columns:rows:)` | — | yes |
 | `terminal.scrollback(maxRows:)` | `Scrollback` | yes |
 | `terminal.detach()` | — | yes |
@@ -190,7 +234,7 @@ thread. Every call that talks to the server can throw.
 | `Session` | `id`, `projectId`, `directory`, `status`, `owner?`, `attached` |
 | `SessionStatus` | `starting`, `live`, `ended`, `unavailable` |
 | `ClientKind` | `desktop`, `tui`, `cli`, `mobile` |
-| `Screen` | `columns`, `rows`, `lines`, `cursor`, `title`, `directory`, `historyRows`, `applicationCursorKeys`, `bracketedPaste` |
+| `Screen` | `columns`, `rows`, `lines`, `cursor`, `title`, `directory`, `historyRows`, `applicationCursorKeys`, `bracketedPaste`, `mouseTracking`, `alternateScroll` |
 | `Line` | `spans` |
 | `Span` | `text`, `width` (terminal cells), `style` |
 | `Style` | `foreground`, `background`, `bold`, `italic`, `faint`, `underline`, `underlineColor`, `strikethrough`, `overline`, `inverse`, `invisible` |
@@ -200,11 +244,14 @@ thread. Every call that talks to the server can throw.
 | `CursorShape` | `block`, `bar`, `underline`, `hollow` |
 | `Key` | `character(text)`, `enter`, `tab`, `backTab`, `escape`, `backspace`, `insert`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pageUp`, `pageDown`, `function(number)` |
 | `Modifiers` | `shift`, `alt`, `control` |
+| `MouseButton` | `left`, `middle`, `right` |
+| `ScrollDirection` | `up`, `down` |
 | `Activity` | `agents`, `events` |
 | `Agent` | `sessionId`, `projectId`, `provider`, `state` |
 | `AgentState` | `unknown`, `idle`, `working`, `blocked` |
 | `ActivityEvent` | `id`, `sessionId`, `projectId`, `provider`, `timestamp` (Unix seconds), `kind` |
 | `ActivityKind` | `attention`, `completed` |
+| `GitAction`, `GitReply`, `FilesAction`, `FilesReply` | see [Git and files](#git-and-files) |
 | `ConnectionEvent` | see [Events](#events) |
 | `MobileError` | see [Errors](#errors) |
 
@@ -412,11 +459,13 @@ val connection = withContext(sdk) { Connection.connect(credential, events) }
 | Event | What happened | What to do |
 | --- | --- | --- |
 | `screenChanged(sessionId)` | New output or cursor movement | Redraw from `screen()` on the next frame |
-| `metadataChanged(sessionId)` | Title, folder, or history size changed | Read `screen()` again |
+| `metadataChanged(sessionId)` | Title, folder, history size, or mouse modes changed | Read `screen()` again |
 | `sessionEnded(sessionId)` | The session ended, from any client | Show it as ended and drop its `Terminal` |
 | `catalogChanged` | Projects were added, changed, or removed | Read `projects()` again |
 | `sessionsChanged` | Sessions started or ended, or clients attached or detached | Read the visible session lists again |
 | `activityChanged` | Agent states or notifications changed | Read `activity()` again |
+| `gitChanged(projectId)` | The watched project's repository changed | Run the Git actions you show again |
+| `filesChanged(projectId, paths)` | Files changed in a watched project | Read `paths` and their folders again, or everything when `paths` is empty |
 | `serverRestarting` | The server is restarting, usually for an update | Show "Reconnecting…" and connect again shortly |
 | `disconnected` | The connection closed. This is always the last event | Drop the connection and its terminals, then reconnect when it makes sense |
 
@@ -570,6 +619,45 @@ lines.addAll(0, older)                               // empty when nothing older
 - When the user returns to the bottom, drop the scrollback and show the live
   screen.
 
+## Taps and scrolling
+
+Full-screen programs such as editors, pagers, and `htop` can take mouse input.
+`screen()` says when one does. Route gestures the way the desktop does:
+
+| The user | When | Call |
+| --- | --- | --- |
+| Scrolls | `mouseTracking` or `alternateScroll` is on | `scroll(direction:row:column:)` |
+| Scrolls | Both are off | Scroll a [Scrollback](#scrollback) |
+| Taps | `mouseTracking` is on | `click(button:row:column:modifiers:)` with `left` |
+| Taps | `mouseTracking` is off | Handle the tap in the app |
+
+```swift
+let none = Modifiers(shift: false, alt: false, control: false)
+try await SDK.run { try terminal.click(button: .left, row: 3, column: 10, modifiers: none) }
+try await SDK.run { try terminal.scroll(direction: .up, row: 3, column: 10) }
+```
+
+```kotlin
+val none = Modifiers(shift = false, alt = false, control = false)
+withContext(sdk) {
+    terminal.click(MouseButton.LEFT, 3u, 10u, none)
+    terminal.scroll(ScrollDirection.UP, 3u, 10u)
+}
+```
+
+- `mouseTracking` means the program reads the mouse. Otherwise,
+  `alternateScroll` means it reads scrolling as arrow keys, as pagers such as
+  `less` do.
+- `row` and `column` are the cell under the finger, counted from 0 at the top
+  left, like `cursor`.
+- Each `scroll` is one mouse-wheel step, which most programs treat as about
+  three lines. The desktop sends one step per row scrolled. `up` moves toward
+  earlier output, as dragging down does.
+- `click` sends a press and then a release. Use `right` or `middle` for other
+  gestures, such as a long press.
+- When either mode turns on while the user is in a scrollback, drop it and
+  show the live screen.
+
 ## Agent activity
 
 Muxy tracks AI coding agents running in sessions. `activity()` returns each
@@ -584,6 +672,47 @@ agent's state and recent notifications.
 - The phone learns about activity only while it's connected. There are no
   push notifications.
 
+## Git and files
+
+`git(projectId:action:)` and `files(projectId:action:)` do everything the
+desktop does with a project's repository and folder: status and diffs,
+staging, commits, branches, pushes and pulls, worktrees, pull requests, and
+reading and editing files. Their cases match the protocol's `GitAction`,
+`GitReply`, `FilesAction`, and `FilesReply` in `crates/muxy-protocol/src`:
+`git.rs`, `git/extension.rs`, and `files.rs`. Read those for what each action
+does.
+
+```swift
+if case .changes(let files) = try connection.git(projectId: project.id, action: .changes) {
+    show(files)
+}
+_ = try connection.files(projectId: project.id, action: .write(path: "notes.md", content: text))
+```
+
+```kotlin
+val reply = connection.git(project.id, GitAction.Changes)
+if (reply is GitReply.Changes) show(reply.files)
+connection.files(project.id, FilesAction.Write("notes.md", text))
+```
+
+- Run these off the main thread on a queue of their own. A push or pull can
+  take minutes, and keystrokes shouldn't wait behind it.
+- File paths are relative to the project's folder, and `""` is the folder
+  itself. Git's file paths are relative to the repository's root, which is the
+  same unless the project is a folder inside a repository. Directories, such
+  as a worktree's, are absolute paths on the computer.
+- `read` returns UTF-8 text of up to 5 MiB; other files fail with
+  `Server(reason)`. `delete` moves files to the computer's Trash.
+- `GitAction.watch` follows one project's repository per connection; a new
+  watch replaces it. A folder without a repository needs a new watch after
+  `init`. `FilesAction.watch` follows up to 32 projects until `unwatch`.
+  Watches end with the connection.
+- Differences from the protocol: ids and paths are strings, so names that
+  aren't UTF-8 can't be used. `GitFile.index` and `worktree` are one-letter
+  strings, such as `M`, `?`, or a space for unchanged.
+  `FilesAction.listDirectory` is the protocol's `List`. The SDK chooses the ids
+  of operations and of new worktree projects.
+
 ## Reconnecting
 
 - Connect when the app comes to the foreground, and disconnect when it goes to
@@ -594,8 +723,9 @@ agent's state and recent notifications.
   with backoff: 1 s, 2 s, 5 s, then every 10 s.
 - Stop retrying on `Unauthorized`, `IdentityMismatch`, `InvalidCredential`, and
   `IncompatibleVersion`. Only the user can fix those.
-- After reconnecting, attach again to the sessions the user had open, and read
-  projects, sessions, and activity again.
+- After reconnecting, attach again to the sessions the user had open, watch
+  again, and read projects, sessions, activity, and what you show from Git and
+  files again.
 
 ## Errors
 
@@ -609,7 +739,7 @@ for each case.
 | `Unreachable(reason)` | No address answered. The computer may be asleep or on another network, mobile access may be off, or a firewall or a declined local network permission blocked it | "Can't reach *serverName*. Check that it's awake and on the same network or VPN." | Yes |
 | `IdentityMismatch` | A server with a different certificate answered | "This computer's identity changed. Pair again." | No |
 | `Unauthorized` | The phone was revoked, or while pairing, the code expired, was used, or was replaced | "This phone isn't paired anymore." or "Show a new code on your computer." | No |
-| `IncompatibleVersion` | The app and the server come from different beta builds | "Update Muxy on your phone or computer." | No |
+| `IncompatibleVersion` | The app's SDK and the server have different compatibility identifiers | "Update Muxy on your phone or computer." | No |
 | `Timeout` | The server didn't answer in time | "Muxy isn't responding." | Yes |
 | `Disconnected` | The connection closed during the call | Reconnect | Yes |
 | `Server(reason)` | The server refused the request; `reason` is readable text | Show `reason` | Depends |
@@ -692,12 +822,13 @@ target/debug/muxy mobile disable
 - The iOS Simulator and the Android Emulator reach the Mac through the LAN
   address in the pairing link.
 - `cargo test -p muxy-mobile` pairs, connects, attaches, types, scrolls back,
-  and revokes against a real server.
+  sends taps and scrolling, works with Git and files, and revokes against a
+  real server.
 
 ## Not in this version
 
-- Git, files, and search
-- Mouse input and inline images
+- Search
+- Mouse drags and inline images
 - Push notifications
 - Finding computers automatically; pairing always starts from the QR code
 - IPv6, and access from outside the network without a VPN

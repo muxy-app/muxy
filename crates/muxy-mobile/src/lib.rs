@@ -12,7 +12,10 @@
 
 mod connection;
 mod error;
+mod files;
+mod git;
 mod keys;
+mod mouse;
 mod records;
 mod scrollback;
 mod terminal;
@@ -23,7 +26,16 @@ use muxy_protocol::{MAX_DEVICE_NAME, PairingInvite};
 
 pub use connection::{Connection, ConnectionEvent, ConnectionListener};
 pub use error::MobileError;
+pub use files::{FileContent, FileEntry, FileInfo, FilesAction, FilesReply};
+pub use git::{
+    GitAction, GitBaseSwitch, GitBranch, GitChangesPreview, GitChecks, GitCommit, GitDiff,
+    GitDiffKind, GitDiffRequest, GitDiffRow, GitFile, GitFileStatus, GitLineStat, GitMergeMethod,
+    GitPreviewFile, GitPullRequest, GitPullRequestAction, GitPullRequestFilter, GitPushDestination,
+    GitRawDiff, GitRef, GitRefKind, GitReply, GitRepoInfo, GitStatus, GitSummary, GitWorktree,
+    WorktreeAction, WorktreeRemoval,
+};
 pub use keys::{Key, Modifiers};
+pub use mouse::{MouseButton, ScrollDirection};
 pub use records::{
     Activity, ActivityEvent, ActivityKind, Agent, AgentState, ClientKind, Cursor, CursorShape,
     Line, PairingLink, Project, Screen, ServerCredential, Session, SessionStatus, Span, Style,

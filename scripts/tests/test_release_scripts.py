@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
 VERSION = "2.0.0-beta-1234"
+MOBILE_SDK = [f"muxy-mobile-{VERSION}-ios.zip", f"muxy-mobile-{VERSION}-android.zip", f"muxy-mobile-{VERSION}.json"]
 
 FAKE_TOOL = r'''
 import json, os, sys
@@ -130,6 +131,8 @@ class ReleaseScriptTests(unittest.TestCase):
             (self.directory / f"Muxy-{VERSION}-{arch}.dmg").write_bytes(arch.encode())
             for system, extension in (("macos", "zip"), ("linux", "tar.gz")):
                 (self.directory / f"muxy-{VERSION}-{system}-{arch}.{extension}").write_bytes(b"archive")
+        for name in MOBILE_SDK:
+            (self.directory / name).write_bytes(name.encode())
         (self.directory / "install-muxy.sh").write_bytes((ROOT / "scripts/install-muxy.sh").read_bytes())
 
     def run_script(self, script, *args):
@@ -275,7 +278,7 @@ class ReleaseScriptTests(unittest.TestCase):
         self.assertIn(f"muxy-{VERSION}-macos-arm64.zip", calls[2])
         metadata = json.loads((self.directory / "update.json").read_text())
         self.assertEqual(set(metadata["platforms"]), {"macos-aarch64"})
-        self.assertEqual(len((self.directory / "SHA256SUMS").read_text().splitlines()), 6)
+        self.assertEqual(len((self.directory / "SHA256SUMS").read_text().splitlines()), 9)
         self.assertNotIn("Intel", (self.directory / "release-notes.md").read_text())
 
     def test_incomplete_intel_artifacts_prevent_release(self):
@@ -306,13 +309,22 @@ class ReleaseScriptTests(unittest.TestCase):
     def test_hashes_cover_every_asset_and_notes_use_immutable_installer(self):
         self.assertEqual(self.publish().returncode, 0)
         checksums = (self.directory / "SHA256SUMS").read_text().splitlines()
-        self.assertEqual(len(checksums), 8)
+        self.assertEqual(len(checksums), 11)
         for line in checksums:
             digest, name = line.split()
             self.assertEqual(digest, hashlib.sha256((self.directory / name).read_bytes()).hexdigest())
         notes = (self.directory / "release-notes.md").read_text()
         self.assertIn(f"curl -fsSL https://github.com/example/muxy/releases/download/v{VERSION}/install-muxy.sh | sh -s -- --version {VERSION}", notes)
         self.assertNotIn("releases/latest", notes)
+
+    def test_mobile_sdk_is_published_and_hashed_next_to_the_apps(self):
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        upload = self.version_release_calls()[2]
+        checksums = (self.directory / "SHA256SUMS").read_text()
+        for name in MOBILE_SDK:
+            self.assertIn(name, upload)
+            self.assertIn(f"{hashlib.sha256(name.encode()).hexdigest()}  {name}", checksums)
 
     def test_wrong_branch_prevents_release(self):
         self.env["GITHUB_REF"] = "refs/heads/main"
