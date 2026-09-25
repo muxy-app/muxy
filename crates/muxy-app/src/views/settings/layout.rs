@@ -20,6 +20,7 @@ impl Category {
             Self::Keyboard => &["Shortcuts"],
             Self::Terminal => &["Text", "Behavior", "Configuration"],
             Self::Server => &["Connection", "Sessions", "Server control"],
+            Self::Mobile => &["Access", "Pairing", "Devices"],
             Self::Extensions => &[],
         }
     }
@@ -50,6 +51,9 @@ impl SettingsView {
         self.focus.focus(window);
         if category == Category::Server {
             cx.emit(SettingsEvent::ReadServer);
+        }
+        if category == Category::Mobile {
+            cx.emit(SettingsEvent::ReadMobile);
         }
         cx.notify();
     }
@@ -193,7 +197,6 @@ impl SettingsView {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
-        let file = self.configuration_file();
         self.titlebar("settings-content-titlebar")
             .h(px(76.0))
             .flex_none()
@@ -209,32 +212,36 @@ impl SettingsView {
                     .text_size(px(14.0))
                     .text_color(self.theme.accent)
                     .bg(self.theme.accent_soft)
-                    .child(if self.category == Category::Server {
-                        "Current device"
-                    } else {
-                        "User"
-                    }),
+                    .child(
+                        if matches!(self.category, Category::Server | Category::Mobile) {
+                            "Current device"
+                        } else {
+                            "User"
+                        },
+                    ),
             )
-            .child(
-                div()
-                    .id("settings-open-configuration")
-                    .debug_selector(|| "settings-open-configuration".into())
-                    .px(px(9.0))
-                    .py(px(4.0))
-                    .rounded(px(4.0))
-                    .border_1()
-                    .border_color(self.theme.border)
-                    .text_size(px(13.0))
-                    .text_color(self.theme.fg_muted)
-                    .cursor_pointer()
-                    .hover(|button| button.bg(self.theme.hover).text_color(self.theme.fg))
-                    .focus(|button| button.border_color(self.theme.accent))
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .button_interaction(cx.listener(move |_, _, _, cx| {
-                        cx.emit(SettingsEvent::OpenConfiguration(file));
-                    }))
-                    .child(format!("Edit in {file}")),
-            )
+            .when_some(self.configuration_file(), |header, file| {
+                header.child(
+                    div()
+                        .id("settings-open-configuration")
+                        .debug_selector(|| "settings-open-configuration".into())
+                        .px(px(9.0))
+                        .py(px(4.0))
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(self.theme.border)
+                        .text_size(px(13.0))
+                        .text_color(self.theme.fg_muted)
+                        .cursor_pointer()
+                        .hover(|button| button.bg(self.theme.hover).text_color(self.theme.fg))
+                        .focus(|button| button.border_color(self.theme.accent))
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .button_interaction(cx.listener(move |_, _, _, cx| {
+                            cx.emit(SettingsEvent::OpenConfiguration(file));
+                        }))
+                        .child(format!("Edit in {file}")),
+                )
+            })
             .into_any_element()
     }
 

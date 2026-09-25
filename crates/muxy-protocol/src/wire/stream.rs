@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use crate::{ChannelId, Message};
 
-use crate::wire::{HEADER_LEN, Header, WireError, decode, encode};
+use crate::wire::{HEADER_LEN, Header, MAX_FRAME, WireError, decode, encode};
 
 #[derive(Debug)]
 pub struct Encoder<W: Write> {
@@ -29,6 +29,7 @@ impl<W: Write> Encoder<W> {
 pub struct Decoder<R: Read> {
     reader: R,
     buffer: Vec<u8>,
+    payload_limit: usize,
 }
 
 impl<R: Read> Decoder<R> {
@@ -36,7 +37,13 @@ impl<R: Read> Decoder<R> {
         Self {
             reader,
             buffer: Vec::new(),
+            payload_limit: MAX_FRAME,
         }
+    }
+
+    /// Rejects larger frames before allocating for them, e.g. from unauthenticated peers.
+    pub fn set_payload_limit(&mut self, limit: usize) {
+        self.payload_limit = limit;
     }
 
     #[allow(clippy::should_implement_trait)]
@@ -44,7 +51,11 @@ impl<R: Read> Decoder<R> {
         let mut bytes = [0; HEADER_LEN];
         self.reader.read_exact(&mut bytes)?;
         let header = Header::from_bytes(bytes)?;
-        self.buffer.resize(header.payload_len()?, 0);
+        let length = header.payload_len()?;
+        if length > self.payload_limit {
+            return Err(WireError::FrameTooLarge);
+        }
+        self.buffer.resize(length, 0);
         self.reader.read_exact(&mut self.buffer)?;
         decode(header, &self.buffer)
     }
@@ -74,6 +85,22 @@ mod tests {
             assert!(reader.is_empty());
         }
         assert_eq!(MAX_FRAME, 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn payload_limit_rejects_before_allocating_and_can_be_lifted() -> Result<(), WireError> {
+        let message = Message::Input(vec![0xff; 4097]);
+        let mut bytes = Vec::new();
+        Encoder::new(&mut bytes).send(ChannelId(1), &message)?;
+        let mut decoder = Decoder::new(bytes.as_slice());
+        decoder.set_payload_limit(4096);
+        assert!(matches!(decoder.next(), Err(WireError::FrameTooLarge)));
+        assert_eq!(decoder.buffer.capacity(), 0);
+        let mut decoder = Decoder::new(bytes.as_slice());
+        decoder.set_payload_limit(4096);
+        decoder.set_payload_limit(MAX_FRAME);
+        assert_eq!(decoder.next()?, (ChannelId(1), message));
+        Ok(())
     }
 
     #[test]

@@ -17,3 +17,9 @@ postcard = { version = "1", default-features = false, features = ["use-std"] }
 serde = { version = "1", features = ["derive", "rc"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 unicode-segmentation = "1"
+ring = "0.17.14"
+rustix = { version = "1.1.4", features = ["event", "net"] }
+rustls = { version = "0.23.43", default-features = false, features = ["ring", "std"] }
+
+[dev-dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }

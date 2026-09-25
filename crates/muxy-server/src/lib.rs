@@ -29,3 +29,6 @@ mod git;
 
 mod activity;
 mod detection;
+
+mod remote;
+pub use remote::{Admission, RemoteAccess};

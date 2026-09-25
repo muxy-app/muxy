@@ -108,6 +108,7 @@ fn attach(client: &Client, session: SessionId) -> Result {
             | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. }
+            | ClientEvent::RemoteAccessChanged { .. }
             | ClientEvent::Frame { .. }
             | ClientEvent::Metadata { .. } => {}
             ClientEvent::SessionEnded {
@@ -149,6 +150,7 @@ fn end(client: &Client, session: SessionId) -> Result {
             | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. }
+            | ClientEvent::RemoteAccessChanged { .. }
             | ClientEvent::Frame { .. }
             | ClientEvent::Metadata { .. }
             | ClientEvent::SessionEnded { .. } => {}

@@ -20,7 +20,8 @@ pub fn encode(
         Message::SessionMetadata { session, metadata } => serialize(&(session, metadata), output)?,
         Message::ActivityChanged { revision }
         | Message::CatalogChanged { revision }
-        | Message::SessionsChanged { revision } => {
+        | Message::SessionsChanged { revision }
+        | Message::RemoteAccessChanged { revision } => {
             serialize(revision, output)?;
         }
         Message::Hello {
@@ -78,6 +79,9 @@ pub fn decode(header: Header, payload: &[u8]) -> Result<(ChannelId, Message), Wi
             revision: deserialize(payload)?,
         },
         MessageKind::CatalogChanged => Message::CatalogChanged {
+            revision: deserialize(payload)?,
+        },
+        MessageKind::RemoteAccessChanged => Message::RemoteAccessChanged {
             revision: deserialize(payload)?,
         },
         MessageKind::Hello => {

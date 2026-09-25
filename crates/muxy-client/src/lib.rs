@@ -21,3 +21,6 @@ pub use grid::{RunGrid, ScreenLinks, ScreenPrompts};
 mod catalog;
 
 pub mod local;
+
+mod remote;
+pub use remote::RemoteEndpoint;

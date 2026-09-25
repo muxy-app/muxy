@@ -88,6 +88,7 @@ impl Message {
             Self::FilesChanged { changes, .. } => changes.validate(),
             Self::SessionMetadata { metadata, .. } => validate_path(&metadata.directory),
             Self::ActivityChanged { .. }
+            | Self::RemoteAccessChanged { .. }
             | Self::GitChanged { .. }
             | Self::SessionsChanged { .. }
             | Self::CatalogChanged { .. }
@@ -177,7 +178,14 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_page_size(*max_rows)
         }
         RequestBody::SavedHistoryPage { max_rows, .. } => validate_page_size(*max_rows),
-        RequestBody::CancelExec(_)
+        RequestBody::Pair(request) => request.validate(),
+        RequestBody::WriteRemoteAccess(settings) => settings.validate(),
+        RequestBody::Authenticate(_)
+        | RequestBody::ReadRemoteAccess
+        | RequestBody::StartPairing
+        | RequestBody::CancelPairing
+        | RequestBody::RevokeDevice(_)
+        | RequestBody::CancelExec(_)
         | RequestBody::ReadActivity
         | RequestBody::IdentifyClient(_)
         | RequestBody::ReadCatalog { .. }
@@ -197,6 +205,10 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep reply validation exhaustive in one place"
+)]
 fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
     match body {
         ReplyBody::ActivityClaimed(ids) => {
@@ -276,7 +288,11 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             )
         }
         ReplyBody::SavedScreen(screen) => validate_saved_screen(screen),
-        ReplyBody::ExecCancelled
+        ReplyBody::Paired(paired) => paired.validate(),
+        ReplyBody::RemoteAccess(state) => state.validate(),
+        ReplyBody::Pairing(offer) => offer.invite.validate(),
+        ReplyBody::Authenticated
+        | ReplyBody::ExecCancelled
         | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten
         | ReplyBody::Git(_)

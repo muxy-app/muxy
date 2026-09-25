@@ -69,12 +69,16 @@ pub enum Message {
     GitChanged {
         project: crate::ProjectId,
     },
+    RemoteAccessChanged {
+        revision: u64,
+    },
 }
 
 impl Message {
     pub fn channel_kind(&self) -> ChannelKind {
         match self {
             Self::FilesChanged { .. }
+            | Self::RemoteAccessChanged { .. }
             | Self::SessionMetadata { .. }
             | Self::ActivityChanged { .. }
             | Self::Progress { .. }

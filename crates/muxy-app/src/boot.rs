@@ -89,6 +89,11 @@ pub(crate) enum Work {
     ReconnectAfterUpdate(u64),
     ReadServerSettings,
     WriteServerSettings(muxy_protocol::ServerSettingsDoc),
+    ReadRemoteAccess,
+    WriteRemoteAccess(muxy_protocol::RemoteAccessSettings),
+    StartPairing,
+    CancelPairing,
+    RevokeDevice(muxy_protocol::DeviceId),
     StopServer {
         socket: PathBuf,
         restart: bool,
@@ -160,6 +165,11 @@ impl Work {
             Self::ReconnectAfterUpdate(..) => "ReconnectAfterUpdate",
             Self::ReadServerSettings => "ReadServerSettings",
             Self::WriteServerSettings(..) => "WriteServerSettings",
+            Self::ReadRemoteAccess => "ReadRemoteAccess",
+            Self::WriteRemoteAccess(..) => "WriteRemoteAccess",
+            Self::StartPairing => "StartPairing",
+            Self::CancelPairing => "CancelPairing",
+            Self::RevokeDevice(..) => "RevokeDevice",
             Self::StopServer { .. } => "StopServer",
             Self::PrepareUpdate { .. } => "PrepareUpdate",
             Self::CheckServerUpdate { .. } => "CheckServerUpdate",
@@ -218,6 +228,8 @@ pub(crate) enum Update {
     },
     Connected(Vec<SessionInfo>),
     ServerSettings(Result<muxy_protocol::ServerSettingsDoc, ClientError>),
+    RemoteAccess(Result<muxy_protocol::RemoteAccessState, ClientError>),
+    Pairing(Result<muxy_protocol::PairingOffer, ClientError>),
     ServerStopped {
         restart: bool,
         result: Result<(), ClientError>,
@@ -495,6 +507,11 @@ fn rejected(work: Work, error: ClientError) -> Update {
         Work::ReadServerSettings | Work::WriteServerSettings(_) => {
             Update::ServerSettings(Err(error))
         }
+        Work::ReadRemoteAccess
+        | Work::WriteRemoteAccess(_)
+        | Work::CancelPairing
+        | Work::RevokeDevice(_) => Update::RemoteAccess(Err(error)),
+        Work::StartPairing => Update::Pairing(Err(error)),
         Work::StopServer { restart, .. } => Update::ServerStopped {
             restart,
             result: Err(error),
@@ -577,6 +594,15 @@ fn perform(work: Work, client: &Client) -> Option<Update> {
         }
         Work::WriteServerSettings(settings) => {
             return Some(write_server_settings(client, settings));
+        }
+        Work::ReadRemoteAccess => return Some(Update::RemoteAccess(client.read_remote_access())),
+        Work::WriteRemoteAccess(settings) => {
+            return Some(Update::RemoteAccess(client.write_remote_access(settings)));
+        }
+        Work::StartPairing => return Some(Update::Pairing(client.start_pairing())),
+        Work::CancelPairing => return Some(Update::RemoteAccess(client.cancel_pairing())),
+        Work::RevokeDevice(device) => {
+            return Some(Update::RemoteAccess(client.revoke_device(device)));
         }
         Work::StopServer { socket, restart } => {
             return Some(Update::ServerStopped {

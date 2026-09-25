@@ -5,6 +5,7 @@
 
 mod error;
 mod stream;
+pub mod tls;
 mod unix;
 
 pub use error::BindError;

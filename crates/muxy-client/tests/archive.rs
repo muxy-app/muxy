@@ -81,7 +81,8 @@ fn exited_content_is_read_without_attachment_and_discard_is_idempotent() -> Test
             | ClientEvent::Progress { .. }
             | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
-            | ClientEvent::CatalogChanged { .. } => {}
+            | ClientEvent::CatalogChanged { .. }
+            | ClientEvent::RemoteAccessChanged { .. } => {}
             ClientEvent::ServerRestarting | ClientEvent::Disconnected => {
                 return Err("client disconnected".into());
             }
@@ -157,7 +158,8 @@ fn saved_history_pages_remain_readable_after_the_server_reopens_its_archive() ->
                     | ClientEvent::Progress { .. }
                     | ClientEvent::FilesChanged { .. }
                     | ClientEvent::GitChanged { .. }
-                    | ClientEvent::CatalogChanged { .. } => {}
+                    | ClientEvent::CatalogChanged { .. }
+                    | ClientEvent::RemoteAccessChanged { .. } => {}
                     ClientEvent::SessionEnded {
                         session: id,
                         reason,

@@ -94,6 +94,7 @@ impl AppModel {
             window.on_window_should_close(cx, move |_, cx| {
                 let _ = model.update(cx, |model, cx| {
                     model.flush_preferences(cx);
+                    model.withdraw_pairing(cx);
                     model.settings_window = None;
                     cx.notify();
                 });
@@ -105,6 +106,7 @@ impl AppModel {
                 self.settings_window = Some(SettingsWindowState { window, view });
                 self.dismiss_overlay(cx);
                 self.read_server_settings(cx);
+                self.read_remote_access(cx);
             }
             Err(error) => self.fail(format!("Could not open Settings: {error}"), cx),
         }
@@ -124,6 +126,10 @@ impl AppModel {
                 || self.server_preferences.control_busy
                 || self.updates.replacing(),
             pending_server_fields: self.pending_server_fields(),
+            mobile: self.mobile.state.clone(),
+            mobile_pairing: self.mobile.pairing.clone(),
+            mobile_busy: self.mobile.busy,
+            mobile_error: self.mobile.error.clone(),
             ai_installed: self
                 .ai
                 .installed
@@ -203,6 +209,12 @@ impl AppModel {
         }
         let id = change_id(&change).to_owned();
         if matches!(
+            &change,
+            Change::MobileAccess(_) | Change::Field("mobile-port", _)
+        ) {
+            let result = self.write_mobile_preference(change, cx);
+            self.preference_result(&id, result.err().as_deref(), cx);
+        } else if matches!(
             &change,
             Change::ShellIntegration(_) | Change::Field("default-shell" | "history-budget", _)
         ) {
@@ -603,5 +615,6 @@ fn change_id(change: &Change) -> &str {
         Change::Composer(id, _) | Change::Field(id, _) => id,
         Change::Binding(id, _) => id,
         Change::ShellIntegration(_) => "shell-integration",
+        Change::MobileAccess(_) => "mobile-access",
     }
 }

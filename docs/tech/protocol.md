@@ -1,7 +1,8 @@
 # Protocol
 
-Clients and the server talk over a reliable, ordered local byte stream. This
-contract covers projects, terminal sessions, and server capabilities. Exact
+Clients and the server talk over a reliable, ordered byte stream: a local
+socket, or TLS for [paired devices](#paired-devices). This contract covers
+projects, terminal sessions, and server capabilities. Exact
 types, kind numbers, and limits live in the protocol crate and its fixtures;
 this document says what they mean.
 
@@ -61,6 +62,9 @@ share a supported contract. Any other traffic before hello is fatal.
 | Set terminal colors and its reply | client, server | control |
 | Read and write server settings, stop server, and their replies | client, server | control |
 | Run or cancel a project command, and their replies | client, server | control |
+| Authenticate or pair, and their replies | device, server | control |
+| Read and write mobile access, start and cancel pairing, revoke a device, and their replies | client, server | control |
+| Mobile access revision invalidations | server | control |
 | Ping, pong | client, server | control |
 | Frame ack | client | control |
 | Session ended, server restarting for an update | server | control |
@@ -93,7 +97,8 @@ lists distinguish live sessions from retained ended content. Membership and
 lifecycle changes also advance the catalog revision.
 
 Each connection represents a client instance independently of its saved layout
-and can identify itself as desktop, TUI, or CLI. Session listings expose the
+and can identify itself as desktop, TUI, CLI, or mobile. Network connections
+are always mobile, and local connections cannot claim to be. Session listings expose the
 current owner and whether the requesting client is attached. Attachment changes
 invalidate session listings without writing attachment state to storage. Repeated
 attachments and reference updates preserve a client's position; disconnecting
@@ -194,6 +199,23 @@ The runtime implements per-channel frame merging, acknowledgement credits, and
 control-first writing as described in the [architecture](./architecture.md#client-connection).
 Streaming wire compression and chunking remain deferred. D6 remains the
 compression target; any wire changes follow the version policy above.
+
+## Paired devices
+
+A network connection sends Hello, then exactly one Authenticate or Pair
+request. Until that succeeds, frames are small, one deadline covers TLS, Hello,
+and authentication, and only a few connections wait at once. Every
+authentication failure (unknown device, wrong token, revoked device, or access
+turned off) gets the same correlated Unauthorized reply before the connection
+closes, so a phone can tell that it must pair again. Pairing links carry the
+server's addresses, port, certificate fingerprint, and a one-time secret:
+`muxy://pair?v=1&h=HOST&p=PORT&f=FINGERPRINT&s=SECRET`. The server's identity
+and name arrive in the Paired reply.
+
+Paired devices cannot manage mobile access, write server settings, stop the
+server, or run extension commands; everything else behaves as for local
+clients. Revoking a device or turning mobile access off closes its
+connections.
 
 ## Beta update compatibility
 

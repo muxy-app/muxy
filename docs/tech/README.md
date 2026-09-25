@@ -8,10 +8,12 @@ implemented. They distinguish the current runtime from deferred design choices.
 3. [Constraints](./constraints.md) — platform and implementation constraints.
 4. [Decisions](./decisions.md) — choices, rationale, and rejected alternatives.
 5. [Benchmarks](./benchmarks.md) — historical measurements and methodology.
+6. [Mobile SDK](./mobile-sdk.md) — building the phone apps on `muxy-mobile`.
 
 The separate `muxy` CLI/TUI and `muxy-app` desktop use one client library and
-protocol to connect to `muxy-server`. The server owns Ghostty terminals and
-retained history; clients render screen updates without parsing terminal
-output. Current connections use Postcard over local Unix sockets, with merged
-pending screen frames and per-channel acknowledgements. Streaming wire
-compression remains deferred.
+protocol to connect to `muxy-server`; paired phones embed the same library
+through the `muxy-mobile` SDK. The server owns Ghostty terminals and retained
+history; clients render screen updates without parsing terminal output.
+Connections use Postcard over local Unix sockets, or over TLS for paired
+phones, with merged pending screen frames and per-channel acknowledgements.
+Streaming wire compression remains deferred.

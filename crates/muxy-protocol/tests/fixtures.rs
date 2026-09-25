@@ -36,6 +36,7 @@ fn generate_fixtures() -> Result<(), Box<dyn Error>> {
 
 fn fixture_path(message: &Message) -> PathBuf {
     let name = exec_fixture_name(message)
+        .or_else(|| remote_fixture_name(message))
         .or_else(|| git_fixture_name(message))
         .or_else(|| project_fixture_name(message))
         .unwrap_or_else(|| legacy_fixture_name(message));
@@ -68,6 +69,33 @@ fn git_fixture_name(message: &Message) -> Option<&'static str> {
         } => match reply {
             GitReply::ChangesPreview(_) => "git_changes_preview_reply",
             GitReply::BaseSwitch(_) => "git_base_switch_reply",
+            _ => return None,
+        },
+        _ => return None,
+    })
+}
+
+fn remote_fixture_name(message: &Message) -> Option<&'static str> {
+    Some(match message {
+        Message::Request { body, .. } => match body {
+            RequestBody::IdentifyClient(muxy_protocol::ClientKind::Mobile) => "identify_mobile",
+            RequestBody::Authenticate(_) => "authenticate",
+            RequestBody::Pair(_) => "pair",
+            RequestBody::ReadRemoteAccess => "read_remote_access",
+            RequestBody::WriteRemoteAccess(_) => "write_remote_access",
+            RequestBody::StartPairing => "start_pairing",
+            RequestBody::CancelPairing => "cancel_pairing",
+            RequestBody::RevokeDevice(_) => "revoke_device",
+            _ => return None,
+        },
+        Message::Reply { body, .. } => match body {
+            ReplyBody::Authenticated => "authenticated",
+            ReplyBody::Paired(_) => "paired",
+            ReplyBody::RemoteAccess(_) => "remote_access",
+            ReplyBody::Pairing(_) => "pairing",
+            ReplyBody::Error(error) if error.code == muxy_protocol::ErrorCode::Unauthorized => {
+                "unauthorized"
+            }
             _ => return None,
         },
         _ => return None,
@@ -347,5 +375,6 @@ fn kind_name(kind: MessageKind) -> &'static str {
         MessageKind::ActivityChanged => "activity_changed",
         MessageKind::SessionMetadata => "session_metadata",
         MessageKind::CellSize => "cell_size",
+        MessageKind::RemoteAccessChanged => "remote_access_changed",
     }
 }

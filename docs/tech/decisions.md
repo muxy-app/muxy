@@ -61,7 +61,8 @@ locally from runs.
 
 Relative to postcard on the run shape: bincode within 10 percent;
 MessagePack and protobuf 15 to 60 percent larger and up to 1.6 times the
-CPU. Both ends are Rust. Revisit only if a non-Rust client appears.
+CPU. Both ends are Rust. Revisit only if a non-Rust client appears. The phone
+apps embed the Rust client library (D11), so both ends stay Rust.
 
 ## D6. Compression is zstd level 1 with a streaming context per connection
 
@@ -88,9 +89,9 @@ streaming context already captures the repetition.
 Every transport is ten times faster than the fastest realistic PTY producer.
 Unix socket locally; stdio through whatever exec mechanism reaches a remote
 host, which is what SSH, Docker exec, and kubectl exec present; TCP with
-TLS only where a port is unavoidable. Rejected: a stream multiplexer library,
-because D8 replaces per-stream windows with something better for this
-domain.
+TLS only where a port is unavoidable, as for paired phones (D11). Rejected: a
+stream multiplexer library, because D8 replaces per-stream windows with
+something better for this domain.
 
 ## D8. Flow control is one merged pending frame per channel with one credit
 
@@ -120,3 +121,18 @@ All three candidates read at the kernel's pace with identical cost.
 portable-pty alone has a ConPTY backend behind the same trait, which keeps
 Windows cheap. The finding that matters is about the kernel, not the crate:
 see [constraints.md](./constraints.md).
+
+## D11. Phones connect over TLS with a pinned certificate and device tokens
+
+A phone cannot reach the local socket. When a user turns mobile access on, the
+server accepts TLS 1.3 over TCP with a self-signed certificate. Pairing shows a
+one-time code with the server's addresses, port, certificate fingerprint, and
+a 128-bit secret; the phone pins the fingerprint and receives its own 256-bit
+token, which the server keeps only as a hash. The phone apps embed the Rust
+client through UniFFI, so the wire and flow control match the other clients.
+
+Rejected: a cloud relay, for its hosted service and added trust; SSH from the
+phone, for its setup; mutual TLS, for certificate handling on phones; TLS raw
+public keys, which common TLS stacks cannot pin; a native Swift or Kotlin
+protocol, or JSON over WebSocket, which would duplicate the client library and
+drift from the mutable beta schema.

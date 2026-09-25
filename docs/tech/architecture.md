@@ -14,6 +14,7 @@ flowchart LR
     end
     subgraph SERVER["muxy-server process · Rust, one per profile"]
         ACCEPT["Local Unix listener"]
+        NETWORK["Network listener · TLS, opt-in"]
         CATALOG["Projects and session membership"]
         CLIENT["Client connection<br/>reader · writer thread · outbox"]
         S1["Session thread 1"]
@@ -21,6 +22,8 @@ flowchart LR
         SN["…"]
     end
     TUI["muxy TUI · Ratatui · shared TUI layout"] <-->|"local socket"| ACCEPT
+    PHONE["Mobile app · muxy-mobile SDK"] <-->|"TLS · paired device"| NETWORK
+    NETWORK -->|"after authentication"| CLIENT
     CATALOG --- CLIENT
     UI --> GRID
     GRID <--> CONN
@@ -39,10 +42,11 @@ flowchart LR
   distributed together for standalone use. Both clients use the shared client
   library and protocol, connecting to the local server or starting it under
   the shared startup lock. Neither client links the server implementation.
-- Both clients connect locally. Remote transport is outside this phase.
+- Desktop and TUI connect locally. Paired phones connect through the opt-in
+  network listener; desktop and TUI connections to other machines are deferred.
 
 The server package contains its library and executable. The protocol package
-owns shared screen types, wire codecs, and local transport. PTY adapters live
+owns shared screen types, wire codecs, and transports. PTY adapters live
 with the terminal backend; client settings live with the headless app model.
 
 ## Session thread
@@ -144,9 +148,21 @@ developer folders, grants, and extension storage remain scoped to the app profil
 
 ## Transport adapters
 
-Both clients and the server resolve the same profile and configured Unix
-socket. Remote, stdio, and network transports are deferred. Running `muxy`
-after an independent SSH login uses that machine's local server.
+Local clients and the server resolve the same profile and configured Unix
+socket. Running `muxy` after an independent SSH login uses that machine's
+local server. Stdio transports are deferred.
+
+When mobile access is on, the server also accepts TLS 1.3 over TCP with a
+self-signed certificate that phones pin when they pair. A TLS connection needs
+exclusive access, so one pump thread per connection moves bytes between TLS
+and a Unix socket pair whose other end the connection splits like a local
+socket. A network peer must authenticate as a paired device before it gets an
+outbox, worker threads, or registry visibility. The certificate, settings, and
+device token hashes live in the profile's `remote.json`.
+
+The `muxy-mobile` crate exposes the client library to the phone apps through
+UniFFI. It applies frames and acknowledgements in Rust; the apps render the
+screen and send input.
 
 ## Lifecycle notes
 

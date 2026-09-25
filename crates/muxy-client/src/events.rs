@@ -37,6 +37,9 @@ pub enum ClientEvent {
     CatalogChanged {
         revision: u64,
     },
+    RemoteAccessChanged {
+        revision: u64,
+    },
     Frame {
         channel: ChannelId,
         frame: ScreenFrame,
@@ -106,6 +109,9 @@ fn next_event(
             }
             (CONTROL, Message::CatalogChanged { revision }) => {
                 return Some(ClientEvent::CatalogChanged { revision });
+            }
+            (CONTROL, Message::RemoteAccessChanged { revision }) => {
+                return Some(ClientEvent::RemoteAccessChanged { revision });
             }
             (CONTROL, Message::ServerRestarting) => return Some(ClientEvent::ServerRestarting),
             (CONTROL, Message::Reply { id, body }) => pending.resolve(id, body),

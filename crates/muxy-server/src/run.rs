@@ -3,16 +3,21 @@ use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use muxy_protocol::transport::{BindError, Listener, StreamCancellation, UnixSocketListener};
-use muxy_server::{Registry, ServerEvent, connection};
+use muxy_protocol::transport::{
+    BindError, ByteStream, Listener, StreamCancellation, UnixSocketListener,
+};
+use muxy_protocol::wire::WireError;
+use muxy_server::{Registry, RemoteAccess, ServerEvent, connection};
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
+use crate::remote_listener::RemoteListener;
 use crate::{args::Args, logging, settings_file};
 
 const POLL: Duration = Duration::from_millis(10);
@@ -22,6 +27,133 @@ type Clients = Arc<Mutex<BTreeMap<u64, Client>>>;
 struct Client {
     events: Option<Sender<ServerEvent>>,
     cancellation: Box<dyn StreamCancellation>,
+    remote: bool,
+}
+
+/// Bookkeeping shared by the local and network accept loops.
+#[derive(Clone, Default)]
+pub(crate) struct Connections {
+    clients: Clients,
+    workers: Arc<Mutex<Workers>>,
+    next: Arc<AtomicU64>,
+}
+
+/// A panicked local client stops the server, as before; a panicked network
+/// client is only logged, so the network can never stop the server.
+#[derive(Default)]
+struct Workers {
+    local: Vec<JoinHandle<()>>,
+    remote: Vec<JoinHandle<()>>,
+}
+
+impl Connections {
+    pub(crate) fn spawn(
+        &self,
+        stream: Box<dyn ByteStream>,
+        remote: bool,
+        serve: impl FnOnce(Box<dyn ByteStream>, Receiver<ServerEvent>) -> Result<(), WireError>
+        + Send
+        + 'static,
+    ) -> io::Result<()> {
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        let cancellation = stream.cancellation()?;
+        let (sender, events) = mpsc::channel();
+        lock(&self.clients).insert(
+            id,
+            Client {
+                events: Some(sender),
+                cancellation,
+                remote,
+            },
+        );
+        let clients = Arc::clone(&self.clients);
+        if !remote {
+            log::info!("client connected: {id}");
+        }
+        let worker = thread::Builder::new()
+            .name(format!("client-{id}"))
+            .spawn(move || {
+                match serve(stream, events) {
+                    // Network peers fail handshakes routinely; devices log after authenticating.
+                    Err(error) if remote => log::debug!("network client {id}: {error}"),
+                    Err(error) => log::error!("client {id}: {error}"),
+                    Ok(()) => {}
+                }
+                lock(&clients).remove(&id);
+                if !remote {
+                    log::info!("client disconnected: {id}");
+                }
+            });
+        let worker = match worker {
+            Ok(worker) => worker,
+            Err(error) => {
+                lock(&self.clients).remove(&id);
+                return Err(error);
+            }
+        };
+        let mut workers = self.workers.lock().unwrap_or_else(PoisonError::into_inner);
+        let workers = if remote {
+            &mut workers.remote
+        } else {
+            &mut workers.local
+        };
+        workers.push(worker);
+        let mut panicked = false;
+        let mut index = 0;
+        while index < workers.len() {
+            if workers[index].is_finished() {
+                panicked |= workers.swap_remove(index).join().is_err();
+            } else {
+                index += 1;
+            }
+        }
+        match (panicked, remote) {
+            (true, false) => Err(io::Error::other("client thread panicked")),
+            (true, true) => {
+                log::error!("network client thread panicked");
+                Ok(())
+            }
+            (false, _) => Ok(()),
+        }
+    }
+
+    /// Ends every network connection, including ones not yet authenticated.
+    pub(crate) fn cancel_remote(&self) {
+        for client in lock(&self.clients).values().filter(|client| client.remote) {
+            client.cancellation.cancel();
+        }
+    }
+
+    fn cancel_all(&self) {
+        for client in lock(&self.clients).values() {
+            client.cancellation.cancel();
+        }
+    }
+
+    fn drain(&self, deadline: Instant) {
+        while Instant::now() < deadline && {
+            let workers = self.workers.lock().unwrap_or_else(PoisonError::into_inner);
+            workers
+                .local
+                .iter()
+                .chain(&workers.remote)
+                .any(|worker| !worker.is_finished())
+        } {
+            thread::sleep(POLL);
+        }
+    }
+
+    fn join(&self) -> io::Result<()> {
+        let workers =
+            std::mem::take(&mut *self.workers.lock().unwrap_or_else(PoisonError::into_inner));
+        let mut result = Ok(());
+        for worker in workers.local.into_iter().chain(workers.remote) {
+            if worker.join().is_err() {
+                result = Err(io::Error::other("client thread panicked"));
+            }
+        }
+        result
+    }
 }
 
 struct Socket {
@@ -110,18 +242,21 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
         .unwrap_or_else(|| Path::new("."))
         .join("sessions");
     let legacy = crate::legacy::read(directory.parent().unwrap_or_else(|| Path::new(".")))?;
-    let registry = bootstrap_registry(args, settings, sender, &directory, legacy)?;
+    let connections = Connections::default();
+    let remote = Arc::new(RemoteListener::new(connections.clone())?);
+    let registry = bootstrap_registry(args, settings, sender, &directory, legacy, &remote)?;
+    remote.attach(&registry);
+    registry.resume_remote_access();
     let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let requested_stop = Arc::clone(&stopping);
     let requested_socket = Arc::clone(&socket);
-    let clients = Clients::default();
-    let subscribers = Arc::clone(&clients);
+    let subscribers = Arc::clone(&connections.clients);
     let sessions = Arc::clone(&registry);
     let broadcast = thread::Builder::new()
         .name("server-events".into())
         .spawn(move || {
             broadcast(&events, &subscribers, &sessions, || {
-                requested_stop.store(true, std::sync::atomic::Ordering::Release);
+                requested_stop.store(true, Ordering::Release);
                 requested_socket.close();
             });
         })?;
@@ -132,14 +267,13 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
         .name("server-signals".into())
         .spawn(move || {
             if signals.forever().next().is_some() {
-                stopped.store(true, std::sync::atomic::Ordering::Release);
+                stopped.store(true, Ordering::Release);
                 closing_socket.close();
             }
         });
-    let mut workers = Vec::new();
     let result = match signal.as_ref() {
-        Ok(_) => accept(&socket, &registry, &clients, &mut workers).or_else(|error| {
-            if stopping.load(std::sync::atomic::Ordering::Acquire) {
+        Ok(_) => accept(&socket, &registry, &connections).or_else(|error| {
+            if stopping.load(Ordering::Acquire) {
                 Ok(())
             } else {
                 Err(error)
@@ -148,23 +282,14 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
         Err(error) => Err(io::Error::other(error.to_string())),
     };
     socket.close();
+    remote.shutdown();
     registry.shutdown();
     let broadcast_result = broadcast
         .join()
         .map_err(|_| io::Error::other("event thread panicked"));
-    let deadline = Instant::now() + DRAIN_TIMEOUT;
-    while workers.iter().any(|worker| !worker.is_finished()) && Instant::now() < deadline {
-        thread::sleep(POLL);
-    }
-    for client in lock(&clients).values() {
-        client.cancellation.cancel();
-    }
-    let mut worker_result = Ok(());
-    for worker in workers {
-        if worker.join().is_err() {
-            worker_result = Err(io::Error::other("client thread panicked"));
-        }
-    }
+    connections.drain(Instant::now() + DRAIN_TIMEOUT);
+    connections.cancel_all();
+    let worker_result = connections.join();
     signal_handle.close();
     let signal_result = match signal {
         Ok(signal) => signal
@@ -186,68 +311,31 @@ fn bootstrap_registry(
     sender: Sender<ServerEvent>,
     directory: &Path,
     legacy: muxy_server::LegacyImport,
+    remote: &Arc<RemoteListener>,
 ) -> io::Result<Arc<Registry>> {
     let hooks =
         muxy_server::ShellIntegration::install(&directory.with_file_name("shell-integration"))?;
     let settings_path = args.settings.clone();
+    let listener = Arc::clone(remote);
     Ok(Arc::new(
         Registry::persistent_with_import(settings, sender, directory, legacy)?
             .with_shell_integration(hooks)
             .with_settings_persistence(move |settings| {
                 settings_file::save(&settings_path, settings)
-            }),
+            })
+            .with_remote_access(RemoteAccess::open(directory.with_file_name("remote.json")))
+            .with_remote_listener(move |listening| listener.apply(listening)),
     ))
 }
 
-fn accept(
-    socket: &Socket,
-    registry: &Arc<Registry>,
-    clients: &Clients,
-    workers: &mut Vec<JoinHandle<()>>,
-) -> io::Result<()> {
-    for id in 1..u64::MAX {
+fn accept(socket: &Socket, registry: &Arc<Registry>, connections: &Connections) -> io::Result<()> {
+    loop {
         let stream = socket.listener.accept()?;
-        let cancellation = stream.cancellation()?;
-        let (sender, events) = mpsc::channel();
-        lock(clients).insert(
-            id,
-            Client {
-                events: Some(sender),
-                cancellation,
-            },
-        );
-        let sessions = Arc::clone(registry);
-        let connected = Arc::clone(clients);
-        log::info!("client connected: {id}");
-        let worker = thread::Builder::new()
-            .name(format!("client-{id}"))
-            .spawn(move || {
-                if let Err(error) = connection::serve(stream, sessions, events) {
-                    log::error!("client {id}: {error}");
-                }
-                lock(&connected).remove(&id);
-                log::info!("client disconnected: {id}");
-            });
-        match worker {
-            Ok(worker) => workers.push(worker),
-            Err(error) => {
-                lock(clients).remove(&id);
-                return Err(error);
-            }
-        }
-        let mut index = 0;
-        while index < workers.len() {
-            if workers[index].is_finished() {
-                workers
-                    .swap_remove(index)
-                    .join()
-                    .map_err(|_| io::Error::other("client thread panicked"))?;
-            } else {
-                index += 1;
-            }
-        }
+        let registry = Arc::clone(registry);
+        connections.spawn(stream, false, move |stream, events| {
+            connection::serve(stream, registry, events)
+        })?;
     }
-    Err(io::Error::other("client IDs exhausted"))
 }
 
 fn broadcast(

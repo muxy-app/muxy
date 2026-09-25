@@ -48,6 +48,7 @@ id!(ProjectId);
 id!(OperationId);
 id!(ClientId);
 id!(ServerIdentity);
+id!(DeviceId);
 
 use crate::{ErrorCode, ServerPath, SessionId, SessionInfo};
 use unicode_segmentation::UnicodeSegmentation;

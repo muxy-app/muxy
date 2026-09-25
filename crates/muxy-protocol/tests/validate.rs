@@ -294,6 +294,59 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
     let mut seen = BTreeSet::new();
     for message in Message::samples() {
         let (name, channel) = match &message {
+            Message::RemoteAccessChanged { .. } => ("RemoteAccessChanged", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::IdentifyClient(muxy_protocol::ClientKind::Mobile),
+                ..
+            } => ("IdentifyMobile", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::Authenticate(_),
+                ..
+            } => ("Authenticate", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::Pair(_),
+                ..
+            } => ("Pair", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ReadRemoteAccess,
+                ..
+            } => ("ReadRemoteAccess", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::WriteRemoteAccess(_),
+                ..
+            } => ("WriteRemoteAccess", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::StartPairing,
+                ..
+            } => ("StartPairing", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::CancelPairing,
+                ..
+            } => ("CancelPairing", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::RevokeDevice(_),
+                ..
+            } => ("RevokeDevice", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Authenticated,
+                ..
+            } => ("Authenticated", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Paired(_),
+                ..
+            } => ("Paired", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::RemoteAccess(_),
+                ..
+            } => ("RemoteAccess", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Pairing(_),
+                ..
+            } => ("Pairing", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Error(error),
+                ..
+            } if error.code == ErrorCode::Unauthorized => ("Unauthorized", ChannelKind::Control),
             Message::Request {
                 body: RequestBody::Exec(_),
                 ..
@@ -632,6 +685,20 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "Progress",
             "Frame",
             "Metadata",
+            "RemoteAccessChanged",
+            "IdentifyMobile",
+            "Authenticate",
+            "Pair",
+            "ReadRemoteAccess",
+            "WriteRemoteAccess",
+            "StartPairing",
+            "CancelPairing",
+            "RevokeDevice",
+            "Authenticated",
+            "Paired",
+            "RemoteAccess",
+            "Pairing",
+            "Unauthorized",
         ])
     );
 }

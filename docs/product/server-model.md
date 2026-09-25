@@ -79,3 +79,13 @@ The server keeps at most one unread event per session, up to 200 total, in memor
 Acknowledging an event removes it for every client without changing a blocked
 agent's live status. Ending a session clears its state; server restart clears all
 activity. No notification history is saved.
+
+## Mobile access
+
+Mobile access is off until a user turns it on. Pairing shows a code that works
+once, for five minutes, and only while the client showing it stays connected.
+A paired phone connects with its own credential and has the same shell-level
+access as a local client, except that it cannot manage mobile access, change
+server settings, stop the server, or run extension commands. Revoking a device
+or turning mobile access off disconnects the affected phones at once. Phones
+appear as mobile clients in session ownership.
