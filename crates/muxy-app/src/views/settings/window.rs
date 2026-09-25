@@ -368,9 +368,7 @@ impl SettingsWindow {
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let _ = self.model.update(cx, |model, cx| {
-            model.flush_preferences(cx);
-            model.settings_window = None;
-            cx.notify();
+            model.settings_closed(cx);
         });
         window.remove_window();
     }

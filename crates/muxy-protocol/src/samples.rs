@@ -77,6 +77,7 @@ impl Message {
             }),
             Self::Input(b"pwd\r".to_vec()),
             Self::Frame(ScreenFrame {
+                size,
                 graphics: None,
                 seq: 1,
                 reset: true,

@@ -754,6 +754,7 @@ impl Owner {
         let graphics_changed = graphics != self.graphics || self.resize_pending;
         self.graphics = graphics;
         let frame = ScreenFrame {
+            size: self.size,
             graphics: graphics_changed.then(|| self.graphics.clone()),
             seq: 0,
             reset: self.resize_pending,

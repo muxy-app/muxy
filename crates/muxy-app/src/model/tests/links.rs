@@ -45,6 +45,7 @@ fn terminal_menu_focuses_the_clicked_split_and_routes_clipboard_actions(cx: &mut
     terminal.update(cx, |pane, cx| {
         pane.apply(
             &muxy_protocol::ScreenFrame {
+                size: saved_screen().size,
                 graphics: None,
                 seq: 1,
                 reset: true,

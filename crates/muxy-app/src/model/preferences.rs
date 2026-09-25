@@ -93,10 +93,7 @@ impl AppModel {
             let model = weak.clone();
             window.on_window_should_close(cx, move |_, cx| {
                 let _ = model.update(cx, |model, cx| {
-                    model.flush_preferences(cx);
-                    model.withdraw_pairing(cx);
-                    model.settings_window = None;
-                    cx.notify();
+                    model.settings_closed(cx);
                 });
                 true
             });
@@ -110,6 +107,13 @@ impl AppModel {
             }
             Err(error) => self.fail(format!("Could not open Settings: {error}"), cx),
         }
+    }
+
+    pub(crate) fn settings_closed(&mut self, cx: &mut Context<Self>) {
+        self.flush_preferences(cx);
+        self.withdraw_pairing(cx);
+        self.settings_window = None;
+        cx.notify();
     }
 
     fn preferences_snapshot(&self) -> Snapshot {

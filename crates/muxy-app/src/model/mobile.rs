@@ -10,11 +10,17 @@ use crate::views::settings::mobile::Pairing;
 
 /// Mobile access as Settings shows it; the server owns the real state.
 #[derive(Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "The running request and the follow-ups it owes"
+)]
 pub(super) struct MobileAccess {
     pub(super) state: Option<RemoteAccessState>,
     /// The pairing code on screen, until it is used, cancelled, or expires.
     pub(super) pairing: Option<Pairing>,
     pub(super) busy: bool,
+    /// The running request creates a pairing code.
+    starting: bool,
     /// The server reported a change while a request was running.
     stale: bool,
     /// The user cancelled pairing while a request was running.
@@ -90,6 +96,7 @@ impl AppModel {
         if self.mobile_available() && !self.mobile.busy {
             self.mobile.error = None;
             self.mobile.busy = self.send(Work::StartPairing, cx);
+            self.mobile.starting = self.mobile.busy;
             self.sync_preferences(cx);
         }
     }
@@ -107,7 +114,7 @@ impl AppModel {
 
     /// A code must not stay valid on the server after Settings closes.
     pub(super) fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
-        if self.mobile.pairing.is_some() {
+        if self.mobile.pairing.is_some() || self.mobile.starting {
             self.cancel_pairing(cx);
         }
     }
@@ -180,7 +187,11 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         self.mobile.busy = false;
+        self.mobile.starting = false;
         match result {
+            Ok(_) if self.mobile.cancel || self.settings_window.is_none() => {
+                self.mobile.cancel = true;
+            }
             Ok(offer) => {
                 let lifetime = offer.expires_at.saturating_sub(
                     SystemTime::now()

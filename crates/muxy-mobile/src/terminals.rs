@@ -67,7 +67,7 @@ impl Terminals {
         };
         content.grid.graphics = muxy_protocol::Graphics::default();
         let acknowledge = early.frame.map(|frame| {
-            content.grid.apply(&frame);
+            content.frame(&frame);
             frame.seq
         });
         for event in early.metadata {
@@ -87,7 +87,7 @@ impl Terminals {
         frame.graphics = None;
         let mut state = self.lock();
         if let Some(view) = state.views.get(&channel) {
-            view.lock().grid.apply(&frame);
+            view.lock().frame(&frame);
             return Delivery::Applied {
                 session: view.session,
                 seq: frame.seq,
@@ -154,6 +154,13 @@ impl View {
 }
 
 impl Content {
+    fn frame(&mut self, frame: &ScreenFrame) {
+        if self.grid.size != frame.size {
+            self.grid.resize(frame.size);
+        }
+        self.grid.apply(frame);
+    }
+
     /// Returns whether the change shows in `Screen`.
     fn apply(&mut self, event: MetadataEvent) -> bool {
         match event {
@@ -206,6 +213,72 @@ mod tests {
             directory: snapshot.directory,
             process: None,
         }
+    }
+
+    fn resized(size: Size) -> ScreenFrame {
+        ScreenFrame {
+            size,
+            graphics: None,
+            seq: 1,
+            reset: true,
+            rows: (0..size.rows)
+                .map(|index| muxy_protocol::Row {
+                    index,
+                    runs: Vec::new(),
+                })
+                .collect(),
+            cursor: Cursor {
+                shape: CursorShape::Block,
+                row: 0,
+                col: 0,
+                visible: true,
+            },
+            modes: Modes::default(),
+        }
+    }
+
+    #[test]
+    fn resize_frames_before_attach_returns_replace_the_snapshot_size() {
+        for size in [Size { cols: 20, rows: 4 }, Size { cols: 4, rows: 1 }] {
+            let terminals = Terminals::default();
+            let channel = ChannelId(1);
+            let session = SessionId::new(7).unwrap();
+            assert!(matches!(
+                terminals.frame(channel, resized(size)),
+                Delivery::Held
+            ));
+            let (view, acknowledge) = terminals.install(session, attachment(channel));
+            assert_eq!(acknowledge, Some(1));
+            assert_eq!(view.lock().grid.size, size);
+            assert_eq!(view.lock().grid.rows.len(), usize::from(size.rows));
+        }
+    }
+
+    #[test]
+    fn blank_resets_track_both_dimensions_and_deltas_keep_other_rows() {
+        let terminals = Terminals::default();
+        let channel = ChannelId(1);
+        let session = SessionId::new(7).unwrap();
+        let (view, _) = terminals.install(session, attachment(channel));
+        for size in [Size { cols: 20, rows: 4 }, Size { cols: 4, rows: 1 }] {
+            assert!(matches!(
+                terminals.frame(channel, resized(size)),
+                Delivery::Applied { .. }
+            ));
+            assert_eq!(view.lock().grid.size, size);
+            assert_eq!(view.lock().grid.rows.len(), usize::from(size.rows));
+        }
+        let mut delta = resized(Size { cols: 4, rows: 1 });
+        delta.reset = false;
+        delta.rows[0].runs.push(muxy_protocol::Run {
+            text: "text".into(),
+            width: 4,
+            style: muxy_protocol::Style::default(),
+        });
+        terminals.frame(channel, delta.clone());
+        delta.rows.clear();
+        terminals.frame(channel, delta);
+        assert_eq!(view.lock().grid.row_text(0), "text");
     }
 
     fn modes(mouse_tracking: bool, focus_events: bool) -> MetadataEvent {

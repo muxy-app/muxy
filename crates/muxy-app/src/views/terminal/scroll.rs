@@ -572,6 +572,7 @@ mod tests {
         assert!(request.is_none());
         assert_eq!(scroll.take_command_output(), Some((1, 3)));
         live.apply(&ScreenFrame {
+            size: live.size,
             graphics: None,
             seq: 3,
             reset: false,
@@ -598,6 +599,7 @@ mod tests {
             ["99", "100", "101", "102", "103"]
         );
         live.apply(&ScreenFrame {
+            size: live.size,
             graphics: None,
             seq: 1,
             reset: false,

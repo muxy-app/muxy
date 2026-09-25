@@ -713,6 +713,7 @@ mod tests {
 
     fn frame(seq: u64, index: u16) -> ScreenFrame {
         ScreenFrame {
+            size: Size { cols: 80, rows: 24 },
             graphics: None,
             seq,
             reset: false,

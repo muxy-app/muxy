@@ -1976,6 +1976,10 @@ mod tests {
                         seq += 1;
                         pane.apply(
                             &ScreenFrame {
+                                size: Size {
+                                    cols: 20,
+                                    rows: frame_rows,
+                                },
                                 graphics: None,
                                 seq,
                                 reset: true,
@@ -2077,6 +2081,7 @@ mod tests {
                 pane.metadata(MetadataEvent::History { total_rows: 201 }, cx);
                 pane.apply(
                     &ScreenFrame {
+                        size: pane.grid.as_ref().unwrap().size,
                         graphics: None,
                         seq: 1,
                         reset: false,
@@ -2124,6 +2129,7 @@ mod tests {
             let request = find.results.restart().unwrap();
             pane.apply(
                 &ScreenFrame {
+                    size: pane.grid.as_ref().unwrap().size,
                     graphics: None,
                     seq: 1,
                     reset: false,
@@ -2566,6 +2572,7 @@ mod tests {
                     terminal.feed(redraw.as_bytes());
                     pane.apply(
                         &ScreenFrame {
+                            size: pane.grid.as_ref().unwrap().size,
                             graphics: None,
                             seq: index as u64 + 1,
                             reset: false,
@@ -2622,6 +2629,7 @@ mod tests {
             };
             pane.select(selection, cx);
             let mut frame = ScreenFrame {
+                size: pane.grid.as_ref().unwrap().size,
                 graphics: None,
                 seq: 1,
                 reset: false,

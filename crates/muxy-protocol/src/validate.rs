@@ -66,10 +66,13 @@ impl Message {
                     Err(ErrorCode::BadSize)
                 }
             }
-            Self::Frame(frame) => frame
-                .graphics
-                .as_ref()
-                .map_or(Ok(()), crate::Graphics::validate),
+            Self::Frame(frame) => {
+                validate_size(frame.size)?;
+                frame
+                    .graphics
+                    .as_ref()
+                    .map_or(Ok(()), crate::Graphics::validate)
+            }
             Self::Metadata(MetadataEvent::ScreenPrompts { rows, .. }) => {
                 validate_prompts(rows, usize::from(MAX_ROWS))
             }

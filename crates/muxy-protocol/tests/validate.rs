@@ -48,6 +48,52 @@ fn sizes_reject_zero_and_each_dimension_above_its_limit() {
 }
 
 #[test]
+fn screen_frames_validate_their_size() {
+    let frame = Message::samples()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::Frame(frame) => Some(frame),
+            _ => None,
+        })
+        .expect("screen frame");
+    for (size, expected) in [
+        (Size { cols: 1, rows: 1 }, Ok(())),
+        (
+            Size {
+                cols: MAX_COLS,
+                rows: MAX_ROWS,
+            },
+            Ok(()),
+        ),
+        (Size { cols: 0, rows: 1 }, Err(ErrorCode::BadSize)),
+        (Size { cols: 1, rows: 0 }, Err(ErrorCode::BadSize)),
+        (
+            Size {
+                cols: MAX_COLS + 1,
+                rows: 1,
+            },
+            Err(ErrorCode::BadSize),
+        ),
+        (
+            Size {
+                cols: 1,
+                rows: MAX_ROWS + 1,
+            },
+            Err(ErrorCode::BadSize),
+        ),
+    ] {
+        assert_eq!(
+            Message::Frame(muxy_protocol::ScreenFrame {
+                size,
+                ..frame.clone()
+            })
+            .validate(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn input_accepts_empty_and_one_mebibyte_but_rejects_one_more_byte() {
     assert_eq!(MAX_INPUT, 1_048_576);
     assert_eq!(validate_input(&[]), Ok(()));

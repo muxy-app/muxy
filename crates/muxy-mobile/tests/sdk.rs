@@ -272,6 +272,42 @@ fn a_phone_pairs_opens_a_shell_and_types() -> TestResult {
 }
 
 #[test]
+fn the_phone_tracks_desktop_resizes_without_resizing_the_session() -> TestResult {
+    let (_server, local, credential) = paired()?;
+    let (recorder, events) = listener();
+    let connection = Connection::connect(credential, recorder)?;
+    let home = connection
+        .projects()?
+        .into_iter()
+        .find(|project| project.is_home)
+        .ok_or("no Home project")?;
+    let session = connection.create_session(home.id, 40, 6)?;
+    let id = muxy_protocol::SessionId::new(session.id).ok_or("invalid session")?;
+    let desktop = local.attach(id, muxy_protocol::Size { cols: 40, rows: 6 })?;
+    let terminal = connection.attach(session.id, 20, 3)?;
+    assert_eq!((terminal.screen().columns, terminal.screen().rows), (40, 6));
+    let result = (|| -> TestResult {
+        for (columns, rows) in [(70, 10), (20, 3), (55, 3), (55, 8)] {
+            local.resize(
+                desktop.channel,
+                muxy_protocol::Size {
+                    cols: columns,
+                    rows,
+                },
+            )?;
+            wait_until(&events, || {
+                let screen = terminal.screen();
+                (screen.columns, screen.rows) == (columns, rows)
+                    && screen.lines.len() == usize::from(rows)
+            })?;
+        }
+        Ok(())
+    })();
+    connection.end_session(session.id)?;
+    result
+}
+
+#[test]
 fn revoking_disconnects_the_phone_and_refuses_it_afterwards() -> TestResult {
     let (_server, local, credential) = paired()?;
     let (recorder, events) = listener();

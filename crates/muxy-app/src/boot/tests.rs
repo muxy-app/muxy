@@ -247,6 +247,7 @@ fn frame_event(channel: ChannelId) -> ClientEvent {
     ClientEvent::Frame {
         channel,
         frame: muxy_protocol::ScreenFrame {
+            size: Size { cols: 80, rows: 24 },
             graphics: None,
             seq: 1,
             reset: false,

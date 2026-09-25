@@ -258,6 +258,60 @@ fn closing_settings_withdraws_a_code_still_on_screen(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn closing_settings_with_the_shortcut_withdraws_the_code(cx: &mut TestAppContext) {
+    let (view, cx, requests) = connected(cx, access(true, None, Vec::new()));
+    view.update(cx, |model, cx| {
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
+    });
+    cx.simulate_keystrokes("cmd-w");
+    cx.run_until_parked();
+    assert!(
+        requests
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::CancelPairing))
+    );
+    view.read_with(cx, |model, _| {
+        assert!(model.settings_window.is_none());
+        assert!(model.mobile.pairing.is_none());
+    });
+}
+
+fn close_while_pairing(cx: &mut TestAppContext, shortcut: bool) {
+    let (view, cx, requests) = connected(cx, access(true, None, Vec::new()));
+    view.update(cx, AppModel::pair_phone);
+    assert!(
+        requests
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::StartPairing))
+    );
+    if shortcut {
+        cx.simulate_keystrokes("cmd-w");
+    } else {
+        assert!(cx.simulate_close());
+    }
+    view.update(cx, |model, cx| {
+        assert!(model.settings_window.is_none());
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
+        assert!(model.mobile.pairing.is_none());
+    });
+    assert!(
+        requests
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::CancelPairing))
+    );
+}
+
+#[gpui::test]
+fn closing_settings_withdraws_a_pending_code(cx: &mut TestAppContext) {
+    close_while_pairing(cx, false);
+}
+
+#[gpui::test]
+fn closing_settings_with_the_shortcut_withdraws_a_pending_code(cx: &mut TestAppContext) {
+    close_while_pairing(cx, true);
+}
+
+#[gpui::test]
 fn mobile_access_reloads_after_a_reconnect(cx: &mut TestAppContext) {
     let (view, cx, requests) = connected(cx, access(true, None, vec![phone(false)]));
     view.update(cx, |model, cx| {

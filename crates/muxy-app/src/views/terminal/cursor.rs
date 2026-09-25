@@ -188,6 +188,7 @@ mod tests {
             let grid = pane.grid.as_ref().unwrap();
             pane.apply(
                 &ScreenFrame {
+                    size: grid.size,
                     graphics: None,
                     seq: 1,
                     reset: false,
@@ -209,6 +210,7 @@ mod tests {
             let grid = pane.grid.as_ref().unwrap();
             pane.apply(
                 &ScreenFrame {
+                    size: grid.size,
                     graphics: None,
                     seq: 2,
                     reset: false,
