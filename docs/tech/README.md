@@ -1,20 +1,38 @@
-# Muxy technical design
+# Technical design
 
-These documents define how the [product model](../product/README.md) is
-implemented. They distinguish the current runtime from deferred design choices.
+How the [product](../product/README.md) is built.
 
-1. [Architecture](./architecture.md) — processes, components, and boundaries.
-2. [Protocol](./protocol.md) — wire contract and compatibility policy.
-3. [Constraints](./constraints.md) — platform and implementation constraints.
-4. [Decisions](./decisions.md) — choices, rationale, and rejected alternatives.
-5. [Benchmarks](./benchmarks.md) — historical measurements and methodology.
-6. [Mobile SDK](./mobile-sdk.md) — building the phone apps on `muxy-mobile`.
+```mermaid
+flowchart LR
+    subgraph APPS["Apps · one shared client library"]
+        DESKTOP["muxy-app<br/>desktop · Rust + GPUI"]
+        TUI["muxy<br/>CLI and terminal UI · Ratatui"]
+        PHONE["Phone apps<br/>muxy-mobile SDK"]
+    end
+    SERVER["muxy-server<br/>Ghostty terminals · history · projects"]
+    DESKTOP <-->|"Unix socket"| SERVER
+    TUI <-->|"Unix socket"| SERVER
+    PHONE <-->|"TLS"| SERVER
+```
 
-The separate `muxy` CLI/TUI and `muxy-app` desktop use one client library and
-protocol to connect to `muxy-server`; paired phones embed the same library
-through the `muxy-mobile` SDK. The server owns Ghostty terminals and retained
-history; clients render screen updates without parsing terminal output.
-Connections carry CBOR with numbered fields, and postcard screen rows, over local
-Unix sockets or TLS for paired phones, with merged pending screen frames and
-per-channel acknowledgements. Builds that share a protocol version can talk.
-Streaming wire compression remains deferred.
+The big ideas:
+
+1. **The server owns the terminals.** Each session is a Ghostty terminal on the
+   server, with its history. Apps never parse terminal output. They receive rows
+   of styled text and draw them.
+2. **Only changes are sent.** About 60 times a second the server sends the rows
+   that changed. A slow app gets one merged update, never a backlog.
+3. **One client library.** The desktop app, the terminal UI, and the phone apps
+   all use the same Rust client and protocol.
+4. **The protocol only grows.** New fields and messages don't break older
+   builds.
+
+## Read next
+
+1. [Architecture](./architecture.md): processes, crates, and how a keystroke
+   travels.
+2. [Protocol](./protocol.md): how apps and the server talk, and the
+   compatibility rules.
+3. [Mobile](./mobile.md): how phones pair and connect.
+4. [Decisions](./decisions.md): the key choices and why they were made.
+5. [Constraints](./constraints.md): supported platforms and hard-won lessons.

@@ -1,154 +1,120 @@
 # Decisions
 
-Each decision names the question, the choice, the measurements that settled
-it, and what was rejected. Machine for all numbers: Apple M3, 24 GB, macOS,
-Rust 1.92, release builds, medians of repeated runs on recorded workloads.
-Full tables are in [benchmarks.md](./benchmarks.md).
+The key technical choices, why they were made, and what was turned down.
 
-## D1. The server's terminal core is libghostty-vt
+Most numbers come from early prototypes, measured on an Apple M3 with release
+builds. Every candidate replayed the same recorded terminal output: an idle
+shell, large log dumps, a vim session, a full-screen monitor, heavy color
+changes, Unicode, and long lines with resizes, plus 100 sessions at once. The
+raw reports are in git history.
 
-| | Ghostty, compressed | Alacritty | WezTerm core | vt100 |
-| --- | ---: | ---: | ---: | ---: |
-| Memory per 10K history rows | 1.7 MB | 51 MB | 3.3 MB | 71 MB |
-| Build-log parse speed | 317 MB/s | 123 MB/s | 49 MB/s | 85 MB/s |
-| Peak memory reflowing 100K rows | 29 MB | 1,300 MB | 68 MB | 690 MB |
-| Server footprint, 100 sessions, 30 busy | 135 MB | 2,060 MB | not run | not run |
+| | Decision | In short |
+| --- | --- | --- |
+| D1 | Ghostty is the terminal engine | Least memory, fastest parsing |
+| D2 | The server owns the screen; apps only draw | Small apps, instant attach |
+| D3 | History is a byte budget | Predictable memory |
+| D4 | Rows travel as style runs | 4 to 8 times smaller than cells |
+| D5 | CBOR messages, postcard rows | Messages can grow, rows stay compact |
+| D6 | zstd streaming compression, planned | Halves interactive traffic |
+| D7 | Any byte stream is a transport | Unix socket locally, TLS for phones |
+| D8 | One merged frame in flight | Slow apps never pile up |
+| D9 | The app draws rows directly | Redraws only on change |
+| D10 | portable-pty for PTYs | Same speed, ready for Windows |
+| D11 | Phones pin a certificate | No cloud and no SSH setup |
+| D12 | Protocol changes are additive | Old and new builds keep talking |
 
-All engines produced identical screens on every workload, including a
-recorded vim session and reflow after resize, except vt100 on combining
-marks. Rejected: Alacritty for the server because of its per-row cost and
-reflow peak; WezTerm's core for speed; vt100 for memory and correctness; a
-custom grid because Ghostty already beats what it could reach.
+## D1. Ghostty is the terminal engine
 
-Alacritty remains a valid engine for an optional app-side full-emulator
-surface, where no history is held. See D9.
+The server keeps every terminal in libghostty-vt. With compressed history it
+uses about 1.7 MB per 10,000 rows, against 51 MB for Alacritty, and it parsed a
+colored build log faster than every alternative. 100 sessions, 30 of them busy,
+fit in 135 MB.
 
-## D2. The server owns the grid and history; the app renders and never parses
+Turned down: Alacritty for memory, including a 1.3 GB peak on resize; WezTerm's
+core for speed; vt100 for memory and wrong combining marks; a custom grid,
+because Ghostty already beats it.
 
-Four placements were built as real processes over a Unix socket.
+## D2. The server owns the screen; apps only draw
 
-| Placement | Server memory under floods | Client memory, 100 sessions | Wire on floods | Attach |
-| --- | --- | ---: | ---: | ---: |
-| Server grid, client renders rows | bounded by the engine | 9 MB | under 2 percent of output | 1 ms |
-| Server grid, VT re-stream to a client emulator | bounded by the engine | 561 MB | under 3 percent | 1 ms |
-| Raw bytes, client emulates | balloons to 389 MB per session | 2,340 MB | 100 percent | 16 ms per MB retained |
-| Hybrid | worst of both | 689 MB | 100 percent | 1 ms |
+Four designs were built and compared. With the screen on the server and rows
+sent to apps, 100 sessions used 9 MB in the app, sent under 2 percent of the raw
+output, and attached in 1 ms. Streaming raw bytes to apps used 2.3 GB, sent
+everything, and attached more slowly the more history there was.
 
-Rejected: raw-byte streaming and the hybrid. Both make every client re-parse
-everything, hold history on the client, and need explicit backpressure the
-grid gives for free.
+Turned down: raw byte streaming and a hybrid. Every app would parse everything
+again and keep its own history.
 
 ## D3. History is a byte budget
 
-Ghostty enforces bytes, not rows, and compressed pages make a byte cap
-predictable while a row cap is not. The product's retention setting is
-stated in bytes; the server reports rows retained.
+Ghostty limits history by bytes, and with compression a byte limit gives
+predictable memory where a row limit doesn't. The setting is in bytes, and the
+server reports how many rows it holds.
 
-## D4. Frames carry style runs per changed row
+## D4. Rows travel as style runs
 
-| Shape, uncompressed | vim session | monitor at 60 Hz | style churn |
-| --- | ---: | ---: | ---: |
-| One record per cell | 1,176 KB | 17,524 KB | 1,397 KB |
-| Style runs | 181 KB | 2,750 KB | 1,129 KB |
-| VT re-stream | 223 KB | 3,152 KB | 2,312 KB |
+A row is sent as runs of text that share a style. That is 4 to 8 times smaller
+than one record per cell, smaller than re-sending escape codes, quick to decode,
+and needs no terminal emulator in the app.
 
-Runs are 4 to 8 times smaller than cells, undercut the VT re-stream, decode
-in 3 to 12 µs, and need no emulator on the client. Rejected: cells for size;
-VT re-stream because a client that wants a full emulator can regenerate it
-locally from runs.
+## D5. Messages are CBOR; screen rows are postcard
 
-## D5. Screen rows are postcard; everything else is CBOR with numbered fields
+Screen rows use postcard, the most compact format tested, and the same bytes the
+server saves to disk. Everything else is CBOR with numbered fields, so builds can
+add fields without breaking each other (D12). It costs a few bytes per frame.
 
-Relative to postcard on the run shape: bincode within 10 percent;
-MessagePack and protobuf 15 to 60 percent larger and up to 1.6 times the
-CPU. Screen rows keep postcard, the same bytes saved records store. Every other
-payload is CBOR through minicbor, whose numbered fields let builds evolve
-independently (D12). Across the 95 sample messages CBOR totals 3,272 bytes
-against postcard's 3,286; a screen frame gains a fixed 7 bytes. Both ends are
-Rust: the phone apps embed the Rust client library (D11).
+## D6. Compression will be zstd with a streaming context
 
-## D6. Compression is zstd level 1 with a streaming context per connection
+Not built yet. zstd level 1 with one context per connection halved interactive
+traffic for about 15 µs per frame.
 
-| Compression on run frames | build log | vim | monitor | style churn |
-| --- | ---: | ---: | ---: | ---: |
-| none | 25.1 KB | 181 KB | 2,750 KB | 1,129 KB |
-| lz4 | 9.5 KB | 91 KB | 1,585 KB | 468 KB |
-| zstd 1 per frame | 6.9 KB | 62 KB | 912 KB | 216 KB |
-| zstd 1 streaming | 4.3 KB | 29 KB | 829 KB | 211 KB |
+Turned down: lz4 for its ratio, higher zstd levels for speed, and trained
+dictionaries, which fit their training data and little else.
 
-Streaming context halves interactive traffic at 15 µs per frame. Rejected:
-lz4 for ratio; zstd level 3 for 1.7 ms frames on churn with no gain; a
-trained dictionary because it overfits its training workload and the
-streaming context already captures the repetition.
+## D7. Any byte stream is a transport
 
-## D7. Transport is an abstract byte stream with channel framing
+Unix sockets, TCP, and stdio pipes were all ten times faster than any real
+program writes to a terminal. Apps on the same computer use a Unix socket and
+phones use TLS (D11). stdio, for reaching servers through SSH or `docker exec`,
+is planned.
 
-| Transport | Flood throughput | Control latency p50 under paced load |
-| --- | ---: | ---: |
-| stdio pipe | 150 MB/s | 0.18 ms |
-| TCP loopback | 144 MB/s | 0.45 ms |
-| Unix socket | 136 MB/s | 0.21 ms |
+Turned down: a stream multiplexing library, because D8 fits terminals better.
 
-Every transport is ten times faster than the fastest realistic PTY producer.
-Unix socket locally; stdio through whatever exec mechanism reaches a remote
-host, which is what SSH, Docker exec, and kubectl exec present; TCP with
-TLS only where a port is unavoidable, as for paired phones (D11). Rejected: a
-stream multiplexer library, because D8 replaces per-stream windows with
-something better for this domain.
+## D8. One merged frame in flight
 
-## D8. Flow control is one merged pending frame per channel with one credit
+Each session has at most one waiting frame per app. Newer output merges into it,
+and it is sent once the app acknowledges the previous one. For an app that takes
+3 ms per frame, this cut server memory from 128 MB to 3 MB and the time to reach
+the latest screen from 94 s to 10 s. Nothing is lost, because a newer row
+replaces an older one.
 
-| Slow client, 3 ms per frame | Server peak memory | Time to current state | Frames sent |
-| --- | ---: | ---: | ---: |
-| queue everything | 128 MB | 94 s | 22,200 |
-| merge per channel | 3 MB | 10 s | 2,273 |
+## D9. The app draws rows directly
 
-A newer frame for a row supersedes the older one, so merging loses nothing.
-Control frames are written before data by a dedicated writer thread.
+The app draws one text line per row and one rectangle per color run, and redraws
+only when a frame arrives. Sixteen panes of vim held 60 fps on about a third of
+one core. Caching shaped text didn't help, since painting is the cost. A full
+terminal emulator in the app could be added later without changing the server.
 
-## D9. The app renders the run grid directly in GPUI and redraws on demand
+## D10. PTYs use portable-pty
 
-| Panes, forced 60 Hz redraw | vim | monitor | style churn |
-| --- | ---: | ---: | ---: |
-| 1 | 60 fps, 20% of a core | 60 fps, 24% | 59 fps, 100% |
-| 16 | 60 fps, 31% | 60 fps, 45% | 60 fps, 92% |
+Every candidate was equally fast, because the kernel sets the pace.
+portable-pty also supports Windows behind the same API.
 
-One shaped line per row with a text run per style run, one quad per run.
-Shaped-line caching changed nothing measurable; painting, not shaping, is
-the cost. A user-selectable full-emulator surface, Ghostty or Alacritty, is
-a local conversion from runs and changes nothing on the server or the wire.
+## D11. Phones pin a certificate and get their own token
 
-## D10. The PTY crate is portable-pty
+Phones connect over TLS 1.3 to a self-signed certificate that they pin when
+scanning the pairing code. Each phone gets its own token, which the server keeps
+only as a hash. The phone apps embed the same Rust client as the desktop app.
 
-All three candidates read at the kernel's pace with identical cost.
-portable-pty alone has a ConPTY backend behind the same trait, which keeps
-Windows cheap. The finding that matters is about the kernel, not the crate:
-see [constraints.md](./constraints.md).
+Turned down: a cloud relay, which is another service to trust; SSH from the
+phone, for its setup; mutual TLS, for handling certificates on phones; and a
+native Swift, Kotlin, or JSON protocol, which would drift from the Rust one.
 
-## D11. Phones connect over TLS with a pinned certificate and device tokens
+## D12. Protocol changes are additive
 
-A phone cannot reach the local socket. When a user turns mobile access on, the
-server accepts TLS 1.3 over TCP with a self-signed certificate. Pairing shows a
-one-time code with the server's addresses, port, certificate fingerprint, and
-a 128-bit secret; the phone pins the fingerprint and receives its own 256-bit
-token, which the server keeps only as a hash. The phone apps embed the Rust
-client through UniFFI, so the wire and flow control match the other clients.
+During the beta, one compatibility number changed 20 times in 15 days, each
+time forcing a server restart and locking out phones. Now fields have permanent
+numbers, builds skip what they don't know, and only breaking changes bump the
+version. See the [protocol](./protocol.md#versions).
 
-Rejected: a cloud relay, for its hosted service and added trust; SSH from the
-phone, for its setup; mutual TLS, for certificate handling on phones; TLS raw
-public keys, which common TLS stacks cannot pin; a native Swift or Kotlin
-protocol, or JSON over WebSocket, which would duplicate the client library and
-drift from the Rust protocol types.
-
-## D12. Wire changes are additive
-
-Every beta push was a release, and one compatibility identifier forced a server
-restart and locked out phones on nearly every change: 20 bumps in 15 days.
-Fields and variants now carry permanent numbers, peers skip what they don't
-know, and a request a server can't read gets a correlated unsupported error.
-Additive changes keep the version; only breaking changes bump it.
-
-Rejected: a schema version per change, which piles up versions and adapters;
-protobuf, for optional wrappers, integer enums, and duplicate types; JSON, which
-makes rows and bytes several times larger; and a custom postcard extension
-layer, a private format to maintain.
+Turned down: a version per change, protobuf, JSON, and a custom postcard
+extension.

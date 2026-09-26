@@ -1,79 +1,55 @@
 # Constraints
 
-Platform requirements and implementation constraints. Performance observations
-come from the historical [benchmarks](./benchmarks.md).
+Supported platforms, and lessons that shape the code.
 
-## Platform
+## Platforms
 
-- The desktop supports macOS 14+. Standalone CLI/server targets are macOS 14+
-  and Linux with glibc 2.35+, each on x86_64 and ARM64. Linux support requires
-  native build and runtime verification on both architectures.
-- Server paths are Unix pathname bytes. Local clients use Unix sockets and
-  paired phones use TLS over TCP on IPv4. Desktop and TUI remote transport,
-  native Windows, and musl/Alpine support are deferred.
-- The mobile SDK builds for iOS devices and simulators, and for Android, with
-  `scripts/build-mobile-sdk.sh`. A phone and its server must share a protocol
-  version; additive changes keep it, so phone releases follow only breaking ones.
-- Turning on mobile access may show the macOS firewall prompt for
-  `muxy-server`, and the iOS app needs local-network permission to reach LAN
-  addresses. `MUXY_REMOTE_BIND` limits the listener to one IPv4 address; tests
-  use loopback.
+| Part | Supported |
+| --- | --- |
+| Desktop app | macOS 14 and later |
+| `muxy` and `muxy-server` | macOS 14 and later, and Linux with glibc 2.35 or later, on x86_64 and ARM64 |
+| Mobile SDK | iOS and Android |
 
-## Ghostty terminal core
+Not yet supported: Windows, musl or Alpine Linux, and desktop or terminal UI
+connections to other machines. Linux builds must be built and run natively on
+both architectures to count as supported.
 
-- Build with `LIBGHOSTTY_VT_SYS_OPTIMIZE=ReleaseFast`, as configured in the
-  repository. Debug integrity checks made the measured native build too slow.
-- The terminal is not sendable and the C API is not thread-safe. One thread
-  owns each terminal; everything else talks to that thread.
-- `max_scrollback` is a byte budget, matching the product's retention setting.
-- Compression is caller-driven. The server decides when a session is idle
-  and calls one full pass; decompression on access is transparent.
-- Physical footprint, not RSS, is the metric that reflects compression,
-  because released pages are `madvise`d rather than freed.
-- The crate API is marked unstable. Pin the version and wrap it behind one
-  module.
+Turning on mobile access may show a macOS firewall prompt for `muxy-server`, and
+the iOS app needs local network permission.
 
-## PTY
+## Terminal engine
 
-- The kernel charges per producer write on both sides of a pty. A
-  line-at-a-time producer caps near 12 MB/s on macOS and forces one read
-  syscall per line; a block writer moves 280 MB/s through the same pty.
-- Reads therefore arrive small and frequent for chatty programs. The reader
-  must be a dedicated blocking thread that only reads and forwards; sleeping
-  to batch reads stalls the producer because the kernel pty buffer is only
-  a few kilobytes.
-- In the measured workloads, producer write patterns dominated the CPU budget;
-  engine parse speed was not the bottleneck.
+- Ghostty's terminal isn't thread-safe, so one thread owns each terminal.
+- The history limit is in bytes.
+- The server decides when to compress history, once a session goes quiet.
+- Measure memory as physical footprint, not RSS. Compressed pages are released
+  to the system but not freed, so RSS doesn't show the savings.
+- Ghostty's Rust API is unstable. Pin its version and keep it inside
+  `muxy-terminal`.
 
-## Sockets and processes
+## PTYs
 
-- On macOS an accepted Unix socket inherits the listener's non-blocking
-  flag. Set blocking explicitly on every accepted stream.
-- A queue that is not bounded by merging grows by the full output rate
-  whenever a client stalls. Merging per channel bounds pending screen state.
+- How fast a terminal fills up depends on how the program writes, not on parsing.
+  A program that writes line by line tops out near 12 MB/s on macOS. One that
+  writes large blocks reaches 280 MB/s through the same PTY.
+- Reads therefore arrive small and often. The reader must be its own blocking
+  thread. Sleeping to batch reads would stall the program, because the kernel's
+  PTY buffer holds only a few kilobytes.
 
-## Rendering
+## Memory and drawing
 
-- Redraw on demand avoids idle work.
-- Per-cell colour churn is the pathological case. Merge quads by colour and
-  skip shaping for blank runs before adding caches.
-- In the spike, shaped-line caching did not help; paint submission dominated.
+- A queue that grows with output explodes when an app stalls. Merge instead of
+  queueing ([D8](./decisions.md#d8-one-merged-frame-in-flight)).
+- Redraw only when something changes. Heavy per-cell color changes are the worst
+  case: merge rectangles by color and skip blank text before reaching for caches.
+- Measure again after changing the terminal engine, the screen format, or flow
+  control.
 
-## Measurement
+## Shell integration
 
-- The workloads, metrics, and hard-fail rules in
-  [benchmarks.md](./benchmarks.md) are the regression baseline. Re-measure
-  after any change to the engine, the frame shape, or the flow control.
-
-## Shell startup
-
-The server installs private hooks beside its socket. zsh and fish load them
-without editing user startup files. Disabling shell integration in Settings applies
-to new sessions immediately; manual changes to `server.toml` require a restart.
-Shell-native integration, such as fish 4's prompt marks, is left alone.
-
-Bash keeps its normal login startup. To opt in, source the hook from the
-interactive startup file your Bash profile loads:
+The server loads its shell hooks for zsh and fish automatically, without
+editing your startup files. Bash is opt-in. Add this to the file your Bash
+profile loads for interactive shells:
 
 ```bash
 if [[ ${MUXY_SHELL_INTEGRATION:-0} == 1 ]]; then
@@ -81,5 +57,6 @@ if [[ ${MUXY_SHELL_INTEGRATION:-0} == 1 ]]; then
 fi
 ```
 
-An existing Bash DEBUG trap is preserved; command-start and exit-status marks
-are omitted in that case, but prompt navigation still works.
+If you already have a Bash `DEBUG` trap, it is kept. Jumping between prompts
+still works, but command start and exit status aren't marked. Turning shell
+integration off in Settings applies to new terminals right away.

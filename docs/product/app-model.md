@@ -1,170 +1,108 @@
 # App model
 
-Composer keeps a draft for each server and project, including its files and copied
-images. Its panel can be pinned or floating at the right or bottom of the workspace.
-It sends to the active terminal or the visible split terminals; failed sends preserve
-the draft. Optional on-device dictation inserts text into the draft without sending it.
+How people use Muxy: the apps, navigation, settings, and updates.
 
-Native picker modals support searchable lists, streamed items, and dynamic queries.
-Selection returns the chosen item; dismissal or replacement cancels the picker.
+## The apps
 
-Webview tabs retain their pages while switching tabs and projects. Their identity
-and data are saved; unavailable content shows a placeholder. Webview panels dock
-at the right or bottom, pinned or floating, with shared move, resize, pin, and
-close controls. Their pages remain alive until closed. Webview modals return a
-result or cancel on dismissal or replacement. Pages receive live theme, data,
-and focus updates and may veto user closes.
+| App | Connects to |
+| --- | --- |
+| Desktop app (macOS) | The server on the same computer, starting it if needed. |
+| `muxy` terminal UI | The server on the same computer, starting it if needed. Ships with the desktop app and also on its own. |
+| Phone app | A paired computer's server, over the local network or a VPN. |
 
-Settings → Extensions manages installed packages and the marketplace. Users can
-load an unpacked folder, install a package, and enable it after reviewing its
-permissions. An extension’s details also show its declared settings and recent
-log output. Reloading, disabling, and uninstalling honor open views’ close
-handlers. Extensions written for main load unchanged: they can add tabs, panels,
-popovers, topbar and status-bar items, background scripts, runtime shortcuts,
-and a sidebar chosen in Settings → Appearance. Sensitive actions ask first, and
-remembered answers can be reset. The built-in browser, localizations, and
-remote methods are not available yet.
+To work on another machine, SSH in and run `muxy` there. Connecting the desktop
+app to other machines comes later. Every project already knows which server it
+lives on, so one app can later show projects from several servers. There is no
+global "current server".
 
-The desktop and keyboard TUI are clients of the same server. The
-[product model](./product-model.md) defines what clients own; this document
-defines how users navigate and manage their views.
+Each app keeps its own layout: tabs, splits, workspaces, and project order.
+Projects and terminals are shared. Several `muxy` windows can open the same
+terminal UI layout.
 
-## Clients and servers
-
-The desktop bundles the same `muxy` CLI/TUI and `muxy-server` executables
-provided for standalone use. Either client connects to the server on its
-machine, starting it if needed. Phones are a third client: once paired, the
-Muxy mobile app connects to a running server over the local network or a VPN.
-Desktop and TUI connections to other machines are deferred; users can already
-SSH to another machine and run `muxy` there.
-
-The model allows clients to organize several servers later. A project routes
-to its `server_id`, and its panes inherit that route. Changing projects may
-therefore change the responsible server. There is no global active-server
-selection or sidebar server selector. Servers are managed in Settings, with
-the current device selected by default.
-
-## Layouts and restoration
-
-Desktop and TUI keep separate layouts and workspaces while sharing access to
-server projects and sessions. Several TUI instances can open the same saved
-TUI layout concurrently; layout changes need not appear live in another
-instance. Opening an existing session adds it to the client's layout; sessions
-from another client are discoverable within their project.
-
-Existing Terminals lists sessions in the selected project that this client is
-not attached to and shows their owner, or No owner. The desktop tabstrip provides
-a stack-icon button, hidden when none are available. Its keyboard shortcut is
-Command–Option–T by default and can be configured in settings. The TUI shows availability
-beside its tabs and keeps its keyboard picker.
-
-On launch, desktop restores every project, its tabs, and window view state. It
-never creates a tab automatically. The TUI's first launch opens one shell in
-Home; later launches restore its saved project and layout.
-
-The desktop currently opens one workspace window and a reusable Settings
-window. Multiple workspace windows, including the same project in two windows,
-and side-by-side tab layouts may be added later without changing ownership.
-
-## Navigation and focus
+## Navigation
 
 ```mermaid
 flowchart LR
-    FILTER["Workspace filter"] --> LIST["Project sidebar"]
-    LIST --> PROJECT["Current project"] --> TAB["Selected tab"]
-    TAB --> PANE["Focused pane"]
+    FILTER["Workspace filter"] --> SIDEBAR["Project sidebar"]
+    SIDEBAR --> PROJECT["Project"] --> TAB["Tab"] --> PANE["Focused pane"]
 ```
 
-The sidebar defaults to **All projects**, listing each top-level project once.
-A workspace filter restricts that list to its members; Home always stays first.
-Users create, switch, rename, and delete workspaces from the sidebar filter and
-add projects to them from each project's menu.
-One user-defined top-level order applies under every filter. Worktree children
-appear beneath their parent. Selecting a top-level or worktree project changes
-the current directory context and visible tab set. Filtering never changes
-project ownership or execution context.
+- The sidebar shows **All projects** by default. Pick a workspace to filter it.
+  Home stays first and worktrees appear under their parent.
+- One project order applies under every filter.
+- Picking a project shows its tabs.
+- A window has one focused pane. Closing it moves focus to a neighbor. Closing a
+  tab moves focus to the next tab, or the previous one. Closing something in the
+  background never steals focus.
 
-The current project, selected tab, and focused pane belong to the window.
-There is one active pane for the whole window, even if several tabs are visible.
-A tab displays its custom title when set. Otherwise it displays that pane's title
-when it contains the active pane, or its first pane's title.
+## Opening and restoring
 
-Closing the active pane focuses an adjacent pane in its tab. Closing the whole
-tab focuses the first pane of the next tab, or the previous tab if there is no
-next tab. Closing an inactive pane or tab never steals focus. Normal tab
-selection may restore a pane from the window's focus history.
+- The desktop app restores all projects, tabs, and window state on launch. It
+  never opens a tab by itself.
+- The terminal UI opens one shell in Home the first time, then restores its
+  layout.
+- **Existing Terminals** lists a project's terminals that this app isn't
+  showing, and which app owns each one. Opening one adds it to your layout.
 
-## Disconnected and ended sessions
+## When things go away
 
-An unreachable server leaves the project loaded and app-only panes usable.
-The bottom status bar always shows the current project's server status at the
-far right, beside updates. Its upward-opening panel offers restart and stop
-with confirmation, or connect while disconnected. Terminal panes retain their
-last available content. Existing project edits and closes remain available
-while disconnected and replay in order on reconnection.
+| Situation | What you see |
+| --- | --- |
+| The server is offline | Projects stay visible, terminals keep their last screen, and web panes keep working. Edits and closes are replayed on reconnect. |
+| A terminal ends | Its panes close in every app, including hidden tabs. |
+| You quit or detach | Terminals keep running. |
+| **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
 
-When a terminal session ends, every client immediately removes its panes,
-including those in inactive tabs and projects. Closing the last pane closes
-its tab; other panes remain. Relaunching or reconnecting removes references
-to sessions that have ended or been discarded, without restarting them. See the
-[server model](./server-model.md#closing-panes) for close and retention rules.
+The status bar always shows the current project's server, with connect, restart,
+and stop.
 
-Quitting or detaching leaves sessions running. **End All Sessions and Quit**
-ends all live sessions on the current-device server and clears terminal panes
-and their saved content before quitting. App-only panes remain, including in
-mixed tabs.
+## Settings
 
-## Settings window
+- Settings is one window, separate from projects. It works while offline, and
+  changes apply immediately.
+- App preferences live in `settings.toml`, terminal preferences in
+  `ghostty.conf`, and custom themes in `themes/`.
+- Every keyboard shortcut can be changed. Normal keystrokes in a terminal always
+  go to the terminal.
+- Server settings, such as the shell and history size, apply to the selected
+  server. Stopping or restarting it asks first.
+- **Settings → Mobile** turns phone access on, shows a pairing code, and lists
+  paired phones. `muxy mobile` does the same without the desktop app.
 
-Settings is one reusable app-level window, separate from project tabs. It
-remains available while disconnected and never changes project, tab, or pane
-selection. It uses the active theme, searchable categories, and controls that
-apply changes immediately without relaunching.
+## Updates
 
-App preferences live in `settings.toml`, terminal preferences in `ghostty.conf`,
-and custom themes in `themes/`. Keyboard shortcuts share one overridable action
-system, including contexts and aliases for app actions, fields, menus, pickers,
-and buttons. Ordinary terminal keystrokes remain terminal input.
+```mermaid
+flowchart TD
+    UPDATE["Update available"] --> FITS{"Can the new version talk<br/>to the running server?"}
+    FITS -->|"yes"| NOW["Installs now · terminals keep running<br/>server is replaced once no terminals are left"]
+    FITS -->|"no"| CHOICE{"You choose"}
+    CHOICE -->|"wait"| LATER["Installs once every terminal has ended"]
+    CHOICE -->|"update now"| FORCE["Asks first · every terminal ends"]
+```
 
-Server settings apply to the selected server. Stopping or restarting it requires
-confirmation. Existing saved settings panes are removed on restore without
-affecting neighboring terminal panes or sessions.
+## Desktop features
 
-Settings → Mobile turns [mobile access](./server-model.md#mobile-access) on,
-sets its port, shows a pairing code, and lists paired devices; revoking one
-asks first. `muxy mobile` offers the same where the desktop is not installed.
+- **Composer.** Write a draft, with files, images, or dictation, and send it to
+  the active terminal or to every visible split. Each project keeps its own
+  draft, and a failed send keeps it.
+- **Web views.** Web pages as tabs, docked panels, popovers, or dialogs. They
+  stay alive while hidden.
+- **Extensions.** Add tabs, panels, a sidebar, toolbar and status bar items,
+  shortcuts, and background scripts. They are managed in Settings → Extensions,
+  declare their permissions, and ask before sensitive actions. Extensions made
+  for Muxy on `main` work unchanged.
+- **Git and AI.** For Git projects, the footer shows the branch and changes,
+  commits and pushes with an AI-written message, and creates or manages pull
+  requests. It uses an AI command-line tool you already have, chosen in
+  Settings → AI.
 
-## App updates
+## AI agents
 
-Compatible app updates preserve running sessions. The bundled server is
-replaced when all sessions end, including idle shells and detached sessions.
-Server settings show pending server updates.
+The server recognizes AI coding agents running in terminals and whether each
+one is working, waiting for you, or done.
 
-An update that can't talk to the running server may wait for all sessions to
-end. This schedules installation and app restart while the app runs; users can
-cancel it. Updating
-immediately requires confirmation that all terminal processes on the device
-will end and their terminal panes will close.
-
-## AI indicators and notifications
-
-For Git projects, the desktop footer shows the current branch and changes, an
-AI-assisted commit action, and either Create PR or the current pull request.
-After confirmation, a selected installed AI CLI generates the text and Muxy
-commits and pushes in the background. Create PR moves uncommitted changes to a
-new branch and opens a ready pull request. Providers and prompts are set in
-Settings → AI; the Create PR menu also offers a project prompt override.
-The pull request control shows its state and checks and offers refresh, open,
-update, merge, and close actions.
-
-Activity indicators, progress, and notifications belong to open panes, including
-those in hidden tabs. Tabs and projects aggregate their panes only; detached
-sessions contribute no indicators or desktop alerts. Blocked agents take priority
-over working agents and unread completions. Removing a pane removes its signals
-from its tab and project; ending a session clears them everywhere.
-
-Viewing a session in the active desktop acknowledges its pending event for every
-client. Desktop notifications announce new background attention and completion
-events; reconnecting restores pending indicators without replaying old alerts.
-There is no in-app notification list or saved notification history.
-The TUI shares the protocol but its AI presentation is deferred.
+- Panes show their agent's state. Tabs and projects sum up their panes, and
+  "waiting for you" comes first.
+- The desktop app notifies you about agents in the background. Looking at the
+  terminal clears the alert in every app.
+- Detached terminals show no alerts, and no notification history is kept.

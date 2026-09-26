@@ -1,202 +1,154 @@
 # Architecture
 
-This document turns the [decisions](./decisions.md) into components and
-boundaries. It stays above code: names are roles, not types.
+The processes, the crates, and how data moves between them.
 
 ## Processes
 
 ```mermaid
 flowchart LR
-    subgraph APP["App process · Rust + GPUI"]
-        UI["Windows, project views, tabs, panes"]
-        GRID["Run grid per attached session"]
-        CONN["Connection per server"]
+    DESKTOP["Desktop app"] <-->|"Unix socket"| LOCAL
+    TUI["muxy terminal UI"] <-->|"Unix socket"| LOCAL
+    PHONE["Phone app"] <-->|"TLS · after pairing"| NETWORK
+    subgraph SERVER["muxy-server · one per profile"]
+        LOCAL["Local listener"]
+        NETWORK["Network listener · opt-in"]
+        CONNECTION["One connection per app"]
+        CATALOG["Projects"]
+        S1["Session thread"]
+        S2["Session thread"]
+        LOCAL --> CONNECTION
+        NETWORK --> CONNECTION
+        CONNECTION <--> CATALOG
+        CONNECTION <--> S1
+        CONNECTION <--> S2
     end
-    subgraph SERVER["muxy-server process · Rust, one per profile"]
-        ACCEPT["Local Unix listener"]
-        NETWORK["Network listener · TLS, opt-in"]
-        CATALOG["Projects and session membership"]
-        CLIENT["Client connection<br/>reader · writer thread · outbox"]
-        S1["Session thread 1"]
-        S2["Session thread 2"]
-        SN["…"]
-    end
-    TUI["muxy TUI · Ratatui · shared TUI layout"] <-->|"local socket"| ACCEPT
-    PHONE["Mobile app · muxy-mobile SDK"] <-->|"TLS · paired device"| NETWORK
-    NETWORK -->|"after authentication"| CLIENT
-    CATALOG --- CLIENT
-    UI --> GRID
-    GRID <--> CONN
-    CONN <-->|"byte stream"| ACCEPT
-    ACCEPT --> CLIENT
-    CLIENT <--> S1
-    CLIENT <--> S2
-    CLIENT <--> SN
 ```
 
-- The app never parses terminal output. It holds, per attached session, the
-  visible rows as style runs plus whatever history window it has fetched.
-- The server owns the durable project catalog, shared metadata, Home, and
-  explicit session membership. Clients own tabs, panes, order, and workspaces.
-- The desktop bundles separate `muxy` and `muxy-server` executables, also
-  distributed together for standalone use. Both clients use the shared client
-  library and protocol, connecting to the local server or starting it under
-  the shared startup lock. Neither client links the server implementation.
-- Desktop and TUI connect locally. Paired phones connect through the opt-in
-  network listener; desktop and TUI connections to other machines are deferred.
+- The desktop app ships the `muxy` and `muxy-server` executables, which are
+  also released on their own. Either app starts the server if it isn't running.
+- The server keeps projects and which sessions belong to them. Apps keep tabs,
+  panes, order, and workspaces.
+- Apps never include server code. They only speak the [protocol](./protocol.md).
 
-The server package contains its library and executable. The protocol package
-owns shared screen types, wire codecs, and transports. PTY adapters live
-with the terminal backend; client settings live with the headless app model.
-
-## Session thread
+## Crates
 
 ```mermaid
 flowchart TB
-    PTY["PTY reader thread<br/>blocking read, 64 KB buffer"] -->|"bytes over a channel"| OWNER["Session owner thread"]
-    INPUT["Input, resize, attach requests"] --> OWNER
-    OWNER --> TERM["Ghostty terminal<br/>grid + byte-budgeted history"]
-    OWNER -->|"every 16 ms if anything changed"| FRAME["Frame: rows whose content hash changed, as style runs, plus cursor"]
-    OWNER -->|"first quiet tick after output"| ZST["Compress history pages"]
-    FRAME --> OUTBOX["Per-client outbox"]
+    APP["muxy-app"] --> UI["muxy-ui"]
+    APP --> APPCORE["muxy-app-core"]
+    APP --> CLIENT["muxy-client"]
+    CLI["muxy-cli"] --> APPCORE
+    CLI --> CLIENT
+    MOBILE["muxy-mobile"] --> CLIENT
+    CLIENT --> PROTOCOL["muxy-protocol"]
+    APPCORE --> PROTOCOL
+    SERVER["muxy-server"] --> TERMINAL["muxy-terminal"]
+    SERVER --> PROTOCOL
+    TERMINAL --> PROTOCOL
 ```
 
-- One thread owns the terminal for the whole session lifetime. The Ghostty
-  terminal is not sendable, so nothing else touches it; all requests arrive
-  over the owner's channel.
-- The PTY reader is a separate blocking thread because the kernel delivers
-  small reads for chatty producers and the read syscall is the dominant
-  cost. It does nothing but read and forward.
-- The tick collects rows whose content hash changed since last sent to each
-  client. Nothing is emitted when nothing changed.
-- History compression runs on the first tick with no new output after a
-  burst. One full pass costs single-digit milliseconds per session.
-- Retention is a byte budget on Ghostty's compressed pages. Saved history keeps
-  that same retained window, not a second cutoff on decoded row sizes.
-- The owner captures screen and history checkpoints for a background writer.
-  The writer atomically replaces each saved record; newer pending checkpoints
-  replace older ones. Final output is saved before normal exit is announced.
-  Indexed saved records allow reading a screen or history page without decoding
-  the entire history; search reads a bounded window of rows.
+| Crate | Role |
+| --- | --- |
+| `muxy-app` | The desktop app. |
+| `muxy-ui` | Reusable GPUI components and native web views. No app state. |
+| `muxy-app-core` | The app model without UI, shared by desktop and terminal UI: layouts, workspaces, settings, extensions. |
+| `muxy-cli` | The `muxy` command: CLI and terminal UI. |
+| `muxy-client` | Connects to a server, starting a local one if needed. |
+| `muxy-mobile` | The client library for phones, with Swift and Kotlin bindings. |
+| `muxy-protocol` | Messages, encoding, screen types, and transports. |
+| `muxy-server` | The server: projects, sessions, history, Git, files, and mobile access. |
+| `muxy-terminal` | Wraps the Ghostty terminal and the PTY. |
+| `muxy-core` | Shared basics, such as folders, locks, and the shortcut catalog. |
 
-## Client connection
+## Typing a key
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Connection as Server connection
+    participant Session as Session thread
+    participant Shell
+    App->>Connection: Input
+    Connection->>Session: Forward right away
+    Session->>Shell: Write to the PTY
+    Shell-->>Session: Output
+    Note over Session: Next tick, about 16 ms later
+    Session-->>Connection: Rows that changed
+    Connection-->>App: Screen frame
+    App->>Connection: Ack, ready for the next frame
+```
+
+## Inside a session
 
 ```mermaid
 flowchart LR
-    RX["Reader thread"] -->|"input, acks, pings"| ROUTE["Immediate routing"]
-    RX -->|"other requests"| WORK["Bounded, ordered request worker"]
-    OUTBOX["Outbox<br/>control queue · one pending merged frame per channel · one credit per channel"] --> TX["Writer thread<br/>control first, then any channel with credit"]
-    TX -->|"postcard · channel framing"| STREAM["Byte stream"]
+    PTY["PTY"] -->|"output"| READER["PTY reader thread"]
+    READER --> OWNER["Session thread<br/>owns the Ghostty terminal"]
+    REQUESTS["Input · resize · attach"] --> OWNER
+    OWNER -->|"input"| PTY
+    OWNER -->|"changed rows"| OUTBOX["Outbox of each attached app"]
+    OWNER -->|"checkpoints"| DISK["Saved screen and history"]
 ```
 
-- The connection reader never waits for storage, process creation, or owner
-  replies. Bounded background work handles these requests; lifecycle work stays
-  ordered. Registry locks cover bookkeeping, not blocking operations.
-- Frames replace or merge into a single pending frame per attachment channel.
-  The frame is sent when the client's acknowledgement for the previous frame
-  on that channel has arrived.
-- Control messages, including pongs, attach replies, and history pages,
-  never wait behind screen data.
-- Attach sends the visible screen and a recent history window as runs.
-  Older history is served in pages on request.
-- Any number of clients may attach to a session; each has its own outbox
-  and credits, so a slow client never affects a fast one.
-- Merging, credits, and control-first writing are implemented. Streaming wire
-  compression remains deferred; see the [protocol](./protocol.md).
+- One thread owns each terminal for its whole life. The Ghostty terminal isn't
+  thread-safe, so everything else sends that thread messages.
+- A separate thread only reads the PTY and forwards bytes. Chatty programs
+  produce many tiny reads.
+- Every tick, if anything changed, the session sends the changed rows and the
+  cursor. If nothing changed, nothing is sent.
+- When output goes quiet after a burst, history is compressed.
+- A background writer saves the screen and history, so they survive the program
+  and the server.
 
-## App rendering
-
-The app composes its views from muxy-ui, a reusable GPUI component library.
-The library owns visual primitives and interaction behavior; app state and
-server connections remain in the app. Shortcut identifiers, defaults, aliases,
-and contexts share one headless catalog. Every module registers its handlers
-through the same UI registration interface, resolved from the app keymap.
-Widgets do not maintain a separate set of bindings.
-
-The app dispatches blocking client requests on a bounded, ordered worker lane,
-separate from input and frame acknowledgements. Events for established channels
-remain immediate; bounded buffering keeps new-channel events and disconnects
-behind their lifecycle completions. A flush waits for outstanding work.
+## Inside a connection
 
 ```mermaid
 flowchart LR
-    STREAM["Byte stream"] --> DEC["Decode frame<br/>postcard"]
-    DEC --> GRID["Run grid for the session"]
-    GRID -->|"on frame arrival"| PAINT["Paint pane<br/>one shaped line per row · one quad per run · cursor quad"]
+    READ["Reader"] -->|"input, acks, pings"| FAST["Handled right away"]
+    READ -->|"everything else"| WORKER["Ordered background worker"]
+    OUTBOX["Outbox<br/>control messages first<br/>one merged frame per session"] --> WRITE["Writer"]
 ```
 
-- The app redraws a pane only when a frame arrives or the viewport changes.
-- Terminal render state exists only for visible panes; the server holds
-  everything else, and a pane that becomes visible attaches or re-fetches.
-  Cached client content is displayed first, including while disconnected.
-  Server reads refresh it lazily; the server owns durable retained history.
-- A future full-emulator surface would convert runs locally without changing
-  the server or protocol; see [D9](./decisions.md#d9-the-app-renders-the-run-grid-directly-in-gpui-and-redraws-on-demand).
+- Each app has its own connection and outbox, so a slow app never slows a fast
+  one.
+- The reader never waits on disk or on starting processes.
+- Screen updates merge: a newer frame folds into the one not yet sent, which
+  goes out once the app acknowledges the previous one.
+- Replies and other control messages never wait behind screen data.
 
-Webview descriptors and close/result state belong to muxy-app-core. muxy-ui owns
-the native WebKit adapter, scoped asset loading, and native view composition.
-muxy-app retains and coordinates surfaces, focus, presentation, and the page
-bridge. Hidden pages remain alive; they have no terminal session or server state.
-The app owns extension discovery, permissions, commands, and the main-compatible
-bridge. Each page or script has an app-bound owner; disabled or stale callers
-cannot issue API operations. JavaScriptCore runs command and background scripts
-on dedicated threads, while filesystem, Git, and cancellable process execution
-use the server. Extension HTTP requests run in the app after the same permission
-and consent checks and never reach loopback or private hosts.
-Marketplace archives are bounded and verified before installation. Packages,
-developer folders, grants, and extension storage remain scoped to the app profile.
+## Drawing in the app
 
-## Transport adapters
+- For each visible terminal, the app keeps the screen rows as styled runs, plus
+  any history it has fetched.
+- It repaints a pane only when a frame arrives or the view changes: one text
+  line per row and one rectangle per color run.
+- Hidden panes hold nothing. They attach again when shown, displaying cached
+  content first, even while offline.
+- The UI is built from `muxy-ui` components. Every shortcut comes from one
+  catalog, resolved through the keymap.
 
-Local clients and the server resolve the same profile and configured Unix
-socket. Running `muxy` after an independent SSH login uses that machine's
-local server. Stdio transports are deferred.
+## Extensions and web views
 
-When mobile access is on, the server also accepts TLS 1.3 over TCP with a
-self-signed certificate that phones pin when they pair. A TLS connection needs
-exclusive access, so one pump thread per connection moves bytes between TLS
-and a Unix socket pair whose other end the connection splits like a local
-socket. A network peer must authenticate as a paired device before it gets an
-outbox, worker threads, or registry visibility. The certificate, settings, and
-device token hashes live in the profile's `remote.json`.
-
-The `muxy-mobile` crate exposes the client library to the phone apps through
-UniFFI. It applies frames and acknowledgements in Rust; the apps render the
-screen and send input.
-
-## Lifecycle notes
-
-The server imports legacy project identities and session references once,
-retaining the original desktop state for recovery. Clients save their migrated
-views separately. Retried mutations and session creation are idempotent;
-disconnected desktop edits keep their existing behavior through durable intents.
-Project deletion prevents new sessions before ending and discarding owned
-content, and resumes after interruption without touching project directories.
-
-- App updates keep the server running when both share a protocol version.
-  Installation preserves the old bundle until its server instance exits and
-  bundled runtime users release their leases. A running TUI does not block app installation. Cleanup shares installation locks,
-  verifies the current instance, and retains uncommitted recovery bundles. The app coordinates idle server
-  replacement with startup and installation locks, then reconnects. Pending
-  update schedules survive app restarts; no background updater launches the app.
-- Saved records contain the screen, bounded history, and known exit reason.
-  The app reads them through the protocol; the
-  [server model](../product/server-model.md) defines retention and close behavior.
-- Clients register all open-pane references separately from output subscriptions.
-  The server decides final-reference closes atomically and preserves results
-  across retries. A disconnect drops the client's outbox and references without
-  ending its sessions.
-- Resize is a request to the session owner; the terminal reflows and the
-  next tick emits the full visible screen.
+- Web views are native WebKit views and stay alive while hidden. They have no
+  terminal or server state.
+- The app loads extensions, enforces their permissions, and asks before
+  sensitive actions. Their scripts run in JavaScriptCore on their own threads.
+- File, Git, and process work goes through the server. Extension web requests
+  run in the app and can't reach the local machine or private networks.
+- Marketplace packages are verified before they are installed.
 
 ## AI activity
 
-Session owners classify supported agent processes against bounded live-screen,
-title, and terminal-progress evidence. Bundled detection rules are compiled once;
-clients never inspect terminal output for agent state.
+- Each session thread checks the running program, the title, and the screen
+  against built-in rules to find agents and their state.
+- Apps get agent status from the server. They never read terminal output
+  themselves.
+- One desktop app delivers system notifications, so alerts are never doubled.
 
-The server coalesces activity invalidations independently of screen attachments.
-Clients fetch current status and bounded history and acknowledge event IDs. A
-background writer persists history without blocking terminal owners. One connected
-desktop client claims new events for native delivery; other clients receive the
-same status and read state.
+## Updates
+
+- If the new app speaks the running server's protocol version, the server keeps
+  running and is replaced once no terminals are left.
+- Otherwise the update waits for every terminal to end, or ends them after the
+  user confirms.
+- The old app bundle is kept until its server exits.

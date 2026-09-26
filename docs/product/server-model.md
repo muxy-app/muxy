@@ -1,91 +1,101 @@
 # Server model
 
-The server runs independently of its clients and provides terminal sessions and
-other capabilities. [Ownership](./product-model.md#relationships-and-ownership)
-and [client presentation](./app-model.md) are defined separately.
+`muxy-server` runs the terminals for every app. It runs on its own, apart from
+the apps.
 
-## Server lifetime
+## Lifetime
 
-Clients start `muxy-server` if needed. It keeps running until stopped or replaced
-for a pending update after all sessions end. Stopping or restarting it ends
-its processes while preserving settings and saved terminal content. Graceful
-shutdown saves final output; an abrupt stop may lose output since the last
-completed checkpoint. Recovery never restarts a process.
+- An app starts the server if it isn't running. The server keeps running until
+  it is stopped, or until an update replaces it once no terminals are left.
+- Stopping or restarting it ends every terminal but keeps settings and each
+  terminal's saved content. Nothing is ever restarted automatically.
 
-## Sessions and attachment
+## Sessions
 
-Each session has a server-generated ID and belongs to exactly one project.
-Creation specifies its project and starting directory; the directory never
-determines membership. Quick Terminal and ad-hoc sessions belong to Home.
+A session is one terminal. It belongs to the project it was created in; its
+current folder never changes that.
 
-A session runs until its process exits, a client ends it, or the server stops.
-It has no automatic expiry. Quitting, detaching, a client crash, or device sleep
-does not end it. Any number of clients may attach simultaneously to receive
-output and send input; clients may display it in different layouts. Session
-size is shared; policy for conflicting client sizes is deferred.
+A session keeps running until its program exits, someone ends it, or the server
+stops. Closing the last pane that shows it also ends it. Quitting an app, a
+crash, detaching, or the computer sleeping never ends it, and there is no
+timeout.
 
-Each session keeps its attached clients in attachment order. The creating client
-attaches first. The earliest remaining client is the session owner; when it
-detaches, the next client becomes owner. A session with no attached clients has
-no owner. Open panes in inactive tabs remain attached. Ownership identifies a
-client and does not change project membership or session permissions.
+## Sharing a session
 
-Attach supplies the current screen and a recent history window. Clients fetch
-older history in pages up to the retention limit, configured as a byte budget.
-The server reports rows retained and saves the last screen and retained history
-even without attached clients. Ending a process does not shrink its retained
-history. Saved content remains addressable by session ID until discarded.
+```mermaid
+flowchart LR
+    DESKTOP["Desktop pane"] --- SESSION["Session"]
+    TUI["Terminal UI pane"] --- SESSION
+    PHONE["Phone"] --- SESSION
+```
 
-Live-session lists contain running processes. Project session lists also expose
-retained ended content. An unreachable server means its sessions are
-unreachable, not necessarily ended.
+- Any number of apps can show a session and type into it at once. They share
+  one size.
+- The first app to attach is the session's owner. When it leaves, the next one
+  takes over. Ownership only labels the session in Existing Terminals; it grants
+  nothing extra.
+- Panes in background tabs stay attached.
 
-## Closing panes
+## Closing a pane
 
-By default, closing a terminal pane removes it from the client's layout immediately.
-Its session and saved content remain while another open pane in any connected
-client uses them, including inactive tabs. Closing the final connected pane
-ends the process and discards its saved content. If the server is unreachable,
-the close remains pending; on reconnection the server checks remaining
-references before deciding whether to end it.
+```mermaid
+flowchart TD
+    CLOSE["Close a terminal pane"] --> DETACH{"Detach?"}
+    DETACH -->|"yes"| KEEP["Keeps running<br/>reopen from Existing Terminals"]
+    DETACH -->|"no"| OTHER{"Another pane in any app<br/>still shows it?"}
+    OTHER -->|"yes"| KEEP2["Keeps running"]
+    OTHER -->|"no"| END["Program ends and<br/>its saved content is removed"]
+```
 
-Desktop users can choose to detach when closing tabs or panes. Detached sessions
-keep running and can be reopened from Existing Terminals.
+- If a program other than the shell is running, you confirm once. Background
+  jobs alone don't ask.
+- If the server is offline, the close waits and is decided on reconnect.
+- Ending a session or deleting its project affects every app, unlike closing
+  one pane.
 
-Before ending a foreground program other than the shell, the user confirms
-once. Background jobs alone do not trigger confirmation. Ordinary shell jobs
-follow normal terminal exit behavior; independently detached work is not
-targeted. When a process exits, clients close its panes automatically using these same
-reference and cleanup rules.
+## History
 
-Explicitly ending or discarding a session and
-[deleting its project](./product-model.md#failed-projects-and-deletion) affect
-all clients, unlike detaching one pane.
+- Attaching shows the current screen and recent history. Older history loads as
+  you scroll.
+- History size is a byte budget in server settings. The server reports how many
+  rows it holds.
+- The server saves each terminal's screen and history, even when no app is
+  watching, so it is still there after the program ends or the server restarts.
+  A crash may lose the last moments of output.
 
-## Other capabilities
+## Git and files
 
-Git provides worktree listing, creation from a branch and directory, and
-removal. File operations and further server capabilities may be defined later.
+The server runs Git and file operations for its projects, such as worktrees,
+changes, and reading files. Every app, including phones, sees the same
+repository and files.
 
 ## AI activity
 
-The server detects supported foreground AI agents from their processes and live
-terminal screens, without provider hooks or plugins. Detection continues without
-attached clients. Screen recognition is best effort; unfamiliar interfaces may
-not expose every state.
-
-Agent status and pending attention/completion indicators belong to the server.
-The server keeps at most one unread event per session, up to 200 total, in memory.
-Acknowledging an event removes it for every client without changing a blocked
-agent's live status. Ending a session clears its state; server restart clears all
-activity. No notification history is saved.
+- The server spots supported AI agents from the running program and what's on
+  screen. It needs no plugins and works while no app is attached. Recognition
+  is best effort.
+- It keeps at most one unread event per session, in memory only. Once seen, an
+  event is cleared for every app. Restarting the server clears everything.
 
 ## Mobile access
 
-Mobile access is off until a user turns it on. Pairing shows a code that works
-once, for five minutes, and only while the client showing it stays connected.
-A paired phone connects with its own credential and has the same shell-level
-access as a local client, except that it cannot manage mobile access, change
-server settings, stop the server, or run extension commands. Revoking a device
-or turning mobile access off disconnects the affected phones at once. Phones
-appear as mobile clients in session ownership.
+```mermaid
+sequenceDiagram
+    actor You
+    participant Computer as Desktop app or muxy mobile
+    participant Server as muxy-server
+    participant Phone
+    You->>Computer: Turn on mobile access and show a code
+    Computer->>Server: Start pairing
+    Server-->>Computer: One-time code, shown as a QR code
+    Phone->>Server: Scan the code and pair
+    Server-->>Phone: The phone's own credential
+    Phone->>Server: Connect with the credential from now on
+```
+
+- Mobile access is off until you turn it on.
+- A pairing code works once, for five minutes, and only while it is on screen.
+- A paired phone can do what a terminal on the computer can, except manage
+  mobile access, change server settings, stop the server, or run extension
+  commands.
+- Revoking a phone, or turning mobile access off, disconnects it at once.
