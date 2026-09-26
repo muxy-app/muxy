@@ -27,6 +27,7 @@ pub(crate) struct Scroll {
     pub(crate) view: Option<RunGrid>,
     pub(crate) offset: f64,
     wanted: f64,
+    selection_target: bool,
     pub(crate) elastic: f64,
     pub(crate) revision: u64,
     pending: Option<HistoryRequest>,
@@ -55,6 +56,7 @@ impl Scroll {
         self.view = None;
         self.offset = 0.0;
         self.wanted = 0.0;
+        self.selection_target = false;
         self.elastic = 0.0;
         self.revision = self.revision.wrapping_add(1);
         self.pending = None;
@@ -85,12 +87,51 @@ impl Scroll {
         self.move_to(self.wanted + f64::from(delta), live, height)
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn move_selection(
+        &mut self,
+        delta: f32,
+        live: &RunGrid,
+        height: usize,
+    ) -> Option<HistoryRequest> {
+        let view = self.view.as_ref().unwrap_or(live);
+        let maximum = (view.history_total as f64 + view.rows.len() as f64 - height as f64).max(0.0);
+        let offset = (self.offset + f64::from(delta)).max(0.0);
+        let offset = if view.history_fresh {
+            offset.min(maximum)
+        } else {
+            offset
+        };
+        if offset == 0.0 && self.view.is_some() {
+            self.offset = 0.0;
+            self.wanted = 0.0;
+            self.selection_target = false;
+            self.elastic = 0.0;
+            self.pending = None;
+            self.cancel_prompt();
+            return None;
+        }
+        let request = self.move_to(offset, live, height);
+        self.selection_target = self.wanted > self.offset;
+        self.elastic = 0.0;
+        request
+    }
+
+    pub(crate) fn cancel_selection_scroll(&mut self) {
+        if self.selection_target {
+            self.wanted = self.offset;
+            self.selection_target = false;
+            self.revision = self.revision.wrapping_add(1);
+        }
+    }
+
     pub(crate) fn move_to(
         &mut self,
         offset: f64,
         live: &RunGrid,
         height: usize,
     ) -> Option<HistoryRequest> {
+        self.selection_target = false;
         self.prompt = None;
         self.command_output = None;
         if !offset.is_finite() {
@@ -457,6 +498,17 @@ mod tests {
             code: ErrorCode::StaleHistoryCursor,
             message: "changed".into(),
         })
+    }
+
+    #[test]
+    fn cancelling_selection_scroll_preserves_a_later_wheel_target() {
+        let live = grid();
+        let mut scroll = Scroll::default();
+        let request = scroll.move_selection(25.0, &live, 5).unwrap();
+        scroll.move_rows(2.0, &live, 5);
+        scroll.cancel_selection_scroll();
+        scroll.receive(request, Ok(page(60, 80, Some(HistoryCursor(7)))), 5);
+        assert_eq!(scroll.offset, 27.0);
     }
 
     #[test]

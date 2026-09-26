@@ -77,6 +77,8 @@ pub(crate) struct TerminalPane {
     pub(crate) selection: Option<Selection>,
     selection_rows: Vec<Option<SelectedRow>>,
     selecting: Option<(Selection, usize)>,
+    selection_pointer: Option<gpui::Point<gpui::Pixels>>,
+    selection_scroll: Option<Task<()>>,
     pub(crate) input_modes: InputModes,
     pub(crate) composition: super::ime::Composition,
     held_buttons: Vec<MouseButton>,
@@ -153,6 +155,8 @@ impl TerminalPane {
             selection: None,
             selection_rows: Vec::new(),
             selecting: None,
+            selection_pointer: None,
+            selection_scroll: None,
             input_modes: InputModes::default(),
             composition: super::ime::Composition::default(),
             held_buttons: Vec::new(),
@@ -445,6 +449,13 @@ impl TerminalPane {
         }
         self.finish_command_selection(cx);
         self.validate_selection();
+        if failed {
+            self.stop_selecting();
+        } else if accepted && let Some(position) = self.selection_pointer {
+            self.scroll.revision = self.scroll.revision.wrapping_add(1);
+            self.extend_selection(position, cx);
+            self.schedule_selection_scroll(cx);
+        }
         cx.notify();
     }
 
@@ -669,10 +680,18 @@ impl TerminalPane {
     fn clear_selection(&mut self) {
         self.selection = None;
         self.selection_rows.clear();
+        self.stop_selecting();
+    }
+
+    fn stop_selecting(&mut self) {
+        self.scroll.cancel_selection_scroll();
         self.selecting = None;
+        self.selection_pointer = None;
+        self.selection_scroll = None;
     }
 
     fn reset_input(&mut self) {
+        self.stop_selecting();
         self.composition = super::ime::Composition::default();
         self.link_hover = super::links::Hover::default();
         self.input_modes = InputModes::default();
@@ -695,6 +714,9 @@ impl TerminalPane {
     }
 
     pub(crate) fn focus_changed(&mut self, active: bool, cx: &mut Context<Self>) {
+        if !active {
+            self.stop_selecting();
+        }
         if self.state != PaneState::Live {
             return;
         }
@@ -714,7 +736,6 @@ impl TerminalPane {
                     ));
                 }
             }
-            self.selecting = None;
             self.last_mouse = None;
             self.wheel_remainder = 0.0;
         }
@@ -907,7 +928,7 @@ impl TerminalPane {
         if event.button == MouseButton::Left && event.modifiers.platform {
             self.hover_link(event.position, true, cx);
             if let Some(target) = self.link_hover.target.clone() {
-                self.selecting = None;
+                self.stop_selecting();
                 cx.emit(PaneEvent::OpenLink(target));
                 cx.stop_propagation();
                 return;
@@ -931,7 +952,7 @@ impl TerminalPane {
             return;
         }
         if event.button == MouseButton::Right {
-            self.selecting = None;
+            self.stop_selecting();
             cx.emit(PaneEvent::ContextMenu(event.position));
             cx.stop_propagation();
             return;
@@ -960,6 +981,7 @@ impl TerminalPane {
 
     pub(crate) fn mouse_move(&mut self, event: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
         if !self.native_visible {
+            self.stop_selecting();
             return;
         }
         self.hover_link(
@@ -983,13 +1005,19 @@ impl TerminalPane {
             return;
         }
         if event.pressed_button != Some(MouseButton::Left) {
-            self.selecting = None;
+            self.stop_selecting();
             return;
         }
+        self.extend_selection(event.position, cx);
+        self.selection_pointer = self.selecting.map(|_| event.position);
+        self.schedule_selection_scroll(cx);
+    }
+
+    fn extend_selection(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         let Some((anchor, clicks)) = self.selecting else {
             return;
         };
-        let Some(point) = self.point_at(event.position, clicks < 2) else {
+        let Some(point) = self.point_at(position, clicks < 2) else {
             return;
         };
         let Some(grid) = self.displayed_grid() else {
@@ -1017,6 +1045,81 @@ impl TerminalPane {
         self.select(selection, cx);
     }
 
+    fn selection_scroll_delta(&self) -> Option<f32> {
+        self.selecting?;
+        if !self.native_visible
+            || !self.focused
+            || matches!(self.state, PaneState::Connecting | PaneState::Disconnected)
+        {
+            return None;
+        }
+        let position = self.selection_pointer?;
+        let (bounds, cell) = self.geometry?;
+        let grid = self.displayed_grid()?;
+        let height = cell.height * f32::from(self.viewport.unwrap_or(grid.size).rows);
+        let edge = cell.height.min(height / 2.0);
+        let y = position.y - bounds.origin.y;
+        if y < edge {
+            Some(((edge - y) / cell.height).ceil().clamp(1.0, 5.0))
+        } else if y > height - edge {
+            Some(-((y - height + edge) / cell.height).ceil().clamp(1.0, 5.0))
+        } else {
+            None
+        }
+    }
+
+    fn schedule_selection_scroll(&mut self, cx: &mut Context<Self>) {
+        if self.selection_scroll_delta().is_none() {
+            self.scroll.cancel_selection_scroll();
+            self.selection_scroll = None;
+            return;
+        }
+        if self.selection_scroll.is_some() {
+            return;
+        }
+        self.selection_scroll = Some(cx.spawn(async move |pane, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(50))
+                .await;
+            let _ = pane.update(cx, |pane, cx| {
+                pane.selection_scroll = None;
+                if pane.scroll_selection(cx) {
+                    pane.schedule_selection_scroll(cx);
+                }
+            });
+        }));
+    }
+
+    fn scroll_selection(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(delta) = self.selection_scroll_delta() else {
+            self.stop_selecting();
+            return false;
+        };
+        let Some(grid) = &self.grid else {
+            return false;
+        };
+        let height = usize::from(self.viewport.unwrap_or(grid.size).rows);
+        let before = self.scroll.offset;
+        let was_scrolled = self.scroll.view.is_some();
+        if let Some(request) = self.scroll.move_selection(delta, grid, height) {
+            self.request_history(request, cx);
+        }
+        if was_scrolled && self.scroll.view.is_none() {
+            self.restart_find(cx);
+        }
+        self.validate_selection();
+        let changed = self.scroll.offset.to_bits() != before.to_bits()
+            || was_scrolled != self.scroll.view.is_some();
+        if changed {
+            self.scroll.revision = self.scroll.revision.wrapping_add(1);
+            if let Some(position) = self.selection_pointer {
+                self.extend_selection(position, cx);
+            }
+            cx.notify();
+        }
+        changed
+    }
+
     fn mouse_up(&mut self, event: &gpui::MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         if self.held_buttons.contains(&event.button) {
             self.held_buttons.retain(|button| *button != event.button);
@@ -1042,7 +1145,7 @@ impl TerminalPane {
             },
             cx,
         );
-        self.selecting = None;
+        self.stop_selecting();
         if completed_selection
             && self
                 .terminal
@@ -1374,6 +1477,8 @@ impl Render for TerminalPane {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    mod autoscroll;
+
     use super::*;
     use gpui::{AppContext, TestAppContext, point, size};
     use muxy_protocol::{Cursor, Modes, Row, Run, Style};
