@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Styled, Window, div, px,
+    ParentElement, Styled, Window, div, px, relative,
 };
 use muxy_protocol::{GitAction, GitMergeMethod, GitPullRequest, GitPullRequestAction, ProjectId};
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
@@ -225,14 +225,21 @@ fn detail_row(m: Metrics, theme: &Theme, label: &str, value: String, color: Hsla
     div()
         .flex()
         .items_center()
-        .justify_between()
-        .gap(m.spacing4())
+        .gap(m.spacing3())
         .text_size(m.font_footnote())
-        .child(div().text_color(theme.fg_muted).child(label.to_owned()))
+        .child(
+            div()
+                .flex_none()
+                .w(m.scaled(52.0))
+                .text_color(theme.fg_muted)
+                .child(label.to_owned()),
+        )
         .child(
             div()
                 .min_w(px(0.0))
                 .truncate()
+                .font_family(".AppleSystemUIFontMonospaced")
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(color)
                 .child(value),
         )
@@ -243,7 +250,6 @@ fn detail_row(m: Metrics, theme: &Theme, label: &str, value: String, color: Hsla
 enum ActionTone {
     Regular,
     Primary,
-    Disabled,
     Danger,
 }
 
@@ -257,29 +263,43 @@ fn action_button(
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let Style { theme, metrics: m } = style;
-    let foreground = if enabled {
-        match tone {
-            ActionTone::Regular => theme.fg,
-            ActionTone::Primary => theme.accent_foreground,
-            ActionTone::Disabled => theme.fg_dim,
-            ActionTone::Danger => theme.danger,
-        }
-    } else {
-        theme.fg_dim
+    let (foreground, background) = match tone {
+        _ if !enabled => (theme.fg_dim, theme.surface),
+        ActionTone::Regular => (theme.fg, theme.surface),
+        ActionTone::Primary => (theme.accent_foreground, theme.accent),
+        ActionTone::Danger => (theme.danger, theme.surface),
     };
-    muxy_ui::popover::row(theme, *m, id, enabled, false)
-        .w_full()
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(m.spacing3())
+        .px(m.spacing4())
+        .py(m.spacing3())
+        .rounded(m.radius_sm())
+        .bg(background)
+        .text_size(m.font_footnote())
+        .font_weight(FontWeight::MEDIUM)
         .text_color(foreground)
-        .when(enabled && matches!(tone, ActionTone::Primary), |button| {
+        .when(enabled, |button| {
             button
-                .bg(theme.accent)
-                .hover(|button| button.bg(theme.accent))
+                .cursor_pointer()
+                .when(!matches!(tone, ActionTone::Primary), |button| {
+                    button.hover(|button| button.bg(theme.hover))
+                })
+                .button_interaction(on_click)
         })
-        .when(enabled, |button| button.button_interaction(on_click))
         .child(SymbolGlyph::new(symbol, m.font_footnote(), foreground))
         .child(div().min_w(px(0.0)).truncate().child(label))
         .into_any_element()
 }
+
+const MERGE_METHODS: [(GitMergeMethod, &str, &str); 3] = [
+    (GitMergeMethod::Squash, "pr-method-squash", "Squash"),
+    (GitMergeMethod::Merge, "pr-method-merge", "Merge"),
+    (GitMergeMethod::Rebase, "pr-method-rebase", "Rebase"),
+];
 
 fn merge_selector(
     popover: &PullRequestPopover,
@@ -288,42 +308,51 @@ fn merge_selector(
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let Style { theme, metrics: m } = style;
+    let project = popover.project;
     let mut selector = div()
         .flex()
-        .w_full()
-        .p(px(2.0))
-        .gap(px(2.0))
-        .rounded(m.radius_sm())
-        .bg(theme.surface)
-        .border_1()
-        .border_color(theme.border);
-    for (method, id, label) in [
-        (GitMergeMethod::Merge, "pr-method-merge", "Merge"),
-        (GitMergeMethod::Squash, "pr-method-squash", "Squash"),
-        (GitMergeMethod::Rebase, "pr-method-rebase", "Rebase"),
-    ] {
+        .flex_none()
+        .items_center()
+        .p(m.spacing1())
+        .rounded(m.radius_md())
+        .bg(theme.hover)
+        .text_size(m.font_footnote())
+        .when(!enabled, |selector| selector.opacity(0.4));
+    let mut previous_selected = None;
+    for (method, id, label) in MERGE_METHODS {
         let selected = popover.merge_method == method;
-        let project = popover.project;
+        if previous_selected == Some(false) && !selected {
+            selector = selector.child(
+                div()
+                    .flex_none()
+                    .w(px(1.0))
+                    .h(m.scaled(14.0))
+                    .bg(theme.border),
+            );
+        }
+        previous_selected = Some(selected);
         selector = selector.child(
             div()
                 .id(id)
                 .flex()
                 .flex_1()
-                .items_center()
                 .justify_center()
-                .h(m.control_small())
+                .py(m.scaled(5.0))
                 .rounded(m.radius_sm())
-                .text_size(m.font_footnote())
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(if selected { theme.fg } else { theme.fg_muted })
-                .when(selected, |segment| segment.bg(theme.bg))
-                .when(!enabled, |segment| segment.opacity(0.4))
+                .map(|segment| {
+                    if selected {
+                        segment
+                            .bg(theme.surface)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.fg)
+                    } else {
+                        segment.text_color(theme.fg_muted)
+                    }
+                })
                 .when(enabled, |segment| {
                     segment
                         .cursor_pointer()
-                        .when(!selected, |segment| {
-                            segment.hover(|segment| segment.bg(theme.hover))
-                        })
+                        .hover(|segment| segment.text_color(theme.fg))
                         .button_interaction(cx.listener(move |model, _, _, cx| {
                             model.set_pull_request_merge_method(project, method, cx);
                         }))
@@ -350,6 +379,120 @@ fn merge_status(pr: &GitPullRequest, theme: &Theme) -> Option<(&'static str, Hsl
         _ if pr.mergeable == Some(false) => Some(("Conflicts", theme.danger)),
         _ => None,
     }
+}
+
+fn checks_status(pr: &GitPullRequest, theme: &Theme) -> Option<(String, Hsla)> {
+    let checks = &pr.checks;
+    if checks.failing > 0 {
+        Some((format!("{} failing", checks.failing), theme.danger))
+    } else if checks.pending > 0 {
+        Some((format!("{} running", checks.pending), theme.warning))
+    } else if checks.passing > 0 {
+        Some((format!("{0}/{0} passing", checks.passing), theme.diff_add))
+    } else {
+        None
+    }
+}
+
+fn header(
+    pr: &GitPullRequest,
+    project: ProjectId,
+    busy: bool,
+    style: Style<'_>,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let Style { theme, metrics: m } = style;
+    let (symbol, state, state_color) = match (pr.state.as_str(), pr.draft) {
+        ("OPEN", true) => ("pencil.circle", "Draft · Open", theme.fg_muted),
+        ("OPEN", false) if pr.checks.failing > 0 => ("xmark.octagon.fill", "Open", theme.danger),
+        ("OPEN", false) if pr.checks.pending > 0 => ("clock", "Open", theme.warning),
+        ("OPEN", false) => ("arrow.triangle.pull", "Open", theme.diff_add),
+        ("MERGED", _) => ("checkmark.circle.fill", "Merged", theme.accent),
+        _ => ("xmark.circle", "Closed", theme.danger),
+    };
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(m.spacing4())
+        .child(SymbolGlyph::new(symbol, m.font_headline(), state_color))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.0))
+                .gap(m.spacing1())
+                .child(
+                    div()
+                        .truncate()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(format!("Pull Request #{}", pr.number)),
+                )
+                .child(
+                    div()
+                        .text_size(m.font_caption())
+                        .text_color(theme.fg_muted)
+                        .child(state),
+                ),
+        )
+        .child(
+            div()
+                .id("pr-refresh")
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .size(m.control_small())
+                .rounded(m.radius_sm())
+                .when(!busy, |button| {
+                    button
+                        .cursor_pointer()
+                        .hover(|button| button.bg(theme.hover))
+                        .button_interaction(cx.listener(move |model, _, _, cx| {
+                            model.refresh_pull_request(project, cx);
+                        }))
+                })
+                .when(busy, |button| button.opacity(0.4))
+                .child(SymbolGlyph::new(
+                    "arrow.clockwise",
+                    m.font_footnote(),
+                    theme.fg_muted,
+                )),
+        )
+        .into_any_element()
+}
+
+fn details(pr: &GitPullRequest, has_local_changes: bool, style: Style<'_>) -> AnyElement {
+    let Style { theme, metrics: m } = style;
+    let mut details = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap(m.spacing3())
+        .child(detail_row(
+            *m,
+            theme,
+            "Base",
+            pr.base_branch.clone(),
+            theme.fg,
+        ));
+    if let Some((label, color)) = merge_status(pr, theme) {
+        details = details.child(detail_row(*m, theme, "Merge", label.into(), color));
+    }
+    if let Some((label, color)) = checks_status(pr, theme) {
+        details = details.child(detail_row(*m, theme, "Checks", label, color));
+    }
+    if has_local_changes {
+        details = details.child(detail_row(
+            *m,
+            theme,
+            "Local",
+            "Uncommitted changes".into(),
+            theme.warning,
+        ));
+    }
+    details.into_any_element()
 }
 
 #[allow(
@@ -382,121 +525,14 @@ pub(crate) fn render_pr(
     let has_local_changes = repository
         .and_then(|repo| repo.summary.as_ref())
         .is_some_and(|summary| summary.changed > summary.untracked);
-    let open = pr.state == "OPEN";
-    let (symbol, state, state_color) = match (pr.state.as_str(), pr.draft) {
-        ("OPEN", true) => ("pencil.circle", "Draft · Open", theme.fg_muted),
-        ("OPEN", false) if pr.checks.failing > 0 => ("xmark.octagon.fill", "Open", theme.danger),
-        ("OPEN", false) if pr.checks.pending > 0 => ("clock", "Open", theme.warning),
-        ("OPEN", false) => ("arrow.triangle.pull", "Open", theme.diff_add),
-        ("MERGED", _) => ("checkmark.circle.fill", "Merged", theme.accent),
-        _ => ("xmark.circle", "Closed", theme.danger),
-    };
-    let mut details = div().flex().flex_col().gap(m.spacing3());
-    details = details.child(detail_row(
-        m,
-        theme,
-        "Base",
-        pr.base_branch.clone(),
-        theme.fg,
-    ));
-    if let Some((label, color)) = merge_status(pr, theme) {
-        details = details.child(detail_row(m, theme, "Merge", label.into(), color));
-    }
-    if pr.checks.failing > 0 {
-        details = details.child(detail_row(
-            m,
-            theme,
-            "Checks",
-            format!("{} failing", pr.checks.failing),
-            theme.danger,
-        ));
-    } else if pr.checks.pending > 0 {
-        details = details.child(detail_row(
-            m,
-            theme,
-            "Checks",
-            format!("{} running", pr.checks.pending),
-            theme.warning,
-        ));
-    } else if pr.checks.passing > 0 {
-        details = details.child(detail_row(
-            m,
-            theme,
-            "Checks",
-            format!("{} passing", pr.checks.passing),
-            theme.diff_add,
-        ));
-    }
-    if has_local_changes {
-        details = details.child(detail_row(
-            m,
-            theme,
-            "Local",
-            "Uncommitted changes".into(),
-            theme.warning,
-        ));
-    }
     muxy_ui::popover::surface(theme, m)
         .w(m.scaled(280.0))
-        .child(
-            muxy_ui::popover::header(theme, m)
-                .child(SymbolGlyph::new(symbol, m.font_headline(), state_color))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .gap(m.spacing1())
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(format!("Pull Request #{number}")),
-                        )
-                        .child(
-                            div()
-                                .text_size(m.font_caption())
-                                .text_color(theme.fg_muted)
-                                .child(state),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("pr-refresh")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(m.control_small())
-                        .rounded(m.radius_sm())
-                        .when(!busy, |button| {
-                            button
-                                .cursor_pointer()
-                                .hover(|button| button.bg(theme.hover))
-                                .button_interaction(cx.listener(move |model, _, _, cx| {
-                                    model.refresh_pull_request(project, cx);
-                                }))
-                        })
-                        .when(busy, |button| button.opacity(0.4))
-                        .child(SymbolGlyph::new(
-                            "arrow.clockwise",
-                            m.font_footnote(),
-                            theme.fg_muted,
-                        )),
-                ),
-        )
-        .child(
-            muxy_ui::popover::body(m)
-                .child(
-                    div()
-                        .min_w(px(0.0))
-                        .truncate()
-                        .text_size(m.font_footnote())
-                        .text_color(theme.fg_muted)
-                        .child(pr.title.clone()),
-                )
-                .child(details),
-        )
-        .child(muxy_ui::popover::divider(theme, m))
+        .p(m.spacing6())
+        .gap(m.spacing5())
+        .line_height(relative(1.2))
+        .child(header(pr, project, busy, style, cx))
+        .child(details(pr, has_local_changes, style))
+        .child(div().flex_none().h(px(1.0)).bg(theme.border))
         .child(action_button(
             style,
             "pr-open",
@@ -506,7 +542,7 @@ pub(crate) fn render_pr(
             true,
             cx.listener(move |model, _, _, cx| model.open_pull_request_url(project, cx)),
         ))
-        .when(open, |surface| {
+        .when(pr.state == "OPEN", |surface| {
             surface
                 .when(
                     pr.merge_state == "BEHIND" && !pr.cross_repository,
@@ -538,11 +574,7 @@ pub(crate) fn render_pr(
                     "pr-merge",
                     "arrow.triangle.merge",
                     merge_action_label(merge_method).into(),
-                    if can_merge(pr) {
-                        ActionTone::Primary
-                    } else {
-                        ActionTone::Disabled
-                    },
+                    ActionTone::Primary,
                     can_merge(pr) && !busy,
                     cx.listener(move |model, _, _, cx| {
                         model.request_pull_request_action(
@@ -561,7 +593,7 @@ pub(crate) fn render_pr(
                     style,
                     "pr-close",
                     "xmark.circle",
-                    "Close pull request".into(),
+                    "Close PR".into(),
                     ActionTone::Danger,
                     !busy,
                     cx.listener(move |model, _, _, cx| {
@@ -579,10 +611,11 @@ pub(crate) fn render_pr(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muxy_protocol::GitChecks;
+    use muxy_ui::theme::ColorScheme;
 
-    #[test]
-    fn merge_requires_an_open_ready_nonconflicting_pr() {
-        let mut pr = GitPullRequest {
+    fn pull_request() -> GitPullRequest {
+        GitPullRequest {
             number: 1,
             url: "https://github.com/a/b/pull/1".into(),
             title: "Test".into(),
@@ -596,13 +629,36 @@ mod tests {
             mergeable: Some(true),
             merge_state: "CLEAN".into(),
             cross_repository: false,
-            checks: muxy_protocol::GitChecks::default(),
-        };
+            checks: GitChecks::default(),
+        }
+    }
+
+    #[test]
+    fn merge_requires_an_open_ready_nonconflicting_pr() {
+        let mut pr = pull_request();
         assert!(can_merge(&pr));
         pr.merge_state = "BLOCKED".into();
         assert!(!can_merge(&pr));
         pr.merge_state = "CLEAN".into();
         pr.draft = true;
         assert!(!can_merge(&pr));
+    }
+
+    #[test]
+    fn checks_report_the_most_urgent_state() {
+        let theme = Theme::from_scheme(&ColorScheme::default());
+        let label = |passing, failing, pending| {
+            let mut pr = pull_request();
+            pr.checks = GitChecks {
+                passing,
+                failing,
+                pending,
+            };
+            checks_status(&pr, &theme).map(|(label, _)| label)
+        };
+        assert_eq!(label(0, 0, 0), None);
+        assert_eq!(label(2, 0, 0).as_deref(), Some("2/2 passing"));
+        assert_eq!(label(2, 0, 1).as_deref(), Some("1 running"));
+        assert_eq!(label(2, 1, 1).as_deref(), Some("1 failing"));
     }
 }
