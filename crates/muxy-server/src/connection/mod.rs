@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use muxy_protocol::transport::{ByteStream, StreamCancellation};
 use muxy_protocol::wire::{Decoder, Encoder, MAX_FRAME, WireError};
-use muxy_protocol::{CONTROL, Message, Version};
+use muxy_protocol::{CONTROL, Message, Topic};
 
 use crate::{Admission, Registry, ServerEvent};
 pub(crate) use outbox::{Outbox, References};
@@ -35,23 +35,12 @@ pub fn serve(
     let (read, write) = stream.split()?;
     let mut decoder = Decoder::new(read);
     let mut encoder = Encoder::new(write);
-    let Some(version) = handshake::accept(&mut decoder, &mut encoder)? else {
+    if !handshake::accept(&mut decoder, &mut encoder)? {
         return Ok(());
-    };
-    let outbox = Arc::new(Outbox::new(
-        version,
-        Arc::clone(&registry.attachment_changes),
-    ));
+    }
+    let outbox = Arc::new(Outbox::new(Arc::clone(&registry.attachment_changes)));
     registry.register_connection(&outbox);
-    run(
-        decoder,
-        encoder,
-        &cancellation,
-        registry,
-        events,
-        &outbox,
-        version,
-    )
+    run(decoder, encoder, &cancellation, registry, events, &outbox)
 }
 
 /// Serves a network peer, which must authenticate as a paired device before
@@ -68,14 +57,13 @@ pub fn serve_remote(
     let mut decoder = Decoder::new(read);
     decoder.set_payload_limit(UNAUTHENTICATED_PAYLOAD);
     let mut encoder = Encoder::new(write);
-    let Some(version) = handshake::accept_remote(&mut decoder, &mut encoder)? else {
+    if !handshake::accept_remote(&mut decoder, &mut encoder)? {
         return Ok(());
-    };
+    }
     let Some(admitted) = auth::accept(&mut decoder, &mut encoder, &registry)? else {
         return Ok(());
     };
     let outbox = Arc::new(Outbox::for_device(
-        version,
         Arc::clone(&registry.attachment_changes),
         admitted.device,
     ));
@@ -96,15 +84,7 @@ pub fn serve_remote(
     decoder.set_payload_limit(MAX_FRAME);
     log::info!("device connected: {}", admitted.device);
     registry.remote.changed();
-    let result = run(
-        decoder,
-        encoder,
-        &cancellation,
-        registry,
-        events,
-        &outbox,
-        version,
-    );
+    let result = run(decoder, encoder, &cancellation, registry, events, &outbox);
     log::info!("device disconnected: {}", admitted.device);
     result
 }
@@ -132,7 +112,6 @@ fn run(
     registry: Arc<Registry>,
     events: Receiver<ServerEvent>,
     outbox: &Arc<Outbox>,
-    version: Version,
 ) -> Result<(), WireError> {
     let output = Arc::clone(outbox);
     let cancel = Arc::clone(cancellation);
@@ -159,7 +138,7 @@ fn run(
             return Err(error.into());
         }
     };
-    let result = reader::run(&mut decoder, &registry, outbox, version);
+    let result = reader::run(&mut decoder, &registry, outbox);
     outbox.close();
     registry.connection_closed(outbox);
     drop(registry);
@@ -188,7 +167,10 @@ fn forward_events(output: &Outbox, catalog: &Registry, events: &Receiver<ServerE
     while !output.is_closed() {
         let current = catalog.activity.revision();
         if activity_revision != Some(current) && output.activity_watched() {
-            output.push_control(Message::ActivityChanged { revision: current });
+            output.push_control(Message::Changed {
+                topic: Topic::Activity,
+                revision: current,
+            });
             activity_revision = Some(current);
         }
         for (session, (progress, metadata)) in catalog.session_observations(output) {
@@ -197,17 +179,26 @@ fn forward_events(output: &Outbox, catalog: &Registry, events: &Receiver<ServerE
         }
         let current = catalog.catalog_revision();
         if current > revision && output.catalog_watched() {
-            output.push_control(Message::CatalogChanged { revision: current });
+            output.push_control(Message::Changed {
+                topic: Topic::Catalog,
+                revision: current,
+            });
             revision = current;
         }
         let current = catalog.sessions_revision();
         if current > sessions_revision && output.catalog_watched() {
-            output.push_control(Message::SessionsChanged { revision: current });
+            output.push_control(Message::Changed {
+                topic: Topic::Sessions,
+                revision: current,
+            });
             sessions_revision = current;
         }
         let current = catalog.remote.revision();
         if current > remote_revision && output.remote_access_watched() {
-            output.push_control(Message::RemoteAccessChanged { revision: current });
+            output.push_control(Message::Changed {
+                topic: Topic::RemoteAccess,
+                revision: current,
+            });
             remote_revision = current;
         }
         match events.recv_timeout(POLL) {

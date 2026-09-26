@@ -56,6 +56,7 @@ pub(super) fn provider_id(provider: AgentProvider) -> &'static str {
         AgentProvider::Kiro => "kiro",
         AgentProvider::Xal => "xal",
         AgentProvider::Antigravity => "antigravity",
+        AgentProvider::Unrecognized(_) => "other",
     }
 }
 
@@ -63,7 +64,7 @@ fn agent_rank(state: AgentState) -> (u8, &'static str) {
     match state {
         AgentState::Working => (2, "working"),
         AgentState::Blocked => (1, "waiting"),
-        AgentState::Idle | AgentState::Unknown => (0, "idle"),
+        AgentState::Idle | AgentState::Unknown | AgentState::Unrecognized(_) => (0, "idle"),
     }
 }
 

@@ -10,10 +10,10 @@ use std::time::Duration;
 
 use muxy_core::worker::WorkerPool;
 
-use muxy_protocol::wire::{Decoder, WireError, message_version};
+use muxy_protocol::wire::{Decoder, WireError};
 use muxy_protocol::{
     CONTROL, ChannelId, ErrorCode, HistoryCursor, Message, ReplyBody, RequestBody, RequestId,
-    SearchSource, SessionId, Size, Version,
+    SearchSource, SessionId, Size,
 };
 
 use crate::archive::SearchCache;
@@ -32,7 +32,6 @@ pub(super) fn run(
     decoder: &mut Decoder<impl Read>,
     registry: &Arc<Registry>,
     outbox: &Arc<Outbox>,
-    version: Version,
 ) -> Result<Exit, WireError> {
     let requests = Requests {
         commands: crate::exec::Jobs::default(),
@@ -46,7 +45,6 @@ pub(super) fn run(
         files_readers: WorkerPool::new("connection-files-read", 4, 32)?,
         files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
         search_cache: Arc::new(Mutex::new(SearchCache::default())),
-        version,
         last_channel: Arc::new(AtomicU32::new(0)),
     };
     while !outbox.is_closed() {
@@ -75,6 +73,13 @@ pub(super) fn run(
                     Err(error) => ReplyBody::Error(error.to_reply()),
                 };
                 outbox.push_control(Message::Reply { id, body: reply });
+            }
+            (CONTROL, Message::UnsupportedRequest { id }) => {
+                log::debug!("unsupported request {}", id.0);
+                outbox.push_control(Message::Reply {
+                    id,
+                    body: ReplyBody::Error(ServerError::unsupported_request().to_reply()),
+                });
             }
             (CONTROL, Message::FrameAck { channel, seq })
                 if channel.0 > 0 && channel.0 <= requests.last_channel.load(Ordering::Acquire) =>
@@ -138,7 +143,6 @@ struct Requests {
     files_watch: Arc<Mutex<crate::files::watch::Subscriptions>>,
     git_watch: Arc<Mutex<Option<crate::git::watch::RepositoryWatch>>>,
     search_cache: Arc<Mutex<SearchCache>>,
-    version: Version,
     last_channel: Arc<AtomicU32>,
 }
 
@@ -148,17 +152,6 @@ impl Requests {
         reason = "Keep request dispatch exhaustive in one place"
     )]
     fn route(&self, body: RequestBody, id: RequestId) -> Result<Option<ReplyBody>, ServerError> {
-        let version = self.version;
-        if message_version(&Message::Request {
-            id,
-            body: body.clone(),
-        }) > version
-        {
-            return Err(ServerError::new(
-                ErrorCode::BadRequest,
-                "request requires a newer protocol version",
-            ));
-        }
         policy::permit(self.outbox.device().is_some(), &body)?;
         let outbox = &self.outbox;
         match body {

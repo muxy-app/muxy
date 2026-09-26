@@ -21,9 +21,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: python3 scripts/beta_compatibility.py --base "$COMPATIBILITY_BASE"
+      - run: python3 scripts/protocol_fixtures.py append-only --base "$PROTOCOL_BASE"
         env:
-          COMPATIBILITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PROTOCOL_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: python3 -m unittest discover -s scripts/tests -v
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -39,6 +39,7 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: cargo build --locked -p muxy-cli -p muxy-server
       - run: cargo test --locked --workspace --all-features
+      - run: python3 scripts/protocol_fixtures.py last-release
       - run: python3 scripts/smoke-desktop-tui.py
       - run: cargo doc --locked --workspace --no-deps
         env:

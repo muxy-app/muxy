@@ -151,7 +151,8 @@ impl TerminalOptions {
                 "cursor-style",
                 self.cursor_style
                     .map_or("", |style| match style {
-                        muxy_protocol::CursorShape::Block => "block",
+                        muxy_protocol::CursorShape::Block
+                        | muxy_protocol::CursorShape::Unrecognized(_) => "block",
                         muxy_protocol::CursorShape::Bar => "bar",
                         muxy_protocol::CursorShape::Underline => "underline",
                         muxy_protocol::CursorShape::Hollow => "block_hollow",

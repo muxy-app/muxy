@@ -2,9 +2,10 @@ use std::io::Read;
 use std::sync::mpsc::Sender;
 
 use muxy_protocol::transport::StreamCancellation;
-use muxy_protocol::wire::{Decoder, message_version};
+use muxy_protocol::wire::Decoder;
 use muxy_protocol::{
-    CONTROL, ChannelId, ExitReason, Message, MetadataEvent, ScreenFrame, SessionId, Version,
+    CONTROL, ChannelId, ErrorCode, ErrorReply, ExitReason, Feature, Message, MetadataEvent,
+    ReplyBody, ScreenFrame, SessionId, Topic,
 };
 
 use crate::ClientError;
@@ -60,14 +61,14 @@ pub(crate) fn route(
     decoder: &mut Decoder<impl Read>,
     pending: &Pending,
     events: &Sender<ClientEvent>,
-    connected: &Sender<Result<(Version, muxy_protocol::ServerInfo), ClientError>>,
+    connected: &Sender<Result<(muxy_protocol::ServerInfo, Vec<Feature>), ClientError>>,
     cancellation: &dyn StreamCancellation,
 ) {
     let handshake = handshake::accept(decoder.next());
-    let accepted = handshake.as_ref().ok().map(|(version, _)| *version);
+    let accepted = handshake.is_ok();
     let _ = connected.send(handshake);
-    if let Some(version) = accepted {
-        while let Some(event) = next_event(decoder, pending, version) {
+    if accepted {
+        while let Some(event) = next_event(decoder, pending) {
             if events.send(event).is_err() {
                 break;
             }
@@ -78,22 +79,24 @@ pub(crate) fn route(
     let _ = events.send(ClientEvent::Disconnected);
 }
 
-fn next_event(
-    decoder: &mut Decoder<impl Read>,
-    pending: &Pending,
-    version: Version,
-) -> Option<ClientEvent> {
+fn next_event(decoder: &mut Decoder<impl Read>, pending: &Pending) -> Option<ClientEvent> {
     loop {
         let (channel, message) = decoder.next().ok()?;
-        if message.validate().is_err() || message_version(&message) > version {
+        if message.validate().is_err() {
             return None;
         }
         match (channel, message) {
             (CONTROL, Message::SessionMetadata { session, metadata }) => {
                 return Some(ClientEvent::SessionMetadata { session, metadata });
             }
-            (CONTROL, Message::ActivityChanged { revision }) => {
-                return Some(ClientEvent::ActivityChanged { revision });
+            (CONTROL, Message::Changed { topic, revision }) => {
+                return Some(match topic {
+                    Topic::Catalog => ClientEvent::CatalogChanged { revision },
+                    Topic::Sessions => ClientEvent::SessionsChanged { revision },
+                    Topic::Activity => ClientEvent::ActivityChanged { revision },
+                    Topic::RemoteAccess => ClientEvent::RemoteAccessChanged { revision },
+                    Topic::Unrecognized(_) => continue,
+                });
             }
             (CONTROL, Message::Progress { session, progress }) => {
                 return Some(ClientEvent::Progress { session, progress });
@@ -104,17 +107,11 @@ fn next_event(
             (CONTROL, Message::GitChanged { project }) => {
                 return Some(ClientEvent::GitChanged { project });
             }
-            (CONTROL, Message::SessionsChanged { revision }) => {
-                return Some(ClientEvent::SessionsChanged { revision });
-            }
-            (CONTROL, Message::CatalogChanged { revision }) => {
-                return Some(ClientEvent::CatalogChanged { revision });
-            }
-            (CONTROL, Message::RemoteAccessChanged { revision }) => {
-                return Some(ClientEvent::RemoteAccessChanged { revision });
-            }
             (CONTROL, Message::ServerRestarting) => return Some(ClientEvent::ServerRestarting),
             (CONTROL, Message::Reply { id, body }) => pending.resolve(id, body),
+            (CONTROL, Message::UnreadableReply { id }) => {
+                pending.resolve(id, ReplyBody::Error(unreadable_reply()));
+            }
             (CONTROL, Message::SessionEnded { session, reason }) => {
                 return Some(ClientEvent::SessionEnded { session, reason });
             }
@@ -126,5 +123,12 @@ fn next_event(
             }
             _ => return None,
         }
+    }
+}
+
+fn unreadable_reply() -> ErrorReply {
+    ErrorReply {
+        code: ErrorCode::Unsupported,
+        message: "The server replied in a form this app can't read. Update Muxy.".into(),
     }
 }

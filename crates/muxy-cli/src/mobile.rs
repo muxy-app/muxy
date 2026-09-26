@@ -28,7 +28,9 @@ pub(crate) fn run(command: Mobile, client: &Client) -> Result {
                 ListenerStatus::Failed(message) => {
                     Err(format!("mobile access could not start: {message}").into())
                 }
-                ListenerStatus::Listening | ListenerStatus::Disabled => Ok(()),
+                ListenerStatus::Listening
+                | ListenerStatus::Disabled
+                | ListenerStatus::Unrecognized(_) => Ok(()),
             }
         }
         Mobile::Disable => {
@@ -56,6 +58,10 @@ fn print_state(state: &RemoteAccessState) -> Result {
         }
         (ListenerStatus::Disabled, true) => writeln!(stdout, "Mobile access: starting")?,
         (ListenerStatus::Disabled, false) => writeln!(stdout, "Mobile access: off")?,
+        (ListenerStatus::Unrecognized(_), _) => writeln!(
+            stdout,
+            "Mobile access: status unknown to this version of muxy"
+        )?,
     }
     if state.devices.is_empty() {
         writeln!(stdout, "No paired devices.")?;

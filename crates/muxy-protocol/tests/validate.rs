@@ -4,8 +4,8 @@ use std::num::NonZeroU64;
 use muxy_protocol::{
     AttachSnapshot, CONTROL, ChannelId, ChannelKind, Cursor, ErrorCode, ErrorReply, ExitReason,
     MAX_COLS, MAX_INPUT, MAX_ROWS, Message, MetadataEvent, Modes, ReplyBody, RequestBody,
-    RequestId, Row, Run, SUPPORTED, ServerPath, SessionId, SessionInfo, Size, Style, V1, Version,
-    validate_input, validate_path, validate_size, validate_versions,
+    RequestId, Row, Run, SUPPORTED, ServerPath, SessionId, SessionInfo, Size, Style, Topic, V2,
+    Version, validate_input, validate_path, validate_size, validate_versions,
 };
 use serde::Deserialize;
 use serde::de::value::{Error, SeqDeserializer, U64Deserializer};
@@ -126,12 +126,12 @@ fn paths_reject_only_empty_bytes() -> Result<(), Error> {
 
 #[test]
 fn version_lists_require_an_entry_without_negotiating_support() {
-    assert_eq!(V1, Version(1));
-    assert_eq!(SUPPORTED, &[V1]);
+    assert_eq!(V2, Version(2));
+    assert_eq!(SUPPORTED, &[V2]);
     assert_eq!(validate_versions(&[]), Err(ErrorCode::BadRequest));
-    assert_eq!(validate_versions(&[V1]), Ok(()));
-    assert_eq!(validate_versions(&[Version(2)]), Ok(()));
-    for versions in [vec![], vec![V1], vec![Version(2), V1]] {
+    assert_eq!(validate_versions(&[V2]), Ok(()));
+    assert_eq!(validate_versions(&[Version(3)]), Ok(()));
+    for versions in [vec![], vec![V2], vec![Version(3), V2]] {
         let expected = if versions.is_empty() {
             Err(ErrorCode::BadRequest)
         } else {
@@ -140,7 +140,6 @@ fn version_lists_require_an_entry_without_negotiating_support() {
         assert_eq!(
             Message::Hello {
                 versions: versions.clone(),
-                compatibility: muxy_protocol::COMPATIBILITY
             }
             .validate(),
             expected
@@ -148,7 +147,8 @@ fn version_lists_require_an_entry_without_negotiating_support() {
         assert_eq!(
             Message::HelloReply {
                 versions,
-                server: muxy_protocol::ServerInfo::current()
+                server: muxy_protocol::ServerInfo::current(),
+                features: Vec::new(),
             }
             .validate(),
             expected
@@ -340,7 +340,19 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
     let mut seen = BTreeSet::new();
     for message in Message::samples() {
         let (name, channel) = match &message {
-            Message::RemoteAccessChanged { .. } => ("RemoteAccessChanged", ChannelKind::Control),
+            Message::Changed { topic, .. } => (
+                match topic {
+                    Topic::Catalog => "CatalogChanged",
+                    Topic::Sessions => "SessionsChanged",
+                    Topic::Activity => "ActivityChanged",
+                    Topic::RemoteAccess => "RemoteAccessChanged",
+                    Topic::Unrecognized(_) => "UnrecognizedChanged",
+                },
+                ChannelKind::Control,
+            ),
+            Message::UnsupportedRequest { .. } | Message::UnreadableReply { .. } => {
+                panic!("samples are messages a peer sends, not decoding outcomes")
+            }
             Message::Request {
                 body: RequestBody::IdentifyClient(muxy_protocol::ClientKind::Mobile),
                 ..
@@ -434,7 +446,6 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ActivityClaimed", ChannelKind::Control),
             Message::SessionMetadata { .. } => ("SessionMetadata", ChannelKind::Control),
-            Message::ActivityChanged { .. } => ("ActivityChanged", ChannelKind::Control),
             Message::Request {
                 body: RequestBody::IdentifyClient(_),
                 ..
@@ -486,8 +497,6 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("FilesReply", ChannelKind::Control),
             Message::GitChanged { .. } => ("GitChanged", ChannelKind::Control),
-            Message::SessionsChanged { .. } => ("SessionsChanged", ChannelKind::Control),
-            Message::CatalogChanged { .. } => ("CatalogChanged", ChannelKind::Control),
             Message::Request {
                 body: RequestBody::SyncSessionReferences { .. },
                 ..

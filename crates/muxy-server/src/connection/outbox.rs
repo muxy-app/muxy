@@ -2,11 +2,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
-use muxy_protocol::wire::message_version;
 use muxy_protocol::{
     AttachSnapshot, CONTROL, ChannelId, ErrorCode, ExitReason, ForegroundProcess, Message,
     MetadataEvent, ReplyBody, RequestId, ScreenFrame, SessionId, SessionProgress, Size,
-    TerminalColors, Version,
+    TerminalColors,
 };
 
 use crate::{AttachmentId, ServerError, SessionCommand, SessionHandle};
@@ -79,27 +78,21 @@ struct State {
 pub(crate) struct Outbox {
     state: Mutex<State>,
     ready: Condvar,
-    version: Version,
 }
 
 impl Outbox {
-    pub(super) fn new(version: Version, changes: Arc<AtomicU64>) -> Self {
+    pub(super) fn new(changes: Arc<AtomicU64>) -> Self {
         Self {
             state: Mutex::new(State {
                 changes,
                 ..State::default()
             }),
             ready: Condvar::default(),
-            version,
         }
     }
 
-    pub(super) fn for_device(
-        version: Version,
-        changes: Arc<AtomicU64>,
-        device: muxy_protocol::DeviceId,
-    ) -> Self {
-        let outbox = Self::new(version, changes);
+    pub(super) fn for_device(changes: Arc<AtomicU64>, device: muxy_protocol::DeviceId) -> Self {
+        let outbox = Self::new(changes);
         {
             let mut state = outbox.lock();
             state.device = Some(device);
@@ -250,16 +243,14 @@ impl Outbox {
     }
 
     pub(crate) fn push_control(&self, message: Message) {
-        let Some(message) = self.compatible(message) else {
-            return;
-        };
         let mut state = self.lock();
         if !state.closed {
-            if let Message::ActivityChanged { revision } = &message
-                && let Some(Message::ActivityChanged { revision: pending }) = state
-                    .control
-                    .iter_mut()
-                    .find(|message| matches!(message, Message::ActivityChanged { .. }))
+            if let Message::Changed { topic, revision } = &message
+                && let Some(Message::Changed {
+                    revision: pending, ..
+                }) = state.control.iter_mut().find(
+                    |message| matches!(message, Message::Changed { topic: pending, .. } if pending == topic),
+                )
             {
                 *pending = (*pending).max(*revision);
                 return;
@@ -296,33 +287,6 @@ impl Outbox {
             }
             if let Message::GitChanged { project } = &message
                 && state.control.iter().any(|pending| matches!(pending, Message::GitChanged { project: id } if id == project)) {
-                return;
-            }
-            if let Message::CatalogChanged { revision } = &message
-                && let Some(Message::CatalogChanged { revision: pending }) = state
-                    .control
-                    .iter_mut()
-                    .find(|message| matches!(message, Message::CatalogChanged { .. }))
-            {
-                *pending = (*pending).max(*revision);
-                return;
-            }
-            if let Message::SessionsChanged { revision } = &message
-                && let Some(Message::SessionsChanged { revision: pending }) = state
-                    .control
-                    .iter_mut()
-                    .find(|message| matches!(message, Message::SessionsChanged { .. }))
-            {
-                *pending = (*pending).max(*revision);
-                return;
-            }
-            if let Message::RemoteAccessChanged { revision } = &message
-                && let Some(Message::RemoteAccessChanged { revision: pending }) = state
-                    .control
-                    .iter_mut()
-                    .find(|message| matches!(message, Message::RemoteAccessChanged { .. }))
-            {
-                *pending = (*pending).max(*revision);
                 return;
             }
             state.control.push_back(message);
@@ -379,15 +343,13 @@ impl Outbox {
         if let Some(attachment) = state.attachments.get_mut(&channel)
             && let Some(id) = attachment.waiting.take()
         {
-            if let Some(message) = self.compatible(Message::Reply {
+            state.control.push_back(Message::Reply {
                 id,
                 body: ReplyBody::Attached {
                     snapshot: Box::new(snapshot),
                     process,
                 },
-            }) {
-                state.control.push_back(message);
-            }
+            });
             self.ready.notify_one();
         }
     }
@@ -500,9 +462,6 @@ impl Outbox {
     }
 
     pub(super) fn push_metadata(&self, channel: ChannelId, event: MetadataEvent) {
-        let Some(Message::Metadata(event)) = self.compatible(Message::Metadata(event)) else {
-            return;
-        };
         let mut state = self.lock();
         if !state.credit.contains_key(&channel) || state.closed {
             return;
@@ -573,9 +532,7 @@ impl Outbox {
     pub(super) fn close_with(&self, message: Message) {
         let mut state = self.lock();
         if !state.closed {
-            if let Some(message) = self.compatible(message) {
-                state.control.push_back(message);
-            }
+            state.control.push_back(message);
             state.close();
             self.ready.notify_all();
         }
@@ -588,10 +545,6 @@ impl Outbox {
 
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn compatible(&self, message: Message) -> Option<Message> {
-        (message_version(&message) <= self.version).then_some(message)
     }
 }
 
@@ -671,20 +624,29 @@ mod tests {
 
     #[test]
     fn slow_activity_consumers_keep_one_latest_invalidation_without_frame_credit() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         for revision in 1..=1000 {
-            outbox.push_control(Message::ActivityChanged { revision });
+            outbox.push_control(Message::Changed {
+                topic: muxy_protocol::Topic::Activity,
+                revision,
+            });
         }
         assert_eq!(outbox.lock().control.len(), 1);
         assert_eq!(
             outbox.next(),
-            Some((CONTROL, Message::ActivityChanged { revision: 1000 }))
+            Some((
+                CONTROL,
+                Message::Changed {
+                    topic: muxy_protocol::Topic::Activity,
+                    revision: 1000
+                }
+            ))
         );
     }
 
     #[test]
     fn file_changes_coalesce_and_rescan_for_slow_consumers() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         let project = muxy_protocol::ProjectId::new();
         for index in 0..1000 {
             outbox.push_control(Message::FilesChanged {
@@ -733,7 +695,7 @@ mod tests {
 
     #[test]
     fn prompt_metadata_is_bounded_and_keeps_the_merged_frame_watermark() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         let channel = ChannelId(1);
         outbox.lock().credit.insert(channel, false);
         for seq in 1..1000 {
@@ -760,74 +722,56 @@ mod tests {
 
     #[test]
     fn history_counts_are_coalesced() {
-        for version in muxy_protocol::SUPPORTED.iter().copied() {
-            let outbox = Outbox::new(version, Arc::default());
-            let channel = ChannelId(1);
-            outbox.lock().credit.insert(channel, true);
-            for total_rows in [10, 20, 30] {
-                outbox.push_metadata(channel, MetadataEvent::History { total_rows });
-            }
-            let state = outbox.lock();
-            if version == muxy_protocol::V1 {
-                assert_eq!(
-                    state.metadata[&channel],
-                    [MetadataEvent::History { total_rows: 30 }]
-                );
-            } else {
-                assert!(state.metadata.is_empty());
-            }
+        let outbox = Outbox::new(Arc::default());
+        let channel = ChannelId(1);
+        outbox.lock().credit.insert(channel, true);
+        for total_rows in [10, 20, 30] {
+            outbox.push_metadata(channel, MetadataEvent::History { total_rows });
         }
+        assert_eq!(
+            outbox.lock().metadata[&channel],
+            [MetadataEvent::History { total_rows: 30 }]
+        );
     }
 
     #[test]
     fn cursor_blinking_is_coalesced_without_credit() {
-        for version in muxy_protocol::SUPPORTED.iter().copied() {
-            let outbox = Outbox::new(version, Arc::default());
-            let channel = ChannelId(1);
-            outbox.lock().credit.insert(channel, false);
-            for blinking in [false, true, false] {
-                outbox.push_metadata(channel, MetadataEvent::CursorBlinking(blinking));
-            }
-            let state = outbox.lock();
-            if version == muxy_protocol::V1 {
-                assert_eq!(
-                    state.metadata[&channel],
-                    [MetadataEvent::CursorBlinking(false)]
-                );
-            } else {
-                assert!(state.metadata.is_empty());
-            }
+        let outbox = Outbox::new(Arc::default());
+        let channel = ChannelId(1);
+        outbox.lock().credit.insert(channel, false);
+        for blinking in [false, true, false] {
+            outbox.push_metadata(channel, MetadataEvent::CursorBlinking(blinking));
         }
+        assert_eq!(
+            outbox.lock().metadata[&channel],
+            [MetadataEvent::CursorBlinking(false)]
+        );
     }
 
     #[test]
     fn input_modes_are_coalesced_without_credit() {
-        for version in muxy_protocol::SUPPORTED.iter().copied() {
-            let outbox = Outbox::new(version, Arc::default());
-            let channel = ChannelId(1);
-            outbox.lock().credit.insert(channel, false);
-            let modes = muxy_protocol::InputModes {
-                mouse_tracking: true,
-                alternate_scroll: true,
-                focus_events: true,
-            };
-            outbox.push_metadata(
-                channel,
-                MetadataEvent::InputModes(muxy_protocol::InputModes::default()),
-            );
-            outbox.push_metadata(channel, MetadataEvent::InputModes(modes));
-            let state = outbox.lock();
-            if version == muxy_protocol::V1 {
-                assert_eq!(state.metadata[&channel], [MetadataEvent::InputModes(modes)]);
-            } else {
-                assert!(state.metadata.is_empty());
-            }
-        }
+        let outbox = Outbox::new(Arc::default());
+        let channel = ChannelId(1);
+        outbox.lock().credit.insert(channel, false);
+        let modes = muxy_protocol::InputModes {
+            mouse_tracking: true,
+            alternate_scroll: true,
+            focus_events: true,
+        };
+        outbox.push_metadata(
+            channel,
+            MetadataEvent::InputModes(muxy_protocol::InputModes::default()),
+        );
+        outbox.push_metadata(channel, MetadataEvent::InputModes(modes));
+        assert_eq!(
+            outbox.lock().metadata[&channel],
+            [MetadataEvent::InputModes(modes)]
+        );
     }
 
     #[test]
     fn title_updates_coalesce_and_resubscribe_without_screen_credit() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         let session = SessionId::from(std::num::NonZeroU64::MIN);
         let message = |title: String| Message::SessionMetadata {
             session,
@@ -856,7 +800,7 @@ mod tests {
 
     #[test]
     fn progress_coalesces_completions_and_releases_pending_updates_on_unsubscribe() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         let session = SessionId::from(std::num::NonZeroU64::MIN);
         let message = |completed| Message::Progress {
             session,
@@ -880,7 +824,7 @@ mod tests {
     #[test]
     fn progress_resubscription_restores_unchanged_state_between_polls() {
         for delivered in [false, true] {
-            let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+            let outbox = Outbox::new(Arc::default());
             let session = SessionId::from(std::num::NonZeroU64::MIN);
             let message = Message::Progress {
                 session,
@@ -918,7 +862,7 @@ mod tests {
             .into_iter()
             .filter(|message| message.channel_kind() == muxy_protocol::ChannelKind::Control)
         {
-            let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+            let outbox = Outbox::new(Arc::default());
             if let Message::Progress { session, .. } | Message::SessionMetadata { session, .. } =
                 &message
             {
@@ -933,15 +877,16 @@ mod tests {
 
     #[test]
     fn control_first_independent_credit_and_merged_pending_frames() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         outbox
             .lock()
             .credit
             .extend([(ChannelId(1), true), (ChannelId(2), true)]);
         outbox.push_frame(ChannelId(1), frame(1, 0));
         outbox.push_control(Message::HelloReply {
-            versions: vec![muxy_protocol::V1],
+            versions: muxy_protocol::SUPPORTED.to_vec(),
             server: muxy_protocol::ServerInfo::current(),
+            features: Vec::new(),
         });
         assert!(matches!(
             outbox.next(),
@@ -975,7 +920,7 @@ mod tests {
 
     #[test]
     fn fatal_seals_the_control_queue_before_other_producers_can_append() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         let fatal = super::super::handshake::fatal("invalid message");
         outbox.close_with(fatal.clone());
         outbox.push_control(Message::VersionUnsupported);
@@ -986,7 +931,7 @@ mod tests {
 
     #[test]
     fn metadata_coalesces_without_frame_credit_and_is_retired_with_its_channel() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         let channel = ChannelId(1);
         outbox.lock().credit.insert(channel, false);
         for index in 0..1000 {
@@ -1021,7 +966,7 @@ mod tests {
     #[test]
     fn closing_wakes_writer_and_discards_pending_but_drains_control()
     -> Result<(), Box<dyn std::error::Error>> {
-        let outbox = Arc::new(Outbox::new(muxy_protocol::V1, Arc::default()));
+        let outbox = Arc::new(Outbox::new(Arc::default()));
         outbox.lock().credit.insert(ChannelId(1), false);
         outbox.push_frame(ChannelId(1), frame(1, 0));
         let (sender, receiver) = mpsc::channel();
@@ -1045,7 +990,7 @@ mod tests {
     }
     #[test]
     fn hyperlink_replacements_coalesce_before_frames_even_without_credit() {
-        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let outbox = Outbox::new(Arc::default());
         let channel = ChannelId(1);
         outbox.lock().credit.insert(channel, false);
         for seq in 1..=3 {

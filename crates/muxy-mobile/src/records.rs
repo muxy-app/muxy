@@ -92,6 +92,8 @@ pub enum ClientKind {
     Tui,
     Cli,
     Mobile,
+    /// A kind of client added in a newer server.
+    Other,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
@@ -116,13 +118,15 @@ impl From<&ProjectSession> for Session {
                 muxy_protocol::SessionStatus::Starting => SessionStatus::Starting,
                 muxy_protocol::SessionStatus::Live => SessionStatus::Live,
                 muxy_protocol::SessionStatus::Ended => SessionStatus::Ended,
-                muxy_protocol::SessionStatus::Unavailable => SessionStatus::Unavailable,
+                muxy_protocol::SessionStatus::Unavailable
+                | muxy_protocol::SessionStatus::Unrecognized(_) => SessionStatus::Unavailable,
             },
             owner: session.owner.map(|owner| match owner.kind {
                 muxy_protocol::ClientKind::Desktop => ClientKind::Desktop,
                 muxy_protocol::ClientKind::Tui => ClientKind::Tui,
                 muxy_protocol::ClientKind::Cli => ClientKind::Cli,
                 muxy_protocol::ClientKind::Mobile => ClientKind::Mobile,
+                muxy_protocol::ClientKind::Unrecognized(_) => ClientKind::Other,
             }),
             attached: session.attached,
         }
@@ -179,7 +183,8 @@ impl From<muxy_protocol::ActivitySnapshot> for Activity {
                     project_id: agent.project.to_string(),
                     provider: agent.provider.name().into(),
                     state: match agent.state {
-                        muxy_protocol::AgentState::Unknown => AgentState::Unknown,
+                        muxy_protocol::AgentState::Unknown
+                        | muxy_protocol::AgentState::Unrecognized(_) => AgentState::Unknown,
                         muxy_protocol::AgentState::Idle => AgentState::Idle,
                         muxy_protocol::AgentState::Working => AgentState::Working,
                         muxy_protocol::AgentState::Blocked => AgentState::Blocked,
@@ -197,7 +202,8 @@ impl From<muxy_protocol::ActivitySnapshot> for Activity {
                     timestamp: event.timestamp,
                     kind: match event.kind {
                         muxy_protocol::ActivityKind::Attention => ActivityKind::Attention,
-                        muxy_protocol::ActivityKind::Completed => ActivityKind::Completed,
+                        muxy_protocol::ActivityKind::Completed
+                        | muxy_protocol::ActivityKind::Unrecognized(_) => ActivityKind::Completed,
                     },
                 })
                 .collect(),
@@ -360,7 +366,8 @@ impl Screen {
                 column: grid.cursor.col,
                 visible: grid.cursor.visible,
                 shape: match grid.cursor.shape {
-                    muxy_protocol::CursorShape::Block => CursorShape::Block,
+                    muxy_protocol::CursorShape::Block
+                    | muxy_protocol::CursorShape::Unrecognized(_) => CursorShape::Block,
                     muxy_protocol::CursorShape::Bar => CursorShape::Bar,
                     muxy_protocol::CursorShape::Underline => CursorShape::Underline,
                     muxy_protocol::CursorShape::Hollow => CursorShape::Hollow,

@@ -46,7 +46,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                 let header = Header::from_bytes(bytes)?;
                 payload.resize(header.payload_len()?, 0);
                 stdin.read_exact(&mut payload).map_err(WireError::from)?;
-                let (_, message) = decode(header, &payload)?;
+                let Some((_, message)) = decode(header, &payload)? else {
+                    writeln!(stdout, "{} ignored kind {}", header.length, header.kind)?;
+                    continue;
+                };
                 writeln!(
                     stdout,
                     "{} {} {} {} {message:?}",

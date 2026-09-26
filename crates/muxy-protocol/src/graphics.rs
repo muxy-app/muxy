@@ -1,12 +1,15 @@
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const MAX_GRAPHICS_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_GRAPHICS_PLACEMENTS: usize = 1024;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct CellSize {
+    #[n(0)]
     pub width: u16,
+    #[n(1)]
     pub height: u16,
 }
 
@@ -19,31 +22,48 @@ impl Default for CellSize {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Graphics {
+    #[n(0)]
     pub cell: CellSize,
+    #[n(1)]
     pub images: Vec<GraphicImage>,
+    #[n(2)]
     pub placements: Vec<GraphicPlacement>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct GraphicImage {
+    #[n(0)]
     pub id: u32,
+    #[n(1)]
     pub generation: u64,
+    #[n(2)]
     pub width: u32,
+    #[n(3)]
     pub height: u32,
+    #[n(4)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub rgba: Arc<[u8]>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct GraphicPlacement {
+    #[n(0)]
     pub image: u32,
+    #[n(1)]
     pub id: u32,
+    #[n(2)]
     pub column: i32,
+    #[n(3)]
     pub row: i32,
+    #[n(4)]
     pub offset: [u32; 2],
+    #[n(5)]
     pub size: [u32; 2],
+    #[n(6)]
     pub source: [u32; 4],
+    #[n(7)]
     pub z: i32,
 }
 

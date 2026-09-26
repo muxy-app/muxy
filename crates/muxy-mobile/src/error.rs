@@ -19,8 +19,11 @@ pub enum MobileError {
     IdentityMismatch,
     /// The device was revoked or never paired, or mobile access is off.
     Unauthorized,
-    /// The app and the server run incompatible beta builds; update one of them.
+    /// The app and the server share no protocol version; update one of them.
     IncompatibleVersion,
+    /// The phone and the computer run Muxy versions that disagree on this
+    /// request: the server can't do it, or answered in a form the app can't read.
+    Unsupported,
     Timeout,
     Disconnected,
     /// The server refused the request.
@@ -42,7 +45,10 @@ impl fmt::Display for MobileError {
             }
             Self::Unauthorized => formatter.write_str("This device is not paired with the server."),
             Self::IncompatibleVersion => {
-                formatter.write_str("The app and the server need matching versions.")
+                formatter.write_str("The app and the server can't talk to each other.")
+            }
+            Self::Unsupported => {
+                formatter.write_str("This needs a newer Muxy on the phone or the computer.")
             }
             Self::Timeout => formatter.write_str("The server did not answer in time."),
             Self::Disconnected => formatter.write_str("Disconnected from the server."),
@@ -65,6 +71,7 @@ impl From<ClientError> for MobileError {
             ClientError::Server(error) if error.code == ErrorCode::Unauthorized => {
                 Self::Unauthorized
             }
+            ClientError::Server(error) if error.code == ErrorCode::Unsupported => Self::Unsupported,
             ClientError::Server(error) => Self::Server {
                 reason: error.message,
             },

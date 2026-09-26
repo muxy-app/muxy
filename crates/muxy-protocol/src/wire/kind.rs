@@ -19,46 +19,43 @@ pub enum MessageKind {
     Mouse = 12,
     ServerRestarting = 13,
     CellSize = 14,
-    CatalogChanged = 15,
-    SessionsChanged = 16,
+    Changed = 15,
+    // 16 and 19 are retired; see `Changed`.
     GitChanged = 17,
     Progress = 18,
-    ActivityChanged = 19,
     SessionMetadata = 20,
     FilesChanged = 21,
-    RemoteAccessChanged = 22,
+    // 22 is retired; see `Changed`.
 }
 
 impl MessageKind {
-    pub fn from_u8(value: u8) -> Result<Self, WireError> {
+    /// `None` is a kind from a newer build, which this build ignores.
+    pub fn from_u8(value: u8) -> Result<Option<Self>, WireError> {
         if value & 0xc0 != 0 {
             return Err(WireError::FlagsSet(value));
         }
-        match value {
-            1 => Ok(Self::Hello),
-            2 => Ok(Self::Request),
-            3 => Ok(Self::FrameAck),
-            4 => Ok(Self::HelloReply),
-            5 => Ok(Self::VersionUnsupported),
-            6 => Ok(Self::Reply),
-            7 => Ok(Self::SessionEnded),
-            8 => Ok(Self::Fatal),
-            9 => Ok(Self::Input),
-            10 => Ok(Self::Frame),
-            11 => Ok(Self::Metadata),
-            12 => Ok(Self::Mouse),
-            13 => Ok(Self::ServerRestarting),
-            14 => Ok(Self::CellSize),
-            15 => Ok(Self::CatalogChanged),
-            16 => Ok(Self::SessionsChanged),
-            17 => Ok(Self::GitChanged),
-            18 => Ok(Self::Progress),
-            19 => Ok(Self::ActivityChanged),
-            20 => Ok(Self::SessionMetadata),
-            21 => Ok(Self::FilesChanged),
-            22 => Ok(Self::RemoteAccessChanged),
-            _ => Err(WireError::UnknownKind(value)),
-        }
+        Ok(Some(match value {
+            1 => Self::Hello,
+            2 => Self::Request,
+            3 => Self::FrameAck,
+            4 => Self::HelloReply,
+            5 => Self::VersionUnsupported,
+            6 => Self::Reply,
+            7 => Self::SessionEnded,
+            8 => Self::Fatal,
+            9 => Self::Input,
+            10 => Self::Frame,
+            11 => Self::Metadata,
+            12 => Self::Mouse,
+            13 => Self::ServerRestarting,
+            14 => Self::CellSize,
+            15 => Self::Changed,
+            17 => Self::GitChanged,
+            18 => Self::Progress,
+            20 => Self::SessionMetadata,
+            21 => Self::FilesChanged,
+            _ => return Ok(None),
+        }))
     }
 }
 
@@ -66,19 +63,16 @@ impl From<&Message> for MessageKind {
     fn from(message: &Message) -> Self {
         match message {
             Message::FilesChanged { .. } => Self::FilesChanged,
-            Message::RemoteAccessChanged { .. } => Self::RemoteAccessChanged,
-            Message::ActivityChanged { .. } => Self::ActivityChanged,
             Message::SessionMetadata { .. } => Self::SessionMetadata,
             Message::GitChanged { .. } => Self::GitChanged,
             Message::Progress { .. } => Self::Progress,
-            Message::SessionsChanged { .. } => Self::SessionsChanged,
-            Message::CatalogChanged { .. } => Self::CatalogChanged,
+            Message::Changed { .. } => Self::Changed,
             Message::Hello { .. } => Self::Hello,
-            Message::Request { .. } => Self::Request,
+            Message::Request { .. } | Message::UnsupportedRequest { .. } => Self::Request,
             Message::FrameAck { .. } => Self::FrameAck,
             Message::HelloReply { .. } => Self::HelloReply,
             Message::VersionUnsupported => Self::VersionUnsupported,
-            Message::Reply { .. } => Self::Reply,
+            Message::Reply { .. } | Message::UnreadableReply { .. } => Self::Reply,
             Message::SessionEnded { .. } => Self::SessionEnded,
             Message::Fatal(_) => Self::Fatal,
             Message::Input(_) => Self::Input,

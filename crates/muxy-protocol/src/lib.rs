@@ -21,7 +21,7 @@ pub use control::{
     ErrorCode, ErrorReply, ReplyBody, RequestBody, ServerSettingsDoc, TerminalColors,
 };
 pub use ids::{CONTROL, ChannelId, RequestId, SessionId};
-pub use message::{ChannelKind, Message};
+pub use message::{ChannelKind, Message, Topic};
 pub use path::ServerPath;
 pub use screen::{
     Color, Cursor, CursorShape, Modes, Row, Run, ScreenFrame, Size, Style, Underline,
@@ -36,7 +36,7 @@ pub use validate::{
     MAX_COLS, MAX_INPUT, MAX_LINK_SPANS, MAX_LINK_URI, MAX_ROWS, validate_input, validate_path,
     validate_search, validate_size, validate_versions,
 };
-pub use version::{SUPPORTED, V1, Version};
+pub use version::{CURRENT, FEATURES, Feature, SUPPORTED, V1, V2, Version};
 
 mod graphics;
 pub use graphics::{

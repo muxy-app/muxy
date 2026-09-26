@@ -153,7 +153,9 @@ impl Terminal {
             palette.set(PaletteIndex(index), RgbColor { r, g, b });
         }
         let style = defaults.cursor_style.map(|style| match style {
-            crate::CursorShape::Block => libghostty_vt::terminal::CursorStyle::Block,
+            crate::CursorShape::Block | crate::CursorShape::Unrecognized(_) => {
+                libghostty_vt::terminal::CursorStyle::Block
+            }
             crate::CursorShape::Bar => libghostty_vt::terminal::CursorStyle::Bar,
             crate::CursorShape::Underline => libghostty_vt::terminal::CursorStyle::Underline,
             crate::CursorShape::Hollow => libghostty_vt::terminal::CursorStyle::BlockHollow,
@@ -361,6 +363,7 @@ impl Terminal {
                 let suffix = match direction {
                     ScrollDirection::Up => b'A',
                     ScrollDirection::Down => b'B',
+                    ScrollDirection::Unrecognized(_) => return Ok(Vec::new()),
                 };
                 return Ok([0x1b, prefix, suffix].repeat(3));
             }
@@ -388,6 +391,7 @@ impl Terminal {
                     Some(match direction {
                         ScrollDirection::Up => mouse::Button::Four,
                         ScrollDirection::Down => mouse::Button::Five,
+                        ScrollDirection::Unrecognized(_) => return Ok(Vec::new()),
                     }),
                 )
             }
@@ -676,6 +680,7 @@ fn mouse_button(button: MouseButton) -> mouse::Button {
         MouseButton::Right => mouse::Button::Right,
         MouseButton::Back => mouse::Button::Eight,
         MouseButton::Forward => mouse::Button::Nine,
+        MouseButton::Unrecognized(_) => mouse::Button::Unknown,
     }
 }
 

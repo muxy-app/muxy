@@ -1003,7 +1003,6 @@ mod tests {
             CONTROL,
             &Message::Hello {
                 versions: SUPPORTED.to_vec(),
-                compatibility: muxy_protocol::COMPATIBILITY,
             },
         )?;
         assert!(matches!(

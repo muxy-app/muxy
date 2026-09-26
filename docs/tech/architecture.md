@@ -173,9 +173,9 @@ disconnected desktop edits keep their existing behavior through durable intents.
 Project deletion prevents new sessions before ending and discarding owned
 content, and resumes after interruption without touching project directories.
 
-- Compatible app updates keep the server running. Installation preserves the
-  old bundle until its server instance exits and bundled runtime users release
-  their leases. A running TUI does not block app installation. Cleanup shares installation locks,
+- App updates keep the server running when both share a protocol version.
+  Installation preserves the old bundle until its server instance exits and
+  bundled runtime users release their leases. A running TUI does not block app installation. Cleanup shares installation locks,
   verifies the current instance, and retains uncommitted recovery bundles. The app coordinates idle server
   replacement with startup and installation locks, then reconnects. Pending
   update schedules survive app restarts; no background updater launches the app.

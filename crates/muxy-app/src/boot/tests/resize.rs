@@ -122,6 +122,7 @@ fn resize_server(
         &Message::HelloReply {
             versions: SUPPORTED.to_vec(),
             server: muxy_protocol::ServerInfo::current(),
+            features: Vec::new(),
         },
     )?;
     identify_desktop(&mut decoder, &mut encoder)?;
@@ -257,6 +258,7 @@ fn reconnect_server(listener: &UnixListener, started: &Sender<()>) -> TestResult
             &Message::HelloReply {
                 versions: SUPPORTED.to_vec(),
                 server: muxy_protocol::ServerInfo::current(),
+                features: Vec::new(),
             },
         )?;
         identify_desktop(&mut decoder, &mut encoder)?;

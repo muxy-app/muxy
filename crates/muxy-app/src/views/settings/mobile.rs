@@ -100,6 +100,7 @@ fn status(pane: &SettingsView, state: &RemoteAccessState) -> AnyElement {
         (ListenerStatus::Failed(message), _) => (format!("Not listening: {message}"), true),
         (ListenerStatus::Disabled, true) => ("Starting".into(), false),
         (ListenerStatus::Disabled, false) => ("Off".into(), false),
+        (ListenerStatus::Unrecognized(_), _) => ("Update Muxy to see this status".into(), false),
     };
     div()
         .debug_selector(|| "settings-mobile-status".into())

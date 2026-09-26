@@ -14,6 +14,10 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
             ErrorCode::BadRequest,
             "only paired devices identify as mobile",
         )),
+        RequestBody::IdentifyClient(ClientKind::Unrecognized(_)) => Err(ServerError::new(
+            ErrorCode::Unsupported,
+            "this server doesn't know the client kind",
+        )),
         RequestBody::ReadRemoteAccess
         | RequestBody::WriteRemoteAccess(_)
         | RequestBody::StartPairing

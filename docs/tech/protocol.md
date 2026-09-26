@@ -8,19 +8,15 @@ this document says what they mean.
 
 ## Versions
 
-Versions describe how peers encode requests and responses, not whether released
-clients and servers may communicate. Every released version remains supported
-permanently. Peers negotiate a mutually supported contract, so a newer release
-can always communicate with an older release.
+A version changes only for a breaking change. Additive changes keep it, so any
+two builds that share a version can talk. During the beta each build speaks one
+version, currently V2. After the first release, older versions stay supported.
 
-Until the first official release there is one mutable development schema, V1.
-All current messages use it. Do not add versions or pre-release compatibility
-adapters. Development app and server builds must use the same schema and beta compatibility identifier. This does
-not permit losing saved user data when storage formats change.
-
-After release, versioned contracts are immutable and the envelope and hello
-remain stable. New contracts may be added, but released contracts are never
-removed or inferred from a highest version number alone.
+Fields and enum variants carry permanent numbers. A peer skips fields it doesn't
+know, reads missing optional fields as absent, and keeps unknown values of
+enums the server sends as unrecognized. Numbers are never reused. See the
+[compatibility rules](#compatibility-rules). None of this permits losing saved
+user data when storage formats change.
 
 ## Framing
 
@@ -30,20 +26,21 @@ removed or inferred from a highest version number alone.
 | version | `u16` | Version this frame is written in |
 | channel | `u32` | `0` is control; each attachment gets its own |
 | kind | `u8` | Six bits of kind, two flag bits reserved for compression and continuation |
-| payload | the rest | Postcard, except raw terminal input |
+| payload | the rest | A CBOR array of the message's fields, except raw terminal input |
 
 Integers are little endian. A frame is at most 16 MiB. The flag bits are
-zero in v1.
+zero. Screen rows inside a payload keep the postcard layout saved records use.
+A kind a build doesn't know is ignored.
 
 ## Handshake
 
-The client opens with a hello listing its versions and beta compatibility
-identifier and waits. The reply identifies the running server build and process
-instance. The hello encoding and update metadata stay stable across beta schema
-changes; incompatible identifiers are rejected before ordinary requests. The server
-replies with its own; both choose a mutually supported contract. A malformed or
-unsupported implementation may be rejected and closed. Official releases always
-share a supported contract. Any other traffic before hello is fatal.
+The client opens with a hello listing the versions it speaks and waits. The
+server replies with its versions, its build and process instance, and the
+features it offers; both use the highest shared version. With no shared version
+the server replies version unsupported and closes. Hello, hello reply, and
+version unsupported keep their framing across versions, and a peer from before
+V2 gets version unsupported in its own framing. Any other known traffic before
+hello is fatal.
 
 ## Messages
 
@@ -54,7 +51,7 @@ share a supported contract. Any other traffic before hello is fatal.
 | Open-pane references, conditional close, and their replies | client, server | control |
 | List, create, and end session, and their replies | client, server | control |
 | Project catalog pages, field mutations, deletion, and their replies | client, server | control |
-| Catalog, session-list, and watched activity revision invalidations | server | control |
+| Changed: catalog, session-list, activity, and mobile access revision invalidations | server | control |
 | Read activity, acknowledge events, claim desktop delivery, and their replies | client, server | control |
 | Identify client and its reply | client, server | control |
 | Read saved terminal content, discard session and saved content, and their replies | client, server | control |
@@ -64,7 +61,6 @@ share a supported contract. Any other traffic before hello is fatal.
 | Run or cancel a project command, and their replies | client, server | control |
 | Authenticate or pair, and their replies | device, server | control |
 | Read and write mobile access, start and cancel pairing, revoke a device, and their replies | client, server | control |
-| Mobile access revision invalidations | server | control |
 | Ping, pong | client, server | control |
 | Frame ack | client | control |
 | Session ended, server restarting for an update | server | control |
@@ -76,7 +72,9 @@ share a supported contract. Any other traffic before hello is fatal.
 A request carries a client-chosen ID and gets exactly one reply, in any
 order. Errors about a request, such as a bad path, size, limit, or cursor,
 an unknown session or channel, or a failed spawn, are correlated and leave
-the connection usable. Anything malformed or out of place is fatal: the
+the connection usable. A request the server can't read, such as a method from a
+newer client, gets a correlated unsupported error, and a client treats a reply
+it can't read the same way. Anything malformed or out of place is fatal: the
 server reports it and closes, and a client that sees it closes. Only the
 server sends errors. Any number of clients may attach to one session. Connected
 clients register the sessions used by all their open panes, independently of visible output
@@ -105,7 +103,7 @@ attachments and reference updates preserve a client's position; disconnecting
 removes it from the attachment order.
 
 Startup leaves an incompatible running server and its sessions intact; see
-[beta compatibility](#beta-update-compatibility).
+[compatibility rules](#compatibility-rules).
 
 ## Screen
 
@@ -217,20 +215,26 @@ server, or run extension commands; everything else behaves as for local
 clients. Revoking a device or turning mobile access off closes its
 connections.
 
-## Beta update compatibility
+## Compatibility rules
 
-The compatibility identifier is separate from the build and V1 wire version.
-Bump it when encoding, required behavior, or shared storage and resources make
-mixed builds unsafe. Wire fixtures and the beta compatibility declaration are
-checked in CI; behavior and storage compatibility also require release review.
-Regenerate the declaration with `python3 scripts/beta_compatibility.py --write`
-after reviewing and changing the identifier. No beta schema adapters are kept.
+| Change | How | Version bump |
+| --- | --- | --- |
+| Add a field | Next unused number; optional or defaulted | No |
+| Add a variant | Next number. Clients show a neutral fallback for enums the server sends; otherwise an older peer fails just that request or skips that event | No |
+| Add a request | New method; older servers reply unsupported. Add a feature only when a client must hide it for older servers | No |
+| A new field the server must act on | A new method or feature, since older servers ignore unknown fields | No |
+| Remove anything | Stop using it and keep its number reserved | No |
+| Change a type or meaning, make an optional field required, change screen rows or the header | Breaking | Yes |
 
-Signed update candidates report build metadata without starting a server.
-Matching identifiers permit an app update while the older server continues;
+Encoded samples of each version live in
+`crates/muxy-protocol/tests/fixtures/v<N>` and are append-only within it. CI
+checks that the current build reads every fixture and that the last release
+reads the current ones.
+
+App updates keep the running server when both builds share a protocol version;
 otherwise installation waits for an atomic idle stop or explicit destructive
-confirmation. Scheduling stays in the app. Pre-metadata beta updaters retain
-their existing restart behavior for the transition release.
+confirmation. Build metadata lists the protocol versions. Updaters from before
+V2 read a frozen compatibility identifier instead. Scheduling stays in the app.
 
 ## Extension commands
 

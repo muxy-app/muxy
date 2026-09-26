@@ -1,4 +1,4 @@
-use crate::{ChannelId, SUPPORTED, V1, Version};
+use crate::{CURRENT, ChannelId, SUPPORTED, V1, Version};
 
 use crate::wire::{MessageKind, WireError};
 
@@ -26,7 +26,7 @@ impl Header {
             u32::try_from(payload_len + HEADER_LEN - 4).map_err(|_| WireError::FrameTooLarge)?;
         Ok(Self {
             length,
-            version: V1.0,
+            version: CURRENT.0,
             channel: channel.0,
             kind: kind as u8,
         })
@@ -57,9 +57,9 @@ impl Header {
         if length > MAX_FRAME - 4 {
             return Err(WireError::FrameTooLarge);
         }
-        length
-            .checked_sub(HEADER_LEN - 4)
-            .ok_or_else(|| postcard::Error::DeserializeBadEncoding.into())
+        length.checked_sub(HEADER_LEN - 4).ok_or_else(|| {
+            minicbor::decode::Error::message("frame is shorter than its header").into()
+        })
     }
 
     pub(crate) fn validate(self) -> Result<(), WireError> {
@@ -70,4 +70,17 @@ impl Header {
         MessageKind::from_u8(self.kind)?;
         Ok(())
     }
+}
+
+/// Builds before V2 use the same header layout with version 1. This frame is
+/// the `VersionUnsupported` they understand, so they show their own update message.
+pub fn legacy_version_unsupported() -> [u8; HEADER_LEN] {
+    Header {
+        // The version, channel, and kind that follow the length; no payload.
+        length: 7,
+        version: V1.0,
+        channel: 0,
+        kind: MessageKind::VersionUnsupported as u8,
+    }
+    .to_bytes()
 }

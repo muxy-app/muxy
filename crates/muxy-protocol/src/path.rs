@@ -1,5 +1,11 @@
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(transparent)]
-pub struct ServerPath(pub Vec<u8>);
+#[cbor(transparent)]
+pub struct ServerPath(
+    #[n(0)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
+    pub Vec<u8>,
+);

@@ -292,7 +292,7 @@ impl PreparedUpdate {
     pub(crate) fn compatible_with(&self, server: &muxy_protocol::ServerInfo) -> bool {
         self.build
             .as_ref()
-            .is_some_and(|build| build.compatibility == server.build.compatibility)
+            .is_some_and(|build| build.shares_protocol_with(&server.build))
     }
 
     pub(crate) fn validate(&self) -> Result<()> {

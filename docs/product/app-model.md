@@ -140,8 +140,9 @@ Compatible app updates preserve running sessions. The bundled server is
 replaced when all sessions end, including idle shells and detached sessions.
 Server settings show pending server updates.
 
-An incompatible beta update may wait for all sessions to end. This schedules
-installation and app restart while the app runs; users can cancel it. Updating
+An update that can't talk to the running server may wait for all sessions to
+end. This schedules installation and app restart while the app runs; users can
+cancel it. Updating
 immediately requires confirmation that all terminal processes on the device
 will end and their terminal panes will close.
 

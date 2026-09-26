@@ -295,7 +295,9 @@ pub(super) fn status_glyph(
             let tooltip = match progress.state {
                 ProgressState::Error => "Work reported an error.",
                 ProgressState::Paused => "Work is paused.",
-                ProgressState::Running | ProgressState::Indeterminate => "Work is in progress.",
+                ProgressState::Running
+                | ProgressState::Indeterminate
+                | ProgressState::Unrecognized(_) => "Work is in progress.",
             };
             (
                 "progress",
@@ -382,7 +384,9 @@ fn progress_circle(
     let color = match progress.state {
         ProgressState::Error => theme.danger,
         ProgressState::Paused => theme.warning,
-        ProgressState::Running | ProgressState::Indeterminate => theme.accent,
+        ProgressState::Running | ProgressState::Indeterminate | ProgressState::Unrecognized(_) => {
+            theme.accent
+        }
     };
     if progress.state == ProgressState::Indeterminate {
         return model.spinners.glyph(id.to_owned(), size, color);
@@ -453,6 +457,13 @@ fn provider_icon(provider: AgentProvider, size: Pixels, model: &AppModel) -> Any
         AgentProvider::Kiro => "kiro",
         AgentProvider::Xal => "xal",
         AgentProvider::Antigravity => "antigravity",
+        AgentProvider::Unrecognized(_) => {
+            return svg()
+                .path("icons/terminal.svg")
+                .size(size)
+                .text_color(model.theme.fg)
+                .into_any_element();
+        }
     };
     let path = SharedString::from(format!("icons/provider-{name}.svg"));
     if provider == AgentProvider::Claude {

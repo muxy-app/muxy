@@ -57,12 +57,15 @@ in 3 to 12 µs, and need no emulator on the client. Rejected: cells for size;
 VT re-stream because a client that wants a full emulator can regenerate it
 locally from runs.
 
-## D5. Serialization is postcard
+## D5. Screen rows are postcard; everything else is CBOR with numbered fields
 
 Relative to postcard on the run shape: bincode within 10 percent;
 MessagePack and protobuf 15 to 60 percent larger and up to 1.6 times the
-CPU. Both ends are Rust. Revisit only if a non-Rust client appears. The phone
-apps embed the Rust client library (D11), so both ends stay Rust.
+CPU. Screen rows keep postcard, the same bytes saved records store. Every other
+payload is CBOR through minicbor, whose numbered fields let builds evolve
+independently (D12). Across the 95 sample messages CBOR totals 3,272 bytes
+against postcard's 3,286; a screen frame gains a fixed 7 bytes. Both ends are
+Rust: the phone apps embed the Rust client library (D11).
 
 ## D6. Compression is zstd level 1 with a streaming context per connection
 
@@ -135,4 +138,17 @@ Rejected: a cloud relay, for its hosted service and added trust; SSH from the
 phone, for its setup; mutual TLS, for certificate handling on phones; TLS raw
 public keys, which common TLS stacks cannot pin; a native Swift or Kotlin
 protocol, or JSON over WebSocket, which would duplicate the client library and
-drift from the mutable beta schema.
+drift from the Rust protocol types.
+
+## D12. Wire changes are additive
+
+Every beta push was a release, and one compatibility identifier forced a server
+restart and locked out phones on nearly every change: 20 bumps in 15 days.
+Fields and variants now carry permanent numbers, peers skip what they don't
+know, and a request a server can't read gets a correlated unsupported error.
+Additive changes keep the version; only breaking changes bump it.
+
+Rejected: a schema version per change, which piles up versions and adapters;
+protobuf, for optional wrappers, integer enums, and duplicate types; JSON, which
+makes rows and bytes several times larger; and a custom postcard extension
+layer, a private format to maintain.

@@ -7,7 +7,7 @@ use muxy_protocol::{
     CONTROL, DeviceId, ErrorCode, ErrorReply, Message, ReplyBody, RequestBody, RequestId,
 };
 
-use crate::Registry;
+use crate::{Registry, ServerError};
 
 use super::handshake::rejection;
 
@@ -25,6 +25,17 @@ pub(super) fn accept(
 ) -> Result<Option<Admitted>, WireError> {
     let (request, body) = match decoder.next() {
         Ok((CONTROL, Message::Request { id, body })) => (id, body),
+        Ok((CONTROL, Message::UnsupportedRequest { id })) => {
+            report("unsupported authentication request");
+            encoder.send(
+                CONTROL,
+                &Message::Reply {
+                    id,
+                    body: ReplyBody::Error(ServerError::unsupported_request().to_reply()),
+                },
+            )?;
+            return Ok(None);
+        }
         Ok(_) => {
             report("expected authentication");
             encoder.send(CONTROL, &rejection("authentication required"))?;

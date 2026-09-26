@@ -14,6 +14,7 @@ The separate `muxy` CLI/TUI and `muxy-app` desktop use one client library and
 protocol to connect to `muxy-server`; paired phones embed the same library
 through the `muxy-mobile` SDK. The server owns Ghostty terminals and retained
 history; clients render screen updates without parsing terminal output.
-Connections use Postcard over local Unix sockets, or over TLS for paired
-phones, with merged pending screen frames and per-channel acknowledgements.
+Connections carry CBOR with numbered fields, and postcard screen rows, over local
+Unix sockets or TLS for paired phones, with merged pending screen frames and
+per-channel acknowledgements. Builds that share a protocol version can talk.
 Streaming wire compression remains deferred.

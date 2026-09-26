@@ -2,8 +2,10 @@
 
 use std::fmt::{self, Write};
 
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+use crate::wire::cbor::open::{self, Variant};
 use crate::{DeviceId, ErrorCode, ServerIdentity};
 
 pub const DEFAULT_REMOTE_PORT: u16 = 7419;
@@ -17,9 +19,11 @@ const MAX_LINK: usize = 4096;
 const LINK_PREFIX: &str = "muxy://pair?";
 const LINK_VERSION: &str = "1";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct RemoteAccessSettings {
+    #[n(0)]
     pub enabled: bool,
+    #[n(1)]
     pub port: u16,
 }
 
@@ -47,26 +51,67 @@ pub enum ListenerStatus {
     Disabled,
     Listening,
     Failed(String),
+    /// A status from a newer build, kept by its number.
+    Unrecognized(u32),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+impl<C> Encode<C> for ListenerStatus {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        encoder: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        match self {
+            Self::Disabled => open::encode_unit(0, encoder),
+            Self::Listening => open::encode_unit(1, encoder),
+            Self::Failed(message) => open::encode_value(2, message, encoder, ctx),
+            Self::Unrecognized(index) => open::encode_unit(*index, encoder),
+        }
+    }
+}
+
+impl<'b, C> Decode<'b, C> for ListenerStatus {
+    fn decode(
+        decoder: &mut minicbor::Decoder<'b>,
+        ctx: &mut C,
+    ) -> Result<Self, minicbor::decode::Error> {
+        Ok(match open::variant(decoder)? {
+            Variant::Unit(0) => Self::Disabled,
+            Variant::Unit(1) => Self::Listening,
+            Variant::Value(2) => Self::Failed(decoder.decode_with(ctx)?),
+            other => Self::Unrecognized(open::unrecognized(decoder, other)?),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PairedDevice {
+    #[n(0)]
     pub id: DeviceId,
+    #[n(1)]
     pub name: String,
     /// Unix seconds.
+    #[n(2)]
     pub paired_at: u64,
     /// Unix seconds of the latest successful authentication.
+    #[n(3)]
     pub last_seen: Option<u64>,
+    #[n(4)]
     pub connected: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct RemoteAccessState {
+    #[n(0)]
     pub revision: u64,
+    #[n(1)]
     pub settings: RemoteAccessSettings,
+    #[n(2)]
     pub status: ListenerStatus,
     /// Unix seconds at which the pending pairing offer expires.
+    #[n(3)]
     pub pairing_expires_at: Option<u64>,
+    #[n(4)]
     pub devices: Vec<PairedDevice>,
 }
 
@@ -86,12 +131,18 @@ impl RemoteAccessState {
 }
 
 /// Everything a phone needs to reach and pin a server, carried by the pairing link.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PairingInvite {
+    #[n(0)]
     pub hosts: Vec<String>,
+    #[n(1)]
     pub port: u16,
     /// SHA-256 of the server's TLS certificate.
+    #[n(2)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub fingerprint: [u8; 32],
+    #[n(3)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub secret: [u8; 16],
 }
 
@@ -176,16 +227,21 @@ impl PairingInvite {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PairingOffer {
+    #[n(0)]
     pub invite: PairingInvite,
     /// Unix seconds.
+    #[n(1)]
     pub expires_at: u64,
 }
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PairRequest {
+    #[n(0)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub secret: [u8; 16],
+    #[n(1)]
     pub name: String,
 }
 
@@ -204,9 +260,12 @@ impl PairRequest {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct DeviceCredential {
+    #[n(0)]
     pub device: DeviceId,
+    #[n(1)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub token: [u8; 32],
 }
 
@@ -219,10 +278,13 @@ impl fmt::Debug for DeviceCredential {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Paired {
+    #[n(0)]
     pub credential: DeviceCredential,
+    #[n(1)]
     pub server: ServerIdentity,
+    #[n(2)]
     pub name: String,
 }
 
