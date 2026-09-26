@@ -72,12 +72,23 @@ fn rapid_editor_and_project_switches_preserve_terminal_attachment_and_input(
 }
 
 #[gpui::test]
-fn webview_shortcuts_leave_search_with_the_page(cx: &mut TestAppContext) {
+fn webview_shortcuts_leave_search_and_editing_with_the_page(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, _| {
         let shortcuts = model.webview_shortcuts();
-        for key in ["cmd-f", "cmd-g", "cmd-shift-g", "cmd-c", "cmd-v"] {
+        for key in [
+            "cmd-f",
+            "cmd-g",
+            "cmd-shift-g",
+            "cmd-s",
+            "cmd-x",
+            "cmd-c",
+            "cmd-v",
+            "cmd-a",
+            "cmd-z",
+            "cmd-shift-z",
+        ] {
             assert!(!shortcuts.contains(&Keystroke::parse(key).expect("page shortcut")));
         }
         for key in [

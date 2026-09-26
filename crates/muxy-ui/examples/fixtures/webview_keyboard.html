@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<body>
+<div id="editor" contenteditable="true">native clipboard probe</div>
+<script>
+  const editor = document.getElementById('editor');
+  const events = [];
+  window.selectProbe = () => {
+    editor.focus();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    return document.hasFocus();
+  };
+  window.probeText = () => editor.textContent;
+  window.probeEvents = () => events.join(',');
+  editor.addEventListener('copy', event => {
+    events.push('copy');
+    event.clipboardData.setData('text/plain', getSelection().toString());
+    event.preventDefault();
+  });
+  editor.addEventListener('cut', event => {
+    events.push('cut');
+    event.clipboardData.setData('text/plain', getSelection().toString());
+    event.preventDefault();
+    document.execCommand('delete');
+  });
+  editor.addEventListener('paste', event => {
+    events.push('paste');
+    event.preventDefault();
+    document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
+  });
+  document.addEventListener('keydown', event => {
+    if (event.metaKey && ['f', 'g', 's', 'z'].includes(event.key.toLowerCase())) {
+      events.push((event.shiftKey ? 'shift-' : '') + event.key.toLowerCase());
+      event.preventDefault();
+    }
+  });
+</script>
+</body>
+</html>

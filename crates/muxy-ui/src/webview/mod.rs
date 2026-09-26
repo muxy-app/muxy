@@ -11,12 +11,14 @@ use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{NSColor, NSEvent, NSEventMask, NSEventModifierFlags, NSImage, NSView};
+use objc2_app_kit::{
+    NSApplication, NSColor, NSEvent, NSEventMask, NSEventModifierFlags, NSImage, NSMenu, NSView,
+};
 use objc2_core_graphics::CGMutablePath;
 use objc2_foundation::{
-    NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization, NSJSONWritingOptions,
-    NSNumber, NSObject, NSObjectNSKeyValueCoding, NSObjectProtocol, NSPoint, NSRect, NSSize,
-    NSString, NSURL, NSURLRequest, NSURLResponse,
+    NSComparisonResult, NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization,
+    NSJSONWritingOptions, NSNumber, NSObject, NSObjectNSKeyValueCoding, NSObjectProtocol, NSPoint,
+    NSRect, NSSize, NSString, NSURL, NSURLRequest, NSURLResponse,
 };
 use objc2_quartz_core::CAShapeLayer;
 use objc2_web_kit::{
@@ -917,6 +919,20 @@ fn monitor(
                 &monitor_delegate.ivars().shortcuts.borrow(),
                 &sender,
                 || monitor_view.performKeyEquivalent(event_ref),
+                || {
+                    let app = NSApplication::sharedApplication(monitor_view.mtm());
+                    let Some(key) = event_ref.charactersIgnoringModifiers() else {
+                        return false;
+                    };
+                    app.mainMenu().is_some_and(|menu| {
+                        native_menu_key_equivalent(
+                            &menu,
+                            &key,
+                            event_ref.modifierFlags(),
+                            &monitor_view,
+                        )
+                    })
+                },
             )
         {
             return ptr::null_mut();
@@ -926,12 +942,45 @@ fn monitor(
     unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &monitor) }
 }
 
+fn native_menu_key_equivalent(
+    menu: &NSMenu,
+    key: &NSString,
+    modifiers: NSEventModifierFlags,
+    view: &MaskedWebview,
+) -> bool {
+    let mask = NSEventModifierFlags::Command
+        | NSEventModifierFlags::Control
+        | NSEventModifierFlags::Option
+        | NSEventModifierFlags::Shift;
+    for item in &menu.itemArray() {
+        if let Some(submenu) = item.submenu() {
+            if native_menu_key_equivalent(&submenu, key, modifiers, view) {
+                return true;
+            }
+        } else if item.keyEquivalentModifierMask() & mask == modifiers & mask
+            && let Some(action) = item.action()
+            && view.respondsToSelector(action)
+            && item.keyEquivalent().caseInsensitiveCompare(key) == NSComparisonResult::Same
+        {
+            return unsafe {
+                NSApplication::sharedApplication(view.mtm()).sendAction_to_from(
+                    action,
+                    Some(view),
+                    Some(&item),
+                )
+            };
+        }
+    }
+    false
+}
+
 fn route_key_event(
     keystroke: gpui::Keystroke,
     modal: bool,
     shortcuts: &[gpui::Keystroke],
     sender: &Sender<Event>,
     page_key_equivalent: impl FnOnce() -> bool,
+    menu_key_equivalent: impl FnOnce() -> bool,
 ) -> bool {
     if keystroke.key == "escape" && modal {
         let _ = sender.try_send(Event::Escape);
@@ -943,7 +992,7 @@ fn route_key_event(
     {
         return sender.try_send(Event::Shortcut(keystroke)).is_ok();
     }
-    keystroke.modifiers.platform && page_key_equivalent()
+    keystroke.modifiers.platform && (menu_key_equivalent() || page_key_equivalent())
 }
 
 fn background_color(background: Rgba) -> Retained<NSColor> {
@@ -989,7 +1038,7 @@ mod tests {
     use objc2_app_kit::NSBitmapImageRep;
 
     #[test]
-    fn page_command_shortcuts_bypass_the_host_key_equivalent() {
+    fn command_shortcuts_try_native_menu_before_webkit() {
         let (sender, receiver) = async_channel::bounded(8);
         for modal in [false, true] {
             for binding in [
@@ -997,27 +1046,65 @@ mod tests {
                 "cmd-g",
                 "cmd-shift-g",
                 "cmd-s",
+                "cmd-x",
                 "cmd-c",
                 "cmd-v",
+                "cmd-a",
                 "cmd-z",
+                "cmd-shift-z",
+                "cmd-alt-shift-v",
             ] {
-                for page_handled in [false, true] {
-                    let deliveries = Cell::new(0);
+                for (page_handled, menu_handled) in
+                    [(false, false), (false, true), (true, false), (true, true)]
+                {
+                    let deliveries = RefCell::new(Vec::new());
                     let handled = route_key_event(
                         gpui::Keystroke::parse(binding).expect("binding"),
                         modal,
                         &[],
                         &sender,
                         || {
-                            deliveries.set(deliveries.get() + 1);
+                            deliveries.borrow_mut().push("page");
                             page_handled
                         },
+                        || {
+                            deliveries.borrow_mut().push("menu");
+                            menu_handled
+                        },
                     );
-                    assert_eq!(handled, page_handled);
-                    assert_eq!(deliveries.get(), 1);
+                    assert_eq!(handled, page_handled || menu_handled);
+                    assert_eq!(
+                        *deliveries.borrow(),
+                        if menu_handled {
+                            vec!["menu"]
+                        } else {
+                            vec!["menu", "page"]
+                        },
+                    );
                     assert!(receiver.is_empty());
                 }
             }
+        }
+    }
+
+    #[test]
+    fn native_editing_shortcuts_do_not_depend_on_webkit_resending_the_event() {
+        let (sender, receiver) = async_channel::bounded(8);
+        for binding in ["cmd-x", "cmd-c", "cmd-v", "cmd-a"] {
+            let menu_deliveries = Cell::new(0);
+            assert!(route_key_event(
+                gpui::Keystroke::parse(binding).expect("binding"),
+                false,
+                &[],
+                &sender,
+                || panic!("WebKit must not consume a native editing command"),
+                || {
+                    menu_deliveries.set(menu_deliveries.get() + 1);
+                    true
+                },
+            ));
+            assert_eq!(menu_deliveries.get(), 1);
+            assert!(receiver.is_empty());
         }
     }
 
@@ -1031,6 +1118,7 @@ mod tests {
                 &[],
                 &sender,
                 || panic!("non-command key must use native dispatch"),
+                || panic!("non-command key must not be forwarded to the menu"),
             ));
             assert!(receiver.is_empty());
         }
@@ -1039,7 +1127,7 @@ mod tests {
     #[test]
     fn app_shortcuts_and_modal_escape_take_priority_over_page_delivery() {
         let (sender, receiver) = async_channel::bounded(1);
-        for binding in ["cmd-w", "cmd-t", "cmd-f", "ctrl-f"] {
+        for binding in ["cmd-w", "cmd-t", "cmd-f", "cmd-v", "ctrl-f"] {
             let key = gpui::Keystroke::parse(binding).expect("binding");
             assert!(route_key_event(
                 key.clone(),
@@ -1047,6 +1135,7 @@ mod tests {
                 std::slice::from_ref(&key),
                 &sender,
                 || panic!("app shortcut must not reach the page"),
+                || panic!("app shortcut must not reach the menu"),
             ));
             assert!(matches!(receiver.try_recv(), Ok(Event::Shortcut(actual)) if actual == key));
         }
@@ -1056,6 +1145,7 @@ mod tests {
             &[],
             &sender,
             || panic!("modal escape must not reach the page"),
+            || panic!("modal escape must not reach the menu"),
         ));
         let key = gpui::Keystroke::parse("cmd-w").expect("close shortcut");
         assert!(!route_key_event(
@@ -1064,6 +1154,7 @@ mod tests {
             &[key],
             &sender,
             || panic!("a full app queue must not redirect shortcuts to the page"),
+            || panic!("a full app queue must not redirect shortcuts to the menu"),
         ));
         assert!(matches!(receiver.try_recv(), Ok(Event::Escape)));
         assert!(receiver.is_empty());

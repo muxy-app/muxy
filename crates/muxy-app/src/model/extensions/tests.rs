@@ -30,6 +30,8 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                     "timeoutMs": 350,
                 }),
                 json!({"shell": "git ls-files"}),
+                json!({"argv": ["git", "show", "HEAD:src/main.rs"]}),
+                json!({"argv": ["git", "show", "HEAD:src/main.rs"], "cwd": "/repo/worktree"}),
             ] {
                 call.args = args;
                 let expected = Request::for_call(&call.owner, verb, &call.args, "")
@@ -44,6 +46,12 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                 let request = calls::exec_request(&call, 42).expect("allocated exec request");
                 assert_eq!(request.job, 42);
                 assert_eq!(request.project, call.project);
+                assert_eq!(
+                    request.cwd,
+                    call.args["cwd"]
+                        .as_str()
+                        .map(|path| { muxy_protocol::ServerPath(path.as_bytes().to_vec()) })
+                );
                 assert_eq!(request.env["MUXY_EXTENSION_ID"], "files");
             }
             for args in [
