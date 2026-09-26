@@ -213,3 +213,42 @@ fn mouse_events_naming_newer_buttons_stay_valid() -> Result<(), WireError> {
     assert_eq!(decoded.validate(), Ok(()));
     Ok(())
 }
+
+#[test]
+fn unknown_event_variants_are_ignored_only_when_well_formed() -> Result<(), Box<dyn Error>> {
+    let metadata = MessageKind::Metadata as u8;
+    // [[99, ...]]: the variant's value is missing.
+    let truncated = frame(metadata, ChannelId(1), &[0x81, 0x82, 0x18, 0x63])?;
+    assert!(matches!(decode_one(&truncated), Err(WireError::Decode(_))));
+    // [[99, []]] followed by a stray byte.
+    let trailing = frame(
+        metadata,
+        ChannelId(1),
+        &[0x81, 0x82, 0x18, 0x63, 0x80, 0x00],
+    )?;
+    assert!(matches!(decode_one(&trailing), Err(WireError::Decode(_))));
+    Ok(())
+}
+
+#[test]
+fn invalid_values_in_known_requests_stay_fatal() -> Result<(), Box<dyn Error>> {
+    let request = MessageKind::Request as u8;
+    // EndSession (method 6) with session 0, which is never valid.
+    let zero_session = cbor(|e| {
+        e.array(2)?.encode(RequestId(1))?;
+        e.array(2)?.u32(6)?.array(1)?.u64(0)?;
+        Ok(())
+    })?;
+    // Resize (method 9) with 65,536 columns, which overflows u16.
+    let overflow = cbor(|e| {
+        e.array(2)?.encode(RequestId(2))?;
+        e.array(2)?.u32(9)?.array(2)?.u32(1)?;
+        e.array(2)?.u64(65_536)?.u16(1)?;
+        Ok(())
+    })?;
+    for payload in [zero_session, overflow] {
+        let bytes = frame(request, CONTROL, &payload)?;
+        assert!(matches!(decode_one(&bytes), Err(WireError::Decode(_))));
+    }
+    Ok(())
+}

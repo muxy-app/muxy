@@ -122,15 +122,25 @@ pub fn decode(header: Header, payload: &[u8]) -> Result<Option<(ChannelId, Messa
         Ok(message) => message,
         // A skipped frame would never be acknowledged, so frames stay strict.
         Err(error) if error.is_unknown_variant() && kind != MessageKind::Frame => {
+            // Ignored events must still be well formed.
+            let mut whole = Decoder::new(payload);
+            whole.skip()?;
+            consumed(&whole, payload)?;
             return Ok(None);
         }
         Err(error) => return Err(error.into()),
     };
     fields.finish()?;
-    if decoder.position() != payload.len() {
-        return Err(DecodeError::message("trailing bytes after the payload").into());
-    }
+    consumed(&decoder, payload)?;
     Ok(Some((channel, message)))
+}
+
+fn consumed(decoder: &Decoder<'_>, payload: &[u8]) -> Result<(), WireError> {
+    if decoder.position() == payload.len() {
+        Ok(())
+    } else {
+        Err(DecodeError::message("trailing bytes after the payload").into())
+    }
 }
 
 fn message(kind: MessageKind, fields: &mut Fields<'_, '_>) -> Result<Message, DecodeError> {
@@ -218,20 +228,23 @@ impl<'a, 'b> Fields<'a, 'b> {
         self.decoder.decode()
     }
 
-    /// Decodes the next field, or skips it when this build can't read it,
-    /// such as a request body naming a newer method.
+    /// Decodes the next field, or skips it when it names a variant this build
+    /// doesn't know, such as a newer method. Invalid values stay errors.
     fn readable<T: Decode<'b, ()>>(&mut self) -> Result<Option<T>, DecodeError> {
         if self.remaining == 0 {
             return Ok(None);
         }
         self.remaining -= 1;
         let start = self.decoder.position();
-        if let Ok(value) = self.decoder.decode() {
-            return Ok(Some(value));
+        match self.decoder.decode() {
+            Ok(value) => Ok(Some(value)),
+            Err(error) if error.is_unknown_variant() => {
+                self.decoder.set_position(start);
+                self.decoder.skip()?;
+                Ok(None)
+            }
+            Err(error) => Err(error),
         }
-        self.decoder.set_position(start);
-        self.decoder.skip()?;
-        Ok(None)
     }
 
     fn finish(self) -> Result<(), DecodeError> {

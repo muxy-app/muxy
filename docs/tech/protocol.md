@@ -72,10 +72,10 @@ hello is fatal.
 A request carries a client-chosen ID and gets exactly one reply, in any
 order. Errors about a request, such as a bad path, size, limit, or cursor,
 an unknown session or channel, or a failed spawn, are correlated and leave
-the connection usable. A request the server can't read, such as a method from a
-newer client, gets a correlated unsupported error, and a client treats a reply
-it can't read the same way. Anything malformed or out of place is fatal: the
-server reports it and closes, and a client that sees it closes. Only the
+the connection usable. A request naming a method or variant the server
+doesn't know, such as one from a newer client, gets a correlated unsupported
+error, and a client treats such a reply the same way. Anything malformed or out
+of place is fatal: the server reports it and closes, and a client that sees it closes. Only the
 server sends errors. Any number of clients may attach to one session. Connected
 clients register the sessions used by all their open panes, independently of visible output
 subscriptions. A pane close ends and discards a session only when no other
