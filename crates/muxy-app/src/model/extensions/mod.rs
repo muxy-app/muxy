@@ -716,7 +716,7 @@ impl AppModel {
     fn consent_request(&self, call: &Call) -> Result<Option<Request>, String> {
         match call.verb.as_str() {
             "exec" | "exec.start" => {
-                calls::exec_request(call, 0)?;
+                calls::exec_request(call, 1)?;
             }
             "panes.send" | "panes.sendKeys" | "panes.readScreen" => {
                 Self::check_pane_request(&call.args)?;
