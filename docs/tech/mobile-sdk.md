@@ -39,9 +39,11 @@ screen and sends input.
   client showing the session.
 - Don't edit the generated bindings. Change the Rust SDK in
   `crates/muxy-mobile`, then rebuild it.
-- During the beta, the SDK and the server must have the same compatibility
-  identifier; see [Getting the SDK](#getting-the-sdk). A mismatch fails with
-  `IncompatibleVersion`.
+- The SDK talks to any server that shares a protocol version with it; see
+  [Getting the SDK](#getting-the-sdk). Otherwise connecting fails with
+  `IncompatibleVersion`. When one side is older, a request the other can't
+  handle fails with `Unsupported`.
+- Enum cases named `other` are values from a newer server. Show them neutrally.
 
 ## Suggested order
 
@@ -66,7 +68,7 @@ Every beta release publishes the SDK next to the desktop app, on the
 | --- | --- |
 | `muxy-mobile-<version>-ios.zip` | `MuxyMobile.xcframework` and `muxy_mobile.swift` |
 | `muxy-mobile-<version>-android.zip` | `jniLibs/` and `muxy_mobile.kt` |
-| `muxy-mobile-<version>.json` | `version`, `compatibility`, and the `sha256` of each zip |
+| `muxy-mobile-<version>.json` | `version`, `protocol` versions, the legacy `compatibility`, and the `sha256` of each zip |
 
 Pin one version in the app repository, together with the SHA-256 that its JSON
 lists for the zip. A small script downloads the zip, checks it, and unpacks it
@@ -85,9 +87,10 @@ unzip -oq "$ZIP" -d MuxyMobile
 - On iOS, the zip also works as a Swift Package Manager binary target. Name
   the target `MuxyMobile` to match the XCFramework, use the zip's URL and
   SHA-256, and add `muxy_mobile.swift` to a target that depends on it.
-- The phone connects only to a Muxy build with the same `compatibility`.
-  `muxy --build-info` prints it for the computer's build. When a Muxy update
-  changes it, move the pin to that release.
+- The phone connects to any Muxy build that shares one of its `protocol`
+  versions. `muxy --build-info` prints them for the computer's build. Move the
+  pin forward to use newer features; you only have to when the protocol
+  version changes.
 
 ## Build the SDK
 
@@ -233,7 +236,7 @@ thread. Every call that talks to the server can throw.
 | `Project` | `id`, `name`, `directory`, `color`, `icon?`, `logo?`, `parentId?`, `isHome`, `isWorktree` |
 | `Session` | `id`, `projectId`, `directory`, `status`, `owner?`, `attached` |
 | `SessionStatus` | `starting`, `live`, `ended`, `unavailable` |
-| `ClientKind` | `desktop`, `tui`, `cli`, `mobile` |
+| `ClientKind` | `desktop`, `tui`, `cli`, `mobile`, `other` |
 | `Screen` | `columns`, `rows`, `lines`, `cursor`, `title`, `directory`, `historyRows`, `applicationCursorKeys`, `bracketedPaste`, `mouseTracking`, `alternateScroll` |
 | `Line` | `spans` |
 | `Span` | `text`, `width` (terminal cells), `style` |
@@ -739,7 +742,8 @@ for each case.
 | `Unreachable(reason)` | No address answered. The computer may be asleep or on another network, mobile access may be off, or a firewall or a declined local network permission blocked it | "Can't reach *serverName*. Check that it's awake and on the same network or VPN." | Yes |
 | `IdentityMismatch` | A server with a different certificate answered | "This computer's identity changed. Pair again." | No |
 | `Unauthorized` | The phone was revoked, or while pairing, the code expired, was used, or was replaced | "This phone isn't paired anymore." or "Show a new code on your computer." | No |
-| `IncompatibleVersion` | The app's SDK and the server have different compatibility identifiers | "Update Muxy on your phone or computer." | No |
+| `IncompatibleVersion` | The app's SDK and the server share no protocol version | "Update Muxy on your phone or computer." | No |
+| `Unsupported` | The server is older than the SDK and can't do this, or newer and answered in a form the SDK can't read | "Update Muxy on your phone and computer to use this." | No |
 | `Timeout` | The server didn't answer in time | "Muxy isn't responding." | Yes |
 | `Disconnected` | The connection closed during the call | Reconnect | Yes |
 | `Server(reason)` | The server refused the request; `reason` is readable text | Show `reason` | Depends |

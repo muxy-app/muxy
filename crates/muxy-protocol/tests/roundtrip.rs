@@ -3,7 +3,7 @@ use std::io::{self, Read, Write};
 use muxy_protocol::wire::{
     Decoder, Encoder, HEADER_LEN, Header, MAX_FRAME, MessageKind, WireError, decode, encode,
 };
-use muxy_protocol::{CONTROL, ChannelId, ChannelKind, Message, MetadataEvent, V1};
+use muxy_protocol::{CONTROL, ChannelId, ChannelKind, Message, MetadataEvent, V2};
 
 #[test]
 fn all_samples_round_trip_in_one_stream() -> Result<(), WireError> {
@@ -27,7 +27,7 @@ fn header_bytes_are_little_endian_and_length_excludes_the_prefix() -> Result<(),
     assert_eq!(HEADER_LEN, 11);
     assert_eq!(
         header.to_bytes(),
-        [0x0a, 0x02, 0x01, 0x00, 1, 0, 0x78, 0x56, 0x34, 0x12, 9]
+        [0x0a, 0x02, 0x01, 0x00, 2, 0, 0x78, 0x56, 0x34, 0x12, 9]
     );
     assert_eq!(Header::from_bytes(header.to_bytes())?, header);
     assert_eq!(header.payload_len()?, 0x10203);
@@ -49,22 +49,13 @@ fn input_is_raw_including_empty_and_non_utf8_bytes() -> Result<(), WireError> {
 }
 
 #[test]
-fn postcard_payload_has_no_duplicate_message_discriminant() -> Result<(), WireError> {
+fn payloads_are_field_arrays_without_the_kind() -> Result<(), WireError> {
     let mut bytes = Vec::new();
-    encode(
-        &Message::Hello {
-            versions: vec![V1],
-            compatibility: muxy_protocol::COMPATIBILITY,
-        },
-        CONTROL,
-        &mut bytes,
-    )?;
-    assert_eq!(
-        &bytes[HEADER_LEN..],
-        postcard::to_allocvec(&(vec![V1], muxy_protocol::COMPATIBILITY))?.as_slice()
-    );
+    encode(&Message::Hello { versions: vec![V2] }, CONTROL, &mut bytes)?;
+    // array(1) [ array(1) [ 2 ] ]
+    assert_eq!(&bytes[HEADER_LEN..], [0x81, 0x81, 0x02]);
     encode(&Message::VersionUnsupported, CONTROL, &mut bytes)?;
-    assert_eq!(bytes.len(), HEADER_LEN);
+    assert_eq!(&bytes[HEADER_LEN..], [0x80]);
     Ok(())
 }
 
@@ -85,39 +76,36 @@ fn every_incomplete_sample_and_empty_stream_are_closed() -> Result<(), WireError
 }
 
 #[test]
-fn kind_numbers_and_both_reserved_flags_are_checked() -> Result<(), WireError> {
+fn kind_numbers_are_fixed_and_unknown_kinds_are_ignored() -> Result<(), WireError> {
     let kinds = [
-        MessageKind::Hello,
-        MessageKind::Request,
-        MessageKind::FrameAck,
-        MessageKind::HelloReply,
-        MessageKind::VersionUnsupported,
-        MessageKind::Reply,
-        MessageKind::SessionEnded,
-        MessageKind::Fatal,
-        MessageKind::Input,
-        MessageKind::Frame,
-        MessageKind::Metadata,
-        MessageKind::Mouse,
-        MessageKind::ServerRestarting,
-        MessageKind::CellSize,
-        MessageKind::CatalogChanged,
-        MessageKind::SessionsChanged,
-        MessageKind::GitChanged,
-        MessageKind::Progress,
-        MessageKind::ActivityChanged,
-        MessageKind::SessionMetadata,
-        MessageKind::FilesChanged,
-        MessageKind::RemoteAccessChanged,
+        (1, MessageKind::Hello),
+        (2, MessageKind::Request),
+        (3, MessageKind::FrameAck),
+        (4, MessageKind::HelloReply),
+        (5, MessageKind::VersionUnsupported),
+        (6, MessageKind::Reply),
+        (7, MessageKind::SessionEnded),
+        (8, MessageKind::Fatal),
+        (9, MessageKind::Input),
+        (10, MessageKind::Frame),
+        (11, MessageKind::Metadata),
+        (12, MessageKind::Mouse),
+        (13, MessageKind::ServerRestarting),
+        (14, MessageKind::CellSize),
+        (15, MessageKind::Changed),
+        (17, MessageKind::GitChanged),
+        (18, MessageKind::Progress),
+        (20, MessageKind::SessionMetadata),
+        (21, MessageKind::FilesChanged),
     ];
-    for (number, kind) in (1_u8..).zip(kinds) {
+    for (number, kind) in kinds {
         assert_eq!(kind as u8, number);
-        assert_eq!(MessageKind::from_u8(number)?, kind);
+        assert_eq!(MessageKind::from_u8(number)?, Some(kind));
     }
     for kind in 0..=u8::MAX {
         let header = Header {
-            length: 7,
-            version: 1,
+            length: 8,
+            version: V2.0,
             channel: 0,
             kind,
         };
@@ -126,16 +114,13 @@ fn kind_numbers_and_both_reserved_flags_are_checked() -> Result<(), WireError> {
                 Header::from_bytes(header.to_bytes()),
                 Err(WireError::FlagsSet(value)) if value == kind
             ));
-            assert!(matches!(decode(header, &[]), Err(WireError::FlagsSet(_))));
-        } else if kind == 0 || kind > MessageKind::RemoteAccessChanged as u8 {
             assert!(matches!(
-                Header::from_bytes(header.to_bytes()),
-                Err(WireError::UnknownKind(value)) if value == kind
+                decode(header, &[0x80]),
+                Err(WireError::FlagsSet(_))
             ));
-            assert!(matches!(
-                decode(header, &[]),
-                Err(WireError::UnknownKind(_))
-            ));
+        } else if !kinds.iter().any(|(number, _)| *number == kind) {
+            assert_eq!(Header::from_bytes(header.to_bytes())?, header);
+            assert!(matches!(decode(header, &[0x80]), Ok(None)));
         }
     }
     Ok(())
@@ -145,11 +130,11 @@ fn kind_numbers_and_both_reserved_flags_are_checked() -> Result<(), WireError> {
 fn unsupported_versions_and_lengths_shorter_than_the_header_are_rejected() {
     let header = Header {
         length: 7,
-        version: 1,
+        version: V2.0,
         channel: 0,
         kind: MessageKind::VersionUnsupported as u8,
     };
-    for version in [0, muxy_protocol::SUPPORTED[0].0 + 1, u16::MAX] {
+    for version in [0, 1, V2.0 + 1, u16::MAX] {
         let header = Header { version, ..header };
         assert!(matches!(
             Header::from_bytes(header.to_bytes()),

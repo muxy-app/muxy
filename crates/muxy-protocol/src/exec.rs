@@ -1,18 +1,28 @@
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{ErrorCode, ProjectId, ServerPath};
 
 pub const MAX_EXEC_OUTPUT: usize = 4 * 1024 * 1024;
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ExecRequest {
+    #[n(0)]
     pub job: u64,
+    #[n(1)]
     pub project: ProjectId,
+    #[n(2)]
     pub argv: Vec<String>,
+    #[n(3)]
     pub shell: Option<String>,
+    #[n(4)]
     pub cwd: Option<ServerPath>,
+    #[n(5)]
     pub env: std::collections::BTreeMap<String, String>,
+    #[n(6)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub stdin: Vec<u8>,
+    #[n(7)]
     pub timeout_ms: u32,
 }
 
@@ -51,13 +61,19 @@ impl ExecRequest {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ExecResult {
+    #[n(0)]
     pub stdout: String,
+    #[n(1)]
     pub stderr: String,
+    #[n(2)]
     pub exit_code: i32,
+    #[n(3)]
     pub timed_out: bool,
+    #[n(4)]
     pub truncated: bool,
+    #[n(5)]
     pub cancelled: bool,
 }
 

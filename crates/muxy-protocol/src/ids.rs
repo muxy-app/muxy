@@ -1,10 +1,14 @@
 use std::num::NonZeroU64;
 
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize, Encode, Decode,
+)]
 #[serde(transparent)]
-pub struct SessionId(NonZeroU64);
+#[cbor(transparent)]
+pub struct SessionId(#[n(0)] NonZeroU64);
 
 impl SessionId {
     pub const fn new(value: u64) -> Option<Self> {
@@ -25,12 +29,18 @@ impl From<NonZeroU64> for SessionId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize, Encode, Decode,
+)]
 #[serde(transparent)]
-pub struct RequestId(pub u32);
+#[cbor(transparent)]
+pub struct RequestId(#[n(0)] pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize, Encode, Decode,
+)]
 #[serde(transparent)]
-pub struct ChannelId(pub u32);
+#[cbor(transparent)]
+pub struct ChannelId(#[n(0)] pub u32);
 
 pub const CONTROL: ChannelId = ChannelId(0);

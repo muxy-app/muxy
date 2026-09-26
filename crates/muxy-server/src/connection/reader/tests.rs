@@ -21,10 +21,7 @@ impl Connection {
             },
             events,
         ));
-        let outbox = Arc::new(Outbox::new(
-            muxy_protocol::V1,
-            Arc::clone(&registry.attachment_changes),
-        ));
+        let outbox = Arc::new(Outbox::new(Arc::clone(&registry.attachment_changes)));
         let output = Arc::clone(&outbox);
         let (sender, replies) = mpsc::channel();
         let pump = thread::spawn(move || {
@@ -49,7 +46,6 @@ impl Connection {
                 files_readers: WorkerPool::new("files-read-test", 4, 32)?,
                 files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
                 search_cache: Arc::new(Mutex::new(SearchCache::default())),
-                version: muxy_protocol::V1,
                 last_channel: Arc::new(AtomicU32::new(0)),
             },
             replies,

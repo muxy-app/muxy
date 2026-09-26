@@ -28,6 +28,14 @@ impl ServerError {
         )
     }
 
+    /// A request this build can't read, such as a method from a newer client.
+    pub(crate) fn unsupported_request() -> Self {
+        Self::new(
+            ErrorCode::Unsupported,
+            "This server doesn't support the request. Update Muxy.",
+        )
+    }
+
     pub fn code(&self) -> ErrorCode {
         self.code
     }

@@ -256,7 +256,7 @@ fn incompatible_update_waits_and_can_be_cancelled_without_shutdown(cx: &mut Test
             .build
             .as_mut()
             .expect("build")
-            .compatibility += 1;
+            .protocol = vec![muxy_protocol::Version(u16::MAX)];
         model.updates.sessions = 2;
         model.confirm_update(cx);
     });

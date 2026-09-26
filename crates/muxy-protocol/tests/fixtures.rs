@@ -1,369 +1,118 @@
+//! Encoded samples, kept for as long as their protocol version is supported.
+//!
+//! Each file is named by its message kind and a hash of its bytes, so changing
+//! an encoding adds a file instead of replacing one. Every file must stay
+//! readable, because it is what an older build of the same version sends.
+
 use std::error::Error;
+use std::fmt::Write;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use muxy_protocol::wire::{Decoder, MessageKind, WireError, encode, message_version};
-use muxy_protocol::{
-    CONTROL, ChannelId, ChannelKind, Message, MetadataEvent, ReplyBody, RequestBody, SearchSource,
-};
+use muxy_protocol::wire::{Decoder, MessageKind, WireError, encode};
+use muxy_protocol::{CONTROL, CURRENT, ChannelId, ChannelKind, Message};
 
-#[test]
-fn golden_frames_match_byte_for_byte() -> Result<(), Box<dyn Error>> {
-    for message in Message::samples() {
-        let fixture = fixture_path(&message);
-        let expected = fs::read(&fixture)?;
-        let mut actual = Vec::new();
-        encode(&message, channel(&message), &mut actual)?;
-        assert_eq!(actual, expected, "{}", fixture.display());
-        let mut decoder = Decoder::new(expected.as_slice());
-        assert_eq!(decoder.next()?, (channel(&message), message));
-    }
-    Ok(())
-}
+/// Points at another build's fixtures to check that this build reads them.
+const OTHER_FIXTURES: &str = "MUXY_PROTOCOL_FIXTURES";
 
-#[test]
-#[ignore = "regenerates the mutable development schema fixtures"]
-fn generate_fixtures() -> Result<(), Box<dyn Error>> {
-    fs::create_dir_all(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"))?;
-    for message in Message::samples() {
-        let mut bytes = Vec::new();
-        encode(&message, channel(&message), &mut bytes)?;
-        let path = fixture_path(&message);
-        fs::write(path, bytes)?;
-    }
-    Ok(())
-}
-
-fn fixture_path(message: &Message) -> PathBuf {
-    let name = exec_fixture_name(message)
-        .or_else(|| remote_fixture_name(message))
-        .or_else(|| git_fixture_name(message))
-        .or_else(|| project_fixture_name(message))
-        .unwrap_or_else(|| legacy_fixture_name(message));
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+fn directory() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
-        .join(format!("{name}.bin"))
-}
-
-fn git_fixture_name(message: &Message) -> Option<&'static str> {
-    use muxy_protocol::{GitAction, GitPullRequestAction, GitReply, GitRequest};
-
-    Some(match message {
-        Message::Request {
-            body: RequestBody::Git(GitRequest { action, .. }),
-            ..
-        } => match action {
-            GitAction::BranchDiff { .. } => "git_branch_diff",
-            GitAction::ChangesPreview { .. } => "git_changes_preview",
-            GitAction::CommitAll { .. } => "git_commit_all",
-            GitAction::PublishBranch { .. } => "git_publish_branch",
-            GitAction::SwitchToBase(_) => "git_switch_to_base",
-            GitAction::PullRequest(GitPullRequestAction::UpdateBranch { .. }) => {
-                "git_update_pr_branch"
-            }
-            _ => return None,
-        },
-        Message::Reply {
-            body: ReplyBody::Git(reply),
-            ..
-        } => match reply {
-            GitReply::ChangesPreview(_) => "git_changes_preview_reply",
-            GitReply::BaseSwitch(_) => "git_base_switch_reply",
-            _ => return None,
-        },
-        _ => return None,
-    })
-}
-
-fn remote_fixture_name(message: &Message) -> Option<&'static str> {
-    Some(match message {
-        Message::Request { body, .. } => match body {
-            RequestBody::IdentifyClient(muxy_protocol::ClientKind::Mobile) => "identify_mobile",
-            RequestBody::Authenticate(_) => "authenticate",
-            RequestBody::Pair(_) => "pair",
-            RequestBody::ReadRemoteAccess => "read_remote_access",
-            RequestBody::WriteRemoteAccess(_) => "write_remote_access",
-            RequestBody::StartPairing => "start_pairing",
-            RequestBody::CancelPairing => "cancel_pairing",
-            RequestBody::RevokeDevice(_) => "revoke_device",
-            _ => return None,
-        },
-        Message::Reply { body, .. } => match body {
-            ReplyBody::Authenticated => "authenticated",
-            ReplyBody::Paired(_) => "paired",
-            ReplyBody::RemoteAccess(_) => "remote_access",
-            ReplyBody::Pairing(_) => "pairing",
-            ReplyBody::Error(error) if error.code == muxy_protocol::ErrorCode::Unauthorized => {
-                "unauthorized"
-            }
-            _ => return None,
-        },
-        _ => return None,
-    })
-}
-
-fn exec_fixture_name(message: &Message) -> Option<&'static str> {
-    Some(match message {
-        Message::Request {
-            body: RequestBody::Exec(_),
-            ..
-        } => "exec_request",
-        Message::Request {
-            body: RequestBody::CancelExec(_),
-            ..
-        } => "exec_cancel",
-        Message::Reply {
-            body: ReplyBody::Exec(_),
-            ..
-        } => "exec_result",
-        Message::Reply {
-            body: ReplyBody::ExecCancelled,
-            ..
-        } => "exec_cancelled",
-        _ => return None,
-    })
-}
-
-fn project_fixture_name(message: &Message) -> Option<&'static str> {
-    Some(match message {
-        Message::Request {
-            body: RequestBody::WriteInput { .. },
-            ..
-        } => "write_input",
-        Message::Reply {
-            body: ReplyBody::InputWritten,
-            ..
-        } => "input_written",
-
-        Message::Request {
-            body: RequestBody::ReadActivity,
-            ..
-        } => "read_activity",
-        Message::Request {
-            body: RequestBody::AcknowledgeActivity(_),
-            ..
-        } => "acknowledge_activity",
-        Message::Request {
-            body: RequestBody::ClaimActivity(_),
-            ..
-        } => "claim_activity",
-        Message::Reply {
-            body: ReplyBody::Activity(_),
-            ..
-        } => "activity_snapshot",
-        Message::Reply {
-            body: ReplyBody::ActivityAcknowledged,
-            ..
-        } => "activity_acknowledged",
-        Message::Reply {
-            body: ReplyBody::ActivityClaimed(_),
-            ..
-        } => "activity_claimed",
-        Message::Request {
-            body: RequestBody::Git(_),
-            ..
-        } => "git_request",
-        Message::Reply {
-            body: ReplyBody::Git(_),
-            ..
-        } => "git_reply",
-        Message::SessionsChanged { .. } => "sessions_changed",
-        Message::Request {
-            body: RequestBody::IdentifyClient(_),
-            ..
-        } => "identify_client",
-        Message::Reply {
-            body: ReplyBody::ClientIdentified(_),
-            ..
-        } => "client_identified",
-        Message::Request {
-            body: RequestBody::SyncSessionReferences { .. },
-            ..
-        } => "session_references",
-        Message::Request {
-            body: RequestBody::CloseSession { .. },
-            ..
-        } => "close_session",
-        Message::Reply {
-            body: ReplyBody::SessionReferencesSynced,
-            ..
-        } => "session_references_synced",
-        Message::Reply {
-            body: ReplyBody::SessionClosed,
-            ..
-        } => "session_closed",
-        Message::Request {
-            body: RequestBody::ReadCatalog { .. },
-            ..
-        } => "ReadCatalog",
-        Message::Request {
-            body: RequestBody::MutateProject(_),
-            ..
-        } => "MutateProject",
-        Message::Request {
-            body: RequestBody::ListProjectSessions { .. },
-            ..
-        } => "ListProjectSessions",
-        Message::Request {
-            body: RequestBody::CancelCreation(_),
-            ..
-        } => "CancelCreation",
-        Message::Reply {
-            body: ReplyBody::Catalog(_),
-            ..
-        } => "Catalog",
-        Message::Reply {
-            body: ReplyBody::ProjectMutated { .. },
-            ..
-        } => "ProjectMutated",
-        Message::Reply {
-            body: ReplyBody::ProjectSessions(_),
-            ..
-        } => "ProjectSessions",
-        Message::Reply {
-            body: ReplyBody::CreationCancelled,
-            ..
-        } => "CreationCancelled",
-
-        _ => return None,
-    })
-}
-
-fn legacy_fixture_name(message: &Message) -> &'static str {
-    match message {
-        Message::FilesChanged { .. } => "files_changed",
-        Message::Request {
-            body: RequestBody::Files(_),
-            ..
-        } => "files_request",
-        Message::Reply {
-            body: ReplyBody::Files(_),
-            ..
-        } => "files_reply",
-        Message::Request {
-            body: RequestBody::StopServerIfIdle,
-            ..
-        } => "stop_server_if_idle",
-        Message::Reply {
-            body: ReplyBody::ServerBusy,
-            ..
-        } => "server_busy",
-        Message::Request {
-            body: RequestBody::ReadServerSettings,
-            ..
-        } => "read_server_settings",
-        Message::Request {
-            body: RequestBody::WriteServerSettings(_),
-            ..
-        } => "write_server_settings",
-        Message::Request {
-            body: RequestBody::StopServer,
-            ..
-        } => "stop_server",
-        Message::Reply {
-            body: ReplyBody::ServerSettings(_),
-            ..
-        } => "server_settings",
-        Message::Reply {
-            body: ReplyBody::ServerSettingsWritten,
-            ..
-        } => "server_settings_written",
-        Message::Reply {
-            body: ReplyBody::ServerStopping,
-            ..
-        } => "server_stopping",
-        Message::Request {
-            body: RequestBody::SetTerminalColors(_),
-            ..
-        } => "terminal_colors_request",
-        Message::Reply {
-            body: ReplyBody::TerminalColorsSet,
-            ..
-        } => "terminal_colors_reply",
-        Message::Request {
-            body:
-                RequestBody::Search {
-                    source: SearchSource::Live(_),
-                    ..
-                },
-            ..
-        } => "search_request",
-        Message::Request {
-            body:
-                RequestBody::Search {
-                    source: SearchSource::Saved(_),
-                    ..
-                },
-            ..
-        } => "saved_search_request",
-        Message::Reply {
-            body: ReplyBody::SearchPage(_),
-            ..
-        } => "search_reply",
-        Message::Metadata(MetadataEvent::ScreenPrompts { .. }) => "screen_prompts",
-        Message::Metadata(MetadataEvent::Links { .. }) => "links_metadata",
-        Message::Metadata(MetadataEvent::InputModes(_)) => "input_modes",
-        Message::Metadata(MetadataEvent::CursorBlinking(_)) => "cursor_blinking",
-        Message::Metadata(MetadataEvent::History { .. }) => "history_metadata",
-        Message::Progress { .. } => "session_progress",
-        Message::Request {
-            body: RequestBody::HistoryPage { .. },
-            ..
-        } => "history_request",
-        Message::Request {
-            body: RequestBody::SavedHistoryPage { .. },
-            ..
-        } => "saved_history_request",
-        Message::Reply {
-            body: ReplyBody::HistoryPage(_),
-            ..
-        } => "history_reply",
-        Message::Reply {
-            body: ReplyBody::Attached { snapshot, .. },
-            ..
-        } if !snapshot.history.is_empty() => "attached_history_reply",
-        _ => kind_name(MessageKind::from(message)),
-    }
-}
-
-fn channel(message: &Message) -> ChannelId {
-    match message.channel_kind() {
-        ChannelKind::Control => CONTROL,
-        ChannelKind::Session => ChannelId(1),
-    }
+        .join(format!("v{}", CURRENT.0))
 }
 
 #[test]
-fn development_messages_share_one_version_and_reject_unknown_schemas() -> Result<(), Box<dyn Error>>
-{
+fn every_sample_has_a_fixture() -> Result<(), Box<dyn Error>> {
     for message in Message::samples() {
-        let mut bytes = Vec::new();
-        encode(&message, channel(&message), &mut bytes)?;
-        assert_eq!(message_version(&message), muxy_protocol::V1);
-        assert_eq!(bytes[4..6], 1_u16.to_le_bytes());
-        for version in [0_u16, 2, 9, u16::MAX] {
-            bytes[4..6].copy_from_slice(&version.to_le_bytes());
-            assert!(matches!(
-                Decoder::new(bytes.as_slice()).next(),
-                Err(WireError::UnsupportedVersion(_))
-            ));
+        let path = directory().join(fixture_name(&message)?);
+        assert!(
+            path.exists(),
+            "{} is missing. Run: cargo test -p muxy-protocol --test fixtures -- --ignored generate_fixtures",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+/// Without `MUXY_PROTOCOL_FIXTURES`, reads this build's fixtures strictly.
+/// With it, reads a newer build's fixtures the way a running peer would:
+/// messages this build doesn't know may be skipped or reported as unsupported.
+#[test]
+fn every_fixture_decodes() -> Result<(), Box<dyn Error>> {
+    let other = std::env::var_os(OTHER_FIXTURES).map(PathBuf::from);
+    let strict = other.is_none();
+    let mut count = 0;
+    for entry in fs::read_dir(other.unwrap_or_else(directory))? {
+        let path = entry?.path();
+        if path.extension().is_none_or(|extension| extension != "bin") {
+            continue;
+        }
+        count += 1;
+        let bytes = fs::read(&path)?;
+        match Decoder::new(bytes.as_slice()).next() {
+            Ok((_, message)) => {
+                let partial = matches!(
+                    message,
+                    Message::UnsupportedRequest { .. } | Message::UnreadableReply { .. }
+                );
+                assert!(
+                    !strict || !partial,
+                    "{} is not fully readable",
+                    path.display()
+                );
+                assert!(
+                    partial || message.validate().is_ok(),
+                    "{} is invalid",
+                    path.display()
+                );
+            }
+            Err(WireError::Closed) if !strict => {}
+            Err(error) => return Err(format!("{}: {error}", path.display()).into()),
+        }
+    }
+    assert!(count > 0, "no fixtures found");
+    Ok(())
+}
+
+#[test]
+#[ignore = "adds fixtures for new or changed samples; never rewrites existing ones"]
+fn generate_fixtures() -> Result<(), Box<dyn Error>> {
+    fs::create_dir_all(directory())?;
+    for message in Message::samples() {
+        let path = directory().join(fixture_name(&message)?);
+        if !path.exists() {
+            fs::write(path, encoded(&message)?)?;
         }
     }
     Ok(())
 }
 
+fn encoded(message: &Message) -> Result<Vec<u8>, WireError> {
+    let channel = match message.channel_kind() {
+        ChannelKind::Control => CONTROL,
+        ChannelKind::Session => ChannelId(1),
+    };
+    let mut bytes = Vec::new();
+    encode(message, channel, &mut bytes)?;
+    Ok(bytes)
+}
+
+fn fixture_name(message: &Message) -> Result<String, Box<dyn Error>> {
+    let digest = ring::digest::digest(&ring::digest::SHA256, &encoded(message)?);
+    let mut name = format!("{}-", kind_name(MessageKind::from(message)));
+    for byte in &digest.as_ref()[..8] {
+        write!(name, "{byte:02x}")?;
+    }
+    name.push_str(".bin");
+    Ok(name)
+}
+
 fn kind_name(kind: MessageKind) -> &'static str {
     match kind {
-        MessageKind::GitChanged => "git_changed",
-        MessageKind::FilesChanged => "files_changed",
-        MessageKind::Progress => "session_progress",
-        MessageKind::SessionsChanged => "sessions_changed",
-        MessageKind::CatalogChanged => "catalog_changed",
         MessageKind::Hello => "hello",
         MessageKind::Request => "request",
         MessageKind::FrameAck => "frame_ack",
         MessageKind::HelloReply => "hello_reply",
-        MessageKind::ServerRestarting => "server_restarting",
         MessageKind::VersionUnsupported => "version_unsupported",
         MessageKind::Reply => "reply",
         MessageKind::SessionEnded => "session_ended",
@@ -372,9 +121,12 @@ fn kind_name(kind: MessageKind) -> &'static str {
         MessageKind::Frame => "frame",
         MessageKind::Metadata => "metadata",
         MessageKind::Mouse => "mouse",
-        MessageKind::ActivityChanged => "activity_changed",
-        MessageKind::SessionMetadata => "session_metadata",
+        MessageKind::ServerRestarting => "server_restarting",
         MessageKind::CellSize => "cell_size",
-        MessageKind::RemoteAccessChanged => "remote_access_changed",
+        MessageKind::Changed => "changed",
+        MessageKind::GitChanged => "git_changed",
+        MessageKind::Progress => "progress",
+        MessageKind::SessionMetadata => "session_metadata",
+        MessageKind::FilesChanged => "files_changed",
     }
 }

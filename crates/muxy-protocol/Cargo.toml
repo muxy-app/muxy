@@ -14,6 +14,7 @@ workspace = true
 
 [dependencies]
 postcard = { version = "1", default-features = false, features = ["use-std"] }
+minicbor = { version = "2.3", features = ["std", "derive"] }
 serde = { version = "1", features = ["derive", "rc"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 unicode-segmentation = "1"

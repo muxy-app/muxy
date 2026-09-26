@@ -55,8 +55,8 @@ fn saved_screen_and_discard_messages_round_trip_without_a_session_channel()
 }
 
 #[test]
-fn saved_content_uses_the_same_development_schema_as_live_content() -> Result<(), Box<dyn Error>> {
-    use muxy_protocol::V1;
+fn saved_content_uses_the_same_protocol_version_as_live_content() -> Result<(), Box<dyn Error>> {
+    use muxy_protocol::CURRENT;
     use muxy_protocol::wire::{HEADER_LEN, Header, decode, encode};
 
     let session = SessionId::new(42).ok_or("zero ID")?;
@@ -71,8 +71,11 @@ fn saved_content_uses_the_same_development_schema_as_live_content() -> Result<()
         };
         encode(&message, CONTROL, &mut bytes)?;
         let header = Header::from_bytes(bytes[..HEADER_LEN].try_into()?)?;
-        assert_eq!(header.version, V1.0);
-        assert_eq!(decode(header, &bytes[HEADER_LEN..])?, (CONTROL, message));
+        assert_eq!(header.version, CURRENT.0);
+        assert_eq!(
+            decode(header, &bytes[HEADER_LEN..])?,
+            Some((CONTROL, message))
+        );
         assert!(
             decode(
                 Header {
@@ -94,7 +97,7 @@ fn saved_content_uses_the_same_development_schema_as_live_content() -> Result<()
     )?;
     assert_eq!(
         Header::from_bytes(bytes[..HEADER_LEN].try_into()?)?.version,
-        V1.0
+        CURRENT.0
     );
     Ok(())
 }

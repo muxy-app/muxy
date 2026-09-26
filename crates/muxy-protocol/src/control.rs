@@ -1,179 +1,311 @@
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+
+use crate::wire::cbor::open_enum;
 
 use crate::{
     AttachSnapshot, ChannelId, ForegroundProcess, HistoryCursor, HistoryPage, SavedScreen,
     SearchPage, SearchSource, ServerPath, SessionId, SessionInfo, Size,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum RequestBody {
-    CancelCreation(crate::OperationId),
+    #[n(0)]
+    CancelCreation(#[n(0)] crate::OperationId),
+    #[n(1)]
     ListSessions,
+    #[n(2)]
     ReadCatalog {
+        #[n(0)]
         after: Option<crate::ProjectId>,
+        #[n(1)]
         revision: Option<u64>,
     },
-    MutateProject(crate::ProjectIntent),
+    #[n(3)]
+    MutateProject(#[n(0)] crate::ProjectIntent),
+    #[n(4)]
     ListProjectSessions {
+        #[n(0)]
         project: crate::ProjectId,
+        #[n(1)]
         after: Option<SessionId>,
+        #[n(2)]
         revision: Option<u64>,
     },
+    #[n(5)]
     CreateSession {
+        #[n(0)]
         project: crate::ProjectId,
+        #[n(1)]
         operation: crate::OperationId,
+        #[n(2)]
         directory: ServerPath,
+        #[n(3)]
         size: Size,
     },
-    EndSession(SessionId),
+    #[n(6)]
+    EndSession(#[n(0)] SessionId),
+    #[n(7)]
     Attach {
+        #[n(0)]
         session: SessionId,
+        #[n(1)]
         size: Size,
     },
-    Detach(ChannelId),
+    #[n(8)]
+    Detach(#[n(0)] ChannelId),
+    #[n(9)]
     Resize {
+        #[n(0)]
         channel: ChannelId,
+        #[n(1)]
         size: Size,
     },
+    #[n(10)]
     Ping,
-    ReadSavedScreen(SessionId),
-    DiscardSession(SessionId),
+    #[n(11)]
+    ReadSavedScreen(#[n(0)] SessionId),
+    #[n(12)]
+    DiscardSession(#[n(0)] SessionId),
+    #[n(13)]
     HistoryPage {
+        #[n(0)]
         channel: ChannelId,
+        #[n(1)]
         before: HistoryCursor,
+        #[n(2)]
         max_rows: u16,
     },
+    #[n(14)]
     SavedHistoryPage {
+        #[n(0)]
         session: SessionId,
+        #[n(1)]
         before: HistoryCursor,
+        #[n(2)]
         max_rows: u16,
     },
+    #[n(15)]
     Search {
+        #[n(0)]
         source: SearchSource,
+        #[n(1)]
         query: String,
+        #[n(2)]
         ignore_case: bool,
+        #[n(3)]
         before: HistoryCursor,
+        #[n(4)]
         max_results: u16,
     },
-    SetTerminalColors(TerminalColors),
+    #[n(16)]
+    SetTerminalColors(#[n(0)] TerminalColors),
+    #[n(17)]
     ReadServerSettings,
-    WriteServerSettings(ServerSettingsDoc),
+    #[n(18)]
+    WriteServerSettings(#[n(0)] ServerSettingsDoc),
+    #[n(19)]
     StopServer,
+    #[n(20)]
     StopServerIfIdle,
+    #[n(21)]
     SyncSessionReferences {
+        #[n(0)]
         owner: Option<crate::OperationId>,
+        #[n(1)]
         revision: u64,
+        #[n(2)]
         sessions: Vec<SessionId>,
     },
+    #[n(22)]
     CloseSession {
+        #[n(0)]
         session: SessionId,
+        #[n(1)]
         operation: crate::OperationId,
     },
-    IdentifyClient(crate::ClientKind),
-    Git(crate::GitRequest),
+    #[n(23)]
+    IdentifyClient(#[n(0)] crate::ClientKind),
+    #[n(24)]
+    Git(#[n(0)] crate::GitRequest),
+    #[n(25)]
     ReadActivity,
-    AcknowledgeActivity(Vec<u64>),
-    ClaimActivity(Vec<u64>),
-    Files(crate::FilesRequest),
+    #[n(26)]
+    AcknowledgeActivity(#[n(0)] Vec<u64>),
+    #[n(27)]
+    ClaimActivity(#[n(0)] Vec<u64>),
+    #[n(28)]
+    Files(#[n(0)] crate::FilesRequest),
+    #[n(29)]
     WriteInput {
+        #[n(0)]
         channel: ChannelId,
+        #[n(1)]
+        #[cbor(with = "crate::wire::cbor::bytes")]
         bytes: Vec<u8>,
     },
-    Exec(crate::ExecRequest),
-    CancelExec(u64),
-    Authenticate(crate::DeviceCredential),
-    Pair(crate::PairRequest),
+    #[n(30)]
+    Exec(#[n(0)] crate::ExecRequest),
+    #[n(31)]
+    CancelExec(#[n(0)] u64),
+    #[n(32)]
+    Authenticate(#[n(0)] crate::DeviceCredential),
+    #[n(33)]
+    Pair(#[n(0)] crate::PairRequest),
+    #[n(34)]
     ReadRemoteAccess,
-    WriteRemoteAccess(crate::RemoteAccessSettings),
+    #[n(35)]
+    WriteRemoteAccess(#[n(0)] crate::RemoteAccessSettings),
+    #[n(36)]
     StartPairing,
+    #[n(37)]
     CancelPairing,
-    RevokeDevice(crate::DeviceId),
+    #[n(38)]
+    RevokeDevice(#[n(0)] crate::DeviceId),
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct TerminalColors {
+    #[n(0)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub foreground: [u8; 3],
+    #[n(1)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub background: [u8; 3],
+    #[n(2)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub cursor: [u8; 3],
+    #[n(3)]
     pub ansi: [[u8; 3]; 16],
+    #[n(4)]
     pub palette: std::collections::BTreeMap<u8, [u8; 3]>,
+    #[n(5)]
     pub cursor_style: Option<crate::CursorShape>,
+    #[n(6)]
     pub cursor_blink: Option<bool>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum ReplyBody {
-    Sessions(Vec<SessionInfo>),
-    Catalog(crate::CatalogPage),
+    #[n(0)]
+    Sessions(#[n(0)] Vec<SessionInfo>),
+    #[n(1)]
+    Catalog(#[n(0)] crate::CatalogPage),
+    #[n(2)]
     ProjectMutated {
+        #[n(0)]
         revision: u64,
     },
-    ProjectSessions(crate::ProjectSessions),
-    SessionCreated(SessionInfo),
+    #[n(3)]
+    ProjectSessions(#[n(0)] crate::ProjectSessions),
+    #[n(4)]
+    SessionCreated(#[n(0)] SessionInfo),
+    #[n(5)]
     SessionEnded,
+    #[n(6)]
     Detached,
+    #[n(7)]
     Resized,
+    #[n(8)]
     Pong,
-    Error(ErrorReply),
-    SavedScreen(SavedScreen),
+    #[n(9)]
+    Error(#[n(0)] ErrorReply),
+    #[n(10)]
+    SavedScreen(#[n(0)] SavedScreen),
+    #[n(11)]
     SessionDiscarded,
+    #[n(12)]
     CreationCancelled,
+    #[n(13)]
     Attached {
+        #[n(0)]
         snapshot: Box<AttachSnapshot>,
+        #[n(1)]
         process: Option<ForegroundProcess>,
     },
-    HistoryPage(HistoryPage),
-    SearchPage(SearchPage),
+    #[n(14)]
+    HistoryPage(#[n(0)] HistoryPage),
+    #[n(15)]
+    SearchPage(#[n(0)] SearchPage),
+    #[n(16)]
     TerminalColorsSet,
-    ServerSettings(ServerSettingsDoc),
+    #[n(17)]
+    ServerSettings(#[n(0)] ServerSettingsDoc),
+    #[n(18)]
     ServerSettingsWritten,
+    #[n(19)]
     ServerStopping,
+    #[n(20)]
     ServerBusy,
+    #[n(21)]
     SessionReferencesSynced,
+    #[n(22)]
     SessionClosed,
-    ClientIdentified(crate::SessionClient),
-    Git(crate::GitReply),
-    Activity(crate::ActivitySnapshot),
+    #[n(23)]
+    ClientIdentified(#[n(0)] crate::SessionClient),
+    #[n(24)]
+    Git(#[n(0)] crate::GitReply),
+    #[n(25)]
+    Activity(#[n(0)] crate::ActivitySnapshot),
+    #[n(26)]
     ActivityAcknowledged,
-    ActivityClaimed(Vec<u64>),
-    Files(crate::FilesReply),
+    #[n(27)]
+    ActivityClaimed(#[n(0)] Vec<u64>),
+    #[n(28)]
+    Files(#[n(0)] crate::FilesReply),
+    #[n(29)]
     InputWritten,
-    Exec(crate::ExecResult),
+    #[n(30)]
+    Exec(#[n(0)] crate::ExecResult),
+    #[n(31)]
     ExecCancelled,
+    #[n(32)]
     Authenticated,
-    Paired(crate::Paired),
-    RemoteAccess(crate::RemoteAccessState),
-    Pairing(crate::PairingOffer),
+    #[n(33)]
+    Paired(#[n(0)] crate::Paired),
+    #[n(34)]
+    RemoteAccess(#[n(0)] crate::RemoteAccessState),
+    #[n(35)]
+    Pairing(#[n(0)] crate::PairingOffer),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ErrorReply {
+    #[n(0)]
     pub code: ErrorCode,
+    #[n(1)]
     pub message: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum ErrorCode {
-    UnknownProject,
-    CatalogChanged,
-    UnknownSession,
-    UnknownChannel,
-    BadSize,
-    BadPath,
-    SpawnFailed,
-    BadRequest,
-    SavedContentUnavailable,
-    StaleHistoryCursor,
-    HistoryUnavailable,
-    PersistenceFailed,
-    Unauthorized,
+open_enum! {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    pub enum ErrorCode {
+        UnknownProject = 0,
+        CatalogChanged = 1,
+        UnknownSession = 2,
+        UnknownChannel = 3,
+        BadSize = 4,
+        BadPath = 5,
+        SpawnFailed = 6,
+        BadRequest = 7,
+        SavedContentUnavailable = 8,
+        StaleHistoryCursor = 9,
+        HistoryUnavailable = 10,
+        PersistenceFailed = 11,
+        Unauthorized = 12,
+        /// The other side's build doesn't support this request or can't read its reply.
+        Unsupported = 13,
+    }
 }
 
 /// Server-owned configuration, independent of its storage format.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ServerSettingsDoc {
+    #[n(0)]
     pub default_shell: Option<ServerPath>,
+    #[n(1)]
     pub history_budget_bytes: u64,
+    #[n(2)]
     pub shell_integration: bool,
 }
 

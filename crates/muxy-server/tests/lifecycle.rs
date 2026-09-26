@@ -173,7 +173,6 @@ impl Client {
             CONTROL,
             &Message::Hello {
                 versions: SUPPORTED.to_vec(),
-                compatibility: muxy_protocol::COMPATIBILITY,
             },
         )?;
         assert!(matches!(
@@ -190,9 +189,16 @@ impl Client {
                 event,
                 (
                     _,
-                    Message::CatalogChanged { .. }
-                        | Message::SessionsChanged { .. }
-                        | Message::RemoteAccessChanged { .. }
+                    Message::Changed {
+                        topic: muxy_protocol::Topic::Catalog,
+                        ..
+                    } | Message::Changed {
+                        topic: muxy_protocol::Topic::Sessions,
+                        ..
+                    } | Message::Changed {
+                        topic: muxy_protocol::Topic::RemoteAccess,
+                        ..
+                    }
                 )
             ) {
                 return Ok(event);
@@ -219,8 +225,14 @@ impl Client {
                 (
                     _,
                     Message::Metadata(_)
-                    | Message::CatalogChanged { .. }
-                    | Message::SessionsChanged { .. },
+                    | Message::Changed {
+                        topic: muxy_protocol::Topic::Catalog,
+                        ..
+                    }
+                    | Message::Changed {
+                        topic: muxy_protocol::Topic::Sessions,
+                        ..
+                    },
                 ) => {}
                 other => return Err(format!("unexpected reply: {other:?}").into()),
             }
@@ -318,7 +330,17 @@ impl Client {
     fn closed(&self) -> TestResult {
         loop {
             match self.incoming.recv_timeout(TIMEOUT)? {
-                Ok((_, Message::CatalogChanged { .. } | Message::SessionsChanged { .. })) => {}
+                Ok((
+                    _,
+                    Message::Changed {
+                        topic: muxy_protocol::Topic::Catalog,
+                        ..
+                    }
+                    | Message::Changed {
+                        topic: muxy_protocol::Topic::Sessions,
+                        ..
+                    },
+                )) => {}
                 Err(WireError::Closed) => return Ok(()),
                 other => return Err(format!("expected closed, got {other:?}").into()),
             }

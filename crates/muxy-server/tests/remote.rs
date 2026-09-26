@@ -116,7 +116,6 @@ impl Fixture {
             CONTROL,
             &Message::Hello {
                 versions: SUPPORTED.to_vec(),
-                compatibility: muxy_protocol::COMPATIBILITY,
             },
         )?;
         match client.receive()? {
@@ -185,7 +184,13 @@ impl Client {
                 (CONTROL, Message::Reply { id: received, body }) if received == id => {
                     return Ok(body);
                 }
-                (CONTROL, Message::RemoteAccessChanged { .. }) => {}
+                (
+                    CONTROL,
+                    Message::Changed {
+                        topic: muxy_protocol::Topic::RemoteAccess,
+                        ..
+                    },
+                ) => {}
                 other => return Err(format!("unexpected message: {other:?}").into()),
             }
         }
@@ -237,6 +242,34 @@ fn requests_before_authentication_are_refused_and_closed() -> TestResult {
 }
 
 #[test]
+fn authentication_methods_from_newer_phones_get_a_correlated_unsupported_reply() -> TestResult {
+    use std::io::Write;
+
+    use muxy_protocol::wire::{Header, MessageKind};
+
+    let fixture = Fixture::new();
+    let mut phone = fixture.connect(true)?;
+    // Request 5 names method 900 with no fields: [5, [900, []]].
+    let payload = [0x82, 0x05, 0x82, 0x19, 0x03, 0x84, 0x80];
+    let mut frame = Header::new(payload.len(), CONTROL, MessageKind::Request)?
+        .to_bytes()
+        .to_vec();
+    frame.extend_from_slice(&payload);
+    phone.socket.write_all(&frame)?;
+    assert!(matches!(
+        phone.receive()?,
+        (
+            CONTROL,
+            Message::Reply {
+                id: RequestId(5),
+                body: ReplyBody::Error(error),
+            },
+        ) if error.code == ErrorCode::Unsupported
+    ));
+    phone.closed()
+}
+
+#[test]
 fn a_paired_device_reconnects_and_uses_a_terminal() -> TestResult {
     let fixture = Fixture::new();
     let mut local = fixture.enabled()?;
@@ -283,7 +316,14 @@ fn a_paired_device_reconnects_and_uses_a_terminal() -> TestResult {
                     },
                 )?;
             }
-            (_, Message::Metadata(_)) | (CONTROL, Message::RemoteAccessChanged { .. }) => {}
+            (_, Message::Metadata(_))
+            | (
+                CONTROL,
+                Message::Changed {
+                    topic: muxy_protocol::Topic::RemoteAccess,
+                    ..
+                },
+            ) => {}
             other => return Err(format!("unexpected message: {other:?}").into()),
         }
     }
@@ -453,10 +493,22 @@ fn local_watchers_hear_about_pairing_and_connections() -> TestResult {
     let (_, _phone) = fixture.pair(&mut local)?;
     loop {
         match watcher.receive()? {
-            (CONTROL, Message::RemoteAccessChanged { revision }) if revision > before.revision => {
+            (
+                CONTROL,
+                Message::Changed {
+                    topic: muxy_protocol::Topic::RemoteAccess,
+                    revision,
+                },
+            ) if revision > before.revision => {
                 break;
             }
-            (CONTROL, Message::RemoteAccessChanged { .. }) => {}
+            (
+                CONTROL,
+                Message::Changed {
+                    topic: muxy_protocol::Topic::RemoteAccess,
+                    ..
+                },
+            ) => {}
             other => return Err(format!("unexpected message: {other:?}").into()),
         }
     }

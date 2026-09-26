@@ -37,17 +37,18 @@ class LinuxReleaseTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='linux package ')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for relative in ('scripts/build-cli-linux.sh', 'scripts/beta_release.py', 'scripts/beta_compatibility.py',
-                         'scripts/audit-linux.py', 'scripts/zig/zig', 'crates/muxy-protocol/src/build.rs', 'LICENSE', 'crates/muxy-server/src/detection/THIRD_PARTY.md', 'crates/muxy-server/src/detection/LICENSE-herdr'):
+        for relative in ('scripts/build-cli-linux.sh', 'scripts/beta_release.py',
+                         'scripts/audit-linux.py', 'scripts/zig/zig', 'crates/muxy-protocol/src/build.rs',
+                         'crates/muxy-protocol/src/version.rs', 'LICENSE', 'crates/muxy-server/src/detection/THIRD_PARTY.md', 'crates/muxy-server/src/detection/LICENSE-herdr'):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, path)
-        import re
-        compatibility = int(re.search(r'pub const COMPATIBILITY: u[0-9]+ = ([0-9]+)',
-                                     (ROOT / 'crates/muxy-protocol/src/build.rs').read_text())[1])
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        from beta_release import build_metadata
+        build = build_metadata(ROOT)
         self.pair = {}
         for name in ('muxy', 'muxy-server'):
-            self.pair[name] = f'#!{sys.executable}\n# {name}\nprint({json.dumps(json.dumps({"version": VERSION, "compatibility": compatibility}))})\n'.encode()
+            self.pair[name] = f'#!{sys.executable}\n# {name}\nprint({json.dumps(json.dumps({"version": VERSION, **build}))})\n'.encode()
         for arch in ('aarch64', 'x86_64'):
             binary_dir = self.root / f'target/{arch}-unknown-linux-gnu/release'
             binary_dir.mkdir(parents=True)

@@ -949,7 +949,7 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
             muxy_protocol::CursorShape::Hollow => {
                 window.paint_quad(gpui::outline(cursor, color, gpui::BorderStyle::Solid));
             }
-            muxy_protocol::CursorShape::Block => {
+            muxy_protocol::CursorShape::Block | muxy_protocol::CursorShape::Unrecognized(_) => {
                 window.paint_quad(fill(cursor, color));
                 window.with_content_mask(Some(gpui::ContentMask { bounds: cursor }), |window| {
                     for glyph in painting

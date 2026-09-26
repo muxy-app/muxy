@@ -4,7 +4,7 @@ use crate::{
     AttachSnapshot, ChannelId, Color, Cursor, ErrorCode, ErrorReply, ExitReason, HistoryCursor,
     HistoryPage, InputModes, Message, MetadataEvent, Modes, Modifiers, MouseAction, MouseButton,
     MouseEvent, ReplyBody, RequestBody, RequestId, Row, Run, ScreenFrame, SearchMatch, SearchPage,
-    SearchSource, ServerPath, SessionId, Size, Style, TerminalColors, V1,
+    SearchSource, ServerPath, SessionId, Size, Style, TerminalColors, V2,
 };
 
 impl Message {
@@ -123,7 +123,10 @@ fn remote_samples() -> Vec<Message> {
         enabled: true,
         port: crate::DEFAULT_REMOTE_PORT,
     };
-    let mut messages = vec![Message::RemoteAccessChanged { revision: 7 }];
+    let mut messages = vec![Message::Changed {
+        topic: crate::Topic::RemoteAccess,
+        revision: 7,
+    }];
     for body in [
         RequestBody::IdentifyClient(crate::ClientKind::Mobile),
         RequestBody::Authenticate(credential),
@@ -345,22 +348,21 @@ fn settings_samples() -> Vec<Message> {
 
 fn hello_reply_sample() -> Message {
     Message::HelloReply {
-        versions: vec![V1],
+        versions: vec![V2],
         server: crate::ServerInfo {
             build: crate::BuildInfo {
                 version: "fixture".into(),
                 compatibility: crate::COMPATIBILITY,
+                protocol: crate::SUPPORTED.to_vec(),
             },
             instance: 1,
         },
+        features: vec![crate::Feature(1)],
     }
 }
 
 fn hello_sample() -> Message {
-    Message::Hello {
-        versions: vec![V1],
-        compatibility: crate::COMPATIBILITY,
-    }
+    Message::Hello { versions: vec![V2] }
 }
 
 fn sample_cursor() -> Cursor {
@@ -405,6 +407,11 @@ fn terminal_metadata_samples(samples: &mut Vec<Message>) {
     }));
 }
 
+fn changed_samples() -> [Message; 2] {
+    [(crate::Topic::Catalog, 1), (crate::Topic::Sessions, 2)]
+        .map(|(topic, revision)| Message::Changed { topic, revision })
+}
+
 fn project_samples() -> Vec<Message> {
     use crate::{
         CatalogPage, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
@@ -422,9 +429,7 @@ fn project_samples() -> Vec<Message> {
         parent_id: None,
     };
     let operation = OperationId::from_u128(2);
-    vec![
-        Message::CatalogChanged { revision: 1 },
-        Message::SessionsChanged { revision: 2 },
+    let mut samples = vec![
         Message::Request {
             id: RequestId(5),
             body: RequestBody::IdentifyClient(crate::ClientKind::Desktop),
@@ -504,7 +509,9 @@ fn project_samples() -> Vec<Message> {
             id: RequestId(4),
             body: ReplyBody::CreationCancelled,
         },
-    ]
+    ];
+    samples.extend(changed_samples());
+    samples
 }
 
 fn close_samples() -> Vec<Message> {
@@ -658,7 +665,10 @@ fn git_review_samples() -> Vec<Message> {
 
 fn activity_samples(session: SessionId) -> Vec<Message> {
     vec![
-        Message::ActivityChanged { revision: 42 },
+        Message::Changed {
+            topic: crate::Topic::Activity,
+            revision: 42,
+        },
         Message::Request {
             id: RequestId(1),
             body: RequestBody::ReadActivity,

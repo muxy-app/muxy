@@ -7,11 +7,11 @@ use std::thread;
 use std::time::Duration;
 
 use muxy_protocol::transport::{ByteStream, StreamCancellation};
-use muxy_protocol::wire::{Decoder, Encoder, message_version};
+use muxy_protocol::wire::{Decoder, Encoder};
 use muxy_protocol::{
-    CONTROL, ChannelId, ErrorCode, ErrorReply, ForegroundProcess, HistoryCursor, HistoryPage,
-    Message, MouseEvent, ReplyBody, RequestBody, SavedScreen, SearchPage, SearchSource, ServerPath,
-    SessionId, SessionInfo, Size, TerminalColors, Version,
+    CONTROL, ChannelId, ErrorCode, Feature, ForegroundProcess, HistoryCursor, HistoryPage, Message,
+    MouseEvent, ReplyBody, RequestBody, SavedScreen, SearchPage, SearchSource, ServerPath,
+    SessionId, SessionInfo, Size, TerminalColors,
 };
 
 use crate::events::{self, ClientEvent};
@@ -36,8 +36,8 @@ struct Shared {
     pending: Arc<Pending>,
     events: Mutex<Option<Receiver<ClientEvent>>>,
     cancellation: Arc<dyn StreamCancellation>,
-    version: Version,
     server: muxy_protocol::ServerInfo,
+    features: Vec<Feature>,
 }
 
 impl Drop for Shared {
@@ -111,8 +111,8 @@ impl Client {
                 RecvTimeoutError::Disconnected => ClientError::Disconnected,
             })
             .and_then(std::convert::identity);
-        let (version, server) = match negotiated {
-            Ok(version) => version,
+        let (server, features) = match negotiated {
+            Ok(accepted) => accepted,
             Err(error) => {
                 cancellation.cancel();
                 return Err(error);
@@ -127,8 +127,8 @@ impl Client {
             pending,
             events: Mutex::new(Some(receiver)),
             cancellation,
-            version,
             server,
+            features,
         });
         let writer_pending = Arc::clone(&shared.pending);
         let writer_cancellation = Arc::clone(&shared.cancellation);
@@ -190,6 +190,11 @@ impl Client {
 
     pub fn server_info(&self) -> &muxy_protocol::ServerInfo {
         &self.shared.server
+    }
+
+    /// Whether the connected server offers `feature`; older servers lack newer features.
+    pub fn supports(&self, feature: Feature) -> bool {
+        self.shared.features.contains(&feature)
     }
 
     /// Atomically refuses to stop if a terminal is running or being created.
@@ -455,20 +460,7 @@ impl Client {
             body: body.clone(),
         }
         .validate()
-        .map_err(ClientError::Invalid)
-        .and_then(|()| {
-            if message_version(&Message::Request {
-                id: muxy_protocol::RequestId(0),
-                body: body.clone(),
-            }) > self.shared.version
-            {
-                Err(ClientError::Protocol(
-                    "request requires a newer server".into(),
-                ))
-            } else {
-                Ok(())
-            }
-        });
+        .map_err(ClientError::Invalid);
         if let Err(error) = validation {
             return crate::Request::failed(error, decode);
         }
@@ -514,12 +506,6 @@ impl Client {
 
     fn send(&self, channel: ChannelId, message: &Message) -> Result<(), ClientError> {
         message.validate().map_err(ClientError::Invalid)?;
-        if message_version(message) > self.shared.version {
-            return Err(ClientError::Server(ErrorReply {
-                code: ErrorCode::BadRequest,
-                message: "The running server does not support this message".into(),
-            }));
-        }
         if self.shared.pending.is_closed() {
             return Err(ClientError::Disconnected);
         }

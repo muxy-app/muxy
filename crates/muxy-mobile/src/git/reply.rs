@@ -247,6 +247,8 @@ pub enum GitRefKind {
     RemoteBranch,
     Tag,
     Head,
+    /// A kind of reference added in a newer server.
+    Other,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
@@ -630,7 +632,9 @@ impl From<protocol::GitDiffRow> for GitDiffRow {
         Self {
             kind: match kind {
                 protocol::GitDiffKind::Hunk => GitDiffKind::Hunk,
-                protocol::GitDiffKind::Context => GitDiffKind::Context,
+                protocol::GitDiffKind::Context | protocol::GitDiffKind::Unrecognized(_) => {
+                    GitDiffKind::Context
+                }
                 protocol::GitDiffKind::Addition => GitDiffKind::Addition,
                 protocol::GitDiffKind::Deletion => GitDiffKind::Deletion,
             },
@@ -676,6 +680,7 @@ impl From<protocol::GitRef> for GitRef {
                 protocol::GitRefKind::RemoteBranch => GitRefKind::RemoteBranch,
                 protocol::GitRefKind::Tag => GitRefKind::Tag,
                 protocol::GitRefKind::Head => GitRefKind::Head,
+                protocol::GitRefKind::Unrecognized(_) => GitRefKind::Other,
             },
         }
     }

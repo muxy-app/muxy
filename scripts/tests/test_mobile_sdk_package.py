@@ -10,9 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "2.0.0-beta-1234"
-SPEC = importlib.util.spec_from_file_location("compatibility", ROOT / "scripts/beta_compatibility.py")
-compatibility = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(compatibility)
+SPEC = importlib.util.spec_from_file_location("beta_release", ROOT / "scripts/beta_release.py")
+beta_release = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(beta_release)
 
 # What scripts/build-mobile-sdk.sh writes, including intermediate files that are not shipped.
 BUILT = [
@@ -71,7 +71,7 @@ class MobileSdkPackageTests(unittest.TestCase):
         metadata = json.loads((self.output / f"muxy-mobile-{VERSION}.json").read_text())
         self.assertEqual(metadata, {
             "version": VERSION,
-            "compatibility": compatibility.identifier(),
+            **beta_release.build_metadata(),
             "sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in (ios, android)},
         })
         self.assertEqual(len(list(self.output.iterdir())), 3)

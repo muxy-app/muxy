@@ -15,7 +15,8 @@ pub(crate) fn label(state: PaneState) -> Option<String> {
         PaneState::Exited { reason, .. } => Some(match reason {
             Some(ExitReason::Exited(code)) => format!("Session exited · Exit code {code}"),
             Some(ExitReason::Signaled(signal)) => format!("Session exited · Signal {signal}"),
-            Some(ExitReason::Ended | ExitReason::ServerStopped) | None => "Session exited".into(),
+            Some(ExitReason::Ended | ExitReason::ServerStopped | ExitReason::Unrecognized(_))
+            | None => "Session exited".into(),
         }),
     }
 }

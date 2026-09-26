@@ -116,7 +116,6 @@ impl Fixture {
                 CONTROL,
                 Message::Hello {
                     versions: SUPPORTED.to_vec(),
-                    compatibility: muxy_protocol::COMPATIBILITY,
                 },
             )?;
             assert_eq!(
@@ -125,7 +124,8 @@ impl Fixture {
                     CONTROL,
                     Message::HelloReply {
                         versions: SUPPORTED.to_vec(),
-                        server: muxy_protocol::ServerInfo::current()
+                        server: muxy_protocol::ServerInfo::current(),
+                        features: muxy_protocol::FEATURES.to_vec(),
                     }
                 )
             );
@@ -321,7 +321,6 @@ fn incompatible_versions_are_rejected_and_closed() -> TestResult {
         CONTROL,
         Message::Hello {
             versions: vec![Version(99)],
-            compatibility: muxy_protocol::COMPATIBILITY,
         },
     )?;
     assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
@@ -333,13 +332,7 @@ fn invalid_or_misplaced_hellos_are_fatal() -> TestResult {
     let fixture = Fixture::new()?;
     for (channel, versions) in [(CONTROL, vec![]), (ChannelId(1), SUPPORTED.to_vec())] {
         let mut client = fixture.client(false)?;
-        client.send(
-            channel,
-            Message::Hello {
-                versions,
-                compatibility: muxy_protocol::COMPATIBILITY,
-            },
-        )?;
+        client.send(channel, Message::Hello { versions })?;
         assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
         client.closed()?;
     }
@@ -349,13 +342,15 @@ fn invalid_or_misplaced_hellos_are_fatal() -> TestResult {
 #[test]
 fn malformed_headers_and_payloads_are_fatal() -> TestResult {
     let fixture = Fixture::new()?;
-    for hello in [false, true] {
-        for kind in [0x3f, muxy_protocol::wire::MessageKind::Hello as u8] {
-            let mut client = fixture.client(hello)?;
+    let hello = muxy_protocol::wire::MessageKind::Hello as u8;
+    for greeted in [false, true] {
+        // A reserved flag bit, then a hello without its field array.
+        for kind in [hello | 0x40, hello] {
+            let mut client = fixture.client(greeted)?;
             client.socket.write_all(
                 &muxy_protocol::wire::Header {
                     length: 7,
-                    version: 1,
+                    version: muxy_protocol::CURRENT.0,
                     channel: 0,
                     kind,
                 }
@@ -368,6 +363,46 @@ fn malformed_headers_and_payloads_are_fatal() -> TestResult {
     Ok(())
 }
 
+/// A frame as a newer build would write it: `payload` is raw CBOR.
+fn newer_frame(kind: u8, payload: &[u8]) -> TestResult<Vec<u8>> {
+    let mut header = muxy_protocol::wire::Header::new(
+        payload.len(),
+        CONTROL,
+        muxy_protocol::wire::MessageKind::Hello,
+    )?;
+    header.kind = kind;
+    let mut bytes = header.to_bytes().to_vec();
+    bytes.extend_from_slice(payload);
+    Ok(bytes)
+}
+
+#[test]
+fn messages_from_newer_clients_keep_the_connection_usable() -> TestResult {
+    let fixture = Fixture::new()?;
+    let mut client = fixture.client(true)?;
+    // An unknown kind with an empty field array is ignored.
+    client.socket.write_all(&newer_frame(40, &[0x80])?)?;
+    // Request 5 names method 900 with no fields: [5, [900, []]].
+    let request = muxy_protocol::wire::MessageKind::Request as u8;
+    client.socket.write_all(&newer_frame(
+        request,
+        &[0x82, 0x05, 0x82, 0x19, 0x03, 0x84, 0x80],
+    )?)?;
+    assert!(matches!(
+        client.receive()?,
+        (
+            CONTROL,
+            Message::Reply {
+                id: RequestId(5),
+                body: ReplyBody::Error(error),
+            },
+        ) if error.code == ErrorCode::Unsupported
+    ));
+    let reply = client.request(RequestBody::Ping)?;
+    assert_eq!(reply, ReplyBody::Pong);
+    Ok(())
+}
+
 #[test]
 fn server_messages_repeated_hello_and_unknown_input_are_fatal() -> TestResult {
     let fixture = Fixture::new()?;
@@ -376,7 +411,6 @@ fn server_messages_repeated_hello_and_unknown_input_are_fatal() -> TestResult {
             CONTROL,
             Message::Hello {
                 versions: SUPPORTED.to_vec(),
-                compatibility: muxy_protocol::COMPATIBILITY,
             },
         ),
         (
@@ -640,7 +674,6 @@ fn fatal_is_the_last_message_even_with_an_attach_in_progress() -> TestResult {
             CONTROL,
             Message::Hello {
                 versions: SUPPORTED.to_vec(),
-                compatibility: muxy_protocol::COMPATIBILITY,
             },
         )?;
         loop {
@@ -870,7 +903,6 @@ fn reader_eof_and_fatal_cancel_a_blocked_writer() -> TestResult {
         let mut decoder = Decoder::new(peer.try_clone()?);
         let hello = Message::Hello {
             versions: SUPPORTED.to_vec(),
-            compatibility: muxy_protocol::COMPATIBILITY,
         };
         encoder.send(CONTROL, &hello)?;
         assert!(matches!(
@@ -999,7 +1031,6 @@ fn writer_failure_cancels_an_idle_reader_and_returns_the_error() -> TestResult {
         CONTROL,
         &Message::Hello {
             versions: SUPPORTED.to_vec(),
-            compatibility: muxy_protocol::COMPATIBILITY,
         },
     )?;
     assert!(matches!(
@@ -1050,24 +1081,41 @@ fn idle_shutdown_counts_sessions_from_other_clients_and_blocks_new_spawns() -> T
 }
 
 #[test]
-fn incompatible_beta_hello_never_opens_a_request_channel() -> TestResult {
+fn hellos_without_a_shared_version_never_open_a_request_channel() -> TestResult {
     let fixture = Fixture::new()?;
     let session = fixture.registry.create(&fixture.directory, SIZE)?;
-    for compatibility in [
-        muxy_protocol::COMPATIBILITY - 1,
-        muxy_protocol::COMPATIBILITY + 1,
-    ] {
-        let mut client = fixture.client(false)?;
-        client.send(
-            CONTROL,
-            Message::Hello {
-                versions: SUPPORTED.to_vec(),
-                compatibility,
-            },
-        )?;
-        assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
-    }
+    let mut client = fixture.client(false)?;
+    client.send(
+        CONTROL,
+        Message::Hello {
+            versions: vec![Version(u16::MAX)],
+        },
+    )?;
+    assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
     assert_eq!(fixture.registry.list(), vec![session]);
+    Ok(())
+}
+
+#[test]
+fn clients_from_before_v2_are_told_to_update_in_their_own_framing() -> TestResult {
+    use std::io::{Read, Write};
+
+    let fixture = Fixture::new()?;
+    let (mut socket, server) = UnixStream::pair()?;
+    let (sender, events) = mpsc::channel();
+    fixture
+        .subscribers
+        .lock()
+        .map_err(|_| "subscriber lock poisoned")?
+        .push(sender);
+    let registry = Arc::clone(&fixture.registry);
+    let serving = thread::spawn(move || serve(Box::new(server), registry, events));
+    // A pre-V2 hello: version-1 header, then postcard (versions, compatibility).
+    socket.write_all(&[10, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 20])?;
+    let mut reply = Vec::new();
+    socket.read_to_end(&mut reply)?;
+    assert_eq!(reply, muxy_protocol::wire::legacy_version_unsupported());
+    serving.join().map_err(|_| "server thread panicked")??;
     Ok(())
 }
 

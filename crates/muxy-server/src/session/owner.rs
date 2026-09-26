@@ -648,7 +648,9 @@ impl Owner {
                         ProgressState::Running => {
                             format!("4;1;{}", p.percent.map_or(-1, i16::from))
                         }
-                        ProgressState::Indeterminate => "4;1;-1".into(),
+                        ProgressState::Indeterminate | ProgressState::Unrecognized(_) => {
+                            "4;1;-1".into()
+                        }
                         ProgressState::Error => "4;2".into(),
                         ProgressState::Paused => "4;4".into(),
                     },

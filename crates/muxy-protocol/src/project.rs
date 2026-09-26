@@ -1,16 +1,36 @@
 use std::fmt;
 use std::str::FromStr;
 
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+
+use crate::wire::cbor::open_enum;
 use uuid::Uuid;
 
 macro_rules! id {
     ($name:ident) => {
         #[derive(
-            Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+            Clone,
+            Copy,
+            Debug,
+            Eq,
+            Hash,
+            Ord,
+            PartialEq,
+            PartialOrd,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
         )]
         #[serde(transparent)]
-        pub struct $name(#[serde(with = "uuid::serde::simple")] Uuid);
+        #[cbor(transparent)]
+        pub struct $name(
+            #[n(0)]
+            #[cbor(with = "crate::wire::cbor::bytes")]
+            #[serde(with = "uuid::serde::simple")]
+            Uuid,
+        );
 
         impl $name {
             pub const fn from_u128(value: u128) -> Self {
@@ -56,23 +76,35 @@ use unicode_segmentation::UnicodeSegmentation;
 pub const CATALOG_PAGE_SIZE: usize = 128;
 pub const MAX_PROJECTS: usize = 4096;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProjectKind {
-    Worktree,
+open_enum! {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProjectKind {
+        Worktree = 0,
+    }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ProjectDescriptor {
+    #[n(0)]
     pub id: ProjectId,
+    #[n(1)]
     pub home: bool,
+    #[n(2)]
     pub directory: ServerPath,
+    #[n(3)]
     pub name: String,
+    #[n(4)]
     pub icon: Option<String>,
     #[serde(default)]
+    #[n(5)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
     pub logo: Option<std::sync::Arc<[u8]>>,
+    #[n(6)]
     pub color: String,
+    #[n(7)]
     pub kind: Option<ProjectKind>,
+    #[n(8)]
     pub parent_id: Option<ProjectId>,
 }
 
@@ -165,12 +197,20 @@ fn validate_color(color: &str) -> Result<(), ErrorCode> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum ProjectPatch {
-    Name(String),
-    Icon(Option<String>),
-    Color(String),
-    Logo(Option<std::sync::Arc<[u8]>>),
+    #[n(0)]
+    Name(#[n(0)] String),
+    #[n(1)]
+    Icon(#[n(0)] Option<String>),
+    #[n(2)]
+    Color(#[n(0)] String),
+    #[n(3)]
+    Logo(
+        #[n(0)]
+        #[cbor(with = "crate::wire::cbor::bytes")]
+        Option<std::sync::Arc<[u8]>>,
+    ),
 }
 
 impl ProjectPatch {
@@ -192,20 +232,29 @@ impl ProjectPatch {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum ProjectMutation {
-    Create(ProjectDescriptor),
+    #[n(0)]
+    Create(#[n(0)] ProjectDescriptor),
+    #[n(1)]
     Patch {
+        #[n(0)]
         project: ProjectId,
+        #[n(1)]
         patch: ProjectPatch,
     },
-    Delete(ProjectId),
+    #[n(2)]
+    Delete(#[n(0)] ProjectId),
 }
 
 impl ProjectMutation {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
-            Self::Create(project) if project.home => Err(ErrorCode::BadRequest),
+            Self::Create(project)
+                if project.home || matches!(project.kind, Some(ProjectKind::Unrecognized(_))) =>
+            {
+                Err(ErrorCode::BadRequest)
+            }
             Self::Create(project) => project.validate(),
             Self::Patch { patch, .. } => patch.validate(),
             Self::Delete(_) => Ok(()),
@@ -213,42 +262,59 @@ impl ProjectMutation {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ProjectIntent {
+    #[n(0)]
     pub operation: OperationId,
+    #[n(1)]
     pub mutation: ProjectMutation,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct CatalogPage {
+    #[n(0)]
     pub server: ServerIdentity,
+    #[n(1)]
     pub home: ProjectId,
+    #[n(2)]
     pub revision: u64,
+    #[n(3)]
     pub projects: Vec<ProjectDescriptor>,
+    #[n(4)]
     pub next: Option<ProjectId>,
+    #[n(5)]
     pub legacy_home: Option<ProjectId>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum SessionStatus {
-    Starting,
-    Live,
-    Ended,
-    Unavailable,
+open_enum! {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    pub enum SessionStatus {
+        Starting = 0,
+        Live = 1,
+        Ended = 2,
+        Unavailable = 3,
+    }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ProjectSession {
+    #[n(0)]
     pub info: SessionInfo,
+    #[n(1)]
     pub status: SessionStatus,
+    #[n(2)]
     pub owner: Option<crate::SessionClient>,
+    #[n(3)]
     pub attached: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ProjectSessions {
+    #[n(0)]
     pub revision: u64,
+    #[n(1)]
     pub sessions: Vec<ProjectSession>,
+    #[n(2)]
     pub next: Option<SessionId>,
 }
 

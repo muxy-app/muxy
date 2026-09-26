@@ -12,8 +12,8 @@ come from the historical [benchmarks](./benchmarks.md).
   paired phones use TLS over TCP on IPv4. Desktop and TUI remote transport,
   native Windows, and musl/Alpine support are deferred.
 - The mobile SDK builds for iOS devices and simulators, and for Android, with
-  `scripts/build-mobile-sdk.sh`. During the beta a phone and its server must
-  share the compatibility identifier, so phone releases follow its bumps.
+  `scripts/build-mobile-sdk.sh`. A phone and its server must share a protocol
+  version; additive changes keep it, so phone releases follow only breaking ones.
 - Turning on mobile access may show the macOS firewall prompt for
   `muxy-server`, and the iOS app needs local-network permission to reach LAN
   addresses. `MUXY_REMOTE_BIND` limits the listener to one IPv4 address; tests

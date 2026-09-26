@@ -85,7 +85,6 @@ fn probe(path: &Path) -> Result {
         CONTROL,
         &Message::Hello {
             versions: SUPPORTED.to_vec(),
-            compatibility: muxy_protocol::COMPATIBILITY,
         },
     )?;
     match decoder.next()? {

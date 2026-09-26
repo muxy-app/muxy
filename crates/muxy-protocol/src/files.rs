@@ -1,3 +1,4 @@
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{ErrorCode, ProjectId, ServerPath};
@@ -7,71 +8,108 @@ pub const MAX_FILE_ENTRIES: usize = 16_384;
 pub const MAX_FILE_PATH_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_FILE_CHANGES: usize = 256;
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct FilesRequest {
+    #[n(0)]
     pub project: ProjectId,
+    #[n(1)]
     pub action: FilesAction,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum FilesAction {
-    List(ServerPath),
-    Read(ServerPath),
-    Stat(ServerPath),
+    #[n(0)]
+    List(#[n(0)] ServerPath),
+    #[n(1)]
+    Read(#[n(0)] ServerPath),
+    #[n(2)]
+    Stat(#[n(0)] ServerPath),
+    #[n(3)]
     Write {
+        #[n(0)]
         path: ServerPath,
+        #[n(1)]
         content: String,
     },
-    Mkdir(ServerPath),
+    #[n(4)]
+    Mkdir(#[n(0)] ServerPath),
+    #[n(5)]
     Rename {
+        #[n(0)]
         path: ServerPath,
+        #[n(1)]
         name: ServerPath,
     },
+    #[n(6)]
     Move {
+        #[n(0)]
         paths: Vec<ServerPath>,
+        #[n(1)]
         into: ServerPath,
     },
-    Delete(Vec<ServerPath>),
+    #[n(7)]
+    Delete(#[n(0)] Vec<ServerPath>),
+    #[n(8)]
     Watch,
+    #[n(9)]
     Unwatch,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct FileEntry {
+    #[n(0)]
     pub name: ServerPath,
+    #[n(1)]
     pub path: ServerPath,
+    #[n(2)]
     pub is_directory: bool,
+    #[n(3)]
     pub is_ignored: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct FileInfo {
+    #[n(0)]
     pub name: ServerPath,
+    #[n(1)]
     pub path: ServerPath,
+    #[n(2)]
     pub is_directory: bool,
+    #[n(3)]
     pub size: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct FileContent {
+    #[n(0)]
     pub path: ServerPath,
+    #[n(1)]
     pub content: String,
+    #[n(2)]
     pub size: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum FilesReply {
-    Entries(Vec<FileEntry>),
-    Content(FileContent),
-    Info(FileInfo),
-    Path(ServerPath),
-    Paths(Vec<ServerPath>),
+    #[n(0)]
+    Entries(#[n(0)] Vec<FileEntry>),
+    #[n(1)]
+    Content(#[n(0)] FileContent),
+    #[n(2)]
+    Info(#[n(0)] FileInfo),
+    #[n(3)]
+    Path(#[n(0)] ServerPath),
+    #[n(4)]
+    Paths(#[n(0)] Vec<ServerPath>),
+    #[n(5)]
     Done,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct FileChanges {
+    #[n(0)]
     pub paths: Vec<ServerPath>,
+    #[n(1)]
     pub rescan: bool,
 }
 

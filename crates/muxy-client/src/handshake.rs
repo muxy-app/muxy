@@ -1,38 +1,39 @@
 use muxy_protocol::wire::WireError;
-use muxy_protocol::{CONTROL, ChannelId, Message, SUPPORTED, Version, validate_versions};
+use muxy_protocol::{
+    CONTROL, ChannelId, Feature, Message, SUPPORTED, ServerInfo, validate_versions,
+};
 
 use crate::ClientError;
 
 pub(crate) fn hello() -> Message {
     Message::Hello {
         versions: SUPPORTED.to_vec(),
-        compatibility: muxy_protocol::COMPATIBILITY,
     }
 }
 
+/// The server's identity and the features it offers, once a shared version is found.
 pub(crate) fn accept(
     received: Result<(ChannelId, Message), WireError>,
-) -> Result<(Version, muxy_protocol::ServerInfo), ClientError> {
+) -> Result<(ServerInfo, Vec<Feature>), ClientError> {
     match received {
-        Ok((CONTROL, Message::HelloReply { versions, server })) => {
-            if server.build.compatibility != muxy_protocol::COMPATIBILITY {
-                return Err(ClientError::VersionUnsupported);
-            }
+        Ok((
+            CONTROL,
+            Message::HelloReply {
+                versions,
+                server,
+                features,
+            },
+        )) => {
             validate_versions(&versions).map_err(ClientError::Invalid)?;
-            versions
-                .into_iter()
-                .filter(|version| SUPPORTED.contains(version))
-                .max()
-                .map(|version| (version, server))
-                .ok_or(ClientError::VersionUnsupported)
+            if versions.iter().any(|version| SUPPORTED.contains(version)) {
+                Ok((server, features))
+            } else {
+                Err(ClientError::VersionUnsupported)
+            }
         }
-        Ok((CONTROL, Message::VersionUnsupported)) | Err(WireError::Decode(_)) => {
-            Err(ClientError::VersionUnsupported)
-        }
-        Ok((CONTROL, Message::Fatal(error)))
-            if error.code == muxy_protocol::ErrorCode::BadRequest
-                && error.message.starts_with("invalid wire payload:") =>
-        {
+        // Servers from before V2 answer in a framing this build doesn't read.
+        Ok((CONTROL, Message::VersionUnsupported))
+        | Err(WireError::UnsupportedVersion(_) | WireError::Decode(_)) => {
             Err(ClientError::VersionUnsupported)
         }
         Ok((CONTROL, Message::Fatal(error))) => Err(ClientError::Protocol(error.message)),
@@ -46,43 +47,32 @@ pub(crate) fn accept(
 
 #[cfg(test)]
 mod tests {
-    use muxy_protocol::{ErrorCode, ErrorReply};
+    use muxy_protocol::{ErrorCode, ErrorReply, Version};
 
     use super::*;
 
+    fn reply(versions: Vec<Version>) -> (ChannelId, Message) {
+        (
+            CONTROL,
+            Message::HelloReply {
+                versions,
+                server: ServerInfo::current(),
+                features: vec![Feature(7)],
+            },
+        )
+    }
+
     #[test]
-    fn accepts_a_common_version_and_rejects_everything_else() {
+    fn accepts_a_shared_version_and_rejects_everything_else() {
         assert!(
-            matches!(accept(Ok((CONTROL, Message::HelloReply { versions: vec![Version(99), muxy_protocol::V1], server: muxy_protocol::ServerInfo::current() }))), Ok((version, _)) if version == muxy_protocol::V1)
-        );
-        assert!(
-            accept(Ok((
-                CONTROL,
-                Message::HelloReply {
-                    versions: vec![Version(u16::MAX), muxy_protocol::V1],
-                    server: muxy_protocol::ServerInfo::current()
-                }
-            )))
-            .is_ok()
+            matches!(accept(Ok(reply(vec![Version(99), muxy_protocol::CURRENT]))), Ok((_, features)) if features == [Feature(7)])
         );
         assert!(matches!(
-            accept(Ok((
-                CONTROL,
-                Message::HelloReply {
-                    versions: vec![Version(u16::MAX)],
-                    server: muxy_protocol::ServerInfo::current()
-                }
-            ))),
+            accept(Ok(reply(vec![Version(u16::MAX)]))),
             Err(ClientError::VersionUnsupported)
         ));
         assert!(matches!(
-            accept(Ok((
-                CONTROL,
-                Message::HelloReply {
-                    versions: vec![],
-                    server: muxy_protocol::ServerInfo::current()
-                }
-            ))),
+            accept(Ok(reply(vec![]))),
             Err(ClientError::Invalid(ErrorCode::BadRequest))
         ));
         assert!(matches!(
@@ -102,56 +92,14 @@ mod tests {
             Err(ClientError::Disconnected)
         ));
     }
+
     #[test]
-    fn beta_mismatches_report_a_server_update_without_hiding_other_failures() {
-        for compatibility in [
-            muxy_protocol::COMPATIBILITY - 1,
-            muxy_protocol::COMPATIBILITY + 1,
-        ] {
-            let mut server = muxy_protocol::ServerInfo::current();
-            server.build.compatibility = compatibility;
-            assert!(matches!(
-                accept(Ok((
-                    CONTROL,
-                    Message::HelloReply {
-                        versions: SUPPORTED.to_vec(),
-                        server
-                    }
-                ))),
-                Err(ClientError::VersionUnsupported)
-            ));
-        }
-        let legacy_reply = [9, 0, 0, 0, 1, 0, 0, 0, 0, 0, 4, 1, 1];
-        assert!(matches!(
-            accept(muxy_protocol::wire::Decoder::new(legacy_reply.as_slice()).next()),
-            Err(ClientError::VersionUnsupported)
-        ));
-        let rejected = Message::Fatal(ErrorReply {
-            code: ErrorCode::BadRequest,
-            message: "invalid wire payload: The original data was not well encoded".into(),
-        });
-        let error =
-            accept(Ok((CONTROL, rejected))).expect_err("old server rejects the changed hello");
+    fn servers_from_before_v2_report_an_update() {
+        // A pre-V2 server rejects the V2 hello in its own version-1 framing.
+        let legacy_fatal = [9, 0, 0, 0, 1, 0, 0, 0, 0, 0, 8, 1, 1];
+        let error = accept(muxy_protocol::wire::Decoder::new(legacy_fatal.as_slice()).next())
+            .expect_err("a version-1 frame is unreadable");
         assert!(matches!(error, ClientError::VersionUnsupported));
-        assert!(
-            error
-                .to_string()
-                .contains("app and server use incompatible beta builds")
-        );
-        assert!(
-            error
-                .to_string()
-                .contains("Restarting the server will end active terminal sessions")
-        );
-        assert!(matches!(
-            accept(Ok((
-                CONTROL,
-                Message::Fatal(ErrorReply {
-                    code: ErrorCode::BadRequest,
-                    message: "expected Hello on control".into()
-                })
-            ))),
-            Err(ClientError::Protocol(_))
-        ));
+        assert!(error.to_string().contains("can't talk to each other"));
     }
 }

@@ -1,8 +1,13 @@
+use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+use crate::wire::cbor::open_enum;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Size {
+    #[n(0)]
     pub cols: u16,
+    #[n(1)]
     pub rows: u16,
 }
 
@@ -25,13 +30,15 @@ pub enum Underline {
     Dashed,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub enum CursorShape {
-    #[default]
-    Block,
-    Bar,
-    Underline,
-    Hollow,
+open_enum! {
+    #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
+    pub enum CursorShape {
+        #[default]
+        Block = 0,
+        Bar = 1,
+        Underline = 2,
+        Hollow = 3,
+    }
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -69,27 +76,41 @@ pub struct Row {
     pub runs: Vec<Run>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Cursor {
+    #[n(0)]
     pub shape: CursorShape,
+    #[n(1)]
     pub row: u16,
+    #[n(2)]
     pub col: u16,
+    #[n(3)]
     pub visible: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Modes {
+    #[n(0)]
     pub application_cursor_keys: bool,
+    #[n(1)]
     pub bracketed_paste: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ScreenFrame {
+    #[n(0)]
     pub size: Size,
+    #[n(1)]
     pub graphics: Option<crate::Graphics>,
+    #[n(2)]
     pub seq: u64,
+    #[n(3)]
     pub reset: bool,
+    #[n(4)]
+    #[cbor(with = "crate::wire::cbor::rows")]
     pub rows: Vec<Row>,
+    #[n(5)]
     pub cursor: Cursor,
+    #[n(6)]
     pub modes: Modes,
 }

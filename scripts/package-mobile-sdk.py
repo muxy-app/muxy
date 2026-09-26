@@ -7,8 +7,7 @@ import json
 from pathlib import Path
 import zipfile
 
-from beta_compatibility import identifier
-from beta_release import build_number
+from beta_release import build_metadata, build_number
 
 ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 
@@ -31,7 +30,7 @@ def contents(sdk):
 
 def package(version, sdk, output):
     build_number(version)
-    compatibility = identifier()
+    build = build_metadata()
     zips = contents(sdk)
     output.mkdir(parents=True, exist_ok=True)
     checksums = {}
@@ -41,7 +40,7 @@ def package(version, sdk, output):
             for entry, source in entries:
                 archive.write(source, entry)
         checksums[name] = hashlib.sha256((output / name).read_bytes()).hexdigest()
-    metadata = {"version": version, "compatibility": compatibility, "sha256": checksums}
+    metadata = {"version": version, **build, "sha256": checksums}
     (output / f"muxy-mobile-{version}.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
 

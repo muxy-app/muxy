@@ -84,6 +84,7 @@ fn fake_server(
         &Message::HelloReply {
             versions: SUPPORTED.to_vec(),
             server: muxy_protocol::ServerInfo::current(),
+            features: Vec::new(),
         },
     )?;
     identify_desktop(&mut decoder, &mut encoder)?;
@@ -442,6 +443,7 @@ fn withhold_extension_replies(listener: &UnixListener, started: &Sender<()>) -> 
         &Message::HelloReply {
             versions: SUPPORTED.to_vec(),
             server: muxy_protocol::ServerInfo::current(),
+            features: Vec::new(),
         },
     )?;
     identify_desktop(&mut decoder, &mut encoder)?;

@@ -51,12 +51,11 @@ fn a_phone_that_connects_first_never_receives_desktop_notifications() {
         .collect();
     let changes = Arc::clone(&registry.attachment_changes);
     let phone = Arc::new(Outbox::for_device(
-        muxy_protocol::V1,
         Arc::clone(&changes),
         muxy_protocol::DeviceId::new(),
     ));
     registry.register_connection(&phone);
-    let desktop = Arc::new(Outbox::new(muxy_protocol::V1, changes));
+    let desktop = Arc::new(Outbox::new(changes));
     desktop.identify(muxy_protocol::ClientKind::Desktop);
     registry.register_connection(&desktop);
     assert!(!events.is_empty());

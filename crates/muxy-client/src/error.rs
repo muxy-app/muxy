@@ -25,7 +25,7 @@ impl fmt::Display for ClientError {
         match self {
             Self::Io(error) => write!(formatter, "connection failed: {error}"),
             Self::Wire(error) => write!(formatter, "wire error: {error}"),
-            Self::VersionUnsupported => formatter.write_str("The app and server use incompatible beta builds. Restarting the server will end active terminal sessions."),
+            Self::VersionUnsupported => formatter.write_str("This app and the running server can't talk to each other. Restarting the server will end active terminal sessions."),
             Self::Protocol(message) => write!(formatter, "protocol violation: {message}"),
             Self::Invalid(code) => write!(formatter, "invalid request: {code:?}"),
             Self::Server(error) => write!(formatter, "{:?}: {}", error.code, error.message),

@@ -7,9 +7,9 @@ pub enum WireError {
     Io(io::Error),
     Closed,
     FrameTooLarge,
-    UnknownKind(u8),
     FlagsSet(u8),
-    Decode(postcard::Error),
+    Decode(minicbor::decode::Error),
+    Encode(String),
     UnsupportedVersion(u16),
 }
 
@@ -19,9 +19,9 @@ impl fmt::Display for WireError {
             Self::Io(error) => write!(formatter, "wire I/O failed: {error}"),
             Self::Closed => formatter.write_str("Closed"),
             Self::FrameTooLarge => formatter.write_str("frame exceeds 16 MiB"),
-            Self::UnknownKind(kind) => write!(formatter, "unknown message kind: {kind}"),
             Self::FlagsSet(kind) => write!(formatter, "reserved flag bits set: {kind:#04x}"),
             Self::Decode(error) => write!(formatter, "invalid wire payload: {error}"),
+            Self::Encode(error) => write!(formatter, "could not encode payload: {error}"),
             Self::UnsupportedVersion(version) => {
                 write!(formatter, "unsupported wire version: {version}")
             }
@@ -49,8 +49,14 @@ impl From<io::Error> for WireError {
     }
 }
 
-impl From<postcard::Error> for WireError {
-    fn from(error: postcard::Error) -> Self {
+impl From<minicbor::decode::Error> for WireError {
+    fn from(error: minicbor::decode::Error) -> Self {
         Self::Decode(error)
+    }
+}
+
+impl From<minicbor::encode::Error<std::convert::Infallible>> for WireError {
+    fn from(error: minicbor::encode::Error<std::convert::Infallible>) -> Self {
+        Self::Encode(error.to_string())
     }
 }

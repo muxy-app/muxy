@@ -10,6 +10,18 @@ ROOT = Path(__file__).resolve().parent.parent
 VERSION_PATTERN = re.compile(r"2\.0\.0-beta-([1-9][0-9]*)")
 
 
+def build_metadata(root=ROOT):
+    """The --build-info every executable of this checkout reports."""
+    build = (root / "crates/muxy-protocol/src/build.rs").read_text()
+    version = (root / "crates/muxy-protocol/src/version.rs").read_text()
+    current = re.search(r"pub const CURRENT: Version = (V\d+);", version)[1]
+    number = int(re.search(rf"pub const {current}: Version = Version\((\d+)\);", version)[1])
+    return {
+        "compatibility": int(re.search(r"pub const COMPATIBILITY: u64 = (\d+);", build)[1]),
+        "protocol": [number],
+    }
+
+
 def build_number(version):
     match = VERSION_PATTERN.fullmatch(version)
     if not match:
@@ -114,8 +126,7 @@ def update_metadata(version, repository, directory):
 def check_build(version, executable):
     build_number(version)
     metadata = json.loads(subprocess.check_output([str(executable), "--build-info"], timeout=5))
-    from beta_compatibility import identifier
-    if metadata != {"version": version, "compatibility": identifier()}:
+    if metadata != {"version": version, **build_metadata()}:
         raise ValueError("Packaged executable build metadata does not match this release")
 
 

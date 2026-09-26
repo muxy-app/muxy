@@ -2,7 +2,9 @@ use std::io::{Read, Write};
 
 use crate::{ChannelId, Message};
 
-use crate::wire::{HEADER_LEN, Header, MAX_FRAME, WireError, decode, encode};
+use crate::wire::{
+    HEADER_LEN, Header, MAX_FRAME, WireError, decode, encode, legacy_version_unsupported,
+};
 
 #[derive(Debug)]
 pub struct Encoder<W: Write> {
@@ -21,6 +23,12 @@ impl<W: Write> Encoder<W> {
     pub fn send(&mut self, channel: ChannelId, message: &Message) -> Result<(), WireError> {
         encode(message, channel, &mut self.buffer)?;
         self.writer.write_all(&self.buffer)?;
+        Ok(())
+    }
+
+    /// Tells a peer from before V2, in a frame it can read, to update.
+    pub fn reject_legacy_peer(&mut self) -> Result<(), WireError> {
+        self.writer.write_all(&legacy_version_unsupported())?;
         Ok(())
     }
 }
@@ -46,18 +54,23 @@ impl<R: Read> Decoder<R> {
         self.payload_limit = limit;
     }
 
+    /// Reads the next message, skipping those from newer builds that this build ignores.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<(ChannelId, Message), WireError> {
-        let mut bytes = [0; HEADER_LEN];
-        self.reader.read_exact(&mut bytes)?;
-        let header = Header::from_bytes(bytes)?;
-        let length = header.payload_len()?;
-        if length > self.payload_limit {
-            return Err(WireError::FrameTooLarge);
+        loop {
+            let mut bytes = [0; HEADER_LEN];
+            self.reader.read_exact(&mut bytes)?;
+            let header = Header::from_bytes(bytes)?;
+            let length = header.payload_len()?;
+            if length > self.payload_limit {
+                return Err(WireError::FrameTooLarge);
+            }
+            self.buffer.resize(length, 0);
+            self.reader.read_exact(&mut self.buffer)?;
+            if let Some(message) = decode(header, &self.buffer)? {
+                return Ok(message);
+            }
         }
-        self.buffer.resize(length, 0);
-        self.reader.read_exact(&mut self.buffer)?;
-        decode(header, &self.buffer)
     }
 }
 

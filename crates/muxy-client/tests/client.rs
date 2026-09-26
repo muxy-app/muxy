@@ -525,6 +525,7 @@ fn a_late_handshake_reply_after_the_connect_timeout_is_closed() -> TestResult {
             &Message::HelloReply {
                 versions: muxy_protocol::SUPPORTED.to_vec(),
                 server: muxy_protocol::ServerInfo::current(),
+                features: Vec::new(),
             },
         );
         match (sent, decoder.next()) {
@@ -581,6 +582,7 @@ fn a_misplaced_server_message_closes_the_client() -> TestResult {
             &Message::HelloReply {
                 versions: muxy_protocol::SUPPORTED.to_vec(),
                 server: muxy_protocol::ServerInfo::current(),
+                features: Vec::new(),
             },
         )?;
         encoder.send(CONTROL, &Message::Input(b"x".to_vec()))?;

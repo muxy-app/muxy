@@ -11,7 +11,12 @@ pub fn effective_progress(
             state: muxy_protocol::ProgressState::Indeterminate,
             percent: None,
         })),
-        Some(AgentState::Idle | AgentState::Blocked | AgentState::Unknown) => None,
+        Some(
+            AgentState::Idle
+            | AgentState::Blocked
+            | AgentState::Unknown
+            | AgentState::Unrecognized(_),
+        ) => None,
     }
 }
 
@@ -34,7 +39,9 @@ pub fn indicator(
         .iter()
         .filter(|a| includes(a.session))
         .map(|a| match a.state {
-            AgentState::Unknown | AgentState::Idle => ActivityIndicator::Idle,
+            AgentState::Unknown | AgentState::Idle | AgentState::Unrecognized(_) => {
+                ActivityIndicator::Idle
+            }
             AgentState::Working => ActivityIndicator::Working,
             AgentState::Blocked => ActivityIndicator::Blocked,
         });
@@ -43,7 +50,9 @@ pub fn indicator(
         .iter()
         .filter(|event| !event.read && includes(event.session))
         .map(|event| match event.kind {
-            ActivityKind::Attention | ActivityKind::Completed => ActivityIndicator::Completed,
+            ActivityKind::Attention | ActivityKind::Completed | ActivityKind::Unrecognized(_) => {
+                ActivityIndicator::Completed
+            }
         });
     live.chain(unread).max().unwrap_or_default()
 }

@@ -12,7 +12,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "2.0.0-beta-1234"
-COMPATIBILITY = int(re.search(r"pub const COMPATIBILITY: u[0-9]+ = ([0-9]+)", (ROOT / "crates/muxy-protocol/src/build.rs").read_text())[1])
+sys.path.insert(0, str(ROOT / "scripts"))
+from beta_release import build_metadata  # noqa: E402
+
+BUILD_INFO = json.dumps({"version": VERSION, **build_metadata(ROOT)})
 TARGETS = {"arm64": "aarch64-apple-darwin", "x86_64": "x86_64-apple-darwin"}
 
 FAKE_TOOL = r'''
@@ -50,8 +53,8 @@ class BuildReleaseTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for relative in (
-            "scripts/build-release.sh", "scripts/beta_release.py", "scripts/beta_compatibility.py", "scripts/zig/zig",
-            "crates/muxy-protocol/src/build.rs", "LICENSE", "crates/muxy-server/src/detection/THIRD_PARTY.md", "crates/muxy-server/src/detection/LICENSE-herdr",
+            "scripts/build-release.sh", "scripts/beta_release.py", "scripts/zig/zig",
+            "crates/muxy-protocol/src/build.rs", "crates/muxy-protocol/src/version.rs", "LICENSE", "crates/muxy-server/src/detection/THIRD_PARTY.md", "crates/muxy-server/src/detection/LICENSE-herdr",
             "packaging/macos/Muxy.entitlements",
             "packaging/macos/AppIcon.png", "packaging/macos/AppIconBeta.png",
         ):
@@ -62,7 +65,7 @@ class BuildReleaseTests(unittest.TestCase):
             binaries = self.root / "target" / target / "release"
             binaries.mkdir(parents=True)
             for name in ("muxy-app", "muxy", "muxy-server"):
-                (binaries / name).write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({{'version': '{VERSION}', 'compatibility': {COMPATIBILITY}}}))\n")
+                (binaries / name).write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({BUILD_INFO}))\n")
                 (binaries / f"{name}.dSYM").mkdir()
         tools = self.root / "tools"
         tools.mkdir()

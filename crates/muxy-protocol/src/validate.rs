@@ -90,11 +90,10 @@ impl Message {
             }
             Self::FilesChanged { changes, .. } => changes.validate(),
             Self::SessionMetadata { metadata, .. } => validate_path(&metadata.directory),
-            Self::ActivityChanged { .. }
-            | Self::RemoteAccessChanged { .. }
+            Self::Changed { .. }
             | Self::GitChanged { .. }
-            | Self::SessionsChanged { .. }
-            | Self::CatalogChanged { .. }
+            | Self::UnsupportedRequest { .. }
+            | Self::UnreadableReply { .. }
             | Self::ServerRestarting
             | Self::FrameAck { .. }
             | Self::VersionUnsupported

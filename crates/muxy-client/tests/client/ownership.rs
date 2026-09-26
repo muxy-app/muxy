@@ -225,6 +225,7 @@ fn availability_search_skips_attached_pages_and_restarts_after_invalidation() ->
                 &Message::HelloReply {
                     versions: muxy_protocol::SUPPORTED.to_vec(),
                     server: muxy_protocol::ServerInfo::current(),
+                    features: Vec::new(),
                 },
             )
             .map_err(|e| e.to_string())?;
