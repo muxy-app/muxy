@@ -2,6 +2,7 @@ mod git;
 mod mutations;
 pub(crate) use git::GitReceipt;
 mod recovery;
+pub(crate) mod retention;
 mod sessions;
 mod storage;
 
@@ -37,6 +38,8 @@ struct Creation {
 struct Membership {
     info: SessionInfo,
     status: SessionStatus,
+    #[serde(default)]
+    ended_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -193,6 +196,7 @@ impl State {
                         project,
                         directory,
                     },
+                    ended_at: None,
                     status: if archive.contains(id) {
                         SessionStatus::Ended
                     } else {
@@ -245,7 +249,9 @@ impl Catalog {
             Err(error) => return Err(error),
         };
         state.validate().map_err(io::Error::other)?;
+        let now = retention::now();
         for membership in state.sessions.values_mut() {
+            membership.ended_at.get_or_insert(now);
             membership.status = if archive.contains(membership.info.id) {
                 SessionStatus::Ended
             } else {

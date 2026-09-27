@@ -1,3 +1,5 @@
+mod retention;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
@@ -246,6 +248,7 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     let remote = Arc::new(RemoteListener::new(connections.clone())?);
     let registry = bootstrap_registry(args, settings, sender, &directory, legacy, &remote)?;
     remote.attach(&registry);
+    let retention = retention::Retention::start(Arc::clone(&registry))?;
     registry.resume_remote_access();
     let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let requested_stop = Arc::clone(&stopping);
@@ -283,6 +286,7 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     };
     socket.close();
     remote.shutdown();
+    drop(retention);
     registry.shutdown();
     let broadcast_result = broadcast
         .join()

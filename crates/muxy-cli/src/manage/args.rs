@@ -74,6 +74,7 @@ pub(crate) enum Project {
 pub(crate) enum Session {
     List {
         project: Option<String>,
+        all: bool,
     },
     Create {
         project: String,
@@ -146,7 +147,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
             (&[], &["--yes"])
         }
         ("server", "stop") => (&[], &["--force"]),
-        ("session", "list") => (&["--project"], &[]),
+        ("session", "list") => (&["--project"], &["--all"]),
         ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
         ("session", "read-screen") => (&["--lines"], &["--saved"]),
         ("session", "history") => (&["--before", "--limit"], &["--saved"]),
@@ -288,6 +289,7 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
         o.count(0)?;
         return Ok(Session::List {
             project: o.value("--project")?.map(str::to_owned),
+            all: o.flag("--all"),
         });
     }
     if verb == "create" {
@@ -555,6 +557,27 @@ mod tests {
             ])
             .is_err()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn session_listing_requires_all_to_include_archives() -> io::Result<()> {
+        for all in [false, true] {
+            let mut args = vec!["session", "list", "--project", "Home", "--json"];
+            if all {
+                args.push("--all");
+            }
+            assert_eq!(
+                words(&args)?,
+                Invocation {
+                    json: true,
+                    action: Action::Session(Session::List {
+                        project: Some("Home".into()),
+                        all,
+                    }),
+                }
+            );
+        }
         Ok(())
     }
 

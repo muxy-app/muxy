@@ -62,6 +62,8 @@ flowchart TD
 - The server saves each terminal's screen and history, even when no app is
   watching, so it is still there after the program ends or the server restarts.
   A crash may lose the last moments of output.
+- Ended sessions and their saved output are automatically removed after 7 days.
+  `muxy session list` shows live sessions; use `--all` to include saved ones.
 
 ## Git and files
 

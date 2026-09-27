@@ -36,7 +36,7 @@ pub(crate) const PROJECT: &str = "Usage: muxy project <action> [--json]
 Add creates a distinct project even when its directory is already registered.
 Text list columns: id, name, directory (tab-separated).";
 pub(crate) const SESSION: &str = "Usage: muxy session <action> [--json]
-  list [--project PROJECT]         Includes saved/ended sessions
+  list [--project PROJECT] [--all]  Live sessions; --all includes saved/ended ones
   create <project> [--directory PATH] [--cols N] [--rows N]
   send <id> <text>                 Send literal text without pressing Return
   send-keys <id> <key>             Enter, Tab, Escape, Backspace, Ctrl+C/D/Z
@@ -49,6 +49,7 @@ pub(crate) const SESSION: &str = "Usage: muxy session <action> [--json]
 Create prints the new session ID. Sessions outlive this command.
 Input/output commands briefly attach to a live terminal; --saved reads its last
 checkpoint instead and also works after it ends. They never close UI panes.
+Ended sessions and their saved output are automatically removed after 7 days.
 Read-screen returns the last N visible rows (default 50), not scrollback.
 History/search return one page as JSON, with next for --before; 0 starts paging.
 Text list columns: id, project-id, status, attached, directory.

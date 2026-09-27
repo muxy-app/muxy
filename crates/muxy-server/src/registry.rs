@@ -100,6 +100,9 @@ impl Registry {
         };
         registry.resume_git();
         registry.resume_cleanup().map_err(io::Error::other)?;
+        if let Err(error) = registry.prune_expired_sessions() {
+            log::error!("session retention cleanup failed: {error}");
+        }
         Ok(registry)
     }
 
@@ -710,6 +713,31 @@ impl Registry {
             self.discard_owned(session)?;
         }
         Ok(())
+    }
+
+    pub fn prune_expired_sessions(&self) -> Result<(), ServerError> {
+        self.prune_sessions_at(crate::catalog::retention::now())
+    }
+
+    fn prune_sessions_at(&self, now: u64) -> Result<(), ServerError> {
+        let mut result = Ok(());
+        for id in self.catalog.expired_sessions(now) {
+            let _operation = self.session_operation();
+            let state = lock(&self.sessions);
+            if state.sessions.contains_key(&id) || state.starting.contains(&id) {
+                continue;
+            }
+            drop(state);
+            if let Err(error) = self
+                .archive
+                .discard(id)
+                .map_err(|error| saved_content_error(&error))
+                .and_then(|()| self.catalog.finish_discard(id))
+            {
+                result = Err(error);
+            }
+        }
+        result
     }
 
     pub fn discard(&self, id: SessionId) -> Result<(), ServerError> {

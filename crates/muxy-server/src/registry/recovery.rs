@@ -98,6 +98,134 @@ fn natural_exit_retries_a_failed_catalog_write_without_server_restart() -> TestR
     Ok(())
 }
 
+#[test]
+fn retention_removes_expired_output_without_ending_live_sessions() -> TestResult {
+    let profile = Profile::new()?;
+    let registry = profile.open()?;
+    let ended = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    let live = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    registry.end(ended.id)?;
+    let revision = registry.catalog_revision();
+    registry.prune_expired_sessions()?;
+    assert!(registry.read_saved_screen(ended.id).is_ok());
+    assert_eq!(registry.catalog_revision(), revision);
+    let later = crate::catalog::retention::now() + crate::catalog::retention::RETENTION_SECONDS;
+    registry.prune_sessions_at(later)?;
+    assert!(registry.read_saved_screen(ended.id).is_err());
+    assert!(registry.catalog_revision() > revision);
+    assert_eq!(registry.list(), vec![live.clone()]);
+    let page = registry.list_project_sessions(live.project, None, None)?;
+    assert_eq!(page.sessions.len(), 1);
+    assert_eq!(page.sessions[0].info.id, live.id);
+    registry.prune_sessions_at(later)?;
+    registry.discard(live.id)?;
+    drop(registry);
+    let registry = profile.open()?;
+    assert!(
+        registry
+            .list_project_sessions(ended.project, None, None)?
+            .sessions
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[test]
+fn retention_migrates_old_entries_once_and_prunes_on_startup() -> TestResult {
+    let profile = Profile::new()?;
+    let registry = profile.open()?;
+    let session = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    registry.end(session.id)?;
+    drop(registry);
+    let path = profile.0.join("sessions/catalog.json");
+    let key = session.id.get().to_string();
+    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    stored["sessions"][&key]
+        .as_object_mut()
+        .ok_or("entry")?
+        .remove("ended_at");
+    fs::write(&path, serde_json::to_vec(&stored)?)?;
+    let before = crate::catalog::retention::now();
+    let registry = profile.open()?;
+    assert!(registry.read_saved_screen(session.id).is_ok());
+    drop(registry);
+    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    let ended_at = stored["sessions"][&key]["ended_at"]
+        .as_u64()
+        .ok_or("timestamp")?;
+    assert!(ended_at >= before);
+    assert!(ended_at <= crate::catalog::retention::now());
+    stored["sessions"][&key]["ended_at"] = (ended_at - 60).into();
+    fs::write(&path, serde_json::to_vec(&stored)?)?;
+    drop(profile.open()?);
+    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    assert_eq!(stored["sessions"][&key]["ended_at"], ended_at - 60);
+    stored["sessions"][&key]["ended_at"] =
+        (ended_at - crate::catalog::retention::RETENTION_SECONDS).into();
+    fs::write(&path, serde_json::to_vec(&stored)?)?;
+    let registry = profile.open()?;
+    assert!(registry.read_saved_screen(session.id).is_err());
+    assert!(
+        registry
+            .list_project_sessions(session.project, None, None)?
+            .sessions
+            .is_empty()
+    );
+    assert!(
+        !profile
+            .0
+            .join("sessions")
+            .join(format!("{:016x}.postcard", session.id.get()))
+            .exists()
+    );
+    Ok(())
+}
+
+#[test]
+fn retention_retries_failed_archive_deletion() -> TestResult {
+    let profile = Profile::new()?;
+    let registry = profile.open()?;
+    let session = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    registry.end(session.id)?;
+    let path = profile
+        .0
+        .join("sessions")
+        .join(format!("{:016x}.postcard", session.id.get()));
+    let backup = profile.0.join("archive.backup");
+    fs::rename(&path, &backup)?;
+    fs::create_dir(&path)?;
+    let later = crate::catalog::retention::now() + crate::catalog::retention::RETENTION_SECONDS;
+    assert!(registry.prune_sessions_at(later).is_err());
+    drop(registry);
+    let catalog = profile.0.join("sessions/catalog.json");
+    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&catalog)?)?;
+    stored["sessions"][session.id.get().to_string()]["ended_at"] =
+        (crate::catalog::retention::now() - crate::catalog::retention::RETENTION_SECONDS).into();
+    fs::write(&catalog, serde_json::to_vec(&stored)?)?;
+    let registry = profile.open()?;
+    assert!(path.is_dir());
+    assert!(registry.catalog.discarding().is_empty());
+    assert_eq!(
+        registry
+            .list_project_sessions(session.project, None, None)?
+            .sessions
+            .len(),
+        1
+    );
+    fs::remove_dir(&path)?;
+    fs::rename(&backup, &path)?;
+    registry.prune_expired_sessions()?;
+    assert!(!path.exists());
+    assert!(registry.catalog.discarding().is_empty());
+    assert!(
+        registry
+            .list_project_sessions(session.project, None, None)?
+            .sessions
+            .is_empty()
+    );
+    Ok(())
+}
+
 struct Profile(PathBuf);
 impl Profile {
     fn new() -> io::Result<Self> {

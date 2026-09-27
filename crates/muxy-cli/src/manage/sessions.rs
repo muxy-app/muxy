@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 use muxy_client::{Attachment, Client, ClientError, RunGrid};
-use muxy_protocol::{ErrorCode, ProjectId, ProjectSession, SearchSource, SessionId};
+use muxy_protocol::{ErrorCode, ProjectId, ProjectSession, SearchSource, SessionId, SessionStatus};
 use serde_json::{Value, json};
 
 use super::args::Session;
@@ -9,7 +9,7 @@ use super::{Output, Result, absolute, local_path, path_text, projects};
 
 pub(super) fn run(command: Session, client: &Client, output: &Output) -> Result {
     match command {
-        Session::List { project } => list_projects(client, project.as_deref(), output),
+        Session::List { project, all } => list_projects(client, project.as_deref(), all, output),
         Session::Create {
             project,
             directory,
@@ -109,14 +109,19 @@ pub(super) fn run(command: Session, client: &Client, output: &Output) -> Result 
     }
 }
 
-fn list_projects(client: &Client, project: Option<&str>, output: &Output) -> Result {
+fn list_projects(client: &Client, project: Option<&str>, all: bool, output: &Output) -> Result {
     let projects = match project {
         Some(project) => vec![projects::resolve(client, project)?],
         None => client.catalog()?.projects,
     };
     let mut records = Vec::new();
     for project in projects {
-        records.extend(list(client, project.id)?.iter().map(record));
+        records.extend(
+            list(client, project.id)?
+                .iter()
+                .filter(|session| all || session.status == SessionStatus::Live)
+                .map(record),
+        );
     }
     output.list(
         &records,

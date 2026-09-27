@@ -206,16 +206,56 @@ fn sessions_survive_commands_accept_input_and_keep_saved_output() -> Result {
         f.ok(&["session", "read-screen", &session, "--saved"])?
             .contains("CLI_OUTPUT")
     );
-    assert_eq!(
-        f.json(&["session", "list", "--project", &project, "--json"])?[0]["status"],
-        "Ended"
-    );
-    f.ok(&["session", "discard", &session, "--yes"])?;
+    assert_eq!(f.json(&["session", "list", "--json"])?, json!([]));
     assert_eq!(
         f.json(&["session", "list", "--project", &project, "--json"])?,
         json!([])
     );
+    assert_eq!(
+        f.json(&["session", "list", "--all", "--json"])?[0]["status"],
+        "Ended"
+    );
+    assert_eq!(
+        f.json(&["session", "list", "--project", &project, "--all", "--json"])?[0]["id"],
+        session
+    );
+    f.ok(&["session", "discard", &session, "--yes"])?;
+    assert_eq!(
+        f.json(&["session", "list", "--project", &project, "--all", "--json"])?,
+        json!([])
+    );
     f.ok(&["server", "stop"])?;
+    Ok(())
+}
+
+#[test]
+fn session_listing_separates_live_sessions_from_archives_in_text_and_json() -> Result {
+    let f = Fixture::new()?;
+    let project = f.project()?;
+    f.shell()?;
+    let ended = f.ok(&["session", "create", &project])?.trim().to_owned();
+    let live = f.ok(&["session", "create", &project])?.trim().to_owned();
+    f.ok(&["session", "end", &ended, "--yes"])?;
+    let listed = f.json(&["session", "list", "--json"])?;
+    assert_eq!(listed.as_array().ok_or("sessions")?.len(), 1);
+    assert_eq!(listed[0]["id"], live);
+    let all = f.json(&["session", "list", "--all", "--json"])?;
+    assert_eq!(all.as_array().ok_or("sessions")?.len(), 2);
+    assert_eq!(
+        f.json(&["session", "list", "--project", "Home", "--all", "--json"])?,
+        json!([])
+    );
+    let text = f.ok(&["session", "list", "--project", &project])?;
+    assert_eq!(text.lines().count(), 1);
+    assert!(text.starts_with(&format!("{live}\t")));
+    let all = f.ok(&["session", "list", "--project", &project, "--all"])?;
+    assert_eq!(all.lines().count(), 2);
+    assert!(
+        all.lines()
+            .any(|line| line.starts_with(&format!("{ended}\t")))
+    );
+    f.ok(&["session", "discard", &live, "--yes"])?;
+    f.ok(&["session", "discard", &ended, "--yes"])?;
     Ok(())
 }
 

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Default)]
 pub(super) struct PendingExits {
-    statuses: BTreeMap<SessionId, SessionStatus>,
+    statuses: BTreeMap<SessionId, (SessionStatus, u64)>,
     retry_after: Option<Instant>,
 }
 
@@ -15,7 +15,7 @@ impl Catalog {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .statuses
-            .insert(session, status);
+            .insert(session, (status, super::retention::now()));
         self.retry_exits();
     }
 
@@ -31,9 +31,10 @@ impl Catalog {
             return;
         }
         let result = self.update(|state| {
-            for (id, status) in &pending.statuses {
+            for (id, (status, ended_at)) in &pending.statuses {
                 if let Some(membership) = state.sessions.get_mut(id) {
                     membership.status = *status;
+                    membership.ended_at.get_or_insert(*ended_at);
                 }
             }
             Ok(())
