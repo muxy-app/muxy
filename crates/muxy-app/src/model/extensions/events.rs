@@ -1,14 +1,18 @@
 //! Workspace events with main's names and payloads. Every payload value is a
 //! string, as on main; optional keys are omitted rather than sent empty.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::time::Duration;
 
-use gpui::Context;
-use muxy_app_core::{PaneContent, Project, ProjectId, Tab};
+use gpui::{Context, Task};
+use muxy_app_core::{PaneContent, PaneId, Project, ProjectId, Tab, TabId};
 use muxy_protocol::{AgentProvider, AgentState, FilesAction, FilesRequest};
 use serde_json::{Map, Value, json};
 
 use super::AppModel;
+
+/// How long a terminal title must hold before events report it, as on main.
+const TITLE_DEBOUNCE: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
 pub(super) struct Tracker {
@@ -19,7 +23,11 @@ pub(super) struct Tracker {
     tabs: BTreeMap<String, Value>,
     panes: BTreeMap<String, Value>,
     selected: BTreeMap<String, String>,
-    focused: Option<String>,
+    focused: Option<(ProjectId, TabId, PaneId)>,
+    /// Terminal titles as events report them.
+    titles: HashMap<PaneId, String>,
+    /// Newer terminal titles waiting out `TITLE_DEBOUNCE`.
+    pending_titles: HashMap<PaneId, (String, Task<()>)>,
     branches: BTreeMap<ProjectId, String>,
     agents: BTreeMap<String, Value>,
     pub(super) watched: BTreeSet<ProjectId>,
@@ -86,7 +94,7 @@ impl AppModel {
         put("projectID", root_of(project).to_string());
         put("worktreeID", project.id.to_string());
         put("areaID", project.id.to_string());
-        put("title", self.webview_title(tab, cx).to_owned());
+        put("title", self.event_title(tab, cx));
         put("projectPath", project.directory.display().to_string());
         match pane.map(|pane| (pane.id, &pane.content)) {
             Some((id, PaneContent::Webview(descriptor))) => {
@@ -111,6 +119,67 @@ impl AppModel {
             None => put("kind", "terminal".into()),
         }
         Value::Object(payload)
+    }
+
+    /// A tab's title as events report it: a terminal's own title only once it
+    /// has settled.
+    fn event_title(&self, tab: &Tab, cx: &gpui::App) -> String {
+        tab.displayed_pane(self.state.window().active_pane)
+            .filter(|pane| {
+                tab.custom_title.is_none() && matches!(pane.content, PaneContent::Terminal { .. })
+            })
+            .and_then(|pane| self.extensions.events.titles.get(&pane.id))
+            .map_or_else(|| self.webview_title(tab, cx).to_owned(), Clone::clone)
+    }
+
+    /// Terminal titles reach events once they have held for
+    /// `TITLE_DEBOUNCE`, so a title that keeps changing doesn't flood
+    /// `tab.updated`. New panes and the first sync take their titles at once.
+    fn debounce_titles(&mut self, cx: &mut Context<Self>) {
+        let live: HashMap<PaneId, String> = self
+            .state
+            .projects()
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .filter(|pane| matches!(pane.content, PaneContent::Terminal { .. }))
+            .map(|pane| (pane.id, pane.title.clone()))
+            .collect();
+        let events = &mut self.extensions.events;
+        events.titles.retain(|pane, _| live.contains_key(pane));
+        events
+            .pending_titles
+            .retain(|pane, _| live.contains_key(pane));
+        for (pane, title) in live {
+            match events.titles.get(&pane) {
+                Some(reported) if *reported == title => {
+                    events.pending_titles.remove(&pane);
+                }
+                Some(_) if events.initialized => {
+                    if events
+                        .pending_titles
+                        .get(&pane)
+                        .is_some_and(|(waiting, _)| *waiting == title)
+                    {
+                        continue;
+                    }
+                    let settle = cx.spawn(async move |model, cx| {
+                        cx.background_executor().timer(TITLE_DEBOUNCE).await;
+                        let _ = model.update(cx, |model, cx| {
+                            let events = &mut model.extensions.events;
+                            if let Some((title, _)) = events.pending_titles.remove(&pane) {
+                                events.titles.insert(pane, title);
+                                model.sync_extension_events(cx);
+                            }
+                        });
+                    });
+                    events.pending_titles.insert(pane, (title, settle));
+                }
+                _ => {
+                    events.titles.insert(pane, title);
+                }
+            }
+        }
     }
 
     /// Delivers a workspace event to every enabled extension allowed to
@@ -181,6 +250,7 @@ impl AppModel {
     }
 
     pub(in crate::model) fn sync_extension_events(&mut self, cx: &mut Context<Self>) {
+        self.debounce_titles(cx);
         let silent = !self.extensions.events.initialized;
         let mut emit = |model: &Self, name: &str, payload: Value| {
             if !silent {
@@ -252,22 +322,30 @@ impl AppModel {
                 );
             }
         }
-        let focused = self.active_pane().map(|pane| pane.to_string());
-        if self.extensions.events.focused != focused {
-            self.extensions.events.focused.clone_from(&focused);
-            if let (Some(tab), true) = (self.active_tab(), focused.is_some()) {
-                let project = self.state.current_project();
-                emit(
-                    self,
-                    "pane.focused",
-                    strings([
-                        ("projectID", root_of(project).to_string()),
-                        ("worktreeID", project.id.to_string()),
-                        ("areaID", project.id.to_string()),
-                        ("tabID", tab.to_string()),
-                    ]),
-                );
-            }
+        let project = self.state.current_project().id;
+        let focused = self
+            .active_tab()
+            .zip(self.active_pane())
+            .map(|(tab, pane)| (project, tab, pane));
+        let previous = std::mem::replace(&mut self.extensions.events.focused, focused);
+        // Main fires it when focus moves between split areas, so switching
+        // tabs or projects alone doesn't count.
+        if let (Some((project, tab, pane)), Some((was_project, was_tab, was_pane))) =
+            (focused, previous)
+            && (project, tab) == (was_project, was_tab)
+            && pane != was_pane
+        {
+            let project = self.state.current_project();
+            emit(
+                self,
+                "pane.focused",
+                strings([
+                    ("projectID", root_of(project).to_string()),
+                    ("worktreeID", project.id.to_string()),
+                    ("areaID", project.id.to_string()),
+                    ("tabID", tab.to_string()),
+                ]),
+            );
         }
         self.sync_agent_events(&mut emit);
         self.extensions.events.initialized = true;

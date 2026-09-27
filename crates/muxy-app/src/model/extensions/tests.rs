@@ -60,8 +60,6 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                 json!({"argv": [""]}),
                 json!({"argv": ["git"], "shell": "git ls-files"}),
                 json!({"argv": ["git", 1]}),
-                json!({"argv": ["git", "\u{0}"]}),
-                json!({"shell": "git\u{0}"}),
                 json!({"argv": ["git"], "env": {"INVALID=KEY": "value"}}),
             ] {
                 call.args = args;
@@ -71,10 +69,52 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                     call.args
                 );
             }
+            let null = "exec failed to launch: arguments and environment cannot contain null bytes";
+            for (args, error) in [
+                (json!({"argv": ["git", "\u{0}"]}), null),
+                (json!({"shell": "git\u{0}"}), null),
+                (json!({"argv": ["git"], "env": {"KEY": "a\u{0}b"}}), null),
+                (json!({"argv": ["git"], "env": {"K\u{0}EY": "value"}}), null),
+                (
+                    json!({"argv": ["git"], "cwd": "/repo\u{0}"}),
+                    "exec: cwd cannot contain null bytes",
+                ),
+            ] {
+                call.args = args;
+                assert_eq!(
+                    model.consent_request(&call),
+                    Err(error.into()),
+                    "{verb}: {}",
+                    call.args
+                );
+            }
         }
         assert_eq!(model.extensions.next, 0);
         assert!(model.extensions.jobs.is_empty());
     });
+}
+
+#[test]
+fn server_launch_failures_read_like_main() {
+    let reply = |code, message: &str| {
+        calls::exec_error(muxy_client::ClientError::Server(
+            muxy_protocol::ErrorReply {
+                code,
+                message: message.into(),
+            },
+        ))
+    };
+    assert_eq!(
+        reply(
+            muxy_protocol::ErrorCode::SpawnFailed,
+            "command not found: rg"
+        ),
+        "exec failed to launch: command not found: rg"
+    );
+    assert_eq!(
+        reply(muxy_protocol::ErrorCode::BadRequest, "invalid command"),
+        "BadRequest: invalid command"
+    );
 }
 
 #[gpui::test]
@@ -876,6 +916,173 @@ fn workspace_events_reach_permitted_extension_scripts(cx: &mut TestAppContext) {
     assert!(
         events.try_recv().is_err(),
         "undeclared events such as tab.focused are not delivered"
+    );
+}
+
+type ScriptEvents = async_channel::Receiver<muxy_ui::javascript::Event>;
+
+/// Starts script 9 for `owner`, which reports every event it receives.
+fn listen(view: &Entity<AppModel>, cx: &mut gpui::VisualTestContext, owner: &str) -> ScriptEvents {
+    let (script, events) = muxy_ui::javascript::Script::start(
+        "globalThis.__muxyEvent = (name, payload) => __muxyNative(JSON.stringify({ name, payload }));"
+            .into(),
+    )
+    .expect("script");
+    view.update(cx, |model, _| {
+        model.extensions.scripts.insert(
+            9,
+            scripts::Running {
+                owner: owner.into(),
+                script,
+            },
+        );
+    });
+    events
+}
+
+/// The events script 9 received since the last call, as `(name, payload)`.
+fn received(
+    view: &Entity<AppModel>,
+    cx: &mut gpui::VisualTestContext,
+    events: &ScriptEvents,
+) -> Vec<(String, Value)> {
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        model.extensions.scripts[&9]
+            .script
+            .evaluate("__muxyEvent('done', {});".into());
+    });
+    let mut received = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        cx.run_until_parked();
+        while let Ok(muxy_ui::javascript::Event::Call(call)) = events.try_recv() {
+            let _ = call.reply.send("null".into());
+            let event: Value = serde_json::from_str(&call.request).expect("event");
+            if event["name"] == "done" {
+                return received;
+            }
+            received.push((
+                event["name"].as_str().unwrap_or_default().to_owned(),
+                event["payload"].clone(),
+            ));
+        }
+        assert!(std::time::Instant::now() < deadline, "events timed out");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+#[gpui::test]
+fn pane_focused_fires_only_when_focus_moves_within_a_tab(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let split = state.open_terminal_tab(home).expect("split tab");
+    let left = state.window().active_pane.expect("left pane");
+    let right = state
+        .split_pane(left, muxy_app_core::Direction::Right)
+        .expect("right pane");
+    let other = state.open_terminal_tab(home).expect("other tab");
+    let project = state.add_project(std::env::temp_dir()).expect("project");
+    state.open_terminal_tab(project).expect("project tab");
+    state.select_project(home).expect("home");
+    state.select_tab(home, split).expect("split tab selected");
+    state.focus_pane(left).expect("left focused");
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "watcher",
+        r#"{"events": ["pane.focused", "tab.focused", "project.switched"]}"#,
+        state,
+    );
+    let events = listen(&view, cx, "watcher");
+    view.update(cx, |model, cx| {
+        model.focus_pane(right, cx);
+        model.select_tab(other, cx);
+        model.select_project(project, cx);
+        model.select_project(home, cx);
+        model.select_tab(split, cx);
+    });
+    let received = received(&view, cx, &events);
+    let names: Vec<_> = received.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "pane.focused",
+            "tab.focused",
+            "project.switched",
+            "project.switched",
+            "tab.focused"
+        ],
+        "switching tabs or projects doesn't report pane focus"
+    );
+    let home = home.to_string();
+    assert_eq!(
+        received[0].1,
+        json!({"projectID": home, "worktreeID": home, "areaID": home, "tabID": split.to_string()})
+    );
+}
+
+#[gpui::test]
+fn terminal_titles_reach_tab_updated_once_they_settle(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let editor = state.open_terminal_tab(home).expect("editor tab");
+    let vim = state.window().active_pane.expect("editor pane");
+    let tests = state.open_terminal_tab(home).expect("tests tab");
+    let npm = state.window().active_pane.expect("tests pane");
+    let (view, cx, _package, _requests) =
+        enabled(cx, "restorer", r#"{"events": ["tab.updated"]}"#, state);
+    let events = listen(&view, cx, "restorer");
+    let retitle = |pane: PaneId, title: &str, cx: &mut gpui::VisualTestContext| {
+        view.update(cx, |model, cx| {
+            model.state.set_pane_title(pane, title).expect("title");
+            model.sync_extension_events(cx);
+        });
+    };
+    let updated = |cx: &mut gpui::VisualTestContext| -> Vec<(String, String)> {
+        received(&view, cx, &events)
+            .into_iter()
+            .map(|(_, payload)| {
+                let text = |key: &str| payload[key].as_str().unwrap_or_default().to_owned();
+                (text("tabID"), text("title"))
+            })
+            .collect()
+    };
+    let millis = std::time::Duration::from_millis;
+    retitle(vim, "vim", cx);
+    retitle(npm, "npm test", cx);
+    cx.executor().advance_clock(millis(300));
+    retitle(vim, "vim main.rs", cx);
+    cx.executor().advance_clock(millis(300));
+    assert_eq!(
+        updated(cx),
+        [(tests.to_string(), "npm test".to_owned())],
+        "each pane waits on its own"
+    );
+    cx.executor().advance_clock(millis(200));
+    assert_eq!(
+        updated(cx),
+        [(editor.to_string(), "vim main.rs".to_owned())],
+        "a newer title restarts the wait"
+    );
+    retitle(vim, "htop", cx);
+    cx.executor().advance_clock(millis(100));
+    retitle(vim, "vim main.rs", cx);
+    cx.executor().advance_clock(millis(1000));
+    assert!(
+        updated(cx).is_empty(),
+        "a title that changes back is never reported"
+    );
+    view.update(cx, |model, cx| {
+        model
+            .state
+            .set_tab_title(editor, Some("Editor".into()))
+            .expect("rename");
+        model.sync_extension_events(cx);
+    });
+    assert_eq!(
+        updated(cx),
+        [(editor.to_string(), "Editor".to_owned())],
+        "renaming a tab reports at once"
     );
 }
 
