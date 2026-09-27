@@ -1,6 +1,5 @@
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Command {
@@ -8,11 +7,7 @@ pub(crate) enum Command {
     Version,
     BuildInfo,
     Interactive,
-    Projects,
-    AddProject {
-        directory: PathBuf,
-        name: Option<String>,
-    },
+    Manage(Box<crate::manage::args::Invocation>),
     Mobile(Mobile),
 }
 
@@ -34,27 +29,10 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
     }
     match arguments {
         [] => Ok(Command::Interactive),
-        [command, action] if command == "project" && action == "list" => Ok(Command::Projects),
-        [command, action, directory] if command == "project" && action == "add" => {
-            Ok(Command::AddProject {
-                directory: directory.into(),
-                name: None,
-            })
-        }
-        [command, action, directory, flag, name]
-            if command == "project" && action == "add" && flag == "--name" =>
-        {
-            let name = name
-                .to_str()
-                .filter(|name| !name.trim().is_empty())
-                .ok_or_else(|| invalid("project name must be nonempty UTF-8"))?;
-            Ok(Command::AddProject {
-                directory: directory.into(),
-                name: Some(name.trim().into()),
-            })
-        }
         [command, rest @ ..] if command == "mobile" => mobile(rest).map(Command::Mobile),
-        _ => Err(invalid("unknown command or arguments; run muxy --help")),
+        _ => {
+            crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
+        }
     }
 }
 

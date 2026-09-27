@@ -323,6 +323,11 @@ impl Owner {
                     size,
                     sink,
                 })) => self.attach(id, channel, size, sink)?,
+                Wake::Event(OwnerEvent::Command(SessionCommand::AttachWithoutResize {
+                    id,
+                    channel,
+                    sink,
+                })) => self.attach(id, channel, self.size, sink)?,
                 Wake::Event(OwnerEvent::Command(SessionCommand::HistoryPage {
                     before,
                     max_rows,

@@ -40,6 +40,7 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
         | RequestBody::CreateSession { .. }
         | RequestBody::EndSession(_)
         | RequestBody::Attach { .. }
+        | RequestBody::AttachWithoutResize(_)
         | RequestBody::Detach(_)
         | RequestBody::Resize { .. }
         | RequestBody::Ping

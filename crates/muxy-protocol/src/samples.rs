@@ -518,6 +518,10 @@ fn close_samples() -> Vec<Message> {
     let operation = crate::OperationId::from_u128(2);
     vec![
         Message::Request {
+            id: RequestId(41),
+            body: RequestBody::AttachWithoutResize(SessionId::from(NonZeroU64::MIN)),
+        },
+        Message::Request {
             id: RequestId(99),
             body: RequestBody::SyncSessionReferences {
                 owner: Some(operation),

@@ -318,7 +318,11 @@ fn ordered_request(
             ReplyBody::TerminalColorsSet
         }
         RequestBody::Attach { session, size } => {
-            attach(session, size, id, registry, outbox, last_channel)?;
+            attach(session, Some(size), id, registry, outbox, last_channel)?;
+            return Ok(None);
+        }
+        RequestBody::AttachWithoutResize(session) => {
+            attach(session, None, id, registry, outbox, last_channel)?;
             return Ok(None);
         }
         RequestBody::Detach(channel) => {
@@ -550,7 +554,7 @@ fn live_search(
 
 fn attach(
     session: SessionId,
-    size: Size,
+    size: Option<Size>,
     request: RequestId,
     registry: &Registry,
     outbox: &Arc<Outbox>,
@@ -580,11 +584,14 @@ fn attach(
         id,
         request,
         handle,
-        SessionCommand::Attach {
-            id,
-            channel,
-            size,
-            sink,
+        match size {
+            Some(size) => SessionCommand::Attach {
+                id,
+                channel,
+                size,
+                sink,
+            },
+            None => SessionCommand::AttachWithoutResize { id, channel, sink },
         },
     )?;
     last_channel.store(channel.0, Ordering::Release);

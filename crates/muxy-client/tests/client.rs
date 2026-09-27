@@ -15,6 +15,8 @@ mod composer;
 mod cursor;
 #[path = "client/links.rs"]
 mod links;
+#[path = "client/observe.rs"]
+mod observe;
 #[path = "client/ownership.rs"]
 mod ownership;
 #[path = "client/progress.rs"]

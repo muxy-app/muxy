@@ -162,6 +162,8 @@ pub enum RequestBody {
     CancelPairing,
     #[n(38)]
     RevokeDevice(#[n(0)] crate::DeviceId),
+    #[n(39)]
+    AttachWithoutResize(#[n(0)] SessionId),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

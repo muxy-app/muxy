@@ -311,7 +311,15 @@ impl Client {
     }
 
     pub fn attach(&self, id: SessionId, size: Size) -> Result<Attachment, ClientError> {
-        let reply = self.request(RequestBody::Attach { session: id, size });
+        self.attach_request(RequestBody::Attach { session: id, size })
+    }
+
+    pub fn attach_without_resize(&self, id: SessionId) -> Result<Attachment, ClientError> {
+        self.attach_request(RequestBody::AttachWithoutResize(id))
+    }
+
+    fn attach_request(&self, request: RequestBody) -> Result<Attachment, ClientError> {
+        let reply = self.request(request);
         if matches!(&reply, Err(ClientError::Timeout)) {
             self.disconnect();
         }

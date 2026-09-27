@@ -38,6 +38,11 @@ pub enum SessionCommand {
         size: Size,
         sink: Sender<AttachmentEvent>,
     },
+    AttachWithoutResize {
+        id: AttachmentId,
+        channel: ChannelId,
+        sink: Sender<AttachmentEvent>,
+    },
     Detach(AttachmentId),
     HistoryPage {
         before: HistoryCursor,

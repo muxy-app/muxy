@@ -199,6 +199,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::StopServer
         | RequestBody::ListSessions
         | RequestBody::EndSession(_)
+        | RequestBody::AttachWithoutResize(_)
         | RequestBody::Detach(_)
         | RequestBody::Ping
         | RequestBody::ReadSavedScreen(_)
