@@ -14,7 +14,7 @@ use muxy_ui::{
 use serde_json::{Value, json};
 
 use crate::{extensions::marketplace, model::AppModel};
-use muxy_app_core::extensions::Extension;
+use muxy_app_core::extensions::{Consent, Extension, Rule};
 
 mod configuration;
 #[cfg(test)]
@@ -35,6 +35,7 @@ enum Mutation {
     LoadUnpacked,
     Reload,
     ResetPermissions,
+    RemoveRule,
 }
 
 impl Mutation {
@@ -46,6 +47,7 @@ impl Mutation {
             Self::LoadUnpacked => "extension-load",
             Self::Reload => "extension-reload",
             Self::ResetPermissions => "extension-reset-permissions",
+            Self::RemoveRule => "extension-rule-remove",
         }
     }
 
@@ -58,7 +60,8 @@ impl Mutation {
             Self::Remove => "Uninstalling…",
             Self::LoadUnpacked => "Loading…",
             Self::Reload => "Reloading…",
-            Self::ResetPermissions => "Resetting…",
+            Self::ResetPermissions => "Clearing…",
+            Self::RemoveRule => "Removing…",
         }
     }
 }
@@ -417,13 +420,35 @@ impl ExtensionsView {
     }
 
     fn reset_permissions(&mut self, owner: &str, cx: &mut Context<Self>) {
+        let owner = owner.to_owned();
+        self.run(
+            Mutation::ResetPermissions,
+            move |model, cx| model.reset_extension_permissions(&owner, cx),
+            cx,
+        );
+    }
+
+    fn remove_rule(&mut self, owner: &str, rule: Rule, cx: &mut Context<Self>) {
+        let owner = owner.to_owned();
+        self.run(
+            Mutation::RemoveRule,
+            move |model, cx| model.remove_extension_rule(&owner, rule, cx),
+            cx,
+        );
+    }
+
+    /// Runs a model change, showing progress on its button until it finishes.
+    fn run(
+        &mut self,
+        mutation: Mutation,
+        change: impl FnOnce(&mut AppModel, &mut Context<AppModel>) -> gpui::Task<Result<(), String>>,
+        cx: &mut Context<Self>,
+    ) {
         if self.mutation.is_some() {
             return;
         }
-        let task = self
-            .model
-            .update(cx, |model, cx| model.reset_extension_permissions(owner, cx));
-        self.mutation = Some(Mutation::ResetPermissions);
+        let task = self.model.update(cx, change);
+        self.mutation = Some(mutation);
         self.completed = None;
         self.error = None;
         cx.spawn(async move |view, cx| {
@@ -433,12 +458,29 @@ impl ExtensionsView {
             };
             let _ = view.update(cx, |view, cx| {
                 view.mutation = None;
-                view.completed = result.is_ok().then_some(Mutation::ResetPermissions);
+                view.completed = result.is_ok().then_some(mutation);
                 view.error = result.err();
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Shows a file in Finder.
+    fn reveal(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        match crate::opener::submit(move || crate::opener::reveal(&path)) {
+            Ok(result) => cx
+                .spawn(async move |view, cx| {
+                    if let Ok(Err(error)) = result.recv().await {
+                        let _ = view.update(cx, |view, cx| {
+                            view.error = Some(format!("Could not show the file: {error}"));
+                            cx.notify();
+                        });
+                    }
+                })
+                .detach(),
+            Err(error) => self.error = Some(format!("Could not show the file: {error}")),
+        }
     }
 
     fn reload(&mut self, cx: &mut Context<Self>) {
@@ -474,7 +516,7 @@ impl ExtensionsView {
         match self.completed {
             Some(Mutation::Reload) if id == "extension-reload" => return "Reloaded",
             Some(Mutation::ResetPermissions) if id == "extension-reset-permissions" => {
-                return "Permissions reset";
+                return "Cleared";
             }
             _ => {}
         }
@@ -764,6 +806,16 @@ impl ExtensionsView {
     }
 
     fn section(&self, title: &str, content: impl IntoElement) -> gpui::Div {
+        self.section_with_actions(title, div(), content)
+    }
+
+    /// A titled card with buttons beside its title.
+    fn section_with_actions(
+        &self,
+        title: &str,
+        actions: impl IntoElement,
+        content: impl IntoElement,
+    ) -> gpui::Div {
         self.card()
             .p(self.metrics.spacing7())
             .flex()
@@ -771,11 +823,113 @@ impl ExtensionsView {
             .gap(self.metrics.spacing6())
             .child(
                 div()
-                    .text_size(self.metrics.font_emphasis())
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title.to_owned()),
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .justify_between()
+                    .gap(self.metrics.spacing6())
+                    .child(
+                        div()
+                            .text_size(self.metrics.font_emphasis())
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(title.to_owned()),
+                    )
+                    .child(actions),
             )
             .child(content)
+    }
+
+    /// Remembered consent answers, each removable, as on main.
+    fn rules_section(
+        &self,
+        owner: &str,
+        rules: &[Rule],
+        audit_log: std::path::PathBuf,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        let clear = owner.to_owned();
+        let actions = div()
+            .flex()
+            .flex_wrap()
+            .gap(self.metrics.spacing4())
+            .child(self.button(
+                "extension-audit-log",
+                "Reveal audit log",
+                move |view, _, cx| view.reveal(audit_log.clone(), cx),
+                cx,
+            ))
+            .when(!rules.is_empty(), |actions| {
+                actions.child(self.button(
+                    "extension-reset-permissions",
+                    "Clear all",
+                    move |view, _, cx| view.reset_permissions(&clear, cx),
+                    cx,
+                ))
+            });
+        let content = if rules.is_empty() {
+            div().text_color(self.theme.fg_muted).child(
+                "No saved rules. When you choose to remember an answer to a permission request, it appears here.",
+            )
+        } else {
+            rules.iter().enumerate().fold(
+                div().flex().flex_col().gap(self.metrics.spacing3()),
+                |list, (index, rule)| list.child(self.rule_row(owner, index, rule, cx)),
+            )
+        };
+        self.section_with_actions("Permission rules", actions, content)
+    }
+
+    fn rule_row(&self, owner: &str, index: usize, rule: &Rule, cx: &Context<Self>) -> gpui::Div {
+        let (decision, color) = match rule.consent {
+            Consent::Allow => ("allow", self.theme.diff_add),
+            Consent::Blocked => ("blocked", self.theme.danger),
+            Consent::Deny | Consent::Ask => ("deny", self.theme.danger),
+        };
+        let scope = if rule.consent == Consent::Blocked {
+            format!("blocks all {}", rule.gate.kind())
+        } else {
+            rule.scope()
+        };
+        let (owner, removed) = (owner.to_owned(), rule.clone());
+        div()
+            .flex()
+            .items_center()
+            .gap(self.metrics.spacing6())
+            .px(self.metrics.spacing5())
+            .py(self.metrics.spacing3())
+            .rounded(self.metrics.radius_sm())
+            .bg(self.theme.hover)
+            .child(
+                div()
+                    .flex_none()
+                    .w(gpui::px(64.0))
+                    .text_size(self.metrics.font_footnote())
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color)
+                    .child(decision),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .w(gpui::px(130.0))
+                    .truncate()
+                    .child(rule.gate.name()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .font_family(".SystemUIFontMonospaced")
+                    .text_color(self.theme.fg_muted)
+                    .child(scope),
+            )
+            .child(self.button(
+                format!("extension-rule-remove-{index}"),
+                "Remove",
+                move |view, _, cx| view.remove_rule(&owner, removed.clone(), cx),
+                cx,
+            ))
     }
 
     fn empty_state(&self, title: &str, description: &str) -> gpui::Div {
@@ -846,38 +1000,30 @@ impl ExtensionsView {
                 .background
                 .is_some()
                 .then(|| model.background_running(&extension.name));
+            let rules = model.extension_rules(&extension.name);
+            let audit_log = model.extension_audit_log();
             body = body
+                .child(self.rules_section(&extension.name, &rules, audit_log, cx))
                 .children(self.settings_section(extension, &stored, cx))
-                .child(self.logs_section(extension, &lines, background));
+                .child(self.logs_section(extension, &lines, background, cx));
         }
         if let Some((_, _, unpacked)) = local {
-            let reset = name.clone();
             body = body.child(
                 self.section(
                     "Manage extension",
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(self.metrics.spacing4())
-                        .child(self.button(
-                            "extension-reset-permissions",
-                            "Reset remembered permissions",
-                            move |view, _, cx| view.reset_permissions(&reset, cx),
+                    div().flex().flex_wrap().gap(self.metrics.spacing4()).child(
+                        self.button(
+                            "extension-remove",
+                            if *unpacked {
+                                "Unload folder"
+                            } else {
+                                "Uninstall"
+                            },
+                            move |view, _, cx| view.remove(&name, cx),
                             cx,
-                        ))
-                        .child(
-                            self.button(
-                                "extension-remove",
-                                if *unpacked {
-                                    "Unload folder"
-                                } else {
-                                    "Uninstall"
-                                },
-                                move |view, _, cx| view.remove(&name, cx),
-                                cx,
-                            )
-                            .text_color(self.theme.danger),
-                        ),
+                        )
+                        .text_color(self.theme.danger),
+                    ),
                 ),
             );
         }

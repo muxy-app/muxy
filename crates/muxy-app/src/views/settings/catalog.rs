@@ -136,6 +136,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: "Closing terminals",
     },
     Setting {
+        id: "file-opener",
+        label: "Open files with",
+        description: "Opens files you click in a terminal. An extension opener opens only the files it supports; other files open in the project editor.",
+        category: Category::General,
+        section: "Files",
+    },
+    Setting {
         id: "width",
         label: "Default window width",
         description: "Width in pixels for a new workspace window when no saved bounds exist.",

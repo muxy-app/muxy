@@ -201,6 +201,11 @@ impl Settings {
             .map_err(|error| Error::new("clipboard", error))
     }
 
+    pub fn save_openers(&self, path: &Path) -> Result<()> {
+        crate::settings::appearance::save_section(path, "openers", &self.openers)
+            .map_err(|error| Error::new("openers", error))
+    }
+
     pub fn save_composer(&self, path: &Path) -> Result<()> {
         self.composer.validate()?;
         crate::settings::appearance::save_section(path, "composer", &self.composer)

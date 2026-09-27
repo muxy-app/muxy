@@ -543,3 +543,57 @@ fn search_result_dropdown_uses_the_visible_field_and_closes_when_scrolled_out(
     assert!(dropdown.top() >= trigger.bottom() || dropdown.bottom() <= trigger.top());
     assert_eq!(dropdown.left(), trigger.left());
 }
+
+#[gpui::test]
+fn file_opener_dropdown_offers_extension_openers_and_keeps_an_unavailable_choice(
+    cx: &mut TestAppContext,
+) {
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.settings.openers.file = "gone:viewer".into();
+    let (view, cx) = settings_window(boot, cx);
+    let package = tempfile::tempdir().expect("package");
+    std::fs::write(package.path().join("index.html"), "").expect("entry");
+    std::fs::write(
+        package.path().join("package.json"),
+        r#"{"name":"files","version":"1.0.0","muxy":{
+            "tabTypes": [{"id": "code", "title": "Code", "entry": "index.html"}],
+            "fileOpeners": [{"id": "code", "title": "Code", "tabType": "code"}]
+        }}"#,
+    )
+    .expect("manifest");
+    extensions::finish_extension(
+        view.update(cx, |model, cx| {
+            model.load_unpacked_extension(package.path().to_owned(), cx)
+        }),
+        cx,
+    )
+    .expect("load");
+    extensions::finish_extension(
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("files", true, cx)
+        }),
+        cx,
+    )
+    .expect("enable");
+    click_preference(cx, "settings-picker-file-opener");
+    for row in [
+        "picker-row-system.editor",
+        "picker-row-system.finder",
+        "picker-row-files:code",
+        "picker-row-gone:viewer",
+    ] {
+        assert!(cx.debug_bounds(row).is_some(), "{row} is missing");
+    }
+    click_preference(cx, "picker-row-gone:viewer");
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.settings.openers.file, "gone:viewer");
+    });
+    click_preference(cx, "picker-row-files:code");
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.settings.openers.file, "files:code");
+        let saved =
+            muxy_app_core::settings::Settings::load(&model.path.with_file_name("settings.toml"))
+                .expect("saved settings");
+        assert_eq!(saved.openers.file, "files:code");
+    });
+}

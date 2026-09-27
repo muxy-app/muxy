@@ -12,6 +12,83 @@ pub(super) fn matching(pane: &SettingsView) -> Vec<usize> {
         .collect()
 }
 
+/// Extension shortcuts that match the search, in extension order.
+pub(super) fn matching_extensions(pane: &SettingsView) -> Vec<usize> {
+    pane.snapshot
+        .extension_shortcuts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, shortcut)| {
+            let name = format!("{} {}", shortcut.extension, shortcut.title);
+            pane.matches(Category::Keyboard, &name).then_some(index)
+        })
+        .collect()
+}
+
+/// An extension command's shortcut: record, reset to the manifest default,
+/// or unassign, as on main.
+pub(super) fn extension_row(
+    pane: &SettingsView,
+    index: usize,
+    cx: &mut Context<SettingsView>,
+) -> AnyElement {
+    let shortcut = &pane.snapshot.extension_shortcuts[index];
+    let id = shortcut.id.clone();
+    let label = if pane.recording.as_deref() == Some(id.as_str()) {
+        "Press a shortcut…"
+    } else {
+        shortcut
+            .chord
+            .as_ref()
+            .map_or("Not assigned", muxy_app_core::settings::KeyChord::as_str)
+    };
+    let focus = &pane.results.extension_focus[&id];
+    let (record, reset, unassign) = (id.clone(), id.clone(), id.clone());
+    let control = div()
+        .flex()
+        .flex_wrap()
+        .gap(px(6.0))
+        .child(
+            controls::button(
+                pane.style(),
+                &id,
+                label,
+                true,
+                cx.listener(move |pane, _, window, cx| {
+                    pane.begin_recording(&record, window, cx);
+                }),
+            )
+            .track_focus(&focus[0]),
+        )
+        .child(
+            controls::button(
+                pane.style(),
+                &format!("reset-{id}"),
+                "Reset",
+                true,
+                cx.listener(move |pane, _, _, cx| {
+                    pane.recording = None;
+                    cx.emit(SettingsEvent::Change(Change::Binding(reset.clone(), None)));
+                }),
+            )
+            .track_focus(&focus[1]),
+        )
+        .child(
+            controls::button(
+                pane.style(),
+                &format!("unassign-{id}"),
+                "Unassign",
+                true,
+                cx.listener(move |pane, _, _, cx| {
+                    pane.recording = None;
+                    cx.emit(SettingsEvent::Change(Change::Unassign(unassign.clone())));
+                }),
+            )
+            .track_focus(&focus[2]),
+        );
+    pane.row(&id, &shortcut.title, control.into_any_element())
+}
+
 pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsView>) -> AnyElement {
     let id = muxy_core::shortcuts::ALL[index].id;
     let recording = pane.recording.as_deref() == Some(id);

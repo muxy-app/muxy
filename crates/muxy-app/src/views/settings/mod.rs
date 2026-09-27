@@ -104,9 +104,13 @@ pub(crate) enum Change {
     ConfirmProcess(bool),
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
     CopyOnSelect(bool),
+    /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
+    FileOpener(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
     Field(&'static str, String),
     Binding(String, Option<muxy_app_core::settings::KeyChord>),
+    /// Removes an extension command's shortcut.
+    Unassign(String),
     ShellIntegration(bool),
     MobileAccess(bool),
 }
@@ -142,6 +146,9 @@ pub(crate) struct Snapshot {
     pub(crate) ai_installed: Vec<&'static str>,
     /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) sidebars: Vec<(String, String)>,
+    /// Enabled extensions' file openers, as `(setting value, label)`.
+    pub(crate) file_openers: Vec<(String, String)>,
+    pub(crate) extension_shortcuts: Vec<crate::model::extensions::ExtensionShortcut>,
 }
 
 pub(crate) struct SettingsView {
@@ -252,6 +259,7 @@ impl SettingsView {
                 PickerKind::AiProvider(crate::repository_actions::Action::Commit),
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
                 PickerKind::ExtensionSidebar,
+                PickerKind::FileOpener,
             ]
             .into_iter()
             .map(|kind| (kind, PickerAnchor::default()))

@@ -7,6 +7,17 @@ use muxy_ui::command_palette::{Command, Registry};
 use super::AppModel;
 use crate::views::command_palette::Handler;
 
+/// An extension command with a default shortcut, as Settings → Keyboard lists it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ExtensionShortcut {
+    /// The keymap id, `extension.<extension>.<command>`.
+    pub(crate) id: String,
+    pub(crate) extension: String,
+    pub(crate) title: String,
+    /// The shortcut in effect, if any.
+    pub(crate) chord: Option<KeyChord>,
+}
+
 /// Runs an extension command, or fires `command.<id>` for a runtime shortcut.
 #[derive(Clone, PartialEq, gpui::Action)]
 #[action(namespace = muxy, no_json)]
@@ -32,6 +43,9 @@ impl AppModel {
         for extension in self.extensions.registry.active() {
             for command in &extension.manifest.commands {
                 let id = format!("extension.{}.{}", extension.name, command.id);
+                if self.settings.keymap.unassigned(&id) {
+                    continue;
+                }
                 let key = self.settings.keymap.binding(&id).cloned().or_else(|| {
                     command
                         .default_shortcut
@@ -64,6 +78,70 @@ impl AppModel {
             }
         }
         bindings
+    }
+
+    /// Enabled extensions' commands that have a default shortcut, as main lists
+    /// them in Settings.
+    pub(crate) fn extension_shortcuts(&self) -> Vec<ExtensionShortcut> {
+        let bindings = self.extension_bindings();
+        self.extensions
+            .registry
+            .active()
+            .flat_map(|extension| {
+                extension
+                    .manifest
+                    .commands
+                    .iter()
+                    .filter(|command| command.default_shortcut.is_some())
+                    .map(|command| ExtensionShortcut {
+                        id: format!("extension.{}.{}", extension.name, command.id),
+                        extension: extension.name.clone(),
+                        title: command.title.clone(),
+                        chord: bindings
+                            .iter()
+                            .find(|(binding, _)| {
+                                binding.owner == extension.name && binding.command == command.id
+                            })
+                            .map(|(_, chord)| chord.clone()),
+                    })
+            })
+            .collect()
+    }
+
+    /// Why `chord` can't go to the extension command `id`: a built-in or
+    /// another extension command already uses it.
+    pub(in crate::model) fn extension_shortcut_conflict(
+        &self,
+        id: &str,
+        chord: &KeyChord,
+    ) -> Option<String> {
+        if let Some(shortcut) = muxy_core::shortcuts::ALL.iter().find(|shortcut| {
+            shortcut.contexts.iter().any(|context| {
+                self.settings
+                    .keymap
+                    .keys(shortcut.id, *context)
+                    .iter()
+                    .any(|key| key == chord.as_str())
+            })
+        }) {
+            return Some(format!(
+                "{chord} is also bound to {}",
+                shortcut.id.replace(['_', '.'], " ")
+            ));
+        }
+        let (taken, _) = self
+            .extension_bindings()
+            .into_iter()
+            .find(|(command, key)| {
+                key == chord && format!("extension.{}.{}", command.owner, command.command) != id
+            })?;
+        let title = self
+            .extensions
+            .registry
+            .enabled(&taken.owner)
+            .and_then(|extension| extension.manifest.command(&taken.command))
+            .map_or(taken.command.as_str(), |command| command.title.as_str());
+        Some(format!("{chord} is also bound to {}: {title}", taken.owner))
     }
 
     pub(in crate::model) fn bind_extension_keys(&self, cx: &mut Context<Self>) {

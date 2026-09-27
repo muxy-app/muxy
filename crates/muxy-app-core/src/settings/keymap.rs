@@ -93,6 +93,25 @@ impl Keymap {
         self.0.get(id)
     }
 
+    /// Whether the user removed an extension command's shortcut, which an
+    /// empty override records.
+    pub fn unassigned(&self, id: &str) -> bool {
+        self.1.get(id).is_some_and(String::is_empty)
+    }
+
+    /// Removes an extension command's shortcut, including its manifest default.
+    pub fn with_unassigned(&self, id: &str) -> Result<Self> {
+        if !extension_action(id) {
+            return Err(Error::new(
+                "keymap",
+                "only extension shortcuts can be unassigned",
+            ));
+        }
+        let mut overrides = self.1.clone();
+        overrides.insert(id.into(), String::new());
+        Self::from_overrides(overrides)
+    }
+
     pub fn with_binding(&self, id: &str, chord: Option<KeyChord>) -> Result<Self> {
         if shortcuts::find(id).is_none() && !extension_action(id) {
             return Err(Error::new("keymap", "unknown action"));
@@ -126,6 +145,9 @@ impl Keymap {
             let key = format!("keymap.{name}");
             if shortcuts::find(&name).is_none() && !extension_action(&name) {
                 return Err(Error::new(&key, "unknown action"));
+            }
+            if value.is_empty() && extension_action(&name) {
+                continue;
             }
             let chord = value
                 .parse()
@@ -184,9 +206,9 @@ impl Keymap {
             }
         }
         let defaults = Self::default();
-        keymap
-            .1
-            .retain(|id, chord| chord.parse::<KeyChord>().ok().as_ref() != defaults.0.get(id));
+        keymap.1.retain(|id, chord| {
+            chord.is_empty() || chord.parse::<KeyChord>().ok().as_ref() != defaults.0.get(id)
+        });
         Ok(keymap)
     }
 }
@@ -211,12 +233,15 @@ fn extension_action(id: &str) -> bool {
 }
 
 fn same_scope(left: &str, right: &str) -> bool {
-    if extension_action(left) || extension_action(right) {
-        return true;
+    match (extension_action(left), extension_action(right)) {
+        // Extension commands may share a key: an extension that is off keeps
+        // its binding, and among those that are on the first to claim it wins.
+        (true, true) => false,
+        (true, false) | (false, true) => true,
+        (false, false) => shortcuts::find(left)
+            .zip(shortcuts::find(right))
+            .is_some_and(|(left, right)| overlaps(left, right)),
     }
-    shortcuts::find(left)
-        .zip(shortcuts::find(right))
-        .is_some_and(|(left, right)| overlaps(left, right))
 }
 
 impl ShortcutSettings for Keymap {

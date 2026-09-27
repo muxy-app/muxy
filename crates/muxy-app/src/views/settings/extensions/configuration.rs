@@ -146,9 +146,18 @@ impl ExtensionsView {
         extension: &Extension,
         lines: &[String],
         background: Option<bool>,
+        cx: &Context<Self>,
     ) -> gpui::Div {
-        self.section(
+        let file = crate::model::extensions::log_file(&extension.directory);
+        let shown = file.clone();
+        self.section_with_actions(
             "Logs",
+            self.button(
+                "extension-reveal-log",
+                "Reveal log",
+                move |view, _, cx| view.reveal(shown.clone(), cx),
+                cx,
+            ),
             div()
                 .flex()
                 .flex_col()
@@ -180,7 +189,7 @@ impl ExtensionsView {
                         .when(lines.is_empty(), |logs| {
                             logs.child(format!(
                                 "No output yet. Logs are also written to {}.",
-                                extension.directory.join("logs/output.log").display()
+                                file.display()
                             ))
                         }),
                 ),

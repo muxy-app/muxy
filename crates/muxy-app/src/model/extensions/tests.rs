@@ -346,7 +346,9 @@ fn enabled_with<'a>(
     .expect("manifest");
     std::fs::write(package.path().join("index.html"), "").expect("entry");
     for (path, contents) in files {
-        std::fs::write(package.path().join(path), contents).expect("package file");
+        let path = package.path().join(path);
+        std::fs::create_dir_all(path.parent().expect("package folder")).expect("package folder");
+        std::fs::write(path, contents).expect("package file");
     }
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -868,6 +870,233 @@ fn background_scripts_follow_the_extension_not_the_connection(cx: &mut TestAppCo
     )
     .expect("disable");
     view.read_with(cx, |model, _| assert!(!model.background_running("ports")));
+}
+
+const CODE_OPENER: &str = r#"{
+    "tabTypes": [{"id": "code", "title": "Code", "entry": "index.html"}],
+    "fileOpeners": [{"id": "code", "title": "Code", "tabType": "code", "patterns": ["*.rs"]}]
+}"#;
+
+#[gpui::test]
+fn file_openers_apply_only_once_chosen_in_settings(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "files",
+        CODE_OPENER,
+        AppState::bootstrap().expect("state"),
+    );
+    view.update(cx, |model, _| {
+        assert!(
+            model.chosen_file_opener("src/main.rs").is_none(),
+            "extension openers are opt-in"
+        );
+        assert_eq!(
+            model.extension_file_openers(),
+            [("files:code".to_owned(), "files (Code)".to_owned())]
+        );
+        model.settings.openers.file = "files:code".into();
+        let (owner, opener) = model
+            .chosen_file_opener("src/main.rs")
+            .expect("chosen opener");
+        assert_eq!(
+            (owner.as_str(), opener.tab_type.as_str()),
+            ("files", "code")
+        );
+        assert!(
+            model.chosen_file_opener("README.md").is_none(),
+            "files it doesn't support use the built-in opener"
+        );
+    });
+    finish_extension(
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("files", false, cx)
+        }),
+        cx,
+    )
+    .expect("disable");
+    view.read_with(cx, |model, _| {
+        assert!(model.chosen_file_opener("src/main.rs").is_none());
+        assert_eq!(model.settings.openers.file, "files:code");
+    });
+    finish_extension(
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("files", true, cx)
+        }),
+        cx,
+    )
+    .expect("enable");
+    view.read_with(cx, |model, _| {
+        assert!(
+            model.chosen_file_opener("src/main.rs").is_some(),
+            "the choice resumes once the extension is enabled again"
+        );
+    });
+}
+
+#[gpui::test]
+fn the_log_tail_starts_with_earlier_sessions(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled_with(
+        cx,
+        "ports",
+        r#"{"background": "background.js"}"#,
+        &[
+            ("background.js", "setInterval(() => {}, 60000);"),
+            ("logs/output.log", "[log] from yesterday\n"),
+        ],
+        AppState::bootstrap().expect("state"),
+    );
+    wait_for(&view, cx, "earlier and new lines", |model| {
+        let tail: Vec<_> = model.extensions.logs.tail("ports").collect();
+        tail.first() == Some(&"[log] from yesterday")
+            && tail.contains(&"[muxy] started ports v1.0.0")
+    });
+}
+
+/// Stands in for the native consent sheet, which reports a cancel when it
+/// closes without an answer.
+struct ConsentSheet(async_channel::Sender<muxy_ui::dialog::ConsentResponse>);
+
+impl Drop for ConsentSheet {
+    fn drop(&mut self) {
+        let _ = self.0.try_send(muxy_ui::dialog::ConsentResponse::Cancel);
+    }
+}
+
+/// An `exec` call from script 1 of the `runner` extension.
+fn runner_exec(model: &AppModel, argv: &Value, reply: std::sync::mpsc::SyncSender<String>) -> Call {
+    Call {
+        owner: "runner".into(),
+        epoch: model.extensions.epoch_for("runner"),
+        generation: model.generation,
+        project: model.state.home().id,
+        verb: "exec".into(),
+        args: json!({ "argv": argv }),
+        reply: Reply::Script(1, reply),
+        approved: false,
+    }
+}
+
+/// Shows a consent sheet `id` for running `argv`, returning where its answer goes.
+fn prompt_runner(
+    view: &Entity<AppModel>,
+    cx: &mut gpui::VisualTestContext,
+    id: u64,
+    argv: &Value,
+) -> async_channel::Sender<muxy_ui::dialog::ConsentResponse> {
+    let (reply, _replies) = std::sync::mpsc::sync_channel(1);
+    let (answer, answers) = async_channel::bounded(1);
+    view.update(cx, |model, cx| {
+        let call = runner_exec(model, argv, reply);
+        let request = Request::for_call("runner", "exec", &call.args, "").expect("gated");
+        let sheet = Box::new(ConsentSheet(answer.clone()));
+        model.extensions.sheet = Some(consent::Sheet::new(id, "runner", false, sheet));
+        model.await_consent(id, call, request, answers, cx);
+    });
+    answer
+}
+
+#[gpui::test]
+fn gated_decisions_are_recorded_in_the_audit_log(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "runner",
+        r#"{"permissions": ["commands:exec"]}"#,
+        AppState::bootstrap().expect("state"),
+    );
+    let audit = view.read_with(cx, |model, _| model.extension_audit_log());
+    let entries = move || -> Vec<Value> {
+        std::fs::read_to_string(&audit)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("audit entry"))
+            .collect()
+    };
+    let call = |cx: &mut gpui::VisualTestContext, argv: Value, sheet: Option<consent::Sheet>| {
+        let (reply, replies) = std::sync::mpsc::sync_channel(1);
+        cx.update(|window, cx| {
+            view.update(cx, |model, cx| {
+                if sheet.is_some() {
+                    model.extensions.sheet = sheet;
+                }
+                model.extension_call(runner_exec(model, &argv, reply), window, cx);
+            });
+        });
+        replies
+    };
+    view.update(cx, |model, _| {
+        let (script, _events) = muxy_ui::javascript::Script::start(String::new()).expect("script");
+        let running = scripts::Running {
+            owner: "runner".into(),
+            script,
+        };
+        model.extensions.scripts.insert(1, running);
+    });
+    prompt_runner(&view, cx, 1, &json!(["git", "status"]))
+        .try_send(muxy_ui::dialog::ConsentResponse::DenyAndRemember)
+        .expect("answer");
+    wait_for(&view, cx, "the remembered answer", |_| entries().len() == 1);
+    let denied = call(cx, json!(["git", "log"]), None);
+    assert!(
+        denied
+            .try_recv()
+            .expect("reply")
+            .contains("user denied consent for exec")
+    );
+    wait_for(&view, cx, "the saved rule", |_| entries().len() == 2);
+    drop(prompt_runner(&view, cx, 2, &json!(["rm", "-r", "build"])));
+    view.update(cx, |model, _| model.extensions.sheet = None);
+    wait_for(&view, cx, "the prompt that timed out", |_| {
+        entries().len() == 3
+    });
+    let dialog = consent::Sheet::new(3, "other", true, Box::new(()));
+    let stopped = call(cx, json!(["make"]), Some(dialog));
+    finish_extension(
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("runner", false, cx)
+        }),
+        cx,
+    )
+    .expect("disable");
+    assert!(
+        stopped
+            .try_recv()
+            .expect("reply")
+            .contains("extension disabled")
+    );
+    wait_for(&view, cx, "the queued prompt", |_| entries().len() == 4);
+    let entries = entries();
+    assert_eq!(
+        entries[0],
+        json!({
+            "timestamp": entries[0]["timestamp"],
+            "extensionID": "runner",
+            "verb": "exec",
+            "payloadSummary": "git status",
+            "decision": "deny",
+            "ruleID": "exec:argv:git",
+            "source": "exec",
+        })
+    );
+    assert!(
+        entries[0]["timestamp"]
+            .as_str()
+            .is_some_and(|time| time.ends_with('Z'))
+    );
+    let fields = |entry: &Value| {
+        ["payloadSummary", "decision", "ruleID"]
+            .map(|key| entry[key].as_str().unwrap_or("").to_owned())
+    };
+    assert_eq!(
+        fields(&entries[1]),
+        ["git log", "deny", "exec:argv:git"],
+        "a saved rule decides without asking"
+    );
+    assert_eq!(fields(&entries[2]), ["rm -r build [timeout]", "deny", ""]);
+    assert_eq!(
+        fields(&entries[3]),
+        ["make [cancelled]", "deny", ""],
+        "a prompt still waiting when its extension stops"
+    );
 }
 
 #[gpui::test]
