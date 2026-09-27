@@ -1250,6 +1250,209 @@ fn pane_focused_fires_only_when_focus_moves_within_a_tab(cx: &mut TestAppContext
     );
 }
 
+/// A project with one worktree, both registered with the server. The folder
+/// holds the worktree's `.git` file.
+fn project_with_worktree() -> (AppState, ProjectId, ProjectId, tempfile::TempDir) {
+    let folder = tempfile::tempdir().expect("worktree folder");
+    std::fs::write(
+        folder.path().join(".git"),
+        "gitdir: ../repo/.git/worktrees/w",
+    )
+    .expect(".git");
+    let mut state = AppState::bootstrap().expect("state");
+    let project = state.add_project(std::env::temp_dir()).expect("project");
+    while let Some(intent) = state.project_intents().first().cloned() {
+        state
+            .complete_project_intent(intent.operation)
+            .expect("registered");
+    }
+    let mut worktree = state.project(project).expect("project").descriptor();
+    worktree.id = ProjectId::new();
+    worktree.parent_id = Some(project);
+    worktree.kind = Some(muxy_protocol::ProjectKind::Worktree);
+    worktree.directory =
+        muxy_protocol::ServerPath(folder.path().as_os_str().as_encoded_bytes().to_vec());
+    let id = worktree.id;
+    let mut projects: Vec<_> = state
+        .projects()
+        .iter()
+        .map(muxy_app_core::Project::descriptor)
+        .collect();
+    projects.push(worktree);
+    let (home, revision) = (state.home().id, state.catalog_revision() + 1);
+    state
+        .apply_catalog(&muxy_protocol::CatalogPage {
+            server: muxy_protocol::ServerIdentity::from_u128(1),
+            home,
+            revision,
+            projects,
+            next: None,
+            legacy_home: None,
+        })
+        .expect("worktree");
+    state.refresh_project_statuses();
+    (state, project, id, folder)
+}
+
+#[gpui::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "One walk through a project's panel session, frame by frame"
+)]
+fn extension_panels_follow_their_project(cx: &mut TestAppContext) {
+    use crate::model::webviews::panel_sessions::SavedPanel;
+    use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition};
+    let (mut state, project, worktree, _folder) = project_with_worktree();
+    let home = state.home().id;
+    state.select_project(home).expect("home");
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "tree",
+        r#"{
+            "panels": [{"id": "side", "entry": "index.html"}],
+            "events": ["panel.opened", "panel.closed", "project.switched", "worktree.switched"]
+        }"#,
+        state,
+    );
+    let events = listen(&view, cx, "tree");
+    let side = SavedPanel {
+        owner: "tree".into(),
+        kind: "side".into(),
+        position: PanelPosition::Bottom,
+        data: json!({"path": "src"}),
+    };
+    let composer = PanelId::new(crate::views::composer::PANEL);
+    let composer_placement =
+        || PanelPlacement::new(composer.clone(), PanelPosition::Right, PanelMode::Floating);
+    let reopening =
+        |model: &AppModel| model.webviews.panel_sessions.pending.as_ref() == Some(&side);
+    cx.update(|window, cx| {
+        view.update(cx, |model, cx| {
+            let _ = model.panels.place(composer_placement());
+            model.webviews.panel_sessions.save(project, side.clone());
+            model.select_project(project, cx);
+            assert_eq!(
+                model.webviews.panel_sessions.pending, None,
+                "the built-in composer keeps its slot"
+            );
+            model.select_project(home, cx);
+            model.panels.remove(&composer);
+            model.select_project(project, cx);
+            assert!(
+                reopening(model),
+                "the remembered panel reopens; its page is created at the next frame"
+            );
+            model.select_project(worktree, cx);
+            assert_eq!(model.state.current_project().id, worktree);
+            assert!(
+                reopening(model),
+                "a worktree of the same project keeps its panels"
+            );
+            model.select_project(home, cx);
+            model.select_project(project, cx);
+            assert!(
+                reopening(model),
+                "a panel left before its page was created is still remembered"
+            );
+            let _ = model.panels.place(composer_placement());
+            model.sync_webviews(window, cx);
+            model.panels.remove(&composer);
+            model.select_project(home, cx);
+            model.select_project(project, cx);
+            assert!(
+                reopening(model),
+                "a composer opened before the frame keeps the panel for a later visit"
+            );
+            model.sync_webviews(window, cx);
+            assert_eq!(model.webviews.panel_sessions.pending, None);
+            let log: Vec<_> = model.extensions.logs.tail("tree").collect();
+            assert_eq!(log.len(), 1);
+            assert!(
+                log[0].starts_with("[muxy] could not reopen panel side: "),
+                "{log:?}"
+            );
+        });
+    });
+    let names: Vec<_> = received(&view, cx, &events)
+        .into_iter()
+        .map(|(name, payload)| format!("{name} {}", payload["panelID"].as_str().unwrap_or("")))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "project.switched ",
+            "worktree.switched ",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.opened side",
+            "project.switched ",
+            "worktree.switched ",
+            "worktree.switched ",
+            "panel.closed side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.opened side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.closed side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.opened side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.closed side",
+        ]
+    );
+}
+
+#[gpui::test]
+fn stopped_extensions_forget_their_panels(cx: &mut TestAppContext) {
+    use crate::model::webviews::panel_sessions::SavedPanel;
+    let (mut state, project, _worktree, _folder) = project_with_worktree();
+    let home = state.home().id;
+    state.select_project(home).expect("home");
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "tree",
+        r#"{"panels": [{"id": "side", "entry": "index.html"}]}"#,
+        state,
+    );
+    let side = SavedPanel {
+        owner: "tree".into(),
+        kind: "side".into(),
+        position: muxy_ui::panel::PanelPosition::Right,
+        data: Value::Null,
+    };
+    view.update(cx, |model, cx| {
+        model.webviews.panel_sessions.save(project, side.clone());
+        model.select_project(project, cx);
+        assert_eq!(model.webviews.panel_sessions.pending, Some(side.clone()));
+        model.remove_owner_surfaces(Some("tree"), cx);
+        assert_eq!(
+            model.webviews.panel_sessions.pending, None,
+            "a stopped extension's panel does not reopen"
+        );
+        model.select_project(home, cx);
+        model.webviews.panel_sessions.save(project, side);
+    });
+    for enabled in [false, true] {
+        finish_extension(
+            view.update(cx, |model, cx| {
+                model.set_extension_enabled("tree", enabled, cx)
+            }),
+            cx,
+        )
+        .expect("toggled");
+    }
+    view.update(cx, |model, cx| {
+        model.select_project(project, cx);
+        assert_eq!(
+            model.webviews.panel_sessions.pending, None,
+            "disabling forgets the panels it left in other projects"
+        );
+    });
+}
+
 #[gpui::test]
 fn terminal_titles_reach_tab_updated_once_they_settle(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");

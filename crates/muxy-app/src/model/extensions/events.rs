@@ -77,7 +77,7 @@ fn agent_rank(state: AgentState) -> (u8, &'static str) {
 }
 
 /// The top-level project that owns a project or worktree.
-pub(super) fn root_of(project: &Project) -> ProjectId {
+pub(in crate::model) fn root_of(project: &Project) -> ProjectId {
     project.parent_id.unwrap_or(project.id)
 }
 
@@ -250,6 +250,7 @@ impl AppModel {
     }
 
     pub(in crate::model) fn sync_extension_events(&mut self, cx: &mut Context<Self>) {
+        self.switch_panel_session(cx);
         self.debounce_titles(cx);
         let silent = !self.extensions.events.initialized;
         let mut emit = |model: &Self, name: &str, payload: Value| {
