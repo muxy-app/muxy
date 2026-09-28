@@ -89,6 +89,7 @@ pub(crate) struct GitState {
     current: Option<ProjectId>,
     pub(crate) select_after_catalog: Option<(ProjectId, u64)>,
     pub(crate) interaction: u64,
+    pub(super) worktrees: super::worktrees::WorktreeSync,
 }
 impl GitState {
     pub(super) fn reset_context(&mut self) {
@@ -107,6 +108,7 @@ impl AppModel {
             actions.push(picker.kind.action());
         }
         self.queue_git_refresh(project, actions, cx);
+        self.resync_worktrees(project, cx);
     }
 
     pub(crate) fn git_request(
@@ -209,6 +211,7 @@ impl AppModel {
                 ],
                 cx,
             );
+            self.sync_worktrees(current, cx);
         }
     }
     pub(crate) fn refresh_git(&mut self, cx: &mut Context<Self>) {

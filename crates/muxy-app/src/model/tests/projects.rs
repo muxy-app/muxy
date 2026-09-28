@@ -383,7 +383,7 @@ fn run_projects_live_walkthrough(cx: &mut TestAppContext) -> Result {
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     let first = view.update(cx, |model, cx| {
-        assert!(model.add_project(first_path.clone(), cx));
+        assert!(model.add_project(first_path.clone(), cx).is_some());
         assert!(model.state.current_project().tabs.is_empty());
         model.new_tab(cx);
         model.state.current_project().id
@@ -397,7 +397,7 @@ fn run_projects_live_walkthrough(cx: &mut TestAppContext) -> Result {
     )?;
     let first_session = active_session(&view, cx)?;
     let second = view.update(cx, |model, cx| {
-        assert!(model.add_project(second_path.clone(), cx));
+        assert!(model.add_project(second_path.clone(), cx).is_some());
         assert!(model.state.current_project().tabs.is_empty());
         model.new_tab(cx);
         model.state.current_project().id

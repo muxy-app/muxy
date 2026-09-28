@@ -4,7 +4,7 @@ use muxy_protocol::{
     GitReply, ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind, ProjectMutation,
     WorktreeAction, WorktreeIntent, WorktreeRemoval,
 };
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::MetadataExt;
 use std::sync::PoisonError;
 
@@ -175,16 +175,21 @@ impl Registry {
             WorktreeAction::Register { project, directory } => {
                 self.validate_worktree_parent(parent, *project, directory)?;
                 let entry = validate_member(path(&parent.directory), path(directory))?;
-                if entry.primary {
-                    return Err(error("The primary worktree is already the parent project"));
+                if entry.primary || same_folder(path(&parent.directory), path(directory)) {
+                    return Err(error("This worktree is already the parent project"));
                 }
+                let folder = path(directory).file_name().map(OsStr::to_string_lossy);
                 Self::new_worktree_receipt(
                     owner,
                     intent,
                     parent,
                     *project,
                     directory,
-                    entry.branch.as_deref().unwrap_or("Detached worktree"),
+                    entry
+                        .branch
+                        .as_deref()
+                        .or(folder.as_deref())
+                        .unwrap_or("Detached worktree"),
                 )?
             }
             WorktreeAction::Remove { expected } => {
@@ -421,6 +426,11 @@ impl Registry {
             }
         }
     }
+}
+
+fn same_folder(one: &std::path::Path, other: &std::path::Path) -> bool {
+    one.canonicalize()
+        .is_ok_and(|one| other.canonicalize().is_ok_and(|other| one == other))
 }
 
 fn create_worktree(

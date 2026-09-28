@@ -384,7 +384,12 @@ fn switching_projects_cancels_an_unconfirmed_action(cx: &mut TestAppContext) {
         .find(|candidate| candidate.id != project && !candidate.home)
         .unwrap()
         .id;
-    let (boot, requests) = stub_boot(state);
+    let (mut boot, requests) = stub_boot(state);
+    // Worktree syncs ask for the client too; this test watches only the AI action.
+    boot.settings
+        .appearance
+        .hidden_worktrees
+        .extend([project, other]);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {

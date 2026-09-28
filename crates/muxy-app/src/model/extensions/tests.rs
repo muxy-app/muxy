@@ -1520,13 +1520,24 @@ fn terminal_titles_reach_tab_updated_once_they_settle(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn project_and_agent_lists_use_main_shapes(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let project = state.add_project(std::env::temp_dir()).expect("project");
     let (view, cx, _package, _requests) = enabled(
         cx,
         "lister",
         r#"{"permissions": ["projects:read", "agents:read"]}"#,
-        AppState::bootstrap().expect("state"),
+        state,
     );
     let projects = script_call(&view, cx, "lister", 1, "projects.list", json!({}));
+    assert_eq!(projects["value"][1]["worktreesEnabled"], true);
+    view.update(cx, |model, cx| {
+        model.toggle_worktree_visibility(project, cx);
+    });
+    let projects = script_call(&view, cx, "lister", 1, "projects.list", json!({}));
+    assert_eq!(
+        projects["value"][1]["worktreesEnabled"], false,
+        "worktreesEnabled follows the project's Worktrees setting"
+    );
     let home = &projects["value"][0];
     for key in [
         "id",

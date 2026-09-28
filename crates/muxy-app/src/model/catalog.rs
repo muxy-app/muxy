@@ -10,6 +10,16 @@ impl AppModel {
         })
     }
 
+    fn created_project(&self, operation: OperationId) -> Option<ProjectId> {
+        self.state
+            .project_intents()
+            .iter()
+            .find_map(|intent| match &intent.mutation {
+                ProjectMutation::Create(record) if intent.operation == operation => Some(record.id),
+                _ => None,
+            })
+    }
+
     pub(super) fn refresh_catalog(&mut self, cx: &mut Context<Self>) {
         if self.connection == ConnectionState::Ready && !self.catalog.pending {
             self.catalog.pending = self.send(Work::ReadCatalog, cx);
@@ -32,6 +42,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let accepted = result.is_ok();
+        let created = self.created_project(operation);
         self.catalog.replaying = false;
         match result {
             Ok(revision) => self.catalog.dirty = self.catalog.dirty.max(revision),
@@ -54,6 +65,9 @@ impl AppModel {
         }
         if accepted {
             self.sync_git(cx);
+            if let Some(project) = created {
+                self.sync_worktrees(project, cx);
+            }
         }
         if self.state.project_intents().is_empty() {
             self.refresh_catalog(cx);
@@ -92,6 +106,7 @@ impl AppModel {
         } else if let Some(sessions) = self.catalog.restore.take() {
             self.apply_restore(&sessions, cx);
             self.resume_update_attaches(cx);
+            self.sync_all_worktrees(cx);
         }
         if let Some((project, context)) = self.git.select_after_catalog.take()
             && context == self.git.interaction

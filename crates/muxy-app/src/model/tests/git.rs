@@ -146,7 +146,7 @@ fn newly_added_project_starts_git_after_server_registration(cx: &mut TestAppCont
     view.update(cx, |model, cx| {
         model.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
-        assert!(model.add_project(std::env::temp_dir(), cx));
+        assert!(model.add_project(std::env::temp_dir(), cx).is_some());
         let project = model.state.current_project().id;
         let create = model
             .state

@@ -49,26 +49,18 @@ pub(super) async fn call(client: &Client, call: &Call) -> Result<Value, String> 
         call.verb.as_str(),
         "worktrees.refresh" | "worktrees.switch" | "git.worktree.switch"
     ) {
-        let GitReply::Worktrees(worktrees) = git(client, root, GitAction::Worktrees).await? else {
-            return Err("unexpected worktree listing".into());
-        };
-        for worktree in &worktrees {
-            if !worktree.primary
-                && !worktree.bare
-                && !worktree.prunable
-                && worktree.registered.is_none()
-            {
-                git(
-                    client,
-                    root,
-                    operation(WorktreeAction::Register {
-                        project: ProjectId::new(),
-                        directory: worktree.directory.clone(),
-                    }),
-                )
-                .await?;
-            }
-        }
+        let directory = &catalog
+            .projects
+            .iter()
+            .find(|p| p.id == root)
+            .ok_or("project was not found")?
+            .directory;
+        let worktrees = crate::model::worktrees::list(client, root)
+            .await
+            .map_err(|error| error.to_string())?;
+        crate::model::worktrees::register(client, root, directory, &worktrees)
+            .await
+            .map_err(|error| error.to_string())?;
         return Ok(json!({"count":worktrees.len()}));
     }
     let requested = api::text(&call.args, "path")?;

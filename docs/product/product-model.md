@@ -69,6 +69,10 @@ folder. You can create one from a branch or add a worktree that already exists.
 It takes the branch name and its parent's color, and has its own tabs.
 Worktrees can't have children of their own.
 
+Worktrees made outside Muxy show up automatically. A new project shows
+worktrees only if its repository already has some; turn them on or off from
+the project menu.
+
 ```mermaid
 flowchart LR
     PARENT["muxy<br/>~/code/muxy"] --> FEATURE["feature-x<br/>~/code/muxy-feature-x"]

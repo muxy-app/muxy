@@ -596,6 +596,13 @@ mod tests {
             assert_eq!(item.checked, Some(checked));
             assert!(matches!(item.command, Command::Worktrees(project) if project == id));
             assert!(!items.iter().any(|item| item.label == "Worktrees…"));
+            assert_eq!(
+                items
+                    .iter()
+                    .any(|item| matches!(item.command, Command::NewWorktree(_))),
+                checked,
+                "New Worktree… needs Worktrees turned on"
+            );
         }
         assert!(
             !super::super::project_menu::items(state.home(), true)

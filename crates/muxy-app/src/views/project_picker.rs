@@ -561,7 +561,7 @@ impl AppModel {
             self.join_active_workspace(id, cx);
             self.select_project(id, cx);
             self.dismiss_overlay(cx);
-        } else if self.add_project(path, cx) {
+        } else if self.add_project(path, cx).is_some() {
             self.dismiss_overlay(cx);
         } else if let Some(error) = self.error.clone() {
             self.project_picker_error(error, cx);

@@ -122,7 +122,7 @@ impl AppModel {
                     "logo": project.logo.as_ref().map(|logo| {
                         format!("data:image/png;base64,{}", base64(logo))
                     }),
-                    "worktreesEnabled": !project.home,
+                    "worktreesEnabled": !project.home && self.worktrees_visible(project.id),
                 })
             })
             .collect()
@@ -415,18 +415,8 @@ impl AppModel {
         if !directory.is_dir() {
             return Err(format!("could not open project at path '{path}'"));
         }
-        let mut added = None;
-        if self.edit_project(
-            |state| {
-                added = Some(state.add_project(directory)?);
-                Ok(())
-            },
-            cx,
-        ) {
-            added.ok_or_else(|| "could not open project".into())
-        } else {
-            Err(format!("could not open project at path '{path}'"))
-        }
+        self.add_project(directory, cx)
+            .ok_or_else(|| format!("could not open project at path '{path}'"))
     }
 
     fn reorder_projects(&mut self, args: &Value, cx: &mut Context<Self>) -> Result<Value, String> {

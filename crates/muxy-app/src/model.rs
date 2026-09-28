@@ -17,6 +17,7 @@ pub(crate) use updates::UpdateAction;
 mod voice;
 mod webviews;
 mod workspaces;
+mod worktrees;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -710,8 +711,24 @@ impl AppModel {
         self.select_project(target, cx);
     }
 
-    pub(crate) fn add_project(&mut self, directory: PathBuf, cx: &mut Context<Self>) -> bool {
-        self.edit_project(|state| state.add_project(directory).map(|_| ()), cx)
+    pub(crate) fn add_project(
+        &mut self,
+        directory: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Option<ProjectId> {
+        let mut added = None;
+        if !self.edit_project(
+            |state| {
+                added = Some(state.add_project(directory)?);
+                Ok(())
+            },
+            cx,
+        ) {
+            return None;
+        }
+        let project = added?;
+        self.hide_new_project_worktrees(project, cx);
+        Some(project)
     }
 
     pub(crate) fn edit_project(
@@ -2348,6 +2365,7 @@ mod tests {
     mod updates;
     mod window_bounds;
     mod workspaces;
+    mod worktrees;
 
     use muxy_client::Client;
     use std::io::{self, Write};

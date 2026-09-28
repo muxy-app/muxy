@@ -553,6 +553,84 @@ fn linked_worktree_watch_detects_common_refs_and_stops_when_dropped() {
     );
 }
 
+#[test]
+fn watch_reports_linked_worktrees_added_and_removed_outside_the_checkout() {
+    let repo = Repo::new(true);
+    let (send, events) = mpsc::sync_channel(1);
+    let _watch = repo
+        .registry
+        .watch_git(repo.project, move || {
+            let _ = send.try_send(());
+        })
+        .unwrap()
+        .unwrap();
+    let linked = std::env::temp_dir().join(format!("muxy-git-linked-{}", OperationId::new()));
+    let linked = linked.to_str().unwrap();
+    run(&repo.path, &["worktree", "add", "--detach", linked]).unwrap();
+    events
+        .recv_timeout(std::time::Duration::from_secs(8))
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    while events.try_recv().is_ok() {}
+    run(&repo.path, &["worktree", "remove", linked]).unwrap();
+    events
+        .recv_timeout(std::time::Duration::from_secs(8))
+        .unwrap();
+}
+
+#[test]
+fn registration_names_detached_worktrees_by_folder_and_refuses_the_parent_folder() {
+    let repo = Repo::new(true);
+    let register = |owner: ProjectId, directory: &Path| {
+        repo.registry.git(&GitRequest {
+            project: owner,
+            action: GitAction::Worktree(WorktreeIntent {
+                operation: OperationId::new(),
+                action: WorktreeAction::Register {
+                    project: ProjectId::new(),
+                    directory: server_path(directory),
+                },
+            }),
+        })
+    };
+    let detached = repo.path.join("detached-checkout");
+    run(
+        &repo.path,
+        &["worktree", "add", "--detach", detached.to_str().unwrap()],
+    )
+    .unwrap();
+    let GitReply::Project(child) = register(repo.project, &detached).unwrap() else {
+        panic!()
+    };
+    assert_eq!(child.name, "detached-checkout");
+    let opened_at_worktree = ProjectId::new();
+    repo.registry
+        .mutate_project(&ProjectIntent {
+            operation: OperationId::new(),
+            mutation: ProjectMutation::Create(ProjectDescriptor {
+                id: opened_at_worktree,
+                home: false,
+                directory: server_path(&detached),
+                name: "Opened at a worktree".into(),
+                icon: None,
+                logo: None,
+                color: "#ffffff".into(),
+                kind: None,
+                parent_id: None,
+            }),
+        })
+        .unwrap();
+    for (owner, directory) in [
+        (repo.project, repo.path.as_path()),
+        (opened_at_worktree, detached.as_path()),
+    ] {
+        assert_eq!(
+            register(owner, directory).unwrap_err().message(),
+            "This worktree is already the parent project"
+        );
+    }
+}
+
 mod extensions;
 mod review;
 

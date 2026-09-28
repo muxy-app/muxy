@@ -29,7 +29,9 @@ pub(crate) fn items(project: &Project, worktrees_visible: bool) -> Vec<Item> {
             items.push(
                 Item::action("Worktrees", Command::Worktrees(id)).checked_if(worktrees_visible),
             );
-            items.push(Item::action("New Worktree…", Command::NewWorktree(id)));
+            if worktrees_visible {
+                items.push(Item::action("New Worktree…", Command::NewWorktree(id)));
+            }
         } else {
             items.push(Item::action(
                 "Remove Worktree and Files…",

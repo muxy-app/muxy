@@ -27,6 +27,7 @@ impl AppModel {
                 self.select_project(id, cx);
             }
         }
+        self.worktrees_toggled(id, cx);
         cx.notify();
     }
 

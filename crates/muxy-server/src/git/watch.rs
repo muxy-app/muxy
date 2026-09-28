@@ -40,12 +40,18 @@ impl Roots {
 }
 
 fn metadata_relevant(relative: &Path, worktree: bool, common: bool) -> bool {
-    let Some(first) = relative.components().next() else {
+    let mut components = relative.components();
+    let Some(first) = components.next() else {
         return true;
     };
     let first = first.as_os_str();
     (worktree && (first == "HEAD" || first == "index"))
-        || (common && (first == "config" || first == "packed-refs" || first == "refs"))
+        || (common
+            && (first == "config"
+                || first == "packed-refs"
+                || first == "refs"
+                // A linked worktree added or removed, not work inside one.
+                || (first == "worktrees" && components.nth(1).is_none())))
 }
 
 impl Registry {
@@ -167,6 +173,8 @@ mod tests {
             "/repo/.git/HEAD",
             "/repo/.git/index",
             "/repo/.git/refs/heads/main",
+            "/repo/.git/worktrees",
+            "/repo/.git/worktrees/topic",
         ] {
             assert!(roots.relevant(Path::new(path)));
         }
@@ -175,6 +183,8 @@ mod tests {
             "/repo/.git/index.lock",
             "/repo/.git/objects/aa/bb",
             "/repo/.git/logs/HEAD",
+            "/repo/.git/worktrees/topic/index",
+            "/repo/.git/worktrees/topic/logs/HEAD",
         ] {
             assert!(!roots.relevant(Path::new(path)));
         }
@@ -188,9 +198,15 @@ mod tests {
             "/repo/.git/worktrees/topic/index",
             "/repo/.git/refs/heads/main",
             "/repo/.git/packed-refs",
+            "/repo/.git/worktrees/other",
         ] {
             assert!(roots.relevant(Path::new(path)));
         }
-        assert!(!roots.relevant(Path::new("/repo/.git/worktrees/topic/logs/HEAD")));
+        for path in [
+            "/repo/.git/worktrees/topic/logs/HEAD",
+            "/repo/.git/worktrees/other/index",
+        ] {
+            assert!(!roots.relevant(Path::new(path)));
+        }
     }
 }
