@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::{ffi::OsStrExt, process::CommandExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
     Arc, Mutex, PoisonError,
@@ -12,7 +12,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use muxy_protocol::{
-    ErrorCode, ExecRequest, ExecResult, MAX_EXEC_OUTPUT, Message, ReplyBody, RequestId,
+    ErrorCode, ExecRequest, ExecResult, MAX_EXEC_OUTPUT, Message, ReplyBody, RequestId, ServerPath,
 };
 
 use crate::{Registry, ServerError, connection::Outbox};
@@ -97,7 +97,6 @@ impl Jobs {
                             &cancelled,
                             || output.is_closed(),
                         )
-                        .map_err(error)
                     });
                 active
                     .lock()
@@ -158,6 +157,52 @@ fn error(cause: impl std::fmt::Display) -> ServerError {
     ServerError::new(ErrorCode::BadRequest, cause.to_string())
 }
 
+/// Launch failures read like main's, since extensions match on the text.
+fn launch_failed(request: &ExecRequest, cause: &io::Error) -> ServerError {
+    ServerError::spawn_failed(match request.argv.first() {
+        Some(program) if !program.contains('/') && !on_path(program, request.env.get("PATH")) => {
+            format!("command not found: {program}")
+        }
+        _ => format!("spawn process: {}", os_message(cause)),
+    })
+}
+
+/// Whether `program` is an executable file in one of the `PATH` folders,
+/// which is how main finds a command before launching it.
+fn on_path(program: &str, path: Option<&String>) -> bool {
+    let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
+    std::env::split_paths(&path)
+        .filter(|folder| !folder.as_os_str().is_empty())
+        .map(|folder| folder.join(program))
+        .any(|file| {
+            file.is_file() && rustix::fs::access(&file, rustix::fs::Access::EXEC_OK).is_ok()
+        })
+}
+
+/// The system's description of an error, without Rust's "(os error N)".
+fn os_message(error: &io::Error) -> String {
+    let text = error.to_string();
+    let suffix = error
+        .raw_os_error()
+        .map(|code| format!(" (os error {code})"))
+        .unwrap_or_default();
+    text.strip_suffix(&suffix).unwrap_or(&text).to_owned()
+}
+
+/// Where a command runs: `~` is the home folder, and relative paths start in
+/// the project folder.
+fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> PathBuf {
+    let Some(path) = cwd.map(|path| Path::new(OsStr::from_bytes(&path.0))) else {
+        return root.to_owned();
+    };
+    if let Ok(relative) = path.strip_prefix("~")
+        && let Some(home) = std::env::home_dir()
+    {
+        return home.join(relative);
+    }
+    root.join(path)
+}
+
 fn nonblocking(fd: &impl AsFd) -> io::Result<()> {
     let flags = rustix::fs::fcntl_getfl(fd)?;
     rustix::fs::fcntl_setfl(fd, flags | rustix::fs::OFlags::NONBLOCK)?;
@@ -210,19 +255,13 @@ fn utf8(bytes: &[u8], truncated: &mut bool) -> String {
     text
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "One loop owns child status, pipe draining, and cancellation"
-)]
 fn execute(
     request: &ExecRequest,
     root: &Path,
     cancelled: &AtomicBool,
     disconnected: impl Fn() -> bool,
-) -> io::Result<ExecResult> {
-    request
-        .validate()
-        .map_err(|_| io::Error::other("invalid command"))?;
+) -> Result<ExecResult, ServerError> {
+    request.validate().map_err(|_| error("invalid command"))?;
     if cancelled.load(Ordering::Acquire) || disconnected() {
         return Ok(ExecResult {
             stdout: String::new(),
@@ -242,18 +281,27 @@ fn execute(
         command.args(&request.argv[1..]);
         command
     };
-    let cwd = request.cwd.as_ref().map_or_else(
-        || root.to_owned(),
-        |path| root.join(OsStr::from_bytes(&path.0)),
-    );
     command
         .envs(&request.env)
-        .current_dir(cwd)
+        .current_dir(working_directory(root, request.cwd.as_ref()))
         .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = Process(command.spawn()?);
+    let child = command
+        .spawn()
+        .map_err(|cause| launch_failed(request, &cause))?;
+    supervise(Process(child), request, cancelled, disconnected).map_err(error)
+}
+
+/// Feeds stdin and collects output until the command exits, is cancelled, or
+/// runs out of time.
+fn supervise(
+    mut child: Process,
+    request: &ExecRequest,
+    cancelled: &AtomicBool,
+    disconnected: impl Fn() -> bool,
+) -> io::Result<ExecResult> {
     let input = child
         .0
         .stdin
@@ -340,7 +388,7 @@ mod tests {
     )]
     use super::*;
 
-    struct TestDirectory(std::path::PathBuf);
+    struct TestDirectory(PathBuf);
     impl TestDirectory {
         fn new() -> Self {
             let path = std::env::temp_dir()
@@ -408,6 +456,57 @@ mod tests {
         assert_eq!(result.exit_code, 7);
         assert!(!result.timed_out);
         assert!(!result.cancelled);
+    }
+
+    #[test]
+    fn tilde_working_directories_start_in_the_home_folder() {
+        let root = Path::new("/project");
+        let home = std::env::home_dir().unwrap();
+        let cwd = |path: &str| ServerPath(path.as_bytes().to_vec());
+        assert_eq!(working_directory(root, None), root);
+        assert_eq!(working_directory(root, Some(&cwd("~"))), home);
+        assert_eq!(
+            working_directory(root, Some(&cwd("~/src"))),
+            home.join("src")
+        );
+        assert_eq!(
+            working_directory(root, Some(&cwd("~src"))),
+            root.join("~src")
+        );
+        assert_eq!(working_directory(root, Some(&cwd("src"))), root.join("src"));
+        assert_eq!(
+            working_directory(root, Some(&cwd("/tmp"))),
+            Path::new("/tmp")
+        );
+        let mut request = request("pwd");
+        request.cwd = Some(cwd("~"));
+        let result = execute(&request, root, &AtomicBool::new(false), || false).unwrap();
+        assert_eq!(
+            Path::new(result.stdout.trim_end()).canonicalize().unwrap(),
+            home.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn launch_failures_read_like_main() {
+        let root = TestDirectory::new();
+        let launch = |program: &str, cwd: Option<&str>| {
+            let mut request = request("");
+            request.shell = None;
+            request.argv = vec![program.into()];
+            request.cwd = cwd.map(|path| ServerPath(path.as_bytes().to_vec()));
+            let failure = execute(&request, root.path(), &AtomicBool::new(false), || false)
+                .expect_err("launch fails");
+            assert_eq!(failure.code(), ErrorCode::SpawnFailed);
+            failure.message().to_owned()
+        };
+        assert_eq!(
+            launch("muxy-missing-command", None),
+            "command not found: muxy-missing-command"
+        );
+        let missing = "spawn process: No such file or directory";
+        assert_eq!(launch("/muxy/missing/command", None), missing);
+        assert_eq!(launch("true", Some("missing-folder")), missing);
     }
 
     #[test]

@@ -287,6 +287,11 @@ impl Webview {
         self.update_content(self.data.clone(), theme, metrics, cx);
     }
 
+    /// The page's current `muxy.data`.
+    pub(crate) fn data(&self) -> &Value {
+        &self.data
+    }
+
     pub(crate) fn update_content(
         &mut self,
         data: Value,

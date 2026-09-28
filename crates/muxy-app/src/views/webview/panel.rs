@@ -27,7 +27,7 @@ impl AppModel {
         for (id, panel) in panels {
             let right = panel.placement.position == PanelPosition::Right;
             let pinned = panel.placement.mode == PanelMode::Pinned;
-            let dimension = if right { panel.width } else { panel.height };
+            let dimension = self.webviews.panel_size.get(panel.placement.position);
             let sizing = PanelSizing::new(
                 &panel.placement,
                 dimension,
@@ -48,12 +48,11 @@ impl AppModel {
                 panel.surface.view.clone(),
                 move |dimension, _, cx| {
                     let _ = model.update(cx, |model, cx| {
-                        if let Some(panel) = model.webviews.panels.get_mut(&resize_id) {
-                            if panel.placement.position == PanelPosition::Right {
-                                panel.width = dimension;
-                            } else {
-                                panel.height = dimension;
-                            }
+                        if let Some(panel) = model.webviews.panels.get(&resize_id) {
+                            model
+                                .webviews
+                                .panel_size
+                                .set(panel.placement.position, dimension);
                             cx.notify();
                         }
                     });
@@ -144,7 +143,7 @@ impl AppModel {
         for (id, panel) in &self.webviews.panels {
             if self.panels.placement(id).is_some() && panel.placement.mode == PanelMode::Pinned {
                 let right = panel.placement.position == PanelPosition::Right;
-                let desired = if right { panel.width } else { panel.height };
+                let desired = self.webviews.panel_size.get(panel.placement.position);
                 let bounds = panel_size_bounds(pinned_space, right);
                 let extent = bounds.clamp(desired) + 1.0;
                 if right {

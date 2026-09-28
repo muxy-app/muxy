@@ -315,6 +315,53 @@ fn manifest_validation_rejects_what_main_rejects() {
 }
 
 #[test]
+fn remembered_rules_are_listed_and_removed_per_extension() {
+    let root = tempfile::tempdir().unwrap();
+    let mut grants = Grants::load(root.path()).unwrap();
+    let status = Request::for_call("files", "exec", &json!({"argv":["git","status"]}), "").unwrap();
+    let push = Request::for_call("files", "git.push", &json!({}), "/repo").unwrap();
+    grants
+        .remember("files", &status, Choice::AllowAndRemember)
+        .unwrap();
+    grants
+        .remember("files", &push, Choice::DenyAndRemember)
+        .unwrap();
+    grants.remember("other", &status, Choice::Block).unwrap();
+    let rules = grants.rules("files");
+    assert_eq!(
+        rules
+            .iter()
+            .map(|rule| (rule.id(), rule.scope(), rule.consent))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "exec:argv:git".to_owned(),
+                "git *".to_owned(),
+                Consent::Allow
+            ),
+            (
+                "git.write:op:push".to_owned(),
+                "push".to_owned(),
+                Consent::Deny
+            ),
+        ]
+    );
+    assert_eq!(grants.rule("files", &status), Some(rules[0].clone()));
+    let blocked = grants.rule("other", &status).unwrap();
+    assert_eq!(
+        (blocked.id(), blocked.consent),
+        ("exec:*".to_owned(), Consent::Blocked)
+    );
+    grants.remove("files", &rules[0]).unwrap();
+    assert_eq!(
+        Grants::load(root.path()).unwrap().rules("files"),
+        [rules[1].clone()]
+    );
+    assert_eq!(grants.decision("files", &status), Consent::Ask);
+    assert_eq!(grants.decision("other", &status), Consent::Blocked);
+}
+
+#[test]
 fn earlier_grant_keys_keep_their_decisions() {
     let root = tempfile::tempdir().unwrap();
     fs::write(

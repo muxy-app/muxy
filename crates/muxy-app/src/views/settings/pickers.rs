@@ -11,6 +11,7 @@ pub(crate) enum PickerKind {
     Theme(bool),
     AiProvider(crate::repository_actions::Action),
     ExtensionSidebar,
+    FileOpener,
 }
 
 impl PickerKind {
@@ -22,6 +23,7 @@ impl PickerKind {
             Self::Theme(true) => "dark-theme",
             Self::AiProvider(action) => super::ai::provider_id(action),
             Self::ExtensionSidebar => "extension-sidebar",
+            Self::FileOpener => "file-opener",
         }
     }
 }

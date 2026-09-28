@@ -60,8 +60,6 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                 json!({"argv": [""]}),
                 json!({"argv": ["git"], "shell": "git ls-files"}),
                 json!({"argv": ["git", 1]}),
-                json!({"argv": ["git", "\u{0}"]}),
-                json!({"shell": "git\u{0}"}),
                 json!({"argv": ["git"], "env": {"INVALID=KEY": "value"}}),
             ] {
                 call.args = args;
@@ -71,10 +69,52 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                     call.args
                 );
             }
+            let null = "exec failed to launch: arguments and environment cannot contain null bytes";
+            for (args, error) in [
+                (json!({"argv": ["git", "\u{0}"]}), null),
+                (json!({"shell": "git\u{0}"}), null),
+                (json!({"argv": ["git"], "env": {"KEY": "a\u{0}b"}}), null),
+                (json!({"argv": ["git"], "env": {"K\u{0}EY": "value"}}), null),
+                (
+                    json!({"argv": ["git"], "cwd": "/repo\u{0}"}),
+                    "exec: cwd cannot contain null bytes",
+                ),
+            ] {
+                call.args = args;
+                assert_eq!(
+                    model.consent_request(&call),
+                    Err(error.into()),
+                    "{verb}: {}",
+                    call.args
+                );
+            }
         }
         assert_eq!(model.extensions.next, 0);
         assert!(model.extensions.jobs.is_empty());
     });
+}
+
+#[test]
+fn server_launch_failures_read_like_main() {
+    let reply = |code, message: &str| {
+        calls::exec_error(muxy_client::ClientError::Server(
+            muxy_protocol::ErrorReply {
+                code,
+                message: message.into(),
+            },
+        ))
+    };
+    assert_eq!(
+        reply(
+            muxy_protocol::ErrorCode::SpawnFailed,
+            "command not found: rg"
+        ),
+        "exec failed to launch: command not found: rg"
+    );
+    assert_eq!(
+        reply(muxy_protocol::ErrorCode::BadRequest, "invalid command"),
+        "BadRequest: invalid command"
+    );
 }
 
 #[gpui::test]
@@ -306,7 +346,9 @@ fn enabled_with<'a>(
     .expect("manifest");
     std::fs::write(package.path().join("index.html"), "").expect("entry");
     for (path, contents) in files {
-        std::fs::write(package.path().join(path), contents).expect("package file");
+        let path = package.path().join(path);
+        std::fs::create_dir_all(path.parent().expect("package folder")).expect("package folder");
+        std::fs::write(path, contents).expect("package file");
     }
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -830,6 +872,233 @@ fn background_scripts_follow_the_extension_not_the_connection(cx: &mut TestAppCo
     view.read_with(cx, |model, _| assert!(!model.background_running("ports")));
 }
 
+const CODE_OPENER: &str = r#"{
+    "tabTypes": [{"id": "code", "title": "Code", "entry": "index.html"}],
+    "fileOpeners": [{"id": "code", "title": "Code", "tabType": "code", "patterns": ["*.rs"]}]
+}"#;
+
+#[gpui::test]
+fn file_openers_apply_only_once_chosen_in_settings(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "files",
+        CODE_OPENER,
+        AppState::bootstrap().expect("state"),
+    );
+    view.update(cx, |model, _| {
+        assert!(
+            model.chosen_file_opener("src/main.rs").is_none(),
+            "extension openers are opt-in"
+        );
+        assert_eq!(
+            model.extension_file_openers(),
+            [("files:code".to_owned(), "files (Code)".to_owned())]
+        );
+        model.settings.openers.file = "files:code".into();
+        let (owner, opener) = model
+            .chosen_file_opener("src/main.rs")
+            .expect("chosen opener");
+        assert_eq!(
+            (owner.as_str(), opener.tab_type.as_str()),
+            ("files", "code")
+        );
+        assert!(
+            model.chosen_file_opener("README.md").is_none(),
+            "files it doesn't support use the built-in opener"
+        );
+    });
+    finish_extension(
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("files", false, cx)
+        }),
+        cx,
+    )
+    .expect("disable");
+    view.read_with(cx, |model, _| {
+        assert!(model.chosen_file_opener("src/main.rs").is_none());
+        assert_eq!(model.settings.openers.file, "files:code");
+    });
+    finish_extension(
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("files", true, cx)
+        }),
+        cx,
+    )
+    .expect("enable");
+    view.read_with(cx, |model, _| {
+        assert!(
+            model.chosen_file_opener("src/main.rs").is_some(),
+            "the choice resumes once the extension is enabled again"
+        );
+    });
+}
+
+#[gpui::test]
+fn the_log_tail_starts_with_earlier_sessions(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled_with(
+        cx,
+        "ports",
+        r#"{"background": "background.js"}"#,
+        &[
+            ("background.js", "setInterval(() => {}, 60000);"),
+            ("logs/output.log", "[log] from yesterday\n"),
+        ],
+        AppState::bootstrap().expect("state"),
+    );
+    wait_for(&view, cx, "earlier and new lines", |model| {
+        let tail: Vec<_> = model.extensions.logs.tail("ports").collect();
+        tail.first() == Some(&"[log] from yesterday")
+            && tail.contains(&"[muxy] started ports v1.0.0")
+    });
+}
+
+/// Stands in for the native consent sheet, which reports a cancel when it
+/// closes without an answer.
+struct ConsentSheet(async_channel::Sender<muxy_ui::dialog::ConsentResponse>);
+
+impl Drop for ConsentSheet {
+    fn drop(&mut self) {
+        let _ = self.0.try_send(muxy_ui::dialog::ConsentResponse::Cancel);
+    }
+}
+
+/// An `exec` call from script 1 of the `runner` extension.
+fn runner_exec(model: &AppModel, argv: &Value, reply: std::sync::mpsc::SyncSender<String>) -> Call {
+    Call {
+        owner: "runner".into(),
+        epoch: model.extensions.epoch_for("runner"),
+        generation: model.generation,
+        project: model.state.home().id,
+        verb: "exec".into(),
+        args: json!({ "argv": argv }),
+        reply: Reply::Script(1, reply),
+        approved: false,
+    }
+}
+
+/// Shows a consent sheet `id` for running `argv`, returning where its answer goes.
+fn prompt_runner(
+    view: &Entity<AppModel>,
+    cx: &mut gpui::VisualTestContext,
+    id: u64,
+    argv: &Value,
+) -> async_channel::Sender<muxy_ui::dialog::ConsentResponse> {
+    let (reply, _replies) = std::sync::mpsc::sync_channel(1);
+    let (answer, answers) = async_channel::bounded(1);
+    view.update(cx, |model, cx| {
+        let call = runner_exec(model, argv, reply);
+        let request = Request::for_call("runner", "exec", &call.args, "").expect("gated");
+        let sheet = Box::new(ConsentSheet(answer.clone()));
+        model.extensions.sheet = Some(consent::Sheet::new(id, "runner", false, sheet));
+        model.await_consent(id, call, request, answers, cx);
+    });
+    answer
+}
+
+#[gpui::test]
+fn gated_decisions_are_recorded_in_the_audit_log(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "runner",
+        r#"{"permissions": ["commands:exec"]}"#,
+        AppState::bootstrap().expect("state"),
+    );
+    let audit = view.read_with(cx, |model, _| model.extension_audit_log());
+    let entries = move || -> Vec<Value> {
+        std::fs::read_to_string(&audit)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("audit entry"))
+            .collect()
+    };
+    let call = |cx: &mut gpui::VisualTestContext, argv: Value, sheet: Option<consent::Sheet>| {
+        let (reply, replies) = std::sync::mpsc::sync_channel(1);
+        cx.update(|window, cx| {
+            view.update(cx, |model, cx| {
+                if sheet.is_some() {
+                    model.extensions.sheet = sheet;
+                }
+                model.extension_call(runner_exec(model, &argv, reply), window, cx);
+            });
+        });
+        replies
+    };
+    view.update(cx, |model, _| {
+        let (script, _events) = muxy_ui::javascript::Script::start(String::new()).expect("script");
+        let running = scripts::Running {
+            owner: "runner".into(),
+            script,
+        };
+        model.extensions.scripts.insert(1, running);
+    });
+    prompt_runner(&view, cx, 1, &json!(["git", "status"]))
+        .try_send(muxy_ui::dialog::ConsentResponse::DenyAndRemember)
+        .expect("answer");
+    wait_for(&view, cx, "the remembered answer", |_| entries().len() == 1);
+    let denied = call(cx, json!(["git", "log"]), None);
+    assert!(
+        denied
+            .try_recv()
+            .expect("reply")
+            .contains("user denied consent for exec")
+    );
+    wait_for(&view, cx, "the saved rule", |_| entries().len() == 2);
+    drop(prompt_runner(&view, cx, 2, &json!(["rm", "-r", "build"])));
+    view.update(cx, |model, _| model.extensions.sheet = None);
+    wait_for(&view, cx, "the prompt that timed out", |_| {
+        entries().len() == 3
+    });
+    let dialog = consent::Sheet::new(3, "other", true, Box::new(()));
+    let stopped = call(cx, json!(["make"]), Some(dialog));
+    finish_extension(
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("runner", false, cx)
+        }),
+        cx,
+    )
+    .expect("disable");
+    assert!(
+        stopped
+            .try_recv()
+            .expect("reply")
+            .contains("extension disabled")
+    );
+    wait_for(&view, cx, "the queued prompt", |_| entries().len() == 4);
+    let entries = entries();
+    assert_eq!(
+        entries[0],
+        json!({
+            "timestamp": entries[0]["timestamp"],
+            "extensionID": "runner",
+            "verb": "exec",
+            "payloadSummary": "git status",
+            "decision": "deny",
+            "ruleID": "exec:argv:git",
+            "source": "exec",
+        })
+    );
+    assert!(
+        entries[0]["timestamp"]
+            .as_str()
+            .is_some_and(|time| time.ends_with('Z'))
+    );
+    let fields = |entry: &Value| {
+        ["payloadSummary", "decision", "ruleID"]
+            .map(|key| entry[key].as_str().unwrap_or("").to_owned())
+    };
+    assert_eq!(
+        fields(&entries[1]),
+        ["git log", "deny", "exec:argv:git"],
+        "a saved rule decides without asking"
+    );
+    assert_eq!(fields(&entries[2]), ["rm -r build [timeout]", "deny", ""]);
+    assert_eq!(
+        fields(&entries[3]),
+        ["make [cancelled]", "deny", ""],
+        "a prompt still waiting when its extension stops"
+    );
+}
+
 #[gpui::test]
 fn workspace_events_reach_permitted_extension_scripts(cx: &mut TestAppContext) {
     let (view, cx, _package, _requests) = enabled(
@@ -876,6 +1145,376 @@ fn workspace_events_reach_permitted_extension_scripts(cx: &mut TestAppContext) {
     assert!(
         events.try_recv().is_err(),
         "undeclared events such as tab.focused are not delivered"
+    );
+}
+
+type ScriptEvents = async_channel::Receiver<muxy_ui::javascript::Event>;
+
+/// Starts script 9 for `owner`, which reports every event it receives.
+fn listen(view: &Entity<AppModel>, cx: &mut gpui::VisualTestContext, owner: &str) -> ScriptEvents {
+    let (script, events) = muxy_ui::javascript::Script::start(
+        "globalThis.__muxyEvent = (name, payload) => __muxyNative(JSON.stringify({ name, payload }));"
+            .into(),
+    )
+    .expect("script");
+    view.update(cx, |model, _| {
+        model.extensions.scripts.insert(
+            9,
+            scripts::Running {
+                owner: owner.into(),
+                script,
+            },
+        );
+    });
+    events
+}
+
+/// The events script 9 received since the last call, as `(name, payload)`.
+fn received(
+    view: &Entity<AppModel>,
+    cx: &mut gpui::VisualTestContext,
+    events: &ScriptEvents,
+) -> Vec<(String, Value)> {
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        model.extensions.scripts[&9]
+            .script
+            .evaluate("__muxyEvent('done', {});".into());
+    });
+    let mut received = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        cx.run_until_parked();
+        while let Ok(muxy_ui::javascript::Event::Call(call)) = events.try_recv() {
+            let _ = call.reply.send("null".into());
+            let event: Value = serde_json::from_str(&call.request).expect("event");
+            if event["name"] == "done" {
+                return received;
+            }
+            received.push((
+                event["name"].as_str().unwrap_or_default().to_owned(),
+                event["payload"].clone(),
+            ));
+        }
+        assert!(std::time::Instant::now() < deadline, "events timed out");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+#[gpui::test]
+fn pane_focused_fires_only_when_focus_moves_within_a_tab(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let split = state.open_terminal_tab(home).expect("split tab");
+    let left = state.window().active_pane.expect("left pane");
+    let right = state
+        .split_pane(left, muxy_app_core::Direction::Right)
+        .expect("right pane");
+    let other = state.open_terminal_tab(home).expect("other tab");
+    let project = state.add_project(std::env::temp_dir()).expect("project");
+    state.open_terminal_tab(project).expect("project tab");
+    state.select_project(home).expect("home");
+    state.select_tab(home, split).expect("split tab selected");
+    state.focus_pane(left).expect("left focused");
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "watcher",
+        r#"{"events": ["pane.focused", "tab.focused", "project.switched"]}"#,
+        state,
+    );
+    let events = listen(&view, cx, "watcher");
+    view.update(cx, |model, cx| {
+        model.focus_pane(right, cx);
+        model.select_tab(other, cx);
+        model.select_project(project, cx);
+        model.select_project(home, cx);
+        model.select_tab(split, cx);
+    });
+    let received = received(&view, cx, &events);
+    let names: Vec<_> = received.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "pane.focused",
+            "tab.focused",
+            "project.switched",
+            "project.switched",
+            "tab.focused"
+        ],
+        "switching tabs or projects doesn't report pane focus"
+    );
+    let home = home.to_string();
+    assert_eq!(
+        received[0].1,
+        json!({"projectID": home, "worktreeID": home, "areaID": home, "tabID": split.to_string()})
+    );
+}
+
+/// A project with one worktree, both registered with the server. The folder
+/// holds the worktree's `.git` file.
+fn project_with_worktree() -> (AppState, ProjectId, ProjectId, tempfile::TempDir) {
+    let folder = tempfile::tempdir().expect("worktree folder");
+    std::fs::write(
+        folder.path().join(".git"),
+        "gitdir: ../repo/.git/worktrees/w",
+    )
+    .expect(".git");
+    let mut state = AppState::bootstrap().expect("state");
+    let project = state.add_project(std::env::temp_dir()).expect("project");
+    while let Some(intent) = state.project_intents().first().cloned() {
+        state
+            .complete_project_intent(intent.operation)
+            .expect("registered");
+    }
+    let mut worktree = state.project(project).expect("project").descriptor();
+    worktree.id = ProjectId::new();
+    worktree.parent_id = Some(project);
+    worktree.kind = Some(muxy_protocol::ProjectKind::Worktree);
+    worktree.directory =
+        muxy_protocol::ServerPath(folder.path().as_os_str().as_encoded_bytes().to_vec());
+    let id = worktree.id;
+    let mut projects: Vec<_> = state
+        .projects()
+        .iter()
+        .map(muxy_app_core::Project::descriptor)
+        .collect();
+    projects.push(worktree);
+    let (home, revision) = (state.home().id, state.catalog_revision() + 1);
+    state
+        .apply_catalog(&muxy_protocol::CatalogPage {
+            server: muxy_protocol::ServerIdentity::from_u128(1),
+            home,
+            revision,
+            projects,
+            next: None,
+            legacy_home: None,
+        })
+        .expect("worktree");
+    state.refresh_project_statuses();
+    (state, project, id, folder)
+}
+
+#[gpui::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "One walk through a project's panel session, frame by frame"
+)]
+fn extension_panels_follow_their_project(cx: &mut TestAppContext) {
+    use crate::model::webviews::panel_sessions::SavedPanel;
+    use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition};
+    let (mut state, project, worktree, _folder) = project_with_worktree();
+    let home = state.home().id;
+    state.select_project(home).expect("home");
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "tree",
+        r#"{
+            "panels": [{"id": "side", "entry": "index.html"}],
+            "events": ["panel.opened", "panel.closed", "project.switched", "worktree.switched"]
+        }"#,
+        state,
+    );
+    let events = listen(&view, cx, "tree");
+    let side = SavedPanel {
+        owner: "tree".into(),
+        kind: "side".into(),
+        position: PanelPosition::Bottom,
+        data: json!({"path": "src"}),
+    };
+    let composer = PanelId::new(crate::views::composer::PANEL);
+    let composer_placement =
+        || PanelPlacement::new(composer.clone(), PanelPosition::Right, PanelMode::Floating);
+    let reopening =
+        |model: &AppModel| model.webviews.panel_sessions.pending.as_ref() == Some(&side);
+    cx.update(|window, cx| {
+        view.update(cx, |model, cx| {
+            let _ = model.panels.place(composer_placement());
+            model.webviews.panel_sessions.save(project, side.clone());
+            model.select_project(project, cx);
+            assert_eq!(
+                model.webviews.panel_sessions.pending, None,
+                "the built-in composer keeps its slot"
+            );
+            model.select_project(home, cx);
+            model.panels.remove(&composer);
+            model.select_project(project, cx);
+            assert!(
+                reopening(model),
+                "the remembered panel reopens; its page is created at the next frame"
+            );
+            model.select_project(worktree, cx);
+            assert_eq!(model.state.current_project().id, worktree);
+            assert!(
+                reopening(model),
+                "a worktree of the same project keeps its panels"
+            );
+            model.select_project(home, cx);
+            model.select_project(project, cx);
+            assert!(
+                reopening(model),
+                "a panel left before its page was created is still remembered"
+            );
+            let _ = model.panels.place(composer_placement());
+            model.sync_webviews(window, cx);
+            model.panels.remove(&composer);
+            model.select_project(home, cx);
+            model.select_project(project, cx);
+            assert!(
+                reopening(model),
+                "a composer opened before the frame keeps the panel for a later visit"
+            );
+            model.sync_webviews(window, cx);
+            assert_eq!(model.webviews.panel_sessions.pending, None);
+            let log: Vec<_> = model.extensions.logs.tail("tree").collect();
+            assert_eq!(log.len(), 1);
+            assert!(
+                log[0].starts_with("[muxy] could not reopen panel side: "),
+                "{log:?}"
+            );
+        });
+    });
+    let names: Vec<_> = received(&view, cx, &events)
+        .into_iter()
+        .map(|(name, payload)| format!("{name} {}", payload["panelID"].as_str().unwrap_or("")))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "project.switched ",
+            "worktree.switched ",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.opened side",
+            "project.switched ",
+            "worktree.switched ",
+            "worktree.switched ",
+            "panel.closed side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.opened side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.closed side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.opened side",
+            "project.switched ",
+            "worktree.switched ",
+            "panel.closed side",
+        ]
+    );
+}
+
+#[gpui::test]
+fn stopped_extensions_forget_their_panels(cx: &mut TestAppContext) {
+    use crate::model::webviews::panel_sessions::SavedPanel;
+    let (mut state, project, _worktree, _folder) = project_with_worktree();
+    let home = state.home().id;
+    state.select_project(home).expect("home");
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "tree",
+        r#"{"panels": [{"id": "side", "entry": "index.html"}]}"#,
+        state,
+    );
+    let side = SavedPanel {
+        owner: "tree".into(),
+        kind: "side".into(),
+        position: muxy_ui::panel::PanelPosition::Right,
+        data: Value::Null,
+    };
+    view.update(cx, |model, cx| {
+        model.webviews.panel_sessions.save(project, side.clone());
+        model.select_project(project, cx);
+        assert_eq!(model.webviews.panel_sessions.pending, Some(side.clone()));
+        model.remove_owner_surfaces(Some("tree"), cx);
+        assert_eq!(
+            model.webviews.panel_sessions.pending, None,
+            "a stopped extension's panel does not reopen"
+        );
+        model.select_project(home, cx);
+        model.webviews.panel_sessions.save(project, side);
+    });
+    for enabled in [false, true] {
+        finish_extension(
+            view.update(cx, |model, cx| {
+                model.set_extension_enabled("tree", enabled, cx)
+            }),
+            cx,
+        )
+        .expect("toggled");
+    }
+    view.update(cx, |model, cx| {
+        model.select_project(project, cx);
+        assert_eq!(
+            model.webviews.panel_sessions.pending, None,
+            "disabling forgets the panels it left in other projects"
+        );
+    });
+}
+
+#[gpui::test]
+fn terminal_titles_reach_tab_updated_once_they_settle(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let editor = state.open_terminal_tab(home).expect("editor tab");
+    let vim = state.window().active_pane.expect("editor pane");
+    let tests = state.open_terminal_tab(home).expect("tests tab");
+    let npm = state.window().active_pane.expect("tests pane");
+    let (view, cx, _package, _requests) =
+        enabled(cx, "restorer", r#"{"events": ["tab.updated"]}"#, state);
+    let events = listen(&view, cx, "restorer");
+    let retitle = |pane: PaneId, title: &str, cx: &mut gpui::VisualTestContext| {
+        view.update(cx, |model, cx| {
+            model.state.set_pane_title(pane, title).expect("title");
+            model.sync_extension_events(cx);
+        });
+    };
+    let updated = |cx: &mut gpui::VisualTestContext| -> Vec<(String, String)> {
+        received(&view, cx, &events)
+            .into_iter()
+            .map(|(_, payload)| {
+                let text = |key: &str| payload[key].as_str().unwrap_or_default().to_owned();
+                (text("tabID"), text("title"))
+            })
+            .collect()
+    };
+    let millis = std::time::Duration::from_millis;
+    retitle(vim, "vim", cx);
+    retitle(npm, "npm test", cx);
+    cx.executor().advance_clock(millis(300));
+    retitle(vim, "vim main.rs", cx);
+    cx.executor().advance_clock(millis(300));
+    assert_eq!(
+        updated(cx),
+        [(tests.to_string(), "npm test".to_owned())],
+        "each pane waits on its own"
+    );
+    cx.executor().advance_clock(millis(200));
+    assert_eq!(
+        updated(cx),
+        [(editor.to_string(), "vim main.rs".to_owned())],
+        "a newer title restarts the wait"
+    );
+    retitle(vim, "htop", cx);
+    cx.executor().advance_clock(millis(100));
+    retitle(vim, "vim main.rs", cx);
+    cx.executor().advance_clock(millis(1000));
+    assert!(
+        updated(cx).is_empty(),
+        "a title that changes back is never reported"
+    );
+    view.update(cx, |model, cx| {
+        model
+            .state
+            .set_tab_title(editor, Some("Editor".into()))
+            .expect("rename");
+        model.sync_extension_events(cx);
+    });
+    assert_eq!(
+        updated(cx),
+        [(editor.to_string(), "Editor".to_owned())],
+        "renaming a tab reports at once"
     );
 }
 

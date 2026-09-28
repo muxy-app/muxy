@@ -1,7 +1,7 @@
 use gpui::{Context, Window};
 use muxy_app_core::PaneContent;
 use muxy_app_core::extensions::{api, event_permission};
-use muxy_protocol::{ExecRequest, FilesRequest, GitRequest, ServerPath};
+use muxy_protocol::{ErrorCode, ExecRequest, FilesRequest, GitRequest, ServerPath};
 use serde_json::{Value, json};
 
 use super::{AppModel, Call, Reply, envelope, events::strings};
@@ -295,12 +295,9 @@ impl AppModel {
             .client
             .clone()
             .ok_or("server is disconnected")?;
-        Ok(cx.background_executor().spawn(async move {
-            client
-                .exec_async(request)
-                .await
-                .map_err(|error| error.to_string())
-        }))
+        Ok(cx
+            .background_executor()
+            .spawn(async move { client.exec_async(request).await.map_err(exec_error) }))
     }
 
     /// `gh.user`: the signed-in GitHub CLI account, cached for five minutes.
@@ -363,7 +360,11 @@ impl AppModel {
                 } else {
                     result.stderr.trim().to_owned()
                 }),
-                Err(error) if error.contains("No such file") => Err(missing.into()),
+                Err(error)
+                    if error.contains("command not found") || error.contains("No such file") =>
+                {
+                    Err(missing.into())
+                }
                 Err(error) => Err(error),
             };
             let _ = model.update(cx, |model, cx| {
@@ -596,7 +597,7 @@ impl AppModel {
         );
         let task = cx.background_executor().spawn(async move {
             trace.stage(format_args!("phase=started"));
-            client.exec_async(request).await.map_err(|error| error.to_string()).and_then(|result| {
+            client.exec_async(request).await.map_err(exec_error).and_then(|result| {
                 if result.cancelled { return Err("cancelled".into()); }
                 Ok(json!({"stdout":result.stdout,"stderr":result.stderr,"exitCode":result.exit_code,"timedOut":result.timed_out,"truncated":result.truncated}))
             })
@@ -735,10 +736,37 @@ pub(super) fn exec_request(call: &Call, job: u64) -> Result<ExecRequest, String>
     request
         .env
         .insert("MUXY_EXTENSION_ID".into(), call.owner.clone());
+    if options["cwd"]
+        .as_str()
+        .is_some_and(|cwd| cwd.contains('\0'))
+    {
+        return Err("exec: cwd cannot contain null bytes".into());
+    }
+    if request
+        .argv
+        .iter()
+        .chain(&request.shell)
+        .chain(request.env.iter().flat_map(|(key, value)| [key, value]))
+        .any(|text| text.contains('\0'))
+    {
+        return Err(
+            "exec failed to launch: arguments and environment cannot contain null bytes".into(),
+        );
+    }
     request
         .validate()
         .map_err(|error| format!("invalid command: {error:?}"))?;
     Ok(request)
+}
+
+/// Server errors as `exec` reports them; launch failures read like main's.
+pub(super) fn exec_error(error: muxy_client::ClientError) -> String {
+    match error {
+        muxy_client::ClientError::Server(reply) if reply.code == ErrorCode::SpawnFailed => {
+            format!("exec failed to launch: {}", reply.message)
+        }
+        error => error.to_string(),
+    }
 }
 
 async fn server_call(client: &muxy_client::Client, call: &Call) -> Result<Value, String> {

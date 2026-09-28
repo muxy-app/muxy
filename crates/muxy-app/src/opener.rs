@@ -151,6 +151,13 @@ fn launch(launch: &Launch) -> io::Result<()> {
     .map(drop)
 }
 
+/// Shows a path in Finder: a file selected in its folder, or a folder opened.
+/// A path that doesn't exist yet shows its nearest existing folder.
+pub(crate) fn reveal(path: &Path) -> io::Result<()> {
+    let existing = path.ancestors().find(|path| path.exists()).unwrap_or(path);
+    launch(&finder(existing))
+}
+
 fn finder(path: &Path) -> Launch {
     if path.is_dir() {
         Launch::system([

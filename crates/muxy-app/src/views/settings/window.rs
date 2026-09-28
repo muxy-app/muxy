@@ -232,6 +232,7 @@ impl SettingsWindow {
                 self.open_provider_picker(action, request, window, cx);
             }
             super::PickerKind::ExtensionSidebar => self.open_sidebar_picker(request, window, cx),
+            super::PickerKind::FileOpener => self.open_file_opener_picker(request, window, cx),
         }
         cx.notify();
     }
@@ -270,6 +271,65 @@ impl SettingsWindow {
                     let owner = selection.id.to_string();
                     let _ = root.model.update(cx, |model, cx| {
                         model.change_preference(Change::ExtensionSidebar(owner), cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
+    }
+
+    /// Chooses what opens files clicked in a terminal: a built-in opener or
+    /// an enabled extension's.
+    fn open_file_opener_picker(
+        &mut self,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let current = view.snapshot.settings.openers.file.clone();
+        let mut openers: Vec<(String, String)> = super::appearance::FILE_OPENERS
+            .iter()
+            .map(|(id, label)| ((*id).to_owned(), (*label).to_owned()))
+            .chain(view.snapshot.file_openers.iter().cloned())
+            .collect();
+        let unavailable = !openers.iter().any(|(id, _)| *id == current);
+        if unavailable {
+            let label = super::appearance::unavailable_file_opener(&current);
+            openers.push((current.clone(), label));
+        }
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("file-opener", "Search openers…"),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = openers
+            .into_iter()
+            .map(|(id, label)| {
+                let disabled = unavailable && id == current;
+                PickerItem::Row(PickerRow::new(id, label)).disabled(disabled)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let opener = selection.id.to_string();
+                    let _ = root.model.update(cx, |model, cx| {
+                        model.change_preference(Change::FileOpener(opener), cx);
                     });
                     root.dismiss_overlay(window, cx);
                 }

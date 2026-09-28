@@ -393,6 +393,99 @@ fn recorder_intercepts_app_actions_and_rebinding_keeps_widget_shortcuts(cx: &mut
 }
 
 #[gpui::test]
+fn extension_shortcuts_can_be_recorded_reset_and_unassigned(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = settings_window(boot, cx);
+    let package = tempfile::tempdir().expect("package");
+    std::fs::write(
+        package.path().join("package.json"),
+        r#"{"name":"files","version":"1.0.0","muxy":{"commands":[
+            {"id":"open","title":"Open file","defaultShortcut":"cmd+shift+y"},
+            {"id":"find","title":"Find file","defaultShortcut":"cmd+shift+u"},
+            {"id":"quiet","title":"No shortcut"}
+        ]}}"#,
+    )
+    .expect("manifest");
+    for task in [
+        view.update(cx, |model, cx| {
+            model.load_unpacked_extension(package.path().to_owned(), cx)
+        }),
+        view.update(cx, |model, cx| {
+            model.set_extension_enabled("files", true, cx)
+        }),
+    ] {
+        extensions::finish_extension(task, cx).expect("extension");
+    }
+    click_preference(cx, "settings-search");
+    cx.simulate_input("files");
+    let id = "extension.files.open";
+    assert!(
+        cx.debug_bounds("settings-heading-extension-files")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("settings-row-extension.files.open")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("settings-row-extension.files.quiet")
+            .is_none(),
+        "commands without a default shortcut aren't listed"
+    );
+    let shortcut = |model: &AppModel| {
+        model
+            .extension_shortcuts()
+            .first()
+            .and_then(|shortcut| shortcut.chord.clone())
+            .map(|chord| chord.to_string())
+    };
+    view.read_with(cx, |model, _| {
+        assert_eq!(shortcut(model).as_deref(), Some("cmd-shift-y"));
+    });
+    let settings = view.read_with(cx, |model, _| settings_view(model));
+    for (keys, bound) in [("cmd-t", "cmd-shift-y"), ("ctrl-alt-y", "ctrl-alt-y")] {
+        cx.update(|window, cx| {
+            settings.update(cx, |pane, cx| pane.begin_recording(id, window, cx));
+        });
+        cx.simulate_keystrokes(keys);
+        view.read_with(cx, |model, _| {
+            assert_eq!(shortcut(model).as_deref(), Some(bound));
+        });
+    }
+    settings.read_with(cx, |pane, _| {
+        assert!(pane.errors.is_empty(), "{:?}", pane.errors);
+    });
+    cx.update(|window, cx| {
+        settings.update(cx, |pane, cx| pane.begin_recording(id, window, cx));
+    });
+    cx.simulate_keystrokes("cmd-t");
+    settings.read_with(cx, |pane, _| {
+        assert_eq!(pane.errors[id], "cmd-t is also bound to new tab");
+    });
+    cx.update(|window, cx| {
+        settings.update(cx, |pane, cx| pane.begin_recording(id, window, cx));
+    });
+    cx.simulate_keystrokes("cmd-shift-u");
+    settings.read_with(cx, |pane, _| {
+        assert_eq!(
+            pane.errors[id],
+            "cmd-shift-u is also bound to files: Find file"
+        );
+    });
+    view.update(cx, |model, cx| {
+        model.change_preference(Change::Unassign(id.into()), cx);
+        assert_eq!(shortcut(model), None);
+        let saved =
+            muxy_app_core::settings::Settings::load(&model.path.with_file_name("settings.toml"))
+                .expect("saved settings");
+        assert!(saved.keymap.unassigned(id));
+        model.change_preference(Change::Binding(id.into(), None), cx);
+        assert_eq!(shortcut(model).as_deref(), Some("cmd-shift-y"));
+    });
+}
+
+#[gpui::test]
 fn server_control_confirms_and_restart_connects_only_after_successful_stop(
     cx: &mut TestAppContext,
 ) {
@@ -818,7 +911,7 @@ fn settings_controls_are_reachable_and_activated_with_the_keyboard(cx: &mut Test
     view.read_with(cx, |model, _| {
         assert!(!model.settings.window.confirm_running_process);
     });
-    cx.simulate_keystrokes("tab cmd-a 1 1 0 0 enter");
+    cx.simulate_keystrokes("tab tab cmd-a 1 1 0 0 enter");
     view.read_with(cx, |model, _| {
         assert_eq!(model.settings.window.default_size[0], 1100.0);
     });
@@ -908,7 +1001,7 @@ fn tabbing_reveals_fields_below_a_short_settings_viewport(cx: &mut TestAppContex
     let (_, cx) = settings_window(boot, cx);
     cx.simulate_resize(size(px(740.0), px(480.0)));
     cx.simulate_keystrokes(
-        "cmd-shift-e tab tab tab tab tab tab tab tab tab tab tab tab tab tab tab",
+        "cmd-shift-e tab tab tab tab tab tab tab tab tab tab tab tab tab tab tab tab",
     );
     let row = cx
         .debug_bounds("settings-field-height")
@@ -933,7 +1026,13 @@ fn category_disclosures_and_content_use_the_real_setting_sections(cx: &mut TestA
     view.read_with(cx, |model, cx| {
         assert_eq!(
             settings_view(model).read(cx).matching_setting_ids(),
-            vec!["close-behavior", "confirm-process", "width", "height"]
+            vec![
+                "close-behavior",
+                "confirm-process",
+                "file-opener",
+                "width",
+                "height"
+            ]
         );
     });
     click_preference(cx, "settings-subcategory-Themes");

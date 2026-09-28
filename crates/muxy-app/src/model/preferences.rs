@@ -141,6 +141,8 @@ impl AppModel {
                 .map(|provider| provider.id)
                 .collect(),
             sidebars: self.extension_sidebars(),
+            file_openers: self.extension_file_openers(),
+            extension_shortcuts: self.extension_shortcuts(),
         }
     }
 
@@ -257,7 +259,7 @@ impl AppModel {
         let mut settings = self.settings.clone();
         settings.appearance = self.appearance.clone();
         let theme_changed = matches!(change, Change::Theme(..));
-        let bindings_changed = matches!(change, Change::Binding(..));
+        let bindings_changed = matches!(change, Change::Binding(..) | Change::Unassign(_));
         match change {
             Change::QuickTerminal(quick) => {
                 self.apply_quick_settings(quick, cx)?;
@@ -332,6 +334,10 @@ impl AppModel {
                 settings.clipboard.copy_on_select = value;
                 settings.save_clipboard(&path)?;
             }
+            Change::FileOpener(value) => {
+                settings.openers.file = value;
+                settings.save_openers(&path)?;
+            }
             Change::Directory(value) => {
                 settings.panes.new_pane_directory = value;
                 settings.save_panes(&path)?;
@@ -339,10 +345,19 @@ impl AppModel {
             Change::Binding(id, chord) => {
                 if let Some(chord) = &chord {
                     self.validate_quick_conflict(chord)?;
+                    if id.starts_with("extension.")
+                        && let Some(conflict) = self.extension_shortcut_conflict(&id, chord)
+                    {
+                        return Err(conflict.into());
+                    }
                 }
                 settings.keymap = settings.keymap.with_binding(&id, chord)?;
                 settings.keymap.save(&path)?;
                 cx.set_menus(crate::menus());
+            }
+            Change::Unassign(id) => {
+                settings.keymap = settings.keymap.with_unassigned(&id)?;
+                settings.keymap.save(&path)?;
             }
             Change::Field(id @ ("width" | "height"), value) => {
                 let index = usize::from(id == "height");
@@ -615,9 +630,10 @@ fn change_id(change: &Change) -> &str {
         Change::ConfirmProcess(_) => "confirm-process",
         Change::CloseBehavior(_) => "close-behavior",
         Change::CopyOnSelect(_) => "copy-on-select",
+        Change::FileOpener(_) => "file-opener",
         Change::Directory(_) => "directory",
         Change::Composer(id, _) | Change::Field(id, _) => id,
-        Change::Binding(id, _) => id,
+        Change::Binding(id, _) | Change::Unassign(id) => id,
         Change::ShellIntegration(_) => "shell-integration",
         Change::MobileAccess(_) => "mobile-access",
     }

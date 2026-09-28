@@ -11,6 +11,8 @@ pub(super) struct Results {
     focus: HashMap<Category, FocusHandle>,
     pub(super) row_focus: HashMap<String, FocusHandle>,
     pub(super) shortcut_focus: Vec<[FocusHandle; 2]>,
+    /// Record, reset, and unassign for each extension shortcut, by keymap id.
+    pub(super) extension_focus: HashMap<String, [FocusHandle; 3]>,
     pub(super) reveal_focus: Rc<Cell<bool>>,
     pub(super) dirty: bool,
     reset_scroll: bool,
@@ -22,6 +24,9 @@ enum Item {
     Section(Category),
     KeyboardHeading,
     Shortcut(usize),
+    /// The heading above an extension's shortcuts, named by its first one.
+    ExtensionHeading(usize),
+    ExtensionShortcut(usize),
     Empty,
     Footer,
 }
@@ -50,6 +55,7 @@ impl Results {
                     ]
                 })
                 .collect(),
+            extension_focus: HashMap::new(),
             reveal_focus: Rc::new(Cell::new(false)),
             dirty: true,
             reset_scroll: true,
@@ -77,7 +83,13 @@ impl SettingsView {
             .iter()
             .enumerate()
             .filter_map(|(item, entry)| match entry {
-                Item::Shortcut(index) => Some((item, &self.results.shortcut_focus[*index])),
+                Item::Shortcut(index) => Some((item, &self.results.shortcut_focus[*index][..])),
+                Item::ExtensionShortcut(index) => self
+                    .snapshot
+                    .extension_shortcuts
+                    .get(*index)
+                    .and_then(|shortcut| self.results.extension_focus.get(&shortcut.id))
+                    .map(|focus| (item, &focus[..])),
                 _ => None,
             })
             .flat_map(|(item, handles)| handles.iter().map(move |focus| (item, focus)))
@@ -146,9 +158,19 @@ impl SettingsView {
             }
             if category == Category::Keyboard {
                 let shortcuts = keyboard::matching(self);
-                if !shortcuts.is_empty() {
+                let extensions = keyboard::matching_extensions(self);
+                if !shortcuts.is_empty() || !extensions.is_empty() {
                     items.push(Item::KeyboardHeading);
                     items.extend(shortcuts.into_iter().map(Item::Shortcut));
+                }
+                let mut previous = None;
+                for index in extensions {
+                    let extension = &self.snapshot.extension_shortcuts[index].extension;
+                    if previous != Some(extension) {
+                        items.push(Item::ExtensionHeading(index));
+                        previous = Some(extension);
+                    }
+                    items.push(Item::ExtensionShortcut(index));
                 }
             } else if !self.section_rows(category, window, cx).is_empty() {
                 items.push(Item::Section(category));
@@ -158,6 +180,18 @@ impl SettingsView {
             items.push(Item::Empty);
         }
         items.push(Item::Footer);
+        for item in &items {
+            if let Item::ExtensionShortcut(index) = item {
+                let id = &self.snapshot.extension_shortcuts[*index].id;
+                if !self.results.row_focus.contains_key(id) {
+                    self.results.row_focus.insert(id.clone(), cx.focus_handle());
+                    self.results.extension_focus.insert(
+                        id.clone(),
+                        [(); 3].map(|()| cx.focus_handle().tab_stop(true)),
+                    );
+                }
+            }
+        }
         let offset = self.results.state.logical_scroll_top();
         self.scrollbar.reset();
         if self.results.overdraw == overdraw {
@@ -173,6 +207,9 @@ impl SettingsView {
                 Item::Shortcut(index) => {
                     Some(self.results.row_focus[muxy_core::shortcuts::ALL[*index].id].clone())
                 }
+                Item::ExtensionShortcut(index) => Some(
+                    self.results.row_focus[&self.snapshot.extension_shortcuts[*index].id].clone(),
+                ),
                 _ => None,
             }),
         );
@@ -267,6 +304,13 @@ impl SettingsView {
                 { self.shortcut_row_count += 1; }
                 keyboard::row(self, index, cx)
             },
+            Item::ExtensionHeading(index) => {
+                let extension = self.snapshot.extension_shortcuts[index].extension.clone();
+                muxy_ui::form::section_heading(self.layout_style(), &extension)
+                    .debug_selector(move || format!("settings-heading-extension-{extension}"))
+                    .into_any_element()
+            }
+            Item::ExtensionShortcut(index) => keyboard::extension_row(self, index, cx),
             Item::Empty => div()
                 .w_full()
                 .debug_selector(|| "settings-empty".into())

@@ -14,11 +14,22 @@ fn setup(
     Entity<ExtensionsView>,
     &mut VisualTestContext,
 ) {
-    let directory = tempfile::tempdir().expect("profile").keep();
+    setup_in(&tempfile::tempdir().expect("profile").keep(), cx)
+}
+
+/// Like `setup`, with the app profile in `directory`.
+fn setup_in<'a>(
+    directory: &std::path::Path,
+    cx: &'a mut TestAppContext,
+) -> (
+    Entity<AppModel>,
+    Entity<ExtensionsView>,
+    &'a mut VisualTestContext,
+) {
     let (work, _) = std::sync::mpsc::channel();
     let (_, updates) = async_channel::unbounded();
     let boot = Boot {
-        composer: ComposerStore::load_from(&directory),
+        composer: ComposerStore::load_from(directory),
         state: AppState::bootstrap().expect("state"),
         state_path: directory.join("state.json"),
         settings: Settings::default(),
@@ -132,6 +143,7 @@ fn extension_detail_controls_build_without_duplicate_interaction_styles(cx: &mut
                 Some(Mutation::Disable),
                 Some(Mutation::Remove),
                 Some(Mutation::ResetPermissions),
+                Some(Mutation::RemoveRule),
             ] {
                 view.mutation = mutation;
                 let _ = view.details_body(&details, &installed, cx);
@@ -209,22 +221,16 @@ fn extension_actions_report_progress_until_the_registry_is_updated(cx: &mut Test
     view.update(cx, |view, cx| {
         view.reset_permissions("reader", cx);
         assert_eq!(
-            view.button_label(
-                "extension-reset-permissions",
-                "Reset remembered permissions"
-            ),
-            "Resetting…"
+            view.button_label("extension-reset-permissions", "Clear all"),
+            "Clearing…"
         );
     });
     finish_mutation(&view, cx);
     view.read_with(cx, |view, _| {
         assert!(view.error.is_none());
         assert_eq!(
-            view.button_label(
-                "extension-reset-permissions",
-                "Reset remembered permissions"
-            ),
-            "Permissions reset"
+            view.button_label("extension-reset-permissions", "Clear all"),
+            "Cleared"
         );
     });
 
@@ -259,5 +265,54 @@ fn failed_enable_restores_the_button_and_keeps_details_open(cx: &mut TestAppCont
         assert!(view.error.is_some());
         assert!(view.selected.is_some());
         assert_eq!(view.button_label("extension-enable", "Enable"), "Enable");
+    });
+}
+
+#[gpui::test]
+fn remembered_rules_show_on_the_details_page_and_can_be_removed(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().expect("profile").keep();
+    std::fs::write(
+        directory.join("extension-grants.json"),
+        r#"{"reader:exec:argv:git":"Allow","reader:http.fetch:*":"Blocked","other:exec:argv:ls":"Deny"}"#,
+    )
+    .expect("grants");
+    let (model, view, cx) = setup_in(&directory, cx);
+    let package = model.read_with(cx, |model, _| {
+        model.extensions.registry.directory().join("reader")
+    });
+    std::fs::create_dir_all(&package).expect("package folder");
+    std::fs::write(
+        package.join("package.json"),
+        r#"{"name":"reader","version":"1.0.0","muxy":{}}"#,
+    )
+    .expect("manifest");
+    view.update(cx, ExtensionsView::reload);
+    finish_mutation(&view, cx);
+    let rules = model.read_with(cx, |model, _| model.extension_rules("reader"));
+    assert_eq!(
+        rules.iter().map(Rule::id).collect::<Vec<_>>(),
+        ["exec:argv:git", "http.fetch:*"]
+    );
+    let extension = model.read_with(cx, |model, _| {
+        model.extensions.registry.extensions["reader"].clone()
+    });
+    view.update(cx, |view, cx| {
+        let _ = view.details_body(
+            &json!({"name":"reader"}),
+            &[(extension.clone(), true, false)],
+            cx,
+        );
+        view.remove_rule("reader", rules[0].clone(), cx);
+        assert_eq!(view.mutation, Some(Mutation::RemoveRule));
+    });
+    finish_mutation(&view, cx);
+    view.read_with(cx, |view, _| assert!(view.error.is_none()));
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.extension_rules("reader"), [rules[1].clone()]);
+        assert_eq!(
+            model.extension_rules("other").len(),
+            1,
+            "other extensions keep their rules"
+        );
     });
 }

@@ -112,6 +112,23 @@ pub enum Gate {
 }
 
 impl Gate {
+    const ALL: [Self; 10] = [
+        Self::Exec,
+        Self::PanesSend,
+        Self::PanesSendKeys,
+        Self::PanesReadScreen,
+        Self::TabsOpenForeign,
+        Self::TabsRunCommand,
+        Self::GitWrite,
+        Self::FilesWrite,
+        Self::HttpFetch,
+        Self::ProjectsDelete,
+    ];
+
+    fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|gate| gate.name() == name)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Exec => "exec",
@@ -313,11 +330,50 @@ impl Request {
 
     /// What a remembered choice will apply to, for the prompt's footer.
     pub fn scope(&self) -> String {
-        match self.pattern.split_once(':') {
-            Some(("argv", program)) => format!("{program} *"),
-            Some((_, value)) => value.into(),
-            None => "(any)".into(),
-        }
+        scope(&self.pattern)
+    }
+
+    /// The rule a remembered choice saves.
+    pub fn rule(&self, choice: Choice) -> Option<Rule> {
+        let (pattern, consent) = match choice {
+            Choice::AllowAndRemember => (self.pattern.as_str(), Consent::Allow),
+            Choice::DenyAndRemember => (self.pattern.as_str(), Consent::Deny),
+            Choice::Block => (ANY, Consent::Blocked),
+            Choice::Allow | Choice::Cancel => return None,
+        };
+        Some(Rule {
+            gate: self.gate,
+            pattern: pattern.into(),
+            consent,
+        })
+    }
+}
+
+fn scope(pattern: &str) -> String {
+    match pattern.split_once(':') {
+        Some(("argv", program)) => format!("{program} *"),
+        Some((_, value)) => value.into(),
+        None => "(any)".into(),
+    }
+}
+
+/// A remembered consent rule of one extension.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rule {
+    pub gate: Gate,
+    pub pattern: String,
+    pub consent: Consent,
+}
+
+impl Rule {
+    /// How the audit log names the rule.
+    pub fn id(&self) -> String {
+        format!("{}:{}", self.gate.name(), self.pattern)
+    }
+
+    /// What the rule applies to.
+    pub fn scope(&self) -> String {
+        scope(&self.pattern)
     }
 }
 
@@ -389,36 +445,65 @@ impl Grants {
         })
     }
 
-    /// A specific rule wins over the gate-wide one, as on main.
-    pub fn decision(&self, owner: &str, request: &Request) -> Consent {
-        self.rules
-            .get(&key(owner, request.gate, &request.pattern))
-            .or_else(|| self.rules.get(&key(owner, request.gate, ANY)))
-            .copied()
-            .unwrap_or(Consent::Ask)
+    /// The rule that decides `request`. A specific rule wins over the
+    /// gate-wide one, as on main.
+    pub fn rule(&self, owner: &str, request: &Request) -> Option<Rule> {
+        [request.pattern.as_str(), ANY]
+            .into_iter()
+            .find_map(|pattern| {
+                let consent = *self.rules.get(&key(owner, request.gate, pattern))?;
+                Some(Rule {
+                    gate: request.gate,
+                    pattern: pattern.into(),
+                    consent,
+                })
+            })
     }
 
+    pub fn decision(&self, owner: &str, request: &Request) -> Consent {
+        self.rule(owner, request)
+            .map_or(Consent::Ask, |rule| rule.consent)
+    }
+
+    /// An extension's remembered rules.
+    pub fn rules(&self, owner: &str) -> Vec<Rule> {
+        let prefix = format!("{owner}:");
+        self.rules
+            .iter()
+            .filter_map(|(key, consent)| {
+                let (gate, pattern) = key.strip_prefix(&prefix)?.split_once(':')?;
+                Some(Rule {
+                    gate: Gate::parse(gate)?,
+                    pattern: pattern.into(),
+                    consent: *consent,
+                })
+            })
+            .collect()
+    }
+
+    pub fn remove(&mut self, owner: &str, rule: &Rule) -> Result<(), String> {
+        let mut rules = self.rules.clone();
+        rules.remove(&key(owner, rule.gate, &rule.pattern));
+        self.save(rules)
+    }
+
+    /// Saves the rule a remembered choice makes. Blocking replaces every
+    /// other rule of that gate.
     pub fn remember(
         &mut self,
         owner: &str,
         request: &Request,
         choice: Choice,
     ) -> Result<(), String> {
+        let Some(rule) = request.rule(choice) else {
+            return Ok(());
+        };
         let mut rules = self.rules.clone();
-        match choice {
-            Choice::AllowAndRemember => {
-                rules.insert(key(owner, request.gate, &request.pattern), Consent::Allow);
-            }
-            Choice::DenyAndRemember => {
-                rules.insert(key(owner, request.gate, &request.pattern), Consent::Deny);
-            }
-            Choice::Block => {
-                let prefix = key(owner, request.gate, "");
-                rules.retain(|key, _| !key.starts_with(&prefix));
-                rules.insert(key(owner, request.gate, ANY), Consent::Blocked);
-            }
-            Choice::Allow | Choice::Cancel => return Ok(()),
+        if rule.consent == Consent::Blocked {
+            let prefix = key(owner, rule.gate, "");
+            rules.retain(|key, _| !key.starts_with(&prefix));
         }
+        rules.insert(key(owner, rule.gate, &rule.pattern), rule.consent);
         self.save(rules)
     }
 

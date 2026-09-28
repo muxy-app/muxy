@@ -3,7 +3,9 @@ use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition, PanelRes
 use muxy_ui::webview::assets::Source;
 use serde_json::{Value, json};
 
+use super::panel_sessions::SavedPanel;
 use super::{AppModel, Request, Surface, SurfaceKind, Webview};
+use crate::model::extensions::root_of;
 
 #[derive(Clone)]
 pub(super) struct Definition {
@@ -22,8 +24,6 @@ pub(crate) struct Panel {
     pub kind: String,
     pub title: Option<String>,
     pub placement: PanelPlacement,
-    pub width: f32,
-    pub height: f32,
     pub resize: PanelResizeState,
     pub controls: [FocusHandle; 4],
     pub header_controls: Vec<FocusHandle>,
@@ -39,6 +39,39 @@ impl Panel {
                 .iter()
                 .chain(&self.header_controls)
                 .any(|focus| focus.is_focused(window))
+    }
+}
+
+/// One size for every extension panel, as on main: a right panel's width and a
+/// bottom panel's height.
+#[derive(Clone, Copy)]
+pub(crate) struct PanelSize {
+    width: f32,
+    height: f32,
+}
+
+impl Default for PanelSize {
+    fn default() -> Self {
+        Self {
+            width: 360.0,
+            height: 260.0,
+        }
+    }
+}
+
+impl PanelSize {
+    pub(crate) fn get(self, position: PanelPosition) -> f32 {
+        match position {
+            PanelPosition::Right => self.width,
+            PanelPosition::Bottom => self.height,
+        }
+    }
+
+    pub(crate) fn set(&mut self, position: PanelPosition, dimension: f32) {
+        match position {
+            PanelPosition::Right => self.width = dimension,
+            PanelPosition::Bottom => self.height = dimension,
+        }
     }
 }
 
@@ -124,6 +157,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Value, String> {
+        self.open_restored_panel(window, cx);
         let owner = owner.to_owned();
         let kind = args["panelID"].as_str().filter(|kind| !kind.is_empty());
         if verb == "panels.close" {
@@ -160,40 +194,61 @@ impl AppModel {
             self.panel_event("panel.opened", &owner, kind, cx);
             return Ok(Value::Null);
         }
+        let data = data
+            .cloned()
+            .unwrap_or_else(|| definition.default_data.clone());
+        self.create_panel(&owner, kind, definition, data, window, cx)?;
+        if self.overlay.is_none()
+            && let Some(panel) = self.webviews.panels.get(&id)
+        {
+            panel.surface.view.read(cx).focus.focus(window);
+        }
+        self.focus_requested = false;
+        self.panel_event("panel.opened", &owner, kind, cx);
+        cx.notify();
+        Ok(Value::Null)
+    }
+
+    /// Creates a panel's page and shows it.
+    fn create_panel(
+        &mut self,
+        owner: &str,
+        kind: &str,
+        definition: Definition,
+        data: Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         let surface = self.create_webview(
             definition.source,
             kind.into(),
-            data.cloned().unwrap_or(definition.default_data),
+            data,
             SurfaceKind::Panel,
             window,
             cx,
         )?;
         let mode = if definition.allows_mode_selection {
-            self.webview_panel_mode(&owner, kind, definition.mode)
+            self.webview_panel_mode(owner, kind, definition.mode)
         } else {
             definition.mode
         };
+        let id = panel_id(owner, kind);
         let placement = PanelPlacement::new(id.clone(), definition.position, mode);
         self.place_panel(placement.clone(), cx);
-        if self.overlay.is_none() {
-            surface.view.read(cx).focus.focus(window);
-        }
         let header_buttons = self
             .extensions
             .registry
-            .enabled(&owner)
+            .enabled(owner)
             .and_then(|extension| extension.manifest.panel(kind))
             .map_or(0, |panel| panel.header_buttons.len());
         self.webviews.panels.insert(
             id,
             Panel {
                 surface,
-                owner: owner.clone(),
+                owner: owner.into(),
                 kind: kind.into(),
                 title: definition.title,
                 placement,
-                width: 360.0,
-                height: 260.0,
                 resize: PanelResizeState::default(),
                 controls: std::array::from_fn(|_| cx.focus_handle()),
                 header_controls: (0..header_buttons).map(|_| cx.focus_handle()).collect(),
@@ -201,10 +256,117 @@ impl AppModel {
                 focused: false,
             },
         );
-        self.focus_requested = false;
-        self.panel_event("panel.opened", &owner, kind, cx);
+        Ok(())
+    }
+
+    /// Extension panels belong to the root project they were opened in, as on
+    /// main. Switching projects closes the open panel without asking its page,
+    /// and announces the new project's panel before `project.switched`; its
+    /// page is created at the next frame. Worktree switches keep panels.
+    pub(in crate::model) fn switch_panel_session(&mut self, cx: &mut Context<Self>) {
+        let root = root_of(self.state.current_project());
+        let Some(previous) = self.webviews.panel_sessions.enter(root) else {
+            return;
+        };
+        let open = self
+            .webviews
+            .panels
+            .iter()
+            .find(|(id, _)| self.panels.placement(id).is_some())
+            .map(|(_, panel)| SavedPanel {
+                owner: panel.owner.clone(),
+                kind: panel.kind.clone(),
+                position: panel.placement.position,
+                data: panel.surface.view.read(cx).data().clone(),
+            });
+        let pending = self.webviews.panel_sessions.pending.take();
+        if let Some(panel) = &pending {
+            self.panel_event("panel.closed", &panel.owner, &panel.kind, cx);
+        }
+        if let Some(panel) = open.or(pending) {
+            self.webviews.panel_sessions.save(previous, panel);
+        }
+        for id in self.webviews.panels.keys().cloned().collect::<Vec<_>>() {
+            self.remove_webview_panel(&id, cx);
+        }
+        let state = &self.state;
+        self.webviews
+            .panel_sessions
+            .retain_projects(|project| state.project(project).is_some());
+        if self.composer_panel_open() {
+            return;
+        }
+        if let Some(panel) = self.webviews.panel_sessions.take(root)
+            && self
+                .webviews
+                .registered_panels
+                .contains_key(&(panel.owner.clone(), panel.kind.clone()))
+        {
+            self.panel_event("panel.opened", &panel.owner, &panel.kind, cx);
+            self.webviews.panel_sessions.pending = Some(panel);
+            cx.notify();
+        }
+    }
+
+    /// The built-in composer panel is global, so a project's panel never
+    /// displaces it; that panel reopens on a later visit instead.
+    fn composer_panel_open(&self) -> bool {
+        self.panels
+            .placement(&PanelId::new(crate::views::composer::PANEL))
+            .is_some()
+    }
+
+    /// Creates the page of a panel reopened by a project switch. Panel
+    /// operations call it first, so they act on the reopened panel.
+    pub(super) fn open_restored_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.webviews.panel_sessions.pending.take() else {
+            return;
+        };
         cx.notify();
-        Ok(Value::Null)
+        let definition = self
+            .webviews
+            .registered_panels
+            .get(&(panel.owner.clone(), panel.kind.clone()))
+            .cloned();
+        let Some(definition) = definition else {
+            self.panel_event("panel.closed", &panel.owner, &panel.kind, cx);
+            return;
+        };
+        if self.composer_panel_open() {
+            self.panel_event("panel.closed", &panel.owner, &panel.kind, cx);
+            self.webviews.panel_sessions.keep(panel);
+            return;
+        }
+        let definition = Definition {
+            position: panel.position,
+            ..definition
+        };
+        let (owner, kind) = (panel.owner, panel.kind);
+        if let Err(error) = self.create_panel(&owner, &kind, definition, panel.data, window, cx) {
+            self.extension_log(
+                &owner,
+                format!("[muxy] could not reopen panel {kind}: {error}"),
+            );
+            self.panel_event("panel.closed", &owner, &kind, cx);
+        }
+    }
+
+    /// Forgets the remembered panels of stopped extensions, closing one that
+    /// was about to reopen.
+    pub(super) fn forget_extension_panels(
+        &mut self,
+        keep: impl Fn(&str) -> bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(panel) = self
+            .webviews
+            .panel_sessions
+            .pending
+            .take_if(|panel| !keep(&panel.owner))
+        {
+            self.panel_event("panel.closed", &panel.owner, &panel.kind, cx);
+        }
+        self.webviews.panel_sessions.retain_owners(keep);
     }
 
     fn panel_event(&self, event: &str, owner: &str, kind: &str, cx: &gpui::App) {

@@ -1,6 +1,7 @@
 use gpui::Context;
 use muxy_app_core::{
     Direction, PaneId, ProjectStatus,
+    extensions::FileOpener,
     opener::{OpenContext, OpenRequest, Target},
 };
 
@@ -41,44 +42,30 @@ impl AppModel {
             return;
         };
         if let Target::File(file) = &target
-            && self.settings.openers.file == "system.editor"
-            && self.settings.openers.project_target.is_none()
             && let Ok(relative) = file.path.strip_prefix(&context.project_directory)
             && let Some(relative) = relative.to_str()
+            && let Some((owner, opener)) = self.chosen_file_opener(relative)
         {
-            let opener = self.extensions.registry.active().find_map(|extension| {
-                extension
-                    .manifest
-                    .file_openers
-                    .iter()
-                    .find(|opener| opener.matches(relative))
-                    .map(|opener| (extension.name.clone(), opener.clone()))
+            let mut data = serde_json::json!({
+                "filePath": relative,
+                "source": "terminal",
+                "replaceable": false,
             });
-            if let Some((owner, opener)) = opener {
-                let mut data = serde_json::json!({
-                    "filePath": relative,
-                    "source": "terminal",
-                    "replaceable": false,
-                });
-                if let Some(line) = file.line {
-                    data["line"] = line.into();
-                }
-                if let Some(column) = file.column {
-                    data["column"] = column.into();
-                }
-                let descriptor = muxy_app_core::webview::WebviewDescriptor {
-                    owner,
-                    kind: opener.tab_type,
-                    data,
-                };
-                match self.open_webview_tab(descriptor, opener.singleton, cx) {
-                    Ok(_) => return,
-                    Err(error) => {
-                        self.fail(format!("Could not open file: {error}"), cx);
-                        return;
-                    }
-                }
+            if let Some(line) = file.line {
+                data["line"] = line.into();
             }
+            if let Some(column) = file.column {
+                data["column"] = column.into();
+            }
+            let descriptor = muxy_app_core::webview::WebviewDescriptor {
+                owner,
+                kind: opener.tab_type,
+                data,
+            };
+            if let Err(error) = self.open_webview_tab(descriptor, opener.singleton, cx) {
+                self.fail(format!("Could not open file: {error}"), cx);
+            }
+            return;
         }
         let settings = self.settings.openers.clone();
         let result = crate::opener::submit(move || {
@@ -96,6 +83,40 @@ impl AppModel {
                 .detach(),
             Err(error) => self.fail(format!("Could not open link: {error}"), cx),
         }
+    }
+
+    /// The extension opener picked under Open files with, when it is enabled
+    /// and handles `relative`. As on main, extensions never open files unasked.
+    pub(super) fn chosen_file_opener(&self, relative: &str) -> Option<(String, FileOpener)> {
+        let (owner, id) = self.settings.openers.file.split_once(':')?;
+        let opener = self
+            .extensions
+            .registry
+            .enabled(owner)?
+            .manifest
+            .file_openers
+            .iter()
+            .find(|opener| opener.id == id && opener.matches(relative))?;
+        Some((owner.to_owned(), opener.clone()))
+    }
+
+    /// Enabled extensions' file openers as `(setting value, label)`.
+    pub(crate) fn extension_file_openers(&self) -> Vec<(String, String)> {
+        self.extensions
+            .registry
+            .active()
+            .flat_map(|extension| {
+                extension.manifest.file_openers.iter().map(|opener| {
+                    (
+                        format!("{}:{}", extension.name, opener.id),
+                        opener.title.as_ref().map_or_else(
+                            || extension.name.clone(),
+                            |title| format!("{} ({title})", extension.name),
+                        ),
+                    )
+                })
+            })
+            .collect()
     }
 
     pub(super) fn terminal_menu(

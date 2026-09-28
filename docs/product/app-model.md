@@ -86,7 +86,8 @@ flowchart TD
   the active terminal or to every visible split. Each project keeps its own
   draft, and a failed send keeps it.
 - **Web views.** Web pages as tabs, docked panels, popovers, or dialogs. They
-  stay alive while hidden.
+  stay alive while hidden. Extension panels belong to a project: switching
+  projects closes them, and switching back reopens them.
 - **Extensions.** Add tabs, panels, a sidebar, toolbar and status bar items,
   shortcuts, and background scripts. They are managed in Settings → Extensions,
   declare their permissions, and ask before sensitive actions. Extensions made

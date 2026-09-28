@@ -1,3 +1,4 @@
+pub(in crate::model) mod panel_sessions;
 mod panels;
 mod popover;
 mod results;
@@ -64,6 +65,8 @@ pub(crate) struct Webviews {
     pub modal: Option<Modal>,
     pub panels: std::collections::BTreeMap<muxy_ui::panel::PanelId, panels::Panel>,
     registered_panels: HashMap<(String, String), panels::Definition>,
+    pub(in crate::model) panel_sessions: panel_sessions::PanelSessions,
+    pub panel_size: panels::PanelSize,
     pub popover: Option<popover::Popover>,
     pub sidebar: Option<sidebar::SidebarSurface>,
     /// The sidebar page that failed to load, so it is not retried every frame.
@@ -80,6 +83,7 @@ impl AppModel {
     pub(crate) fn sync_webviews(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.initialize_webview_demo(cx);
         self.sync_extension_events(cx);
+        self.open_restored_panel(window, cx);
         if !matches!(self.overlay, Some(Overlay::Webview))
             && let Some(modal) = self.webviews.modal.take()
         {
@@ -1112,6 +1116,7 @@ impl AppModel {
         for id in panels {
             self.remove_webview_panel(&id, cx);
         }
+        self.forget_extension_panels(keep, cx);
         if self
             .webviews
             .modal

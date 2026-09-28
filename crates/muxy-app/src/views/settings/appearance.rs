@@ -1,4 +1,4 @@
-use super::{Category, Change, PickerKind, SettingsEvent, SettingsView};
+use super::{Category, Change, PickerKind, SettingsEvent, SettingsView, Snapshot};
 use gpui::{AnyElement, Context};
 use muxy_app_core::settings::{CloseBehavior, SidebarCollapsedStyle};
 use muxy_ui::controls::{self, Choice};
@@ -145,6 +145,13 @@ pub(super) fn rows(
             pane.picker(PickerKind::ExtensionSidebar, selected, cx),
         ));
     }
+    if category == Category::General && pane.matches(category, "Open files with") {
+        rows.push(pane.row(
+            "file-opener",
+            "Open files with",
+            pane.picker(PickerKind::FileOpener, &file_opener(&pane.snapshot), cx),
+        ));
+    }
     for (id, label) in [
         ("width", "Default window width"),
         ("height", "Default window height"),
@@ -154,6 +161,40 @@ pub(super) fn rows(
         }
     }
     rows
+}
+
+/// Built-in openers for files clicked in a terminal, as `(setting value, label)`.
+pub(super) const FILE_OPENERS: [(&str, &str); 3] = [
+    ("system.editor", "Project editor"),
+    ("system.finder", "Finder"),
+    ("system.application", "Default application"),
+];
+
+/// The chosen file opener's label. A chosen extension opener that is no
+/// longer enabled stays chosen, marked unavailable.
+fn file_opener(snapshot: &Snapshot) -> String {
+    let value = &snapshot.settings.openers.file;
+    FILE_OPENERS
+        .iter()
+        .map(|(id, label)| (*id, *label))
+        .chain(
+            snapshot
+                .file_openers
+                .iter()
+                .map(|(id, label)| (id.as_str(), label.as_str())),
+        )
+        .find(|(id, _)| id == value)
+        .map_or_else(
+            || unavailable_file_opener(value),
+            |(_, label)| label.to_owned(),
+        )
+}
+
+pub(super) fn unavailable_file_opener(value: &str) -> String {
+    match value.split_once(':') {
+        Some((extension, opener)) => format!("{extension} ({opener}, unavailable)"),
+        None => format!("{value} (unavailable)"),
+    }
 }
 
 fn collapsed_sidebar_style(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {

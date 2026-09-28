@@ -320,6 +320,44 @@ fn chords_support_all_modifiers_named_keys_and_printable_characters() -> Result 
 }
 
 #[test]
+fn extension_shortcuts_can_be_rebound_unassigned_and_reset() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[keymap]\nnew_tab = 'cmd-n'\n")?;
+    let id = "extension.files.open";
+    let keymap = Settings::load(&path)?.keymap;
+    assert!(
+        keymap.with_binding(id, Some("cmd-c".parse()?)).is_err(),
+        "an extension shortcut can't share a built-in one"
+    );
+    let rebound = keymap.with_binding(id, Some("ctrl-alt-e".parse()?))?;
+    assert_eq!(
+        rebound.binding(id).map(KeyChord::as_str),
+        Some("ctrl-alt-e")
+    );
+    let unassigned = rebound.with_unassigned(id)?;
+    assert!(unassigned.unassigned(id));
+    assert_eq!(unassigned.binding(id), None);
+    unassigned.save(&path)?;
+    let reloaded = Settings::load(&path)?.keymap;
+    assert!(reloaded.unassigned(id));
+    assert_eq!(
+        reloaded.chord(ShortcutId::NewTab).map(KeyChord::as_str),
+        Some("cmd-n")
+    );
+    let reset = reloaded.with_binding(id, None)?;
+    assert!(!reset.unassigned(id));
+    assert_eq!(reset.binding(id), None);
+    assert!(keymap.with_unassigned("new_tab").is_err());
+    let shared = rebound.with_binding("extension.other.open", Some("ctrl-alt-e".parse()?))?;
+    assert_eq!(
+        shared.binding("extension.other.open").map(KeyChord::as_str),
+        Some("ctrl-alt-e"),
+        "an off extension's binding doesn't block another extension"
+    );
+    Ok(())
+}
+
+#[test]
 fn invalid_chords_and_keymap_errors_name_the_problem() -> Result {
     for value in [
         "",

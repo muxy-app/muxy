@@ -1,10 +1,10 @@
 //! Runtime consent prompts and extension dialogs. Both are native sheets on the
 //! main window, so they share one queue and at most one is on screen.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use gpui::{Context, Window};
-use muxy_app_core::extensions::{Choice, Consent, Gate, Request};
+use muxy_app_core::extensions::{AuditEntry, Choice, Consent, Gate, Request, Rule, timestamp};
 use muxy_ui::dialog::ConsentResponse;
 use serde_json::{Value, json};
 
@@ -52,6 +52,17 @@ pub(super) struct Sheet {
     _handle: Box<dyn std::any::Any>,
 }
 
+impl Sheet {
+    pub(super) fn new(id: u64, owner: &str, dialog: bool, handle: Box<dyn std::any::Any>) -> Self {
+        Self {
+            id,
+            owner: owner.into(),
+            dialog,
+            _handle: handle,
+        }
+    }
+}
+
 fn denial(verb: &str, request: &Request) -> String {
     let value = request
         .pattern
@@ -66,6 +77,15 @@ fn denial(verb: &str, request: &Request) -> String {
         }
         Gate::FilesWrite => format!("user denied consent for files.{value}"),
         gate => format!("user denied consent for {}", gate.name()),
+    }
+}
+
+/// What the audit log records for a prompt answer, as main names it.
+fn decision(choice: Choice) -> &'static str {
+    match choice {
+        Choice::AllowAndRemember | Choice::Allow => "allow",
+        Choice::Cancel | Choice::DenyAndRemember => "deny",
+        Choice::Block => "blocked",
     }
 }
 
@@ -84,11 +104,54 @@ fn clamp(text: &str) -> String {
 }
 
 impl AppModel {
-    fn consent(&self, owner: &str, request: &Request) -> Consent {
-        self.extensions
-            .grants
-            .as_ref()
-            .map_or(Consent::Deny, |grants| grants.decision(owner, request))
+    /// What the saved rules decide for a gated call, and the deciding rule.
+    /// Without readable rules every gated call is denied.
+    fn consent(&self, owner: &str, request: &Request) -> (Consent, Option<String>) {
+        match &self.extensions.grants {
+            Ok(grants) => grants
+                .rule(owner, request)
+                .map_or((Consent::Ask, None), |rule| (rule.consent, Some(rule.id()))),
+            Err(_) => (Consent::Deny, None),
+        }
+    }
+
+    /// Appends a gated decision to the profile's audit log, as main does.
+    /// `reason` tags a denial nobody answered: a timeout, a cancel, or too many
+    /// waiting prompts.
+    fn audit(
+        &self,
+        call: &Call,
+        request: &Request,
+        decision: &str,
+        rule: Option<String>,
+        reason: Option<&str>,
+    ) {
+        let entry = AuditEntry {
+            timestamp: timestamp(SystemTime::now()),
+            extension_id: call.owner.clone(),
+            verb: request.gate.name().into(),
+            payload_summary: reason.map_or_else(
+                || request.summary.clone(),
+                |reason| format!("{} [{reason}]", request.summary),
+            ),
+            decision: decision.into(),
+            rule_id: rule,
+            source: match request.gate {
+                Gate::Exec => "exec",
+                Gate::HttpFetch => "http",
+                _ => "muxy-api",
+            }
+            .into(),
+        };
+        self.extensions.logs.audit(&self.extensions.audit, entry);
+    }
+
+    /// Rejects a queued prompt or dialog whose extension stopped.
+    pub(super) fn fail_waiting(&self, waiting: Waiting, error: &str, cx: &mut gpui::App) {
+        if let Waiting::Consent { call, request, .. } = &waiting {
+            self.audit(call, request, "deny", None, Some("cancelled"));
+        }
+        waiting.fail(error, cx);
     }
 
     /// Runs a gated call now, rejects it, or queues a prompt, per the saved rules.
@@ -99,12 +162,15 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.consent(&call.owner, &request) {
+        let (consent, rule) = self.consent(&call.owner, &request);
+        match consent {
             Consent::Allow => {
+                self.audit(&call, &request, "allow", rule, None);
                 call.approved = true;
                 self.dispatch_extension(call, window, cx);
             }
             Consent::Deny | Consent::Blocked => {
+                self.audit(&call, &request, "deny", rule, None);
                 call.reply.send(Err(denial(&call.verb, &request)), cx);
             }
             Consent::Ask => {
@@ -124,6 +190,7 @@ impl AppModel {
                             .is_some_and(|sheet| !sheet.dialog && sheet.owner == call.owner),
                     );
                 if queued >= PROMPTS_PER_EXTENSION {
+                    self.audit(&call, &request, "deny", None, Some("queue-flood"));
                     call.reply.send(Err(denial(&call.verb, &request)), cx);
                     return;
                 }
@@ -149,6 +216,7 @@ impl AppModel {
         if let Some(Waiting::Consent { call, request, .. }) =
             position.and_then(|index| self.extensions.waiting.remove(index))
         {
+            self.audit(&call, &request, "deny", None, Some("timeout"));
             call.reply.send(Err(denial(&call.verb, &request)), cx);
         } else if self
             .extensions
@@ -183,16 +251,20 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         if !self.call_live(&call, cx) {
+            self.audit(&call, &request, "deny", None, Some("cancelled"));
             call.reply.send(Err("extension call expired".into()), cx);
             return;
         }
-        match self.consent(&call.owner, &request) {
+        let (consent, rule) = self.consent(&call.owner, &request);
+        match consent {
             Consent::Allow => {
+                self.audit(&call, &request, "allow", rule, None);
                 call.approved = true;
                 self.dispatch_extension(call, window, cx);
                 return;
             }
             Consent::Deny | Consent::Blocked => {
+                self.audit(&call, &request, "deny", rule, None);
                 call.reply.send(Err(denial(&call.verb, &request)), cx);
                 return;
             }
@@ -222,14 +294,10 @@ impl AppModel {
         );
         match sheet {
             Ok(sheet) => {
-                self.extensions.sheet = Some(Sheet {
-                    id,
-                    owner: call.owner.clone(),
-                    dialog: false,
-                    _handle: Box::new(sheet),
-                });
+                self.extensions.sheet = Some(Sheet::new(id, &call.owner, false, Box::new(sheet)));
             }
             Err(error) => {
+                self.audit(&call, &request, "deny", None, Some("cancelled"));
                 call.reply.send(Err(error.to_string()), cx);
                 return;
             }
@@ -276,12 +344,15 @@ impl AppModel {
             };
             let _ = handle.update(cx, |_, window, cx| {
                 let _ = model.update(cx, |model, cx| {
-                    if model
+                    // A timeout or a stopped extension closes the sheet first,
+                    // which also reports a cancel; only the user's own answer
+                    // arrives while the sheet is still up.
+                    let answered = model
                         .extensions
                         .sheet
                         .as_ref()
-                        .is_some_and(|sheet| sheet.id == id)
-                    {
+                        .is_some_and(|sheet| sheet.id == id);
+                    if answered {
                         model.extensions.sheet = None;
                     }
                     match remembered {
@@ -289,7 +360,23 @@ impl AppModel {
                             if let Some(snapshot) = snapshot {
                                 model.receive_extension_snapshot(snapshot, cx);
                             }
-                            if choice.allows() && model.call_live(&call, cx) {
+                            let live = model.call_live(&call, cx);
+                            match (live, answered) {
+                                (false, _) => {
+                                    model.audit(&call, &request, "deny", None, Some("cancelled"));
+                                }
+                                (true, false) => {
+                                    model.audit(&call, &request, "deny", None, Some("timeout"));
+                                }
+                                (true, true) => model.audit(
+                                    &call,
+                                    &request,
+                                    decision(choice),
+                                    request.rule(choice).as_ref().map(Rule::id),
+                                    None,
+                                ),
+                            }
+                            if choice.allows() && live {
                                 let mut call = call;
                                 call.approved = true;
                                 model.dispatch_extension(call, window, cx);
@@ -378,12 +465,7 @@ impl AppModel {
         };
         match shown {
             Ok(handle) => {
-                self.extensions.sheet = Some(Sheet {
-                    id,
-                    owner: call.owner.clone(),
-                    dialog: true,
-                    _handle: handle,
-                });
+                self.extensions.sheet = Some(Sheet::new(id, &call.owner, true, handle));
             }
             Err(error) => {
                 let error = if error.to_string().contains("parent") {

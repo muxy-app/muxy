@@ -14,14 +14,18 @@ mod tests;
 mod workspace;
 mod worktrees;
 
-pub(crate) use commands::RunCommand;
+pub(crate) use commands::{ExtensionShortcut, RunCommand};
+pub(in crate::model) use events::root_of;
+pub(crate) use logs::log_file;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use gpui::{Context, Entity, Window};
 use muxy_app_core::PaneId;
-use muxy_app_core::extensions::{Grants, Registry, Request, required_permission};
+use muxy_app_core::extensions::{
+    AUDIT_LOG, AuditLog, Grants, Registry, Request, Rule, required_permission,
+};
 use muxy_protocol::ProjectId;
 use serde_json::{Map, Value, json};
 
@@ -46,6 +50,8 @@ pub(crate) struct Runtime {
     waiting: VecDeque<consent::Waiting>,
     sheet: Option<consent::Sheet>,
     pub logs: logs::Logs,
+    /// The profile's record of every gated decision.
+    audit: AuditLog,
     native_modal: Option<scripts::Picker>,
     /// Stored overrides for each extension's declared settings.
     pub settings: BTreeMap<String, Map<String, Value>>,
@@ -77,6 +83,7 @@ impl Runtime {
             waiting: VecDeque::new(),
             sheet: None,
             logs: logs::Logs::new(),
+            audit: AuditLog::new(profile),
             native_modal: None,
             settings: BTreeMap::new(),
             items: surfaces::Items::default(),
@@ -276,6 +283,7 @@ impl AppModel {
         self.extensions.registry = snapshot.registry;
         self.extensions.grants = snapshot.grants;
         self.extensions.settings = snapshot.settings;
+        self.read_earlier_logs(cx);
         self.invalidate_webview_shortcuts();
         self.register_extension_surfaces(cx);
         self.load_extension_icons(cx);
@@ -284,6 +292,64 @@ impl AppModel {
         self.close_hidden_popover(cx);
         self.sync_preferences(cx);
         cx.notify();
+    }
+
+    /// Starts each newly loaded extension's log tail with its file's earlier
+    /// lines, before the extension logs anything this session.
+    fn read_earlier_logs(&mut self, cx: &mut Context<Self>) {
+        let extensions: Vec<_> = self
+            .extensions
+            .registry
+            .extensions
+            .values()
+            .map(|extension| (extension.name.clone(), extension.directory.clone()))
+            .collect();
+        for (owner, root) in extensions {
+            let Some(lines) = self.extensions.logs.read_earlier(&owner, &root) else {
+                continue;
+            };
+            cx.spawn(async move |model, cx| {
+                if let Ok(lines) = lines.recv().await {
+                    let _ = model.update(cx, |model, cx| {
+                        model.extensions.logs.prepend(&owner, lines);
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
+    }
+
+    /// An extension's remembered consent rules.
+    pub(crate) fn extension_rules(&self, owner: &str) -> Vec<Rule> {
+        self.extensions
+            .grants
+            .as_ref()
+            .map_or_else(|_| Vec::new(), |grants| grants.rules(owner))
+    }
+
+    pub(crate) fn remove_extension_rule(
+        &mut self,
+        owner: &str,
+        rule: Rule,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<Result<(), String>> {
+        let owner = owner.to_owned();
+        self.change_extensions(
+            move |state| {
+                state
+                    .grants
+                    .as_mut()
+                    .map_err(|error| error.clone())?
+                    .remove(&owner, &rule)
+            },
+            cx,
+        )
+    }
+
+    /// The profile's record of every gated decision.
+    pub(crate) fn extension_audit_log(&self) -> std::path::PathBuf {
+        self.path.with_file_name(AUDIT_LOG)
     }
 
     /// Whether the installed extensions have been read from disk yet.
@@ -414,7 +480,7 @@ impl AppModel {
         let waiting = std::mem::take(&mut self.extensions.waiting);
         for waiting in waiting {
             if waiting.owner() == owner {
-                waiting.fail("extension disabled", cx);
+                self.fail_waiting(waiting, "extension disabled", cx);
             } else {
                 self.extensions.waiting.push_back(waiting);
             }
@@ -533,7 +599,7 @@ impl AppModel {
         }
         self.extensions.sheet = None;
         for waiting in self.extensions.waiting.drain(..).collect::<Vec<_>>() {
-            waiting.fail("extension runtime stopped", cx);
+            self.fail_waiting(waiting, "extension runtime stopped", cx);
         }
         let jobs: Vec<_> = self.extensions.jobs.drain().map(|(_, job)| job).collect();
         for job in jobs {

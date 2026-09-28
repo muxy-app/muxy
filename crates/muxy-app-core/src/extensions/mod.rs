@@ -1,15 +1,17 @@
+mod audit;
 mod manifest;
 mod permissions;
 mod storage;
 
 pub mod api;
+pub use audit::{AUDIT_LOG, AuditEntry, AuditLog, timestamp};
 pub use manifest::{
     Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Localization, Manifest,
     PERMISSIONS, Panel, PanelControl, PanelMode, PanelPosition, Popover, RemoteMethod, Setting,
     SettingKind, Side, Sidebar, StatusBarItem, TabType, local_event,
 };
 pub use permissions::{
-    Choice, Consent, Gate, Grants, Request, event_permission, required_permission,
+    Choice, Consent, Gate, Grants, Request, Rule, event_permission, required_permission,
 };
 pub use storage::{Settings, Storage};
 
