@@ -38,22 +38,25 @@ fn menu(cx: &mut VisualTestContext, label: &str) {
     click(cx, &format!("menu-label-{label}"), MouseButton::Left);
 }
 
-fn color_picker(cx: &mut VisualTestContext, selected: Option<usize>) {
-    let first = cx.debug_bounds("color-swatch-0").expect("first swatch");
-    let sixth = cx.debug_bounds("color-swatch-5").expect("sixth swatch");
-    let last = cx.debug_bounds("color-swatch-11").expect("last swatch");
-    assert_eq!(first.top(), sixth.top());
-    assert!(last.top() > sixth.bottom());
-    assert_eq!(last.left(), sixth.left());
-    let ring = cx.debug_bounds("color-selection-ring");
-    if let Some(index) = selected {
-        let swatch = cx
-            .debug_bounds(format!("color-swatch-{index}").leak())
-            .expect("selected swatch");
-        assert!(swatch.contains(&ring.expect("selection ring").center()));
-    } else {
-        assert!(ring.is_none());
-    }
+/// The Color submenu opens beside the tab menu, checking `checked`.
+fn color_menu(view: &Entity<AppModel>, cx: &mut VisualTestContext, checked: &str) {
+    menu(cx, "Color");
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let parent = cx
+        .debug_bounds("context-menu")
+        .expect("tab menu stays open");
+    let colors = cx.debug_bounds("context-submenu-1").expect("color submenu");
+    assert!(colors.left() >= parent.right() - px(8.0));
+    let outline = view.read_with(cx, |model, _| model.menu_outline());
+    assert_eq!(outline.len(), 2);
+    assert!(outline[0].iter().any(|row| row == ">Color"));
+    assert_eq!(outline[1].len(), muxy_app_core::PROJECT_COLORS.len() + 1);
+    let marked: Vec<_> = outline[1]
+        .iter()
+        .filter_map(|row| row.strip_prefix('✓'))
+        .collect();
+    assert_eq!(marked, [checked]);
 }
 
 #[gpui::test]
@@ -104,9 +107,8 @@ fn tab_context_customization_targets_inactive_tabs_in_both_layouts(cx: &mut Test
             Some("Build 日本語".into())
         );
         click(cx, &selector, MouseButton::Right);
-        menu(cx, "Set Tab Color…");
-        color_picker(cx, None);
-        cx.simulate_keystrokes("right enter");
+        color_menu(&view, cx, "Default");
+        cx.simulate_keystrokes("right down down enter");
         cx.run_until_parked();
         view.read_with(cx, |model, _| {
             assert_eq!(
@@ -134,9 +136,8 @@ fn tab_context_customization_targets_inactive_tabs_in_both_layouts(cx: &mut Test
         click(cx, &selector, MouseButton::Right);
         menu(cx, "Reset Title");
         click(cx, &selector, MouseButton::Right);
-        menu(cx, "Set Tab Color…");
-        color_picker(cx, Some(1));
-        click(cx, "reset-tab-color", MouseButton::Left);
+        color_menu(&view, cx, "Orange");
+        menu(cx, "Default");
         view.read_with(cx, |model, _| {
             let tab = model.tab(ids[0]).expect("tab");
             assert!(tab.custom_title.is_none());

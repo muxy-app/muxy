@@ -1,13 +1,14 @@
-use muxy_app_core::{Project, TabCloseScope, TabId, TabSide};
+use muxy_app_core::{Color, Project, TabCloseScope, TabId, TabSide};
 
-use super::menu::{Command, Item};
+use super::menu::{Command, Item, color_items};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Action {
     New(TabSide),
     Rename,
     ResetTitle,
-    Color,
+    /// Sets the tab's color to `PROJECT_COLORS[index]`.
+    SetColor(usize),
     ResetColor,
     TogglePin,
     Close,
@@ -27,10 +28,14 @@ pub(crate) fn items(project: &Project, id: TabId) -> Vec<Item> {
     if tab.custom_title.is_some() {
         items.push(item("Reset Title", Action::ResetTitle));
     }
-    items.push(item("Set Tab Color…", Action::Color));
-    if tab.color.is_some() {
-        items.push(item("Reset Tab Color", Action::ResetColor));
-    }
+    let mut palette = color_items(tab.color.as_ref().map(Color::as_str), |index| {
+        Command::Tab(id, Action::SetColor(index))
+    })
+    .into_iter();
+    let mut colors = vec![item("Default", Action::ResetColor).checked_if(tab.color.is_none())];
+    colors.extend(palette.next().map(Item::separated));
+    colors.extend(palette);
+    items.push(Item::submenu("Color", colors));
     items.push(
         item(
             if tab.pinned { "Unpin Tab" } else { "Pin Tab" },

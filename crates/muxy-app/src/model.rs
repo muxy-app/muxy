@@ -2342,6 +2342,7 @@ mod tests {
     mod colors;
     mod command_palette;
     mod composer;
+    mod context_menu;
     mod detach;
     mod find;
     mod git;

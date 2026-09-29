@@ -31,7 +31,7 @@ fn menu(cx: &mut VisualTestContext, label: &str) {
 
 fn project_menu(cx: &mut VisualTestContext, row: usize) {
     click(cx, &format!("project-row-{row}"), MouseButton::Right);
-    menu(cx, "Workspaces ▸");
+    menu(cx, "Workspaces");
 }
 
 fn projects() -> (AppState, [ProjectId; 4]) {

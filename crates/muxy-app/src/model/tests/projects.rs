@@ -560,10 +560,11 @@ fn project_editor_and_color_shortcuts_apply_to_the_requested_project(cx: &mut Te
     );
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
-            model.open_project_colors(first, gpui::point(px(10.0), px(60.0)), window, cx);
+            let items = model.project_menu(model.state.project(first).expect("first"));
+            model.open_menu(items, gpui::point(px(10.0), px(60.0)), window, cx);
         });
     });
-    cx.simulate_keystrokes("right enter");
+    cx.simulate_keystrokes("down down down down down right down enter");
     cx.run_until_parked();
     assert_eq!(
         view.read_with(cx, |model, _| model

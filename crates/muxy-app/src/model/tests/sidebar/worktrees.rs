@@ -63,6 +63,7 @@ fn toggle_from_menu(cx: &mut VisualTestContext) {
     });
     cx.run_until_parked();
     click(cx, "menu-label-Worktrees");
+    click(cx, "menu-label-Show Worktrees");
 }
 
 #[gpui::test]
@@ -331,4 +332,42 @@ fn project_worktree_activity_moves_between_parent_and_worktree_rows(cx: &mut Tes
     );
     click(cx, &format!("new-worktree-{parent}"));
     assert!(cx.debug_bounds("git-form").is_some());
+}
+
+#[gpui::test]
+fn worktree_projects_get_the_worktree_menu_in_the_tab_sidebar(cx: &mut TestAppContext) {
+    let (state, _directory, [_, parent, child], _) = fixture();
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.layout = AppLayout::TabFocused;
+    boot.settings.appearance.sidebar_expanded = true;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    view.update(cx, |model, _| {
+        model.git.projects.entry(parent).or_default().loaded = true;
+    });
+    for (project, worktree) in [(child, true), (parent, false)] {
+        let position = cx
+            .debug_bounds(format!("tab-project-{project}").leak())
+            .expect("project header")
+            .center();
+        cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::none());
+        cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        let rows = view
+            .read_with(cx, |model, _| model.menu_outline())
+            .remove(0);
+        for (label, shown) in [
+            ("Rename Worktree…", worktree),
+            ("Remove Worktree and Files…", worktree),
+            ("Existing Terminals…", true),
+            ("Icon", !worktree),
+            ("Color", !worktree),
+            ("Workspaces", !worktree),
+            ("Worktrees", !worktree),
+        ] {
+            assert_eq!(rows.iter().any(|row| row == label), shown, "{label}");
+        }
+        view.update(cx, AppModel::dismiss_overlay);
+        cx.run_until_parked();
+    }
 }

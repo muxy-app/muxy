@@ -50,6 +50,11 @@ impl Repository {
     pub(crate) fn has_loaded(&self, action: &GitAction) -> bool {
         read_slot(action).is_some_and(|slot| self.read_loaded[slot])
     }
+    /// Git answered, and the folder is not a repository.
+    pub(crate) fn not_a_repository(&self) -> bool {
+        self.loaded && self.summary.is_none() && self.load_error(&GitAction::Summary).is_none()
+    }
+
     pub(crate) fn load_error(&self, action: &GitAction) -> Option<&String> {
         self.error
             .as_ref()

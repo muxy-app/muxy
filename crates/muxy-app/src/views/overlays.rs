@@ -26,7 +26,6 @@ pub(crate) enum Overlay {
     ProjectEditor(super::project_editor::Editor),
     ProjectIcons(super::project_editor::icons::Icons),
     ProjectLogo(super::project_editor::logo::Cropper),
-    ProjectColors(super::project_editor::Colors),
     Projects(Entity<super::project_picker::ProjectPicker>),
 }
 
@@ -59,6 +58,8 @@ impl AppModel {
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Menu(Menu::new(items, position)));
         self.overlay_focus.focus(window);
+        // A focusable ancestor of the clicked row would otherwise take focus back.
+        window.prevent_default();
         cx.notify();
     }
 }
@@ -147,9 +148,6 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         }
         Some(Overlay::ProjectLogo(cropper)) => {
             super::project_editor::logo::render(cropper, model, window, cx)
-        }
-        Some(Overlay::ProjectColors(colors)) => {
-            super::project_editor::render_colors(colors, model, window, cx)
         }
         Some(Overlay::Sessions(picker)) => picker.picker.clone().into_any_element(),
         Some(Overlay::Projects(picker)) => picker.clone().into_any_element(),

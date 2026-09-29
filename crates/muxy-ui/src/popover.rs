@@ -37,6 +37,18 @@ pub fn row(
     enabled: bool,
     highlighted: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    menu_row(theme, metrics, id, enabled, highlighted)
+        .when(enabled, |row| row.hover(|style| style.bg(theme.hover)))
+}
+
+/// A row lit only by `highlighted`, for menus that move the highlight with the pointer themselves.
+pub fn menu_row(
+    theme: &Theme,
+    metrics: Metrics,
+    id: impl Into<ElementId>,
+    enabled: bool,
+    highlighted: bool,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex()
@@ -48,9 +60,7 @@ pub fn row(
         .rounded(metrics.radius_sm())
         .text_size(metrics.font_body())
         .text_color(if enabled { theme.fg } else { theme.fg_dim })
-        .when(enabled, |row| {
-            row.cursor_pointer().hover(|style| style.bg(theme.hover))
-        })
+        .when(enabled, Styled::cursor_pointer)
         .when(enabled && highlighted, |row| row.bg(theme.hover))
 }
 

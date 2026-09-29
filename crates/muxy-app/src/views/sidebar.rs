@@ -574,12 +574,7 @@ fn project_row(
             gpui::MouseButton::Right,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 if let Some(project) = model.state.project(id) {
-                    model.open_menu(
-                        super::project_menu::items(project, model.worktrees_visible(id)),
-                        event.position,
-                        window,
-                        cx,
-                    );
+                    model.open_menu(model.project_menu(project), event.position, window, cx);
                 }
             }),
         )

@@ -797,6 +797,48 @@ fn aliases_yield_to_explicit_bindings_and_conflicts_are_scoped() -> Result {
 }
 
 #[test]
+fn retired_color_picker_bindings_still_load_and_are_dropped() -> Result {
+    use muxy_core::shortcuts::ShortcutSettings;
+    let settings = toml::from_str::<Settings>(
+        "[keymap]\n'project_colors.next_color' = 'ctrl-n'\n'menu.close_submenu' = 'ctrl-b'",
+    )?;
+    assert_eq!(
+        settings.keymap.keys("menu.close_submenu", Some("Menu")),
+        ["ctrl-b"]
+    );
+    assert!(
+        settings
+            .keymap
+            .keys("project_colors.next_color", Some("ProjectColors"))
+            .is_empty()
+    );
+    assert_eq!(
+        settings.keymap.keys("menu.open_submenu", Some("Menu")),
+        ["right"]
+    );
+    let arrows = toml::from_str::<Settings>(
+        "[keymap]\n'menu.highlight_next' = 'right'\n'menu.highlight_previous' = 'left'",
+    )?;
+    assert_eq!(
+        arrows.keymap.keys("menu.highlight_next", Some("Menu")),
+        ["right"]
+    );
+    assert!(
+        arrows
+            .keymap
+            .keys("menu.open_submenu", Some("Menu"))
+            .is_empty()
+    );
+    assert!(
+        arrows
+            .keymap
+            .keys("menu.close_submenu", Some("Menu"))
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[test]
 fn alias_overrides_only_displace_matching_contexts() -> Result {
     use muxy_core::shortcuts::ShortcutSettings;
     let settings: Settings = toml::from_str(

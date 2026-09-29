@@ -138,7 +138,8 @@ impl Keymap {
             .map_err(|error| Error::new("keymap", error))
     }
 
-    fn from_overrides(overrides: BTreeMap<String, String>) -> Result<Self> {
+    fn from_overrides(mut overrides: BTreeMap<String, String>) -> Result<Self> {
+        overrides.retain(|name, _| !RETIRED.contains(&name.as_str()));
         let mut keymap = Self(Self::default().0, overrides.clone());
         let mut explicit = BTreeMap::new();
         for (name, value) in overrides {
@@ -184,6 +185,8 @@ impl Keymap {
             ShortcutId::FocusPaneDown,
             ShortcutId::ToggleZoomPane,
             ShortcutId::ClosePane,
+            ShortcutId::MenuOpenSubmenu,
+            ShortcutId::MenuCloseSubmenu,
         ] {
             if !explicit.contains_key(action.name())
                 && explicit.iter().any(|(id, chord)| {
@@ -218,6 +221,14 @@ impl<'de> Deserialize<'de> for Keymap {
         Self::from_overrides(BTreeMap::deserialize(deserializer)?).map_err(de::Error::custom)
     }
 }
+
+/// Actions that no longer exist. Older settings files that bind them still load.
+const RETIRED: [&str; 4] = [
+    "project_colors.previous_color",
+    "project_colors.next_color",
+    "project_colors.choose_color",
+    "project_colors.dismiss_colors",
+];
 
 fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {
     left.contexts.iter().any(|context| {

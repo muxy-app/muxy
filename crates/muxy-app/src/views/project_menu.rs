@@ -2,45 +2,69 @@ use gpui::{AnyWindowHandle, AsyncApp, Context};
 use muxy_app_core::{AppState, Project, ProjectId, ProjectStatus, WorkspaceId};
 use muxy_ui::dialog::ConfirmationResponse;
 
-use super::menu::{Command, Item};
+use super::menu::{Command, Item, color_items};
 use super::project_editor::Field;
-use crate::model::AppModel;
+use crate::model::{AppModel, git::Repository};
 
-pub(crate) fn items(project: &Project, worktrees_visible: bool) -> Vec<Item> {
+/// The menu of a top-level project. `worktrees` is `None` when its folder is not
+/// a Git repository, and otherwise whether its worktrees are shown.
+pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>) -> Vec<Item> {
     let id = project.id;
-    let mut items = Vec::new();
-    if project.status() == ProjectStatus::Available {
-        items.push(Item::action("Set Logo…", Command::ProjectLogo(id)));
-        if project.logo.is_some() {
-            items.push(Item::action("Remove Logo", Command::RemoveProjectLogo(id)));
-        }
-        items.extend([
-            Item::action("Rename…", Command::EditProject(id, Field::Name)),
-            Item::action("Change Icon…", Command::EditProject(id, Field::Icon)),
-            Item::action("Change Color ▸", Command::ProjectColor(id)),
-            Item::action("Reveal in Finder", Command::RevealPath(id)),
-            Item::action("Copy Path", Command::CopyPath(id)),
-            Item::action("Existing Terminals…", Command::ExistingSessions(id)),
-        ]);
+    if project.status() != ProjectStatus::Available {
+        return removal(project);
     }
-    if !project.home && project.status() == ProjectStatus::Available {
-        if project.parent_id.is_none() {
-            items.push(Item::action("Workspaces ▸", Command::ProjectWorkspaces(id)));
-            items.push(
-                Item::action("Worktrees", Command::Worktrees(id)).checked_if(worktrees_visible),
-            );
-            if worktrees_visible {
-                items.push(Item::action("New Worktree…", Command::NewWorktree(id)));
-            }
-        } else {
-            items.push(Item::action(
-                "Remove Worktree and Files…",
-                Command::RemoveWorktree(id),
-            ));
-        }
-    }
+    let mut items = vec![
+        Item::action("New Terminal Tab", Command::NewProjectTab(id)),
+        Item::action("Existing Terminals…", Command::ExistingSessions(id)),
+        Item::action("Rename…", Command::EditProject(id, Field::Name)).separated(),
+        Item::submenu("Icon", icon_items(project)),
+        Item::submenu(
+            "Color",
+            color_items(Some(project.color.as_str()), |index| {
+                Command::ProjectColor(id, index)
+            }),
+        ),
+    ];
     if !project.home {
-        items.push(Item::action("Remove Project…", Command::RemoveProject(id)));
+        items.push(Item::submenu("Workspaces", workspace_items(state, id)));
+        if let Some(visible) = worktrees {
+            items.push(Item::submenu("Worktrees", worktree_toggle_items(id, visible)).separated());
+        }
+    }
+    items.push(Item::action("Reveal in Finder", Command::RevealPath(id)).separated());
+    items.push(Item::action("Copy Path", Command::CopyPath(id)));
+    items.extend(removal(project).into_iter().map(Item::separated));
+    items
+}
+
+fn removal(project: &Project) -> Vec<Item> {
+    if project.home {
+        Vec::new()
+    } else {
+        vec![Item::action(
+            "Remove Project…",
+            Command::RemoveProject(project.id),
+        )]
+    }
+}
+
+fn icon_items(project: &Project) -> Vec<Item> {
+    let id = project.id;
+    let mut items = vec![
+        Item::action("Choose Icon…", Command::EditProject(id, Field::Icon)),
+        Item::action("Set Logo…", Command::ProjectLogo(id)),
+    ];
+    if project.logo.is_some() {
+        items.push(Item::action("Remove Logo", Command::RemoveProjectLogo(id)));
+    }
+    items
+}
+
+fn worktree_toggle_items(id: ProjectId, visible: bool) -> Vec<Item> {
+    let mut items =
+        vec![Item::action("Show Worktrees", Command::Worktrees(id)).checked_if(visible)];
+    if visible {
+        items.push(Item::action("New Worktree…", Command::NewWorktree(id)).separated());
     }
     items
 }
@@ -66,31 +90,55 @@ pub(crate) fn workspace_items(state: &AppState, project: ProjectId) -> Vec<Item>
     items
 }
 
+/// The menu of a row in a project's worktree list. `primary` is the project's own row.
 pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
-    if project.status() == ProjectStatus::Missing {
-        return items(project, false);
-    }
     let id = project.id;
+    if project.status() != ProjectStatus::Available {
+        return removal(project);
+    }
     let mut items = vec![
         Item::action("New Terminal Tab", Command::NewProjectTab(id)),
-        Item::action("Reveal in Finder", Command::RevealPath(id)),
-        Item::action("Copy Path", Command::CopyPath(id)),
+        Item::action("Existing Terminals…", Command::ExistingSessions(id)),
     ];
     if !primary {
-        items.push(Item::action(
-            "Rename Worktree…",
-            Command::EditProject(id, Field::Name),
-        ));
-        items.push(Item::action(
-            "Remove Worktree and Files…",
-            Command::RemoveWorktree(id),
-        ));
+        items.push(
+            Item::action("Rename Worktree…", Command::EditProject(id, Field::Name)).separated(),
+        );
+    }
+    items.push(Item::action("Reveal in Finder", Command::RevealPath(id)).separated());
+    items.push(Item::action("Copy Path", Command::CopyPath(id)));
+    if !primary {
+        items.push(
+            Item::action("Remove Worktree and Files…", Command::RemoveWorktree(id)).separated(),
+        );
         items.push(Item::action("Remove Project…", Command::RemoveProject(id)));
     }
     items
 }
 
 impl AppModel {
+    /// The sidebar menu of `project`. Worktree projects get the worktree menu.
+    pub(crate) fn project_menu(&self, project: &Project) -> Vec<Item> {
+        if project.parent_id.is_some() {
+            return worktree_items(project, false);
+        }
+        let repository = self
+            .state
+            .projects()
+            .iter()
+            .any(|child| child.parent_id == Some(project.id))
+            || !self
+                .git
+                .projects
+                .get(&project.id)
+                .is_some_and(Repository::not_a_repository);
+        items(
+            &self.state,
+            project,
+            repository.then(|| self.worktrees_visible(project.id)),
+        )
+    }
+
     pub(crate) fn confirm_remove_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let Some(record) = self.state.project(project).filter(|project| !project.home) else {
             return;
