@@ -142,15 +142,42 @@ fn update_confirmation_cancels_or_flushes_before_stopping_the_server(cx: &mut Te
             .any(|(_, work)| matches!(work, Work::PrepareUpdate { .. }))
     );
     view.update(cx, |model, cx| model.receive((1, Update::Flushed), cx));
-    assert!(
-        requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::PrepareUpdate { .. }))
-    );
+    assert!(requests.try_iter().any(|(_, work)| matches!(
+        work,
+        Work::PrepareUpdate {
+            mode: crate::server::UpdateMode::Preserve,
+            ..
+        }
+    )));
     view.read_with(cx, |model, _| {
         assert!(model.quitting == Quitting::Update);
         assert_eq!(model.state.home().tabs.len(), 1);
     });
+}
+
+#[gpui::test]
+fn compatible_update_can_restart_the_server_without_asking_again(cx: &mut TestAppContext) {
+    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        ready(model);
+        model.confirm_update(cx);
+    });
+    cx.run_until_parked();
+    cx.simulate_prompt_answer(crate::views::confirm::INSTALL_AND_RESTART_SERVER);
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+    view.update(cx, |model, cx| {
+        assert!(model.quitting == Quitting::Update);
+        model.receive((1, Update::Flushed), cx);
+    });
+    assert!(requests.try_iter().any(|(_, work)| matches!(
+        work,
+        Work::PrepareUpdate {
+            mode: crate::server::UpdateMode::EndSessions,
+            ..
+        }
+    )));
 }
 
 #[gpui::test]

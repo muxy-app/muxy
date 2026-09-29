@@ -137,13 +137,12 @@ pub(crate) async fn prompt_update(
     sessions: usize,
     cx: &mut AsyncApp,
 ) -> Result<UpdateChoice, String> {
+    if compatible && !scheduled {
+        return prompt_install(window, version, cx).await;
+    }
     let message = if scheduled {
         format!(
             "Muxy {version} will install and restart the app when all terminal sessions end. Currently {sessions} sessions are running, including idle shells and detached sessions."
-        )
-    } else if compatible {
-        format!(
-            "Install Muxy {version} and restart the app? Running terminals will continue. After the app reopens, restart the server from the update status, or let it update when all terminal sessions end."
         )
     } else {
         format!(
@@ -156,8 +155,6 @@ pub(crate) async fn prompt_update(
             "Update and End Sessions…",
             "Cancel Scheduled Update",
         ]
-    } else if compatible {
-        &["Update and Restart App", "Not Now"]
     } else {
         &[
             "Update When Sessions End",
@@ -178,17 +175,86 @@ pub(crate) async fn prompt_update(
         .map_err(|error| error.to_string())?
         .await
         .map_err(|error| error.to_string())?;
-    let choice = match (scheduled, compatible, answer) {
-        (true, _, 2) => UpdateChoice::CancelSchedule,
-        (true, _, 1) | (false, false, 1) => UpdateChoice::EndSessions,
-        (false, true, 0) => UpdateChoice::Install,
-        (false, false, 0) => UpdateChoice::Schedule,
+    let choice = match (scheduled, answer) {
+        (true, 2) => UpdateChoice::CancelSchedule,
+        (_, 1) => UpdateChoice::EndSessions,
+        (false, 0) => UpdateChoice::Schedule,
         _ => UpdateChoice::Later,
     };
     if choice == UpdateChoice::EndSessions && !server_prompt(window, "Update and End All Sessions?", "Update and End Sessions", "All terminal processes on this device will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain.", cx).await? {
         return Ok(UpdateChoice::Later);
     }
     Ok(choice)
+}
+
+const INSTALL: &str = "Update and Restart App";
+
+async fn prompt_install(
+    window: AnyWindowHandle,
+    version: &str,
+    cx: &mut AsyncApp,
+) -> Result<UpdateChoice, String> {
+    let message = format!(
+        "Install Muxy {version} and restart the app? Running terminals will continue, and the server will update when all terminal sessions end. Restarting the server now ends all terminal sessions on this device, including sessions used by other clients."
+    );
+    Ok(match install_prompt(window, &message, cx).await? {
+        Some(true) => UpdateChoice::EndSessions,
+        Some(false) => UpdateChoice::Install,
+        None => UpdateChoice::Later,
+    })
+}
+
+/// Reports whether the server should restart too, or `None` when declined.
+#[cfg(not(test))]
+async fn install_prompt(
+    window: AnyWindowHandle,
+    message: &str,
+    cx: &mut AsyncApp,
+) -> Result<Option<bool>, String> {
+    let (sender, receiver) = async_channel::bounded(1);
+    let _dialog = window
+        .update(cx, |_, window, _| {
+            muxy_ui::dialog::confirm_with_checkbox(
+                window,
+                "Muxy Update",
+                message,
+                [INSTALL, "Not Now"],
+                "Also restart the server",
+                move |restart_server| {
+                    let _ = sender.try_send(restart_server);
+                },
+            )
+        })
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    Ok(receiver.recv().await.unwrap_or_default())
+}
+
+#[cfg(test)]
+pub(crate) const INSTALL_AND_RESTART_SERVER: &str = "Update and Restart App and Server";
+
+#[cfg(test)]
+async fn install_prompt(
+    window: AnyWindowHandle,
+    message: &str,
+    cx: &mut AsyncApp,
+) -> Result<Option<bool>, String> {
+    let answer = window
+        .update(cx, |_, window, cx| {
+            window.prompt(
+                gpui::PromptLevel::Info,
+                "Muxy Update",
+                Some(message),
+                &[INSTALL, "Not Now", INSTALL_AND_RESTART_SERVER],
+                cx,
+            )
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(match answer.await {
+        Ok(0) => Some(false),
+        Ok(2) => Some(true),
+        _ => None,
+    })
 }
 
 #[cfg(not(test))]

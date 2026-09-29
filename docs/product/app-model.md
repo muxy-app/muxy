@@ -80,6 +80,10 @@ flowchart TD
     CHOICE -->|"update now"| FORCE["Asks first · every terminal ends"]
 ```
 
+When the new version can talk to the running server, checking **Also restart
+the server** in the update dialog replaces the server now too. Every terminal
+ends.
+
 ## Desktop features
 
 - **Composer.** Write a draft, with files, images, or dictation, and send it to

@@ -147,36 +147,65 @@ pub fn confirm(
     suppression_label: Option<&str>,
     on_complete: impl FnOnce(ConfirmationResponse) + 'static,
 ) -> io::Result<Confirmation> {
+    two_button_alert(
+        window,
+        NSAlertStyle::Warning,
+        title,
+        message,
+        [confirm_label, "Cancel"],
+        suppression_label,
+        move |response, dont_ask_again| on_complete(classify(response, dont_ask_again)),
+    )
+}
+
+/// Asks for confirmation with a checkbox that starts unchecked. Reports
+/// whether the checkbox was checked, or `None` when declined or dismissed.
+pub fn confirm_with_checkbox(
+    window: &gpui::Window,
+    title: &str,
+    message: &str,
+    [confirm_label, decline_label]: [&str; 2],
+    checkbox_label: &str,
+    on_complete: impl FnOnce(Option<bool>) + 'static,
+) -> io::Result<Confirmation> {
+    two_button_alert(
+        window,
+        NSAlertStyle::Informational,
+        title,
+        message,
+        [confirm_label, decline_label],
+        Some(checkbox_label),
+        move |response, checked| on_complete(checked_if_confirmed(response, checked)),
+    )
+}
+
+/// An alert whose first button answers Return and second answers Escape, with
+/// an optional checkbox reported alongside the response.
+fn two_button_alert(
+    window: &gpui::Window,
+    style: NSAlertStyle,
+    title: &str,
+    message: &str,
+    [confirm_label, decline_label]: [&str; 2],
+    checkbox_label: Option<&str>,
+    on_complete: impl FnOnce(NSModalResponse, bool) + 'static,
+) -> io::Result<Confirmation> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
-    let app = NSApplication::sharedApplication(main_thread);
-    let windows = app.windows();
-    let window_title = window.window_title();
-    let mut matches = (0..windows.count())
-        .map(|index| windows.objectAtIndex(index))
-        .filter(|window| window.title().to_string() == window_title);
-    let parent = matches
-        .next()
-        .ok_or_else(|| io::Error::other("native dialog parent window is closed"))?;
-    if matches.next().is_some() {
-        return Err(io::Error::other("native dialog parent window is ambiguous"));
-    }
-    if parent.attachedSheet().is_some() {
-        return Err(io::Error::other("an application dialog is already open"));
-    }
+    let parent = parent_window(window, main_thread)?;
     let alert = NSAlert::new(main_thread);
     alert.setMessageText(&NSString::from_str(title));
     alert.setInformativeText(&NSString::from_str(message));
-    alert.setAlertStyle(NSAlertStyle::Warning);
+    alert.setAlertStyle(style);
     alert
         .addButtonWithTitle(&NSString::from_str(confirm_label))
         .setKeyEquivalent(&NSString::from_str("\r"));
     alert
-        .addButtonWithTitle(&NSString::from_str("Cancel"))
+        .addButtonWithTitle(&NSString::from_str(decline_label))
         .setKeyEquivalent(&NSString::from_str("\u{1b}"));
-    alert.setShowsSuppressionButton(suppression_label.is_some());
-    let suppression = alert.suppressionButton();
-    if let (Some(button), Some(label)) = (&suppression, suppression_label) {
+    alert.setShowsSuppressionButton(checkbox_label.is_some());
+    let checkbox = alert.suppressionButton();
+    if let (Some(button), Some(label)) = (&checkbox, checkbox_label) {
         button.setTitle(&NSString::from_str(label));
     }
     let completed = Rc::new(Cell::new(false));
@@ -184,11 +213,11 @@ pub fn confirm(
     let callback = Cell::new(Some(on_complete));
     let handler = RcBlock::new(move |response| {
         finished.set(true);
-        let dont_ask_again = suppression
+        let checked = checkbox
             .as_ref()
             .is_some_and(|button| button.state() == NSControlStateValueOn);
         if let Some(callback) = callback.take() {
-            callback(classify(response, dont_ask_again));
+            callback(response, checked);
         }
     });
     alert.beginSheetModalForWindow_completionHandler(&parent, Some(&handler));
@@ -206,6 +235,10 @@ fn classify(response: NSModalResponse, dont_ask_again: bool) -> ConfirmationResp
     } else {
         ConfirmationResponse::Cancelled
     }
+}
+
+fn checked_if_confirmed(response: NSModalResponse, checked: bool) -> Option<bool> {
+    (response == NSAlertFirstButtonReturn).then_some(checked)
 }
 
 #[cfg(test)]
@@ -246,6 +279,19 @@ mod tests {
                     classify(response, dont_ask_again),
                     ConfirmationResponse::Cancelled
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn a_checkbox_is_reported_only_when_confirmed() {
+        for checked in [false, true] {
+            assert_eq!(
+                checked_if_confirmed(NSAlertFirstButtonReturn, checked),
+                Some(checked)
+            );
+            for response in [NSAlertSecondButtonReturn, -1000, 0, 1002] {
+                assert_eq!(checked_if_confirmed(response, checked), None);
             }
         }
     }
