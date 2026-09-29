@@ -101,6 +101,7 @@ pub(crate) enum Change {
     Worktrees(&'static str, bool),
     SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
     StatusBar(bool),
+    Tips(bool),
     ConfirmProcess(bool),
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
     CopyOnSelect(bool),

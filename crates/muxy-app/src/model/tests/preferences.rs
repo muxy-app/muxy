@@ -196,7 +196,7 @@ fn settings_root<'a>(
         .expect("settings root")
 }
 
-fn settings_window(
+pub(super) fn settings_window(
     boot: Boot,
     cx: &mut TestAppContext,
 ) -> (Entity<AppModel>, &mut VisualTestContext) {
@@ -539,7 +539,7 @@ fn server_control_confirms_and_restart_connects_only_after_successful_stop(
     });
 }
 
-fn click_preference(cx: &mut VisualTestContext, selector: &'static str) {
+pub(super) fn click_preference(cx: &mut VisualTestContext, selector: &'static str) {
     cx.run_until_parked();
     let position = cx.debug_bounds(selector).expect(selector).center();
     cx.simulate_event(gpui::MouseDownEvent {

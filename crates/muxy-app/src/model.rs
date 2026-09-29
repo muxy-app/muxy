@@ -12,6 +12,7 @@ mod quick_terminal;
 mod server_status;
 pub(crate) use server_status::ServerStatus;
 mod tabs;
+pub(crate) mod tips;
 mod updates;
 pub(crate) use updates::UpdateAction;
 mod voice;
@@ -114,6 +115,7 @@ pub(crate) struct AppModel {
     server_preferences: preferences::ServerPreferences,
     mobile: mobile::MobileAccess,
     server_anchor: muxy_ui::popover::PopoverAnchor,
+    pub(crate) tips: tips::Tips,
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
     font_sizes: HashMap<PaneId, f32>,
     initial_directories: HashMap<PaneId, PathBuf>,
@@ -467,6 +469,7 @@ impl AppModel {
             server_preferences: preferences::ServerPreferences::default(),
             mobile: mobile::MobileAccess::default(),
             server_anchor: Rc::default(),
+            tips: tips::Tips::default(),
             settings_window: None,
             font_sizes: HashMap::new(),
             initial_directories: HashMap::new(),

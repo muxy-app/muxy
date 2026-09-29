@@ -47,6 +47,7 @@ pub struct Appearance {
     pub sidebar_expanded_width: Option<f32>,
     pub sidebar_collapsed_style: SidebarCollapsedStyle,
     pub status_bar_visible: bool,
+    pub tips_visible: bool,
     pub auto_expand_worktrees: bool,
     pub worktree_order_by_mru: bool,
     pub worktree_show_unread: bool,
@@ -73,6 +74,7 @@ impl Default for Appearance {
             sidebar_expanded_width: None,
             sidebar_collapsed_style: SidebarCollapsedStyle::default(),
             status_bar_visible: true,
+            tips_visible: true,
             auto_expand_worktrees: false,
             worktree_order_by_mru: true,
             worktree_show_unread: true,
@@ -295,6 +297,25 @@ mod tests {
             [(first, false), (second, false)].into()
         );
         assert_eq!(Appearance::load(&path)?, saved);
+        fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn tips_show_unless_turned_off() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("muxy-appearance-tips-{}", crate::ProjectId::new()));
+        let path = directory.join("settings.toml");
+        fs::create_dir_all(&directory)?;
+        fs::write(&path, "[appearance]\nstatus_bar_visible = false\n")?;
+        let initial = Appearance::load(&path)?;
+        assert!(initial.tips_visible);
+        let hidden = Appearance {
+            tips_visible: false,
+            ..initial.clone()
+        };
+        hidden.save_changes(&initial, &path)?;
+        assert!(!Appearance::load(&path)?.tips_visible);
         fs::remove_dir_all(directory)?;
         Ok(())
     }

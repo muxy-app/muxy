@@ -181,7 +181,7 @@ impl AppModel {
         );
     }
 
-    fn confirm(
+    pub(crate) fn confirm(
         &mut self,
         title: &'static str,
         message: String,

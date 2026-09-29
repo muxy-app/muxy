@@ -5,10 +5,13 @@ use gpui::{
 
 use super::menu::{self, Item, Menu};
 use crate::model::AppModel;
+use crate::model::tips::TipPlacement;
 
 pub(crate) enum Overlay {
     Updates,
     Server,
+    /// The tip popover beside the collapsed sidebar's tip button.
+    Tip,
     Webview,
     /// The open extension popover (`AppModel::webviews.popover`).
     Popover,
@@ -90,6 +93,17 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             let content = super::updates::render(model, window, cx);
             let anchor = model.update_anchor();
             if !model.appearance.status_bar_visible {
+                anchor.set(None);
+            }
+            let model = cx.entity().downgrade();
+            muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
+                let _ = model.update(cx, AppModel::dismiss_overlay);
+            })
+        }
+        Some(Overlay::Tip) => {
+            let content = super::sidebar::tips::popover_card(model, cx);
+            let anchor = model.tips.anchor.clone();
+            if model.tip_placement() != Some(TipPlacement::Button) {
                 anchor.set(None);
             }
             let model = cx.entity().downgrade();

@@ -100,6 +100,8 @@ ends.
   commits and pushes with an AI-written message, and creates or manages pull
   requests. It uses an AI command-line tool you already have, chosen in
   Settings → AI.
+- **Tips.** The sidebar shows a tip, picked at random on launch. Hide tips from
+  the card or in Settings → Appearance.
 
 ## AI agents
 

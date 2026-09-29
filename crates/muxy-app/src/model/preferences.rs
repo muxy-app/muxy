@@ -322,6 +322,10 @@ impl AppModel {
                 settings.appearance.status_bar_visible = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::Tips(value) => {
+                settings.appearance.tips_visible = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::ConfirmProcess(value) => {
                 settings.window.confirm_running_process = value;
                 settings.save_window(&path)?;
@@ -627,6 +631,7 @@ fn change_id(change: &Change) -> &str {
         Change::Worktrees(key, _) => key,
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
         Change::StatusBar(_) => "status-bar",
+        Change::Tips(_) => "tips",
         Change::ConfirmProcess(_) => "confirm-process",
         Change::CloseBehavior(_) => "close-behavior",
         Change::CopyOnSelect(_) => "copy-on-select",

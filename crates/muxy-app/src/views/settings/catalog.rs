@@ -206,6 +206,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: "Interface",
     },
     Setting {
+        id: "tips",
+        label: "Show tips",
+        description: "Show Muxy tips at the bottom of the built-in sidebar.",
+        category: Category::Appearance,
+        section: "Interface",
+    },
+    Setting {
         id: "auto-expand-worktrees",
         label: "Expand worktrees when switching projects",
         description: "Reveal worktrees when selecting a project in Project Focused.",

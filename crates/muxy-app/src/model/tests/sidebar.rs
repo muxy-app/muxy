@@ -1,4 +1,5 @@
 mod resize;
+mod tips;
 mod worktrees;
 
 use super::*;
@@ -244,6 +245,7 @@ fn project_dragging_uses_scrolled_row_bounds_and_ignores_clipped_rows(cx: &mut T
         let original: Vec<_> = state.projects().iter().map(|project| project.id).collect();
         let (mut boot, _requests) = stub_boot(state);
         boot.settings.appearance.sidebar_expanded = wide;
+        boot.settings.appearance.tips_visible = false;
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         cx.simulate_resize(size(px(700.0), px(440.0)));
         cx.run_until_parked();

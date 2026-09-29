@@ -105,6 +105,18 @@ pub(super) fn rows(
             pane.field("sidebar-vibrancy-level"),
         ));
     }
+    if category == Category::Appearance && pane.matches(category, "Show tips") {
+        rows.push(pane.row(
+            "tips",
+            "Show tips",
+            pane.toggle(
+                "tips",
+                appearance.tips_visible,
+                Change::Tips(!appearance.tips_visible),
+                cx,
+            ),
+        ));
+    }
     for (id, label, value) in [
         (
             "auto-expand-worktrees",

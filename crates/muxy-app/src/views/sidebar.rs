@@ -1,4 +1,5 @@
 mod resize;
+pub(super) mod tips;
 mod vibrancy;
 pub(super) mod worktrees;
 
@@ -148,6 +149,7 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .child(div().h(m.title_bar_height()).flex_none())
         .child(header)
         .child(contents)
+        .children(tips::footer(model, cx))
         .into_any_element()
 }
 
