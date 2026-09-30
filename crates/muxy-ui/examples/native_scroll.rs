@@ -13,6 +13,7 @@ mod adapter {
 
         let mtm = MainThreadMarker::new().ok_or("probe requires main thread")?;
         let _app = NSApplication::sharedApplication(mtm);
+        verify_overlay_preference(mtm);
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
                 NSWindow::alloc(mtm),
@@ -100,9 +101,27 @@ mod adapter {
         window.close();
         writeln!(
             io::stdout(),
-            "AppKit native probe: NSScrollView + NSScroller present; fractional positions 12.5 and 128.5 preserved; native wheel, thumb drag, and track click moved content; content growth kept position; native scrollbar hit testing, reserved width after reset, bottom reset, empty-content grow/shrink in both scrollbar styles, hide, and detach passed"
+            "AppKit native probe: overlay scrollers preferred over the system setting; NSScrollView + NSScroller present; fractional positions 12.5 and 128.5 preserved; native wheel, thumb drag, and track click moved content; content growth kept position; native scrollbar hit testing, reserved width after reset, bottom reset, empty-content grow/shrink in both scrollbar styles, hide, and detach passed"
         )?;
         Ok(())
+    }
+
+    pub fn show_scrollers_always() {
+        let arguments = NSMutableDictionary::<NSString, AnyObject>::new();
+        arguments.insert(ns_string!("AppleShowScrollBars"), ns_string!("Always"));
+        unsafe {
+            NSUserDefaults::standardUserDefaults()
+                .setVolatileDomain_forName(&arguments, NSArgumentDomain);
+        }
+    }
+
+    fn verify_overlay_preference(mtm: MainThreadMarker) {
+        use objc2_app_kit::NSScrollerStyle;
+
+        assert_eq!(
+            NSScroller::preferredScrollerStyle(mtm),
+            NSScrollerStyle::Overlay
+        );
     }
 
     fn verify_empty_resize(native: &NativeScrollView) -> Result<(), Box<dyn std::error::Error>> {
@@ -232,5 +251,7 @@ mod adapter {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    adapter::show_scrollers_always();
+    adapter::use_overlay_scrollers();
     adapter::verify()
 }

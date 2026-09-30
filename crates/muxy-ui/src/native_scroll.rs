@@ -3,13 +3,17 @@ use std::fmt;
 
 use gpui::{Bounds, Pixels};
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSApplication, NSBorderType, NSClipView, NSEventType, NSScrollElasticity, NSScrollView,
     NSScroller, NSScrollerStyle, NSView,
 };
-use objc2_foundation::{NSObjectProtocol, NSPoint, NSRect, NSSize};
+use objc2_foundation::{
+    NSArgumentDomain, NSDictionary, NSMutableDictionary, NSObjectProtocol, NSPoint, NSRect, NSSize,
+    NSString, NSUserDefaults, ns_string,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct ScrollPosition {
@@ -222,5 +226,59 @@ impl Drop for NativeScrollView {
     fn drop(&mut self) {
         self.view.ivars().updating.set(true);
         self.view.removeFromSuperview();
+    }
+}
+
+/// Shows native and web view scroll bars only while scrolling, even when macOS
+/// is set to always show them or a mouse is connected. macOS reads this once,
+/// so call it before the app starts.
+pub fn use_overlay_scrollers() {
+    let defaults = NSUserDefaults::standardUserDefaults();
+    let domain = unsafe { NSArgumentDomain };
+    // Documented to return nil for a missing domain; the typed binding would panic.
+    let current: Option<Retained<NSDictionary<NSString, AnyObject>>> =
+        unsafe { msg_send![&*defaults, volatileDomainForName: domain] };
+    let arguments = current.map_or_else(NSMutableDictionary::new, |current| {
+        NSMutableDictionary::dictionaryWithDictionary(&current)
+    });
+    arguments.insert(
+        ns_string!("AppleShowScrollBars"),
+        ns_string!("WhenScrolling"),
+    );
+    unsafe { defaults.setVolatileDomain_forName(&arguments, domain) };
+}
+
+#[cfg(test)]
+mod tests {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSArgumentDomain, NSDictionary, NSString, NSUserDefaults, ns_string};
+
+    #[test]
+    fn overlay_scrollers_outrank_launch_arguments_and_keep_them() {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        let domain = unsafe { NSArgumentDomain };
+        let original = defaults.volatileDomainForName(domain);
+        let launched = NSDictionary::<NSString, AnyObject>::from_slices(
+            &[
+                ns_string!("AppleShowScrollBars"),
+                ns_string!("MuxyTestArgument"),
+            ],
+            &[ns_string!("Always"), ns_string!("kept")],
+        );
+        unsafe { defaults.setVolatileDomain_forName(&launched, domain) };
+
+        super::use_overlay_scrollers();
+        let scrollers = defaults.stringForKey(ns_string!("AppleShowScrollBars"));
+        let argument = defaults.stringForKey(ns_string!("MuxyTestArgument"));
+        unsafe { defaults.setVolatileDomain_forName(&original, domain) };
+
+        assert_eq!(
+            scrollers.map(|value| value.to_string()).as_deref(),
+            Some("WhenScrolling")
+        );
+        assert_eq!(
+            argument.map(|value| value.to_string()).as_deref(),
+            Some("kept")
+        );
     }
 }

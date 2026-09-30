@@ -90,6 +90,8 @@ fn main() -> ExitCode {
             }
         }
     };
+    #[cfg(target_os = "macos")]
+    muxy_ui::native_scroll::use_overlay_scrollers();
     Application::new()
         .with_assets(muxy_ui::assets::Assets)
         .run(move |cx: &mut App| {
