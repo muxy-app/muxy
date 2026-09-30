@@ -162,6 +162,7 @@ fn diffs_and_status_separate_staged_worktree_untracked_and_binary_changes() {
         panic!()
     };
     assert_eq!(diff.additions, 2);
+    assert!(!diff.binary);
     std::fs::write(repo.path.join("binary"), b"a\0b").unwrap();
     repo.git(GitAction::Stage(vec![ServerPath(b"binary".to_vec())]))
         .unwrap();
@@ -177,6 +178,20 @@ fn diffs_and_status_separate_staged_worktree_untracked_and_binary_changes() {
             .staged
             .binary
     );
+    std::fs::write(repo.path.join("untracked binary"), b"\0\x01").unwrap();
+    for (name, staged) in [(b"binary".as_slice(), true), (b"untracked binary", false)] {
+        let GitReply::Diff(diff) = repo
+            .git(GitAction::Diff(GitDiffRequest {
+                path: Some(ServerPath(name.to_vec())),
+                staged,
+                ..GitDiffRequest::default()
+            }))
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert!(diff.binary && diff.rows.is_empty());
+    }
     for bad in [b"../outside".as_slice(), b".git/config", b"/etc/passwd"] {
         assert!(
             repo.git(GitAction::Diff(GitDiffRequest {

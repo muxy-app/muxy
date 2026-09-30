@@ -5,8 +5,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use muxy_protocol::{
-    FileContent, FileEntry, MAX_FILE_BYTES, MAX_FILE_ENTRIES, MAX_FILE_PATH_BYTES, OperationId,
-    ServerPath,
+    FileBytes, FileContent, FileEntry, MAX_FILE_BYTES, MAX_FILE_ENTRIES, MAX_FILE_PATH_BYTES,
+    OperationId, ServerPath,
 };
 use rustix::fs::{self, AtFlags, FileType, Mode, OFlags, RenameFlags};
 
@@ -65,6 +65,17 @@ impl Root {
     }
 
     pub(super) fn read(&self, path: &Path) -> Result<FileContent> {
+        let FileBytes { path, bytes } = self.read_bytes(path)?;
+        let size = bytes.len() as u64;
+        let content = String::from_utf8(bytes).map_err(|_| error("File is not valid UTF-8"))?;
+        Ok(FileContent {
+            path,
+            content,
+            size,
+        })
+    }
+
+    pub(super) fn read_bytes(&self, path: &Path) -> Result<FileBytes> {
         let target = self.resolve(path)?;
         let file = fs::openat(
             &target.parent,
@@ -88,16 +99,13 @@ impl Root {
         if bytes.len() > MAX_FILE_BYTES {
             return Err(error("File exceeds the 5 MiB limit"));
         }
-        let size = bytes.len() as u64;
-        let content = String::from_utf8(bytes).map_err(|_| error("File is not valid UTF-8"))?;
-        Ok(FileContent {
+        Ok(FileBytes {
             path: wire_path(&target.relative),
-            content,
-            size,
+            bytes,
         })
     }
 
-    pub(super) fn write(&self, path: &Path, content: &str) -> Result<ServerPath> {
+    pub(super) fn write(&self, path: &Path, content: &[u8]) -> Result<ServerPath> {
         if content.len() > MAX_FILE_BYTES {
             return Err(error("Content exceeds the 5 MiB limit"));
         }
@@ -120,7 +128,7 @@ impl Root {
         .map(File::from)
         .map_err(error)?;
         let result = (|| {
-            file.write_all(content.as_bytes()).map_err(error)?;
+            file.write_all(content).map_err(error)?;
             if let Some(mode) = mode {
                 fs::fchmod(&file, mode).map_err(error)?;
             }

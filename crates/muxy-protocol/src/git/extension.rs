@@ -82,6 +82,11 @@ pub struct GitDiff {
     pub deletions: u64,
     #[n(3)]
     pub truncated: bool,
+    /// Git compared the file as binary, so it has no rows.
+    #[n(4)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub binary: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

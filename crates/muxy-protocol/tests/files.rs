@@ -1,7 +1,7 @@
 use muxy_protocol::{
-    CONTROL, FileChanges, FileContent, FileEntry, FileInfo, FilesAction, FilesReply, FilesRequest,
-    MAX_FILE_BYTES, MAX_FILE_CHANGES, Message, ProjectId, ReplyBody, RequestBody, RequestId,
-    ServerPath,
+    CONTROL, FileBytes, FileChanges, FileContent, FileEntry, FileInfo, FilesAction, FilesReply,
+    FilesRequest, MAX_FILE_BYTES, MAX_FILE_CHANGES, Message, ProjectId, ReplyBody, RequestBody,
+    RequestId, ServerPath,
     wire::{Decoder, encode},
 };
 
@@ -34,6 +34,11 @@ fn files_contract_round_trips_all_operations_and_results() -> Result<(), Box<dyn
         FilesAction::Delete(vec![p("folder/new")]),
         FilesAction::Watch,
         FilesAction::Unwatch,
+        FilesAction::ReadBytes(p("image.png")),
+        FilesAction::WriteBytes {
+            path: p("image.png"),
+            bytes: vec![0, 0xff, b'\n'],
+        },
     ] {
         messages.push(Message::Request {
             id: RequestId(1),
@@ -61,6 +66,10 @@ fn files_contract_round_trips_all_operations_and_results() -> Result<(), Box<dyn
         FilesReply::Path(p("folder")),
         FilesReply::Paths(vec![p("folder/new")]),
         FilesReply::Done,
+        FilesReply::Bytes(FileBytes {
+            path: p("image.png"),
+            bytes: vec![0, 0xff, b'\n'],
+        }),
     ] {
         messages.push(Message::Reply {
             id: RequestId(1),
@@ -102,6 +111,15 @@ fn files_validation_bounds_content_names_selections_and_events() {
         },
         FilesAction::Delete(vec![p("file"); 4097]),
         FilesAction::Read(p(&"a".repeat(4097))),
+        FilesAction::ReadBytes(p("/absolute")),
+        FilesAction::WriteBytes {
+            path: p("file"),
+            bytes: vec![0; MAX_FILE_BYTES + 1],
+        },
+        FilesAction::WriteBytes {
+            path: p("/absolute"),
+            bytes: Vec::new(),
+        },
     ] {
         assert!(
             FilesRequest {
@@ -121,6 +139,18 @@ fn files_validation_bounds_content_names_selections_and_events() {
         .validate()
         .is_err()
     );
+    for bytes in [
+        FileBytes {
+            path: p("file"),
+            bytes: vec![0; MAX_FILE_BYTES + 1],
+        },
+        FileBytes {
+            path: p("/absolute"),
+            bytes: Vec::new(),
+        },
+    ] {
+        assert!(FilesReply::Bytes(bytes).validate().is_err());
+    }
     assert!(
         FileChanges {
             paths: vec![p("file"); MAX_FILE_CHANGES + 1],

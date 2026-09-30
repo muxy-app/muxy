@@ -106,6 +106,7 @@ fn parse(raw: &GitRawDiff) -> GitDiff {
         additions: 0,
         deletions: 0,
         truncated: raw.truncated,
+        binary: false,
     };
     let mut old = 0;
     let mut new = 0;
@@ -113,6 +114,10 @@ fn parse(raw: &GitRawDiff) -> GitDiff {
     for line in raw.diff.lines() {
         if line.starts_with("diff --git ") {
             in_hunk = false;
+        }
+        if line.starts_with("Binary files ") && line.ends_with(" differ") {
+            result.binary = true;
+            continue;
         }
         if line.starts_with("@@ ") {
             let mut parts = line.split_whitespace().skip(1);

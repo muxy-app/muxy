@@ -31,7 +31,8 @@ screen and sends input.
 - Events carry ids, not data. Each one means "read this again";
   `filesChanged` also says which paths changed.
 - The SDK never reconnects by itself. After `disconnected`, the connection and
-  every `Terminal` and `Scrollback` from it are finished.
+  every `Terminal`, `Scrollback`, `GitRepository`, and `ProjectFiles` from it
+  are finished.
 - Store `ServerCredential` in the Keychain or behind an Android Keystore key.
   Never log pairing links or credentials.
 - Never work around `IdentityMismatch`. The user must pair again.
@@ -209,8 +210,8 @@ Swift names are shown. Kotlin uses the same names without argument labels.
 | `connection.attach(sessionId:columns:rows:)` | `Terminal` | yes |
 | `connection.activity()` | `Activity` | yes |
 | `connection.acknowledgeActivity(eventIds:)` | — | yes |
-| `connection.git(projectId:action:)` | `GitReply` | yes |
-| `connection.files(projectId:action:)` | `FilesReply` | yes |
+| `connection.git(projectId:)` | `GitRepository` | no |
+| `connection.files(projectId:)` | `ProjectFiles` | no |
 | `connection.disconnect()` | — | no |
 | `terminal.sessionId()` | `UInt64` | no |
 | `terminal.screen()` | `Screen` | no |
@@ -254,7 +255,7 @@ thread. Every call that talks to the server can throw.
 | `AgentState` | `unknown`, `idle`, `working`, `blocked` |
 | `ActivityEvent` | `id`, `sessionId`, `projectId`, `provider`, `timestamp` (Unix seconds), `kind` |
 | `ActivityKind` | `attention`, `completed` |
-| `GitAction`, `GitReply`, `FilesAction`, `FilesReply` | see [Git and files](#git-and-files) |
+| `GitRepository`, `ProjectFiles`, and what they return | see [Git and files](#git-and-files) |
 | `ConnectionEvent` | see [Events](#events) |
 | `MobileError` | see [Errors](#errors) |
 
@@ -270,9 +271,10 @@ Kotlin differences:
   `TerminalColor.Default`.
 - `MobileError` is `MobileException`, with one subclass per case.
 - Records are data classes without default values, so pass every field.
-- `Connection`, `Terminal`, and `Scrollback` are `AutoCloseable`. Close them
-  when you're done, or they're freed when garbage-collected. In Swift they're
-  freed with their last reference. Releasing a `Connection` disconnects it.
+- `Connection`, `Terminal`, `Scrollback`, `GitRepository`, and `ProjectFiles`
+  are `AutoCloseable`. Close them when you're done, or they're freed when
+  garbage-collected. In Swift they're freed with their last reference.
+  Releasing a `Connection` disconnects it.
 
 ## Threads
 
@@ -677,44 +679,92 @@ agent's state and recent notifications.
 
 ## Git and files
 
-`git(projectId:action:)` and `files(projectId:action:)` do everything the
-desktop does with a project's repository and folder: status and diffs,
-staging, commits, branches, pushes and pulls, worktrees, pull requests, and
-reading and editing files. Their cases match the protocol's `GitAction`,
-`GitReply`, `FilesAction`, and `FilesReply` in `crates/muxy-protocol/src`:
-`git.rs`, `git/extension.rs`, and `files.rs`. Read those for what each action
-does.
+`git(projectId:)` returns the project's `GitRepository`, and `files(projectId:)`
+its `ProjectFiles`. Getting them doesn't talk to the server; their methods do.
+Together they do what the desktop does with a project's repository and folder.
 
 ```swift
-if case .changes(let files) = try connection.git(projectId: project.id, action: .changes) {
-    show(files)
+let git = try connection.git(projectId: project.id)
+let status = try git.status(includePullRequest: true)
+let staged = status.files.filter { $0.file.staged != nil }
+let changed = status.files.filter { $0.file.unstaged != nil }
+if let file = changed.first?.file {
+    show(try git.diff(path: file.path, staged: false, lineLimit: 20_000))
 }
-_ = try connection.files(projectId: project.id, action: .write(path: "notes.md", content: text))
+
+let files = try connection.files(projectId: project.id)
+let logo = try files.readBytes(path: "assets/logo.png")   // Data
+_ = try files.writeText(path: "notes.md", text: text)
 ```
 
 ```kotlin
-val reply = connection.git(project.id, GitAction.Changes)
-if (reply is GitReply.Changes) show(reply.files)
-connection.files(project.id, FilesAction.Write("notes.md", text))
+val git = connection.git(project.id)
+val status = git.status(true)
+val staged = status.files.filter { it.file.staged != null }
+val changed = status.files.filter { it.file.unstaged != null }
+changed.firstOrNull()?.let { show(git.diff(it.file.path, false, 20_000u)) }
+
+val files = connection.files(project.id)
+val logo = files.readBytes("assets/logo.png")   // ByteArray
+files.writeText("notes.md", text)
 ```
+
+| Area | `GitRepository` methods |
+| --- | --- |
+| Reading | `summary`, `status`, `changes`, `branches`, `remoteBranches`, `info`, `log` |
+| Diffs | `diff`, `rawDiff`, `branchDiff`, `changesPreview` |
+| Changes | `stage`, `unstage`, `discard`, `commit`, `commitAll`, `initRepository` |
+| Branches and commits | `switchBranch`, `createBranch`, `deleteBranch`, `deleteRemoteBranch`, `checkoutCommit`, `cherryPick`, `revert`, `createTag` |
+| Remote | `push`, `pull`, `publishBranch`, `switchToBase` |
+| Worktrees | `worktrees`, `createWorktree`, `registerWorktree`, `checkoutPullRequestWorktree`, `inspectWorktreeRemoval`, `removeWorktree` |
+| Pull requests | `pullRequest`, `pullRequestNumber`, `pullRequests`, `pullRequestDiff`, `createPullRequest`, `mergePullRequest`, `closePullRequest`, `checkoutPullRequest`, `updatePullRequestBranch` |
+| Events | `watch` |
+
+| Area | `ProjectFiles` methods |
+| --- | --- |
+| Reading | `list`, `stat`, `readText`, `readBytes` |
+| Changes | `writeText`, `writeBytes`, `createDirectory`, `rename`, `moveFiles`, `deleteFiles` |
+| Events | `watch`, `unwatch` |
 
 - Run these off the main thread on a queue of their own. A push or pull can
   take minutes, and keystrokes shouldn't wait behind it.
+- Each changed file appears once. `file.staged` is the change the next commit
+  takes, and `file.unstaged` is the rest, including untracked and conflicted
+  files. A file changed in both places shows in both lists. `GitSummary`
+  counts the way Git does, so a conflicted file counts as both staged and
+  unstaged. To number the lists, count `status.files`.
+- A diff stops at its `lineLimit`, or at 1 MiB, and sets `truncated`. A
+  `binary` diff has no rows.
 - File paths are relative to the project's folder, and `""` is the folder
   itself. Git's file paths are relative to the repository's root, which is the
-  same unless the project is a folder inside a repository. Directories, such
-  as a worktree's, are absolute paths on the computer.
-- `read` returns UTF-8 text of up to 5 MiB; other files fail with
-  `Server(reason)`. `delete` moves files to the computer's Trash.
-- `GitAction.watch` follows one project's repository per connection; a new
-  watch replaces it. A folder without a repository needs a new watch after
-  `init`. `FilesAction.watch` follows up to 32 projects until `unwatch`.
-  Watches end with the connection.
-- Differences from the protocol: ids and paths are strings, so names that
-  aren't UTF-8 can't be used. `GitFile.index` and `worktree` are one-letter
-  strings, such as `M`, `?`, or a space for unchanged.
-  `FilesAction.listDirectory` is the protocol's `List`. The SDK chooses the ids
-  of operations and of new worktree projects.
+  same unless the project is a folder inside a repository. Directories, such as
+  a worktree's, are absolute paths on the computer.
+- `readText` reads UTF-8 text. `readBytes` and `writeBytes` handle any file,
+  such as an image. Reads and writes are limited to 5 MiB, and writes replace
+  the file but don't create its folder. `createDirectory` and `moveFiles`
+  number a name that's taken, and `rename` fails instead. `deleteFiles` moves
+  files to the computer's Trash.
+- `createWorktree` adds a worktree project under the project, named after the
+  branch. `base` creates the branch from a ref such as `HEAD`; `nil` checks
+  out an existing branch. Without a `directory`, the worktree goes next to the
+  project's folder as `<project>-<branch>`, as the desktop suggests, and the
+  call fails with "Worktree directory already exists" when that folder is
+  taken. On a worktree project, the calls that list and add worktrees act on
+  its parent.
+- To remove a worktree, call `inspectWorktreeRemoval()` on its project, confirm
+  with the user, and warn when `dirty`. Then `removeWorktree(expected:)`
+  deletes the folder and the project and ends its terminals.
+- Pull requests use the `gh` command on the computer, which must be signed in
+  to GitHub.
+- `GitRepository.watch` follows one repository per connection; a new watch
+  replaces it. A folder without a repository needs a new watch after
+  `initRepository`. `ProjectFiles.watch` follows up to 32 projects until
+  `unwatch`. Watches end with the connection.
+- An older Muxy on the computer fails `readBytes` and `writeBytes` with
+  `Unsupported`, never marks a diff `binary`, and reports a taken worktree
+  folder in the system's words.
+- Ids and paths are strings, so names that aren't UTF-8 can't be used. The SDK
+  chooses the ids of operations and of new worktree projects.
 
 ## Reconnecting
 
@@ -790,6 +840,7 @@ try {
 | Connect timeout | 4 s per address |
 | Input per call | 1 MiB |
 | Scrollback page | 1–500 rows |
+| File read or write | 5 MiB |
 
 ## Security
 

@@ -7,12 +7,13 @@ use std::thread;
 
 use muxy_client::{Client, ClientError, ClientEvent, RemoteEndpoint};
 use muxy_protocol::{
-    DeviceCredential, ErrorCode, OperationId, ProjectId, ProjectSession, SessionId, Size,
+    DeviceCredential, ErrorCode, OperationId, ProjectDescriptor, ProjectId, ProjectSession,
+    SessionId, Size,
 };
 
 use crate::MobileError;
-use crate::files::{FilesAction, FilesReply};
-use crate::git::{GitAction, GitReply};
+use crate::files::ProjectFiles;
+use crate::git::GitRepository;
 use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
 use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
@@ -42,11 +43,11 @@ pub enum ConnectionEvent {
     SessionsChanged,
     /// Agent activity changed; read it again.
     ActivityChanged,
-    /// The repository of the project that `GitAction::Watch` watches changed.
+    /// The repository that `GitRepository::watch` watches changed.
     GitChanged {
         project_id: String,
     },
-    /// Files changed in a project that `FilesAction::Watch` watches. `paths`
+    /// Files changed in a project that `ProjectFiles::watch` watches. `paths`
     /// are relative to the project's folder; empty means anything may have changed.
     FilesChanged {
         project_id: String,
@@ -160,13 +161,7 @@ impl Connection {
     ) -> Result<Session, MobileError> {
         let project = project(&project_id)?;
         let catalog = self.client.catalog()?;
-        let descriptor = catalog
-            .projects
-            .iter()
-            .find(|descriptor| descriptor.id == project)
-            .ok_or_else(|| MobileError::Server {
-                reason: "The project no longer exists.".into(),
-            })?;
+        let descriptor = find_project(&catalog.projects, project)?;
         let info = self.client.create_project_session(
             project,
             OperationId::new(),
@@ -231,26 +226,16 @@ impl Connection {
         Ok(self.client.acknowledge_activity(event_ids)?)
     }
 
-    /// Runs a Git action in the project's repository, as the desktop does.
-    pub fn git(&self, project_id: String, action: GitAction) -> Result<GitReply, MobileError> {
-        let request = muxy_protocol::GitRequest {
-            project: project(&project_id)?,
-            action: action.into(),
-        };
-        Ok(self.client.git(request)?.into())
+    /// Git in the project's repository. Doesn't talk to the server.
+    pub fn git(&self, project_id: String) -> Result<Arc<GitRepository>, MobileError> {
+        let project = project(&project_id)?;
+        Ok(Arc::new(GitRepository::new(self.client.clone(), project)))
     }
 
-    /// Runs a files action in the project's folder, as the desktop does.
-    pub fn files(
-        &self,
-        project_id: String,
-        action: FilesAction,
-    ) -> Result<FilesReply, MobileError> {
-        let request = muxy_protocol::FilesRequest {
-            project: project(&project_id)?,
-            action: action.into(),
-        };
-        Ok(self.client.files(request)?.into())
+    /// The project's folder. Doesn't talk to the server.
+    pub fn files(&self, project_id: String) -> Result<Arc<ProjectFiles>, MobileError> {
+        let project = project(&project_id)?;
+        Ok(Arc::new(ProjectFiles::new(self.client.clone(), project)))
     }
 
     pub fn disconnect(&self) {
@@ -262,6 +247,18 @@ fn project(id: &str) -> Result<ProjectId, MobileError> {
     id.parse().map_err(|_| MobileError::Server {
         reason: "Unknown project.".into(),
     })
+}
+
+pub(crate) fn find_project(
+    projects: &[ProjectDescriptor],
+    id: ProjectId,
+) -> Result<&ProjectDescriptor, MobileError> {
+    projects
+        .iter()
+        .find(|project| project.id == id)
+        .ok_or_else(|| MobileError::Server {
+            reason: "The project no longer exists.".into(),
+        })
 }
 
 fn session(id: u64) -> Result<SessionId, MobileError> {

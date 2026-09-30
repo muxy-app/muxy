@@ -82,6 +82,7 @@ pub fn files_reply(reply: FilesReply) -> Result<Value, String> {
         FilesReply::Path(path) => json!({"path":path_text(&path)?}),
         FilesReply::Paths(paths) => json!(paths.iter().map(path_text).collect::<Result<Vec<_>,_>>()?),
         FilesReply::Done => Value::Null,
+        FilesReply::Bytes(_) => return Err("unexpected files response".into()),
     })
 }
 

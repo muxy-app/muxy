@@ -1,16 +1,14 @@
-//! Git in a project's repository: every action the desktop can run, one to one
-//! with the protocol's `GitAction` and `GitReply`.
+//! Git in a project's repository: one call for each action the desktop can run.
 
-mod action;
-mod reply;
+mod pull_requests;
+mod records;
+mod repository;
+mod worktrees;
 
-pub use action::{
-    GitAction, GitDiffRequest, GitMergeMethod, GitPullRequestAction, GitPullRequestFilter,
-    WorktreeAction,
+pub use records::{
+    GitBaseSwitch, GitBranch, GitChangeKind, GitChangesPreview, GitChecks, GitCommit, GitDiff,
+    GitDiffKind, GitDiffRow, GitFile, GitFileStatus, GitLineStat, GitMergeMethod, GitPreviewFile,
+    GitPullRequest, GitPullRequestFilter, GitPushDestination, GitRawDiff, GitRef, GitRefKind,
+    GitRepoInfo, GitStatus, GitSummary, GitWorktree, WorktreeRemoval,
 };
-pub use reply::{
-    GitBaseSwitch, GitBranch, GitChangesPreview, GitChecks, GitCommit, GitDiff, GitDiffKind,
-    GitDiffRow, GitFile, GitFileStatus, GitLineStat, GitPreviewFile, GitPullRequest,
-    GitPushDestination, GitRawDiff, GitRef, GitRefKind, GitReply, GitRepoInfo, GitStatus,
-    GitSummary, GitWorktree, WorktreeRemoval,
-};
+pub use repository::GitRepository;

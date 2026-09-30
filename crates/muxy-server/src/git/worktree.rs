@@ -149,7 +149,7 @@ impl Registry {
                     .git
                     .github
                     .prepare_worktree(path(&parent.directory), *number)?;
-                std::fs::create_dir(path(directory)).map_err(error)?;
+                reserve_folder(directory)?;
                 Self::new_worktree_receipt(owner, intent, parent, *project, directory, &branch)?
             }
             WorktreeAction::Create {
@@ -169,7 +169,7 @@ impl Registry {
                         &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
                     )?;
                 }
-                std::fs::create_dir(path(directory)).map_err(error)?;
+                reserve_folder(directory)?;
                 Self::new_worktree_receipt(owner, intent, parent, *project, directory, branch)?
             }
             WorktreeAction::Register { project, directory } => {
@@ -426,6 +426,17 @@ impl Registry {
             }
         }
     }
+}
+
+/// Creates the empty folder a new worktree fills, refusing one that already exists.
+fn reserve_folder(directory: &muxy_protocol::ServerPath) -> Result<()> {
+    std::fs::create_dir(path(directory)).map_err(|cause| {
+        if cause.kind() == std::io::ErrorKind::AlreadyExists {
+            error("Worktree directory already exists")
+        } else {
+            error(cause)
+        }
+    })
 }
 
 fn same_folder(one: &std::path::Path, other: &std::path::Path) -> bool {

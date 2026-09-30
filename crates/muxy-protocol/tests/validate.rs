@@ -335,7 +335,7 @@ fn metadata_and_exit_reasons_without_limited_fields_are_valid() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
-    use muxy_protocol::{GitAction, GitPullRequestAction, GitReply};
+    use muxy_protocol::{FilesAction, FilesReply, GitAction, GitPullRequestAction, GitReply};
 
     let mut seen = BTreeSet::new();
     for message in Message::samples() {
@@ -489,13 +489,26 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
 
             Message::FilesChanged { .. } => ("FilesChanged", ChannelKind::Control),
             Message::Request {
-                body: RequestBody::Files(_),
+                body: RequestBody::Files(request),
                 ..
-            } => ("FilesRequest", ChannelKind::Control),
+            } => (
+                match request.action {
+                    FilesAction::ReadBytes(_) => "FilesReadBytes",
+                    FilesAction::WriteBytes { .. } => "FilesWriteBytes",
+                    _ => "FilesRequest",
+                },
+                ChannelKind::Control,
+            ),
             Message::Reply {
-                body: ReplyBody::Files(_),
+                body: ReplyBody::Files(reply),
                 ..
-            } => ("FilesReply", ChannelKind::Control),
+            } => (
+                match reply {
+                    FilesReply::Bytes(_) => "FilesBytesReply",
+                    _ => "FilesReply",
+                },
+                ChannelKind::Control,
+            ),
             Message::GitChanged { .. } => ("GitChanged", ChannelKind::Control),
             Message::Request {
                 body: RequestBody::SyncSessionReferences { .. },
@@ -627,6 +640,7 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 match reply {
                     GitReply::ChangesPreview(_) => "GitChangesPreviewReply",
                     GitReply::BaseSwitch(_) => "GitBaseSwitchReply",
+                    GitReply::Diff(_) => "GitDiffReply",
                     _ => "GitReply",
                 },
                 ChannelKind::Control,
@@ -678,9 +692,13 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "FilesChanged",
             "FilesRequest",
             "FilesReply",
+            "FilesReadBytes",
+            "FilesWriteBytes",
+            "FilesBytesReply",
             "GitChanged",
             "GitRequest",
             "GitReply",
+            "GitDiffReply",
             "GitBranchDiff",
             "GitChangesPreview",
             "GitChangesPreviewReply",

@@ -10,9 +10,8 @@ use std::time::{Duration, Instant};
 
 use muxy_client::Client;
 use muxy_mobile::{
-    Connection, ConnectionEvent, ConnectionListener, FilesAction, FilesReply, GitAction,
-    GitDiffKind, GitDiffRequest, GitReply, Key, Line, MobileError, Modifiers, MouseButton,
-    ScrollDirection, ServerCredential,
+    Connection, ConnectionEvent, ConnectionListener, GitChangeKind, GitDiffKind, Key, Line,
+    MobileError, Modifiers, MouseButton, ScrollDirection, ServerCredential,
 };
 use muxy_protocol::transport::Listener;
 use muxy_protocol::transport::tls::TlsListener;
@@ -194,6 +193,18 @@ fn project_folder(local: &Client) -> TestResult<(Folder, String)> {
         }),
     })?;
     Ok((folder, project.to_string()))
+}
+
+fn init_repository(folder: &Path) -> TestResult {
+    for args in [
+        &["init", "-b", "main"][..],
+        &["config", "user.name", "Test"],
+        &["config", "user.email", "test@example.invalid"],
+        &["config", "commit.gpgsign", "false"],
+    ] {
+        run_git(folder, args)?;
+    }
+    Ok(())
 }
 
 fn run_git(folder: &Path, args: &[&str]) -> TestResult {
@@ -535,91 +546,127 @@ fn scrolling_a_full_screen_program_sends_it_arrow_keys() -> TestResult {
 fn a_phone_reads_and_changes_a_repository() -> TestResult {
     let (_server, local, credential) = paired()?;
     let (folder, project) = project_folder(&local)?;
-    for args in [
-        &["init", "-b", "main"][..],
-        &["config", "user.name", "Test"],
-        &["config", "user.email", "test@example.invalid"],
-        &["config", "commit.gpgsign", "false"],
-    ] {
-        run_git(&folder.0, args)?;
-    }
+    init_repository(&folder.0)?;
     let (recorder, events) = listener();
     let connection = Connection::connect(credential, recorder)?;
-    let git = |action| connection.git(project.clone(), action);
-    let write = |content: &str| {
-        connection.files(
-            project.clone(),
-            FilesAction::Write {
-                path: "notes.txt".into(),
-                content: content.into(),
-            },
-        )
-    };
-    assert_eq!(git(GitAction::Watch)?, GitReply::Done);
-    write("one\n")?;
+    let git = connection.git(project.clone())?;
+    let files = connection.files(project.clone())?;
+    git.watch()?;
+    files.write_text("notes.txt".into(), "one\n".into())?;
     wait_for(&events, |event| {
         *event
             == ConnectionEvent::GitChanged {
                 project_id: project.clone(),
             }
     })?;
-    let GitReply::Changes { files } = git(GitAction::Changes)? else {
-        return Err("expected changes".into());
-    };
+    let changes = git.changes()?;
     assert_eq!(
-        (files[0].path.as_str(), files[0].index.as_str()),
-        ("notes.txt", "?")
+        (
+            changes[0].path.as_str(),
+            changes[0].staged,
+            changes[0].unstaged
+        ),
+        ("notes.txt", None, Some(GitChangeKind::Untracked))
     );
-    git(GitAction::Stage {
-        paths: vec!["notes.txt".into()],
-    })?;
-    let GitReply::Commit { hash } = git(GitAction::Commit {
-        message: "Add notes".into(),
-        stage_all: false,
-    })?
-    else {
-        return Err("expected a commit".into());
-    };
-    write("one\ntwo\n")?;
-    let request = GitDiffRequest {
-        path: Some("notes.txt".into()),
-        ..GitDiffRequest::default()
-    };
-    let GitReply::Diff { diff } = git(GitAction::Diff { request })? else {
-        return Err("expected a diff".into());
-    };
-    assert_eq!((diff.additions, diff.deletions), (1, 0));
+    git.stage(vec!["notes.txt".into()])?;
+    assert_eq!(git.changes()?[0].staged, Some(GitChangeKind::Added));
+    let hash = git.commit("Add notes".into(), false)?;
+    files.write_text("notes.txt".into(), "one\ntwo\n".into())?;
+    let diff = git.diff("notes.txt".into(), false, None)?;
+    assert_eq!((diff.additions, diff.deletions, diff.binary), (1, 0, false));
     assert!(diff.rows.iter().any(|row| {
         row.kind == GitDiffKind::Addition && row.new_text.as_deref() == Some("two")
     }));
-    let GitReply::Log { commits } = git(GitAction::Log {
-        max_count: 10,
-        skip: 0,
-    })?
-    else {
-        return Err("expected a log".into());
-    };
+    files.write_bytes("logo.png".into(), vec![0x89, b'P', 0, 0xff])?;
+    git.stage(Vec::new())?;
+    let status = git.status(false)?;
+    let logo = status
+        .files
+        .iter()
+        .find(|file| file.file.path == "logo.png")
+        .ok_or("the image is missing from the status")?;
+    assert_eq!(logo.file.staged, Some(GitChangeKind::Added));
+    assert!(logo.staged_lines.binary);
+    assert!(git.diff("logo.png".into(), true, None)?.binary);
+    let commits = git.log(10, 0)?;
     assert_eq!(
         (commits[0].hash.as_str(), commits[0].subject.as_str()),
         (hash.as_str(), "Add notes")
     );
-    git(GitAction::CreateBranch {
-        name: "feature".into(),
-    })?;
-    let GitReply::Summary {
-        summary: Some(summary),
-    } = git(GitAction::Summary)?
-    else {
-        return Err("expected a summary".into());
-    };
+    git.create_branch("feature".into())?;
+    let summary = git.summary()?.ok_or("expected a repository")?;
     assert_eq!(summary.branch.as_deref(), Some("feature"));
-    assert_eq!(summary.unstaged, 1);
+    assert_eq!((summary.staged, summary.unstaged), (2, 0));
     assert!(matches!(
-        git(GitAction::Checkout {
-            hash: "not a hash".into()
-        }),
+        git.checkout_commit("not a hash".into()),
         Err(MobileError::Server { .. })
     ));
+    Ok(())
+}
+
+#[test]
+fn a_phone_adds_and_removes_worktrees_where_the_desktop_would() -> TestResult {
+    let (_server, local, credential) = paired()?;
+    let (folder, project) = project_folder(&local)?;
+    init_repository(&folder.0)?;
+    run_git(&folder.0, &["commit", "--allow-empty", "-m", "initial"])?;
+    // Worktrees go next to the project's folder, named `<project>-<branch>`.
+    let beside = |branch: &str| Folder(folder.0.with_file_name(format!("Phone-{branch}")));
+    let (first, second, taken) = (
+        format!("first-{}", OperationId::new()),
+        format!("second-{}", OperationId::new()),
+        format!("taken-{}", OperationId::new()),
+    );
+    let (first_folder, second_folder, taken_folder) =
+        (beside(&first), beside(&second), beside(&taken));
+    let connection = Connection::connect(credential, listener().0)?;
+    let worktree = connection.git(project.clone())?.create_worktree(
+        first.clone(),
+        Some("HEAD".into()),
+        None,
+    )?;
+    assert_eq!(
+        (worktree.name.as_str(), worktree.is_worktree),
+        (first.as_str(), true)
+    );
+    assert_eq!(worktree.parent_id.as_deref(), Some(project.as_str()));
+    assert_eq!(
+        Path::new(&worktree.directory),
+        first_folder.0.canonicalize()?
+    );
+    // From a worktree project, worktrees are listed and added in its parent.
+    let git = connection.git(worktree.id.clone())?;
+    let sibling = git.create_worktree(second.clone(), Some("HEAD".into()), None)?;
+    assert_eq!(sibling.parent_id.as_deref(), Some(project.as_str()));
+    assert_eq!(
+        Path::new(&sibling.directory),
+        second_folder.0.canonicalize()?
+    );
+    let registered: Vec<_> = git
+        .worktrees()?
+        .into_iter()
+        .filter_map(|entry| entry.registered)
+        .collect();
+    assert!(registered.contains(&worktree.id) && registered.contains(&sibling.id));
+    std::fs::create_dir(&taken_folder.0)?;
+    assert!(matches!(
+        git.create_worktree(taken, Some("HEAD".into()), None),
+        Err(MobileError::Server { reason }) if reason == "Worktree directory already exists"
+    ));
+    assert!(taken_folder.0.exists());
+    for removed in [worktree, sibling] {
+        let git = connection.git(removed.id.clone())?;
+        let removal = git.inspect_worktree_removal()?;
+        assert!(!removal.dirty);
+        git.remove_worktree(removal)?;
+        assert!(!Path::new(&removed.directory).exists());
+    }
+    assert!(
+        connection
+            .projects()?
+            .iter()
+            .all(|listed| listed.parent_id.is_none())
+    );
     Ok(())
 }
 
@@ -629,31 +676,20 @@ fn a_phone_browses_and_edits_project_files() -> TestResult {
     let (_folder, project) = project_folder(&local)?;
     let (recorder, events) = listener();
     let connection = Connection::connect(credential, recorder)?;
-    let files = |action| connection.files(project.clone(), action);
-    assert_eq!(files(FilesAction::Watch)?, FilesReply::Done);
+    let files = connection.files(project.clone())?;
+    files.watch()?;
+    assert_eq!(files.create_directory("docs".into())?, "docs");
+    assert_eq!(files.create_directory("docs".into())?, "docs 2");
     assert_eq!(
-        files(FilesAction::Mkdir {
-            path: "docs".into()
-        })?,
-        FilesReply::Path {
-            path: "docs".into()
-        }
+        files.write_text("docs/a.md".into(), "hello".into())?,
+        "docs/a.md"
     );
-    files(FilesAction::Write {
-        path: "docs/a.md".into(),
-        content: "hello".into(),
-    })?;
     wait_for(&events, |event| {
         matches!(event, ConnectionEvent::FilesChanged { project_id, paths }
             if *project_id == project
                 && (paths.is_empty() || paths.iter().any(|path| path.starts_with("docs"))))
     })?;
-    let FilesReply::Entries { entries } = files(FilesAction::ListDirectory {
-        path: "docs".into(),
-    })?
-    else {
-        return Err("expected entries".into());
-    };
+    let entries = files.list("docs".into())?;
     assert_eq!(
         entries
             .iter()
@@ -661,49 +697,33 @@ fn a_phone_browses_and_edits_project_files() -> TestResult {
             .collect::<Vec<_>>(),
         ["docs/a.md"]
     );
-    let FilesReply::Content { file } = files(FilesAction::Read {
-        path: "docs/a.md".into(),
-    })?
-    else {
-        return Err("expected content".into());
-    };
-    assert_eq!((file.content.as_str(), file.size), ("hello", 5));
-    let FilesReply::Info { info } = files(FilesAction::Stat {
-        path: "docs/a.md".into(),
-    })?
-    else {
-        return Err("expected info".into());
-    };
+    assert_eq!(files.read_text("docs/a.md".into())?, "hello");
+    let info = files.stat("docs/a.md".into())?;
     assert!(!info.is_directory && info.size == 5);
+    let image = vec![0x89, b'P', b'N', b'G', 0, 0xff];
     assert_eq!(
-        files(FilesAction::Rename {
-            path: "docs/a.md".into(),
-            name: "b.md".into(),
-        })?,
-        FilesReply::Path {
-            path: "docs/b.md".into()
-        }
+        files.write_bytes("docs/logo.png".into(), image.clone())?,
+        "docs/logo.png"
     );
-    assert_eq!(
-        files(FilesAction::Move {
-            paths: vec!["docs/b.md".into()],
-            into: String::new(),
-        })?,
-        FilesReply::Paths {
-            paths: vec!["b.md".into()]
-        }
-    );
-    // An empty delete moves nothing to the computer's Trash.
-    assert_eq!(
-        files(FilesAction::Delete { paths: Vec::new() })?,
-        FilesReply::Done
-    );
+    assert_eq!(files.read_bytes("docs/logo.png".into())?, image);
     assert!(matches!(
-        files(FilesAction::Read {
-            path: "../outside".into()
-        }),
+        files.read_text("docs/logo.png".into()),
         Err(MobileError::Server { .. })
     ));
-    assert_eq!(files(FilesAction::Unwatch)?, FilesReply::Done);
+    assert_eq!(
+        files.rename("docs/a.md".into(), "b.md".into())?,
+        "docs/b.md"
+    );
+    assert_eq!(
+        files.move_files(vec!["docs/b.md".into()], String::new())?,
+        ["b.md"]
+    );
+    // An empty delete moves nothing to the computer's Trash.
+    files.delete_files(Vec::new())?;
+    assert!(matches!(
+        files.read_bytes("../outside".into()),
+        Err(MobileError::Server { .. })
+    ));
+    files.unwatch()?;
     Ok(())
 }

@@ -590,6 +590,16 @@ fn git_samples() -> Vec<Message> {
                 removed: None,
             }])),
         },
+        Message::Reply {
+            id: RequestId(104),
+            body: ReplyBody::Git(crate::GitReply::Diff(crate::GitDiff {
+                rows: Vec::new(),
+                additions: 0,
+                deletions: 0,
+                truncated: false,
+                binary: true,
+            })),
+        },
     ]
 }
 
@@ -741,6 +751,30 @@ fn files_samples() -> Vec<Message> {
                 paths: vec![ServerPath(b"file".to_vec())],
                 rescan: false,
             },
+        },
+        Message::Request {
+            id: RequestId(2),
+            body: RequestBody::Files(crate::FilesRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::FilesAction::ReadBytes(ServerPath(b"logo.png".to_vec())),
+            }),
+        },
+        Message::Reply {
+            id: RequestId(2),
+            body: ReplyBody::Files(crate::FilesReply::Bytes(crate::FileBytes {
+                path: ServerPath(b"logo.png".to_vec()),
+                bytes: vec![0x89, b'P', b'N', b'G', 0xff],
+            })),
+        },
+        Message::Request {
+            id: RequestId(3),
+            body: RequestBody::Files(crate::FilesRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::FilesAction::WriteBytes {
+                    path: ServerPath(b"logo.png".to_vec()),
+                    bytes: vec![0x89, b'P', b'N', b'G', 0xff],
+                },
+            }),
         },
     ]
 }

@@ -1,5 +1,5 @@
 use muxy_protocol::{
-    CONTROL, GitAction, GitDiffRequest, GitMergeMethod, GitPullRequestAction as Pr,
+    CONTROL, GitAction, GitDiff, GitDiffRequest, GitMergeMethod, GitPullRequestAction as Pr,
     GitPullRequestFilter, GitPushDestination, GitRequest, Message, OperationId, ProjectId,
     RequestBody, RequestId, ServerPath, WorktreeAction, WorktreeIntent,
     wire::{Decoder, encode},
@@ -232,4 +232,20 @@ fn extension_requests_reject_missing_values_option_injection_and_excessive_limit
             .is_err()
         );
     }
+}
+
+#[test]
+fn diffs_from_builds_before_the_binary_flag_read_as_text() -> Result<(), Box<dyn std::error::Error>>
+{
+    // [rows, additions, deletions, truncated], as written before the flag existed.
+    let mut older = Vec::new();
+    minicbor::Encoder::new(&mut older)
+        .array(4)?
+        .array(0)?
+        .u64(1)?
+        .u64(2)?
+        .bool(false)?;
+    let diff: GitDiff = minicbor::decode(&older)?;
+    assert_eq!((diff.additions, diff.deletions, diff.binary), (1, 2, false));
+    Ok(())
 }

@@ -1,70 +1,8 @@
-//! What a repository answers, mirroring `muxy_protocol::GitReply`.
+//! What the Git calls return, converted from the protocol's types.
 
 use muxy_protocol as protocol;
 
-use crate::records::{Project, server_path, text};
-
-#[derive(Clone, Debug, Eq, PartialEq, uniffi::Enum)]
-pub enum GitReply {
-    /// `None` when the project's folder has no Git repository.
-    Summary {
-        summary: Option<GitSummary>,
-    },
-    Branches {
-        branches: Vec<GitBranch>,
-    },
-    Changes {
-        files: Vec<GitFile>,
-    },
-    Worktrees {
-        worktrees: Vec<GitWorktree>,
-    },
-    Removal {
-        removal: WorktreeRemoval,
-    },
-    /// The worktree project that a worktree action created or registered.
-    Project {
-        project: Project,
-    },
-    Done,
-    Status {
-        status: GitStatus,
-    },
-    RepoInfo {
-        info: GitRepoInfo,
-    },
-    RemoteBranches {
-        branches: Vec<String>,
-    },
-    Log {
-        commits: Vec<GitCommit>,
-    },
-    RawDiff {
-        diff: GitRawDiff,
-    },
-    Diff {
-        diff: GitDiff,
-    },
-    /// The new commit's hash.
-    Commit {
-        hash: String,
-    },
-    PullRequest {
-        pull_request: Option<GitPullRequest>,
-    },
-    PullRequestNumber {
-        number: Option<u64>,
-    },
-    PullRequests {
-        pull_requests: Vec<GitPullRequest>,
-    },
-    ChangesPreview {
-        preview: GitChangesPreview,
-    },
-    BaseSwitch {
-        base_switch: GitBaseSwitch,
-    },
-}
+use crate::records::{server_path, text};
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct GitSummary {
@@ -88,17 +26,34 @@ pub struct GitBranch {
     pub default: bool,
 }
 
-/// A changed file, with Git's short status letters for the index and the
-/// working tree, such as `M`, `A`, `D`, `R`, `U`, `?` for untracked, or a space
-/// for unchanged.
+/// A changed file. `staged` is what the next commit takes; `unstaged` is the
+/// rest, and holds untracked and conflicted files.
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct GitFile {
     pub path: String,
+    /// The path before a rename or copy.
     pub original_path: Option<String>,
-    pub index: String,
-    pub worktree: String,
+    pub staged: Option<GitChangeKind>,
+    pub unstaged: Option<GitChangeKind>,
+    /// Lines added and removed, staged and unstaged together.
     pub added: Option<u64>,
     pub removed: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum GitChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+    /// Became a symbolic link, or stopped being one.
+    TypeChanged,
+    Untracked,
+    /// A merge left conflicts to resolve.
+    Conflicted,
+    /// A change this SDK doesn't know.
+    Other,
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -181,8 +136,8 @@ pub struct GitStatus {
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct GitFileStatus {
     pub file: GitFile,
-    pub staged: GitLineStat,
-    pub unstaged: GitLineStat,
+    pub staged_lines: GitLineStat,
+    pub unstaged_lines: GitLineStat,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
@@ -204,6 +159,8 @@ pub struct GitDiff {
     pub additions: u64,
     pub deletions: u64,
     pub truncated: bool,
+    /// Git compared the file as binary, so there are no rows.
+    pub binary: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
@@ -269,6 +226,21 @@ pub struct GitPullRequest {
     pub checks: GitChecks,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum GitPullRequestFilter {
+    Open,
+    Closed,
+    Merged,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum GitMergeMethod {
+    Merge,
+    Squash,
+    Rebase,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct GitChecks {
     pub passing: u32,
@@ -276,65 +248,8 @@ pub struct GitChecks {
     pub pending: u32,
 }
 
-fn collect<T, U: From<T>>(items: Vec<T>) -> Vec<U> {
+pub(super) fn collect<T, U: From<T>>(items: Vec<T>) -> Vec<U> {
     items.into_iter().map(U::from).collect()
-}
-
-impl From<protocol::GitReply> for GitReply {
-    fn from(reply: protocol::GitReply) -> Self {
-        match reply {
-            protocol::GitReply::Summary(summary) => Self::Summary {
-                summary: summary.map(Into::into),
-            },
-            protocol::GitReply::Branches(branches) => Self::Branches {
-                branches: collect(branches),
-            },
-            protocol::GitReply::Changes(files) => Self::Changes {
-                files: collect(files),
-            },
-            protocol::GitReply::Worktrees(worktrees) => Self::Worktrees {
-                worktrees: collect(worktrees),
-            },
-            protocol::GitReply::Removal(removal) => Self::Removal {
-                removal: removal.into(),
-            },
-            protocol::GitReply::Project(project) => Self::Project {
-                project: Project::from(&project),
-            },
-            protocol::GitReply::Done => Self::Done,
-            protocol::GitReply::Status(status) => Self::Status {
-                status: (*status).into(),
-            },
-            protocol::GitReply::RepoInfo(info) => Self::RepoInfo { info: info.into() },
-            protocol::GitReply::RemoteBranches(branches) => Self::RemoteBranches { branches },
-            protocol::GitReply::Log(commits) => Self::Log {
-                commits: collect(commits),
-            },
-            protocol::GitReply::RawDiff(diff) => Self::RawDiff { diff: diff.into() },
-            protocol::GitReply::Diff(diff) => Self::Diff { diff: diff.into() },
-            protocol::GitReply::Commit(hash) => Self::Commit { hash },
-            protocol::GitReply::PullRequest(pull_request) => Self::PullRequest {
-                pull_request: pull_request.map(|pull_request| (*pull_request).into()),
-            },
-            protocol::GitReply::PullRequestNumber(number) => Self::PullRequestNumber { number },
-            protocol::GitReply::PullRequests(pull_requests) => Self::PullRequests {
-                pull_requests: collect(pull_requests),
-            },
-            protocol::GitReply::ChangesPreview(preview) => Self::ChangesPreview {
-                preview: (*preview).into(),
-            },
-            protocol::GitReply::BaseSwitch(base_switch) => Self::BaseSwitch {
-                base_switch: match base_switch {
-                    protocol::GitBaseSwitch::Updated => GitBaseSwitch::Updated,
-                    protocol::GitBaseSwitch::CheckedOutElsewhere(directory) => {
-                        GitBaseSwitch::CheckedOutElsewhere {
-                            directory: text(&directory),
-                        }
-                    }
-                },
-            },
-        }
-    }
 }
 
 impl From<protocol::GitSummary> for GitSummary {
@@ -385,23 +300,43 @@ impl From<protocol::GitBranch> for GitBranch {
 
 impl From<protocol::GitFile> for GitFile {
     fn from(file: protocol::GitFile) -> Self {
+        let (staged, unstaged) = if file.conflicted() {
+            (None, Some(GitChangeKind::Conflicted))
+        } else if file.untracked() {
+            (None, Some(GitChangeKind::Untracked))
+        } else {
+            (change(file.index), change(file.worktree))
+        };
         let protocol::GitFile {
             path,
             original_path,
-            index,
-            worktree,
             added,
             removed,
+            ..
         } = file;
         Self {
             path: text(&path),
             original_path: original_path.as_ref().map(text),
-            index: char::from(index).into(),
-            worktree: char::from(worktree).into(),
+            staged,
+            unstaged,
             added,
             removed,
         }
     }
+}
+
+/// Reads one of Git's short status letters, where a space means unchanged.
+fn change(letter: u8) -> Option<GitChangeKind> {
+    Some(match letter {
+        b' ' => return None,
+        b'A' => GitChangeKind::Added,
+        b'M' => GitChangeKind::Modified,
+        b'D' => GitChangeKind::Deleted,
+        b'R' => GitChangeKind::Renamed,
+        b'C' => GitChangeKind::Copied,
+        b'T' => GitChangeKind::TypeChanged,
+        _ => GitChangeKind::Other,
+    })
 }
 
 impl From<protocol::GitWorktree> for GitWorktree {
@@ -574,8 +509,8 @@ impl From<protocol::GitFileStatus> for GitFileStatus {
         } = status;
         Self {
             file: file.into(),
-            staged: staged.into(),
-            unstaged: unstaged.into(),
+            staged_lines: staged.into(),
+            unstaged_lines: unstaged.into(),
         }
     }
 }
@@ -609,12 +544,14 @@ impl From<protocol::GitDiff> for GitDiff {
             additions,
             deletions,
             truncated,
+            binary,
         } = diff;
         Self {
             rows: collect(rows),
             additions,
             deletions,
             truncated,
+            binary,
         }
     }
 }
@@ -728,6 +665,80 @@ impl From<protocol::GitPullRequest> for GitPullRequest {
                 failing,
                 pending,
             },
+        }
+    }
+}
+
+impl From<GitPullRequestFilter> for protocol::GitPullRequestFilter {
+    fn from(filter: GitPullRequestFilter) -> Self {
+        match filter {
+            GitPullRequestFilter::Open => Self::Open,
+            GitPullRequestFilter::Closed => Self::Closed,
+            GitPullRequestFilter::Merged => Self::Merged,
+            GitPullRequestFilter::All => Self::All,
+        }
+    }
+}
+
+impl From<GitMergeMethod> for protocol::GitMergeMethod {
+    fn from(method: GitMergeMethod) -> Self {
+        match method {
+            GitMergeMethod::Merge => Self::Merge,
+            GitMergeMethod::Squash => Self::Squash,
+            GitMergeMethod::Rebase => Self::Rebase,
+        }
+    }
+}
+
+impl From<protocol::GitBaseSwitch> for GitBaseSwitch {
+    fn from(base_switch: protocol::GitBaseSwitch) -> Self {
+        match base_switch {
+            protocol::GitBaseSwitch::Updated => Self::Updated,
+            protocol::GitBaseSwitch::CheckedOutElsewhere(directory) => Self::CheckedOutElsewhere {
+                directory: text(&directory),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(status: [u8; 2]) -> GitFile {
+        protocol::GitFile {
+            path: protocol::ServerPath(b"file".to_vec()),
+            original_path: None,
+            index: status[0],
+            worktree: status[1],
+            added: None,
+            removed: None,
+        }
+        .into()
+    }
+
+    #[test]
+    fn status_letters_become_staged_and_unstaged_changes() {
+        use GitChangeKind::{
+            Added, Conflicted, Deleted, Modified, Other, Renamed, TypeChanged, Untracked,
+        };
+        for (status, staged, unstaged) in [
+            (b"??", None, Some(Untracked)),
+            (b"A ", Some(Added), None),
+            (b"RM", Some(Renamed), Some(Modified)),
+            (b" D", None, Some(Deleted)),
+            (b"T ", Some(TypeChanged), None),
+            (b"UU", None, Some(Conflicted)),
+            (b"AA", None, Some(Conflicted)),
+            (b"DD", None, Some(Conflicted)),
+            (b"X ", Some(Other), None),
+        ] {
+            let file = file(*status);
+            assert_eq!(
+                (file.staged, file.unstaged),
+                (staged, unstaged),
+                "{status:?}"
+            );
         }
     }
 }

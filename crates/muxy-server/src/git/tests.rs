@@ -199,6 +199,27 @@ fn worktree_creation_registration_removal_and_retries() {
 }
 
 #[test]
+fn creating_a_worktree_in_an_existing_folder_says_so_and_keeps_it() {
+    let repo = Repo::new(true);
+    let taken = repo.path.join("taken");
+    std::fs::create_dir(&taken).unwrap();
+    std::fs::write(taken.join("keep"), "keep me").unwrap();
+    let error = repo
+        .git(GitAction::Worktree(WorktreeIntent {
+            operation: OperationId::new(),
+            action: WorktreeAction::Create {
+                project: ProjectId::new(),
+                directory: server_path(&taken),
+                branch: "feature".into(),
+                base: Some("HEAD".into()),
+            },
+        }))
+        .unwrap_err();
+    assert_eq!(error.message(), "Worktree directory already exists");
+    assert!(taken.join("keep").exists());
+}
+
+#[test]
 fn stale_dirty_removal_confirmation_preserves_files() {
     let repo = Repo::new(true);
     let (id, directory, _) = repo.create();

@@ -45,7 +45,10 @@ impl Files {
 pub(crate) fn is_read(action: &FilesAction) -> bool {
     matches!(
         action,
-        FilesAction::List(_) | FilesAction::Read(_) | FilesAction::Stat(_)
+        FilesAction::List(_)
+            | FilesAction::Read(_)
+            | FilesAction::ReadBytes(_)
+            | FilesAction::Stat(_)
     )
 }
 
@@ -63,11 +66,15 @@ impl Registry {
         let reply = match &request.action {
             FilesAction::List(value) => FilesReply::Entries(root.list(path(value))?),
             FilesAction::Read(value) => FilesReply::Content(root.read(path(value))?),
+            FilesAction::ReadBytes(value) => FilesReply::Bytes(root.read_bytes(path(value))?),
             FilesAction::Stat(value) => FilesReply::Info(root.info(&root.resolve(path(value))?)?),
             FilesAction::Write {
                 path: value,
                 content,
-            } => FilesReply::Path(root.write(path(value), content)?),
+            } => FilesReply::Path(root.write(path(value), content.as_bytes())?),
+            FilesAction::WriteBytes { path: value, bytes } => {
+                FilesReply::Path(root.write(path(value), bytes)?)
+            }
             FilesAction::Mkdir(value) => FilesReply::Path(root.mkdir(path(value))?),
             FilesAction::Rename { path: value, name } => {
                 FilesReply::Path(root.rename(path(value), path(name).as_os_str())?)

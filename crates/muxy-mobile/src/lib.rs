@@ -26,13 +26,12 @@ use muxy_protocol::{MAX_DEVICE_NAME, PairingInvite};
 
 pub use connection::{Connection, ConnectionEvent, ConnectionListener};
 pub use error::MobileError;
-pub use files::{FileContent, FileEntry, FileInfo, FilesAction, FilesReply};
+pub use files::{FileEntry, FileInfo, ProjectFiles};
 pub use git::{
-    GitAction, GitBaseSwitch, GitBranch, GitChangesPreview, GitChecks, GitCommit, GitDiff,
-    GitDiffKind, GitDiffRequest, GitDiffRow, GitFile, GitFileStatus, GitLineStat, GitMergeMethod,
-    GitPreviewFile, GitPullRequest, GitPullRequestAction, GitPullRequestFilter, GitPushDestination,
-    GitRawDiff, GitRef, GitRefKind, GitReply, GitRepoInfo, GitStatus, GitSummary, GitWorktree,
-    WorktreeAction, WorktreeRemoval,
+    GitBaseSwitch, GitBranch, GitChangeKind, GitChangesPreview, GitChecks, GitCommit, GitDiff,
+    GitDiffKind, GitDiffRow, GitFile, GitFileStatus, GitLineStat, GitMergeMethod, GitPreviewFile,
+    GitPullRequest, GitPullRequestFilter, GitPushDestination, GitRawDiff, GitRef, GitRefKind,
+    GitRepoInfo, GitRepository, GitStatus, GitSummary, GitWorktree, WorktreeRemoval,
 };
 pub use keys::{Key, Modifiers};
 pub use mouse::{MouseButton, ScrollDirection};

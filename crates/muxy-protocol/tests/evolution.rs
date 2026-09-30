@@ -9,7 +9,8 @@ use muxy_protocol::wire::{
     legacy_version_unsupported,
 };
 use muxy_protocol::{
-    CONTROL, ChannelId, ErrorCode, ExitReason, Message, RequestBody, RequestId, SessionId, Topic,
+    CONTROL, ChannelId, ErrorCode, ExitReason, Message, ProjectId, RequestBody, RequestId,
+    SessionId, Topic,
 };
 
 /// A frame holding `payload`, as a newer build would write it.
@@ -133,6 +134,34 @@ fn requests_for_unknown_methods_are_correlated() -> Result<(), Box<dyn Error>> {
     assert_eq!(
         decode_one(&bytes)?,
         Some((CONTROL, Message::UnsupportedRequest { id: RequestId(9) }))
+    );
+    Ok(())
+}
+
+#[test]
+fn files_actions_and_replies_from_a_newer_build_are_correlated() -> Result<(), Box<dyn Error>> {
+    // Files (method 28) holding [project, action] with an action this build doesn't know.
+    let request = cbor(|e| {
+        e.array(2)?.encode(RequestId(5))?;
+        e.array(2)?.u32(28)?.array(1)?;
+        e.array(2)?.encode(ProjectId::from_u128(1))?;
+        e.array(2)?.u32(99)?.array(1)?.bytes(b"newer")?;
+        Ok(())
+    })?;
+    assert_eq!(
+        decode_one(&frame(MessageKind::Request as u8, CONTROL, &request)?)?,
+        Some((CONTROL, Message::UnsupportedRequest { id: RequestId(5) }))
+    );
+    // A files reply (28) of a kind this build doesn't know.
+    let reply = cbor(|e| {
+        e.array(2)?.encode(RequestId(6))?;
+        e.array(2)?.u32(28)?.array(1)?;
+        e.array(2)?.u32(99)?.array(1)?.bytes(b"newer")?;
+        Ok(())
+    })?;
+    assert_eq!(
+        decode_one(&frame(MessageKind::Reply as u8, CONTROL, &reply)?)?,
+        Some((CONTROL, Message::UnreadableReply { id: RequestId(6) }))
     );
     Ok(())
 }

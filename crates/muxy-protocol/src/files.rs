@@ -53,6 +53,17 @@ pub enum FilesAction {
     Watch,
     #[n(9)]
     Unwatch,
+    /// Reads any file, such as an image, as it is on disk.
+    #[n(10)]
+    ReadBytes(#[n(0)] ServerPath),
+    #[n(11)]
+    WriteBytes {
+        #[n(0)]
+        path: ServerPath,
+        #[n(1)]
+        #[cbor(with = "crate::wire::cbor::bytes")]
+        bytes: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -90,6 +101,15 @@ pub struct FileContent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct FileBytes {
+    #[n(0)]
+    pub path: ServerPath,
+    #[n(1)]
+    #[cbor(with = "crate::wire::cbor::bytes")]
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum FilesReply {
     #[n(0)]
     Entries(#[n(0)] Vec<FileEntry>),
@@ -103,6 +123,8 @@ pub enum FilesReply {
     Paths(#[n(0)] Vec<ServerPath>),
     #[n(5)]
     Done,
+    #[n(6)]
+    Bytes(#[n(0)] FileBytes),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -147,6 +169,14 @@ fn relative_path(path: &ServerPath) -> Result<(), ErrorCode> {
     Ok(())
 }
 
+fn file_content(path: &ServerPath, content: &[u8]) -> Result<(), ErrorCode> {
+    relative_path(path)?;
+    if content.len() > MAX_FILE_BYTES {
+        return Err(ErrorCode::BadRequest);
+    }
+    Ok(())
+}
+
 fn paths(values: &[ServerPath]) -> Result<(), ErrorCode> {
     if values.len() > 4096 || values.iter().map(|p| p.0.len()).sum::<usize>() > MAX_FILE_PATH_BYTES
     {
@@ -160,15 +190,11 @@ impl FilesRequest {
         match &self.action {
             FilesAction::List(path)
             | FilesAction::Read(path)
+            | FilesAction::ReadBytes(path)
             | FilesAction::Stat(path)
             | FilesAction::Mkdir(path) => relative_path(path),
-            FilesAction::Write { path, content } => {
-                relative_path(path)?;
-                if content.len() > MAX_FILE_BYTES {
-                    return Err(ErrorCode::BadRequest);
-                }
-                Ok(())
-            }
+            FilesAction::Write { path, content } => file_content(path, content.as_bytes()),
+            FilesAction::WriteBytes { path, bytes } => file_content(path, bytes),
             FilesAction::Rename { path, name } => {
                 relative_path(path)?;
                 relative_path(name)?;
@@ -211,12 +237,13 @@ impl FilesReply {
                 Ok(())
             }
             Self::Content(file) => {
-                relative_path(&file.path)?;
-                if file.content.len() > MAX_FILE_BYTES || file.size != file.content.len() as u64 {
+                file_content(&file.path, file.content.as_bytes())?;
+                if file.size != file.content.len() as u64 {
                     return Err(ErrorCode::BadRequest);
                 }
                 Ok(())
             }
+            Self::Bytes(file) => file_content(&file.path, &file.bytes),
             Self::Info(file) => relative_path(&file.path),
             Self::Path(path) => relative_path(path),
             Self::Paths(values) => paths(values),
