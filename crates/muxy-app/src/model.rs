@@ -858,6 +858,19 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn move_agent_tab(&mut self, from: TabId, to: TabId, cx: &mut Context<Self>) {
+        let project = self.state.current_project();
+        let id = project.id;
+        let visible: Vec<_> = self.sidebar_tabs(project).map(|tab| tab.id).collect();
+        if !visible.contains(&from) || !visible.contains(&to) {
+            return;
+        }
+        match self.state.move_visible_tab(id, from, to, &visible) {
+            Ok(()) => self.changed(cx),
+            Err(error) => self.fail(error.to_string(), cx),
+        }
+    }
+
     pub(crate) fn close_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
         self.begin_close_tabs(vec![tab], None, cx);
     }

@@ -13,6 +13,7 @@ pub enum AppLayout {
     #[default]
     ProjectFocused,
     TabFocused,
+    AgentsFocused,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

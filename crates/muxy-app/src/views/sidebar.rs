@@ -135,7 +135,9 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
     let header = header(model, cx);
     let contents = match model.appearance.layout {
         AppLayout::ProjectFocused => project_list(model, cx),
-        AppLayout::TabFocused => tab_sidebar::contents(model, window, cx),
+        AppLayout::TabFocused | AppLayout::AgentsFocused => {
+            tab_sidebar::contents(model, window, cx)
+        }
     };
     div()
         .debug_selector(|| "workspace-sidebar".into())
@@ -225,7 +227,7 @@ impl AppModel {
             .into_iter()
             .filter(|project| !self.appearance.sidebar_focus || project.id == focused)
             .flat_map(|parent| {
-                let children = if self.appearance.layout == AppLayout::TabFocused
+                let children = if self.appearance.layout != AppLayout::ProjectFocused
                     && self.worktrees_visible(parent.id)
                 {
                     self.worktree_children(parent.id)
@@ -233,7 +235,8 @@ impl AppModel {
                     Vec::new()
                 };
                 let children = children.into_iter().filter(move |child| {
-                    !child.tabs.is_empty()
+                    self.appearance.layout == AppLayout::AgentsFocused
+                        || !child.tabs.is_empty()
                         || child.id == active.id
                         || child.status() == ProjectStatus::Missing
                 });
@@ -392,7 +395,8 @@ fn layout_selector(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                     .checked_if(model.appearance.layout == AppLayout::ProjectFocused),
                     Item::action("Tab Focused", Command::Layout(AppLayout::TabFocused))
                         .checked_if(model.appearance.layout == AppLayout::TabFocused),
-                    Item::action("Agents Focused", Command::Dismiss).disabled(),
+                    Item::action("Agents Focused", Command::Layout(AppLayout::AgentsFocused))
+                        .checked_if(model.appearance.layout == AppLayout::AgentsFocused),
                 ],
                 event.position(),
                 window,

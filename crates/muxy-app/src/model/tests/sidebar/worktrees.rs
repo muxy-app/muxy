@@ -150,6 +150,61 @@ fn collapsed_worktree_icon_opens_inline_list_without_a_picker(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn agents_sidebar_keeps_empty_worktrees_and_respects_workspace_and_visibility(
+    cx: &mut TestAppContext,
+) {
+    let (mut state, _directory, [home, parent, child], _) = fixture();
+    let pane = state.project(child).expect("child").tabs[0].panes[0].id;
+    state.close_pane(pane).expect("empty worktree");
+    let workspace = state.create_workspace("Work").expect("workspace");
+    state
+        .set_workspace_member(workspace, parent, true)
+        .expect("member");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.layout = AppLayout::AgentsFocused;
+    boot.settings.appearance.sidebar_expanded = true;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds(format!("tab-project-{child}").leak())
+            .is_some()
+    );
+    view.update(cx, |model, cx| {
+        model.select_workspace(Some(workspace), cx);
+        assert_eq!(
+            model
+                .sidebar_projects()
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>(),
+            [home, parent, child]
+        );
+        model.toggle_worktree_visibility(parent, cx);
+        assert_eq!(
+            model
+                .sidebar_projects()
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>(),
+            [home, parent]
+        );
+        model.toggle_worktree_visibility(parent, cx);
+        model
+            .state
+            .set_workspace_member(workspace, parent, false)
+            .expect("remove member");
+        assert_eq!(
+            model
+                .sidebar_projects()
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>(),
+            [home]
+        );
+    });
+}
+
+#[gpui::test]
 fn hidden_worktrees_are_excluded_from_tab_sidebar_navigation(cx: &mut TestAppContext) {
     let (state, _directory, [home, parent, child], tab) = fixture();
     let (mut boot, _requests) = stub_boot(state);

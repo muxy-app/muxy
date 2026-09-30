@@ -119,7 +119,7 @@ pub(crate) fn tab_strip(
         .children(zoom_tab.map(|tab| zoom_control(tab.zoomed.is_some(), model, cx)))
         .child(model.extension_toolbar(cx))
         .child(settings)
-        .child(drag::track_pointer(targets, cx))
+        .child(drag::track_pointer(targets, drag::Source::Titlebar, cx))
         .into_any_element()
 }
 
@@ -363,9 +363,12 @@ fn tab_cell(
             MouseButton::Left,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 cx.stop_propagation();
-                model
-                    .tab_drag
-                    .begin(model.state.current_project().id, id, event.position);
+                model.tab_drag.begin(
+                    model.state.current_project().id,
+                    id,
+                    event.position,
+                    drag::Source::Titlebar,
+                );
                 model.select_tab(id, cx);
                 model.focus_active(window, cx);
             }),

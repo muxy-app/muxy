@@ -74,6 +74,41 @@ fn pinning_reordering_and_adjacent_creation_respect_the_pinned_boundary() -> Res
 }
 
 #[test]
+fn filtered_tab_reordering_preserves_hidden_tabs_pins_and_selection() -> Result {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let mut tabs = Vec::new();
+    for _ in 0..7 {
+        tabs.push(state.open_terminal_tab(home)?);
+    }
+    state.toggle_tab_pin(tabs[0])?;
+    let before = state.clone();
+    let visible = [tabs[0], tabs[1], tabs[3], tabs[5]];
+    state.move_visible_tab(home, tabs[1], tabs[5], &visible)?;
+    assert_eq!(
+        order(&state),
+        [
+            tabs[0], tabs[3], tabs[2], tabs[5], tabs[4], tabs[1], tabs[6]
+        ]
+    );
+    assert_eq!(state.window(), before.window());
+    state.move_visible_tab(home, tabs[1], tabs[3], &visible)?;
+    assert_eq!(state, before);
+    for (from, to) in [
+        (tabs[1], tabs[0]),
+        (tabs[0], tabs[5]),
+        (tabs[2], tabs[3]),
+        (tabs[1], tabs[2]),
+        (TabId::new(), tabs[1]),
+        (tabs[1], TabId::new()),
+    ] {
+        state.move_visible_tab(home, from, to, &visible)?;
+        assert_eq!(state, before);
+    }
+    Ok(())
+}
+
+#[test]
 fn bulk_close_targets_follow_project_order_and_skip_pinned_tabs() -> Result {
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;

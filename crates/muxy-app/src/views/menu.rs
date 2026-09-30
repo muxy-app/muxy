@@ -53,6 +53,7 @@ pub(crate) enum Command {
     NewWorktree(muxy_app_core::ProjectId),
     NewProjectTab(muxy_app_core::ProjectId),
     RemoveWorktree(muxy_app_core::ProjectId),
+    #[cfg(test)]
     Dismiss,
     ExistingSessions(muxy_app_core::ProjectId),
     DetachTerminal(muxy_app_core::PaneId),
@@ -552,6 +553,7 @@ impl AppModel {
                 self.save_appearance(cx);
                 cx.notify();
             }
+            #[cfg(test)]
             Command::Dismiss => {}
             Command::NewWorktree(id) => {
                 self.open_git_form(id, true, cx);

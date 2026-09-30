@@ -85,7 +85,7 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
 
 pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
     let expanded = match model.appearance.layout {
-        AppLayout::TabFocused => model.project_expanded(id),
+        AppLayout::TabFocused | AppLayout::AgentsFocused => model.project_expanded(id),
         AppLayout::ProjectFocused => {
             model.appearance.sidebar_expanded
                 && model.expanded_worktrees.contains(&id)
@@ -444,7 +444,7 @@ fn ring_path(
     builder.build().ok()
 }
 
-fn provider_icon(provider: AgentProvider, size: Pixels, model: &AppModel) -> AnyElement {
+pub(super) fn provider_icon(provider: AgentProvider, size: Pixels, model: &AppModel) -> AnyElement {
     let name = match provider {
         AgentProvider::Claude => "claude",
         AgentProvider::Codex => "codex",

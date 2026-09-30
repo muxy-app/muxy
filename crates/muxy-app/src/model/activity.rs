@@ -20,6 +20,30 @@ pub(crate) struct ActivityView {
 }
 
 impl AppModel {
+    pub(crate) fn agent_tab_pane<'a>(
+        &'a self,
+        tab: &'a muxy_app_core::Tab,
+    ) -> Option<(&'a muxy_app_core::Pane, &'a muxy_protocol::AgentActivity)> {
+        tab.panes
+            .iter()
+            .filter_map(|pane| {
+                let muxy_app_core::PaneContent::Terminal {
+                    session: Some(session),
+                } = pane.content
+                else {
+                    return None;
+                };
+                let agent = self
+                    .activity
+                    .snapshot
+                    .agents
+                    .iter()
+                    .find(|agent| agent.session == session)?;
+                Some((pane, agent))
+            })
+            .min_by_key(|(pane, _)| Some(pane.id) != self.state.window().active_pane)
+    }
+
     pub(crate) fn refresh_activity(&mut self, cx: &mut Context<Self>) {
         if self.connection != ConnectionState::Ready || self.activity.pending {
             return;

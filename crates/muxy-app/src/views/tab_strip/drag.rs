@@ -14,23 +14,43 @@ pub(crate) struct TabDragState {
     gesture: Option<TabDrag>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Source {
+    Titlebar,
+    Sidebar,
+}
+
 struct TabDrag {
     project: ProjectId,
     tab: TabId,
     origin: Point<Pixels>,
+    source: Source,
     active: bool,
     last_target: Option<TabId>,
 }
 
 impl TabDragState {
-    pub(crate) fn begin(&mut self, project: ProjectId, tab: TabId, origin: Point<Pixels>) {
+    pub(crate) fn begin(
+        &mut self,
+        project: ProjectId,
+        tab: TabId,
+        origin: Point<Pixels>,
+        source: Source,
+    ) {
         self.gesture = Some(TabDrag {
             project,
             tab,
             origin,
+            source,
             active: false,
             last_target: None,
         });
+    }
+
+    fn is_from(&self, source: Source) -> bool {
+        self.gesture
+            .as_ref()
+            .is_some_and(|drag| drag.source == source)
     }
 
     pub(crate) fn end(&mut self) -> bool {
@@ -114,12 +134,22 @@ fn move_pointer(
         drag.last_target = target;
         let tab = drag.tab;
         if let Some(target) = target {
-            model.move_tab(tab, target, cx);
+            if drag.source == Source::Sidebar
+                && model.appearance.layout == muxy_app_core::settings::AppLayout::AgentsFocused
+            {
+                model.move_agent_tab(tab, target, cx);
+            } else {
+                model.move_tab(tab, target, cx);
+            }
         }
     }
 }
 
-pub(crate) fn track_pointer(bounds: TabBounds, cx: &Context<AppModel>) -> AnyElement {
+pub(crate) fn track_pointer(
+    bounds: TabBounds,
+    source: Source,
+    cx: &Context<AppModel>,
+) -> AnyElement {
     let weak = cx.weak_entity();
     canvas(
         |_, _, _| (),
@@ -131,6 +161,9 @@ pub(crate) fn track_pointer(bounds: TabBounds, cx: &Context<AppModel>) -> AnyEle
                     return;
                 }
                 let _ = moving.update(cx, |model, cx| {
+                    if !model.tab_drag.is_from(source) {
+                        return;
+                    }
                     if event.pressed_button == Some(MouseButton::Left) {
                         move_pointer(model, event.position, &move_bounds, cx);
                         if model.tab_drag.is_active() {
@@ -148,6 +181,9 @@ pub(crate) fn track_pointer(bounds: TabBounds, cx: &Context<AppModel>) -> AnyEle
                     return;
                 }
                 let _ = ending.update(cx, |model, cx| {
+                    if !model.tab_drag.is_from(source) {
+                        return;
+                    }
                     move_pointer(model, event.position, &end_bounds, cx);
                     if model.tab_drag.end() {
                         cx.notify();

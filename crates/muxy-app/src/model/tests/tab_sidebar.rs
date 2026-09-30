@@ -1,3 +1,5 @@
+mod agents;
+
 use super::*;
 use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, point};
 use muxy_app_core::settings::{AppLayout, ProjectOrder, Settings, SidebarCollapsedStyle};

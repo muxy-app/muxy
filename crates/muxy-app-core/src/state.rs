@@ -764,6 +764,44 @@ impl AppState {
         Ok(())
     }
 
+    pub fn move_visible_tab(
+        &mut self,
+        project: ProjectId,
+        from: TabId,
+        to: TabId,
+        visible: &[TabId],
+    ) -> Result<(), AppError> {
+        let project = self.project_mut(project)?;
+        project.require_available()?;
+        let tabs = &mut project.tabs;
+        let Some(pinned) = tabs.iter().find(|tab| tab.id == from).map(|tab| tab.pinned) else {
+            return Ok(());
+        };
+        let indices: Vec<_> = tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.pinned == pinned && visible.contains(&tab.id))
+            .map(|(index, _)| index)
+            .collect();
+        let positions = (
+            indices.iter().position(|index| tabs[*index].id == from),
+            indices.iter().position(|index| tabs[*index].id == to),
+        );
+        let (Some(from), Some(to)) = positions else {
+            return Ok(());
+        };
+        if from < to {
+            for pair in indices[from..=to].windows(2) {
+                tabs.swap(pair[0], pair[1]);
+            }
+        } else {
+            for pair in indices[to..=from].windows(2).rev() {
+                tabs.swap(pair[0], pair[1]);
+            }
+        }
+        Ok(())
+    }
+
     pub fn set_pane_session(
         &mut self,
         pane: PaneId,

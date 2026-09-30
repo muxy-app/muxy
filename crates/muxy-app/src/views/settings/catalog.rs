@@ -187,7 +187,7 @@ pub(super) const SETTINGS: &[Setting] = &[
     Setting {
         id: "sidebar-collapsed-style",
         label: "Collapsed sidebar style",
-        description: "Show project icons or hide the sidebar in Project Focused. Tab Focused always hides it when collapsed.",
+        description: "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.",
         category: Category::Appearance,
         section: "Interface",
     },

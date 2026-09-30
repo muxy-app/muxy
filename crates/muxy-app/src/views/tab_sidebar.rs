@@ -65,7 +65,7 @@ impl AppModel {
             }
             changed = true;
         }
-        if self.appearance.layout == AppLayout::TabFocused
+        if self.appearance.layout != AppLayout::ProjectFocused
             && (!self.appearance.tab_focused_expanded.contains_key(&id)
                 || (previous.is_some() && !self.project_expanded(id)))
         {
@@ -77,8 +77,17 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn sidebar_tabs<'a>(
+        &'a self,
+        project: &'a Project,
+    ) -> impl Iterator<Item = &'a Tab> {
+        project.tabs.iter().filter(|tab| {
+            self.appearance.layout != AppLayout::AgentsFocused || self.agent_tab_pane(tab).is_some()
+        })
+    }
+
     pub(crate) fn navigation_tabs(&self) -> Vec<TabId> {
-        if self.appearance.layout == AppLayout::ProjectFocused {
+        if self.appearance.layout != AppLayout::TabFocused {
             return self
                 .state
                 .current_project()
@@ -103,7 +112,11 @@ pub(super) fn contents(
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let targets = tab_strip::drag::TabBounds::default();
-    let numbers = model.navigation_tabs();
+    let numbers = if model.appearance.layout == AppLayout::TabFocused {
+        model.navigation_tabs()
+    } else {
+        Vec::new()
+    };
     let mut rows = div()
         .flex()
         .flex_col()
@@ -137,7 +150,11 @@ pub(super) fn contents(
                 .overflow_y_scroll()
                 .child(rows),
         )
-        .child(tab_strip::drag::track_pointer(targets, cx))
+        .child(tab_strip::drag::track_pointer(
+            targets,
+            tab_strip::drag::Source::Sidebar,
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -195,13 +212,13 @@ fn project_group(
         .flex_col()
         .child(project_header(project, model, cx));
     if expanded && !missing {
-        let ids: Vec<_> = project.tabs.iter().map(|tab| tab.id).collect();
-        let measured = ids.clone();
+        let tabs: Vec<_> = model.sidebar_tabs(project).collect();
+        let measured: Vec<_> = tabs.iter().map(|tab| tab.id).collect();
         group = group.child(
             div()
                 .flex()
                 .flex_col()
-                .children(project.tabs.iter().map(|tab| {
+                .children(tabs.into_iter().map(|tab| {
                     let number = numbers
                         .iter()
                         .position(|id| *id == tab.id)
@@ -475,6 +492,10 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
         .into_any_element()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Declarative sidebar tab row and interaction layout"
+)]
 fn tab_row(
     project: ProjectId,
     tab: &Tab,
@@ -492,7 +513,14 @@ fn tab_row(
             .terminal(&pane.id)
             .is_some_and(|pane| pane.view.read(cx).bell_flashing)
     });
-    let title = model.webview_title(tab, cx);
+    let agent = (model.appearance.layout == AppLayout::AgentsFocused)
+        .then(|| model.agent_tab_pane(tab))
+        .flatten();
+    let agent_pane = agent.map(|(pane, _)| pane.id);
+    let title = agent_pane.map_or_else(
+        || model.webview_title(tab, cx),
+        |pane| tab.title(Some(pane)),
+    );
     let color = tab
         .color
         .as_ref()
@@ -538,7 +566,15 @@ fn tab_row(
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 cx.stop_propagation();
                 model.select_tab(id, cx);
-                model.tab_drag.begin(project, id, event.position);
+                if let Some(pane) = agent_pane {
+                    model.focus_pane(pane, cx);
+                }
+                model.tab_drag.begin(
+                    project,
+                    id,
+                    event.position,
+                    tab_strip::drag::Source::Sidebar,
+                );
                 model.focus_active(window, cx);
             }),
         )
@@ -559,12 +595,16 @@ fn tab_row(
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(tab_activity::icon(
-                    tab,
-                    model,
-                    m.icon_md(),
-                    webview_tab_icon(tab, model, active, cx),
-                )),
+                .child(if let Some((_, agent)) = agent {
+                    tab_activity::provider_icon(agent.provider, m.icon_md(), model)
+                } else {
+                    tab_activity::icon(
+                        tab,
+                        model,
+                        m.icon_md(),
+                        webview_tab_icon(tab, model, active, cx),
+                    )
+                }),
         )
         .child(
             div()
