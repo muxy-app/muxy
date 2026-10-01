@@ -8,6 +8,7 @@ pub(crate) mod git;
 mod links;
 mod mobile;
 mod preferences;
+pub(crate) mod project_layouts;
 mod quick_terminal;
 mod server_status;
 pub(crate) use server_status::ServerStatus;
@@ -97,6 +98,7 @@ pub(crate) struct AppModel {
     pub(crate) git: git::GitState,
     pub(crate) ai: ai::Runtime,
     catalog: catalog::Synchronization,
+    project_layouts: project_layouts::ProjectLayouts,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
     pub(crate) quick: quick_terminal::QuickTerminalRuntime,
     pub(crate) window: gpui::AnyWindowHandle,
@@ -474,6 +476,7 @@ impl AppModel {
             settings_window: None,
             font_sizes: HashMap::new(),
             initial_directories: HashMap::new(),
+            project_layouts: project_layouts::ProjectLayouts::default(),
             theme,
             themes,
             metrics: Metrics::new(1.0),
@@ -1379,6 +1382,7 @@ impl AppModel {
 
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
         self.sync_composer(cx);
+        self.sync_project_layouts(cx);
         self.sync_voice(cx);
         self.sync_git(cx);
         self.sync_references(cx);
@@ -1568,7 +1572,13 @@ impl AppModel {
             let state = self.pane_state(*id);
             pane.view.update(cx, |pane, cx| pane.set_state(state, cx));
         }
-        for pane in plan.create {
+        let mut starting = plan.create;
+        starting.extend(
+            plan.attach
+                .into_iter()
+                .filter_map(|(pane, _)| self.state.startup_command(pane).is_some().then_some(pane)),
+        );
+        for pane in starting {
             let size = self
                 .terminal(&pane)
                 .and_then(|pane| pane.view.read(cx).viewport())
@@ -1785,6 +1795,17 @@ impl AppModel {
             return;
         }
         match update {
+            Update::ProjectLayouts {
+                project,
+                request,
+                result,
+            } => self.receive_project_layouts(project, request, result, cx),
+            Update::ProjectLayout {
+                project,
+                request,
+                layout,
+                result,
+            } => self.receive_project_layout(project, request, &layout, result, cx),
             Update::Activity(result) => self.receive_activity(result, cx),
             Update::ActivityClaimed(result) => self.deliver_activity(result),
             Update::ActivityAcknowledged { ids, result } => {
@@ -1921,19 +1942,24 @@ impl AppModel {
             }
             return;
         }
-        self.save(cx);
+        let command = self.state.take_startup_command(pane);
+        let saved = self.save(cx);
         self.sync_references(cx);
+        if let Some(command) = command
+            && (!saved
+                || !self.send(
+                    Work::Input(attachment.channel, format!("{command}\r").into_bytes()),
+                    cx,
+                ))
+        {
+            let _ = self.state.set_startup_command(pane, &command);
+            self.save(cx);
+        }
         if let Some(view) = self.terminal(&pane).map(|pane| pane.view.clone()) {
             let channel = attachment.channel;
             let size = view.update(cx, |pane, cx| pane.attach(attachment, cx));
             if let Some(size) = size {
                 self.send(Work::Resize(channel, size), cx);
-            }
-            if let Some(command) = self.extensions.startup.remove(&pane) {
-                self.send(
-                    Work::Input(channel, format!("{command}\r").into_bytes()),
-                    cx,
-                );
             }
         } else {
             self.send(Work::Detach(attachment.channel), cx);
@@ -1957,7 +1983,6 @@ impl AppModel {
             ),
         );
         self.pending.remove(&pane);
-        self.extensions.startup.remove(&pane);
         let detached = self.detached_pending.remove(&pane);
         if detached {
             self.references = None;
@@ -2282,6 +2307,10 @@ impl AppModel {
         self.references = None;
         self.existing_sessions = crate::views::session_picker::ExistingSessions::default();
         self.update_session_picker(cx);
+        self.project_layouts = project_layouts::ProjectLayouts::default();
+        if matches!(self.overlay, Some(Overlay::Layouts(_))) {
+            self.dismiss_overlay(cx);
+        }
         self.quick.closing = None;
         self.refresh_quick_terminal(cx);
         if self.server_preferences.busy || !self.server_preferences.pending.is_empty() {
@@ -2371,6 +2400,7 @@ mod tests {
     mod preferences;
     mod progress;
     mod project_artwork;
+    mod project_layouts;
     mod projects;
     mod quick_terminal;
     mod rendering;

@@ -22,7 +22,6 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use gpui::{Context, Entity, Window};
-use muxy_app_core::PaneId;
 use muxy_app_core::extensions::{
     AUDIT_LOG, AuditLog, Grants, Registry, Request, Rule, required_permission,
 };
@@ -58,8 +57,6 @@ pub(crate) struct Runtime {
     pub(crate) items: surfaces::Items,
     shortcuts: Vec<surfaces::Shortcut>,
     events: events::Tracker,
-    /// Startup commands typed into new terminals once their sessions attach.
-    pub(crate) startup: HashMap<PaneId, String>,
     gh_user: Option<(std::time::Instant, Value)>,
 }
 
@@ -89,7 +86,6 @@ impl Runtime {
             items: surfaces::Items::default(),
             shortcuts: Vec::new(),
             events: events::Tracker::default(),
-            startup: HashMap::new(),
             gh_user: None,
         }
     }

@@ -175,3 +175,37 @@ fn shared_layout_revisions_retire_old_attachments_without_reviving_closed_tabs()
     assert!(fixture.registry.list().is_empty());
     Ok(())
 }
+
+#[test]
+fn close_preserves_shared_creation_while_cancelling_an_unclaimed_creation() -> TestResult {
+    let fixture = Fixture::new()?;
+    let desktop = fixture.connect()?;
+    let other = fixture.connect()?;
+    let project = fixture.registry.home_project();
+    let session = desktop.client.create_project_session(
+        project,
+        OperationId::new(),
+        &fixture.directory,
+        SIZE,
+    )?;
+    desktop.client.attach(session.id, SIZE)?;
+    other.client.sync_session_references(vec![session.id])?;
+    let attached = other.client.attach(session.id, SIZE)?;
+    let pending = OperationId::new();
+    desktop
+        .client
+        .create_project_session(project, pending, &fixture.directory, SIZE)?;
+    desktop.client.cancel_creation(pending)?;
+    desktop.client.sync_session_references(vec![])?;
+    desktop
+        .client
+        .close_session(session.id, OperationId::new())?;
+    assert_eq!(fixture.registry.list(), vec![session.clone()]);
+    other
+        .client
+        .write_input(attached.channel, b"printf 'LAYOUT_SURVIVED\\n'\r".to_vec())?;
+    other.client.sync_session_references(vec![])?;
+    other.client.close_session(session.id, OperationId::new())?;
+    assert!(fixture.registry.list().is_empty());
+    Ok(())
+}

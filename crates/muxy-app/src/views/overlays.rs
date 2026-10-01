@@ -25,6 +25,7 @@ pub(crate) enum Overlay {
     AiProvider(super::git::AiProviderMenu),
     PullRequest(super::git::PullRequestPopover),
     Sessions(super::session_picker::SessionPicker),
+    Layouts(crate::model::project_layouts::LayoutPicker),
     Menu(Menu),
     ProjectEditor(super::project_editor::Editor),
     ProjectIcons(super::project_editor::icons::Icons),
@@ -164,6 +165,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             super::project_editor::logo::render(cropper, model, window, cx)
         }
         Some(Overlay::Sessions(picker)) => picker.picker.clone().into_any_element(),
+        Some(Overlay::Layouts(picker)) => picker.picker.clone().into_any_element(),
         Some(Overlay::Projects(picker)) => picker.clone().into_any_element(),
         Some(Overlay::Commands { palette, .. }) => palette.clone().into_any_element(),
     };

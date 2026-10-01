@@ -41,21 +41,16 @@ pub(crate) fn tab_strip(
         .find(|tab| Some(tab.id) == model.active_tab())
         .filter(|tab| tab.zoomed.is_some() || tab.panes.len() > 1);
     let control_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2());
-    let zoom_width = zoom_tab.map_or(0.0, |_| control_width);
     let existing_count = model.existing_terminal_count();
-    let existing_width = if existing_count == 0 {
-        0.0
-    } else {
-        control_width
-    };
+    let has_layouts = model.has_project_layouts();
+    let controls =
+        1 + u8::from(zoom_tab.is_some()) + u8::from(existing_count > 0) + u8::from(has_layouts);
     let leading = (titlebar::navigation_width(model) - sidebar_width).max(0.0);
     let available = (f32::from(window.viewport_size().width)
         - sidebar_width
         - leading
         - 28.0
-        - zoom_width
-        - existing_width
-        - control_width
+        - f32::from(controls) * control_width
         - model.extension_toolbar_width())
     .max(0.0);
     let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
@@ -117,6 +112,7 @@ pub(crate) fn tab_strip(
             (existing_count > 0).then(|| existing_terminals_button(existing_count, model, cx)),
         )
         .children(zoom_tab.map(|tab| zoom_control(tab.zoomed.is_some(), model, cx)))
+        .children(has_layouts.then(|| super::project_layouts::button(model, cx)))
         .child(model.extension_toolbar(cx))
         .child(settings)
         .child(drag::track_pointer(targets, drag::Source::Titlebar, cx))

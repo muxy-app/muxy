@@ -687,6 +687,9 @@ pub(super) fn titlebar(
             tab.filter(|tab| tab.zoomed.is_some() || tab.panes.len() > 1),
             |bar, tab| bar.child(tab_strip::zoom_control(tab.zoomed.is_some(), model, cx)),
         )
+        .when(available && model.has_project_layouts(), |bar| {
+            bar.child(super::project_layouts::button(model, cx))
+        })
         .child(model.extension_toolbar(cx))
         .child(tab_strip::settings_button(model, cx))
         .into_any_element()

@@ -1,7 +1,7 @@
 use super::*;
 use crate::model::tests::{extensions::finish_extension, stub_boot};
 use gpui::TestAppContext;
-use muxy_app_core::AppState;
+use muxy_app_core::{AppState, PaneId};
 
 #[gpui::test]
 fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppContext) {
@@ -710,10 +710,7 @@ fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContex
     cx.run_until_parked();
     let pane = view.read_with(cx, |model, _| {
         let pane = model.active_pane().expect("new terminal pane");
-        assert_eq!(
-            model.extensions.startup.get(&pane).map(String::as_str),
-            Some("npm test")
-        );
+        assert_eq!(model.state.startup_command(pane), Some("npm test"));
         pane
     });
     let session = muxy_protocol::SessionId::new(7).expect("session");
@@ -729,7 +726,9 @@ fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContex
         })
         .collect();
     assert_eq!(typed, vec![b"npm test\r".to_vec()]);
-    view.read_with(cx, |model, _| assert!(model.extensions.startup.is_empty()));
+    view.read_with(cx, |model, _| {
+        assert!(model.state.startup_command(pane).is_none());
+    });
     let outside = script_call(
         &view,
         cx,

@@ -600,7 +600,9 @@ impl AppModel {
                 .map(str::trim)
                 .filter(|c| !c.is_empty())
             {
-                self.extensions.startup.insert(pane, command.to_owned());
+                self.state
+                    .set_startup_command(pane, command)
+                    .map_err(|error| error.to_string())?;
             }
             self.changed(cx);
             self.focus_requested = true;

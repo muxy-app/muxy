@@ -104,3 +104,29 @@ Deleting always asks first and explains what will end.
 - Terminals support selection, copy and paste, search, links, the mouse, input
   methods, and shell integration: jump between prompts and select a command's
   output.
+
+## Project layouts
+
+Named layouts live in `.muxy/layouts/` inside a project or worktree. Use YAML,
+YML, or JSON files; the filename is the layout's name. Choose **Apply Layout…**
+from the project menu or the layout button in the top bar. Layouts are never
+applied automatically. Confirmation replaces that project's tabs in this app;
+terminals still shown by another app keep running.
+
+```yaml
+layout: horizontal
+panes:
+  - tab:
+      name: editor
+      command: nvim .
+  - layout: vertical
+    panes:
+      - tab: npm run dev
+      - tab:
+          name: shell
+```
+
+`horizontal` means side by side; `vertical` means stacked. Splits can be nested.
+A leaf's `tab` is a command string or an object with optional `name` and `command`.
+Commands run in the project folder; a command list is joined with `&&`. Legacy
+`tabs` lists keep their extra entries as separate top-level tabs.

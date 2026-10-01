@@ -564,7 +564,7 @@ fn project_editor_and_color_shortcuts_apply_to_the_requested_project(cx: &mut Te
             model.open_menu(items, gpui::point(px(10.0), px(60.0)), window, cx);
         });
     });
-    cx.simulate_keystrokes("down down down down down right down enter");
+    cx.simulate_keystrokes("down down down down down down right down enter");
     cx.run_until_parked();
     assert_eq!(
         view.read_with(cx, |model, _| model

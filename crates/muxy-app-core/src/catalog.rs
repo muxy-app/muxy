@@ -46,7 +46,11 @@ impl AppState {
             .retain(|pending| *pending != operation);
     }
     pub(crate) fn cancel_pending_creation(&mut self, pane: PaneId) {
+        self.startup_commands.remove(&pane);
         if self.starting_directories.remove(&pane).is_some()
+            && self.pane_mut(pane).is_ok_and(|pane| {
+                matches!(pane.content, crate::PaneContent::Terminal { session: None })
+            })
             && !self.pending_cancellations.contains(&pane.creation_token())
         {
             self.pending_cancellations.push(pane.creation_token());
@@ -189,6 +193,7 @@ impl AppState {
             .map(|pane| pane.id)
             .collect();
         self.window.focus_history.retain(|id| panes.contains(id));
+        self.startup_commands.retain(|id, _| panes.contains(id));
         self.starting_directories.retain(|id, _| {
             panes.contains(id)
                 || self

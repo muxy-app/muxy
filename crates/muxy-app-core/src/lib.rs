@@ -13,6 +13,7 @@ pub mod modal;
 pub mod opener;
 mod pane;
 mod project;
+pub mod project_layouts;
 pub mod qr;
 pub mod restore;
 mod state;

@@ -20,6 +20,7 @@ impl AppState {
             catalog_revision: 0,
             project_intents: Vec::new(),
             starting_directories: std::collections::BTreeMap::new(),
+            startup_commands: std::collections::BTreeMap::new(),
             quick_terminal: None,
             version: 2,
             projects: vec![home],

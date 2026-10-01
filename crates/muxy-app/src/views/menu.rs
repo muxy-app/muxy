@@ -56,6 +56,7 @@ pub(crate) enum Command {
     #[cfg(test)]
     Dismiss,
     ExistingSessions(muxy_app_core::ProjectId),
+    ProjectLayouts(muxy_app_core::ProjectId),
     DetachTerminal(muxy_app_core::PaneId),
     SplitPane(muxy_app_core::PaneId, muxy_app_core::Direction),
     ToggleZoomPane(muxy_app_core::PaneId),
@@ -569,6 +570,10 @@ impl AppModel {
             Command::RemoveWorktree(id) => {
                 self.git_request(id, muxy_protocol::GitAction::InspectRemoval, cx);
             }
+            Command::ProjectLayouts(project) => {
+                self.open_layout_picker(project, window, cx);
+                return;
+            }
             Command::ExistingSessions(project) => {
                 self.open_session_picker(project, window, cx);
                 return;
@@ -781,6 +786,7 @@ mod tests {
             [
                 "New Terminal Tab",
                 "Existing Terminals…",
+                "Apply Layout…",
                 "— Rename…",
                 "Icon ›",
                 "Color ›",
@@ -830,6 +836,7 @@ mod tests {
             [
                 "New Terminal Tab",
                 "Existing Terminals…",
+                "Apply Layout…",
                 "— Rename…",
                 "Icon ›",
                 "Color ›",
@@ -868,6 +875,7 @@ mod tests {
             [
                 "New Terminal Tab",
                 "Existing Terminals…",
+                "Apply Layout…",
                 "— Rename Worktree…",
                 "— Reveal in Finder",
                 "Copy Path",
@@ -880,6 +888,7 @@ mod tests {
             [
                 "New Terminal Tab",
                 "Existing Terminals…",
+                "Apply Layout…",
                 "— Reveal in Finder",
                 "Copy Path",
             ]

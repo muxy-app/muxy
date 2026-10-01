@@ -68,7 +68,7 @@ fn hovering_a_row_opens_its_submenu_beside_the_menu_and_keeps_the_menu_open(
     assert!(outline(&view, cx)[1][0].ends_with("Red"));
     let menu = bounds(cx, "context-menu");
     let submenu = bounds(cx, "context-submenu-1");
-    let row = bounds(cx, "menu-item-4");
+    let row = bounds(cx, "menu-item-5");
     let first = bounds(cx, "menu-item-1-0");
     assert!(submenu.left() >= menu.right() - px(8.0));
     assert!(submenu.left() < menu.right());
@@ -87,7 +87,7 @@ fn hovering_a_row_opens_its_submenu_beside_the_menu_and_keeps_the_menu_open(
     assert_eq!(outline(&view, cx)[1], ["New Workspace…"]);
 
     hover(cx, "Color");
-    let workspaces = bounds(cx, "menu-item-5");
+    let workspaces = bounds(cx, "menu-item-6");
     move_to(cx, point(color.x + px(60.0), workspaces.center().y));
     assert_eq!(
         path(&view, cx),

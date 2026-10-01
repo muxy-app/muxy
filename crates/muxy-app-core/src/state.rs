@@ -17,6 +17,8 @@ pub struct AppState {
     pub(crate) catalog_revision: u64,
     pub(crate) project_intents: Vec<muxy_protocol::ProjectIntent>,
     pub(crate) starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) startup_commands: BTreeMap<PaneId, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) quick_terminal: Option<Pane>,
     pub(crate) version: u32,
@@ -41,6 +43,8 @@ struct StoredState {
     project_intents: Vec<muxy_protocol::ProjectIntent>,
     #[serde(default)]
     starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
+    #[serde(default)]
+    startup_commands: BTreeMap<PaneId, String>,
     #[serde(default)]
     quick_terminal: Option<Pane>,
     version: u32,
@@ -67,6 +71,7 @@ impl TryFrom<StoredState> for AppState {
             catalog_revision: stored.catalog_revision,
             project_intents: stored.project_intents,
             starting_directories: stored.starting_directories,
+            startup_commands: stored.startup_commands,
             quick_terminal: stored.quick_terminal,
             version: 2,
             projects: stored.projects,
@@ -379,6 +384,7 @@ impl AppState {
         }
         let mut sessions = Vec::new();
         for pane in project.tabs.into_iter().flat_map(|tab| tab.panes) {
+            self.startup_commands.remove(&pane.id);
             if let PaneContent::Terminal {
                 session: Some(session),
             } = pane.content

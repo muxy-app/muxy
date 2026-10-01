@@ -16,6 +16,7 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
     let mut items = vec![
         Item::action("New Terminal Tab", Command::NewProjectTab(id)),
         Item::action("Existing Terminals…", Command::ExistingSessions(id)),
+        Item::action("Apply Layout…", Command::ProjectLayouts(id)),
         Item::action("Rename…", Command::EditProject(id, Field::Name)).separated(),
         Item::submenu("Icon", icon_items(project)),
         Item::submenu(
@@ -99,6 +100,7 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
     let mut items = vec![
         Item::action("New Terminal Tab", Command::NewProjectTab(id)),
         Item::action("Existing Terminals…", Command::ExistingSessions(id)),
+        Item::action("Apply Layout…", Command::ProjectLayouts(id)),
     ];
     if !primary {
         items.push(

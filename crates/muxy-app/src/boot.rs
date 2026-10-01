@@ -77,6 +77,15 @@ pub(crate) enum Work {
     ProjectSessions {
         project: muxy_protocol::ProjectId,
     },
+    ProjectLayouts {
+        project: muxy_protocol::ProjectId,
+        request: u64,
+    },
+    LoadProjectLayout {
+        project: muxy_protocol::ProjectId,
+        request: u64,
+        layout: muxy_app_core::project_layouts::Descriptor,
+    },
     ReadCatalog,
     CancelCreation(muxy_protocol::OperationId),
     MutateProject(muxy_protocol::ProjectIntent),
@@ -157,6 +166,8 @@ impl Work {
             Self::ClaimActivity(..) => "ClaimActivity",
             Self::Git(..) => "Git",
             Self::ProjectSessions { .. } => "ProjectSessions",
+            Self::ProjectLayouts { .. } => "ProjectLayouts",
+            Self::LoadProjectLayout { .. } => "LoadProjectLayout",
             Self::ReadCatalog => "ReadCatalog",
             Self::CancelCreation(..) => "CancelCreation",
             Self::MutateProject(..) => "MutateProject",
@@ -215,6 +226,17 @@ pub(crate) enum Update {
     CreationCancelled {
         operation: muxy_protocol::OperationId,
         result: Result<(), ClientError>,
+    },
+    ProjectLayouts {
+        project: muxy_protocol::ProjectId,
+        request: u64,
+        result: Result<Vec<muxy_app_core::project_layouts::Descriptor>, String>,
+    },
+    ProjectLayout {
+        project: muxy_protocol::ProjectId,
+        request: u64,
+        layout: muxy_app_core::project_layouts::Descriptor,
+        result: Result<muxy_app_core::project_layouts::Config, String>,
     },
     Catalog(Result<muxy_protocol::CatalogPage, ClientError>),
     ProjectMutated {
@@ -504,6 +526,21 @@ fn rejected(work: Work, error: ClientError) -> Update {
             operation: intent.operation,
             result: Err(error),
         },
+        Work::ProjectLayouts { project, request } => Update::ProjectLayouts {
+            project,
+            request,
+            result: Err(error.to_string()),
+        },
+        Work::LoadProjectLayout {
+            project,
+            request,
+            layout,
+        } => Update::ProjectLayout {
+            project,
+            request,
+            layout,
+            result: Err(error.to_string()),
+        },
         Work::ReadServerSettings | Work::WriteServerSettings(_) => {
             Update::ServerSettings(Err(error))
         }
@@ -580,6 +617,25 @@ fn perform(work: Work, client: &Client) -> Option<Update> {
             return Some(Update::CreationCancelled {
                 operation,
                 result: client.cancel_creation(operation),
+            });
+        }
+        Work::ProjectLayouts { project, request } => {
+            return Some(Update::ProjectLayouts {
+                project,
+                request,
+                result: project_layouts::list(client, project),
+            });
+        }
+        Work::LoadProjectLayout {
+            project,
+            request,
+            layout,
+        } => {
+            return Some(Update::ProjectLayout {
+                project,
+                request,
+                result: project_layouts::load(client, project, &layout),
+                layout,
             });
         }
         Work::ReadCatalog => return Some(Update::Catalog(client.catalog())),
@@ -837,6 +893,7 @@ pub(crate) fn missing_session(error: &ClientError) -> bool {
 }
 
 mod delivery;
+mod project_layouts;
 mod requests;
 
 #[cfg(test)]
