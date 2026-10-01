@@ -58,7 +58,11 @@ impl AppModel {
                     });
                 },
                 style,
-            );
+            )
+            .grip(self.webview_grip(
+                Some(panel.surface.view.entity_id()),
+                panel.placement.position.resize_cursor(),
+            ));
             let body = div()
                 .relative()
                 .flex()

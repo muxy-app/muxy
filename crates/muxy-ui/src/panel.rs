@@ -3,7 +3,7 @@ use crate::icon::Icon;
 use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, DispatchPhase, ElementId, FocusHandle, FontWeight,
+    AnyElement, App, AppContext, CursorStyle, DispatchPhase, ElementId, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
     canvas, div, px,
@@ -49,6 +49,13 @@ impl PanelPosition {
         match self {
             Self::Right => Self::Bottom,
             Self::Bottom => Self::Right,
+        }
+    }
+
+    pub fn resize_cursor(self) -> CursorStyle {
+        match self {
+            Self::Right => CursorStyle::ResizeLeftRight,
+            Self::Bottom => CursorStyle::ResizeUpDown,
         }
     }
 }
@@ -673,6 +680,7 @@ pub struct PanelFrame {
     sizing: PanelSizing,
     chrome: AnyElement,
     content: AnyElement,
+    grip: Option<AnyElement>,
     on_resize: PanelResizeHandler,
     theme: Theme,
     metrics: Metrics,
@@ -692,6 +700,7 @@ impl PanelFrame {
             sizing,
             chrome: chrome.into_any_element(),
             content: content.into_any_element(),
+            grip: None,
             on_resize: Rc::new(on_resize),
             theme: style.theme,
             metrics: style.metrics,
@@ -701,15 +710,26 @@ impl PanelFrame {
     pub fn layout(&self) -> PanelLayout {
         self.sizing.layout()
     }
+
+    /// Adds `child` inside the resize grip, such as a layer that fills it.
+    #[must_use]
+    pub fn grip(mut self, child: impl IntoElement) -> Self {
+        self.grip = Some(child.into_any_element());
+        self
+    }
 }
 
 fn panel_resize_listener(
+    position: PanelPosition,
     resize_state: PanelResizeState,
     handler: PanelResizeHandler,
 ) -> impl IntoElement {
     canvas(
         |_, _, _| (),
         move |_, (), window, _| {
+            if resize_state.is_active() {
+                window.set_window_cursor_style(position.resize_cursor());
+            }
             let move_state = resize_state.clone();
             let move_handler = handler.clone();
             window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
@@ -800,17 +820,18 @@ impl RenderOnce for PanelFrame {
                 .top_0()
                 .w(self.metrics.resize_handle_hit_area())
                 .h_full()
-                .child(separator.left_0().top_0().bottom_0().w(px(1.0)))
-                .cursor_ew_resize(),
+                .child(separator.left_0().top_0().bottom_0().w(px(1.0))),
             PanelPosition::Bottom => resize_handle
                 .left_0()
                 .top(px(-1.0))
                 .w_full()
                 .h(self.metrics.resize_handle_hit_area())
-                .child(separator.left_0().top_0().right_0().h(px(1.0)))
-                .cursor_ns_resize(),
+                .child(separator.left_0().top_0().right_0().h(px(1.0))),
         };
-        let resize_listener = panel_resize_listener(resize_state, self.on_resize);
+        let resize_handle = resize_handle
+            .cursor(position.resize_cursor())
+            .children(self.grip);
+        let resize_listener = panel_resize_listener(position, resize_state, self.on_resize);
 
         let frame = div()
             .id(SharedString::from(format!(

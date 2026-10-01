@@ -1331,6 +1331,7 @@ impl AppModel {
 
     pub(crate) fn save_split_resize(&mut self, cx: &mut Context<Self>) {
         self.save(cx);
+        cx.notify();
     }
 
     fn save(&mut self, cx: &mut Context<Self>) -> bool {

@@ -591,7 +591,7 @@ impl Render for AppModel {
             .child(self.voice_panel())
             .children(super::banners::render(self, window, cx))
             .child(overlays::layer(self, window, cx))
-            .child(self.apply_webview_occlusions(cx));
+            .child(self.apply_webview_regions(cx));
         crate::profiler::workspace(workspace)
     }
 }

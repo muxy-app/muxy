@@ -6,13 +6,16 @@ use std::ptr;
 
 use async_channel::{Receiver, Sender};
 use block2::{DynBlock, RcBlock};
-use gpui::{Bounds, Pixels, Rgba, Window};
+use gpui::{Bounds, CursorStyle, Pixels, Rgba, Window};
 use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
+};
 use objc2_app_kit::{
-    NSApplication, NSColor, NSEvent, NSEventMask, NSEventModifierFlags, NSImage, NSMenu, NSView,
+    NSApplication, NSColor, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSImage, NSMenu,
+    NSView, NSWindowOrderingMode,
 };
 use objc2_core_graphics::CGMutablePath;
 use objc2_foundation::{
@@ -296,28 +299,31 @@ fn fail_asset(task: &ProtocolObject<dyn WKURLSchemeTask>) {
 #[derive(Debug, Default)]
 struct HitTestRegions {
     occluded: RefCell<Vec<NSRect>>,
-    passthrough_left: Cell<f64>,
     passthrough_all: Cell<bool>,
 }
 
 impl HitTestRegions {
-    fn excludes(&self, point: NSPoint, bounds: NSRect) -> bool {
-        if self.passthrough_all.get() {
-            return true;
-        }
-        let grip = NSRect::new(
-            bounds.origin,
-            NSSize::new(
-                self.passthrough_left.get().min(bounds.size.width),
-                bounds.size.height,
-            ),
-        );
-        contains_point(grip, point)
+    fn excludes(&self, point: NSPoint) -> bool {
+        self.passthrough_all.get()
             || self
                 .occluded
                 .borrow()
                 .iter()
                 .any(|rect| contains_point(*rect, point))
+    }
+}
+
+#[allow(
+    deprecated,
+    reason = "GPUI shows these same cursors; their replacements need macOS 15"
+)]
+fn grip_cursor(style: CursorStyle) -> Option<Retained<NSCursor>> {
+    match style {
+        CursorStyle::ResizeLeftRight | CursorStyle::ResizeColumn => {
+            Some(NSCursor::resizeLeftRightCursor())
+        }
+        CursorStyle::ResizeUpDown | CursorStyle::ResizeRow => Some(NSCursor::resizeUpDownCursor()),
+        _ => None,
     }
 }
 
@@ -340,15 +346,83 @@ define_class!(
         #[unsafe(method_id(hitTest:))]
         fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
             let local = self.convertPoint_fromView(point, unsafe { self.superview() }.as_deref());
-            if self.ivars().excludes(local, self.bounds()) { None }
+            if self.ivars().excludes(local) { None }
             else { unsafe { msg_send![super(self), hitTest: point] } }
         }
     }
 );
 
+define_class!(
+    /// Covers the resize grips drawn over a page, in the parent's flipped
+    /// coordinates. It takes the grips' clicks and hands them to the parent,
+    /// and its cursor rects keep WebKit from changing the cursor there.
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "MuxyWebviewGrips"]
+    #[ivars = RefCell<Vec<(NSRect, CursorStyle)>>]
+    #[derive(Debug)]
+    struct GripOverlay;
+    unsafe impl NSObjectProtocol for GripOverlay {}
+    impl GripOverlay {
+        #[unsafe(method(isFlipped))]
+        fn flipped(&self) -> bool { true }
+
+        #[unsafe(method_id(hitTest:))]
+        fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
+            let local = self.convertPoint_fromView(point, unsafe { self.superview() }.as_deref());
+            self.ivars()
+                .borrow()
+                .iter()
+                .any(|(grip, _)| contains_point(*grip, local))
+                .then(|| Retained::into_super(self.retain()))
+        }
+
+        #[unsafe(method(resetCursorRects))]
+        fn reset_cursor_rects(&self) {
+            for (grip, style) in self.ivars().borrow().iter() {
+                if let Some(cursor) = grip_cursor(*style) {
+                    self.addCursorRect_cursor(*grip, &cursor);
+                }
+            }
+        }
+
+        // A view that leaves a click unhandled passes it to the page below,
+        // so each one is handed to the parent explicitly.
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) { self.forward(|parent| parent.mouseDown(event)); }
+        #[unsafe(method(mouseDragged:))]
+        fn mouse_dragged(&self, event: &NSEvent) { self.forward(|parent| parent.mouseDragged(event)); }
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) { self.forward(|parent| parent.mouseUp(event)); }
+        #[unsafe(method(rightMouseDown:))]
+        fn right_mouse_down(&self, event: &NSEvent) { self.forward(|parent| parent.rightMouseDown(event)); }
+        #[unsafe(method(rightMouseDragged:))]
+        fn right_mouse_dragged(&self, event: &NSEvent) { self.forward(|parent| parent.rightMouseDragged(event)); }
+        #[unsafe(method(rightMouseUp:))]
+        fn right_mouse_up(&self, event: &NSEvent) { self.forward(|parent| parent.rightMouseUp(event)); }
+        #[unsafe(method(otherMouseDown:))]
+        fn other_mouse_down(&self, event: &NSEvent) { self.forward(|parent| parent.otherMouseDown(event)); }
+        #[unsafe(method(otherMouseDragged:))]
+        fn other_mouse_dragged(&self, event: &NSEvent) { self.forward(|parent| parent.otherMouseDragged(event)); }
+        #[unsafe(method(otherMouseUp:))]
+        fn other_mouse_up(&self, event: &NSEvent) { self.forward(|parent| parent.otherMouseUp(event)); }
+        #[unsafe(method(scrollWheel:))]
+        fn scroll_wheel(&self, event: &NSEvent) { self.forward(|parent| parent.scrollWheel(event)); }
+    }
+);
+
+impl GripOverlay {
+    fn forward(&self, deliver: impl FnOnce(&NSView)) {
+        if let Some(parent) = unsafe { self.superview() } {
+            deliver(&parent);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct NativeWebview {
     view: Retained<MaskedWebview>,
+    grips: Retained<GripOverlay>,
     parent: Retained<NSView>,
     delegate: Retained<Delegate>,
     monitor: Option<Retained<AnyObject>>,
@@ -442,6 +516,11 @@ impl NativeWebview {
             }
         }
         parent.addSubview(&view);
+        let allocated = GripOverlay::alloc(mtm).set_ivars(RefCell::default());
+        let grips: Retained<GripOverlay> =
+            unsafe { msg_send![super(allocated), initWithFrame: parent.bounds()] };
+        grips.setHidden(true);
+        parent.addSubview_positioned_relativeTo(&grips, NSWindowOrderingMode::Above, Some(&view));
         let monitor = monitor(&view, &delegate, sender);
         let url = NSURL::URLWithString(&NSString::from_str(&url)).ok_or("invalid entry URL")?;
         unsafe {
@@ -450,6 +529,7 @@ impl NativeWebview {
         Ok((
             Self {
                 view,
+                grips,
                 parent,
                 delegate,
                 monitor,
@@ -468,11 +548,25 @@ impl NativeWebview {
         *self.delegate.ivars().shortcuts.borrow_mut() = shortcuts;
     }
 
-    pub fn set_mouse_passthrough_left(&self, width: Pixels) {
-        self.view
-            .ivars()
-            .passthrough_left
-            .set(f64::from(f32::from(width)));
+    /// Sends clicks on the resize grips drawn over the page, in window
+    /// coordinates, to Muxy and shows each grip's cursor there. The page's
+    /// pixels don't change. Call after [`Self::occlude`].
+    pub fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
+        let frame = self.parent.bounds();
+        let regions: Vec<_> = visible_grips(self.bounds.get(), &self.occlusions.borrow(), grips)
+            .into_iter()
+            .map(|(grip, cursor)| (flipped_rect(grip), cursor))
+            .collect();
+        let moved = self.grips.frame() != frame;
+        if moved {
+            self.grips.setFrame(frame);
+        }
+        if moved || *self.grips.ivars().borrow() != regions {
+            *self.grips.ivars().borrow_mut() = regions;
+            if let Some(window) = self.grips.window() {
+                window.invalidateCursorRectsForView(&self.grips);
+            }
+        }
     }
 
     pub fn set_mouse_passthrough(&self, enabled: bool) {
@@ -650,6 +744,7 @@ impl NativeWebview {
             return;
         }
         self.view.setHidden(!visible);
+        self.grips.setHidden(!visible);
         if !visible {
             self.blur();
         }
@@ -772,8 +867,47 @@ impl Drop for NativeWebview {
                 .removeAllUserScripts();
         }
         self.delegate.ivars().assets.borrow_mut().clear();
+        self.grips.removeFromSuperview();
         self.view.removeFromSuperview();
     }
+}
+
+/// The parts of the grips over a page at `bounds` that nothing covers.
+fn visible_grips(
+    bounds: Bounds<Pixels>,
+    occlusions: &[Bounds<Pixels>],
+    grips: &[(Bounds<Pixels>, CursorStyle)],
+) -> Vec<(Bounds<Pixels>, CursorStyle)> {
+    grips
+        .iter()
+        .filter(|(grip, _)| grip.intersects(&bounds))
+        .flat_map(|(grip, cursor)| {
+            occlusions
+                .iter()
+                .fold(vec![*grip], |regions, occlusion| {
+                    regions
+                        .into_iter()
+                        .flat_map(|region| subtract(region, *occlusion))
+                        .collect()
+                })
+                .into_iter()
+                .map(|region| (region, *cursor))
+        })
+        .collect()
+}
+
+/// `bounds` in a flipped view that fills the parent.
+fn flipped_rect(bounds: Bounds<Pixels>) -> NSRect {
+    NSRect::new(
+        NSPoint::new(
+            f64::from(f32::from(bounds.left())),
+            f64::from(f32::from(bounds.top())),
+        ),
+        NSSize::new(
+            f64::from(f32::from(bounds.size.width)),
+            f64::from(f32::from(bounds.size.height)),
+        ),
+    )
 }
 
 fn composition_regions(
@@ -1348,58 +1482,63 @@ mod tests {
     }
 
     #[test]
-    fn resize_passthrough_tracks_live_bounds_and_restores_content_hit_testing() {
+    fn resize_passthrough_and_occlusions_skip_the_page_until_cleared() {
         let regions = HitTestRegions::default();
-        regions.passthrough_left.set(9.0);
         let occlusion = NSRect::new(NSPoint::new(100.0, 100.0), NSSize::new(40.0, 40.0));
         regions.occluded.borrow_mut().push(occlusion);
-        for (width, height) in [(360.0, 300.0), (520.0, 700.0), (240.0, 500.0)] {
-            let bounds = NSRect::new(NSPoint::ZERO, NSSize::new(width, height));
-            let content = NSPoint::new(width - 1.0, height - 1.0);
-            assert!(!regions.excludes(content, bounds));
-            regions.passthrough_all.set(true);
-            assert!(regions.excludes(content, bounds));
-            assert!(regions.excludes(NSPoint::new(0.0, 0.0), bounds));
-            assert_eq!(*regions.occluded.borrow(), vec![occlusion]);
-            regions.passthrough_all.set(false);
-            assert!(!regions.excludes(content, bounds));
-            assert!(regions.excludes(NSPoint::new(8.0, height - 1.0), bounds));
-            assert!(!regions.excludes(NSPoint::new(9.0, height - 1.0), bounds));
-            assert!(regions.excludes(NSPoint::new(110.0, 110.0), bounds));
-        }
-    }
-
-    #[test]
-    fn resize_mouse_passthrough_preserves_webview_pixels_and_other_hit_regions() {
-        let bounds = NSRect::new(NSPoint::new(12.0, 20.0), NSSize::new(360.0, 300.0));
-        let regions = HitTestRegions::default();
-        let edge = NSPoint::new(12.0, 100.0);
-        assert!(!regions.excludes(edge, bounds));
-        for width in [9.0, 14.0] {
-            regions.passthrough_left.set(width);
-            assert!(regions.excludes(edge, bounds));
-            assert!(regions.excludes(NSPoint::new(12.0 + width - 0.5, 100.0), bounds));
-            assert!(!regions.excludes(NSPoint::new(12.0 + width, 100.0), bounds));
-            assert!(!regions.excludes(NSPoint::new(11.0, 100.0), bounds));
-            assert!(!regions.excludes(NSPoint::new(12.0, 19.0), bounds));
-            assert!(!regions.excludes(NSPoint::new(12.0, 320.0), bounds));
-        }
+        let content = NSPoint::new(359.0, 299.0);
+        assert!(!regions.excludes(content));
+        regions.passthrough_all.set(true);
+        assert!(regions.excludes(content));
+        regions.passthrough_all.set(false);
+        assert!(!regions.excludes(content));
+        assert!(regions.excludes(NSPoint::new(110.0, 110.0)));
+        assert!(!regions.excludes(NSPoint::new(140.0, 110.0)));
         let canvas = Bounds::new(point(px(0.0), px(0.0)), size(px(360.0), px(300.0)));
         assert_eq!(
             composition_regions(canvas, canvas, &[]),
             (vec![canvas], vec![])
         );
-        regions.occluded.borrow_mut().push(NSRect::new(
-            NSPoint::new(100.0, 100.0),
-            NSSize::new(40.0, 40.0),
-        ));
-        assert!(regions.excludes(NSPoint::new(110.0, 110.0), bounds));
-        assert!(regions.excludes(edge, bounds));
-        regions.passthrough_left.set(0.0);
-        assert!(!regions.excludes(edge, bounds));
-        assert!(regions.excludes(NSPoint::new(110.0, 110.0), bounds));
         regions.occluded.borrow_mut().clear();
-        assert!(!regions.excludes(NSPoint::new(110.0, 110.0), bounds));
+        assert!(!regions.excludes(NSPoint::new(110.0, 110.0)));
+    }
+
+    #[test]
+    fn grips_cover_only_what_lies_over_the_page_and_nothing_covers() {
+        let page = Bounds::new(point(px(400.0), px(0.0)), size(px(300.0), px(600.0)));
+        let left = Bounds::new(point(px(399.0), px(0.0)), size(px(10.0), px(600.0)));
+        let top = Bounds::new(point(px(400.0), px(-4.0)), size(px(300.0), px(10.0)));
+        let elsewhere = Bounds::new(point(px(100.0), px(0.0)), size(px(10.0), px(600.0)));
+        let menu = Bounds::new(point(px(380.0), px(100.0)), size(px(60.0), px(50.0)));
+        let grips = [
+            (left, CursorStyle::ResizeLeftRight),
+            (top, CursorStyle::ResizeUpDown),
+            (elsewhere, CursorStyle::ResizeLeftRight),
+        ];
+        assert_eq!(
+            visible_grips(page, &[menu], &grips),
+            vec![
+                (
+                    Bounds::new(point(px(399.0), px(0.0)), size(px(10.0), px(100.0))),
+                    CursorStyle::ResizeLeftRight
+                ),
+                (
+                    Bounds::new(point(px(399.0), px(150.0)), size(px(10.0), px(450.0))),
+                    CursorStyle::ResizeLeftRight
+                ),
+                (top, CursorStyle::ResizeUpDown),
+            ]
+        );
+        assert!(visible_grips(page, &[page.dilate(px(20.0))], &grips).is_empty());
+        assert_eq!(
+            flipped_rect(left),
+            NSRect::new(NSPoint::new(399.0, 0.0), NSSize::new(10.0, 600.0))
+        );
+        assert!(
+            grip_cursor(CursorStyle::ResizeLeftRight).is_some()
+                && grip_cursor(CursorStyle::ResizeUpDown).is_some()
+                && grip_cursor(CursorStyle::Arrow).is_none()
+        );
     }
 
     #[test]

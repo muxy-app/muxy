@@ -11,34 +11,42 @@ struct PanelTestHost {
 impl Render for PanelTestHost {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.weak_entity();
-        div().relative().flex().size_full().child(PanelFrame::new(
-            self.placement.clone(),
-            PanelSizing::new(
-                &self.placement,
-                self.dimension,
-                PanelSizeBounds::new(100.0, 500.0),
-                self.resize.clone(),
+        div().relative().flex().size_full().child(
+            PanelFrame::new(
+                self.placement.clone(),
+                PanelSizing::new(
+                    &self.placement,
+                    self.dimension,
+                    PanelSizeBounds::new(100.0, 500.0),
+                    self.resize.clone(),
+                ),
+                div()
+                    .debug_selector(|| "panel-test-chrome".into())
+                    .h(px(33.0))
+                    .flex_none(),
+                div()
+                    .id("panel-test-content")
+                    .debug_selector(|| "panel-test-content".into())
+                    .size_full()
+                    .on_mouse_move(|_, _, cx| cx.stop_propagation()),
+                move |dimension, _, cx| {
+                    let _ = owner.update(cx, |host, cx| {
+                        host.dimension = dimension;
+                        cx.notify();
+                    });
+                },
+                PanelStyle::new(
+                    Theme::from_scheme(&crate::theme::ColorScheme::default()),
+                    Metrics::new(self.scale),
+                ),
+            )
+            .grip(
+                div()
+                    .debug_selector(|| "panel-test-grip".into())
+                    .absolute()
+                    .size_full(),
             ),
-            div()
-                .debug_selector(|| "panel-test-chrome".into())
-                .h(px(33.0))
-                .flex_none(),
-            div()
-                .id("panel-test-content")
-                .debug_selector(|| "panel-test-content".into())
-                .size_full()
-                .on_mouse_move(|_, _, cx| cx.stop_propagation()),
-            move |dimension, _, cx| {
-                let _ = owner.update(cx, |host, cx| {
-                    host.dimension = dimension;
-                    cx.notify();
-                });
-            },
-            PanelStyle::new(
-                Theme::from_scheme(&crate::theme::ColorScheme::default()),
-                Metrics::new(self.scale),
-            ),
-        ))
+        )
     }
 }
 
@@ -65,6 +73,7 @@ fn resize_grip_stays_inside_panel_and_tracks_drag_across_content(cx: &mut TestAp
                 let grip = cx.debug_bounds("panel-resize-test").expect("resize grip");
                 let content = cx.debug_bounds("panel-test-content").expect("content");
                 let chrome = cx.debug_bounds("panel-test-chrome").expect("chrome");
+                assert_eq!(cx.debug_bounds("panel-test-grip"), Some(grip));
                 assert_eq!(content.left(), chrome.left());
                 assert_eq!(content.right(), chrome.right());
                 assert_eq!(content.top(), chrome.bottom());

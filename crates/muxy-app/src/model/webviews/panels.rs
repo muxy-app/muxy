@@ -490,13 +490,6 @@ impl AppModel {
                 view.native
                     .set_shortcuts(capture_escape, shortcuts.to_vec());
                 view.native.set_mouse_passthrough(resizing);
-                view.native.set_mouse_passthrough_left(
-                    if panel.placement.position == PanelPosition::Right {
-                        self.metrics.resize_handle_hit_area() - gpui::px(1.0)
-                    } else {
-                        gpui::px(0.0)
-                    },
-                );
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     visible,

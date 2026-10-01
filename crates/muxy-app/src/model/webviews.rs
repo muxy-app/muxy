@@ -50,6 +50,14 @@ impl Drop for Modal {
 }
 
 type Occlusion = (Option<gpui::EntityId>, gpui::Bounds<gpui::Pixels>);
+/// A resize grip over web views, with its cursor. Every web view pane lets a
+/// `None` grip through, such as a split divider; otherwise only the named web
+/// view does.
+type Grip = (
+    Option<gpui::EntityId>,
+    gpui::Bounds<gpui::Pixels>,
+    gpui::CursorStyle,
+);
 
 struct Target {
     pane: Option<PaneId>,
@@ -72,6 +80,7 @@ pub(crate) struct Webviews {
     /// The sidebar page that failed to load, so it is not retried every frame.
     sidebar_failure: Option<(String, String)>,
     pub occlusions: std::rc::Rc<std::cell::RefCell<Vec<Occlusion>>>,
+    grips: std::rc::Rc<std::cell::RefCell<Vec<Grip>>>,
     results: results::Results,
     sequence: u64,
     close_sequence: u64,
@@ -118,6 +127,7 @@ impl AppModel {
             }
         }
         self.webviews.occlusions.borrow_mut().clear();
+        self.webviews.grips.borrow_mut().clear();
         let composer_dialog = (self.composer.view.is_some() || self.composer.closing.is_some())
             && self.settings.composer.presentation
                 == muxy_app_core::settings::ComposerPresentation::Floating;
@@ -884,33 +894,55 @@ impl AppModel {
         .into_any_element()
     }
 
-    pub(crate) fn apply_webview_occlusions(&self, cx: &gpui::App) -> gpui::AnyElement {
+    /// Lets the web views under this element pass clicks through to it and
+    /// show `cursor` over it.
+    pub(crate) fn webview_grip(
+        &self,
+        owner: Option<gpui::EntityId>,
+        cursor: gpui::CursorStyle,
+    ) -> gpui::AnyElement {
+        use gpui::{IntoElement, Styled};
+        let grips = self.webviews.grips.clone();
+        gpui::canvas(
+            move |bounds, window, _| {
+                let visible = bounds.intersect(&window.content_mask().bounds);
+                grips.borrow_mut().push((owner, visible, cursor));
+            },
+            |_, (), _, _| (),
+        )
+        .absolute()
+        .size_full()
+        .into_any_element()
+    }
+
+    pub(crate) fn apply_webview_regions(&self, cx: &gpui::App) -> gpui::AnyElement {
         use gpui::{IntoElement, Styled};
         let views: Vec<_> = self
             .webviews
             .panes
             .values()
-            .map(|surface| &surface.view)
+            .map(|surface| (&surface.view, true))
             .chain(
                 self.webviews
                     .panels
                     .values()
-                    .map(|panel| &panel.surface.view),
+                    .map(|panel| (&panel.surface.view, false)),
             )
             .chain(
                 self.webviews
                     .sidebar
                     .iter()
-                    .map(|sidebar| &sidebar.surface.view),
+                    .map(|sidebar| (&sidebar.surface.view, false)),
             )
-            .map(|view| (view.entity_id(), view.read(cx).native.clone()))
+            .map(|(view, pane)| (view.entity_id(), view.read(cx).native.clone(), pane))
             .collect();
         let occlusions = self.webviews.occlusions.clone();
+        let grips = self.webviews.grips.clone();
         gpui::canvas(
             move |_, _, _| {
-                for (id, view) in &views {
-                    let regions = occlusions_for(*id, &occlusions.borrow());
-                    view.occlude(&regions);
+                for (id, view, pane) in &views {
+                    view.occlude(&occlusions_for(*id, &occlusions.borrow()));
+                    view.set_grips(&grips_for(*id, *pane, &grips.borrow()));
                 }
             },
             |_, (), _, _| (),
@@ -1065,6 +1097,18 @@ impl AppModel {
             },
         )
     }
+}
+
+fn grips_for(
+    id: gpui::EntityId,
+    pane: bool,
+    grips: &[Grip],
+) -> Vec<(gpui::Bounds<gpui::Pixels>, gpui::CursorStyle)> {
+    grips
+        .iter()
+        .filter(|(owner, _, _)| *owner == Some(id) || (pane && owner.is_none()))
+        .map(|(_, bounds, cursor)| (*bounds, *cursor))
+        .collect()
 }
 
 fn occlusions_for(id: gpui::EntityId, occlusions: &[Occlusion]) -> Vec<gpui::Bounds<gpui::Pixels>> {
@@ -1235,6 +1279,31 @@ impl AppModel {
 mod tests {
     use super::*;
     use gpui::AppContext;
+
+    #[gpui::test]
+    fn split_grips_reach_every_pane_and_panel_grips_only_their_own_view(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let pane = cx.new(|_| ()).entity_id();
+        let panel = cx.new(|_| ()).entity_id();
+        let sidebar = cx.new(|_| ()).entity_id();
+        let divider = gpui::Bounds::new(
+            gpui::point(gpui::px(395.5), gpui::px(0.0)),
+            gpui::size(gpui::px(10.0), gpui::px(600.0)),
+        );
+        let grip = gpui::Bounds::new(
+            gpui::point(gpui::px(800.0), gpui::px(0.0)),
+            gpui::size(gpui::px(10.0), gpui::px(600.0)),
+        );
+        let (columns, rows) = (
+            gpui::CursorStyle::ResizeLeftRight,
+            gpui::CursorStyle::ResizeUpDown,
+        );
+        let grips = [(None, divider, columns), (Some(panel), grip, rows)];
+        assert_eq!(grips_for(pane, true, &grips), vec![(divider, columns)]);
+        assert_eq!(grips_for(panel, false, &grips), vec![(grip, rows)]);
+        assert!(grips_for(sidebar, false, &grips).is_empty());
+    }
 
     #[gpui::test]
     fn overlapping_panels_only_occlude_surfaces_below_them(cx: &mut gpui::TestAppContext) {

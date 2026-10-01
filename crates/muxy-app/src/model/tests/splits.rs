@@ -520,6 +520,145 @@ fn drag_divider(
     cx.run_until_parked();
 }
 
+fn pane_bounds(
+    cx: &mut VisualTestContext,
+    view: &Entity<AppModel>,
+    pane: PaneId,
+) -> gpui::Bounds<gpui::Pixels> {
+    view.read_with(cx, |model, cx| {
+        model
+            .terminal(&pane)
+            .expect("terminal")
+            .view
+            .read(cx)
+            .geometry
+            .expect("geometry")
+            .0
+    })
+}
+
+#[gpui::test]
+fn divider_grips_center_on_the_line_and_grab_from_either_edge(cx: &mut TestAppContext) {
+    for direction in [Direction::Right, Direction::Down] {
+        for scale in [1.0, 1.5] {
+            let mut state = AppState::bootstrap().expect("state");
+            let tab = state.open_terminal_tab(state.home().id).expect("tab");
+            let first = state.home().tabs[0].panes[0].id;
+            state.split_pane(first, direction).expect("split");
+            state.set_ratio(tab, &[], 0.37).expect("ratio");
+            let (mut boot, _requests) = stub_boot(state);
+            boot.terminal.options.padding_x = [0.0; 2];
+            boot.terminal.options.padding_y = [0.0; 2];
+            let (view, cx) = cx.add_window_view(|window, cx| {
+                let mut model = AppModel::new(boot, window, cx);
+                model.metrics = Metrics::new(scale);
+                model
+            });
+            cx.simulate_resize(size(px(1100.0), px(800.0)));
+            cx.run_until_parked();
+            let horizontal = direction == Direction::Right;
+            let along =
+                |point: gpui::Point<gpui::Pixels>| if horizontal { point.x } else { point.y };
+            let line = |bounds: gpui::Bounds<gpui::Pixels>| {
+                if horizontal {
+                    bounds.right()
+                } else {
+                    bounds.bottom()
+                }
+            };
+            let thickness = Metrics::new(scale).resize_handle_hit_area();
+            for far_edge in [false, true] {
+                let grip = cx.debug_bounds("split-divider-[]").expect("grip");
+                let pane = pane_bounds(cx, &view, first);
+                let divider_center = line(pane) + px(0.5);
+                if horizontal {
+                    assert_eq!(grip.size.width, thickness);
+                    assert_eq!((grip.top(), grip.bottom()), (pane.top(), pane.bottom()));
+                } else {
+                    assert_eq!(grip.size.height, thickness);
+                    assert_eq!((grip.left(), grip.right()), (pane.left(), pane.right()));
+                }
+                assert!((along(grip.center()) - divider_center).abs() <= px(0.5));
+                let inset = px(0.5);
+                let start = match (horizontal, far_edge) {
+                    (true, false) => gpui::point(grip.left() + inset, grip.center().y),
+                    (true, true) => gpui::point(grip.right() - inset, grip.center().y),
+                    (false, false) => gpui::point(grip.center().x, grip.top() + inset),
+                    (false, true) => gpui::point(grip.center().x, grip.bottom() - inset),
+                };
+                let delta = if horizontal {
+                    gpui::point(px(40.0), px(0.0))
+                } else {
+                    gpui::point(px(0.0), px(40.0))
+                };
+                cx.simulate_event(gpui::MouseMoveEvent {
+                    position: start,
+                    ..Default::default()
+                });
+                cx.simulate_event(gpui::MouseDownEvent {
+                    position: start,
+                    button: gpui::MouseButton::Left,
+                    click_count: 1,
+                    ..Default::default()
+                });
+                assert!(view.read_with(cx, |model, _| model.split_resize.active()));
+                cx.simulate_event(gpui::MouseMoveEvent {
+                    position: start + delta,
+                    pressed_button: Some(gpui::MouseButton::Left),
+                    ..Default::default()
+                });
+                cx.simulate_event(gpui::MouseUpEvent {
+                    position: start + delta,
+                    button: gpui::MouseButton::Left,
+                    ..Default::default()
+                });
+                cx.run_until_parked();
+                assert!(!view.read_with(cx, |model, _| model.split_resize.active()));
+                let moved = line(pane_bounds(cx, &view, first)) - line(pane);
+                assert!(
+                    (moved - px(40.0)).abs() <= px(1.0),
+                    "{direction:?} moved {moved:?}"
+                );
+            }
+        }
+    }
+}
+
+#[gpui::test]
+fn divider_drag_ends_when_the_mouse_release_was_missed(cx: &mut TestAppContext) {
+    let (state, tab, _) = split_state();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1100.0), px(800.0)));
+    cx.run_until_parked();
+    let start = cx.debug_bounds("split-divider-[]").expect("grip").center();
+    cx.simulate_event(gpui::MouseDownEvent {
+        position: start,
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    cx.simulate_event(gpui::MouseMoveEvent {
+        position: start + gpui::point(px(50.0), px(0.0)),
+        pressed_button: Some(gpui::MouseButton::Left),
+        ..Default::default()
+    });
+    cx.simulate_event(gpui::MouseMoveEvent {
+        position: start + gpui::point(px(120.0), px(0.0)),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert!(!model.split_resize.active());
+        let muxy_app_core::Layout::Split { ratio, .. } = &model.tab(tab).expect("tab").layout
+        else {
+            panic!("split");
+        };
+        assert!(*ratio > 0.5);
+        assert_eq!(store::load(&model.path).expect("saved"), model.state);
+    });
+}
+
 #[gpui::test]
 fn divider_drag_persists_ratios_and_click_focus_routes_input(cx: &mut TestAppContext) {
     let (state, _, panes) = split_state();

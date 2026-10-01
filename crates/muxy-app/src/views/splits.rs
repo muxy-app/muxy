@@ -3,10 +3,11 @@ pub(crate) mod drag;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, DispatchPhase, InteractiveElement, IntoElement, MouseButton,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, SharedString, Styled, canvas, div,
-    point, px, relative,
+    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, HitboxBehavior, Hsla,
+    InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
+    Pixels, Point, SharedString, Styled, canvas, div, point, px, relative,
 };
 use muxy_app_core::{Axis, Branch, Layout, TabId};
 
@@ -42,6 +43,25 @@ impl SplitResizeState {
     pub(crate) fn end(&self) -> bool {
         self.0.borrow_mut().take().is_some()
     }
+    fn resizing(&self, tab: TabId, path: &[Branch]) -> bool {
+        self.0
+            .borrow()
+            .as_ref()
+            .is_some_and(|resize| resize.tab == tab && resize.path == path)
+    }
+    fn cursor(&self) -> Option<CursorStyle> {
+        self.0
+            .borrow()
+            .as_ref()
+            .map(|resize| resize_cursor(resize.axis))
+    }
+}
+
+fn resize_cursor(axis: Axis) -> CursorStyle {
+    match axis {
+        Axis::Horizontal => CursorStyle::ResizeLeftRight,
+        Axis::Vertical => CursorStyle::ResizeUpDown,
+    }
 }
 
 pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyElement> {
@@ -67,6 +87,9 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                 canvas(
                     move |bounds, window, _| geometry.set((bounds, window.scale_factor())),
                     move |_, (), window, _| {
+                        if let Some(cursor) = state.cursor() {
+                            window.set_window_cursor_style(cursor);
+                        }
                         let state_move = state.clone();
                         let model_move = weak.clone();
                         window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
@@ -77,7 +100,8 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                                 return;
                             };
                             let _ = model_move.update(cx, |model, cx| {
-                                if model.active_tab() == Some(resize.tab)
+                                if event.pressed_button == Some(MouseButton::Left)
+                                    && model.active_tab() == Some(resize.tab)
                                     && model
                                         .state
                                         .set_ratio(
@@ -90,6 +114,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                                     cx.notify();
                                 } else {
                                     model.split_resize.end();
+                                    model.save_split_resize(cx);
                                 }
                             });
                             cx.stop_propagation();
@@ -186,15 +211,26 @@ fn node(
     let mut second = node(second, tab, second_path, model, cx);
     let bounds = Rc::new(Cell::new(Bounds::default()));
     let measured = bounds.clone();
+    let divider = Rc::new(Cell::new(Bounds::default()));
+    let measured_divider = divider.clone();
     let state = model.split_resize.clone();
+    let resizing = state.resizing(tab, &path);
+    let hoverable = !state.active();
     let axis = *axis;
     let ratio = *ratio;
     let selector = format!("split-divider-{path:?}");
+    let grip = model.metrics.resize_handle_hit_area();
     let hit = div()
         .id(SharedString::from(format!("split-{tab}-{path:?}")))
         .debug_selector(move || selector.clone())
         .absolute()
-        .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+        .block_mouse_except_scroll()
+        .cursor(resize_cursor(axis))
+        .child(highlight(divider, resizing, hoverable, model.theme.accent))
+        .when(!model.webviews.panes.is_empty(), |hit| {
+            hit.child(model.webview_grip(None, resize_cursor(axis)))
+        })
+        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
             *state.0.borrow_mut() = Some(SplitResize {
                 tab,
                 path: path.clone(),
@@ -203,23 +239,24 @@ fn node(
                 pointer: event.position,
                 bounds: bounds.get(),
             });
+            window.refresh();
             cx.stop_propagation();
         });
+    // Centered on the 1px divider, which starts at `(extent - 1) * ratio`.
+    let offset = px(-ratio) - (grip - px(1.0)) * 0.5;
     let hit = match axis {
         Axis::Horizontal => hit
             .left(relative(ratio))
-            .ml(px(-ratio - 2.5))
+            .ml(offset)
             .top_0()
-            .w(px(6.0))
-            .h_full()
-            .cursor_ew_resize(),
+            .w(grip)
+            .h_full(),
         Axis::Vertical => hit
             .top(relative(ratio))
-            .mt(px(-ratio - 2.5))
+            .mt(offset)
             .left_0()
-            .h(px(6.0))
-            .w_full()
-            .cursor_ns_resize(),
+            .h(grip)
+            .w_full(),
     };
     let border = model.theme.border_solid();
     div()
@@ -233,6 +270,7 @@ fn node(
                     measured.set(bounds);
                     let [first_bounds, divider, second_bounds] =
                         split_bounds(bounds, axis, ratio, window.scale_factor());
+                    measured_divider.set(divider);
                     first.layout_as_root(first_bounds.size.into(), window, cx);
                     first.prepaint_at(first_bounds.origin, window, cx);
                     second.layout_as_root(second_bounds.size.into(), window, cx);
@@ -249,6 +287,34 @@ fn node(
         )
         .child(hit)
         .into_any_element()
+}
+
+/// Paints `divider` in the accent color while it is dragged, or while the
+/// pointer is over this element and `hoverable`.
+fn highlight(
+    divider: Rc<Cell<Bounds<Pixels>>>,
+    resizing: bool,
+    hoverable: bool,
+    accent: Hsla,
+) -> AnyElement {
+    canvas(
+        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+        move |_, hitbox, window, _| {
+            let hovered = hitbox.is_hovered(window);
+            if resizing || (hoverable && hovered) {
+                window.paint_quad(gpui::fill(divider.get(), accent));
+            }
+            let view = window.current_view();
+            window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
+                if phase == DispatchPhase::Capture && hitbox.is_hovered(window) != hovered {
+                    cx.notify(view);
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_full()
+    .into_any_element()
 }
 
 fn split_bounds(
@@ -365,6 +431,33 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn only_the_dragged_divider_highlights_and_holds_the_cursor() {
+        let state = SplitResizeState::default();
+        let tab = TabId::new();
+        assert_eq!(state.cursor(), None);
+        for (axis, cursor) in [
+            (Axis::Horizontal, CursorStyle::ResizeLeftRight),
+            (Axis::Vertical, CursorStyle::ResizeUpDown),
+        ] {
+            *state.0.borrow_mut() = Some(SplitResize {
+                tab,
+                path: vec![Branch::Second],
+                axis,
+                ratio: 0.5,
+                pointer: point(px(0.0), px(0.0)),
+                bounds: Bounds::default(),
+            });
+            assert!(state.resizing(tab, &[Branch::Second]));
+            assert!(!state.resizing(tab, &[]));
+            assert!(!state.resizing(TabId::new(), &[Branch::Second]));
+            assert_eq!(state.cursor(), Some(cursor));
+            assert!(state.end());
+            assert!(!state.resizing(tab, &[Branch::Second]));
+            assert_eq!(state.cursor(), None);
         }
     }
 
