@@ -481,8 +481,13 @@ impl AppModel {
         {
             self.finish_sidebar_resize(cx);
         }
+        let pending = self.tab_drag.pending();
         self.tab_drag
             .cancel_unavailable(self.state.current_project(), false);
+        if pending && !self.tab_drag.pending() {
+            cx.notify();
+        }
+        self.validate_layout_drag(cx);
         self.sync_tab_sidebar(cx);
     }
 }
@@ -516,6 +521,7 @@ impl Render for AppModel {
             .on_action(cx.listener(|model, _: &ToggleCommandPalette, window, cx| {
                 model.toggle_command_palette(window, cx);
             }))
+            .capture_key_down(cx.listener(AppModel::cancel_drag_on_escape))
             .track_focus(&self.focus)
             .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
             .relative()
@@ -579,6 +585,8 @@ impl Render for AppModel {
             .when(self.sidebar_resize.is_some(), |body| {
                 body.child(div().absolute().inset_0().cursor_ew_resize().occlude())
             })
+            .child(super::splits::drag::track_pointer(cx))
+            .child(super::splits::drag::overlay(self))
             .child(self.floating_composer(window, cx))
             .child(self.voice_panel())
             .children(super::banners::render(self, window, cx))

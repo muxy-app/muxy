@@ -363,12 +363,7 @@ fn tab_cell(
             MouseButton::Left,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 cx.stop_propagation();
-                model.tab_drag.begin(
-                    model.state.current_project().id,
-                    id,
-                    event.position,
-                    drag::Source::Titlebar,
-                );
+                model.begin_tab_drag(id, event.position, drag::Source::Titlebar, cx);
                 model.select_tab(id, cx);
                 model.focus_active(window, cx);
             }),

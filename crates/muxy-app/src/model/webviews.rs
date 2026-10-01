@@ -124,6 +124,7 @@ impl AppModel {
         let blocked = composer_dialog || self.overlay.is_some() || self.close_prompt.is_some();
         let resizing = self.sidebar_resize.is_some()
             || self.split_resize.active()
+            || self.layout_drag_pending()
             || self
                 .webviews
                 .panels
@@ -141,12 +142,13 @@ impl AppModel {
                 .view
                 .read(cx)
                 .native
-                .set_shortcuts(false, shortcuts.to_vec());
+                .set_shortcuts(self.layout_drag_pending(), shortcuts.to_vec());
             let Some(descriptor) = descriptors.get(id) else {
                 continue;
             };
+            let command_drag = window.modifiers().platform && self.pane_drag_available(*id);
             surface.view.update(cx, |view, cx| {
-                view.native.set_mouse_passthrough(resizing);
+                view.native.set_mouse_passthrough(resizing || command_drag);
                 view.update_content(descriptor.data.clone(), &self.theme, self.metrics, cx);
                 view.present(
                     visible.contains(id),
@@ -179,6 +181,12 @@ impl AppModel {
         }
     }
 
+    fn pane_drag_available(&self, pane: PaneId) -> bool {
+        self.pane_tab(pane)
+            .and_then(|tab| self.tab(tab))
+            .is_some_and(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
+    }
+
     /// Presents the extension sidebar and the open popover.
     fn sync_extension_surfaces(
         &self,
@@ -191,7 +199,8 @@ impl AppModel {
         if let Some(sidebar) = &self.webviews.sidebar {
             let visible = self.extension_sidebar_active() && self.sidebar_width() > 0.0;
             sidebar.surface.view.update(cx, |view, cx| {
-                view.native.set_shortcuts(false, shortcuts.to_vec());
+                view.native
+                    .set_shortcuts(self.layout_drag_pending(), shortcuts.to_vec());
                 view.native.set_mouse_passthrough(resizing);
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
@@ -367,13 +376,7 @@ impl AppModel {
                     SurfaceEvent::Request(request) => {
                         model.webview_request(view, request, window, cx);
                     }
-                    SurfaceEvent::Escape if view.read(cx).kind == SurfaceKind::Modal => {
-                        model.dismiss_webview_modal(cx);
-                    }
-                    SurfaceEvent::Escape if view.read(cx).kind == SurfaceKind::Popover => {
-                        model.close_extension_popover(cx);
-                    }
-                    SurfaceEvent::Escape => {}
+                    SurfaceEvent::Escape => model.webview_escape(view.read(cx).kind, cx),
                     SurfaceEvent::Shortcut(key) => {
                         dispatch_shortcut(key.clone(), window, cx);
                     }
@@ -384,6 +387,17 @@ impl AppModel {
             kind: String::new(),
             _subscription: subscription,
         })
+    }
+
+    pub(super) fn webview_escape(&mut self, kind: SurfaceKind, cx: &mut Context<Self>) {
+        if self.cancel_layout_drag(cx) {
+            return;
+        }
+        match kind {
+            SurfaceKind::Modal => self.dismiss_webview_modal(cx),
+            SurfaceKind::Popover => self.close_extension_popover(cx),
+            _ => {}
+        }
     }
 
     pub(crate) fn open_webview_tab(

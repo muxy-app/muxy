@@ -569,12 +569,7 @@ fn tab_row(
                 if let Some(pane) = agent_pane {
                     model.focus_pane(pane, cx);
                 }
-                model.tab_drag.begin(
-                    project,
-                    id,
-                    event.position,
-                    tab_strip::drag::Source::Sidebar,
-                );
+                model.begin_tab_drag(id, event.position, tab_strip::drag::Source::Sidebar, cx);
                 model.focus_active(window, cx);
             }),
         )

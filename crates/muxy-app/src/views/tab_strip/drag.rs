@@ -47,6 +47,10 @@ impl TabDragState {
         });
     }
 
+    pub(crate) fn pending(&self) -> bool {
+        self.gesture.is_some()
+    }
+
     fn is_from(&self, source: Source) -> bool {
         self.gesture
             .as_ref()
@@ -77,8 +81,23 @@ impl TabDragState {
 pub(crate) type TabBounds = Rc<RefCell<Vec<(TabId, Bounds<Pixels>)>>>;
 
 impl AppModel {
+    pub(crate) fn begin_tab_drag(
+        &mut self,
+        tab: TabId,
+        position: Point<Pixels>,
+        source: Source,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_drag
+            .begin(self.state.current_project().id, tab, position, source);
+        cx.notify();
+    }
+
     pub(crate) fn cancel_titlebar_drag(&mut self, cx: &mut Context<Self>) {
-        if self.tab_drag.end() {
+        let layout_changed = self.layout_drag.cancel();
+        let tab_changed = self.tab_drag.pending();
+        self.tab_drag.end();
+        if tab_changed || layout_changed {
             cx.notify();
         }
         #[cfg(target_os = "macos")]
@@ -112,11 +131,15 @@ fn move_pointer(
     bounds: &TabBounds,
     cx: &mut Context<AppModel>,
 ) {
+    let pending = model.tab_drag.pending();
     model.tab_drag.cancel_unavailable(
         model.state.current_project(),
         model.overlay.is_some() || model.close_prompt.is_some(),
     );
     let Some(drag) = &mut model.tab_drag.gesture else {
+        if pending {
+            cx.notify();
+        }
         return;
     };
     if !drag.active {
@@ -169,8 +192,8 @@ pub(crate) fn track_pointer(
                         if model.tab_drag.is_active() {
                             cx.stop_propagation();
                         }
-                    } else if model.tab_drag.end() {
-                        cx.notify();
+                    } else {
+                        model.cancel_titlebar_drag(cx);
                     }
                 });
             });
@@ -186,9 +209,9 @@ pub(crate) fn track_pointer(
                     }
                     move_pointer(model, event.position, &end_bounds, cx);
                     if model.tab_drag.end() {
-                        cx.notify();
                         cx.stop_propagation();
                     }
+                    cx.notify();
                 });
             });
         },

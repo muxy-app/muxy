@@ -1161,6 +1161,42 @@ mod tests {
     }
 
     #[test]
+    fn captured_escape_ignores_modifiers_and_restores_native_dispatch() {
+        let (sender, receiver) = async_channel::bounded(1);
+        for capture in [false, true, false] {
+            for binding in ["escape", "cmd-escape", "ctrl-escape", "alt-shift-escape"] {
+                let key = gpui::Keystroke::parse(binding).expect("escape");
+                let deliveries = Cell::new(0);
+                assert_eq!(
+                    route_key_event(
+                        key.clone(),
+                        capture,
+                        &[],
+                        &sender,
+                        || {
+                            deliveries.set(deliveries.get() + 1);
+                            false
+                        },
+                        || {
+                            deliveries.set(deliveries.get() + 1);
+                            false
+                        },
+                    ),
+                    capture,
+                );
+                assert_eq!(
+                    deliveries.get(),
+                    u32::from(!capture && key.modifiers.platform) * 2
+                );
+                if capture {
+                    assert!(matches!(receiver.try_recv(), Ok(Event::Escape)));
+                }
+                assert!(receiver.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn snapshots_pack_rows_in_bgra_order() {
         let rgba = vec![
             255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 10, 20, 30, 255,

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AppError, PaneId};
 
+mod docking;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Axis {
@@ -77,6 +79,30 @@ impl Layout {
                 second.split(pane, new, edge);
             }
             Self::Leaf(_) => {}
+        }
+    }
+
+    pub fn moved(&self, pane: PaneId, target: PaneId, edge: Option<Direction>) -> Option<Self> {
+        if pane == target || !self.contains(pane) || !self.contains(target) {
+            return None;
+        }
+        if let Some(edge) = edge {
+            return self.docked(pane, target, edge, 0);
+        }
+        let mut layout = self.clone();
+        layout.swap(pane, target);
+        Some(layout)
+    }
+
+    fn swap(&mut self, pane: PaneId, target: PaneId) {
+        match self {
+            Self::Leaf(id) if *id == pane => *id = target,
+            Self::Leaf(id) if *id == target => *id = pane,
+            Self::Leaf(_) => {}
+            Self::Split { first, second, .. } => {
+                first.swap(pane, target);
+                second.swap(pane, target);
+            }
         }
     }
 

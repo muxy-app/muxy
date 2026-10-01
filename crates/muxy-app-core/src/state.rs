@@ -631,6 +631,39 @@ impl AppState {
         Ok(id)
     }
 
+    pub fn move_pane(
+        &mut self,
+        pane: PaneId,
+        target: PaneId,
+        edge: Option<Direction>,
+    ) -> Result<(), AppError> {
+        let tab = self.pane_tab_mut(pane)?;
+        let layout = tab
+            .layout
+            .moved(pane, target, edge)
+            .ok_or_else(|| AppError::InvalidState("invalid pane drop".into()))?;
+        tab.layout = layout;
+        tab.zoomed = None;
+        self.focus_pane(pane)
+    }
+
+    pub fn dock_pane(
+        &mut self,
+        pane: PaneId,
+        anchor: PaneId,
+        edge: Direction,
+        level: usize,
+    ) -> Result<(), AppError> {
+        let tab = self.pane_tab_mut(pane)?;
+        let layout = tab
+            .layout
+            .docked(pane, anchor, edge, level)
+            .ok_or_else(|| AppError::InvalidState("invalid pane dock".into()))?;
+        tab.layout = layout;
+        tab.zoomed = None;
+        self.focus_pane(pane)
+    }
+
     pub fn focus_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
         let tab = self.pane_tab_mut(pane)?;
         if tab.zoomed.is_some() {

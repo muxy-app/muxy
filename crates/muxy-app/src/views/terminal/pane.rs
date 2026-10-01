@@ -917,6 +917,18 @@ impl TerminalPane {
         })
     }
 
+    pub(crate) fn command_click(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.hover_link(position, true, cx);
+        if let Some(target) = self.link_hover.target.clone() {
+            self.stop_selecting();
+            cx.emit(PaneEvent::OpenLink(target));
+        }
+    }
+
     fn mouse_down(
         &mut self,
         event: &gpui::MouseDownEvent,

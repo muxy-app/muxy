@@ -90,6 +90,37 @@ fn saved_json_is_readable_and_round_trips_every_field() -> TestResult {
 }
 
 #[test]
+fn removed_tab_groups_load_as_ordinary_tabs_without_losing_panes() -> TestResult {
+    let fixture = Fixture::new()?;
+    let mut state = populated()?;
+    let pane = state.home().tabs[0].panes[0].id;
+    state.split_pane(pane, muxy_app_core::Direction::Down)?;
+    let home = state.home().id;
+    let first = state.home().tabs[0].id;
+    let second = state.home().tabs[1].id;
+    state.select_tab(home, second)?;
+    let mut value = serde_json::to_value(&state)?;
+    value["window"]["tab_layouts"] = json!({
+        home.to_string(): {
+            "Split": {
+                "axis": "Horizontal",
+                "ratio": 0.6,
+                "first": {"Group": {"id": TabId::new(), "tabs": [first], "active": first}},
+                "second": {"Group": {"id": TabId::new(), "tabs": [second], "active": second}}
+            }
+        }
+    });
+    fixture.write(&value)?;
+    let restored = store::load(fixture.path())?;
+    assert_eq!(restored, state);
+    store::save(fixture.path(), &restored)?;
+    let saved: Value = serde_json::from_slice(&fs::read(fixture.path())?)?;
+    assert!(saved["window"].get("tab_layouts").is_none());
+    assert_eq!(store::load(fixture.path())?, state);
+    Ok(())
+}
+
+#[test]
 fn save_replaces_file_atomically_and_reuses_abandoned_temporary_file() -> TestResult {
     let fixture = Fixture::new()?;
     let mut state = populated()?;

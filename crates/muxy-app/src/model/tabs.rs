@@ -4,6 +4,30 @@ use muxy_app_core::{AppError, AppState, ProjectStatus, Tab, TabCloseScope, TabId
 use super::{AppModel, ConnectionState, Quitting};
 
 impl AppModel {
+    pub(crate) fn apply_layout_drop(
+        &mut self,
+        intent: crate::views::splits::drag::DropIntent,
+        cx: &mut Context<Self>,
+    ) {
+        if self.close_request.is_some() {
+            return;
+        }
+        if self.edit_tab(
+            |state| match intent.target {
+                crate::views::splits::drag::DropTarget::Swap(target) => {
+                    state.move_pane(intent.source, target, None)
+                }
+                crate::views::splits::drag::DropTarget::Dock { pane, edge, level } => {
+                    state.dock_pane(intent.source, pane, edge, level)
+                }
+            },
+            cx,
+        ) {
+            self.changed(cx);
+            self.focus_requested = true;
+        }
+    }
+
     pub(crate) fn tab(&self, id: TabId) -> Option<&Tab> {
         self.tab_project(id)?.tabs.iter().find(|tab| tab.id == id)
     }

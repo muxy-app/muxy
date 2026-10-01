@@ -482,11 +482,13 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let shortcuts = self.webview_shortcuts();
+        let capture_escape = self.layout_drag_pending();
         for (id, panel) in &mut self.webviews.panels {
             let visible = self.panels.placement(id).is_some();
             panel.focused = panel.is_focused(window, cx);
             panel.surface.view.update(cx, |view, cx| {
-                view.native.set_shortcuts(false, shortcuts.to_vec());
+                view.native
+                    .set_shortcuts(capture_escape, shortcuts.to_vec());
                 view.native.set_mouse_passthrough(resizing);
                 view.native.set_mouse_passthrough_left(
                     if panel.placement.position == PanelPosition::Right {

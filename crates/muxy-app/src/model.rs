@@ -130,6 +130,7 @@ pub(crate) struct AppModel {
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
     pub(crate) tab_drag: crate::views::tab_strip::TabDragState,
+    pub(crate) layout_drag: crate::views::splits::drag::LayoutDragState,
     pub(crate) project_logo_task: Option<Task<()>>,
     pub(crate) project_logos: crate::views::project_editor::logo::Cache,
     pub(crate) expanded_worktrees: HashSet<ProjectId>,
@@ -484,6 +485,7 @@ impl AppModel {
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
             tab_drag: crate::views::tab_strip::TabDragState::default(),
+            layout_drag: crate::views::splits::drag::LayoutDragState::default(),
             #[cfg(target_os = "macos")]
             window_drag: muxy_ui::window_drag::WindowDrag::new(&window.window_title()),
             #[cfg(target_os = "macos")]
@@ -2362,6 +2364,7 @@ mod tests {
     mod detach;
     mod find;
     mod git;
+    mod layout_drag;
     mod links;
     mod mouse;
     mod preferences;

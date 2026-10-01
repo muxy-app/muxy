@@ -1,3 +1,5 @@
+pub(crate) mod drag;
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -53,6 +55,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
         return Some(zoomed_frame(zoomed, model, cx));
     }
     let content = node(&tab.layout, tab.id, Vec::new(), model, cx);
+    let geometry = model.layout_drag.geometry.clone();
     let state = model.split_resize.clone();
     let weak = cx.weak_entity();
     Some(
@@ -62,7 +65,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
             .child(content)
             .child(
                 canvas(
-                    |_, _, _| (),
+                    move |bounds, window, _| geometry.set((bounds, window.scale_factor())),
                     move |_, (), window, _| {
                         let state_move = state.clone();
                         let model_move = weak.clone();
@@ -105,7 +108,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                     },
                 )
                 .absolute()
-                .size_full(),
+                .inset_0(),
             )
             .into_any_element(),
     )
