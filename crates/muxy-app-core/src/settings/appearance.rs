@@ -204,8 +204,17 @@ pub(crate) fn save_entry(
 }
 
 pub(crate) fn replace_section(path: &Path, section: &str, values: &impl Serialize) -> Result<()> {
+    replace_sections(path, [(section, toml::Value::try_from(values)?)])
+}
+
+pub(super) fn replace_sections<'a>(
+    path: &Path,
+    sections: impl IntoIterator<Item = (&'a str, toml::Value)>,
+) -> Result<()> {
     let mut document = read_document(path)?;
-    document.insert(section.into(), toml::Value::try_from(values)?);
+    for (section, value) in sections {
+        document.insert(section.into(), value);
+    }
     write_document(path, &document)
 }
 

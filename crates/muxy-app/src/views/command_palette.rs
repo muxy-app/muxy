@@ -41,6 +41,7 @@ impl AppModel {
         super::settings::register_commands(&mut registry, self);
         registry.register(super::theme_picker::command(self, dark, cx));
         self.register_extension_commands(&mut registry);
+        self.register_custom_commands(&mut registry);
         registry
     }
 

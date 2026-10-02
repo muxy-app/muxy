@@ -39,6 +39,10 @@ impl AppModel {
                     .flat_map(|context| self.settings.keymap.keys(shortcut.id, *context))
             })
             .collect();
+        used.extend(
+            self.custom_bindings()
+                .map(|(_, chord)| chord.as_str().to_owned()),
+        );
         let mut bindings = Vec::new();
         for extension in self.extensions.registry.active() {
             for command in &extension.manifest.commands {
@@ -150,6 +154,13 @@ impl AppModel {
         let mut registry = muxy_ui::shortcuts::Registry::new(&self.settings.keymap);
         for (command, key) in self.extension_bindings() {
             registry.register_dynamic(key.as_str(), command, Some("WorkspaceTabs"));
+        }
+        for (command, key) in self.custom_bindings() {
+            registry.register_dynamic(
+                key.as_str(),
+                command,
+                Some("WorkspaceTabs && !TextInput && !Menu && !Picker && !CommandPalette"),
+            );
         }
         cx.bind_keys(registry.into_bindings());
     }

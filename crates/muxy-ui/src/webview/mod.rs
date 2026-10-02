@@ -1263,6 +1263,8 @@ mod tests {
         for binding in [
             "ctrl-f",
             "ctrl-g",
+            "ctrl-a",
+            "alt-b",
             "alt-f",
             "f",
             "left",

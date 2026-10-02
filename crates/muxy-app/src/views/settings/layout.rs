@@ -21,7 +21,7 @@ impl Category {
             Self::Terminal => &["Text", "Behavior", "Configuration"],
             Self::Server => &["Connection", "Sessions", "Server control"],
             Self::Mobile => &["Access", "Pairing", "Devices"],
-            Self::Extensions => &[],
+            Self::Extensions | Self::Commands => &[],
         }
     }
 }

@@ -439,7 +439,13 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         settings.validate().map_err(|error| error.to_string())?;
-        let conflicts = shortcut_conflicts(&self.settings.keymap);
+        let mut conflicts = shortcut_conflicts(&self.settings.keymap);
+        conflicts.extend(self.custom_bindings().filter_map(|(command, chord)| {
+            combo_from_chord(chord.as_str()).map(|combo| ConflictCandidate {
+                label: format!("command {}", command.id),
+                combo,
+            })
+        }));
         let prepared = self
             .quick
             .shortcuts

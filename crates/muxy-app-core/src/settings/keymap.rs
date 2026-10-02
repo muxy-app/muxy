@@ -122,7 +122,7 @@ impl Keymap {
     }
 
     pub fn with_binding(&self, id: &str, chord: Option<KeyChord>) -> Result<Self> {
-        if shortcuts::find(id).is_none() && !extension_action(id) {
+        if shortcuts::find(id).is_none() && !extension_action(id) && !command_action(id) {
             return Err(Error::new("keymap", "unknown action"));
         }
         let reset = chord.is_none();
@@ -147,21 +147,38 @@ impl Keymap {
             .map_err(|error| Error::new("keymap", error))
     }
 
+    pub(super) fn overrides(&self) -> &BTreeMap<String, String> {
+        &self.1
+    }
+
     fn from_overrides(mut overrides: BTreeMap<String, String>) -> Result<Self> {
         overrides.retain(|name, _| !RETIRED.contains(&name.as_str()));
         let mut keymap = Self(Self::default().0, overrides.clone());
         let mut explicit = BTreeMap::new();
         for (name, value) in overrides {
             let key = format!("keymap.{name}");
-            if shortcuts::find(&name).is_none() && !extension_action(&name) {
+            if shortcuts::find(&name).is_none()
+                && !extension_action(&name)
+                && !command_action(&name)
+            {
                 return Err(Error::new(&key, "unknown action"));
             }
             if value.is_empty() && extension_action(&name) {
                 continue;
             }
-            let chord = value
+            let chord: KeyChord = value
                 .parse()
                 .map_err(|error: Error| Error::new(&key, error))?;
+            if command_action(&name)
+                && !["cmd-", "ctrl-", "alt-"]
+                    .iter()
+                    .any(|prefix| chord.as_str().starts_with(prefix))
+            {
+                return Err(Error::new(
+                    &key,
+                    "command shortcuts must include Command, Control, or Option",
+                ));
+            }
             explicit.insert(name, chord);
         }
         for action in [
@@ -208,7 +225,9 @@ impl Keymap {
         ] {
             if !explicit.contains_key(action.name())
                 && explicit.iter().any(|(id, chord)| {
-                    Some(chord) == keymap.chord(action) && same_scope(id, action.name())
+                    !command_action(id)
+                        && Some(chord) == keymap.chord(action)
+                        && same_scope(id, action.name())
                 })
             {
                 keymap.0.remove(action.name());
@@ -226,11 +245,37 @@ impl Keymap {
                 }
             }
         }
+        keymap.validate_command_aliases()?;
         let defaults = Self::default();
         keymap.1.retain(|id, chord| {
             chord.is_empty() || chord.parse::<KeyChord>().ok().as_ref() != defaults.0.get(id)
         });
         Ok(keymap)
+    }
+
+    fn validate_command_aliases(&self) -> Result<()> {
+        if !self.0.keys().any(|id| command_action(id)) {
+            return Ok(());
+        }
+        let mut builtins = BTreeMap::new();
+        for shortcut in shortcuts::ALL {
+            for context in shortcut.contexts {
+                for key in self.keys(shortcut.id, *context) {
+                    builtins.insert(key, shortcut.id);
+                }
+            }
+        }
+        for (id, chord) in &self.0 {
+            if command_action(id)
+                && let Some(other) = builtins.get(chord.as_str())
+            {
+                return Err(Error::new(
+                    format!("keymap.{id}"),
+                    format!("{chord} is also bound to keymap.{other}"),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -261,7 +306,15 @@ fn extension_action(id: &str) -> bool {
     id.starts_with("extension.") && id.len() <= 300 && id.split('.').count() >= 3
 }
 
+fn command_action(id: &str) -> bool {
+    id.strip_prefix("command.")
+        .is_some_and(super::commands::valid_id)
+}
+
 fn same_scope(left: &str, right: &str) -> bool {
+    if command_action(left) || command_action(right) {
+        return true;
+    }
     match (extension_action(left), extension_action(right)) {
         // Extension commands may share a key: an extension that is off keeps
         // its binding, and among those that are on the first to claim it wins.
@@ -279,7 +332,7 @@ impl ShortcutSettings for Keymap {
             return Vec::new();
         };
         let Some(shortcut) = shortcuts::find(id) else {
-            return if extension_action(id) {
+            return if extension_action(id) || command_action(id) {
                 vec![primary.as_str().to_owned()]
             } else {
                 Vec::new()

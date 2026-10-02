@@ -44,6 +44,7 @@ impl Boot {
         let terminal = muxy_app_core::settings::TerminalSettings::load(
             &state_path.with_file_name("ghostty.conf"),
         )?;
+        settings.validate_command_shortcuts(&terminal)?;
         let (work, updates) = bridge(state_path.with_file_name("server.sock"))?;
         work.send((1, Work::Connect))?;
         Ok(Self {

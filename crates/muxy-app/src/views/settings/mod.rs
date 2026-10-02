@@ -1,6 +1,7 @@
 mod ai;
 mod appearance;
 mod catalog;
+mod commands;
 mod composer;
 pub(crate) mod extensions;
 mod keyboard;
@@ -54,18 +55,20 @@ pub(crate) enum Category {
     Appearance,
     Terminal,
     Keyboard,
+    Commands,
     Server,
     Mobile,
     Extensions,
 }
 
 impl Category {
-    const ALL: [Self; 10] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
         Self::Appearance,
         Self::Keyboard,
+        Self::Commands,
         Self::Terminal,
         Self::Server,
         Self::Mobile,
@@ -82,6 +85,7 @@ impl Category {
             Self::Appearance => "Appearance",
             Self::Terminal => "Terminal",
             Self::Keyboard => "Keyboard",
+            Self::Commands => "Commands",
             Self::Server => "Server",
             Self::Mobile => "Mobile",
             Self::Extensions => "Extensions",
@@ -110,6 +114,8 @@ pub(crate) enum Change {
     Directory(muxy_app_core::settings::NewPaneDirectory),
     Field(&'static str, String),
     Binding(String, Option<muxy_app_core::settings::KeyChord>),
+    Command(muxy_app_core::settings::CustomCommand),
+    RemoveCommand(String),
     /// Removes an extension command's shortcut.
     Unassign(String),
     ShellIntegration(bool),
@@ -176,6 +182,7 @@ pub(crate) struct SettingsView {
     pub(crate) errors: HashMap<String, String>,
     pub(crate) notes: HashMap<String, String>,
     recording: Option<String>,
+    command_editor: Option<muxy_app_core::settings::CustomCommand>,
     focus_initialized: bool,
     compact: bool,
     picker_anchors: HashMap<PickerKind, PickerAnchor>,
@@ -250,6 +257,7 @@ impl SettingsView {
             errors: HashMap::new(),
             notes: HashMap::new(),
             recording: None,
+            command_editor: None,
             focus_initialized: false,
             compact: false,
             picker_anchors: [
@@ -279,6 +287,8 @@ impl SettingsView {
     fn create_fields(&mut self, cx: &mut Context<Self>) {
         let (theme, metrics) = (self.theme.clone(), self.metrics);
         for (id, multiline) in [
+            "command-name",
+            "command-text",
             "composer-font",
             "composer-line-height",
             "quick-width",
@@ -300,19 +310,31 @@ impl SettingsView {
                 let input = TextInput::new(InputStyle::field(&theme, &metrics), cx);
                 if multiline { input.multiline() } else { input }
             });
-            let changed = cx.subscribe(&input, move |pane: &mut Self, _, event, cx| match event {
-                InputEvent::Changed => {
-                    pane.dirty.insert(id);
-                    pane.results.dirty = true;
-                    cx.notify();
+            let changed = cx.subscribe(&input, move |pane: &mut Self, _, event, cx| {
+                if matches!(id, "command-name" | "command-text") {
+                    match event {
+                        InputEvent::Submitted => pane.save_command(cx),
+                        InputEvent::Cancelled => pane.cancel_command(cx),
+                        InputEvent::Changed => {
+                            cx.notify();
+                        }
+                    }
+                    return;
                 }
-                InputEvent::Submitted => pane.commit_field(id, cx),
-                InputEvent::Cancelled => {
-                    pane.dirty.remove(id);
-                    pane.errors.remove(id);
-                    pane.results.dirty = true;
-                    pane.sync_fields(cx);
-                    cx.notify();
+                match event {
+                    InputEvent::Changed => {
+                        pane.dirty.insert(id);
+                        pane.results.dirty = true;
+                        cx.notify();
+                    }
+                    InputEvent::Submitted => pane.commit_field(id, cx),
+                    InputEvent::Cancelled => {
+                        pane.dirty.remove(id);
+                        pane.errors.remove(id);
+                        pane.results.dirty = true;
+                        pane.sync_fields(cx);
+                        cx.notify();
+                    }
                 }
             });
             self.fields.insert(id, input);
@@ -493,6 +515,9 @@ impl SettingsView {
             self.errors.insert(id.into(), error.to_owned());
         } else {
             self.errors.remove(id);
+            if id == "commands" {
+                self.command_editor = None;
+            }
         }
         self.results.dirty = true;
         cx.notify();
@@ -578,8 +603,19 @@ impl SettingsView {
     }
 
     fn row_with(&self, id: &str, label: &str, control: AnyElement, stacked: bool) -> AnyElement {
+        self.row_with_description(id, label, None, control, stacked)
+    }
+
+    fn row_with_description(
+        &self,
+        id: &str,
+        label: &str,
+        description: Option<&str>,
+        control: AnyElement,
+        stacked: bool,
+    ) -> AnyElement {
         let setting = catalog::setting(id);
-        let description = setting.map(|setting| setting.description);
+        let description = description.or_else(|| setting.map(|setting| setting.description));
         let section = setting
             .filter(|setting| {
                 !catalog::SETTINGS

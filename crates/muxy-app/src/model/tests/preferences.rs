@@ -900,7 +900,9 @@ fn settings_controls_are_reachable_and_activated_with_the_keyboard(cx: &mut Test
     let (boot, _) = stub_boot(AppState::bootstrap().expect("state"));
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = settings_window(boot, cx);
-    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab tab tab tab tab tab space");
+    cx.simulate_keystrokes("cmd-shift-e");
+    cx.simulate_keystrokes(&"tab ".repeat(crate::views::settings::Category::ALL.len()));
+    cx.simulate_keystrokes("tab tab space");
     view.read_with(cx, |model, _| {
         assert_eq!(
             model.settings.window.close_behavior,
@@ -960,7 +962,9 @@ fn keyboard_navigation_reveals_every_shortcut_in_both_directions(cx: &mut TestAp
     let (view, cx) = settings_window(boot, cx);
     click_preference(cx, "settings-category-Keyboard");
     cx.simulate_resize(size(px(900.0), px(500.0)));
-    cx.simulate_keystrokes("cmd-shift-e tab tab tab tab tab tab tab tab tab tab tab");
+    cx.simulate_keystrokes("cmd-shift-e");
+    cx.simulate_keystrokes(&"tab ".repeat(crate::views::settings::Category::ALL.len()));
+    cx.simulate_keystrokes("tab");
     let settings = view.read_with(cx, |model, _| settings_view(model));
     for (index, shortcut) in muxy_core::shortcuts::ALL.iter().enumerate() {
         cx.update(|window, cx| {
@@ -1000,9 +1004,9 @@ fn tabbing_reveals_fields_below_a_short_settings_viewport(cx: &mut TestAppContex
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (_, cx) = settings_window(boot, cx);
     cx.simulate_resize(size(px(740.0), px(480.0)));
-    cx.simulate_keystrokes(
-        "cmd-shift-e tab tab tab tab tab tab tab tab tab tab tab tab tab tab tab tab",
-    );
+    cx.simulate_keystrokes("cmd-shift-e");
+    cx.simulate_keystrokes(&"tab ".repeat(crate::views::settings::Category::ALL.len()));
+    cx.simulate_keystrokes("tab tab tab tab tab tab");
     let row = cx
         .debug_bounds("settings-field-height")
         .expect("height field");

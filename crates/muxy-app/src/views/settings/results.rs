@@ -13,6 +13,7 @@ pub(super) struct Results {
     pub(super) shortcut_focus: Vec<[FocusHandle; 2]>,
     /// Record, reset, and unassign for each extension shortcut, by keymap id.
     pub(super) extension_focus: HashMap<String, [FocusHandle; 3]>,
+    pub(super) command_focus: HashMap<String, [FocusHandle; 4]>,
     pub(super) reveal_focus: Rc<Cell<bool>>,
     pub(super) dirty: bool,
     reset_scroll: bool,
@@ -23,6 +24,8 @@ pub(super) struct Results {
 enum Item {
     Section(Category),
     KeyboardHeading,
+    CommandsHeading,
+    CustomCommand(usize),
     Shortcut(usize),
     /// The heading above an extension's shortcuts, named by its first one.
     ExtensionHeading(usize),
@@ -56,6 +59,7 @@ impl Results {
                 })
                 .collect(),
             extension_focus: HashMap::new(),
+            command_focus: HashMap::new(),
             reveal_focus: Rc::new(Cell::new(false)),
             dirty: true,
             reset_scroll: true,
@@ -89,6 +93,13 @@ impl SettingsView {
                     .extension_shortcuts
                     .get(*index)
                     .and_then(|shortcut| self.results.extension_focus.get(&shortcut.id))
+                    .map(|focus| (item, &focus[..])),
+                Item::CustomCommand(index) => self
+                    .snapshot
+                    .settings
+                    .commands
+                    .get(*index)
+                    .and_then(|command| self.results.command_focus.get(&command.shortcut_id()))
                     .map(|focus| (item, &focus[..])),
                 _ => None,
             })
@@ -146,6 +157,7 @@ impl SettingsView {
                 Category::Appearance,
                 Category::Terminal,
                 Category::Keyboard,
+                Category::Commands,
                 Category::Server,
                 Category::Mobile,
                 Category::Extensions,
@@ -172,6 +184,14 @@ impl SettingsView {
                     }
                     items.push(Item::ExtensionShortcut(index));
                 }
+            } else if category == Category::Commands {
+                let commands = super::commands::matching(self);
+                if !commands.is_empty()
+                    || self.matches(category, "Custom commands shell terminal shortcuts")
+                {
+                    items.push(Item::CommandsHeading);
+                    items.extend(commands.into_iter().map(Item::CustomCommand));
+                }
             } else if !self.section_rows(category, window, cx).is_empty() {
                 items.push(Item::Section(category));
             }
@@ -180,18 +200,7 @@ impl SettingsView {
             items.push(Item::Empty);
         }
         items.push(Item::Footer);
-        for item in &items {
-            if let Item::ExtensionShortcut(index) = item {
-                let id = &self.snapshot.extension_shortcuts[*index].id;
-                if !self.results.row_focus.contains_key(id) {
-                    self.results.row_focus.insert(id.clone(), cx.focus_handle());
-                    self.results.extension_focus.insert(
-                        id.clone(),
-                        [(); 3].map(|()| cx.focus_handle().tab_stop(true)),
-                    );
-                }
-            }
-        }
+        self.refresh_shortcut_focus(&items, cx);
         let offset = self.results.state.logical_scroll_top();
         self.scrollbar.reset();
         if self.results.overdraw == overdraw {
@@ -204,6 +213,11 @@ impl SettingsView {
             0..items.len(),
             items.iter().map(|item| match item {
                 Item::Section(category) => Some(self.results.focus[category].clone()),
+                Item::CommandsHeading => Some(self.results.focus[&Category::Commands].clone()),
+                Item::CustomCommand(index) => Some(
+                    self.results.row_focus[&self.snapshot.settings.commands[*index].shortcut_id()]
+                        .clone(),
+                ),
                 Item::Shortcut(index) => {
                     Some(self.results.row_focus[muxy_core::shortcuts::ALL[*index].id].clone())
                 }
@@ -221,6 +235,44 @@ impl SettingsView {
         self.results.reset_scroll = false;
     }
 
+    fn refresh_shortcut_focus(&mut self, items: &[Item], cx: &mut Context<Self>) {
+        for item in items {
+            if let Item::ExtensionShortcut(index) = item {
+                let id = &self.snapshot.extension_shortcuts[*index].id;
+                if !self.results.row_focus.contains_key(id) {
+                    self.results.row_focus.insert(id.clone(), cx.focus_handle());
+                    self.results.extension_focus.insert(
+                        id.clone(),
+                        [(); 3].map(|()| cx.focus_handle().tab_stop(true)),
+                    );
+                }
+            }
+        }
+        let command_ids: std::collections::HashSet<_> = self
+            .snapshot
+            .settings
+            .commands
+            .iter()
+            .map(muxy_app_core::settings::CustomCommand::shortcut_id)
+            .collect();
+        self.results
+            .command_focus
+            .retain(|id, _| command_ids.contains(id));
+        self.results
+            .row_focus
+            .retain(|id, _| !id.starts_with("command.") || command_ids.contains(id));
+        for id in command_ids {
+            self.results
+                .row_focus
+                .entry(id.clone())
+                .or_insert_with(|| cx.focus_handle());
+            self.results
+                .command_focus
+                .entry(id)
+                .or_insert_with(|| [(); 4].map(|()| cx.focus_handle().tab_stop(true)));
+        }
+    }
+
     fn section_rows(
         &self,
         category: Category,
@@ -234,7 +286,7 @@ impl SettingsView {
             Category::Terminal => terminal::rows(self, window, cx),
             Category::Server => server::rows(self, cx),
             Category::Mobile => super::mobile::rows(self, cx),
-            Category::Keyboard => Vec::new(),
+            Category::Keyboard | Category::Commands => Vec::new(),
             Category::Extensions => {
                 if self.matches(
                     Category::Extensions,
@@ -292,6 +344,13 @@ impl SettingsView {
                 .child(self.section_heading(category, index == 0))
                 .children(self.section_rows(category, window, cx))
                 .into_any_element(),
+            Item::CommandsHeading => div()
+                .w_full()
+                .track_focus(&self.results.focus[&Category::Commands])
+                .child(self.section_heading(Category::Commands, index == 0))
+                .child(super::commands::heading(self, cx))
+                .into_any_element(),
+            Item::CustomCommand(index) => super::commands::row(self, index, cx),
             Item::KeyboardHeading => div()
                 .w_full()
                 .debug_selector(|| "settings-section-Keyboard".into())
@@ -317,7 +376,11 @@ impl SettingsView {
                 .child(self.note("No settings found. Try another search.", false))
                 .into_any_element(),
             Item::Footer => self.note(
-                    "Changes apply immediately. Press Return or leave a field to save text.",
+                    if self.category == Category::Commands {
+                        "Use Save to keep command edits. Shortcut changes apply immediately."
+                    } else {
+                        "Changes apply immediately. Press Return or leave a field to save text."
+                    },
                     false,
                 )
                 .into_any_element(),

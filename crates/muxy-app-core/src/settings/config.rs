@@ -12,6 +12,7 @@ use crate::settings::{Appearance, Error, Keymap, Result};
 pub struct Settings {
     pub ai: AiSettings,
     pub composer: super::ComposerSettings,
+    pub commands: Vec<super::CustomCommand>,
     pub panel_pins: BTreeMap<String, BTreeMap<String, bool>>,
     pub quick_terminal: crate::settings::QuickTerminalSettings,
     pub appearance: Appearance,
@@ -176,6 +177,7 @@ impl Settings {
     pub fn validate(&self) -> Result<()> {
         self.quick_terminal.validate()?;
         self.composer.validate()?;
+        self.validate_commands()?;
         for (name, value, minimum) in [
             ("width", self.window.default_size[0], 640.0),
             ("height", self.window.default_size[1], 400.0),

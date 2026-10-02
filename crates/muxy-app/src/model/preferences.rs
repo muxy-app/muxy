@@ -259,7 +259,13 @@ impl AppModel {
         let mut settings = self.settings.clone();
         settings.appearance = self.appearance.clone();
         let theme_changed = matches!(change, Change::Theme(..));
-        let bindings_changed = matches!(change, Change::Binding(..) | Change::Unassign(_));
+        let bindings_changed = matches!(
+            change,
+            Change::Binding(..)
+                | Change::Unassign(_)
+                | Change::Command(_)
+                | Change::RemoveCommand(_)
+        );
         match change {
             Change::QuickTerminal(quick) => {
                 self.apply_quick_settings(quick, cx)?;
@@ -346,16 +352,41 @@ impl AppModel {
                 settings.panes.new_pane_directory = value;
                 settings.save_panes(&path)?;
             }
+            Change::Command(command) => {
+                command.validate()?;
+                if let Some(existing) = settings
+                    .commands
+                    .iter_mut()
+                    .find(|existing| existing.id == command.id)
+                {
+                    *existing = command;
+                } else {
+                    settings.commands.push(command);
+                }
+                settings.validate_command_shortcuts(&self.terminal)?;
+                settings.save_commands(&path)?;
+            }
+            Change::RemoveCommand(id) => {
+                settings.commands.retain(|command| command.id != id);
+                settings.keymap = settings
+                    .keymap
+                    .with_binding(&format!("command.{id}"), None)?;
+                settings.save_commands(&path)?;
+            }
             Change::Binding(id, chord) => {
                 if let Some(chord) = &chord {
                     self.validate_quick_conflict(chord)?;
-                    if id.starts_with("extension.")
+                    if let Some(conflict) = self.custom_shortcut_conflict(&id, chord) {
+                        return Err(conflict.into());
+                    }
+                    if (id.starts_with("extension.") || id.starts_with("command."))
                         && let Some(conflict) = self.extension_shortcut_conflict(&id, chord)
                     {
                         return Err(conflict.into());
                     }
                 }
                 settings.keymap = settings.keymap.with_binding(&id, chord)?;
+                settings.validate_command_shortcuts(&self.terminal)?;
                 settings.keymap.save(&path)?;
                 cx.set_menus(crate::menus());
             }
@@ -453,6 +484,7 @@ impl AppModel {
             "adjust-cell-height" => requested.cell_height = value.parse::<CellHeight>()?,
             _ => return Err("Unknown terminal setting".into()),
         }
+        self.settings.validate_command_shortcuts(&requested)?;
         let effective = requested.save(&self.path.with_file_name("ghostty.conf"))?;
         let changed_size = self.terminal.font_size.to_bits() != effective.font_size.to_bits();
         self.terminal = effective;
@@ -622,6 +654,7 @@ impl AppModel {
 
 fn change_id(change: &Change) -> &str {
     match change {
+        Change::Command(_) | Change::RemoveCommand(_) => "commands",
         Change::QuickTerminal(_) => "quick-shortcut",
         Change::Theme(false, _) => "light-theme",
         Change::Theme(true, _) => "dark-theme",

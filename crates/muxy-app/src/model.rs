@@ -1,6 +1,7 @@
 pub(crate) mod ai;
 pub(crate) mod banners;
 mod catalog;
+pub(crate) mod commands;
 mod composer;
 mod diagnostics;
 pub(crate) mod extensions;
@@ -242,7 +243,11 @@ impl AppModel {
     pub(crate) fn reload_configuration(&mut self, cx: &mut Context<Self>) {
         let result = muxy_app_core::settings::TerminalSettings::load(
             &self.path.with_file_name("ghostty.conf"),
-        );
+        )
+        .and_then(|terminal| {
+            self.settings.validate_command_shortcuts(&terminal)?;
+            Ok(terminal)
+        });
         match result {
             Ok(terminal) => {
                 let themes = crate::theme::Catalog::load(&self.path.with_file_name("themes"));
@@ -544,6 +549,7 @@ impl AppModel {
             _panes: panes,
             _quit: quit,
         };
+        model.bind_extension_keys(cx);
         model.refresh_installed_extensions(cx);
         #[cfg(not(test))]
         Self::discover_ai_providers(cx);
@@ -2412,6 +2418,7 @@ mod tests {
     mod command_palette;
     mod composer;
     mod context_menu;
+    mod custom_commands;
     mod detach;
     mod find;
     mod git;

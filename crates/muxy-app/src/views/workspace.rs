@@ -274,6 +274,11 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
                 model.run_extension_command(&action.owner, &action.command, window, cx);
             },
         ))
+        .on_action(cx.listener(
+            |model, action: &crate::model::commands::RunCustomCommand, _, cx| {
+                model.run_custom_command(&action.id, cx);
+            },
+        ))
         .on_mouse_down(
             gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
             cx.listener(|model, _, _, cx| model.navigate(false, cx)),
