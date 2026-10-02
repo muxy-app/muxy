@@ -74,6 +74,7 @@ pub enum Message {
     },
     Fatal(ErrorReply),
     Input(Vec<u8>),
+    TerminalInput(crate::TerminalInput),
     Frame(ScreenFrame),
     Metadata(MetadataEvent),
     Mouse(MouseEvent),
@@ -107,6 +108,7 @@ impl Message {
             | Self::SessionEnded { .. }
             | Self::Fatal(_) => ChannelKind::Control,
             Self::Input(_)
+            | Self::TerminalInput(_)
             | Self::Frame(_)
             | Self::Metadata(_)
             | Self::Mouse(_)

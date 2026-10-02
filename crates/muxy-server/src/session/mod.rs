@@ -20,8 +20,12 @@ pub struct AttachmentId(pub u64);
 #[derive(Debug)]
 pub enum SessionCommand {
     Input(Vec<u8>),
+    TerminalInput(muxy_protocol::TerminalInput),
     WriteInput {
         bytes: Vec<u8>,
+        reply: Sender<Result<(), ServerError>>,
+    },
+    ClearScreen {
         reply: Sender<Result<(), ServerError>>,
     },
     Mouse(MouseEvent),

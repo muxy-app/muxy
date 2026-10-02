@@ -9,6 +9,8 @@ mod control;
 mod exec;
 pub use exec::{ExecRequest, ExecResult, MAX_EXEC_OUTPUT};
 mod ids;
+mod input;
+pub use input::{KeyAction, KeyEvent, KeyModifiers, TerminalInput};
 mod message;
 mod path;
 mod samples;

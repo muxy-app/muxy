@@ -71,8 +71,9 @@ impl EntityInputHandler for TerminalPane {
     }
 
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.keyboard.pending = None;
         let composition = std::mem::take(&mut self.composition);
-        self.send_paste(composition.text.as_bytes(), cx);
+        self.send_text(&composition.text, cx);
         if !composition.text.is_empty() {
             cx.notify();
         }
@@ -88,7 +89,10 @@ impl EntityInputHandler for TerminalPane {
         let mut composition = std::mem::take(&mut self.composition);
         let had_composition = !composition.text.is_empty();
         composition.replace(range, text);
-        self.send_paste(composition.text.as_bytes(), cx);
+        if had_composition {
+            self.keyboard.pending = None;
+        }
+        self.send_text(&composition.text, cx);
         if had_composition {
             cx.notify();
         }
@@ -105,6 +109,7 @@ impl EntityInputHandler for TerminalPane {
         if self.state != PaneState::Live {
             return;
         }
+        self.keyboard.pending = None;
         let start = self.composition.replace(range, text);
         let length = text.encode_utf16().count();
         self.composition.selection = selection.map_or(start + length..start + length, |range| {

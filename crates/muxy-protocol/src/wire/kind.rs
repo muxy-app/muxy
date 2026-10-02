@@ -26,6 +26,7 @@ pub enum MessageKind {
     SessionMetadata = 20,
     FilesChanged = 21,
     // 22 is retired; see `Changed`.
+    TerminalInput = 23,
 }
 
 impl MessageKind {
@@ -54,6 +55,7 @@ impl MessageKind {
             18 => Self::Progress,
             20 => Self::SessionMetadata,
             21 => Self::FilesChanged,
+            23 => Self::TerminalInput,
             _ => return Ok(None),
         }))
     }
@@ -76,6 +78,7 @@ impl From<&Message> for MessageKind {
             Message::SessionEnded { .. } => Self::SessionEnded,
             Message::Fatal(_) => Self::Fatal,
             Message::Input(_) => Self::Input,
+            Message::TerminalInput(_) => Self::TerminalInput,
             Message::Frame(_) => Self::Frame,
             Message::Metadata(_) => Self::Metadata,
             Message::Mouse(_) => Self::Mouse,

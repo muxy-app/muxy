@@ -164,6 +164,8 @@ pub enum RequestBody {
     RevokeDevice(#[n(0)] crate::DeviceId),
     #[n(39)]
     AttachWithoutResize(#[n(0)] SessionId),
+    #[n(40)]
+    ClearScreen(#[n(0)] ChannelId),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -269,6 +271,8 @@ pub enum ReplyBody {
     RemoteAccess(#[n(0)] crate::RemoteAccessState),
     #[n(35)]
     Pairing(#[n(0)] crate::PairingOffer),
+    #[n(36)]
+    ScreenCleared,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

@@ -102,6 +102,7 @@ mod tests {
     fn attachment() -> Attachment {
         Attachment {
             channel: ChannelId(1),
+            server_input: false,
             grid: RunGrid {
                 graphics: muxy_protocol::Graphics::default(),
                 prompts: std::collections::BTreeSet::default(),

@@ -43,6 +43,7 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
         | RequestBody::AttachWithoutResize(_)
         | RequestBody::Detach(_)
         | RequestBody::Resize { .. }
+        | RequestBody::ClearScreen(_)
         | RequestBody::Ping
         | RequestBody::ReadSavedScreen(_)
         | RequestBody::DiscardSession(_)

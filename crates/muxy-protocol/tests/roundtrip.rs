@@ -97,6 +97,7 @@ fn kind_numbers_are_fixed_and_unknown_kinds_are_ignored() -> Result<(), WireErro
         (18, MessageKind::Progress),
         (20, MessageKind::SessionMetadata),
         (21, MessageKind::FilesChanged),
+        (23, MessageKind::TerminalInput),
     ];
     for (number, kind) in kinds {
         assert_eq!(kind as u8, number);

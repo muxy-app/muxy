@@ -27,6 +27,8 @@ pub(crate) enum PaneEvent {
     SelectionCopied,
     Viewport(Size),
     Input(ChannelId, Vec<u8>),
+    TerminalInput(ChannelId, muxy_protocol::TerminalInput),
+    ClearScreen(ChannelId),
     Mouse(ChannelId, MouseEvent),
     CellSize(ChannelId, muxy_protocol::CellSize),
     Title(String),
@@ -81,6 +83,8 @@ pub(crate) struct TerminalPane {
     selection_scroll: Option<Task<()>>,
     pub(crate) input_modes: InputModes,
     pub(crate) composition: super::ime::Composition,
+    pub(super) keyboard: input::Keyboard,
+    server_input: bool,
     held_buttons: Vec<MouseButton>,
     last_mouse: Option<MouseEvent>,
     wheel_remainder: f32,
@@ -132,6 +136,9 @@ impl TerminalPane {
         let weak = cx.entity().downgrade();
         let keybindings = cx.intercept_keystrokes(move |event, window, cx| {
             let _ = weak.update(cx, |pane, cx| {
+                if pane.focus.is_focused(window) {
+                    pane.keyboard.pending = None;
+                }
                 pane.key_binding(&event.keystroke, false, window, cx);
             });
         });
@@ -159,6 +166,8 @@ impl TerminalPane {
             selection_scroll: None,
             input_modes: InputModes::default(),
             composition: super::ime::Composition::default(),
+            keyboard: input::Keyboard::default(),
+            server_input: false,
             held_buttons: Vec::new(),
             last_mouse: None,
             wheel_remainder: 0.0,
@@ -247,6 +256,7 @@ impl TerminalPane {
         self.saved_history = None;
         self.sent_cell_size = None;
         self.channel = Some(attachment.channel);
+        self.server_input = attachment.server_input;
         self.state = PaneState::Live;
         self.cursor_blink = super::cursor::CursorBlink::default();
         self.title = attachment.title;
@@ -693,6 +703,8 @@ impl TerminalPane {
     fn reset_input(&mut self) {
         self.stop_selecting();
         self.composition = super::ime::Composition::default();
+        self.keyboard = input::Keyboard::default();
+        self.server_input = false;
         self.link_hover = super::links::Hover::default();
         self.input_modes = InputModes::default();
         self.held_buttons.clear();
@@ -722,6 +734,14 @@ impl TerminalPane {
         }
         if !active {
             self.composition = super::ime::Composition::default();
+            if let Some(channel) = self.channel {
+                for event in self.keyboard.release_all() {
+                    cx.emit(PaneEvent::TerminalInput(
+                        channel,
+                        muxy_protocol::TerminalInput::Key(event),
+                    ));
+                }
+            }
             let buttons = std::mem::take(&mut self.held_buttons);
             if let (Some(channel), Some(event)) = (self.channel, self.last_mouse) {
                 for button in buttons {
@@ -739,7 +759,14 @@ impl TerminalPane {
             self.last_mouse = None;
             self.wheel_remainder = 0.0;
         }
-        if self.input_modes.focus_events
+        if self.server_input
+            && let Some(channel) = self.channel
+        {
+            cx.emit(PaneEvent::TerminalInput(
+                channel,
+                muxy_protocol::TerminalInput::Focus(active),
+            ));
+        } else if self.input_modes.focus_events
             && let Some(channel) = self.channel
         {
             cx.emit(PaneEvent::Input(
@@ -1225,45 +1252,109 @@ impl TerminalPane {
     }
 
     pub(crate) fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
-        if let Some(item) = cx.read_from_clipboard()
-            && let Some(grid) = &self.grid
-            && let Some(bytes) = clipboard::contents(&item, grid.modes)
-        {
-            self.send_paste(&bytes, cx);
+        if let Some(item) = cx.read_from_clipboard() {
+            if self.server_input
+                && let Some(text) = item.text()
+            {
+                self.send_clipboard(text.as_bytes(), cx);
+            } else if let Some(grid) = &self.grid
+                && let Some(bytes) = clipboard::contents(&item, grid.modes)
+            {
+                self.send_paste(&bytes, cx);
+            }
         }
     }
 
     pub(crate) fn drop_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid
-            && let Some(bytes) = clipboard::paths(paths, grid.modes)
+            && let Some(bytes) = clipboard::paths(
+                paths,
+                if self.server_input {
+                    muxy_protocol::Modes::default()
+                } else {
+                    grid.modes
+                },
+            )
         {
-            self.send_paste(&bytes, cx);
+            if self.server_input {
+                self.send_clipboard(&bytes, cx);
+            } else {
+                self.send_paste(&bytes, cx);
+            }
         }
     }
 
-    pub(super) fn send_paste(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
-        if self.state == PaneState::Live
-            && !bytes.is_empty()
-            && let Some(channel) = self.channel
+    fn prepare_input(&mut self, cx: &mut Context<Self>) -> Option<ChannelId> {
+        if self.state != PaneState::Live {
+            return None;
+        }
+        let channel = self.channel?;
+        if self.terminal.options.scroll_on_keystroke
+            && (self.scroll.view.is_some() || self.scroll.elastic != 0.0)
         {
-            if self.terminal.options.scroll_on_keystroke
-                && (self.scroll.view.is_some() || self.scroll.elastic != 0.0)
-            {
-                self.scroll_to_bottom(cx);
-            }
-            let redraw = !self.cursor_blink.visible
-                || (self.terminal.options.selection_clear_on_typing && self.selection.is_some());
-            if self.terminal.options.selection_clear_on_typing {
-                self.clear_selection();
-            }
-            self.restart_cursor_blink(cx);
-            if redraw {
-                cx.notify();
-            }
+            self.scroll_to_bottom(cx);
+        }
+        let redraw = !self.cursor_blink.visible
+            || (self.terminal.options.selection_clear_on_typing && self.selection.is_some());
+        if self.terminal.options.selection_clear_on_typing {
+            self.clear_selection();
+        }
+        self.restart_cursor_blink(cx);
+        if redraw {
+            cx.notify();
+        }
+        Some(channel)
+    }
+
+    pub(super) fn send_paste(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+        if !bytes.is_empty()
+            && let Some(channel) = self.prepare_input(cx)
+        {
             for chunk in bytes.chunks(muxy_protocol::MAX_INPUT) {
                 cx.emit(PaneEvent::Input(channel, chunk.to_vec()));
             }
         }
+    }
+
+    fn send_clipboard(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+        if !bytes.is_empty()
+            && let Some(channel) = self.prepare_input(cx)
+        {
+            // Each bounded chunk is a complete paste, so disconnects cannot leave an open fence.
+            for chunk in input::paste_chunks(bytes) {
+                cx.emit(PaneEvent::TerminalInput(
+                    channel,
+                    muxy_protocol::TerminalInput::Paste(chunk.to_vec()),
+                ));
+            }
+        }
+    }
+
+    fn send_key(&mut self, event: muxy_protocol::KeyEvent, cx: &mut Context<Self>) {
+        if let Some(channel) = self.prepare_input(cx) {
+            self.keyboard.press(&event);
+            cx.emit(PaneEvent::TerminalInput(
+                channel,
+                muxy_protocol::TerminalInput::Key(event),
+            ));
+        }
+    }
+
+    pub(super) fn send_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        if self.server_input
+            && let Some(mut event) = self.keyboard.pending.take()
+        {
+            event.text = text.into();
+            if !text.is_empty()
+                && muxy_protocol::TerminalInput::Key(event.clone())
+                    .validate()
+                    .is_ok()
+            {
+                self.send_key(event, cx);
+                return;
+            }
+        }
+        self.send_paste(text.as_bytes(), cx);
     }
 
     fn paste(&mut self, _: &muxy_ui::text_input::Paste, _: &mut Window, cx: &mut Context<Self>) {
@@ -1315,7 +1406,16 @@ impl TerminalPane {
                 if input::uses_text_input(key, self.option_as_alt()) {
                     return false;
                 }
-                if let Some(grid) = &self.grid
+                if self.server_input {
+                    self.send_key(
+                        input::key_event(
+                            key,
+                            self.keyboard.is_pressed(&key.key),
+                            self.option_as_alt(),
+                        ),
+                        cx,
+                    );
+                } else if let Some(grid) = &self.grid
                     && let Some(bytes) =
                         input::encode_with_bindings(key, grid.modes, self.option_as_alt(), false)
                 {
@@ -1330,8 +1430,35 @@ impl TerminalPane {
             TerminalAction::Reload => {
                 window.dispatch_action(Box::new(crate::views::workspace::ReloadConfiguration), cx);
             }
+            TerminalAction::ClearScreen => {
+                if self.state == PaneState::Live
+                    && let Some(channel) = self.channel
+                {
+                    if self.server_input {
+                        cx.emit(PaneEvent::TerminalInput(
+                            channel,
+                            muxy_protocol::TerminalInput::ClearScreen,
+                        ));
+                    } else {
+                        cx.emit(PaneEvent::ClearScreen(channel));
+                    }
+                }
+            }
             TerminalAction::ScrollTop => self.scroll_rows(f32::MAX, cx),
             TerminalAction::ScrollBottom => self.scroll_to_bottom(cx),
+            TerminalAction::ScrollPageUp | TerminalAction::ScrollPageDown => {
+                if let Some(grid) = &self.grid {
+                    let rows = f32::from(self.viewport.unwrap_or(grid.size).rows);
+                    self.scroll_rows(
+                        if action == TerminalAction::ScrollPageUp {
+                            rows
+                        } else {
+                            -rows
+                        },
+                        cx,
+                    );
+                }
+            }
             TerminalAction::IncreaseFontSize(amount) => self.terminal.zoom(amount),
             TerminalAction::DecreaseFontSize(amount) => self.terminal.zoom(-amount),
             TerminalAction::ResetFontSize => self.terminal.font_size = self.configured_font_size,
@@ -1367,6 +1494,17 @@ impl TerminalPane {
         }
         let option_as_alt = self.option_as_alt();
         if !event.is_held && input::uses_text_input(&event.keystroke, option_as_alt) {
+            if self.server_input {
+                self.keyboard.pending =
+                    Some(input::key_event(&event.keystroke, false, option_as_alt));
+            }
+            return;
+        }
+        if self.server_input {
+            // Cocoa's selector callback drops GPUI's held flag for nonprinting keys.
+            let held = event.is_held || self.keyboard.is_pressed(&event.keystroke.key);
+            self.send_key(input::key_event(&event.keystroke, held, option_as_alt), cx);
+            cx.stop_propagation();
             return;
         }
         if let Some(grid) = &self.grid
@@ -1378,6 +1516,27 @@ impl TerminalPane {
             )
         {
             self.send_paste(&bytes, cx);
+            cx.stop_propagation();
+        }
+    }
+}
+
+impl TerminalPane {
+    fn terminal_key_up(
+        &mut self,
+        event: &gpui::KeyUpEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.server_input
+            && self.state == PaneState::Live
+            && let Some(channel) = self.channel
+            && let Some(event) = self.keyboard.release(&event.keystroke)
+        {
+            cx.emit(PaneEvent::TerminalInput(
+                channel,
+                muxy_protocol::TerminalInput::Key(event),
+            ));
             cx.stop_propagation();
         }
     }
@@ -1475,6 +1634,7 @@ impl Render for TerminalPane {
                 }),
             )
             .on_key_down(cx.listener(Self::terminal_key_down))
+            .on_key_up(cx.listener(Self::terminal_key_up))
             .children(find::bar(self, cx))
             .child(
                 div()
@@ -1490,6 +1650,8 @@ impl Render for TerminalPane {
 #[allow(clippy::unwrap_used)]
 mod tests {
     mod autoscroll;
+    mod bindings;
+    mod server_input;
 
     use super::*;
     use gpui::{AppContext, TestAppContext, point, size};

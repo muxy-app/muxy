@@ -6,6 +6,7 @@
 mod error;
 mod events;
 mod ghostty;
+mod input;
 mod links;
 mod progress;
 mod runs;

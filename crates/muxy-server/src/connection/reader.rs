@@ -28,6 +28,10 @@ pub(super) enum Exit {
     Fatal,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Session input and control messages share the connection's ordered dispatch"
+)]
 pub(super) fn run(
     decoder: &mut Decoder<impl Read>,
     registry: &Arc<Registry>,
@@ -98,6 +102,17 @@ pub(super) fn run(
                 }
                 if let Some(handle) = outbox.handle(channel) {
                     let _ = handle.send(SessionCommand::Input(bytes));
+                }
+            }
+            (channel, Message::TerminalInput(input))
+                if channel.0 > 0 && channel.0 <= requests.last_channel.load(Ordering::Acquire) =>
+            {
+                if let Some(handle) = outbox.handle(channel) {
+                    if validation.is_err() {
+                        outbox.close_with(fatal("invalid terminal input"));
+                        return Ok(Exit::Fatal);
+                    }
+                    let _ = handle.send(SessionCommand::TerminalInput(input));
                 }
             }
             (channel, Message::CellSize(cell))
@@ -332,6 +347,17 @@ fn ordered_request(
         RequestBody::Resize { channel, size } => {
             outbox.resize(channel, id, size)?;
             return Ok(None);
+        }
+        RequestBody::ClearScreen(channel) => {
+            let handle = outbox.handle(channel).ok_or_else(|| {
+                ServerError::new(ErrorCode::UnknownChannel, "terminal is no longer attached")
+            })?;
+            let (reply, result) = mpsc::channel();
+            handle.send(SessionCommand::ClearScreen { reply })?;
+            result.recv_timeout(Duration::from_secs(5)).map_err(|_| {
+                ServerError::new(ErrorCode::BadRequest, "terminal clear was not confirmed")
+            })??;
+            ReplyBody::ScreenCleared
         }
         RequestBody::WriteInput { channel, bytes } => {
             let handle = outbox.handle(channel).ok_or_else(|| {

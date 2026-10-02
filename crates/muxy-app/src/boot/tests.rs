@@ -38,6 +38,10 @@ fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> Test
     ))?;
     received.recv_timeout(Duration::from_secs(2))?;
     work.send((1, Work::Input(ChannelId(1), b"input".to_vec())))?;
+    work.send((
+        1,
+        Work::TerminalInput(ChannelId(1), muxy_protocol::TerminalInput::ClearScreen),
+    ))?;
     work.send((1, Work::Ack(ChannelId(1), 17)))?;
     work.send((1, Work::Flush))?;
     let fast_path_completed = received.recv_timeout(Duration::from_secs(2));
@@ -84,7 +88,7 @@ fn fake_server(
         &Message::HelloReply {
             versions: SUPPORTED.to_vec(),
             server: muxy_protocol::ServerInfo::current(),
-            features: Vec::new(),
+            features: muxy_protocol::FEATURES.to_vec(),
         },
     )?;
     identify_desktop(&mut decoder, &mut encoder)?;
@@ -119,6 +123,13 @@ fn fake_server(
     assert_eq!(
         decoder.next()?,
         (ChannelId(1), Message::Input(b"input".to_vec()))
+    );
+    assert_eq!(
+        decoder.next()?,
+        (
+            ChannelId(1),
+            Message::TerminalInput(muxy_protocol::TerminalInput::ClearScreen)
+        )
     );
     assert_eq!(
         decoder.next()?,
@@ -235,6 +246,7 @@ fn attachment_update(channel: ChannelId) -> Result<Update, Box<dyn Error + Send 
         session: SessionId::from(std::num::NonZeroU64::MIN),
         attachment: Attachment {
             channel,
+            server_input: false,
             grid: muxy_client::RunGrid::from_snapshot(&snapshot),
             title: snapshot.title,
             directory: snapshot.directory,

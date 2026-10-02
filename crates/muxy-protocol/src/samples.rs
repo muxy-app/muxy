@@ -99,7 +99,7 @@ impl Message {
         samples.extend(git_review_samples());
         samples.extend(files_samples());
         samples.extend(snapshot.into_iter().flat_map(history_samples));
-        samples.extend(input_samples());
+        samples.extend(input_samples().into_iter().chain(terminal_input_samples()));
         samples.extend(acknowledged_input_samples());
         samples.extend(search_samples(session, channel));
         samples.extend(color_samples());
@@ -244,6 +244,14 @@ fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
             },
         },
         Message::Request {
+            id: RequestId(41),
+            body: RequestBody::ClearScreen(snapshot.channel),
+        },
+        Message::Reply {
+            id: RequestId(41),
+            body: ReplyBody::ScreenCleared,
+        },
+        Message::Request {
             id: RequestId(4),
             body: RequestBody::SavedHistoryPage {
                 session: SessionId::from(NonZeroU64::MIN),
@@ -312,6 +320,24 @@ fn input_samples() -> [Message; 2] {
             focus_events: true,
         })),
     ]
+}
+
+fn terminal_input_samples() -> [Message; 4] {
+    [
+        crate::TerminalInput::Key(crate::KeyEvent {
+            key: "a".into(),
+            text: "A".into(),
+            action: crate::KeyAction::Repeat,
+            modifiers: crate::KeyModifiers::SHIFT,
+            consumed_modifiers: crate::KeyModifiers::SHIFT,
+            unshifted_codepoint: u32::from('a'),
+            option_as_alt: true,
+        }),
+        crate::TerminalInput::Paste(b"one\ntwo".to_vec()),
+        crate::TerminalInput::Focus(true),
+        crate::TerminalInput::ClearScreen,
+    ]
+    .map(Message::TerminalInput)
 }
 
 fn settings_samples() -> Vec<Message> {

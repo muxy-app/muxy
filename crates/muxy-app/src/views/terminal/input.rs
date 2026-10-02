@@ -1,5 +1,135 @@
 use gpui::{Keystroke, Modifiers};
-use muxy_protocol::Modes;
+use muxy_protocol::{KeyAction, KeyEvent, KeyModifiers, Modes};
+
+#[derive(Default)]
+pub(super) struct Keyboard {
+    pub(super) pending: Option<KeyEvent>,
+    pressed: std::collections::BTreeMap<String, KeyEvent>,
+}
+
+impl Keyboard {
+    pub(super) fn is_pressed(&self, key: &str) -> bool {
+        self.pressed.contains_key(&identity(key))
+    }
+
+    pub(super) fn press(&mut self, event: &KeyEvent) {
+        if self.pressed.len() < 64 || self.is_pressed(&event.key) {
+            self.pressed.insert(identity(&event.key), event.clone());
+        }
+    }
+
+    pub(super) fn release(&mut self, key: &Keystroke) -> Option<KeyEvent> {
+        self.pending = None;
+        let mut event = self.pressed.remove(&identity(&key.key))?;
+        event.action = KeyAction::Release;
+        event.modifiers = modifiers(key.modifiers);
+        Some(event)
+    }
+
+    pub(super) fn release_all(&mut self) -> Vec<KeyEvent> {
+        self.pending = None;
+        std::mem::take(&mut self.pressed)
+            .into_values()
+            .map(|mut event| {
+                event.action = KeyAction::Release;
+                event
+            })
+            .collect()
+    }
+}
+
+fn identity(key: &str) -> String {
+    if let Some(index) = [
+        "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "{", "}", "|", ":", "\"", "<",
+        ">", "?", "~",
+    ]
+    .iter()
+    .position(|shifted| *shifted == key)
+    {
+        return [
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "[", "]", "\\", ";", "'",
+            ",", ".", "/", "`",
+        ][index]
+            .into();
+    }
+    key.to_lowercase()
+}
+
+fn modifiers(mods: Modifiers) -> KeyModifiers {
+    let mut result = KeyModifiers::default();
+    result.set(KeyModifiers::SHIFT, mods.shift);
+    result.set(KeyModifiers::ALT, mods.alt);
+    result.set(KeyModifiers::CTRL, mods.control);
+    result.set(KeyModifiers::SUPER, mods.platform);
+    result
+}
+
+pub(super) fn key_event(key: &Keystroke, held: bool, option_as_alt: bool) -> KeyEvent {
+    let logical = if key.key == "space" { " " } else { &key.key };
+    let character = (logical.chars().count() == 1).then(|| logical.to_owned());
+    let text = if key.modifiers.control || (key.modifiers.alt && option_as_alt) {
+        character.map(|text| {
+            if key.modifiers.shift {
+                text.to_uppercase()
+            } else {
+                text
+            }
+        })
+    } else {
+        key.key_char.clone().or(character)
+    }
+    .filter(|text| {
+        !text
+            .chars()
+            .any(|ch| ch.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&ch))
+    })
+    .unwrap_or_default();
+    let mut consumed = KeyModifiers::default();
+    if !text.is_empty() {
+        consumed.set(KeyModifiers::SHIFT, key.modifiers.shift);
+        consumed.set(KeyModifiers::ALT, key.modifiers.alt && !option_as_alt);
+    }
+    KeyEvent {
+        key: key.key.clone(),
+        action: if held {
+            KeyAction::Repeat
+        } else {
+            KeyAction::Press
+        },
+        modifiers: modifiers(key.modifiers),
+        consumed_modifiers: consumed,
+        unshifted_codepoint: if logical.chars().count() == 1 {
+            logical.chars().next().map_or(0, u32::from)
+        } else {
+            0
+        },
+        text,
+        option_as_alt,
+    }
+}
+
+pub(super) fn paste_chunks(mut bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+    std::iter::from_fn(move || {
+        if bytes.is_empty() {
+            return None;
+        }
+        let mut end = bytes.len().min(muxy_protocol::MAX_INPUT);
+        if end < bytes.len() {
+            while end > 0 && bytes[end] & 0xc0 == 0x80 {
+                end -= 1;
+            }
+            if end > 0 && bytes[end - 1] == b'\r' && bytes[end] == b'\n' {
+                end -= 1;
+            }
+            if end == 0 {
+                end = muxy_protocol::MAX_INPUT;
+            }
+        }
+        let (chunk, rest) = bytes.split_at(end);
+        bytes = rest;
+        Some(chunk)
+    })
+}
 
 pub(crate) fn uses_text_input(key: &Keystroke, option_as_alt: bool) -> bool {
     !key.modifiers.platform
@@ -230,6 +360,60 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn structured_keys_preserve_text_modifiers_and_pair_only_delivered_presses() {
+        let mut key = Keystroke::parse("alt-b").unwrap();
+        key.key_char = Some("∫".into());
+        let alt = key_event(&key, false, true);
+        assert_eq!(alt.text, "b");
+        assert_eq!(alt.modifiers, KeyModifiers::ALT);
+        assert_eq!(alt.consumed_modifiers, KeyModifiers::default());
+        let option = key_event(&key, true, false);
+        assert_eq!(option.text, "∫");
+        assert_eq!(option.consumed_modifiers, KeyModifiers::ALT);
+        assert_eq!(option.action, KeyAction::Repeat);
+        let mut keyboard = Keyboard {
+            pending: Some(alt.clone()),
+            ..Keyboard::default()
+        };
+        assert!(keyboard.release(&key).is_none());
+        assert!(keyboard.pending.is_none());
+        keyboard.press(&alt);
+        assert!(keyboard.is_pressed("b"));
+        assert_eq!(keyboard.release(&key).unwrap().action, KeyAction::Release);
+        assert!(!keyboard.is_pressed("b"));
+        let shifted = key_event(&Keystroke::parse("!").unwrap(), false, true);
+        keyboard.press(&shifted);
+        assert!(keyboard.release(&Keystroke::parse("1").unwrap()).is_some());
+        keyboard.press(&alt);
+        assert_eq!(keyboard.release_all().len(), 1);
+        assert!(keyboard.release_all().is_empty());
+    }
+
+    #[test]
+    fn paste_chunks_preserve_utf8_and_crlf_boundaries() {
+        for suffix in ["界\u{009b}tail", "\r\ntail"] {
+            let text = "a".repeat(muxy_protocol::MAX_INPUT - 1) + suffix;
+            let chunks: Vec<_> = paste_chunks(text.as_bytes()).collect();
+            assert_eq!(chunks.len(), 2);
+            assert!(
+                chunks
+                    .iter()
+                    .all(|chunk| chunk.len() <= muxy_protocol::MAX_INPUT)
+            );
+            assert!(
+                chunks
+                    .iter()
+                    .all(|chunk| std::str::from_utf8(chunk).is_ok())
+            );
+            assert!(!chunks[0].ends_with(b"\r"));
+            assert_eq!(chunks.concat(), text.as_bytes());
+        }
+        assert_eq!(paste_chunks(&[]).count(), 0);
+        let invalid = vec![0xff; muxy_protocol::MAX_INPUT + 1];
+        assert_eq!(paste_chunks(&invalid).collect::<Vec<_>>().concat(), invalid);
     }
 
     #[test]

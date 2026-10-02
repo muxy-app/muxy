@@ -5,6 +5,8 @@ use std::os::unix::fs::PermissionsExt;
 
 #[path = "client/attachment_timeout.rs"]
 mod attachment_timeout;
+#[path = "client/clear.rs"]
+mod clear;
 #[path = "client/close.rs"]
 mod close;
 #[path = "client/colors.rs"]
@@ -13,6 +15,8 @@ mod colors;
 mod composer;
 #[path = "client/cursor.rs"]
 mod cursor;
+#[path = "client/input.rs"]
+mod input;
 #[path = "client/links.rs"]
 mod links;
 #[path = "client/observe.rs"]

@@ -273,6 +273,10 @@ impl Owner {
         reason
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "One exhaustive dispatch preserves ordering between terminal input and PTY output"
+    )]
     fn serve(&mut self) -> Result<ExitReason, Fault> {
         loop {
             match self.next_wake() {
@@ -284,11 +288,20 @@ impl Owner {
                 Wake::Event(OwnerEvent::Command(SessionCommand::Input(bytes))) => {
                     self.input.send(bytes.into())?;
                 }
+                Wake::Event(OwnerEvent::Command(SessionCommand::TerminalInput(input))) => {
+                    self.terminal_input(input)?;
+                }
                 Wake::Event(OwnerEvent::Command(SessionCommand::WriteInput { bytes, reply })) => {
                     self.input.send(InputWrite {
                         bytes,
                         reply: Some(reply),
                     })?;
+                }
+                Wake::Event(OwnerEvent::Command(SessionCommand::ClearScreen { reply })) => {
+                    let result = self.clear_screen().map_err(|error| {
+                        ServerError::new(ErrorCode::BadRequest, format!("terminal clear: {error}"))
+                    });
+                    let _ = reply.send(result);
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::CellSize(cell))) => {
                     self.terminal.set_cell_size(cell)?;
@@ -425,6 +438,34 @@ impl Owner {
         self.compress_pending = true;
         self.next_checkpoint
             .get_or_insert_with(|| Instant::now() + CHECKPOINT);
+        Ok(())
+    }
+
+    fn terminal_input(&mut self, input: muxy_protocol::TerminalInput) -> Result<(), Fault> {
+        use muxy_protocol::TerminalInput;
+        let bytes = match input {
+            TerminalInput::Key(event) => self.terminal.encode_key(event)?,
+            TerminalInput::Paste(bytes) => self.terminal.encode_paste(bytes)?,
+            TerminalInput::Focus(focused) => self.terminal.encode_focus(focused)?,
+            TerminalInput::ClearScreen => return self.clear_screen(),
+        };
+        if !bytes.is_empty() {
+            self.input.send(bytes.into())?;
+        }
+        Ok(())
+    }
+
+    fn clear_screen(&mut self) -> Result<(), Fault> {
+        if self.terminal.clear_screen()? {
+            self.resize_pending = true;
+            self.output_pending = true;
+            self.detection_dirty = true;
+            self.next_checkpoint = Some(Instant::now());
+            let redraw = self.terminal.take_pty_output();
+            if !redraw.is_empty() {
+                self.input.send(redraw.into())?;
+            }
+        }
         Ok(())
     }
 

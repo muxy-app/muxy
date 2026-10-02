@@ -149,6 +149,8 @@ pub(crate) enum Work {
     Resize(ChannelId, Size),
     Colors(TerminalColors),
     Input(ChannelId, Vec<u8>),
+    TerminalInput(ChannelId, muxy_protocol::TerminalInput),
+    ClearScreen(ChannelId),
     Mouse(ChannelId, MouseEvent),
     CellSize(ChannelId, muxy_protocol::CellSize),
     Ack(ChannelId, u64),
@@ -198,6 +200,8 @@ impl Work {
             Self::Resize(..) => "Resize",
             Self::Colors(..) => "Colors",
             Self::Input(..) => "Input",
+            Self::TerminalInput(..) => "TerminalInput",
+            Self::ClearScreen(..) => "ClearScreen",
             Self::Mouse(..) => "Mouse",
             Self::CellSize(..) => "CellSize",
             Self::Ack(..) => "Ack",
@@ -365,6 +369,7 @@ fn bridge(socket: PathBuf) -> std::io::Result<(Worker, async_channel::Receiver<(
                             vec![Update::Error(error.into())]
                         }),
                         Work::Input(_, _)
+                        | Work::TerminalInput(_, _)
                         | Work::Mouse(_, _)
                         | Work::CellSize(_, _)
                         | Work::Ack(_, _) => client
@@ -751,6 +756,8 @@ fn perform(work: Work, client: &Client) -> Option<Update> {
         }
         Work::Colors(colors) => client.set_terminal_colors(colors),
         Work::Input(channel, bytes) => client.send_input(channel, &bytes),
+        Work::TerminalInput(channel, input) => client.send_terminal_input(channel, input),
+        Work::ClearScreen(channel) => client.clear_screen(channel),
         Work::WriteInput {
             channel,
             bytes,

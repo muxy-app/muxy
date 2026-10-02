@@ -1507,6 +1507,16 @@ impl AppModel {
                     model.send(Work::Input(*channel, bytes.clone()), cx);
                 }
             }
+            PaneEvent::TerminalInput(channel, input) => {
+                if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
+                    model.send(Work::TerminalInput(*channel, input.clone()), cx);
+                }
+            }
+            PaneEvent::ClearScreen(channel) => {
+                if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
+                    model.send(Work::ClearScreen(*channel), cx);
+                }
+            }
             PaneEvent::CellSize(channel, cell) => {
                 if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
                     model.send(Work::CellSize(*channel, *cell), cx);
@@ -2341,7 +2351,12 @@ impl AppModel {
     fn send(&mut self, work: Work, cx: &mut Context<Self>) -> bool {
         if !matches!(
             work,
-            Work::Input(..) | Work::Mouse(..) | Work::CellSize(..) | Work::Ack(..) | Work::Flush
+            Work::Input(..)
+                | Work::TerminalInput(..)
+                | Work::Mouse(..)
+                | Work::CellSize(..)
+                | Work::Ack(..)
+                | Work::Flush
         ) {
             crate::diagnostics::event(
                 "model.send",
@@ -3365,6 +3380,7 @@ mod tests {
         let screen = saved_screen();
         muxy_client::Attachment {
             channel: muxy_protocol::ChannelId(1),
+            server_input: false,
             grid: RunGrid {
                 graphics: muxy_protocol::Graphics::default(),
                 prompts: std::collections::BTreeSet::default(),

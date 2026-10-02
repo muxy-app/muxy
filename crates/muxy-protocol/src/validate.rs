@@ -58,6 +58,7 @@ impl Message {
             Self::Request { body, .. } => validate_request(body),
             Self::Reply { body, .. } => validate_reply(body),
             Self::Input(input) => validate_input(input),
+            Self::TerminalInput(input) => input.validate(),
             Self::Mouse(event) => validate_mouse(event),
             Self::CellSize(cell) => {
                 if (1..=4096).contains(&cell.width) && (1..=4096).contains(&cell.height) {
@@ -128,6 +129,13 @@ fn validate_mouse(event: &MouseEvent) -> Result<(), ErrorCode> {
 
 fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
     match body {
+        RequestBody::ClearScreen(channel) => {
+            if *channel == crate::CONTROL {
+                Err(ErrorCode::UnknownChannel)
+            } else {
+                Ok(())
+            }
+        }
         RequestBody::WriteInput { channel, bytes } => {
             if *channel == crate::CONTROL {
                 return Err(ErrorCode::UnknownChannel);
@@ -298,6 +306,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::ExecCancelled
         | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten
+        | ReplyBody::ScreenCleared
         | ReplyBody::Git(_)
         | ReplyBody::ProjectMutated { .. }
         | ReplyBody::SessionReferencesSynced

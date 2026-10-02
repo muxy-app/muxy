@@ -423,6 +423,14 @@ fn server_messages_repeated_hello_and_unknown_input_are_fatal() -> TestResult {
         (ChannelId(1), Message::Input(b"x".to_vec())),
         (CONTROL, Message::Input(b"x".to_vec())),
         (
+            CONTROL,
+            Message::TerminalInput(muxy_protocol::TerminalInput::ClearScreen),
+        ),
+        (
+            ChannelId(1),
+            Message::TerminalInput(muxy_protocol::TerminalInput::Focus(true)),
+        ),
+        (
             ChannelId(1),
             Message::Request {
                 id: RequestId(2),
@@ -435,6 +443,26 @@ fn server_messages_repeated_hello_and_unknown_input_are_fatal() -> TestResult {
         assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
         client.closed()?;
     }
+    Ok(())
+}
+
+#[test]
+fn invalid_structured_input_is_fatal_only_on_its_connection() -> TestResult {
+    let fixture = Fixture::new()?;
+    let mut client = fixture.client(true)?;
+    let session = fixture.create(&mut client)?;
+    let channel = client.attach(session.id)?.channel;
+    client.quiet()?;
+    client.send(
+        channel,
+        Message::TerminalInput(muxy_protocol::TerminalInput::Key(muxy_protocol::KeyEvent {
+            text: "\x1b".into(),
+            ..muxy_protocol::KeyEvent::default()
+        })),
+    )?;
+    assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
+    client.closed()?;
+    assert_eq!(fixture.registry.list().len(), 1);
     Ok(())
 }
 
@@ -537,6 +565,14 @@ fn detach_ignores_late_input_and_ack_and_does_not_reuse_channel() -> TestResult 
         ReplyBody::Detached
     );
     client.input(channel, b"exit 37\n")?;
+    client.send(
+        channel,
+        Message::TerminalInput(muxy_protocol::TerminalInput::Paste(b"exit 38\n".to_vec())),
+    )?;
+    client.send(
+        channel,
+        Message::TerminalInput(muxy_protocol::TerminalInput::ClearScreen),
+    )?;
     client.ack(channel, 1)?;
     assert_eq!(client.request(RequestBody::Ping)?, ReplyBody::Pong);
     thread::sleep(QUIET);

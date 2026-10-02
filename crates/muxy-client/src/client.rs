@@ -24,6 +24,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attachment {
     pub channel: ChannelId,
+    pub server_input: bool,
     pub grid: RunGrid,
     pub title: String,
     pub directory: ServerPath,
@@ -329,6 +330,7 @@ impl Client {
         };
         Ok(Attachment {
             channel: snapshot.channel,
+            server_input: self.supports(Feature::TERMINAL_INPUT),
             grid: RunGrid::from_snapshot(&snapshot),
             title: snapshot.title,
             directory: snapshot.directory,
@@ -403,6 +405,14 @@ impl Client {
         }
     }
 
+    pub fn clear_screen(&self, channel: ChannelId) -> Result<(), ClientError> {
+        session_channel(channel)?;
+        match self.request(RequestBody::ClearScreen(channel))? {
+            ReplyBody::ScreenCleared => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     /// Sets color defaults for this connection and its attached sessions.
     pub fn set_terminal_colors(&self, colors: TerminalColors) -> Result<(), ClientError> {
         match self.request(RequestBody::SetTerminalColors(colors))? {
@@ -421,6 +431,19 @@ impl Client {
     pub fn send_input(&self, channel: ChannelId, bytes: &[u8]) -> Result<(), ClientError> {
         session_channel(channel)?;
         self.send(channel, &Message::Input(bytes.to_vec()))
+    }
+
+    /// Requires `Feature::TERMINAL_INPUT`; raw input remains available for older servers.
+    pub fn send_terminal_input(
+        &self,
+        channel: ChannelId,
+        input: muxy_protocol::TerminalInput,
+    ) -> Result<(), ClientError> {
+        session_channel(channel)?;
+        if !self.supports(Feature::TERMINAL_INPUT) {
+            return Err(ClientError::Invalid(ErrorCode::Unsupported));
+        }
+        self.send(channel, &Message::TerminalInput(input))
     }
 
     pub fn write_input(&self, channel: ChannelId, bytes: Vec<u8>) -> Result<(), ClientError> {

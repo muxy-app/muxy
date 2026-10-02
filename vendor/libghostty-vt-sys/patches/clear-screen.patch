@@ -1,0 +1,76 @@
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -681,6 +681,32 @@
+     }
+ 
+     return .success;
++}
++
++pub fn clear_screen(terminal_: Terminal) callconv(lib.calling_conv) bool {
++    const t: *ZigTerminal = (terminal_ orelse return false).terminal;
++    if (t.screens.active_key == .alternate) return false;
++
++    const redraw_prompt = t.cursorIsAtPrompt();
++    t.screens.active.clearSelection();
++    t.eraseDisplay(.scrollback, false);
++    if (redraw_prompt) {
++        t.eraseDisplay(.complete, false);
++        // Erasing the display at a prompt can move its contents into history.
++        t.eraseDisplay(.scrollback, false);
++    } else {
++        if (t.screens.active.cursor.y > 0) {
++            t.screens.active.eraseActive(t.screens.active.cursor.y - 1);
++        }
++        if (comptime build_options.kitty_graphics) {
++            t.screens.active.kitty_images.delete(
++                t.screens.active.alloc,
++                t,
++                .{ .all = true },
++            );
++        }
++    }
++    return redraw_prompt;
+ }
+ 
+ pub fn reset(terminal_: Terminal) callconv(lib.calling_conv) void {
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -178,6 +178,7 @@
+ 
+ pub const terminal_new = terminal.new;
+ pub const terminal_free = terminal.free;
++pub const terminal_clear_screen = terminal.clear_screen;
+ pub const terminal_reset = terminal.reset;
+ pub const terminal_resize = terminal.resize;
+ pub const terminal_set = terminal.set;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -256,6 +256,7 @@
+         @export(&c.render_state_free, .{ .name = "ghostty_render_state_free" });
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
++        @export(&c.terminal_clear_screen, .{ .name = "ghostty_terminal_clear_screen" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -1227,6 +1227,18 @@
+ GHOSTTY_API void ghostty_terminal_free(GhosttyTerminal terminal);
+ 
+ /**
++ * Clear the primary screen and history without resetting modes or the VT parser.
++ *
++ * At a semantic prompt, clears the display and returns true so the caller can
++ * send form feed (0x0C) to the shell to repaint. Otherwise, removes rows above
++ * the cursor and returns false. On the alternate screen or a NULL terminal,
++ * does nothing and returns false. Does not write to the PTY callback.
++ *
++ * @ingroup terminal
++ */
++GHOSTTY_API bool ghostty_terminal_clear_screen(GhosttyTerminal terminal);
++
++/**
+  * Perform a full reset of the terminal (RIS).
+  *
+  * Resets all terminal state back to its initial configuration, including

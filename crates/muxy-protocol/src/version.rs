@@ -28,5 +28,10 @@ pub const SUPPORTED: &[Version] = &[CURRENT];
 #[cbor(transparent)]
 pub struct Feature(#[n(0)] pub u16);
 
+impl Feature {
+    /// Server-side key encoding, paste framing, focus reports and ordered screen clearing.
+    pub const TERMINAL_INPUT: Self = Self(1);
+}
+
 /// Features this build's server supports.
-pub const FEATURES: &[Feature] = &[];
+pub const FEATURES: &[Feature] = &[Feature::TERMINAL_INPUT];

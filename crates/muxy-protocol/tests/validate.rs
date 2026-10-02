@@ -621,6 +621,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::AttachWithoutResize(_),
                 ..
             } => ("AttachWithoutResize", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ClearScreen(_),
+                ..
+            } => ("ClearScreen", ChannelKind::Control),
             Message::Request { .. } => ("Request", ChannelKind::Control),
             Message::FrameAck { .. } => ("FrameAck", ChannelKind::Control),
             Message::HelloReply { .. } => ("HelloReply", ChannelKind::Control),
@@ -649,10 +653,23 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: ReplyBody::InputWritten,
                 ..
             } => ("InputWritten", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ScreenCleared,
+                ..
+            } => ("ScreenCleared", ChannelKind::Control),
             Message::Reply { .. } => ("Reply", ChannelKind::Control),
             Message::SessionEnded { .. } => ("SessionEnded", ChannelKind::Control),
             Message::Fatal(_) => ("Fatal", ChannelKind::Control),
             Message::Input(_) => ("Input", ChannelKind::Session),
+            Message::TerminalInput(input) => (
+                match input {
+                    muxy_protocol::TerminalInput::Key(_) => "KeyInput",
+                    muxy_protocol::TerminalInput::Paste(_) => "PasteInput",
+                    muxy_protocol::TerminalInput::Focus(_) => "FocusInput",
+                    muxy_protocol::TerminalInput::ClearScreen => "ClearInput",
+                },
+                ChannelKind::Session,
+            ),
             Message::Mouse(_) => ("Mouse", ChannelKind::Session),
             Message::Frame(_) => ("Frame", ChannelKind::Session),
             Message::Metadata(MetadataEvent::History { .. }) => {
@@ -729,6 +746,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "AttachWithoutResize",
             "WriteInput",
             "InputWritten",
+            "ClearScreen",
+            "ScreenCleared",
             "StopServer",
             "StopServerIfIdle",
             "ServerBusy",
@@ -757,6 +776,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "SessionEnded",
             "Fatal",
             "Input",
+            "KeyInput",
+            "PasteInput",
+            "FocusInput",
+            "ClearInput",
             "Mouse",
             "InputModes",
             "CursorBlinking",
@@ -862,6 +885,19 @@ fn snapshot() -> AttachSnapshot {
         history_cursor: None,
         history_total: 0,
     }
+}
+
+#[test]
+fn clear_screen_requires_a_session_channel() {
+    assert_eq!(
+        request(RequestBody::ClearScreen(CONTROL)).validate(),
+        Err(ErrorCode::UnknownChannel)
+    );
+    assert_eq!(
+        request(RequestBody::ClearScreen(ChannelId(1))).validate(),
+        Ok(())
+    );
+    assert_eq!(reply(ReplyBody::ScreenCleared).validate(), Ok(()));
 }
 
 #[test]

@@ -55,6 +55,7 @@ pub struct Terminal {
     mouse_encoder: mouse::Encoder<'static>,
     mouse_event: mouse::Event<'static>,
     held_buttons: Vec<MouseButton>,
+    keyboard: crate::input::Keyboard,
     graphics_cache: crate::graphics::Cache,
     cell: crate::CellSize,
 }
@@ -123,6 +124,7 @@ impl Terminal {
             },
             mouse_event: mouse::Event::new().map_err(create)?,
             held_buttons: Vec::new(),
+            keyboard: crate::input::Keyboard::new().map_err(create)?,
             graphics_cache: crate::graphics::Cache::default(),
             cell: crate::CellSize::default(),
         })
@@ -230,6 +232,27 @@ impl Terminal {
             }
         }
         self.engine.vt_write(&bytes[start..]);
+    }
+
+    /// Clear the primary screen and history; queue a shell redraw only at a semantic prompt.
+    pub fn clear_screen(&mut self) -> Result<bool, TerminalError> {
+        if self
+            .engine
+            .active_screen()
+            .map_err(|error| TerminalError::wrap(TerminalStep::History, error))?
+            == Screen::Alternate
+        {
+            return Ok(false);
+        }
+        if self.engine.clear_screen() {
+            self.pty_output.borrow_mut().push(0x0c);
+        }
+        self.primary_history = Ok(Vec::new());
+        self.history_generation = self.history_generation.wrapping_add(1);
+        self.history_anchor = None;
+        self.history_count = 0;
+        self.redraw_all = true;
+        Ok(true)
     }
 
     pub fn take_events(&mut self) -> Vec<TerminalEvent> {
@@ -344,6 +367,25 @@ impl Terminal {
                 && self.engine.active_screen().map_err(query)? == Screen::Alternate,
             focus_events: self.engine.mode(Mode::FOCUS_EVENT).map_err(query)?,
         })
+    }
+
+    pub fn encode_key(&mut self, event: muxy_protocol::KeyEvent) -> Result<Vec<u8>, TerminalError> {
+        self.keyboard
+            .encode(&self.engine, event)
+            .map_err(|error| TerminalError::wrap(TerminalStep::Input, error))
+    }
+
+    pub fn encode_paste(&self, bytes: Vec<u8>) -> Result<Vec<u8>, TerminalError> {
+        crate::input::paste(bytes, self.modes()?.bracketed_paste)
+            .map_err(|error| TerminalError::wrap(TerminalStep::Input, error))
+    }
+
+    pub fn encode_focus(&self, focused: bool) -> Result<Vec<u8>, TerminalError> {
+        if self.input_modes()?.focus_events {
+            Ok(if focused { b"\x1b[I" } else { b"\x1b[O" }.to_vec())
+        } else {
+            Ok(Vec::new())
+        }
     }
 
     pub fn encode_mouse(&mut self, event: &MouseEvent) -> Result<Vec<u8>, TerminalError> {

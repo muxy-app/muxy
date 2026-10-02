@@ -208,6 +208,7 @@ mod tests {
         };
         Attachment {
             channel,
+            server_input: false,
             grid: RunGrid::from_snapshot(&snapshot),
             title: snapshot.title,
             directory: snapshot.directory,

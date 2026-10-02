@@ -92,6 +92,9 @@ fn fields(
         Message::Mouse(event) => {
             encoder.array(1)?.encode(event)?;
         }
+        Message::TerminalInput(input) => {
+            encoder.array(1)?.encode(input)?;
+        }
         Message::CellSize(cell) => {
             encoder.array(1)?.encode(cell)?;
         }
@@ -200,6 +203,7 @@ fn message(kind: MessageKind, fields: &mut Fields<'_, '_>) -> Result<Message, De
         MessageKind::Frame => Message::Frame(fields.next()?),
         MessageKind::Metadata => Message::Metadata(fields.next()?),
         MessageKind::Mouse => Message::Mouse(fields.next()?),
+        MessageKind::TerminalInput => Message::TerminalInput(fields.next()?),
         MessageKind::CellSize => Message::CellSize(fields.next()?),
         MessageKind::Input => return Err(DecodeError::message("input is raw bytes, not CBOR")),
     })

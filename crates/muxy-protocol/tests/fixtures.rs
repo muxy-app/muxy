@@ -118,6 +118,7 @@ fn kind_name(kind: MessageKind) -> &'static str {
         MessageKind::SessionEnded => "session_ended",
         MessageKind::Fatal => "fatal",
         MessageKind::Input => "input",
+        MessageKind::TerminalInput => "terminal_input",
         MessageKind::Frame => "frame",
         MessageKind::Metadata => "metadata",
         MessageKind::Mouse => "mouse",

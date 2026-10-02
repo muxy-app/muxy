@@ -1254,6 +1254,52 @@ window-save-state = always
 }
 
 #[test]
+fn terminal_standard_actions_round_trip_and_respect_overrides() -> Result {
+    use muxy_app_core::settings::TerminalAction;
+    let fixture = Fixture::new()?;
+    let path = fixture.write("ghostty.conf", "")?;
+    for (chord, action) in [
+        ("cmd-backspace", TerminalAction::Text(b"\x15".to_vec())),
+        ("cmd-left", TerminalAction::Text(b"\x01".to_vec())),
+        ("cmd-right", TerminalAction::Text(b"\x05".to_vec())),
+        ("cmd-k", TerminalAction::ClearScreen),
+        ("cmd-a", TerminalAction::SelectAll),
+        ("cmd-home", TerminalAction::ScrollTop),
+        ("cmd-end", TerminalAction::ScrollBottom),
+        ("cmd-pageup", TerminalAction::ScrollPageUp),
+        ("cmd-pagedown", TerminalAction::ScrollPageDown),
+        ("cmd-0", TerminalAction::ResetFontSize),
+    ] {
+        fs::write(&path, "")?;
+        let mut settings = TerminalSettings::load_with_seed(&path, None)?;
+        let chord = chord.parse()?;
+        assert_eq!(settings.keybindings.action(&chord), Some(&action));
+        settings
+            .keybindings
+            .bindings
+            .insert(chord.clone(), action.clone());
+        let saved = settings.save(&path)?;
+        assert_eq!(saved.keybindings.action(&chord), Some(&action));
+        settings
+            .keybindings
+            .bindings
+            .insert(chord.clone(), TerminalAction::Unbind);
+        assert_eq!(
+            settings.save(&path)?.keybindings.action(&chord),
+            Some(&TerminalAction::Unbind)
+        );
+        fs::write(&path, "keybind = clear\n")?;
+        assert_eq!(
+            TerminalSettings::load_with_seed(&path, None)?
+                .keybindings
+                .action(&chord),
+            None
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn terminal_alias_defaults_can_be_overridden_unbound_and_cleared() -> Result {
     use muxy_app_core::settings::TerminalAction;
     let fixture = Fixture::new()?;
