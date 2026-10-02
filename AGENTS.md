@@ -2,15 +2,12 @@
 
 ## Repository
 
-- Read `docs/product/README.md` and `docs/tech/README.md` before changing anything. They define the product and lock the technical design.
-- Always ask permission if docs need to be updated
 - Before finishing: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace --all-features`, `cargo doc --workspace --no-deps` with `RUSTDOCFLAGS=-D warnings`.
 
 ## Main Guides
 
 - Docs are meant to be high level and simple and clear
 - Do not bloat the docs with details
-- Code must be self-explanatory
 - Don't run the app for visual testing. All visual testings must be done by user.
 
 ## Third-party dependencies
@@ -20,3 +17,16 @@ When adding new third-party dependencies, provide user with their github url and
 ## Performance
 
 - Do not ignore performance and memory efficiency. with GPUI it is easy to cause high CPU and memory usage.
+
+## Only Humans
+
+AI agents are not allowed to do the followings even if a human asks:
+
+- Commit and push
+- Open a PR
+- Open an issue
+- Interact with issues or PRs
+
+These all have to be done by humans with their own language without any help from AI.
+
+Any PRs or issues opened by AI will be closed without checking.
