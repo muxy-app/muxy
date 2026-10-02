@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
 <body>
-<div id="editor" contenteditable="true">native clipboard probe</div>
+<div id="editor" contenteditable="true" style="white-space: pre; font: 16px/20px monospace">native clipboard probe</div>
 <script>
   const editor = document.getElementById('editor');
   const events = [];
@@ -15,6 +15,22 @@
   };
   window.probeText = () => editor.textContent;
   window.probeEvents = () => events.join(',');
+  let preventNavigation = false;
+  window.resetNavigationProbe = (prevent = false) => {
+    events.length = 0;
+    preventNavigation = prevent;
+    editor.textContent = 'alpha\nbravo\ncharlie';
+    editor.focus();
+    getSelection().setPosition(editor.firstChild, 8);
+    return document.hasFocus();
+  };
+  window.probeSelection = () => `${getSelection().anchorOffset}:${getSelection().focusOffset}`;
+  editor.addEventListener('keydown', event => {
+    if (event.key.startsWith('Arrow')) {
+      events.push(event.key);
+      if (preventNavigation) event.preventDefault();
+    }
+  });
   editor.addEventListener('copy', event => {
     events.push('copy');
     event.clipboardData.setData('text/plain', getSelection().toString());

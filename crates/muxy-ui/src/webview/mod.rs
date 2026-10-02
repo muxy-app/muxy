@@ -1036,39 +1036,46 @@ fn monitor(
     let monitor = RcBlock::new(move |event: ptr::NonNull<NSEvent>| -> *mut NSEvent {
         let event_ref = unsafe { event.as_ref() };
         let event = event.as_ptr();
-        if !monitor_view.isHidden()
-            && monitor_view.window().is_some_and(|window| {
+        if monitor_view.isHidden() {
+            return event;
+        }
+        let Some(responder) = monitor_view
+            .window()
+            .filter(|window| {
                 window.isKeyWindow()
-                    && window.firstResponder().is_some_and(|responder| {
-                        let view: &NSView = &monitor_view;
-                        ptr::eq(&raw const *responder, &raw const **view)
-                            || responder
-                                .downcast_ref::<NSView>()
-                                .is_some_and(|responder| responder.isDescendantOf(view))
-                    })
+                    && event_ref.window(monitor_view.mtm()).as_ref() == Some(window)
             })
-            && route_key_event(
-                keystroke(event_ref),
-                monitor_delegate.ivars().modal.get(),
-                &monitor_delegate.ivars().shortcuts.borrow(),
-                &sender,
-                || monitor_view.performKeyEquivalent(event_ref),
-                || {
-                    let app = NSApplication::sharedApplication(monitor_view.mtm());
-                    let Some(key) = event_ref.charactersIgnoringModifiers() else {
-                        return false;
-                    };
-                    app.mainMenu().is_some_and(|menu| {
-                        native_menu_key_equivalent(
-                            &menu,
-                            &key,
-                            event_ref.modifierFlags(),
-                            &monitor_view,
-                        )
-                    })
-                },
-            )
-        {
+            .and_then(|window| window.firstResponder())
+            .filter(|responder| {
+                responder
+                    .downcast_ref::<NSView>()
+                    .is_some_and(|responder| responder.isDescendantOf(&monitor_view))
+            })
+        else {
+            return event;
+        };
+        if route_key_event(
+            keystroke(event_ref),
+            monitor_delegate.ivars().modal.get(),
+            &monitor_delegate.ivars().shortcuts.borrow(),
+            &sender,
+            || monitor_view.performKeyEquivalent(event_ref),
+            || {
+                let app = NSApplication::sharedApplication(monitor_view.mtm());
+                let Some(key) = event_ref.charactersIgnoringModifiers() else {
+                    return false;
+                };
+                app.mainMenu().is_some_and(|menu| {
+                    native_menu_key_equivalent(
+                        &menu,
+                        &key,
+                        event_ref.modifierFlags(),
+                        &monitor_view,
+                    )
+                })
+            },
+            || responder.keyDown(event_ref),
+        ) {
             return ptr::null_mut();
         }
         event
@@ -1115,6 +1122,7 @@ fn route_key_event(
     sender: &Sender<Event>,
     page_key_equivalent: impl FnOnce() -> bool,
     menu_key_equivalent: impl FnOnce() -> bool,
+    page_key_down: impl FnOnce(),
 ) -> bool {
     if keystroke.key == "escape" && modal {
         let _ = sender.try_send(Event::Escape);
@@ -1126,7 +1134,12 @@ fn route_key_event(
     {
         return sender.try_send(Event::Shortcut(keystroke)).is_ok();
     }
-    keystroke.modifiers.platform && (menu_key_equivalent() || page_key_equivalent())
+    if keystroke.modifiers.platform {
+        menu_key_equivalent() || page_key_equivalent()
+    } else {
+        page_key_down();
+        true
+    }
 }
 
 fn background_color(background: Rgba) -> Retained<NSColor> {
@@ -1205,6 +1218,7 @@ mod tests {
                             deliveries.borrow_mut().push("menu");
                             menu_handled
                         },
+                        || panic!("command key must not be delivered as a plain key down"),
                     );
                     assert_eq!(handled, page_handled || menu_handled);
                     assert_eq!(
@@ -1236,6 +1250,7 @@ mod tests {
                     menu_deliveries.set(menu_deliveries.get() + 1);
                     true
                 },
+                || panic!("native editing command must not reach key down"),
             ));
             assert_eq!(menu_deliveries.get(), 1);
             assert!(receiver.is_empty());
@@ -1243,17 +1258,42 @@ mod tests {
     }
 
     #[test]
-    fn control_and_plain_keys_keep_native_dispatch() {
+    fn control_and_plain_keys_reach_webkit_once_without_host_dispatch() {
         let (sender, receiver) = async_channel::bounded(8);
-        for binding in ["ctrl-f", "ctrl-g", "alt-f", "f", "left", "escape"] {
-            assert!(!route_key_event(
+        for binding in [
+            "ctrl-f",
+            "ctrl-g",
+            "alt-f",
+            "f",
+            "left",
+            "right",
+            "up",
+            "down",
+            "shift-left",
+            "alt-right",
+            "alt-shift-up",
+            "home",
+            "end",
+            "pageup",
+            "pagedown",
+            "escape",
+            "tab",
+            "shift-tab",
+            "backspace",
+            "delete",
+            "enter",
+        ] {
+            let deliveries = Cell::new(0);
+            assert!(route_key_event(
                 gpui::Keystroke::parse(binding).expect("binding"),
                 false,
                 &[],
                 &sender,
-                || panic!("non-command key must use native dispatch"),
+                || panic!("non-command key must not reach key-equivalent dispatch"),
                 || panic!("non-command key must not be forwarded to the menu"),
+                || deliveries.set(deliveries.get() + 1),
             ));
+            assert_eq!(deliveries.get(), 1, "{binding}");
             assert!(receiver.is_empty());
         }
     }
@@ -1270,6 +1310,7 @@ mod tests {
                 &sender,
                 || panic!("app shortcut must not reach the page"),
                 || panic!("app shortcut must not reach the menu"),
+                || panic!("app shortcut must not reach key down"),
             ));
             assert!(matches!(receiver.try_recv(), Ok(Event::Shortcut(actual)) if actual == key));
         }
@@ -1280,6 +1321,7 @@ mod tests {
             &sender,
             || panic!("modal escape must not reach the page"),
             || panic!("modal escape must not reach the menu"),
+            || panic!("modal escape must not reach key down"),
         ));
         let key = gpui::Keystroke::parse("cmd-w").expect("close shortcut");
         assert!(!route_key_event(
@@ -1289,18 +1331,20 @@ mod tests {
             &sender,
             || panic!("a full app queue must not redirect shortcuts to the page"),
             || panic!("a full app queue must not redirect shortcuts to the menu"),
+            || panic!("a full app queue must not redirect shortcuts to key down"),
         ));
         assert!(matches!(receiver.try_recv(), Ok(Event::Escape)));
         assert!(receiver.is_empty());
     }
 
     #[test]
-    fn captured_escape_ignores_modifiers_and_restores_native_dispatch() {
+    fn captured_escape_ignores_modifiers_and_restores_page_dispatch() {
         let (sender, receiver) = async_channel::bounded(1);
         for capture in [false, true, false] {
             for binding in ["escape", "cmd-escape", "ctrl-escape", "alt-shift-escape"] {
                 let key = gpui::Keystroke::parse(binding).expect("escape");
-                let deliveries = Cell::new(0);
+                let equivalents = Cell::new(0);
+                let key_downs = Cell::new(0);
                 assert_eq!(
                     route_key_event(
                         key.clone(),
@@ -1308,19 +1352,24 @@ mod tests {
                         &[],
                         &sender,
                         || {
-                            deliveries.set(deliveries.get() + 1);
+                            equivalents.set(equivalents.get() + 1);
                             false
                         },
                         || {
-                            deliveries.set(deliveries.get() + 1);
+                            equivalents.set(equivalents.get() + 1);
                             false
                         },
+                        || key_downs.set(key_downs.get() + 1),
                     ),
-                    capture,
+                    capture || !key.modifiers.platform,
                 );
                 assert_eq!(
-                    deliveries.get(),
+                    equivalents.get(),
                     u32::from(!capture && key.modifiers.platform) * 2
+                );
+                assert_eq!(
+                    key_downs.get(),
+                    u32::from(!capture && !key.modifiers.platform)
                 );
                 if capture {
                     assert!(matches!(receiver.try_recv(), Ok(Event::Escape)));

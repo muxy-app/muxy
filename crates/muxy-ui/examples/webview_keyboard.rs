@@ -89,14 +89,25 @@ mod probe {
         }
 
         async fn key(&self, text: &str, code: u16, shift: bool, cx: &AsyncApp) {
-            let text = NSString::from_str(text);
             let mut flags = NSEventModifierFlags::Command;
             if shift {
                 flags |= NSEventModifierFlags::Shift;
             }
+            self.key_down(text, code, flags, false, cx).await;
+        }
+
+        async fn key_down(
+            &self,
+            text: &str,
+            code: u16,
+            flags: NSEventModifierFlags,
+            repeat: bool,
+            cx: &AsyncApp,
+        ) {
+            let text = NSString::from_str(text);
             let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
                 NSEventType::KeyDown, NSPoint::ZERO, flags, 0.0,
-                self.window.windowNumber(), None, &text, &text, false, code,
+                self.window.windowNumber(), None, &text, &text, repeat, code,
             ).expect("key event");
             self.app.sendEvent(&event);
             cx.background_executor()
@@ -292,7 +303,73 @@ mod probe {
         window.key("a", 0, false, cx).await;
         window.key("P", 35, true, cx).await;
         assert_eq!(evaluate(page, "probeText()", cx).await, "remapped paste");
+        check_navigation(window, page, cx).await;
         assert!(!window.window.isVisible());
+    }
+
+    async fn check_navigation(window: &HiddenKeyWindow, page: &WKWebView, cx: &AsyncApp) {
+        let flags = NSEventModifierFlags::Function | NSEventModifierFlags::NumericPad;
+        for (text, code, key, position) in [
+            ("\u{f702}", 123, "ArrowLeft", 7),
+            ("\u{f703}", 124, "ArrowRight", 9),
+            ("\u{f700}", 126, "ArrowUp", 2),
+            ("\u{f701}", 125, "ArrowDown", 14),
+        ] {
+            for shift in [false, true] {
+                for prevent in [false, true] {
+                    assert_eq!(
+                        evaluate(page, &format!("resetNavigationProbe({prevent})"), cx).await,
+                        "1"
+                    );
+                    window
+                        .key_down(
+                            text,
+                            code,
+                            if shift {
+                                flags | NSEventModifierFlags::Shift
+                            } else {
+                                flags
+                            },
+                            false,
+                            cx,
+                        )
+                        .await;
+                    assert_eq!(
+                        evaluate(page, "probeText()", cx).await,
+                        "alpha\nbravo\ncharlie",
+                        "navigation must not insert text for {key}",
+                    );
+                    let focus = if prevent { 8 } else { position };
+                    let anchor = if shift { 8 } else { focus };
+                    assert_eq!(
+                        evaluate(page, "probeSelection()", cx).await,
+                        format!("{anchor}:{focus}"),
+                        "{key}, shift={shift}, prevent={prevent}",
+                    );
+                    assert_eq!(evaluate(page, "probeEvents()", cx).await, key);
+                }
+            }
+        }
+        assert_eq!(evaluate(page, "resetNavigationProbe()", cx).await, "1");
+        for repeat in [false, true] {
+            window.key_down("\u{f702}", 123, flags, repeat, cx).await;
+        }
+        assert_eq!(
+            evaluate(page, "probeText()", cx).await,
+            "alpha\nbravo\ncharlie"
+        );
+        assert_eq!(evaluate(page, "probeSelection()", cx).await, "6:6");
+        assert_eq!(
+            evaluate(page, "probeEvents()", cx).await,
+            "ArrowLeft,ArrowLeft"
+        );
+        window
+            .key_down("x", 7, NSEventModifierFlags::empty(), false, cx)
+            .await;
+        assert_eq!(
+            evaluate(page, "probeText()", cx).await,
+            "alpha\nxbravo\ncharlie"
+        );
     }
 
     pub(super) fn run() {
