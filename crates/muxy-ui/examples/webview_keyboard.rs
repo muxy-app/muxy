@@ -1,6 +1,7 @@
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code, clippy::expect_used)]
 mod probe {
+    use std::cell::RefCell;
     use std::ptr;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicPtr, Ordering};
@@ -8,8 +9,8 @@ mod probe {
 
     use block2::RcBlock;
     use gpui::{
-        AppContext, Application, AsyncApp, Context, IntoElement, Menu, MenuItem, OsAction, Render,
-        Window, WindowOptions, div, point, px, size,
+        AppContext, Application, AsyncApp, Context, InteractiveElement, IntoElement, Menu,
+        MenuItem, OsAction, Render, Window, WindowOptions, div, point, px, size,
     };
     use muxy_core::shortcuts::{Defaults, ShortcutId};
     use muxy_ui::webview::{Event, NativeWebview, assets::Source};
@@ -207,11 +208,84 @@ mod probe {
 
     struct Probe {
         _page: Rc<NativeWebview>,
+        focus: gpui::FocusHandle,
+        modifiers: Rc<RefCell<Vec<gpui::Modifiers>>>,
     }
 
     impl Render for Probe {
-        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             div()
+                .track_focus(&self.focus)
+                .on_modifiers_changed(cx.listener(
+                    |probe, event: &gpui::ModifiersChangedEvent, window, _| {
+                        assert_eq!(window.modifiers(), event.modifiers);
+                        probe.modifiers.borrow_mut().push(event.modifiers);
+                    },
+                ))
+        }
+    }
+
+    async fn check_modifiers(
+        window: &HiddenKeyWindow,
+        page: &WKWebView,
+        parent: &NSView,
+        delivered: &RefCell<Vec<gpui::Modifiers>>,
+        cx: &AsyncApp,
+    ) {
+        for (code, flags, held) in [
+            (
+                55,
+                NSEventModifierFlags::Command,
+                gpui::Modifiers {
+                    platform: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                59,
+                NSEventModifierFlags::Control,
+                gpui::Modifiers {
+                    control: true,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            for start_in_page in [false, true] {
+                if start_in_page {
+                    assert!(window.window.makeFirstResponder(Some(page)));
+                } else {
+                    assert!(window.window.makeFirstResponder(Some(parent)));
+                }
+                delivered.borrow_mut().clear();
+                for flags in [flags, NSEventModifierFlags::empty()] {
+                    let text = NSString::from_str("");
+                    let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                        NSEventType::FlagsChanged, NSPoint::ZERO, flags, 0.0,
+                        window.window.windowNumber(), None, &text, &text, false, code,
+                    ).expect("modifier event");
+                    if !start_in_page && !flags.is_empty() {
+                        parent.flagsChanged(&event);
+                    } else {
+                        window.app.sendEvent(&event);
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(20))
+                        .await;
+                    if !flags.is_empty() {
+                        assert_eq!(
+                            *delivered.borrow(),
+                            [held],
+                            "modifier press must reach GPUI"
+                        );
+                        assert!(window.window.makeFirstResponder(Some(page)));
+                    }
+                }
+                assert_eq!(
+                    *delivered.borrow(),
+                    [held, gpui::Modifiers::default()],
+                    "modifier release in the editor must reach GPUI",
+                );
+            }
         }
     }
 
@@ -452,14 +526,23 @@ mod probe {
                         }
                     })
                     .detach();
+                    let modifiers = Rc::new(RefCell::new(Vec::new()));
+                    let delivered = modifiers.clone();
                     cx.spawn(async move |cx| {
                         receive(&ready, cx).await.expect("page loaded");
+                        check_modifiers(&native, &view, &parent, &delivered, cx).await;
                         check(&native, &view, cx).await;
                         drop(native);
                         cx.update(|cx| cx.quit()).expect("quit");
                     })
                     .detach();
-                    cx.new(|_| Probe { _page: page })
+                    let focus = cx.focus_handle();
+                    focus.focus(window);
+                    cx.new(|_| Probe {
+                        _page: page,
+                        focus,
+                        modifiers,
+                    })
                 },
             )
             .expect("window");

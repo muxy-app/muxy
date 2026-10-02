@@ -14,8 +14,8 @@ use objc2::{
     AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
 };
 use objc2_app_kit::{
-    NSApplication, NSColor, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSImage, NSMenu,
-    NSView, NSWindowOrderingMode,
+    NSApplication, NSColor, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType,
+    NSImage, NSMenu, NSView, NSWindowOrderingMode,
 };
 use objc2_core_graphics::CGMutablePath;
 use objc2_foundation::{
@@ -1054,6 +1054,12 @@ fn monitor(
         else {
             return event;
         };
+        if event_ref.r#type() == NSEventType::FlagsChanged {
+            if let Some(parent) = unsafe { monitor_view.superview() } {
+                parent.flagsChanged(event_ref);
+            }
+            return event;
+        }
         if route_key_event(
             keystroke(event_ref),
             monitor_delegate.ivars().modal.get(),
@@ -1080,7 +1086,12 @@ fn monitor(
         }
         event
     });
-    unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &monitor) }
+    unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+            NSEventMask::KeyDown | NSEventMask::FlagsChanged,
+            &monitor,
+        )
+    }
 }
 
 fn native_menu_key_equivalent(

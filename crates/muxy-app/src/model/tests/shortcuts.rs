@@ -237,6 +237,76 @@ fn hold_hints_are_delayed_cancelled_and_drawn_on_project_and_tab_icons(cx: &mut 
 }
 
 #[gpui::test]
+fn modifier_release_after_switching_to_webview_clears_visible_and_pending_hints(
+    cx: &mut TestAppContext,
+) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let terminal = state.open_terminal_tab(home).expect("terminal");
+    let (editor, _) = state
+        .open_webview(
+            home,
+            muxy_app_core::webview::WebviewDescriptor {
+                owner: "not-installed".into(),
+                kind: "editor".into(),
+                data: serde_json::Value::Null,
+            },
+            "Editor",
+            false,
+        )
+        .expect("editor");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    for (held, shortcut) in [
+        (
+            Modifiers {
+                platform: true,
+                ..Default::default()
+            },
+            ShortcutId::SelectTab1,
+        ),
+        (
+            Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            ShortcutId::SelectProject1,
+        ),
+    ] {
+        for delay in [250, 500] {
+            view.update(cx, |model, cx| model.select_tab(terminal, cx));
+            cx.run_until_parked();
+            modifiers(cx, held);
+            cx.executor().advance_clock(Duration::from_millis(delay));
+            cx.run_until_parked();
+            view.update(cx, |model, cx| model.select_tab(editor, cx));
+            cx.run_until_parked();
+            view.read_with(cx, |model, _| {
+                assert_eq!(model.active_tab(), Some(editor));
+                assert_eq!(
+                    model
+                        .shortcut_hints
+                        .label(shortcut, &model.settings.keymap)
+                        .is_some(),
+                    delay == 500,
+                );
+            });
+            modifiers(cx, Modifiers::default());
+            cx.executor().advance_clock(Duration::from_millis(500));
+            cx.run_until_parked();
+            view.read_with(cx, |model, _| {
+                assert!(
+                    model
+                        .shortcut_hints
+                        .label(shortcut, &model.settings.keymap)
+                        .is_none()
+                );
+            });
+        }
+    }
+}
+
+#[gpui::test]
 fn remapped_number_shortcut_replaces_default_and_tab_cycles_follow_visible_rows(
     cx: &mut TestAppContext,
 ) {
