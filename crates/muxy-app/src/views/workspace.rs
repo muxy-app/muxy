@@ -72,6 +72,12 @@ pub(crate) struct SelectTab {
     pub(crate) index: usize,
 }
 
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = muxy, no_json)]
+pub(crate) struct SelectProject {
+    pub(crate) index: usize,
+}
+
 pub(crate) fn bind_keys(keymap: &Keymap, cx: &mut App) {
     cx.bind_keys(workspace_bindings(keymap));
 }
@@ -116,15 +122,12 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     registry.register(ShortcutId::PreviousProject, &PreviousProject);
     registry.register(ShortcutId::NextProject, &NextProject);
     registry.register(ShortcutId::AddProject, &AddProject);
-    registry.register(ShortcutId::SelectTab1, &SelectTab { index: 0 });
-    registry.register(ShortcutId::SelectTab2, &SelectTab { index: 1 });
-    registry.register(ShortcutId::SelectTab3, &SelectTab { index: 2 });
-    registry.register(ShortcutId::SelectTab4, &SelectTab { index: 3 });
-    registry.register(ShortcutId::SelectTab5, &SelectTab { index: 4 });
-    registry.register(ShortcutId::SelectTab6, &SelectTab { index: 5 });
-    registry.register(ShortcutId::SelectTab7, &SelectTab { index: 6 });
-    registry.register(ShortcutId::SelectTab8, &SelectTab { index: 7 });
-    registry.register(ShortcutId::SelectTab9, &SelectTab { index: 8 });
+    for (index, id) in ShortcutId::TABS.into_iter().enumerate() {
+        registry.register(id, &SelectTab { index });
+    }
+    for (index, id) in ShortcutId::PROJECTS.into_iter().enumerate() {
+        registry.register(id, &SelectProject { index });
+    }
     registry.register(ShortcutId::Copy, &muxy_ui::text_input::Copy);
     registry.register(ShortcutId::Paste, &muxy_ui::text_input::Paste);
     registry.register(ShortcutId::Find, &Find);
@@ -261,6 +264,11 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             cx.listener(|model, _: &SelectCommandOutput, _, cx| model.prompt_action(None, cx)),
         )
         .key_context("WorkspaceTabs")
+        .on_modifiers_changed(
+            cx.listener(|model, event: &gpui::ModifiersChangedEvent, _, cx| {
+                model.update_shortcut_hints(event.modifiers, cx);
+            }),
+        )
         .on_action(cx.listener(
             |model, action: &crate::model::extensions::RunCommand, window, cx| {
                 model.run_extension_command(&action.owner, &action.command, window, cx);
@@ -319,6 +327,11 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         }))
         .on_action(cx.listener(|model, _: &PreviousProject, _, cx| model.cycle_project(false, cx)))
         .on_action(cx.listener(|model, _: &NextProject, _, cx| model.cycle_project(true, cx)))
+        .on_action(cx.listener(|model, action: &SelectProject, _, cx| {
+            if let Some(project) = model.navigation_projects().get(action.index) {
+                model.select_project(*project, cx);
+            }
+        }))
         .on_action(
             cx.listener(|model, _: &AddProject, window, cx| model.open_project_picker(window, cx)),
         )
@@ -388,6 +401,15 @@ pub(crate) fn register_commands(
             ToggleZoomPane,
         )
         .disabled(no_pane),
+        action(model, ShortcutId::NextProject, "Next Project", NextProject)
+            .disabled(model.navigation_projects().len() < 2),
+        action(
+            model,
+            ShortcutId::PreviousProject,
+            "Previous Project",
+            PreviousProject,
+        )
+        .disabled(model.navigation_projects().len() < 2),
         action(model, ShortcutId::NextTab, "Next Tab", NextTab)
             .disabled(model.navigation_tabs().len() < 2),
         action(model, ShortcutId::PreviousTab, "Previous Tab", PreviousTab)
@@ -523,7 +545,6 @@ impl Render for AppModel {
             }))
             .capture_key_down(cx.listener(AppModel::cancel_drag_on_escape))
             .track_focus(&self.focus)
-            .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
             .relative()
             .flex()
             .size_full()

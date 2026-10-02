@@ -601,8 +601,10 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
     let fixture = Fixture::new()?;
     for (project_action, chord) in [
         (ShortcutId::AddProject, "cmd-o"),
-        (ShortcutId::PreviousProject, "cmd-alt-["),
-        (ShortcutId::NextProject, "cmd-alt-]"),
+        (ShortcutId::PreviousProject, "ctrl-["),
+        (ShortcutId::NextProject, "ctrl-]"),
+        (ShortcutId::SelectProject1, "ctrl-1"),
+        (ShortcutId::SelectProject9, "ctrl-9"),
     ] {
         for existing_action in [ShortcutId::NewTab, ShortcutId::Copy] {
             let source = format!("[keymap]\n{} = '{chord}'\n", existing_action.name());
@@ -624,11 +626,43 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
 }
 
 #[test]
+fn navigation_defaults_keep_aliases_and_respect_overrides() -> Result {
+    use muxy_core::shortcuts::ShortcutSettings;
+
+    let keymap = Keymap::default();
+    for (ids, modifier) in [(ShortcutId::PROJECTS, "ctrl"), (ShortcutId::TABS, "cmd")] {
+        for (index, id) in ids.into_iter().enumerate() {
+            let chord = format!("{modifier}-{}", index + 1);
+            assert_eq!(keymap.chord(id).map(KeyChord::as_str), Some(chord.as_str()));
+            assert_eq!(keymap.action(&chord.parse()?), Some(id));
+        }
+    }
+    for (id, keys) in [
+        (ShortcutId::PreviousProject, ["ctrl-[", "cmd-alt-["]),
+        (ShortcutId::NextProject, ["ctrl-]", "cmd-alt-]"]),
+        (ShortcutId::PreviousTab, ["cmd-[", "ctrl-shift-tab"]),
+        (ShortcutId::NextTab, ["cmd-]", "ctrl-tab"]),
+    ] {
+        assert_eq!(keymap.keys(id.name(), Some("WorkspaceTabs")), keys);
+        let remapped = keymap.with_binding(id.name(), Some("ctrl-alt-f24".parse()?))?;
+        assert_eq!(
+            remapped.keys(id.name(), Some("WorkspaceTabs")),
+            ["ctrl-alt-f24"]
+        );
+        let claimed = keymap.with_binding("new_tab", Some(keys[1].parse()?))?;
+        assert_eq!(claimed.keys(id.name(), Some("WorkspaceTabs")), [keys[0]]);
+    }
+    Ok(())
+}
+
+#[test]
 fn explicit_project_bindings_still_require_unique_chords() -> Result {
     for (project_action, chord) in [
         (ShortcutId::AddProject, "cmd-o"),
-        (ShortcutId::PreviousProject, "cmd-alt-["),
-        (ShortcutId::NextProject, "cmd-alt-]"),
+        (ShortcutId::PreviousProject, "ctrl-["),
+        (ShortcutId::NextProject, "ctrl-]"),
+        (ShortcutId::SelectProject1, "ctrl-1"),
+        (ShortcutId::SelectProject9, "ctrl-9"),
     ] {
         let source = format!(
             "[keymap]\nnew_tab = '{chord}'\n{} = '{chord}'\n",

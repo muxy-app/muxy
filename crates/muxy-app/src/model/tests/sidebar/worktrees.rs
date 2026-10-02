@@ -284,6 +284,36 @@ fn project_worktrees_expand_select_and_restore_the_last_selected_child(cx: &mut 
 }
 
 #[gpui::test]
+fn numbered_project_shortcuts_select_primary_and_cycles_restore_worktrees(cx: &mut TestAppContext) {
+    for layout in [
+        AppLayout::ProjectFocused,
+        AppLayout::TabFocused,
+        AppLayout::AgentsFocused,
+    ] {
+        let (mut state, _directory, [home, parent, child], _) = fixture();
+        state.select_project(child).expect("child");
+        let (mut boot, _requests) = stub_boot(state);
+        boot.settings.appearance.layout = layout;
+        cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+        let (view, window) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        window.run_until_parked();
+        for (key, project) in [
+            ("ctrl-]", home),
+            ("ctrl-[", child),
+            ("ctrl-2", parent),
+            ("ctrl-3", parent),
+        ] {
+            window.simulate_keystrokes(key);
+            window.run_until_parked();
+            assert_eq!(
+                view.read_with(window, |model, _| model.state.current_project().id),
+                project
+            );
+        }
+    }
+}
+
+#[gpui::test]
 fn collapsed_project_sidebar_keeps_one_icon_per_family_and_cycles_from_child(
     cx: &mut TestAppContext,
 ) {

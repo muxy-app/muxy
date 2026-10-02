@@ -64,6 +64,15 @@ pub enum ShortcutId {
     SelectTab7,
     SelectTab8,
     SelectTab9,
+    SelectProject1,
+    SelectProject2,
+    SelectProject3,
+    SelectProject4,
+    SelectProject5,
+    SelectProject6,
+    SelectProject7,
+    SelectProject8,
+    SelectProject9,
     Copy,
     Paste,
     Find,
@@ -163,6 +172,30 @@ pub enum ShortcutId {
 }
 
 impl ShortcutId {
+    pub const TABS: [Self; 9] = [
+        Self::SelectTab1,
+        Self::SelectTab2,
+        Self::SelectTab3,
+        Self::SelectTab4,
+        Self::SelectTab5,
+        Self::SelectTab6,
+        Self::SelectTab7,
+        Self::SelectTab8,
+        Self::SelectTab9,
+    ];
+
+    pub const PROJECTS: [Self; 9] = [
+        Self::SelectProject1,
+        Self::SelectProject2,
+        Self::SelectProject3,
+        Self::SelectProject4,
+        Self::SelectProject5,
+        Self::SelectProject6,
+        Self::SelectProject7,
+        Self::SelectProject8,
+        Self::SelectProject9,
+    ];
+
     pub fn name(self) -> &'static str {
         self.definition().id
     }
@@ -259,15 +292,15 @@ pub const ALL: &[Shortcut] = &[
     },
     Shortcut {
         id: "previous_project",
-        keys: &["cmd-alt-["],
+        keys: &["ctrl-[", "cmd-alt-["],
         contexts: &[Some("WorkspaceTabs")],
-        key_contexts: &[&[Some("WorkspaceTabs")]],
+        key_contexts: &[&[Some("WorkspaceTabs")], &[Some("WorkspaceTabs")]],
     },
     Shortcut {
         id: "next_project",
-        keys: &["cmd-alt-]"],
+        keys: &["ctrl-]", "cmd-alt-]"],
         contexts: &[Some("WorkspaceTabs")],
-        key_contexts: &[&[Some("WorkspaceTabs")]],
+        key_contexts: &[&[Some("WorkspaceTabs")], &[Some("WorkspaceTabs")]],
     },
     Shortcut {
         id: "add_project",
@@ -326,6 +359,60 @@ pub const ALL: &[Shortcut] = &[
     Shortcut {
         id: "select_tab9",
         keys: &["cmd-9"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project1",
+        keys: &["ctrl-1"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project2",
+        keys: &["ctrl-2"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project3",
+        keys: &["ctrl-3"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project4",
+        keys: &["ctrl-4"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project5",
+        keys: &["ctrl-5"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project6",
+        keys: &["ctrl-6"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project7",
+        keys: &["ctrl-7"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project8",
+        keys: &["ctrl-8"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "select_project9",
+        keys: &["ctrl-9"],
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[&[Some("WorkspaceTabs")]],
     },

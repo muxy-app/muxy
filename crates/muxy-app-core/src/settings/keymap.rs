@@ -27,7 +27,7 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 49] = [
+    pub const ACTIONS: [ShortcutId; 58] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
         ShortcutId::ToggleSidebar,
@@ -66,6 +66,15 @@ impl Keymap {
         ShortcutId::SelectTab7,
         ShortcutId::SelectTab8,
         ShortcutId::SelectTab9,
+        ShortcutId::SelectProject1,
+        ShortcutId::SelectProject2,
+        ShortcutId::SelectProject3,
+        ShortcutId::SelectProject4,
+        ShortcutId::SelectProject5,
+        ShortcutId::SelectProject6,
+        ShortcutId::SelectProject7,
+        ShortcutId::SelectProject8,
+        ShortcutId::SelectProject9,
         ShortcutId::Copy,
         ShortcutId::Paste,
         ShortcutId::Find,
@@ -175,6 +184,15 @@ impl Keymap {
             ShortcutId::FindPrevious,
             ShortcutId::PreviousProject,
             ShortcutId::NextProject,
+            ShortcutId::SelectProject1,
+            ShortcutId::SelectProject2,
+            ShortcutId::SelectProject3,
+            ShortcutId::SelectProject4,
+            ShortcutId::SelectProject5,
+            ShortcutId::SelectProject6,
+            ShortcutId::SelectProject7,
+            ShortcutId::SelectProject8,
+            ShortcutId::SelectProject9,
             ShortcutId::AddProject,
             ShortcutId::CloseTab,
             ShortcutId::SplitRight,

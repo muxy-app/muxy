@@ -295,6 +295,10 @@ fn close_control(
         .into_any_element()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Declarative tab cell and interaction layout"
+)]
 fn tab_cell(
     tab: &Tab,
     index: usize,
@@ -383,14 +387,29 @@ fn tab_cell(
             active,
             group,
             tab.pinned,
-            super::tab_activity::glyph(
-                tab,
-                model,
-                px(14.0),
-                model
-                    .webview_glyph(tab, px(14.0), foreground, cx)
-                    .unwrap_or_else(|| tab_glyph(tab.pinned, settings, bell, foreground, theme)),
-            ),
+            ShortcutId::TABS
+                .get(index)
+                .and_then(|id| model.shortcut_hints.label(*id, &model.settings.keymap))
+                .map_or_else(
+                    || {
+                        super::tab_activity::glyph(
+                            tab,
+                            model,
+                            px(14.0),
+                            model
+                                .webview_glyph(tab, px(14.0), foreground, cx)
+                                .unwrap_or_else(|| {
+                                    tab_glyph(tab.pinned, settings, bell, foreground, theme)
+                                }),
+                        )
+                    },
+                    |label| {
+                        div()
+                            .debug_selector(move || format!("tab-shortcut-{index}"))
+                            .child(super::shortcut_hints::badge(label, px(14.0), model))
+                            .into_any_element()
+                    },
+                ),
         ))
         .when(!tab.pinned, |cell| cell.child(close))
         .into_any_element()

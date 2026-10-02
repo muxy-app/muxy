@@ -108,7 +108,7 @@ impl AppModel {
 
 pub(super) fn contents(
     model: &AppModel,
-    window: &Window,
+    _window: &Window,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let targets = tab_strip::drag::TabBounds::default();
@@ -123,14 +123,7 @@ pub(super) fn contents(
         .pt(model.metrics.spacing5())
         .pb(model.metrics.spacing3());
     for project in model.sidebar_projects() {
-        rows = rows.child(project_group(
-            project,
-            &numbers,
-            targets.clone(),
-            window.modifiers(),
-            model,
-            cx,
-        ));
+        rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
     }
     if !model.appearance.sidebar_focus {
         rows = rows.child(add_project_button(model, cx));
@@ -200,7 +193,6 @@ fn project_group(
     project: &Project,
     numbers: &[TabId],
     targets: tab_strip::drag::TabBounds,
-    modifiers: gpui::Modifiers,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
@@ -223,7 +215,7 @@ fn project_group(
                         .iter()
                         .position(|id| *id == tab.id)
                         .filter(|index| *index < 9);
-                    tab_row(project.id, tab, number, modifiers, model, cx)
+                    tab_row(project.id, tab, number, model, cx)
                 }))
                 .on_children_prepainted(move |bounds, window, _| {
                     let clip = window.content_mask().bounds;
@@ -500,7 +492,6 @@ fn tab_row(
     project: ProjectId,
     tab: &Tab,
     number: Option<usize>,
-    modifiers: gpui::Modifiers,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
@@ -611,7 +602,12 @@ fn tab_row(
         )
         .child(tab_accessory(
             tab,
-            number.and_then(|index| tab_shortcut(index, &model.settings.keymap, modifiers)),
+            number.and_then(|index| {
+                model.shortcut_hints.label(
+                    muxy_core::shortcuts::ShortcutId::TABS[index],
+                    &model.settings.keymap,
+                )
+            }),
             bell,
             group,
             model,
@@ -695,49 +691,6 @@ pub(super) fn titlebar(
         .into_any_element()
 }
 
-fn tab_shortcut(
-    index: usize,
-    keymap: &muxy_app_core::settings::Keymap,
-    modifiers: gpui::Modifiers,
-) -> Option<String> {
-    use muxy_core::shortcuts::ShortcutId;
-    let id = [
-        ShortcutId::SelectTab1,
-        ShortcutId::SelectTab2,
-        ShortcutId::SelectTab3,
-        ShortcutId::SelectTab4,
-        ShortcutId::SelectTab5,
-        ShortcutId::SelectTab6,
-        ShortcutId::SelectTab7,
-        ShortcutId::SelectTab8,
-        ShortcutId::SelectTab9,
-    ]
-    .get(index)?;
-    let chord = keymap.chord(*id)?;
-    let key = gpui::Keystroke::parse(chord.as_str()).ok()?;
-    if modifiers == gpui::Modifiers::default() || key.modifiers != modifiers {
-        return None;
-    }
-    Some(match key.key.as_str() {
-        "enter" => "↩".into(),
-        "escape" => "⎋".into(),
-        "tab" => "⇥".into(),
-        "space" => "␣".into(),
-        "backspace" => "⌫".into(),
-        "delete" => "⌦".into(),
-        "insert" => "Ins".into(),
-        "home" => "↖".into(),
-        "end" => "↘".into(),
-        "pageup" => "⇞".into(),
-        "pagedown" => "⇟".into(),
-        "up" => "↑".into(),
-        "down" => "↓".into(),
-        "left" => "←".into(),
-        "right" => "→".into(),
-        key => key.to_uppercase(),
-    })
-}
-
 fn close_tab_button(
     id: TabId,
     group: SharedString,
@@ -818,9 +771,7 @@ fn tab_accessory(
     } else if let Some(shortcut) = shortcut {
         div()
             .debug_selector(move || format!("sidebar-tab-shortcut-{id}"))
-            .text_size(m.font_caption())
-            .text_color(model.theme.fg_muted)
-            .child(shortcut)
+            .child(super::shortcut_hints::badge(shortcut, m.icon_md(), model))
             .into_any_element()
     } else if status != tab_activity::Status::None {
         tab_activity::status_glyph(format!("tab-{id}"), status, m.icon_sm(), model)
@@ -866,40 +817,4 @@ fn webview_tab_icon(tab: &Tab, model: &AppModel, active: bool, cx: &gpui::App) -
         .unwrap_or_else(|| {
             SymbolGlyph::new("terminal", model.metrics.font_footnote(), color).into_any_element()
         })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use muxy_app_core::settings::Keymap;
-    use muxy_core::shortcuts::ShortcutId;
-
-    #[test]
-    fn tab_hints_follow_custom_keys_and_only_appear_for_matching_modifiers() {
-        let control = gpui::Modifiers {
-            control: true,
-            ..Default::default()
-        };
-        for (chord, label) in [("ctrl-x", "X"), ("ctrl-enter", "↩"), ("ctrl-f12", "F12")] {
-            let keymap = Keymap::default()
-                .with_binding(
-                    ShortcutId::SelectTab1.name(),
-                    Some(chord.parse().expect("chord")),
-                )
-                .expect("custom binding");
-            assert_eq!(tab_shortcut(0, &keymap, control).as_deref(), Some(label));
-            assert_eq!(tab_shortcut(0, &keymap, gpui::Modifiers::default()), None);
-            assert_eq!(
-                tab_shortcut(
-                    0,
-                    &keymap,
-                    gpui::Modifiers {
-                        shift: true,
-                        ..control
-                    }
-                ),
-                None
-            );
-        }
-    }
 }

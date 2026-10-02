@@ -137,6 +137,7 @@ pub(crate) struct AppModel {
     pub(crate) project_logos: crate::views::project_editor::logo::Cache,
     pub(crate) expanded_worktrees: HashSet<ProjectId>,
     pub(crate) tab_sidebar_selection: Option<(ProjectId, Option<TabId>)>,
+    pub(crate) shortcut_hints: crate::views::shortcut_hints::ShortcutHints,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
     #[cfg(target_os = "macos")]
@@ -357,6 +358,14 @@ impl AppModel {
 
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_active = window.is_window_active();
+        self.update_shortcut_hints(
+            if self.window_active {
+                window.modifiers()
+            } else {
+                gpui::Modifiers::default()
+            },
+            cx,
+        );
         cx.notify();
         self.acknowledge_focused_activity(cx);
         if window.is_window_active() {
@@ -467,6 +476,7 @@ impl AppModel {
             project_logos: HashMap::new(),
             expanded_worktrees: HashSet::new(),
             tab_sidebar_selection: None,
+            shortcut_hints: crate::views::shortcut_hints::ShortcutHints::default(),
             settings: boot.settings,
             terminal: boot.terminal,
             server_preferences: preferences::ServerPreferences::default(),
@@ -685,13 +695,16 @@ impl AppModel {
         }
     }
 
-    pub(crate) fn cycle_project(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let projects: Vec<_> = self
-            .sidebar_projects()
+    pub(crate) fn navigation_projects(&self) -> Vec<ProjectId> {
+        self.listed_parents()
             .into_iter()
             .filter(|project| project.status() == ProjectStatus::Available)
             .map(|project| project.id)
-            .collect();
+            .collect()
+    }
+
+    pub(crate) fn cycle_project(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let projects = self.navigation_projects();
         if projects.is_empty() {
             return;
         }
@@ -699,9 +712,7 @@ impl AppModel {
             .iter()
             .position(|id| {
                 *id == self.state.current_project().id
-                    || (self.appearance.layout
-                        == muxy_app_core::settings::AppLayout::ProjectFocused
-                        && Some(*id) == self.state.current_project().parent_id)
+                    || Some(*id) == self.state.current_project().parent_id
             })
             .map_or(0, |index| {
                 if forward {
@@ -710,12 +721,7 @@ impl AppModel {
                     (index + projects.len() - 1) % projects.len()
                 }
             });
-        let target = if self.appearance.layout == muxy_app_core::settings::AppLayout::ProjectFocused
-        {
-            self.preferred_worktree(projects[next])
-        } else {
-            projects[next]
-        };
+        let target = self.preferred_worktree(projects[next]);
         self.select_project(target, cx);
     }
 
@@ -2422,6 +2428,7 @@ mod tests {
     mod scrollback;
     mod server_status;
     mod session_ownership;
+    mod shortcuts;
     mod sidebar;
     mod splits;
     mod tab_menu;

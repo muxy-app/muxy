@@ -143,13 +143,14 @@ pub(super) fn disclosure(
 pub(super) fn group(
     project: &Project,
     index: usize,
+    shortcut: Option<usize>,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let mut group = div()
         .flex()
         .flex_col()
-        .child(super::project_row(project, index, model, cx));
+        .child(super::project_row(project, index, shortcut, model, cx));
     if model.appearance.sidebar_expanded
         && model.expanded_worktrees.contains(&project.id)
         && model.has_worktrees(project)

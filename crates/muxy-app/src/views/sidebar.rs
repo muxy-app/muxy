@@ -450,6 +450,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let measured = targets.clone();
     let moving = targets.clone();
     let projects = model.sidebar_projects();
+    let shortcuts = model.navigation_projects();
     let ids: Vec<_> = projects
         .iter()
         .map(|project| {
@@ -496,12 +497,10 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 .pt(if wide { m.spacing5() } else { m.spacing2() })
                 .pb(m.spacing3())
                 .when(!wide, Styled::items_center)
-                .children(
-                    projects
-                        .iter()
-                        .enumerate()
-                        .map(|(index, project)| worktrees::group(project, index, model, cx)),
-                )
+                .children(projects.iter().enumerate().map(|(index, project)| {
+                    let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
+                    worktrees::group(project, index, shortcut, model, cx)
+                }))
                 .when(!model.appearance.sidebar_focus, |list| {
                     list.child(add_project_button(model, cx))
                 })
@@ -523,6 +522,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
 fn project_row(
     project: &Project,
     index: usize,
+    shortcut: Option<usize>,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
@@ -535,7 +535,22 @@ fn project_row(
         || model.state.current_project().parent_id == Some(id);
     let has_worktrees = model.has_worktrees(project) && !missing;
     let group = SharedString::from(format!("project-{id}"));
-    let tile = project_tile(project, model, group.clone());
+    let tile = shortcut
+        .and_then(|index| {
+            model.shortcut_hints.label(
+                muxy_core::shortcuts::ShortcutId::PROJECTS[index],
+                &model.settings.keymap,
+            )
+        })
+        .map_or_else(
+            || project_tile(project, model, group.clone()),
+            |label| {
+                div()
+                    .debug_selector(move || format!("project-shortcut-{id}"))
+                    .child(super::shortcut_hints::badge(label, m.icon_xxl(), model))
+                    .into_any_element()
+            },
+        );
     let activity = super::tab_activity::project_status(id, model);
     let drag = DraggedProject {
         id,

@@ -32,6 +32,7 @@ mod views {
     pub(crate) mod server_status;
     pub(crate) mod session_picker;
     pub(crate) mod settings;
+    pub(crate) mod shortcut_hints;
     pub(crate) mod sidebar;
     pub(crate) mod splits;
     pub(crate) mod status_bar;
@@ -74,8 +75,8 @@ use views::workspace::{
     Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight, FocusPaneUp,
     HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize, NewHomeTab, NewTab,
     NextProject, NextPrompt, NextTab, OpenConfiguration, OpenSettings, PreviousProject,
-    PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectTab, ShowAll, SplitDown,
-    SplitRight, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
+    PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject, SelectTab, ShowAll,
+    SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
     ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
 };
 
@@ -180,6 +181,7 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
     Bounds::centered(None, size(px(width), px(height)), cx)
 }
 
+#[allow(clippy::too_many_lines, reason = "One native menu registration list")]
 fn menus() -> Vec<Menu> {
     use muxy_ui::text_input;
     let mut window_items = vec![
@@ -205,6 +207,12 @@ fn menus() -> Vec<Menu> {
     ];
     window_items.extend(
         (0..9).map(|index| MenuItem::action(format!("Tab {}", index + 1), SelectTab { index })),
+    );
+    window_items.push(MenuItem::separator());
+    window_items.extend(
+        (0..9).map(|index| {
+            MenuItem::action(format!("Project {}", index + 1), SelectProject { index })
+        }),
     );
     vec![
         Menu {
