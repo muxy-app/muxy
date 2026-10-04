@@ -294,6 +294,8 @@ impl SettingsView {
             "quick-width",
             "quick-height",
             "sidebar-vibrancy-level",
+            "worktree-template",
+            "worktree-folder",
             "width",
             "height",
             "font-size",
@@ -425,6 +427,14 @@ impl SettingsView {
             (
                 "sidebar-vibrancy-level",
                 settings.appearance.sidebar_vibrancy_level.to_string(),
+            ),
+            (
+                "worktree-template",
+                settings.worktrees.default_location.path_template.clone(),
+            ),
+            (
+                "worktree-folder",
+                settings.worktrees.default_location.parent_path.clone(),
             ),
             ("width", settings.window.default_size[0].to_string()),
             ("height", settings.window.default_size[1].to_string()),

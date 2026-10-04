@@ -7,7 +7,7 @@ impl Client {
         &self,
         request: muxy_protocol::GitRequest,
     ) -> Request<muxy_protocol::GitReply> {
-        let timeout = Duration::from_secs(300);
+        let timeout = crate::catalog::git_timeout(&request.action);
         self.request_async(RequestBody::Git(request), timeout, |body| match body {
             ReplyBody::Git(value) => Ok(value),
             body => Err(ClientError::UnexpectedReply(Box::new(body))),

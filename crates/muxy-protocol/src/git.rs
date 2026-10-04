@@ -137,6 +137,12 @@ pub enum GitAction {
     /// Switch to a merged pull request's base branch and fast-forward it.
     #[n(33)]
     SwitchToBase(#[n(0)] String),
+    /// Preview the hooks configured on the server for explicit approval.
+    #[n(34)]
+    WorktreeHooks {
+        #[n(0)]
+        teardown: bool,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -145,6 +151,29 @@ pub struct WorktreeIntent {
     pub operation: OperationId,
     #[n(1)]
     pub action: WorktreeAction,
+    #[n(2)]
+    #[serde(default)]
+    pub options: Option<WorktreeOptions>,
+}
+
+/// Commands are approved as an exact, ordered preview, never as arbitrary scripts.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct WorktreeHook {
+    #[n(0)]
+    pub command: String,
+    #[n(1)]
+    pub name: Option<String>,
+    #[n(2)]
+    pub project: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct WorktreeOptions {
+    #[n(0)]
+    pub name: Option<String>,
+    /// None skips hooks. Some approves precisely these commands.
+    #[n(1)]
+    pub hooks: Option<Vec<WorktreeHook>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -386,9 +415,23 @@ pub enum GitReply {
     ChangesPreview(#[n(0)] Box<GitChangesPreview>),
     #[n(18)]
     BaseSwitch(#[n(0)] GitBaseSwitch),
+    #[n(19)]
+    WorktreeHooks(#[n(0)] Vec<WorktreeHook>),
+    /// Creation succeeded, but setup failed; the worktree remains available.
+    #[n(20)]
+    WorktreeSetupFailed {
+        #[n(0)]
+        project: ProjectDescriptor,
+        #[n(1)]
+        message: String,
+    },
 }
 
 impl GitRequest {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Validate the Git request variants together"
+    )]
     pub fn validate(&self) -> Result<(), ErrorCode> {
         fn text(value: &str) -> Result<(), ErrorCode> {
             if value.is_empty()
@@ -407,6 +450,11 @@ impl GitRequest {
             } else {
                 Ok(())
             }
+        }
+        if let GitAction::Worktree(intent) = &self.action
+            && let Some(options) = &intent.options
+        {
+            options.validate(&intent.action)?;
         }
         match &self.action {
             GitAction::SwitchBranch(s)
@@ -487,5 +535,33 @@ impl GitRequest {
             },
             _ => Ok(()),
         }
+    }
+}
+
+impl WorktreeOptions {
+    fn validate(&self, action: &WorktreeAction) -> Result<(), ErrorCode> {
+        if let Some(name) = &self.name {
+            if name.trim().is_empty() || name.len() > 256 || name.contains('\0') {
+                return Err(ErrorCode::BadRequest);
+            }
+            if !matches!(action, WorktreeAction::Create { .. }) {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        if let Some(hooks) = &self.hooks {
+            if hooks.len() > 128
+                || hooks.iter().any(|hook| {
+                    hook.command.len() > 16 * 1024
+                        || hook.command.contains('\0')
+                        || hook.name.as_ref().is_some_and(|name| name.len() > 1024)
+                })
+            {
+                return Err(ErrorCode::BadRequest);
+            }
+            if matches!(action, WorktreeAction::Register { .. }) {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        Ok(())
     }
 }

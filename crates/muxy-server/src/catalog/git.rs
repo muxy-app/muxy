@@ -12,6 +12,12 @@ pub(crate) struct GitReceipt {
     pub(crate) inode: u64,
     pub(crate) applied: bool,
     #[serde(default)]
+    pub(crate) hooks_started: bool,
+    #[serde(default)]
+    pub(crate) hooks_finished: bool,
+    #[serde(default)]
+    pub(crate) hook_error: Option<String>,
+    #[serde(default)]
     pub(crate) failed: Option<muxy_protocol::ErrorReply>,
     pub(crate) reply: Option<GitReply>,
 }
@@ -79,7 +85,13 @@ impl Catalog {
                     .insert(receipt.project.id, receipt.project.clone());
             }
             let mut done = receipt.clone();
-            done.reply = Some(GitReply::Project(receipt.project.clone()));
+            done.reply = Some(receipt.hook_error.as_ref().map_or_else(
+                || GitReply::Project(receipt.project.clone()),
+                |message| GitReply::WorktreeSetupFailed {
+                    project: receipt.project.clone(),
+                    message: message.clone(),
+                },
+            ));
             state.git.insert(receipt.intent.operation, done);
             Ok(())
         })

@@ -2,6 +2,7 @@ mod ai;
 mod ai_provider;
 mod form;
 mod pr;
+mod worktree_form;
 pub(crate) use ai::AiConfirmation;
 pub(crate) use ai_provider::{AiProviderMenu, render_provider_menu};
 pub(crate) use pr::{PullRequestPopover, render_pr};
@@ -49,12 +50,20 @@ pub(crate) struct Form {
     worktree: bool,
     existing: bool,
     chooser: Option<Entity<Picker>>,
+    name: Entity<TextInput>,
     branch: Entity<TextInput>,
+    existing_branch: Entity<TextInput>,
+    template: Entity<TextInput>,
+    location_mode: &'static str,
+    hooks: Option<Vec<muxy_protocol::WorktreeHook>>,
+    hooks_error: Option<String>,
+    run_setup: bool,
     directory: Entity<TextInput>,
     base: Entity<TextInput>,
     subscriptions: Vec<gpui::Subscription>,
     error: Option<String>,
-    suggested_directory: String,
+    suggested_branch: String,
+    submitted_location: Option<(OperationId, muxy_app_core::settings::WorktreeLocation)>,
 }
 impl AppModel {
     pub(crate) fn open_git_picker(
@@ -346,13 +355,14 @@ impl AppModel {
     pub(crate) fn confirm_git_action(
         &mut self,
         project: ProjectId,
-        action: GitAction,
+        mut action: GitAction,
         message: String,
         cx: &mut Context<Self>,
     ) {
         if self.close_prompt.is_some() {
             return;
         }
+        let has_hooks = matches!(&action, GitAction::Worktree(intent) if intent.options.as_ref().and_then(|options| options.hooks.as_ref()).is_some_and(|hooks| !hooks.is_empty()));
         let window = self.window;
         let context = self.git.interaction;
         self.close_prompt = Some(cx.spawn(async move |this, cx| {
@@ -363,23 +373,31 @@ impl AppModel {
                     "Confirm Git Operation",
                     &message,
                     "Confirm",
-                    None,
+                    has_hooks.then_some("Run the teardown commands shown above"),
                     move |answer| {
                         let _ = send.try_send(answer);
                     },
                 )
             });
             let confirmed = if let Ok(Ok(_dialog)) = dialog {
-                matches!(
-                    receive.recv().await,
-                    Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { .. })
-                )
+                match receive.recv().await {
+                    Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { dont_ask_again }) => {
+                        Some(dont_ask_again)
+                    }
+                    _ => None,
+                }
             } else {
-                false
+                None
             };
+            if confirmed == Some(false)
+                && let GitAction::Worktree(intent) = &mut action
+                && let Some(options) = &mut intent.options
+            {
+                options.hooks = None;
+            }
             let _ = this.update(cx, |model, cx| {
                 model.close_prompt = None;
-                if confirmed
+                if confirmed.is_some()
                     && model.git.interaction == context
                     && model.state.project(project).is_some()
                 {
@@ -396,7 +414,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         self.git.interaction = self.git.interaction.wrapping_add(1);
-        let Some(record) = self.state.project(project) else {
+        let Some(_) = self.state.project(project) else {
             return;
         };
         let default = self
@@ -410,48 +428,88 @@ impl AppModel {
                     .or_else(|| r.branches.iter().find(|b| b.current))
             })
             .map_or_else(|| "HEAD".into(), |b| b.name.clone());
-        let directory = record
-            .directory
-            .parent()
-            .unwrap_or(&record.directory)
-            .join(format!("{}-worktree", record.name));
-        let suggested_directory = directory.to_string_lossy().into_owned();
+        let location = self
+            .settings
+            .worktrees
+            .projects
+            .get(&project)
+            .cloned()
+            .unwrap_or_default();
+        let location_mode = if !location.path_template.is_empty() {
+            "template"
+        } else if !location.parent_path.is_empty() {
+            "folder"
+        } else {
+            "default"
+        };
+        let name = cx.new(|cx| {
+            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_placeholder("feature-x")
+        });
+        let existing_branch =
+            cx.new(|cx| TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx));
+        let template = cx.new(|cx| {
+            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_placeholder(muxy_app_core::settings::SUGGESTED_WORKTREE_TEMPLATE)
+                .with_text(location.path_template)
+        });
         let branch = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder("feature-x")
         });
         let directory = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
-                .with_text(directory.to_string_lossy().into_owned())
+                .with_placeholder("/path/to/worktrees")
+                .with_text(location.parent_path)
         });
         let base = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx).with_text(default)
         });
         let mut subscriptions = Vec::new();
-        for input in [&branch, &directory, &base] {
+        for input in [
+            &name,
+            &branch,
+            &existing_branch,
+            &template,
+            &directory,
+            &base,
+        ] {
             subscriptions.push(cx.subscribe(input, |model, _, event, cx| match event {
                 InputEvent::Submitted => model.submit_git_form(cx),
                 InputEvent::Cancelled => model.dismiss_overlay(cx),
                 InputEvent::Changed => model.git_form_changed(cx),
             }));
         }
-        let focus = branch.focus_handle(cx);
+        let focus = if worktree {
+            name.focus_handle(cx)
+        } else {
+            branch.focus_handle(cx)
+        };
         let _ = self.window.update(cx, |_, window, _| focus.focus(window));
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::GitForm(Form {
+        self.overlay = Some(Overlay::GitForm(Box::new(Form {
             project,
             worktree,
             existing: false,
             chooser: None,
+            name,
             branch,
+            existing_branch,
+            template,
+            location_mode,
+            hooks: None,
+            hooks_error: None,
+            run_setup: false,
             directory,
             base,
             subscriptions,
             error: None,
-            suggested_directory,
-        }));
+            suggested_branch: String::new(),
+            submitted_location: None,
+        })));
         if worktree {
             self.git_request(project, GitAction::Branches, cx);
+            self.git_request(project, GitAction::WorktreeHooks { teardown: false }, cx);
         }
         cx.notify();
     }
@@ -468,27 +526,15 @@ impl AppModel {
     fn git_form_changed(&mut self, cx: &mut Context<Self>) {
         if let Some(Overlay::GitForm(form)) = &mut self.overlay {
             form.error = None;
-            if form.worktree && form.directory.read(cx).text() == form.suggested_directory {
-                let branch = form.branch.read(cx).text().trim();
-                if let Some(project) = self.state.project(form.project) {
-                    let suffix = if branch.is_empty() {
-                        "worktree".to_owned()
-                    } else {
-                        branch.replace(['/', '\\'], "-")
-                    };
-                    let path = project
-                        .directory
-                        .parent()
-                        .unwrap_or(&project.directory)
-                        .join(format!("{}-{suffix}", project.name))
-                        .to_string_lossy()
-                        .into_owned();
-                    if path != form.suggested_directory {
-                        form.suggested_directory.clone_from(&path);
-                        form.directory
-                            .update(cx, |input, cx| input.set_text(path, cx));
-                    }
+            if form.worktree {
+                let name = form.name.read(cx).text().to_owned();
+                if form.branch.read(cx).text() == form.suggested_branch
+                    && name != form.suggested_branch
+                {
+                    form.branch
+                        .update(cx, |input, cx| input.set_text(name.clone(), cx));
                 }
+                form.suggested_branch = name;
             }
         }
         cx.notify();
@@ -513,12 +559,12 @@ impl AppModel {
         let target = if base {
             form.base.clone()
         } else {
-            form.branch.clone()
+            form.existing_branch.clone()
         };
         let return_focus = if base {
             form.branch.focus_handle(cx)
         } else {
-            form.directory.focus_handle(cx)
+            form.name.focus_handle(cx)
         };
         let subscription = cx.subscribe(&chooser, move |model, chooser, event, cx| {
             match event {
@@ -592,6 +638,16 @@ impl AppModel {
             let query = chooser.read(cx).query().to_string();
             self.worktree_branch_choices(project, chooser, &query, !form.existing, cx);
         }
+        if form.existing_branch.read(cx).text().is_empty()
+            && let Some(branch) = self
+                .git
+                .projects
+                .get(&project)
+                .and_then(|r| r.branches.iter().find(|branch| !branch.checked_out))
+        {
+            form.existing_branch
+                .update(cx, |input, cx| input.set_text(branch.name.clone(), cx));
+        }
         if form.base.read(cx).text() != "HEAD" {
             return;
         }
@@ -620,11 +676,18 @@ impl AppModel {
         {
             return;
         }
-        let branch = form.branch.read(cx).text().trim().to_owned();
+        let branch = form.branch_input().read(cx).text().trim().to_owned();
+        let directory = if form.worktree {
+            self.worktree_directory(form, cx)
+        } else {
+            Ok(std::path::PathBuf::new())
+        };
         let error = if branch.is_empty() {
             Some("Enter a branch name.")
-        } else if form.worktree && form.directory.read(cx).text().trim().is_empty() {
-            Some("Choose a location for the worktree.")
+        } else if form.worktree && form.name.read(cx).text().trim().is_empty() {
+            Some("Enter a worktree name.")
+        } else if let Err(error) = &directory {
+            Some(error.as_str())
         } else {
             None
         };
@@ -637,9 +700,15 @@ impl AppModel {
         }
         let project = form.project;
         let action = if form.worktree {
-            let directory = form.directory.read(cx).text().trim().to_owned();
+            let Ok(directory) = directory else {
+                return;
+            };
             let base = form.base.read(cx).text().trim().to_owned();
             GitAction::Worktree(WorktreeIntent {
+                options: Some(muxy_protocol::WorktreeOptions {
+                    name: Some(form.name.read(cx).text().trim().into()),
+                    hooks: form.run_setup.then(|| form.hooks.clone()).flatten(),
+                }),
                 operation: OperationId::new(),
                 action: WorktreeAction::Create {
                     project: ProjectId::new(),
@@ -660,6 +729,11 @@ impl AppModel {
         } else {
             GitAction::CreateBranch(branch)
         };
+        if let GitAction::Worktree(intent) = &action
+            && let Some(Overlay::GitForm(form)) = &mut self.overlay
+        {
+            form.submitted_location = Some((intent.operation, form.location(cx)));
+        }
         self.git_request(project, action, cx);
     }
 }

@@ -135,6 +135,23 @@ impl Registry {
         intent: &WorktreeIntent,
         parent: &ProjectDescriptor,
     ) -> Result<GitReceipt> {
+        if let Some(approved) = intent
+            .options
+            .as_ref()
+            .and_then(|options| options.hooks.as_ref())
+        {
+            let source = if let Some(parent) = parent.parent_id {
+                self.catalog.project(parent)?
+            } else {
+                parent.clone()
+            };
+            super::hooks::approved(
+                path(&source.directory),
+                self.git.hook_config.as_deref(),
+                matches!(intent.action, WorktreeAction::Remove { .. }),
+                approved,
+            )?;
+        }
         let receipt = match &intent.action {
             WorktreeAction::CheckoutPullRequest {
                 project,
@@ -202,6 +219,9 @@ impl Registry {
                     project: parent.clone(),
                     device: expected.device,
                     inode: expected.inode,
+                    hooks_started: false,
+                    hooks_finished: false,
+                    hook_error: None,
                     applied: false,
                     failed: None,
                     reply: None,
@@ -245,7 +265,12 @@ impl Registry {
             id,
             directory: server_path(&canonical),
             home: false,
-            name: name.into(),
+            name: intent
+                .options
+                .as_ref()
+                .and_then(|options| options.name.as_deref())
+                .unwrap_or(name)
+                .into(),
             icon: None,
             logo: None,
             color: parent.color.clone(),
@@ -261,6 +286,9 @@ impl Registry {
             project,
             device: meta.dev(),
             inode: meta.ino(),
+            hooks_started: false,
+            hooks_finished: false,
+            hook_error: None,
             applied: false,
             failed: None,
             reply: None,
@@ -303,6 +331,10 @@ impl Registry {
         result
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Apply and durably record the worktree lifecycle in order"
+    )]
     fn apply_worktree(&self, mut receipt: GitReceipt) -> Result<GitReply> {
         let removing = matches!(receipt.intent.action, WorktreeAction::Remove { .. });
         let parent_id = if removing {
@@ -315,7 +347,8 @@ impl Registry {
         };
         let parent = self.catalog.project(parent_id)?;
         let repository = path(&parent.directory);
-        let target = path(&receipt.project.directory);
+        let target_path = receipt.project.directory.clone();
+        let target = path(&target_path);
         if !receipt.applied {
             let exists = target.try_exists().map_err(error)?;
             if exists {
@@ -328,7 +361,7 @@ impl Registry {
             } else if !removing {
                 return Err(error("Reserved worktree directory is missing"));
             }
-            match &receipt.intent.action {
+            match &receipt.intent.action.clone() {
                 WorktreeAction::CheckoutPullRequest { .. } => {
                     create_worktree(repository, &receipt, &receipt.project.name, None)?;
                 }
@@ -350,6 +383,17 @@ impl Registry {
                         if self.inspect_removal(&receipt.project)? != *expected {
                             return Err(error(
                                 "Worktree changed while stopping sessions; inspect removal again",
+                            ));
+                        }
+                        self.run_worktree_hooks(&mut receipt, repository, true)?;
+                        let current = self.inspect_removal(&receipt.project)?;
+                        if current.device != expected.device
+                            || current.inode != expected.inode
+                            || current.head != expected.head
+                            || current.branch != expected.branch
+                        {
+                            return Err(error(
+                                "Worktree identity changed during teardown; files were preserved",
                             ));
                         }
                         let args = [
@@ -397,9 +441,59 @@ impl Registry {
             self.catalog.save_git(receipt)?;
             Ok(GitReply::Done)
         } else {
+            if let Err(cause) = self.run_worktree_hooks(&mut receipt, repository, false) {
+                if cause.code() == muxy_protocol::ErrorCode::PersistenceFailed {
+                    return Err(cause);
+                }
+                receipt.hook_error = Some(cause.to_string());
+            }
             self.catalog.finish_git_project(&receipt)?;
-            Ok(GitReply::Project(receipt.project))
+            Ok(receipt.hook_error.map_or_else(
+                || GitReply::Project(receipt.project.clone()),
+                |message| GitReply::WorktreeSetupFailed {
+                    project: receipt.project.clone(),
+                    message,
+                },
+            ))
         }
+    }
+
+    fn run_worktree_hooks(
+        &self,
+        receipt: &mut GitReceipt,
+        repository: &std::path::Path,
+        teardown: bool,
+    ) -> Result<()> {
+        let Some(hooks) = receipt
+            .intent
+            .options
+            .as_ref()
+            .and_then(|options| options.hooks.clone())
+        else {
+            return Ok(());
+        };
+        if receipt.hooks_finished {
+            return Ok(());
+        }
+        if receipt.hooks_started {
+            return Err(error(
+                "Worktree hooks were interrupted and were not run again. Review the worktree before retrying.",
+            ));
+        }
+        super::hooks::approved(
+            repository,
+            self.git.hook_config.as_deref(),
+            teardown,
+            &hooks,
+        )?;
+        receipt.hooks_started = true;
+        self.catalog.save_git(receipt.clone())?;
+        let branch = read::summary(path(&receipt.project.directory))?
+            .branch
+            .unwrap_or_default();
+        super::hooks::run(repository, &receipt.project, &branch, &hooks)?;
+        receipt.hooks_finished = true;
+        self.catalog.save_git(receipt.clone())
     }
 
     fn stop_worktree_sessions(&self, project: &ProjectDescriptor) -> Result<()> {
@@ -430,6 +524,9 @@ impl Registry {
 
 /// Creates the empty folder a new worktree fills, refusing one that already exists.
 fn reserve_folder(directory: &muxy_protocol::ServerPath) -> Result<()> {
+    if let Some(parent) = path(directory).parent() {
+        std::fs::create_dir_all(parent).map_err(error)?;
+    }
     std::fs::create_dir(path(directory)).map_err(|cause| {
         if cause.kind() == std::io::ErrorKind::AlreadyExists {
             error("Worktree directory already exists")

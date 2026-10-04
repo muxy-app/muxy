@@ -98,6 +98,7 @@ impl GitRepository {
     /// if nothing changed since `inspect_worktree_removal`.
     pub fn remove_worktree(&self, expected: WorktreeRemoval) -> Result<(), MobileError> {
         self.run(GitAction::Worktree(WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action: WorktreeAction::Remove {
                 expected: expected.into(),
@@ -124,6 +125,7 @@ impl GitRepository {
         action: WorktreeAction,
     ) -> Result<Project, MobileError> {
         let intent = WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action,
         };

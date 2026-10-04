@@ -656,9 +656,20 @@ fn worktree_form_derives_location_and_preserves_a_manual_location(cx: &mut TestA
         );
     });
     cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::WorktreeHooks { teardown: false },
+            },
+            Ok(GitReply::WorktreeHooks(vec![])),
+            cx,
+        );
+    });
     cx.simulate_input("feature/ui");
     cx.run_until_parked();
-    click_form(cx, "git-field-Location");
+    click_form(cx, "settings-segment-worktree-location-folder");
+    click_form(cx, "settings-field-git-directory");
     cx.simulate_keystrokes("cmd-a");
     cx.simulate_input("/tmp/custom-worktree");
     click_form(cx, "git-field-Branch name");
@@ -685,7 +696,7 @@ fn worktree_form_derives_location_and_preserves_a_manual_location(cx: &mut TestA
     else {
         panic!("creation action")
     };
-    assert_eq!(directory.0, b"/tmp/custom-worktree");
+    assert_eq!(directory.0, b"/tmp/custom-worktree/feature-ui");
     assert_eq!(branch, "feature/changed");
     assert_eq!(base.as_deref(), Some("main"));
 }
@@ -716,9 +727,39 @@ fn worktree_branch_picker_keeps_the_form_and_cancel_restores_input(cx: &mut Test
 }
 
 #[gpui::test]
-fn existing_branch_choices_update_only_automatic_worktree_locations(cx: &mut TestAppContext) {
-    for manual in [false, true] {
+fn existing_branch_picker_dismissal_restores_keyboard_cancellation(cx: &mut TestAppContext) {
+    for template in [false, true] {
         let (state, project, _, _, _) = two_projects();
+        let (boot, _requests) = stub_boot(state);
+        cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        cx.run_until_parked();
+        view.update(cx, |model, cx| model.open_git_form(project, true, cx));
+        cx.run_until_parked();
+        cx.simulate_input("feature-ui");
+        click_form(cx, "settings-segment-worktree-branch-mode-existing");
+        if template {
+            click_form(cx, "settings-segment-worktree-location-template");
+            click_form(cx, "settings-field-git-template");
+            cx.simulate_input("../{branch}");
+        }
+        click_form(cx, "git-field-Branch");
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        view.read_with(cx, |model, _| {
+            assert!(matches!(model.overlay, Some(Overlay::GitForm(_))));
+        });
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
+    }
+}
+
+#[gpui::test]
+fn existing_branch_picker_restores_keyboard_submission_for_each_location(cx: &mut TestAppContext) {
+    for mode in ["default", "folder", "template"] {
+        let (state, project, _, _, _) = two_projects();
+        let project_name = state.project(project).expect("project").name.clone();
         let (boot, requests) = stub_boot(state);
         cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -750,17 +791,34 @@ fn existing_branch_choices_update_only_automatic_worktree_locations(cx: &mut Tes
             );
         });
         cx.run_until_parked();
+        view.update(cx, |model, cx| {
+            model.receive_git(
+                &GitRequest {
+                    project,
+                    action: GitAction::WorktreeHooks { teardown: false },
+                },
+                Ok(GitReply::WorktreeHooks(vec![])),
+                cx,
+            );
+        });
+        cx.simulate_input("Friendly name");
         click_form(cx, "settings-segment-worktree-branch-mode-existing");
-        if manual {
-            click_form(cx, "git-field-Location");
+        if mode == "folder" {
+            click_form(cx, "settings-segment-worktree-location-folder");
+            click_form(cx, "settings-field-git-directory");
             cx.simulate_keystrokes("cmd-a");
             cx.simulate_input("/tmp/keep-my-location");
+        } else if mode == "template" {
+            click_form(cx, "settings-segment-worktree-location-template");
+            click_form(cx, "settings-field-git-template");
+            cx.simulate_input("/tmp/trees/{branch}");
         }
         click_form(cx, "git-field-Branch");
         cx.simulate_keystrokes("down enter");
         cx.run_until_parked();
         requests.try_iter().for_each(drop);
-        click_form(cx, "git-submit");
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
         let action = requests
             .try_iter()
             .find_map(|(_, work)| match work {
@@ -782,10 +840,17 @@ fn existing_branch_choices_update_only_automatic_worktree_locations(cx: &mut Tes
         };
         assert_eq!(branch, "feature/existing");
         assert!(base.is_none());
-        if manual {
-            assert_eq!(directory.0, b"/tmp/keep-my-location");
+        if mode == "folder" {
+            assert_eq!(directory.0, b"/tmp/keep-my-location/Friendly-name");
+        } else if mode == "template" {
+            assert_eq!(directory.0, b"/tmp/trees/feature-existing");
         } else {
-            assert!(directory.0.ends_with(b"-feature-existing"));
+            let expected = std::env::home_dir()
+                .expect("home")
+                .join(".muxy/worktrees")
+                .join(project_name)
+                .join("Friendly-name");
+            assert_eq!(directory.0, expected.as_os_str().as_encoded_bytes());
         }
     }
 }
@@ -838,4 +903,121 @@ fn pull_request_toasts_report_success_only_for_the_active_project(cx: &mut TestA
         model.receive_git(&merge_request(project), Ok(GitReply::Done), cx);
         assert!(model.notice.is_none());
     });
+}
+
+#[gpui::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Exercise approval, submission, and persistence in one form lifecycle"
+)]
+fn worktree_form_reviews_hooks_validates_templates_and_saves_the_submitted_location(
+    cx: &mut TestAppContext,
+) {
+    let (state, project) = registered_current_project();
+    let (boot, requests) = stub_boot(state);
+    let settings_path = boot.state_path.with_file_name("settings.toml");
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    let hooks = vec![muxy_protocol::WorktreeHook {
+        command: "echo setup".into(),
+        name: Some("Setup".into()),
+        project: true,
+    }];
+    view.update(cx, |model, cx| {
+        model.connection = ConnectionState::Ready;
+        model.git.projects.entry(project).or_default().disconnect();
+        model.open_git_form(project, true, cx);
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::Branches,
+            },
+            Ok(GitReply::Branches(vec![])),
+            cx,
+        );
+        model.receive_git(
+            &GitRequest {
+                project,
+                action: GitAction::WorktreeHooks { teardown: false },
+            },
+            Ok(GitReply::WorktreeHooks(hooks.clone())),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    cx.simulate_input("display-name");
+    click_form(cx, "settings-field-git-branch");
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("feature/custom");
+    click_form(cx, "settings-field-git-name");
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("Renamed worktree");
+    click_form(cx, "settings-segment-worktree-location-template");
+    click_form(cx, "settings-field-git-template");
+    cx.simulate_input("../{branch}/../fixed");
+    requests.try_iter().for_each(drop);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(
+        !requests
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Git(_)))
+    );
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("../trees/{branch}");
+    click_form(cx, "settings-toggle-worktree-setup");
+    click_form(cx, "settings-field-git-name");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let request = requests
+        .try_iter()
+        .find_map(|(_, work)| match work {
+            Work::Git(request) if matches!(request.action, GitAction::Worktree(_)) => Some(request),
+            _ => None,
+        })
+        .expect("create worktree");
+    let GitAction::Worktree(intent) = &request.action else {
+        panic!("intent")
+    };
+    let options = intent.options.as_ref().expect("options");
+    assert_eq!(options.name.as_deref(), Some("Renamed worktree"));
+    assert_eq!(options.hooks.as_ref(), Some(&hooks));
+    let muxy_protocol::WorktreeAction::Create {
+        project: child,
+        directory,
+        branch,
+        ..
+    } = &intent.action
+    else {
+        panic!("create")
+    };
+    assert_eq!(
+        branch, "feature/custom",
+        "editing the name preserves a customized branch"
+    );
+    assert!(directory.0.ends_with(b"/trees/feature-custom"));
+    let record = muxy_protocol::ProjectDescriptor {
+        id: *child,
+        directory: directory.clone(),
+        name: "Renamed worktree".into(),
+        home: false,
+        icon: None,
+        logo: None,
+        color: "#ffffff".into(),
+        kind: Some(muxy_protocol::ProjectKind::Worktree),
+        parent_id: Some(project),
+    };
+    // Edits while the server works must not replace the location actually submitted.
+    click_form(cx, "settings-field-git-template");
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("../not-submitted/{branch}");
+    view.update(cx, |model, cx| {
+        model.receive_git(&request, Ok(GitReply::Project(record)), cx);
+    });
+    let saved = muxy_app_core::settings::Settings::load(&settings_path).expect("settings");
+    assert_eq!(
+        saved.worktrees.projects[&project].path_template,
+        "../trees/{branch}"
+    );
 }

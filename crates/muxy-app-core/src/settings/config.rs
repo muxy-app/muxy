@@ -19,6 +19,7 @@ pub struct Settings {
     pub window: WindowSettings,
     pub keymap: Keymap,
     pub projects: ProjectSettings,
+    pub worktrees: super::WorktreeSettings,
     pub panes: PaneSettings,
     pub clipboard: ClipboardSettings,
     pub openers: OpenerSettings,

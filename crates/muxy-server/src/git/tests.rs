@@ -10,6 +10,7 @@ use muxy_protocol::{
 };
 use std::sync::mpsc;
 mod worktree_concurrency;
+mod worktree_hooks;
 
 struct Repo {
     path: PathBuf,
@@ -28,7 +29,8 @@ impl Repo {
             run(&path, &["commit", "--allow-empty", "-m", "initial"]).unwrap();
         }
         let (send, _) = mpsc::channel();
-        let registry = Registry::new(crate::ServerSettings::default(), send);
+        let mut registry = Registry::new(crate::ServerSettings::default(), send);
+        registry.git.hook_config = Some(path.join("machine-worktree.json"));
         let project = ProjectId::new();
         registry
             .mutate_project(&ProjectIntent {
@@ -70,6 +72,7 @@ impl Repo {
         let request = GitRequest {
             project: self.project,
             action: GitAction::Worktree(WorktreeIntent {
+                options: None,
                 operation: OperationId::new(),
                 action: WorktreeAction::Create {
                     project: id,
@@ -187,6 +190,7 @@ fn worktree_creation_registration_removal_and_retries() {
     let remove = GitRequest {
         project: id,
         action: GitAction::Worktree(WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action: WorktreeAction::Remove { expected },
         }),
@@ -206,6 +210,7 @@ fn creating_a_worktree_in_an_existing_folder_says_so_and_keeps_it() {
     std::fs::write(taken.join("keep"), "keep me").unwrap();
     let error = repo
         .git(GitAction::Worktree(WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action: WorktreeAction::Create {
                 project: ProjectId::new(),
@@ -239,6 +244,7 @@ fn stale_dirty_removal_confirmation_preserves_files() {
             .git(&GitRequest {
                 project: id,
                 action: GitAction::Worktree(WorktreeIntent {
+                    options: None,
                     operation: OperationId::new(),
                     action: WorktreeAction::Remove { expected }
                 })
@@ -264,6 +270,7 @@ fn failed_creation_releases_only_its_empty_reserved_directory() {
     let request = GitRequest {
         project: repo.project,
         action: GitAction::Worktree(WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action: WorktreeAction::Create {
                 project: ProjectId::new(),
@@ -299,6 +306,7 @@ fn removal_stops_local_processes_and_preserves_other_registrations() {
         .git(&GitRequest {
             project: other,
             action: GitAction::Worktree(WorktreeIntent {
+                options: None,
                 operation: OperationId::new(),
                 action: WorktreeAction::Register {
                     project: child,
@@ -325,6 +333,7 @@ fn removal_stops_local_processes_and_preserves_other_registrations() {
     let result = repo.registry.git(&GitRequest {
         project: id,
         action: GitAction::Worktree(WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action: WorktreeAction::Remove { expected },
         }),
@@ -464,6 +473,7 @@ fn removal_recovery_cleans_up_the_exact_missing_worktree_registration() {
         panic!()
     };
     let intent = WorktreeIntent {
+        options: None,
         operation: OperationId::new(),
         action: WorktreeAction::Remove {
             expected: expected.clone(),
@@ -475,6 +485,9 @@ fn removal_recovery_cleans_up_the_exact_missing_worktree_registration() {
         project: repo.registry.catalog.project(id).unwrap(),
         device: expected.device,
         inode: expected.inode,
+        hooks_started: false,
+        hooks_finished: false,
+        hook_error: None,
         applied: false,
         failed: None,
         reply: None,
@@ -606,6 +619,7 @@ fn registration_names_detached_worktrees_by_folder_and_refuses_the_parent_folder
         repo.registry.git(&GitRequest {
             project: owner,
             action: GitAction::Worktree(WorktreeIntent {
+                options: None,
                 operation: OperationId::new(),
                 action: WorktreeAction::Register {
                     project: ProjectId::new(),

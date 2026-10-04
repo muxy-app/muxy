@@ -182,6 +182,7 @@ pub(super) fn worktree(command: Worktree, client: &Client, output: &Output) -> R
 }
 fn intent(action: WorktreeAction) -> GitAction {
     GitAction::Worktree(WorktreeIntent {
+        options: None,
         operation: OperationId::new(),
         action,
     })

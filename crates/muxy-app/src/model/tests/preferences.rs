@@ -11,6 +11,60 @@ use crate::views::settings::{Change, SettingsEvent};
 use muxy_core::shortcuts::ShortcutSettings;
 
 #[gpui::test]
+fn worktree_defaults_are_discoverable_validated_and_saved(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = settings_window(boot, cx);
+    click_preference(cx, "settings-disclosure-General");
+    click_preference(cx, "settings-subcategory-Worktrees");
+    for id in [
+        "settings-field-worktree-template",
+        "settings-field-worktree-folder",
+    ] {
+        assert!(cx.debug_bounds(id).is_some());
+    }
+    view.update(cx, |model, cx| {
+        model.change_preference(Change::Field("worktree-folder", "/trees".into()), cx);
+        model.change_preference(
+            Change::Field("worktree-template", "../{base-dir}.{branch}".into()),
+            cx,
+        );
+        let expected = model.settings.worktrees.clone();
+        let path = model.path.with_file_name("settings.toml");
+        assert_eq!(expected.default_location.parent_path, "/trees");
+        assert_eq!(
+            expected.default_location.path_template,
+            "../{base-dir}.{branch}"
+        );
+        for invalid in ["../fixed", "../{branch}/../fixed"] {
+            model.change_preference(Change::Field("worktree-template", invalid.into()), cx);
+            assert_eq!(model.settings.worktrees, expected);
+            assert!(
+                settings_view(model)
+                    .read(cx)
+                    .errors
+                    .contains_key("worktree-template")
+            );
+            assert_eq!(
+                muxy_app_core::settings::Settings::load(&path)
+                    .expect("settings")
+                    .worktrees,
+                expected
+            );
+        }
+        model.change_preference(Change::Field("worktree-template", String::new()), cx);
+        assert!(
+            !settings_view(model)
+                .read(cx)
+                .errors
+                .contains_key("worktree-template")
+        );
+        let saved = muxy_app_core::settings::Settings::load(&path).expect("settings");
+        assert!(saved.worktrees.default_location.path_template.is_empty());
+        assert_eq!(saved.worktrees.default_location.parent_path, "/trees");
+    });
+}
+
+#[gpui::test]
 fn ghostty_configuration_is_discoverable_and_reload_reports_errors(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let path = boot.state_path.with_file_name("ghostty.conf");
@@ -1035,7 +1089,9 @@ fn category_disclosures_and_content_use_the_real_setting_sections(cx: &mut TestA
                 "confirm-process",
                 "file-opener",
                 "width",
-                "height"
+                "height",
+                "worktree-template",
+                "worktree-folder"
             ]
         );
     });

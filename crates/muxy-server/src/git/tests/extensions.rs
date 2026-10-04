@@ -713,6 +713,7 @@ fn pull_request_checkout_and_worktree_use_fork_tracking_and_replay_receipts() {
     );
     repo.git(GitAction::SwitchBranch("main".into())).unwrap();
     let action = GitAction::Worktree(WorktreeIntent {
+        options: None,
         operation: OperationId::new(),
         action: WorktreeAction::CheckoutPullRequest {
             project: ProjectId::new(),
@@ -1052,6 +1053,7 @@ fn pr_checkout_and_worktrees_fall_back_for_valid_heads_without_alphanumeric_char
         repo.git(GitAction::SwitchBranch("main".into())).unwrap();
         let GitReply::Project(project) = repo
             .git(GitAction::Worktree(WorktreeIntent {
+                options: None,
                 operation: OperationId::new(),
                 action: WorktreeAction::CheckoutPullRequest {
                     project: ProjectId::new(),

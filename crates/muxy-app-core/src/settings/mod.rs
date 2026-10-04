@@ -11,6 +11,12 @@ mod error;
 mod ghostty;
 mod keymap;
 mod quick_terminal;
+mod worktrees;
+
+pub use worktrees::{
+    DEFAULT_WORKTREE_FOLDER, SUGGESTED_WORKTREE_TEMPLATE, WorktreeLocation, WorktreeSettings,
+    sanitized_component,
+};
 
 pub use appearance::{AppLayout, Appearance, ProjectOrder, SidebarCollapsedStyle};
 pub use chord::KeyChord;

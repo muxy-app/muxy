@@ -44,6 +44,26 @@ flowchart LR
 - **Existing Terminals** lists a project's terminals that this app isn't
   showing, and which app owns each one. Opening one adds it to your layout.
 
+## Worktrees
+
+New Worktree has a name, a new or existing branch, and Default, Template, or
+Folder location choices. Worktrees default to `~/.muxy/worktrees/<project>/<name>`.
+Settings → General sets the global location; each project remembers its choice. Templates support `{branch}`, `{base-dir}`, and `{project-name}`.
+
+Optional setup and teardown commands come from the source project's
+`.muxy/worktree.json` and `$XDG_CONFIG_HOME/muxy/worktree.json` (by default,
+`~/.config/muxy/worktree.json`):
+
+```json
+{ "setup": ["npm ci"], "teardown": ["docker compose down"] }
+```
+
+Review and enable commands when creating or removing a worktree. Setup runs
+per-machine commands first; teardown runs project commands first. Commands run
+in the worktree, with `MUXY_PROJECT_PATH` and `MUXY_WORKTREE_ID`,
+`MUXY_WORKTREE_PATH`, `MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH` available.
+A setup failure keeps the new worktree; a teardown failure stops removal.
+
 ## When things go away
 
 | Situation | What you see |

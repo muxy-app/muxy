@@ -167,6 +167,8 @@ pub(super) fn rows(
     for (id, label) in [
         ("width", "Default window width"),
         ("height", "Default window height"),
+        ("worktree-template", "Default worktree path template"),
+        ("worktree-folder", "Default worktree folder"),
     ] {
         if category == Category::General && pane.matches(category, label) {
             rows.push(pane.row(id, label, pane.field(id)));

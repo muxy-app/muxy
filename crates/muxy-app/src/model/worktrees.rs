@@ -61,6 +61,7 @@ pub(super) async fn register(
         let request = GitRequest {
             project: root,
             action: GitAction::Worktree(WorktreeIntent {
+                options: None,
                 operation: OperationId::new(),
                 action: WorktreeAction::Register {
                     project: ProjectId::new(),
@@ -122,6 +123,29 @@ async fn import(
 }
 
 impl AppModel {
+    pub(crate) fn save_worktree_preference(
+        &mut self,
+        project: ProjectId,
+        location: muxy_app_core::settings::WorktreeLocation,
+        cx: &mut Context<Self>,
+    ) {
+        let mut settings = self.settings.clone();
+        if location.is_default() {
+            settings.worktrees.projects.remove(&project);
+        } else {
+            settings.worktrees.projects.insert(project, location);
+        }
+        match settings.save_worktrees(&self.path.with_file_name("settings.toml")) {
+            Ok(()) => self.settings.worktrees = settings.worktrees,
+            Err(error) => self.fail(
+                format!(
+                    "Worktree created, but its location preference could not be saved: {error}"
+                ),
+                cx,
+            ),
+        }
+    }
+
     pub(super) fn hide_new_project_worktrees(
         &mut self,
         project: ProjectId,

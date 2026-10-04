@@ -157,6 +157,20 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: "Window size",
     },
     Setting {
+        id: "worktree-template",
+        label: "Default worktree path template",
+        description: "For example ../{base-dir}.{branch}. Must include {branch}; also supports {project-name}. Relative paths start in the project folder. Overrides the default folder.",
+        category: Category::General,
+        section: "Worktrees",
+    },
+    Setting {
+        id: "worktree-folder",
+        label: "Default worktree folder",
+        description: "Worktrees go in <folder>/<project>/<name>. Leave both location settings empty to use ~/.muxy/worktrees.",
+        category: Category::General,
+        section: "Worktrees",
+    },
+    Setting {
         id: "light-theme",
         label: "Light theme",
         description: "Colors for the interface and terminals when macOS uses light appearance.",

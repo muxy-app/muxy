@@ -21,6 +21,7 @@ fn pending_worktree_keeps_unrelated_lifecycle_responsive_and_replays_once() {
     let request = GitRequest {
         project: repo.project,
         action: GitAction::Worktree(WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action: WorktreeAction::Create {
                 project,

@@ -15,7 +15,7 @@ impl Category {
             Self::QuickTerminal => &["General", "Shortcut", "Size", "Appearance"],
             Self::Composer => &["Behavior", "Text", "Voice"],
             Self::Ai => &["Commit and Push", "Create Pull Request"],
-            Self::General => &["Closing terminals", "Files", "Window size"],
+            Self::General => &["Closing terminals", "Files", "Window size", "Worktrees"],
             Self::Appearance => &["Themes", "Interface"],
             Self::Keyboard => &["Shortcuts"],
             Self::Terminal => &["Text", "Behavior", "Configuration"],

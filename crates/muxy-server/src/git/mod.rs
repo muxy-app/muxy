@@ -2,6 +2,7 @@ mod command;
 mod details;
 mod diff;
 mod github;
+mod hooks;
 mod metadata;
 mod mutate;
 mod operations;
@@ -42,6 +43,7 @@ fn server_path(path: &Path) -> ServerPath {
 pub(crate) struct Git {
     locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
     github: github::Github,
+    hook_config: Option<PathBuf>,
     pub(crate) operations: operations::Operations,
 }
 impl Git {
@@ -78,6 +80,7 @@ pub(crate) fn is_read(action: &GitAction) -> bool {
             | GitAction::Branches
             | GitAction::Changes
             | GitAction::Worktrees
+            | GitAction::WorktreeHooks { .. }
             | GitAction::InspectRemoval
             | GitAction::Status { .. }
             | GitAction::RepoInfo
@@ -213,6 +216,17 @@ impl Registry {
                         self.catalog.child_at(project.id, path(&worktree.directory));
                 }
                 Ok(GitReply::Worktrees(worktrees))
+            }
+            GitAction::WorktreeHooks { teardown } => {
+                let source = match project.parent_id {
+                    Some(parent) => self.catalog.project(parent)?,
+                    None => project.clone(),
+                };
+                Ok(GitReply::WorktreeHooks(hooks::resolve(
+                    path(&source.directory),
+                    self.git.hook_config.as_deref(),
+                    *teardown,
+                )?))
             }
             GitAction::InspectRemoval => Ok(GitReply::Removal(self.inspect_removal(project)?)),
             GitAction::SwitchBranch(branch)

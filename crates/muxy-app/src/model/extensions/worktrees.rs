@@ -29,6 +29,7 @@ async fn git(client: &Client, project: ProjectId, action: GitAction) -> Result<G
 
 fn operation(action: WorktreeAction) -> GitAction {
     GitAction::Worktree(WorktreeIntent {
+        options: None,
         operation: muxy_protocol::OperationId::new(),
         action,
     })

@@ -21,7 +21,7 @@ pub(crate) enum Overlay {
         dark: bool,
     },
     Git(super::git::GitPicker),
-    GitForm(super::git::Form),
+    GitForm(Box<super::git::Form>),
     AiProvider(super::git::AiProviderMenu),
     PullRequest(super::git::PullRequestPopover),
     Sessions(super::session_picker::SessionPicker),

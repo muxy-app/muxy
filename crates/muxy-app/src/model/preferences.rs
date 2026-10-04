@@ -394,6 +394,14 @@ impl AppModel {
                 settings.keymap = settings.keymap.with_unassigned(&id)?;
                 settings.keymap.save(&path)?;
             }
+            Change::Field(id @ ("worktree-template" | "worktree-folder"), value) => {
+                if id == "worktree-template" {
+                    settings.worktrees.default_location.path_template = value;
+                } else {
+                    settings.worktrees.default_location.parent_path = value;
+                }
+                settings.save_worktrees(&path)?;
+            }
             Change::Field(id @ ("width" | "height"), value) => {
                 let index = usize::from(id == "height");
                 settings.window.default_size[index] = value.parse()?;

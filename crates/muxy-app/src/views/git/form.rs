@@ -21,8 +21,10 @@ pub(crate) fn render(
     let repository = model.git.projects.get(&form.project);
     let busy = repository.is_some_and(Repository::busy);
     let ready = model.session_listing_ready();
-    let valid = !form.branch.read(cx).text().trim().is_empty()
-        && (!form.worktree || !form.directory.read(cx).text().trim().is_empty());
+    let valid = !form.branch_input().read(cx).text().trim().is_empty()
+        && (!form.worktree
+            || (!form.name.read(cx).text().trim().is_empty()
+                && model.worktree_directory(form, cx).is_ok()));
     let mut view = muxy_ui::popover::surface(theme, m)
         .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
         .id("git-form-scroll")
@@ -46,6 +48,11 @@ pub(crate) fn render(
                 }),
         );
     if form.worktree {
+        view = view.child(field(
+            "Name",
+            controls::text_field(style, "git-name", &form.name, None),
+            model,
+        ));
         let mut choices = [
             Choice::new("new", "Create new branch"),
             Choice::new("existing", "Use existing branch"),
@@ -76,11 +83,8 @@ pub(crate) fn render(
         }
     }
     if form.worktree {
-        view = view.child(field(
-            "Location",
-            controls::text_field(style, "git-directory", &form.directory, None),
-            model,
-        ));
+        view = view.child(super::worktree_form::location(form, model, cx));
+        view = view.child(super::worktree_form::hooks(form, model, cx));
     }
     let error = form
         .error
@@ -149,7 +153,7 @@ pub(crate) fn render(
     .into_any_element()
 }
 
-fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
+pub(super) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
     let selector = format!("git-field-{label}");
     div()
         .debug_selector(move || selector.clone())
@@ -181,7 +185,7 @@ fn branch_picker(
     let value = if base {
         form.base.read(cx).text()
     } else {
-        form.branch.read(cx).text()
+        form.existing_branch.read(cx).text()
     };
     let label = if loading {
         "Loading branches…"

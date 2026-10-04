@@ -21,10 +21,11 @@ pub(crate) struct Repository {
     pub(crate) loaded: bool,
     reading: Option<GitAction>,
     refresh: VecDeque<GitAction>,
-    read_loaded: [bool; 6],
-    read_errors: [Option<String>; 6],
+    read_loaded: [bool; 8],
+    read_errors: [Option<String>; 8],
     /// The merged pull request number and base while the local base branch is updated.
     post_merge: Option<(u64, String)>,
+    removal: Option<muxy_protocol::WorktreeRemoval>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +43,7 @@ fn read_slot(action: &GitAction) -> Option<usize> {
         GitAction::Changes => Some(2),
         GitAction::Worktrees => Some(3),
         GitAction::Watch => Some(4),
+        GitAction::WorktreeHooks { teardown } => Some(if *teardown { 7 } else { 6 }),
         GitAction::PullRequest(GitPullRequestAction::Info) => Some(PULL_REQUEST_SLOT),
         _ => None,
     }
@@ -67,6 +69,7 @@ impl Repository {
         self.reading = None;
         self.refresh.clear();
         self.post_merge = None;
+        self.removal = None;
     }
 
     pub(crate) fn busy(&self) -> bool {
@@ -294,6 +297,10 @@ impl AppModel {
             }
         }
         let context_matches = repository.context == self.git.interaction;
+        let setup_error = match &result {
+            Ok(GitReply::WorktreeSetupFailed { message, .. }) => Some(message.clone()),
+            _ => None,
+        };
         match result {
             Ok(GitReply::Summary(summary)) => {
                 let head_changed = repository.summary.as_ref().map(|s| (&s.branch, &s.head))
@@ -339,12 +346,25 @@ impl AppModel {
             Ok(GitReply::Changes(files)) => repository.files = files,
             Ok(GitReply::PullRequest(pr)) => repository.pull_request = pr.map(|pr| *pr),
             Ok(GitReply::Removal(expected)) if context_matches => {
-                self.confirm_git_action(request.project, GitAction::Worktree(muxy_protocol::WorktreeIntent {
-                    operation: muxy_protocol::OperationId::new(), action: muxy_protocol::WorktreeAction::Remove { expected: expected.clone() },
-                }), if expected.dirty { "Remove worktree and permanently discard its uncommitted changes? Local processes running from this worktree will stop and its files will be deleted." } else { "Remove worktree and delete its files? Local processes running from this worktree will stop." }.into(), cx);
+                repository.removal = Some(expected);
+                self.git_request(
+                    request.project,
+                    GitAction::WorktreeHooks { teardown: true },
+                    cx,
+                );
             }
-            Ok(GitReply::Project(project)) => {
+            Ok(GitReply::WorktreeHooks(hooks)) if context_matches => {
+                if request.action == (GitAction::WorktreeHooks { teardown: true }) {
+                    if let Some(expected) = repository.removal.take() {
+                        self.confirm_worktree_removal(request.project, expected, Ok(hooks), cx);
+                    }
+                } else {
+                    self.receive_worktree_hooks(request.project, Ok(hooks), cx);
+                }
+            }
+            Ok(GitReply::Project(project) | GitReply::WorktreeSetupFailed { project, .. }) => {
                 if context_matches {
+                    self.save_worktree_location(request, cx);
                     self.dismiss_overlay(cx);
                     self.git.select_after_catalog = Some((project.id, self.git.interaction));
                 }
@@ -450,6 +470,25 @@ impl AppModel {
                     ) {
                         repository.pull_request = None;
                     }
+                    if context_matches && let GitAction::WorktreeHooks { teardown } = request.action
+                    {
+                        if teardown {
+                            if let Some(expected) = repository.removal.take() {
+                                self.confirm_worktree_removal(
+                                    request.project,
+                                    expected,
+                                    Err(error.to_string()),
+                                    cx,
+                                );
+                            }
+                        } else {
+                            self.receive_worktree_hooks(
+                                request.project,
+                                Err(error.to_string()),
+                                cx,
+                            );
+                        }
+                    }
                 } else {
                     let failed = match &request.action {
                         GitAction::SwitchToBase(base) => {
@@ -492,6 +531,9 @@ impl AppModel {
                     self.queue_git_refresh(request.project, actions, cx);
                 }
             }
+        }
+        if let Some(message) = setup_error {
+            self.fail_detail("Worktree created, but setup failed".into(), &message, cx);
         }
         self.dispatch_git_refresh(request.project, cx);
         self.update_git_picker(cx);

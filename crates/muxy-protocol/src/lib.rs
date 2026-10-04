@@ -70,7 +70,7 @@ pub use git::{
     GitDiffKind, GitDiffRequest, GitDiffRow, GitFile, GitFileStatus, GitLineStat, GitMergeMethod,
     GitPreviewFile, GitPullRequest, GitPullRequestAction, GitPullRequestFilter, GitPushDestination,
     GitRawDiff, GitRef, GitRefKind, GitReply, GitRepoInfo, GitRequest, GitStatus, GitSummary,
-    GitWorktree, WorktreeAction, WorktreeIntent, WorktreeRemoval,
+    GitWorktree, WorktreeAction, WorktreeHook, WorktreeIntent, WorktreeOptions, WorktreeRemoval,
 };
 
 mod activity;

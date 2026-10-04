@@ -78,6 +78,7 @@ fn extension_operations_round_trip_through_the_control_wire()
             expected_head: "abc123".into(),
         }),
         GitAction::Worktree(WorktreeIntent {
+            options: None,
             operation: OperationId::new(),
             action: WorktreeAction::CheckoutPullRequest {
                 project: ProjectId::new(),
@@ -247,5 +248,45 @@ fn diffs_from_builds_before_the_binary_flag_read_as_text() -> Result<(), Box<dyn
         .bool(false)?;
     let diff: GitDiff = minicbor::decode(&older)?;
     assert_eq!((diff.additions, diff.deletions, diff.binary), (1, 2, false));
+    Ok(())
+}
+
+#[test]
+fn worktree_options_round_trip_through_the_control_wire() -> Result<(), Box<dyn std::error::Error>>
+{
+    for action in [
+        GitAction::WorktreeHooks { teardown: false },
+        GitAction::WorktreeHooks { teardown: true },
+        GitAction::Worktree(WorktreeIntent {
+            operation: OperationId::new(),
+            options: Some(muxy_protocol::WorktreeOptions {
+                name: Some("Display name".into()),
+                hooks: Some(vec![muxy_protocol::WorktreeHook {
+                    command: "echo setup".into(),
+                    name: None,
+                    project: true,
+                }]),
+            }),
+            action: WorktreeAction::Create {
+                project: ProjectId::new(),
+                directory: ServerPath(b"/tmp/tree".to_vec()),
+                branch: "feature".into(),
+                base: Some("main".into()),
+            },
+        }),
+    ] {
+        let request = GitRequest {
+            project: ProjectId::new(),
+            action,
+        };
+        assert_eq!(request.validate(), Ok(()));
+        let message = Message::Request {
+            id: RequestId(1),
+            body: RequestBody::Git(request),
+        };
+        let mut bytes = Vec::new();
+        encode(&message, CONTROL, &mut bytes)?;
+        assert_eq!(Decoder::new(bytes.as_slice()).next()?, (CONTROL, message));
+    }
     Ok(())
 }

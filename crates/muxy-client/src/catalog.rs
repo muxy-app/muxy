@@ -4,6 +4,20 @@ use muxy_protocol::{
     RequestBody, SessionId,
 };
 
+pub(crate) fn git_timeout(action: &muxy_protocol::GitAction) -> std::time::Duration {
+    let hooks = match action {
+        muxy_protocol::GitAction::Worktree(intent) => intent
+            .options
+            .as_ref()
+            .and_then(|options| options.hooks.as_ref())
+            .is_some_and(|hooks| !hooks.is_empty()),
+        _ => false,
+    };
+    // Hooks have their own five-minute server budget, in addition to Git work.
+    // Leave reply headroom so the UI receives the final lifecycle result.
+    std::time::Duration::from_secs(if hooks { 610 } else { 300 })
+}
+
 impl Client {
     pub fn exec(
         &self,
@@ -61,10 +75,8 @@ impl Client {
         &self,
         request: muxy_protocol::GitRequest,
     ) -> Result<muxy_protocol::GitReply, ClientError> {
-        match self.request_with_timeout(
-            RequestBody::Git(request),
-            std::time::Duration::from_secs(300),
-        )? {
+        let timeout = git_timeout(&request.action);
+        match self.request_with_timeout(RequestBody::Git(request), timeout)? {
             ReplyBody::Git(reply) => Ok(reply),
             body => Err(ClientError::UnexpectedReply(Box::new(body))),
         }
@@ -205,5 +217,43 @@ impl Client {
             }
             body => Err(ClientError::UnexpectedReply(Box::new(body))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use muxy_protocol::{
+        GitAction, OperationId, ServerPath, WorktreeAction, WorktreeHook, WorktreeIntent,
+        WorktreeOptions,
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn worktree_request_budget_covers_git_hooks_and_reply_headroom() {
+        let normal = git_timeout(&GitAction::Summary);
+        let mut intent = WorktreeIntent {
+            operation: OperationId::new(),
+            action: WorktreeAction::Create {
+                project: ProjectId::new(),
+                directory: ServerPath(b"/tmp/worktree".to_vec()),
+                branch: "feature".into(),
+                base: Some("main".into()),
+            },
+            options: None,
+        };
+        assert_eq!(git_timeout(&GitAction::Worktree(intent.clone())), normal);
+        for hooks in [None, Some(vec![])] {
+            intent.options = Some(WorktreeOptions { name: None, hooks });
+            assert_eq!(git_timeout(&GitAction::Worktree(intent.clone())), normal);
+        }
+        intent.options.as_mut().expect("options").hooks = Some(vec![WorktreeHook {
+            command: "sleep 295".into(),
+            name: None,
+            project: true,
+        }]);
+        let budget = git_timeout(&GitAction::Worktree(intent));
+        assert!(budget > normal + Duration::from_secs(300));
+        assert!(budget > Duration::from_secs(10 + 295));
     }
 }
