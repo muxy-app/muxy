@@ -9,8 +9,7 @@ use crate::MobileError;
 
 #[uniffi::export]
 impl GitRepository {
-    /// The current branch's pull request, if any. Check its `state`: it can
-    /// already be merged or closed.
+    /// The current branch's open pull request, including drafts, if any.
     pub fn pull_request(&self) -> Result<Option<GitPullRequest>, MobileError> {
         match self.request(GitAction::PullRequest(GitPullRequestAction::Info))? {
             GitReply::PullRequest(pull_request) => Ok(pull_request.map(|found| (*found).into())),
@@ -18,7 +17,7 @@ impl GitRepository {
         }
     }
 
-    /// Only the current branch's pull request number, which is quicker to find.
+    /// Only the current branch's open pull request number, which is quicker to find.
     pub fn pull_request_number(&self) -> Result<Option<u64>, MobileError> {
         match self.request(GitAction::PullRequest(GitPullRequestAction::Number))? {
             GitReply::PullRequestNumber(number) => Ok(number),

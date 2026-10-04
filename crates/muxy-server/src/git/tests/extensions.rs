@@ -487,6 +487,66 @@ fn github_reads_mutations_and_errors_have_structured_results_and_explicit_target
 }
 
 #[test]
+fn github_detects_only_open_prs_from_every_lookup() {
+    for source in ["implicit", "branch", "configured", "list"] {
+        let mut repo = Repo::new(true);
+        fake_gh(&mut repo);
+        match source {
+            "branch" => std::fs::write(
+                repo.path.join(".git/gh-implicit-error"),
+                "no pull requests found",
+            )
+            .unwrap(),
+            "configured" => {
+                repo.git(GitAction::CreateBranch("pr/42/main".into()))
+                    .unwrap();
+                run(
+                    &repo.path,
+                    &["config", "branch.pr/42/main.muxy-pr-number", "42"],
+                )
+                .unwrap();
+            }
+            "list" => std::fs::write(
+                repo.path.join(".git/gh-view-error"),
+                "no pull requests found",
+            )
+            .unwrap(),
+            _ => (),
+        }
+        let response = repo.path.join(".git/gh-pr");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&response).unwrap()).unwrap();
+        value["isDraft"] = true.into();
+        for state in ["CLOSED", "MERGED", "OPEN"] {
+            value["state"] = state.into();
+            std::fs::write(&response, value.to_string()).unwrap();
+            let expected = (state == "OPEN").then_some(42);
+            let GitReply::PullRequest(info) = pr(&repo, Pr::Info).unwrap() else {
+                panic!()
+            };
+            assert_eq!(info.map(|pr| pr.number), expected, "{source}: {state}");
+            assert_eq!(
+                pr(&repo, Pr::Number).unwrap(),
+                GitReply::PullRequestNumber(expected),
+                "{source}: {state}"
+            );
+            let GitReply::Status(status) = repo.git(GitAction::Status { local: false }).unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(
+                status.pull_request.map(|pr| pr.number),
+                expected,
+                "{source}: {state}"
+            );
+        }
+        let calls = std::fs::read_to_string(repo.path.join(".git/gh-calls")).unwrap();
+        assert!(calls.contains("--state\nopen\n"));
+        assert!(!calls.contains("--state\nall\n"));
+    }
+}
+
+#[test]
 fn github_ignores_old_prs_for_a_reused_branch_and_matches_the_current_commit() {
     let mut repo = Repo::new(true);
     fake_gh(&mut repo);
@@ -506,11 +566,12 @@ fn github_ignores_old_prs_for_a_reused_branch_and_matches_the_current_commit() {
     unrelated_fork["state"] = "OPEN".into();
     std::fs::write(&response, unrelated_fork.to_string()).unwrap();
     assert_eq!(pr(&repo, Pr::Info).unwrap(), GitReply::PullRequest(None));
+    old["headRefOid"] = repo.summary().head.unwrap().into();
     std::fs::write(&response, old.to_string()).unwrap();
 
     let mut current = old.clone();
     current["number"] = 73.into();
-    current["headRefOid"] = repo.summary().head.unwrap().into();
+    current["state"] = "OPEN".into();
     std::fs::write(
         repo.path.join(".git/gh-list"),
         serde_json::json!([old, current]).to_string(),
@@ -520,6 +581,10 @@ fn github_ignores_old_prs_for_a_reused_branch_and_matches_the_current_commit() {
         panic!()
     };
     assert_eq!(info.number, 73);
+    assert_eq!(
+        pr(&repo, Pr::Number).unwrap(),
+        GitReply::PullRequestNumber(Some(73))
+    );
 }
 
 #[test]

@@ -431,7 +431,12 @@ impl Github {
                     fields,
                 ],
             ) {
-                Ok(bytes) => return serde_json::from_slice(&bytes).map(Some).map_err(error),
+                Ok(bytes) => {
+                    let value: Value = serde_json::from_slice(&bytes).map_err(error)?;
+                    if is_open(&value) {
+                        return Ok(Some(value));
+                    }
+                }
                 Err(cause) if no_pr(&cause) => (),
                 Err(cause) => first_error = Some(cause),
             }
@@ -483,7 +488,7 @@ impl Github {
                 "--head",
                 &current.branch,
                 "--state",
-                "all",
+                "open",
                 "--limit",
                 "100",
                 "--json",
@@ -495,7 +500,9 @@ impl Github {
             Err(cause) => return Err(cause),
         };
         let values: Vec<Value> = serde_json::from_slice(&bytes).map_err(error)?;
-        let matched = values.into_iter().find(|value| current.matches_head(value));
+        let matched = values
+            .into_iter()
+            .find(|value| is_open(value) && current.matches_head(value));
         match (matched, first_error) {
             (Some(value), _) => Ok(Some(value)),
             (None, Some(cause)) => Err(cause),
@@ -629,9 +636,9 @@ impl CurrentBranch {
     }
 
     fn matches_view(&self, value: &Value) -> bool {
-        value.get("headRefName").and_then(Value::as_str) == Some(&self.branch)
-            && ((value.get("state").and_then(Value::as_str) == Some("OPEN")
-                && value.get("isCrossRepository").and_then(Value::as_bool) == Some(false))
+        is_open(value)
+            && value.get("headRefName").and_then(Value::as_str) == Some(&self.branch)
+            && (value.get("isCrossRepository").and_then(Value::as_bool) == Some(false)
                 || self.matches_head(value))
     }
 }
@@ -658,6 +665,10 @@ fn current_branch(repository: &Path) -> Result<Option<CurrentBranch>> {
         head,
         configured_number: number,
     }))
+}
+
+fn is_open(value: &Value) -> bool {
+    value.get("state").and_then(Value::as_str) == Some("OPEN")
 }
 
 fn fields(checks: bool) -> String {
