@@ -233,6 +233,36 @@ fn ghostty_includes_are_resolved_and_untrusted_imports_cannot_read_external_file
 }
 
 #[test]
+fn recovery_archive_resolves_includes_and_keeps_original_files_for_rollback() {
+    let source = profile();
+    let target = profile();
+    let original = "font-size = 12\nconfig-file = included.conf\n";
+    fs::write(target.path().join("ghostty.conf"), original).unwrap();
+    fs::write(target.path().join("included.conf"), "font-size = 21\n").unwrap();
+    let archive = source.path().join("test.muxy");
+    export(source.path(), &archive, &AppState::bootstrap().unwrap()).unwrap();
+    stage(target.path(), &prepare(target.path(), &archive).unwrap()).unwrap();
+    assert!(apply_pending(target.path()).unwrap().is_none());
+    let recovery = fs::read_dir(target.path().join("Backups"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert_eq!(
+        fs::read_to_string(recovery.join("ghostty.conf")).unwrap(),
+        original
+    );
+    fs::remove_file(target.path().join("included.conf")).unwrap();
+    let import = prepare(target.path(), &recovery.join("recovery.muxy")).unwrap();
+    stage(target.path(), &import).unwrap();
+    assert!(apply_pending(target.path()).unwrap().is_none());
+    let terminal =
+        TerminalSettings::load_with_seed(&target.path().join("ghostty.conf"), None).unwrap();
+    assert_eq!(terminal.font_size.to_bits(), 21.0_f32.to_bits());
+}
+
+#[test]
 fn interrupted_restore_recovers_original_files_before_loading_the_profile() {
     let directory = profile();
     let recovery = directory.path().join("Backups/pre-import-test");
@@ -247,7 +277,9 @@ fn interrupted_restore_recovers_original_files_before_loading_the_profile() {
     fs::write(directory.path().join("ghostty.conf"), "font-size = 23\n").unwrap();
     fs::create_dir(directory.path().join("themes")).unwrap();
     fs::write(directory.path().join("themes/partial"), "incomplete").unwrap();
-    apply_pending(directory.path()).unwrap();
+    fs::write(directory.path().join(PENDING), "invalid backup").unwrap();
+    let error = apply_pending(directory.path()).unwrap().unwrap();
+    assert!(error.contains("Could not restore backup"));
     assert_eq!(
         fs::read_to_string(directory.path().join("ghostty.conf")).unwrap(),
         "font-size = 17\n"
@@ -255,6 +287,25 @@ fn interrupted_restore_recovers_original_files_before_loading_the_profile() {
     assert!(!directory.path().join("themes").exists());
     assert!(!directory.path().join("restore-in-progress.json").exists());
     assert!(recovery.join("ghostty.conf").exists());
+    cancel_pending(directory.path()).unwrap();
+    assert!(apply_pending(directory.path()).unwrap().is_none());
+}
+
+#[test]
+fn failed_rollback_still_prevents_loading_a_partially_restored_profile() {
+    let directory = profile();
+    let recovery = directory.path().join("Backups/pre-import-test");
+    fs::create_dir_all(&recovery).unwrap();
+    fs::write(recovery.join("roots.json"), "invalid journal").unwrap();
+    let marker = directory.path().join("restore-in-progress.json");
+    fs::write(&marker, serde_json::to_vec(&recovery).unwrap()).unwrap();
+    let before = fs::read(directory.path().join("ghostty.conf")).unwrap();
+    assert!(apply_pending(directory.path()).is_err());
+    assert!(marker.exists());
+    assert_eq!(
+        fs::read(directory.path().join("ghostty.conf")).unwrap(),
+        before
+    );
 }
 
 #[test]
@@ -314,12 +365,18 @@ fn missing_project_directories_are_reported_before_confirmation_and_rechecked_at
     assert!(error.contains("Project folder unavailable"));
     assert!(error.contains(&path.display().to_string()));
     let before = fs::read(directory.path().join("settings.toml")).unwrap();
-    assert!(apply_pending(directory.path()).is_err());
+    for _ in 0..2 {
+        let error = apply_pending(directory.path()).unwrap().unwrap();
+        assert!(error.contains("Project folder unavailable"));
+        assert!(error.contains("Settings → Backup & Restore"));
+    }
     assert_eq!(
         fs::read(directory.path().join("settings.toml")).unwrap(),
         before
     );
     assert!(!directory.path().join("Backups").exists());
+    cancel_pending(directory.path()).unwrap();
+    assert!(apply_pending(directory.path()).unwrap().is_none());
 }
 
 #[test]

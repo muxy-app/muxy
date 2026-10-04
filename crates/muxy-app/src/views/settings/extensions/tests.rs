@@ -29,6 +29,7 @@ fn setup_in<'a>(
     let (work, _) = std::sync::mpsc::channel();
     let (_, updates) = async_channel::unbounded();
     let boot = Boot {
+        import_error: None,
         composer: ComposerStore::load_from(directory),
         state: AppState::bootstrap().expect("state"),
         state_path: directory.join("state.json"),

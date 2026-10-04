@@ -67,7 +67,6 @@ pub(super) fn migrate(
     Ok(())
 }
 
-/// Apply through the server so local pairing credentials are preserved or generated.
 pub(crate) fn apply_mobile_settings(
     profile: &Path,
     apply: impl FnOnce(RemoteAccessSettings) -> Result<()>,

@@ -35,20 +35,46 @@ impl AppState {
         state
     }
 
-    /// Check new project folders before offering or applying a restore.
     pub fn check_restore_directories(&self, current: &Self) -> Result<()> {
+        let matched = self.match_restore_projects(current);
         for project in &self.projects {
-            if !project.home
-                && !current.projects.iter().any(|candidate| {
-                    !candidate.home
-                        && (candidate.id == project.id || candidate.directory == project.directory)
-                })
-                && !project.directory.is_dir()
-            {
+            if !project.home && !matched.contains_key(&project.id) && !project.directory.is_dir() {
                 return Err(format!("Project folder unavailable: {} ({}). Make this folder available before importing the backup.", project.name, project.directory.display()).into());
             }
         }
         Ok(())
+    }
+
+    fn match_restore_projects(&self, current: &Self) -> BTreeMap<ProjectId, ProjectId> {
+        let mut ids = BTreeMap::new();
+        let mut claimed = HashSet::new();
+        for project in &self.projects {
+            let existing = current.projects.iter().find(|candidate| {
+                if project.home {
+                    candidate.home
+                } else {
+                    !candidate.home && candidate.id == project.id
+                }
+            });
+            if let Some(existing) = existing {
+                ids.insert(project.id, existing.id);
+                claimed.insert(existing.id);
+            }
+        }
+        for project in &self.projects {
+            if ids.contains_key(&project.id) {
+                continue;
+            }
+            if let Some(existing) = current.projects.iter().find(|candidate| {
+                !candidate.home
+                    && candidate.directory == project.directory
+                    && !claimed.contains(&candidate.id)
+            }) {
+                ids.insert(project.id, existing.id);
+                claimed.insert(existing.id);
+            }
+        }
+        ids
     }
 
     #[allow(
@@ -58,20 +84,9 @@ impl AppState {
     pub fn restore_configuration(&self, current: &Self) -> Result<Self> {
         self.check_restore_directories(current)?;
         let mut restored = self.configuration_backup();
-        let mut ids = BTreeMap::new();
+        let mut ids = self.match_restore_projects(current);
         for project in &restored.projects {
-            let existing = current.projects.iter().find(|candidate| {
-                if project.home {
-                    candidate.home
-                } else {
-                    !candidate.home
-                        && (candidate.id == project.id || candidate.directory == project.directory)
-                }
-            });
-            ids.insert(
-                project.id,
-                existing.map_or(project.id, |project| project.id),
-            );
+            ids.entry(project.id).or_insert(project.id);
         }
         restored.window.current_project = ids[&restored.window.current_project];
         let selected = restored.window.selected_tab.clone();
@@ -203,25 +218,7 @@ fn remap_layout(layout: &mut Layout, panes: &BTreeMap<PaneId, PaneId>) {
 
 pub fn remap_settings(source: &str, imported: &AppState, restored: &AppState) -> Result<String> {
     let mut settings: crate::settings::Settings = toml::from_str(source)?;
-    let ids: BTreeMap<_, _> = imported
-        .projects
-        .iter()
-        .filter_map(|project| {
-            restored
-                .projects
-                .iter()
-                .find(|candidate| {
-                    if project.home {
-                        candidate.home
-                    } else {
-                        !candidate.home
-                            && (candidate.id == project.id
-                                || candidate.directory == project.directory)
-                    }
-                })
-                .map(|candidate| (project.id, candidate.id))
-        })
-        .collect();
+    let ids = imported.match_restore_projects(restored);
     let remap = |id: ProjectId| ids.get(&id).copied().unwrap_or(id);
     settings.worktrees.projects = settings
         .worktrees

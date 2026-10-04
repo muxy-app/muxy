@@ -19,13 +19,23 @@ pub(crate) fn cancel_pending(profile: &Path) -> Result<()> {
     }
 }
 
-pub(crate) fn apply_pending(profile: &Path) -> Result<()> {
+pub(crate) fn apply_pending(profile: &Path) -> Result<Option<String>> {
     recover(profile)?;
     let pending = profile.join(PENDING);
     if !pending.try_exists()? {
-        return Ok(());
+        return Ok(None);
     }
-    let (mut files, legacy, complete) = archive::read(&pending)?;
+    if let Err(error) = restore(profile, &pending) {
+        recover(profile)?;
+        return Ok(Some(format!(
+            "Could not restore backup: {error}. Your previous configuration was kept. Cancel or replace the pending import in Settings → Backup & Restore, or reopen Muxy to retry."
+        )));
+    }
+    Ok(None)
+}
+
+fn restore(profile: &Path, pending: &Path) -> Result<()> {
+    let (mut files, legacy, complete) = archive::read(pending)?;
     if legacy {
         return Err("Pending import must use the current backup format".into());
     }
@@ -61,6 +71,15 @@ pub(crate) fn apply_pending(profile: &Path) -> Result<()> {
         .keep();
     archive::materialize(&recovery, &original)?;
     let mut portable = original.clone();
+    if portable.contains_key("ghostty.conf") {
+        portable.insert(
+            "ghostty.conf".into(),
+            muxy_app_core::settings::TerminalSettings::backup_source(
+                &profile.join("ghostty.conf"),
+            )?
+            .into_bytes(),
+        );
+    }
     if roots.contains(&super::mobile::FILE) {
         portable.insert(
             super::mobile::FILE.into(),
@@ -74,21 +93,14 @@ pub(crate) fn apply_pending(profile: &Path) -> Result<()> {
     journal.write_all(&serde_json::to_vec(&recovery)?)?;
     journal.as_file().sync_all()?;
     journal.persist(&marker)?;
-    let result = (|| -> Result<()> {
-        for root in &roots {
-            remove(&profile.join(root))?;
-            if staging.path().join(root).exists() {
-                fs::rename(staging.path().join(root), profile.join(root))?;
-            }
+    for root in &roots {
+        remove(&profile.join(root))?;
+        if staging.path().join(root).exists() {
+            fs::rename(staging.path().join(root), profile.join(root))?;
         }
-        fs::remove_file(&pending)?;
-        fs::remove_file(&marker)?;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        recover(profile)?;
-        return Err(error);
     }
+    fs::remove_file(pending)?;
+    fs::remove_file(&marker)?;
     Ok(())
 }
 
