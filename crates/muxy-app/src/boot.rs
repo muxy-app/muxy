@@ -38,6 +38,7 @@ impl Boot {
                 .parent()
                 .unwrap_or_else(|| std::path::Path::new(".")),
         );
+        crate::backup::apply_pending(state_path.parent().ok_or("Missing profile directory")?)?;
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -448,6 +449,14 @@ fn connect(
         crate::server::ensure_server_running(socket)?
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
+    let profile = socket
+        .parent()
+        .ok_or_else(|| std::io::Error::other("Missing profile directory"))?;
+    crate::backup::apply_mobile_settings(profile, |settings| {
+        client.write_remote_access(settings)?;
+        Ok(())
+    })
+    .map_err(std::io::Error::other)?;
     let events = client
         .events()
         .ok_or_else(|| std::io::Error::other("client events already taken"))?;

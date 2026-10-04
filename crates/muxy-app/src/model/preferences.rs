@@ -69,6 +69,7 @@ impl AppModel {
                 cx,
             );
             view.extensions = Some(extensions);
+            view.set_backup_pending(self.path.with_file_name("pending-import.muxy").exists());
             view.set_included_keys(&included_keys);
             view
         });

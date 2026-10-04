@@ -22,6 +22,7 @@ impl Category {
             Self::Server => &["Connection", "Sessions", "Server control"],
             Self::Mobile => &["Access", "Pairing", "Devices"],
             Self::Extensions | Self::Commands => &[],
+            Self::Backup => &["Backup & Restore", "Migration", "Configuration"],
         }
     }
 }

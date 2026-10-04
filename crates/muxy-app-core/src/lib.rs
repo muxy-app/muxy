@@ -3,6 +3,7 @@
 //! Workspaces, cached project views, tabs, panes, and window state live here;
 //! server execution and UI toolkit code do not.
 
+pub mod backup;
 pub mod composer;
 mod error;
 pub mod extensions;
