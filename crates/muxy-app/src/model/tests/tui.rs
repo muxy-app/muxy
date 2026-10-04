@@ -96,9 +96,7 @@ fn walkthrough(cx: &mut TestAppContext) -> Result {
     );
     shared_closes(cx, &view, &probe, channel, &session, &executable)?;
     detach::verify_live_detach(cx, &view, &probe)?;
-    view.update(cx, |model, _| {
-        model.work.send((model.generation, Work::Stop))
-    })?;
+    view.update(cx, |model, _| model.stop_workers());
     crate::server::stop_server(&probe, &directory.join("server.sock"))?;
     report(
         "Nested live TUI excludes its desktop host; bidirectional shared-session output and independent layouts survive detach: PASS",

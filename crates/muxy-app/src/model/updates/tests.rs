@@ -8,11 +8,11 @@ fn newer_release_replaces_downloaded_update_and_preserves_schedule(cx: &mut Test
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.updates.server = Some(muxy_protocol::ServerInfo::current());
         model.updates.ready = Some(PreparedUpdate::fixture().expect("cached update"));
         model.updates.scheduled = true;
-        model.updates.retry_preparation = Some(model.generation);
+        model.updates.retry_preparation = Some(model.servers.local.generation);
         model.updates.mode = Some(UpdateMode::EndSessions);
         model.updates.download = AppUpdatePhase::Checking;
         let release = model
@@ -61,7 +61,7 @@ fn app_download_does_not_block_the_server_restart_action(cx: &mut TestAppContext
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, _| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.updates.download = AppUpdatePhase::Downloading;
         assert!(!model.update_action_enabled(UpdateAction::ReviewApp));
         assert!(model.update_action_enabled(UpdateAction::RestartServer));
@@ -69,7 +69,7 @@ fn app_download_does_not_block_the_server_restart_action(cx: &mut TestAppContext
             model.server_update_action(),
             (UpdateAction::RestartServer, "Restart server…")
         );
-        model.connection = ConnectionState::Disconnected;
+        model.servers.local.connection = ConnectionState::Disconnected;
         assert_eq!(
             model.server_update_action(),
             (UpdateAction::Connect, "Connect to server")
@@ -105,7 +105,7 @@ fn failed_refresh_or_persistence_keeps_old_update_without_installing_it(cx: &mut
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.updates.ready = Some(PreparedUpdate::fixture().expect("cached update"));
         model.updates.scheduled = true;
         model.updates.download = AppUpdatePhase::Checking;

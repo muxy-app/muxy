@@ -215,7 +215,7 @@ fn exit_closes_scrollback(
     wait_empty(cx, view)?;
     signal_test_server(directory, "-TERM")?;
     wait(cx, view, |model, _| {
-        model.connection == ConnectionState::Disconnected
+        model.servers.local.connection == ConnectionState::Disconnected
     })?;
     reload_model(cx, view)?;
     wait_empty(cx, view)?;

@@ -166,7 +166,7 @@ fn run(cx: &mut TestAppContext) -> Result {
     cx.run_until_parked();
     assert!(view.read_with(cx, |model, _| model.state.home().tabs.is_empty()));
     report("16.extra: an exited terminal closes and paste cannot recreate it")?;
-    view.update(cx, AppModel::disconnect);
+    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
     signal_test_server(&directory, "-TERM")?;
     report("Phase 16 GPUI/live-server walkthrough: PASS")
 }

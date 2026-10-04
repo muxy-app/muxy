@@ -30,7 +30,7 @@ fn rapid_editor_and_project_switches_preserve_terminal_attachment_and_input(
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
     });
     for round in 0..20 {
@@ -44,7 +44,7 @@ fn rapid_editor_and_project_switches_preserve_terminal_attachment_and_input(
         let mut late = attachment();
         late.channel = muxy_protocol::ChannelId(u32::try_from(round * 2 + 1).unwrap());
         view.update(cx, |model, cx| {
-            model.receive_attached(pane, session, late, false, cx);
+            model.receive_attached(ServerId::local(), pane, session, late, false, cx);
             assert!(model.terminal(&pane).is_none());
             model.select_tab(terminal, cx);
         });
@@ -53,7 +53,7 @@ fn rapid_editor_and_project_switches_preserve_terminal_attachment_and_input(
         view.update(cx, |model, cx| {
             let mut current = attachment();
             current.channel = channel;
-            model.receive_attached(pane, session, current, false, cx);
+            model.receive_attached(ServerId::local(), pane, session, current, false, cx);
         });
         cx.run_until_parked();
         requests.try_iter().for_each(drop);
@@ -66,7 +66,7 @@ fn rapid_editor_and_project_switches_preserve_terminal_attachment_and_input(
                 model.terminal(&pane).unwrap().view.read(cx).channel(),
                 Some(channel)
             );
-            assert!(!model.pending.contains(&pane));
+            assert!(!model.pending.contains_key(&pane));
         });
     }
 }
@@ -210,7 +210,7 @@ fn unavailable_webview_is_client_owned_and_can_close_while_offline(cx: &mut Test
             .any(|(_, work)| matches!(work, Work::Attach { .. }))
     );
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Disconnected;
+        model.servers.local.connection = ConnectionState::Disconnected;
         model.close_tab(tab, cx);
     });
     cx.run_until_parked();
@@ -246,7 +246,7 @@ fn unavailable_webview_click_selects_and_closes_only_its_own_split(cx: &mut Test
     cx.run_until_parked();
     view.update(cx, |model, cx| {
         assert_eq!(model.active_pane(), Some(webview));
-        model.connection = ConnectionState::Disconnected;
+        model.servers.local.connection = ConnectionState::Disconnected;
         model.close_pane(model.active_pane().expect("selected pane"), cx);
     });
     cx.run_until_parked();

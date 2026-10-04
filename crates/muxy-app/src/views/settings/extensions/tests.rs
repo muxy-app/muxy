@@ -36,6 +36,7 @@ fn setup_in<'a>(
         settings: Settings::default(),
         terminal: TerminalSettings::default(),
         work,
+        workers: crate::boot::Workers::with(|_, _| Ok(std::sync::mpsc::channel().0)),
         updates,
     };
     let (model, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));

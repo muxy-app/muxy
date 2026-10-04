@@ -619,7 +619,7 @@ fn settings_button_stays_reachable_and_reuses_the_settings_window(cx: &mut TestA
             let model = observer.read_with(cx, |observer, _| observer.model.clone());
             model.update(cx, |model, cx| {
                 model.appearance.sidebar_expanded = expanded;
-                model.connection = ConnectionState::Disconnected;
+                model.servers.local.connection = ConnectionState::Disconnected;
                 cx.notify();
             });
             for width in [640.0, 1000.0] {

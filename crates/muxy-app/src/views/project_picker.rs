@@ -459,6 +459,7 @@ impl AppModel {
             .state
             .projects()
             .iter()
+            .filter(|project| project.server_id.is_local())
             .map(|project| project.directory.to_string_lossy().into_owned())
             .collect();
         let picker = cx.new(|cx| {
@@ -552,8 +553,9 @@ impl AppModel {
             .projects()
             .iter()
             .find(|project| {
-                path_service::standardize(&project.directory.to_string_lossy())
-                    == path.to_string_lossy()
+                project.server_id.is_local()
+                    && path_service::standardize(&project.directory.to_string_lossy())
+                        == path.to_string_lossy()
             })
             .map(|project| project.id);
         if let Some(id) = existing {

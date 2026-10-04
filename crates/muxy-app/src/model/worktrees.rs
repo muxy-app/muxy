@@ -181,8 +181,9 @@ impl AppModel {
         else {
             return;
         };
+        let generation = self.project_generation(root);
         let sync = &mut self.git.worktrees;
-        if sync.running == Some((root, self.generation)) {
+        if sync.running == Some((root, generation)) {
             sync.again |= changed;
         } else {
             sync.queue.retain(|queued| *queued != root);
@@ -197,38 +198,45 @@ impl AppModel {
             .projects()
             .iter()
             .filter(|project| project.parent_id.is_none())
-            .map(|project| project.id)
+            .map(|project| (project.id, self.project_generation(project.id)))
             .collect();
         let sync = &mut self.git.worktrees;
-        for root in roots {
-            if sync.running != Some((root, self.generation)) && !sync.queue.contains(&root) {
+        for (root, generation) in roots {
+            if sync.running != Some((root, generation)) && !sync.queue.contains(&root) {
                 sync.queue.push_back(root);
             }
         }
         self.next_worktree_sync(cx);
     }
 
+    /// Syncs one project at a time, on its own server. Projects whose server
+    /// is not connected wait in the queue.
     fn next_worktree_sync(&mut self, cx: &mut Context<Self>) {
-        let generation = self.generation;
-        if !self.session_listing_ready()
-            || self
-                .git
-                .worktrees
-                .running
-                .is_some_and(|(_, running)| running == generation)
+        if self
+            .git
+            .worktrees
+            .running
+            .is_some_and(|(root, running)| running == self.project_generation(root))
         {
             return;
         }
         self.git.worktrees.running = None;
         self.git.worktrees.again = false;
+        let mut waiting = Vec::new();
         while let Some(root) = self.git.worktrees.queue.pop_front() {
             let Some(directory) = self.worktree_sync_directory(root) else {
                 continue;
             };
+            let server = self.project_server_or_local(root);
+            if !self.ready(server) {
+                waiting.push(root);
+                continue;
+            }
+            let generation = self.generation(server);
             let (sender, receiver) = async_channel::bounded(1);
-            if !self.send(Work::ExtensionClient(sender), cx) {
-                self.git.worktrees.queue.push_front(root);
-                return;
+            if !self.send(server, Work::ExtensionClient(sender), cx) {
+                waiting.push(root);
+                break;
             }
             self.git.worktrees.running = Some((root, generation));
             let task = cx.background_executor().spawn(async move {
@@ -244,7 +252,10 @@ impl AppModel {
                 });
             })
             .detach();
-            return;
+            break;
+        }
+        for root in waiting.into_iter().rev() {
+            self.git.worktrees.queue.push_front(root);
         }
     }
 
@@ -280,7 +291,7 @@ impl AppModel {
                     .iter()
                     .any(|worktree| worktree.registered.is_none())
                 {
-                    self.refresh_catalog(cx);
+                    self.refresh_catalog(self.project_server_or_local(root), cx);
                 }
             }
             Err(error) => {

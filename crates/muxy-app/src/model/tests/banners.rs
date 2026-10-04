@@ -13,7 +13,7 @@ fn failed_import_is_reported_after_connecting_and_settings_remain_available(
     let error = boot.import_error.clone().expect("import error");
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive_connected(&[], cx);
+        model.receive_connected(ServerId::local(), &[], cx);
         assert_eq!(
             model.visible_banner(),
             Some((BannerKind::Configuration, error.as_str()))

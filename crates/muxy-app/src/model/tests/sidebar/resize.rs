@@ -185,9 +185,10 @@ fn sidebar_resize_updates_terminal_geometry_without_changing_focus(cx: &mut Test
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1000.0), px(700.0)));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::Attached {
                     pane,

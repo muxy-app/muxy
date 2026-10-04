@@ -7,7 +7,7 @@ fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &m
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         let pending = model.state.project_intents(ServerId::local()).to_vec();
         let error = |code| {
             muxy_client::ClientError::Server(muxy_protocol::ErrorReply {
@@ -16,13 +16,19 @@ fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &m
             })
         };
         model.receive_project_mutation(
+            ServerId::local(),
             pending[0].operation,
             Err(error(ErrorCode::PersistenceFailed)),
             cx,
         );
         assert_eq!(model.state.project_intents(ServerId::local()), pending);
         requests.try_iter().for_each(drop);
-        model.receive_project_mutation(pending[0].operation, Err(error(ErrorCode::BadPath)), cx);
+        model.receive_project_mutation(
+            ServerId::local(),
+            pending[0].operation,
+            Err(error(ErrorCode::BadPath)),
+            cx,
+        );
         assert_eq!(
             model.state.project_intents(ServerId::local()),
             &pending[1..]
@@ -93,9 +99,9 @@ fn migration_walkthrough(cx: &mut TestAppContext, server_first: bool) -> Result 
     assert_eq!(boot.state.window(), state.window());
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     wait(cx, &view, |model, _| {
-        model.connection == ConnectionState::Ready
-            && model.catalog.restore.is_none()
-            && !model.catalog.pending
+        model.servers.local.connection == ConnectionState::Ready
+            && model.servers.local.catalog.restore.is_none()
+            && !model.servers.local.catalog.pending
             && model.state.catalog_revision(ServerId::local()) > 0
     })?;
     for session in state.session_references(ServerId::local()) {
@@ -121,9 +127,7 @@ fn migration_walkthrough(cx: &mut TestAppContext, server_first: bool) -> Result 
     wait(cx, &view, |model, _| model.state.project(deleted).is_none())?;
     assert!(directory.is_dir());
     assert_eq!(std::fs::read(directory.join("state.json"))?, original);
-    view.update(cx, |model, _| {
-        model.work.send((model.generation, Work::Stop))
-    })?;
+    view.update(cx, |model, _| model.stop_workers());
     crate::server::stop_server(&probe, &socket)?;
     let restarted = crate::server::ensure_server_running(&socket)?;
     assert!(
@@ -168,9 +172,9 @@ fn switching_projects_detaches_and_reattaches_in_the_owning_directory(cx: &mut T
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected([first_session, second_session].map(|id| SessionInfo { project: ProjectId::from_u128(1),  id, directory: muxy_protocol::ServerPath(b"/tmp".to_vec()) }).to_vec())), cx);
+        model.receive((ServerId::local(), 1, Update::Connected([first_session, second_session].map(|id| SessionInfo { project: ProjectId::from_u128(1),  id, directory: muxy_protocol::ServerPath(b"/tmp".to_vec()) }).to_vec())), cx);
         acknowledge_catalog(model, cx);
-        model.receive((1, Update::Attached { pane: first_pane, session: first_session, attachment: attachment(), created: false }), cx);
+        model.receive((ServerId::local(), 1, Update::Attached { pane: first_pane, session: first_session, attachment: attachment(), created: false }), cx);
         requests.try_iter().for_each(drop);
         model.select_project(second, cx);
         model.start_attach(second_pane, Size { cols: 80, rows: 24 }, cx);
@@ -200,7 +204,7 @@ fn hidden_restore_creates_in_each_project_and_removal_discards_late_creations(
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(Vec::new())), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(Vec::new())), cx);
         acknowledge_catalog(model, cx);
         let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
         for (id, pane) in [(first, first_pane), (second, second_pane)] {
@@ -209,7 +213,7 @@ fn hidden_restore_creates_in_each_project_and_removal_discards_late_creations(
         }
         model.remove_project_confirmed(first, cx);
         let session = SessionId::new(51).expect("session");
-        model.receive((1, Update::Attached { pane: first_pane, session, attachment: attachment(), created: true }), cx);
+        model.receive((ServerId::local(), 1, Update::Attached { pane: first_pane, session, attachment: attachment(), created: true }), cx);
         assert!(model.state.project(first).is_none());
         assert_eq!(model.state.pending_discards(ServerId::local()), [session]);
         assert!(requests.try_iter().any(|(_, work)| matches!(work, Work::Discard(id, _) if id == session)));
@@ -230,7 +234,7 @@ fn tab_close_confirmation_keeps_its_target_after_project_switch(cx: &mut TestApp
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.close_tab(tab, cx);
         model.select_project(second, cx);
         model.receive_close_checked(tab, session, Ok(None), cx);
@@ -278,7 +282,7 @@ fn project_removal_requires_confirmation_and_persists_offline_cleanup(cx: &mut T
             .any(|(_, work)| matches!(work, Work::Discard(_, _)))
     );
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
     });
     assert!(
@@ -331,7 +335,7 @@ fn end_all_includes_hidden_projects_and_keeps_empty_project_records(cx: &mut Tes
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.end_all_and_quit(cx);
         assert!(requests.try_iter().any(|(_, work)| matches!(work, Work::EndAll(sessions) if sessions == [first_session, second_session])));
         model.finish_end_all(Ok(()), cx);
@@ -349,7 +353,7 @@ fn removal_save_failure_keeps_projects_and_never_discards(cx: &mut TestAppContex
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         let temporary = PathBuf::from(format!("{}.tmp", model.path.display()));
         std::fs::create_dir(&temporary).expect("block save");
         let previous = model.state.clone();
@@ -442,9 +446,7 @@ fn run_projects_live_walkthrough(cx: &mut TestAppContext) -> Result {
         Some("👩🏽‍💻")
     );
     report("24.2: switching restores the same session; name, emoji, color and order persist")?;
-    view.update(cx, |model, _| {
-        model.work.send((model.generation, Work::Stop))
-    })?;
+    view.update(cx, |model, _| model.stop_workers());
     cx.update(|window, _| window.remove_window());
     drop(view);
     cx.run_until_parked();
@@ -606,7 +608,7 @@ fn status_bar_empty_space_does_not_reveal_the_path_or_open_its_menu(cx: &mut Tes
             boot.settings.appearance.sidebar_expanded = expanded;
             let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
             view.update(cx, |model, cx| {
-                model.connection = connection;
+                model.servers.local.connection = connection;
                 cx.notify();
             });
             cx.simulate_resize(size(px(1000.0), px(600.0)));
@@ -660,7 +662,7 @@ fn long_project_paths_leave_connection_controls_inside_a_narrow_window(cx: &mut 
     let (mut boot, _) = stub_boot(state);
     boot.settings.appearance.sidebar_expanded = true;
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, AppModel::disconnect);
+    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
     cx.simulate_resize(size(px(640.0), px(400.0)));
     cx.run_until_parked();
     let bar = cx.debug_bounds("project-status-bar").expect("status bar");
@@ -697,7 +699,9 @@ fn existing_shortcuts_dispatch_the_original_action_when_project_defaults_collide
             muxy_app_core::settings::Settings::load(&settings_path).expect("legacy keymap");
         cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-        view.update(cx, |model, _| model.connection = ConnectionState::Ready);
+        view.update(cx, |model, _| {
+            model.servers.local.connection = ConnectionState::Ready;
+        });
         cx.simulate_keystrokes(chord);
         cx.run_until_parked();
         view.read_with(cx, |model, _| {

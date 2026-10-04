@@ -1,4 +1,5 @@
 use gpui::{Context, Window};
+use muxy_app_core::ServerId;
 
 use super::{AppModel, ConnectionState, Quitting};
 use crate::views::overlays::Overlay;
@@ -31,7 +32,7 @@ impl AppModel {
         } else if self.server_preferences.control_busy {
             ServerStatus::Stopping
         } else {
-            match self.connection {
+            match self.connection(ServerId::local()) {
                 ConnectionState::Ready => ServerStatus::Connected,
                 ConnectionState::Connecting => ServerStatus::Connecting,
                 ConnectionState::Disconnected => ServerStatus::Disconnected,
@@ -40,11 +41,12 @@ impl AppModel {
     }
 
     pub(crate) fn server_control_enabled(&self) -> bool {
-        self.server_actions_enabled() && self.connection == ConnectionState::Ready
+        self.server_actions_enabled() && self.ready(ServerId::local())
     }
 
     pub(crate) fn server_connect_enabled(&self) -> bool {
-        self.server_actions_enabled() && self.connection == ConnectionState::Disconnected
+        self.server_actions_enabled()
+            && self.connection(ServerId::local()) == ConnectionState::Disconnected
     }
 
     fn server_actions_enabled(&self) -> bool {

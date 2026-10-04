@@ -17,12 +17,13 @@ fn split_state() -> (AppState, TabId, [PaneId; 3]) {
 }
 
 fn attach_panes(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppModel>) {
-    model.connection = ConnectionState::Ready;
+    model.servers.local.connection = ConnectionState::Ready;
     for (index, pane) in panes.iter().enumerate() {
         let mut attachment = attachment();
         attachment.channel = ChannelId(u32::try_from(index + 1).expect("channel"));
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::Attached {
                     pane: *pane,
@@ -330,7 +331,7 @@ fn shortcuts_split_focus_zoom_and_close_the_expected_pane(cx: &mut TestAppContex
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
     });
     cx.simulate_keystrokes("cmd-t");
@@ -428,11 +429,12 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
         boot.settings.panes.new_pane_directory = setting;
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             let mut data = attachment();
             data.directory = muxy_protocol::ServerPath(reported.to_vec());
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane: original,
@@ -469,6 +471,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
             model.close_pane(new, cx);
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane: new,

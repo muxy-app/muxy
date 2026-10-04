@@ -12,6 +12,7 @@ mod preferences;
 pub(crate) mod project_layouts;
 mod quick_terminal;
 mod server_status;
+mod servers;
 pub(crate) use server_status::ServerStatus;
 mod tabs;
 pub(crate) mod tips;
@@ -34,7 +35,7 @@ use muxy_app_core::{
 use muxy_client::{ClientEvent, RunGrid};
 use muxy_protocol::{SessionId, SessionInfo, Size};
 
-use crate::boot::{Boot, Update, Work, Worker, missing_session};
+use crate::boot::{Boot, Update, Work, missing_session};
 use crate::views::overlays::Overlay;
 use crate::views::terminal::colors::Palette;
 use crate::views::terminal::pane::{PaneEvent, PaneState, TerminalPane};
@@ -98,7 +99,7 @@ pub(crate) struct AppModel {
     pub(crate) voice: voice::VoiceRuntime,
     pub(crate) git: git::GitState,
     pub(crate) ai: ai::Runtime,
-    catalog: catalog::Synchronization,
+    pub(crate) servers: servers::Servers,
     project_layouts: project_layouts::ProjectLayouts,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
     pub(crate) quick: quick_terminal::QuickTerminalRuntime,
@@ -156,8 +157,8 @@ pub(crate) struct AppModel {
     bounds_save: Option<Task<()>>,
     webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
     pub(crate) spinners: crate::views::tab_activity::Spinners,
-    work: Worker,
-    pending: HashSet<PaneId>,
+    /// Panes waiting for an attachment or saved output, with the server asked.
+    pending: HashMap<PaneId, ServerId>,
     detached_pending: HashSet<PaneId>,
     pending_close: Option<TabId>,
     close_request: Option<CloseRequest>,
@@ -165,16 +166,12 @@ pub(crate) struct AppModel {
     retained: HashSet<PaneId>,
     loaded: HashSet<PaneId>,
     snapshots: HashMap<PaneId, RunGrid>,
-    pub(crate) activity: activity::ActivityView,
     pub(crate) window_active: bool,
     #[cfg(target_os = "macos")]
     notifications: Option<muxy_ui::notifications::Notifications>,
-    pub(crate) progress: HashMap<SessionId, muxy_protocol::SessionProgress>,
     pub(crate) completions: HashSet<PaneId>,
-    discarding: HashSet<SessionId>,
-    references: Option<Vec<SessionId>>,
-    generation: u64,
-    connection: ConnectionState,
+    /// Servers still finishing their work before the app quits.
+    flushing: HashSet<ServerId>,
     quitting: Quitting,
     updates: updates::Updater,
     _events: Task<()>,
@@ -204,10 +201,12 @@ impl AppModel {
             Ok(palette) => self.palette = palette,
             Err(error) => self.set_configuration_error(Some(error)),
         }
-        if self.connection == ConnectionState::Ready
-            && previous_colors != self.palette.terminal_colors()
-        {
-            self.send(Work::Colors(self.palette.terminal_colors()), cx);
+        if previous_colors != self.palette.terminal_colors() {
+            for server in self.servers.ids() {
+                if self.ready(server) {
+                    self.send(server, Work::Colors(self.palette.terminal_colors()), cx);
+                }
+            }
         }
         for pane in self.grids.values() {
             pane.view.update(cx, |pane, cx| {
@@ -343,6 +342,7 @@ impl AppModel {
             self.navigation.commit(index);
             self.changed(cx);
             self.focus_requested = true;
+            self.connect_on_demand(self.state.current_project().server_id, cx);
         }
     }
 
@@ -468,7 +468,7 @@ impl AppModel {
             voice: voice::VoiceRuntime::default(),
             git: git::GitState::default(),
             ai: ai::Runtime::default(),
-            catalog: catalog::Synchronization::default(),
+            servers: servers::Servers::new(boot.workers, boot.work),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
             quick: quick_terminal::QuickTerminalRuntime::new(&boot.settings.quick_terminal, cx),
             window: window.window_handle(),
@@ -526,8 +526,7 @@ impl AppModel {
             bounds_save: None,
             webview_shortcuts: None,
             spinners: crate::views::tab_activity::Spinners::default(),
-            work: boot.work,
-            pending: HashSet::new(),
+            pending: HashMap::new(),
             detached_pending: HashSet::new(),
             pending_close: None,
             close_request: None,
@@ -535,16 +534,11 @@ impl AppModel {
             retained: HashSet::new(),
             loaded: HashSet::new(),
             snapshots: HashMap::new(),
-            activity: activity::ActivityView::default(),
             window_active: window.is_window_active(),
             #[cfg(target_os = "macos")]
             notifications: Self::start_notifications(cx),
-            progress: HashMap::new(),
             completions: HashSet::new(),
-            discarding: HashSet::new(),
-            references: None,
-            generation: 1,
-            connection: ConnectionState::Connecting,
+            flushing: HashSet::new(),
             quitting: Quitting::Idle,
             updates: updates::Updater::default(),
             _events: events,
@@ -554,6 +548,10 @@ impl AppModel {
             _panes: panes,
             _quit: quit,
         };
+        if !model.project_shown(model.state.current_project()) {
+            let home = model.state.home().id;
+            let _ = model.state.select_project(home);
+        }
         model.bind_extension_keys(cx);
         model.refresh_installed_extensions(cx);
         #[cfg(not(test))]
@@ -570,6 +568,7 @@ impl AppModel {
         }
         Self::start_diagnostics(cx);
         model.start_update_checks(cx);
+        model.start_servers(cx);
         model
     }
 
@@ -639,10 +638,11 @@ impl AppModel {
         self.split_resize.end();
         self.sync_visible(cx);
         self.focus_requested = true;
-        if self.connection == ConnectionState::Ready {
-            self.start_attach(pane, size, cx);
-        } else if self.connection == ConnectionState::Disconnected {
-            self.connect(cx);
+        let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
+        match self.connection(server) {
+            ConnectionState::Ready => self.start_attach(pane, size, cx),
+            ConnectionState::Disconnected => self.connect_server(server, cx),
+            ConnectionState::Connecting => {}
         }
         cx.notify();
     }
@@ -703,6 +703,7 @@ impl AppModel {
             self.dismiss_overlay(cx);
             self.changed(cx);
             self.focus_requested = true;
+            self.connect_on_demand(self.state.current_project().server_id, cx);
         }
     }
 
@@ -797,11 +798,11 @@ impl AppModel {
     }
 
     pub(crate) fn remove_project_confirmed(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(server) = self.state.project_server(project) else {
+            return;
+        };
         if self.edit_project(
             |state| {
-                let server = state
-                    .project_server(project)
-                    .ok_or(muxy_app_core::AppError::UnknownProject(project))?;
                 for session in state.remove_project(project)? {
                     state.queue_discard(server, session);
                 }
@@ -809,7 +810,7 @@ impl AppModel {
             },
             cx,
         ) {
-            self.discard_pending(cx);
+            self.discard_pending(server, cx);
         }
     }
 
@@ -830,8 +831,9 @@ impl AppModel {
             Ok(_) => self.changed(cx),
             Err(error) => self.fail(error.to_string(), cx),
         }
-        if self.connection == ConnectionState::Disconnected {
-            self.connect(cx);
+        let server = self.state.current_project().server_id;
+        if self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
         }
     }
 
@@ -846,6 +848,7 @@ impl AppModel {
             Ok(()) => {
                 self.changed(cx);
                 self.focus_requested = true;
+                self.connect_on_demand(self.state.current_project().server_id, cx);
             }
             Err(error) => self.fail(error.to_string(), cx),
         }
@@ -929,7 +932,7 @@ impl AppModel {
             self.state = previous;
             return;
         }
-        if self.pending.contains(&pane) {
+        if self.pending.contains_key(&pane) {
             self.detached_pending.insert(pane);
         }
         if let Some(tab) = self.active_tab() {
@@ -1003,15 +1006,16 @@ impl AppModel {
             }
             let tab = request.tab;
             let pane = request.panes[request.checking];
+            let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
             if let Some(session) = self.pane_session(pane)
-                && self.session_used_outside(session, &request.panes)
+                && self.session_used_outside(server, session, &request.panes)
             {
                 if let Some(request) = &mut self.close_request {
                     request.checking += 1;
                 }
                 continue;
             }
-            if self.connection == ConnectionState::Ready
+            if self.ready(server)
                 && !self.retained.contains(&pane)
                 && let Some(session) = self.pane_session(pane)
             {
@@ -1020,7 +1024,7 @@ impl AppModel {
                     .and_then(|pane| pane.view.read(cx).viewport())
                     .unwrap_or(Size { cols: 80, rows: 24 });
                 self.pending_close = Some(tab);
-                if !self.send(Work::CheckClose { tab, session, size }, cx) {
+                if !self.send(server, Work::CheckClose { tab, session, size }, cx) {
                     self.close_request = None;
                     self.pending_close = None;
                 }
@@ -1043,14 +1047,23 @@ impl AppModel {
         }
     }
 
-    fn session_used_outside(&self, session: SessionId, closing: &[PaneId]) -> bool {
+    fn session_used_outside(
+        &self,
+        server: ServerId,
+        session: SessionId,
+        closing: &[PaneId],
+    ) -> bool {
         self.state
             .projects()
             .iter()
             .flat_map(|project| &project.tabs)
             .flat_map(|tab| &tab.panes)
             .chain(self.state.quick_terminal())
-            .any(|pane| !closing.contains(&pane.id) && self.pane_session(pane.id) == Some(session))
+            .any(|pane| {
+                !closing.contains(&pane.id)
+                    && self.pane_session(pane.id) == Some(session)
+                    && self.state.pane_server(pane.id) == Some(server)
+            })
     }
 
     pub(crate) fn closing_one_pane(&self) -> bool {
@@ -1162,7 +1175,7 @@ impl AppModel {
                 request
                     .panes
                     .iter()
-                    .filter(|pane| self.pending.contains(pane))
+                    .filter(|pane| self.pending.contains_key(pane))
                     .copied(),
             );
         }
@@ -1173,53 +1186,8 @@ impl AppModel {
         self.split_resize.end();
         self.focus_requested = true;
         self.sync_visible(cx);
-        self.discard_pending(cx);
+        self.discard_pending(server, cx);
         cx.notify();
-    }
-
-    pub(crate) fn connect(&mut self, cx: &mut Context<Self>) {
-        self.connect_to_server(false, cx);
-    }
-
-    fn connect_to_server(&mut self, after_update: bool, cx: &mut Context<Self>) {
-        if self.connection != ConnectionState::Disconnected
-            || self.quitting != Quitting::Idle
-            || self.server_preferences.control_busy
-        {
-            return;
-        }
-        let Some(generation) = self.generation.checked_add(1) else {
-            return;
-        };
-        self.generation = generation;
-        self.detached_pending.clear();
-        self.connection = ConnectionState::Connecting;
-        self.sync_preferences(cx);
-        self.pending.clear();
-        self.pending_close = None;
-        if self.close_prompt.is_none() {
-            self.close_request = None;
-        }
-        self.discarding.clear();
-        self.catalog.cancelling.clear();
-        for pane in self.grids.values() {
-            pane.view
-                .update(cx, |pane, cx| pane.set_state(PaneState::Connecting, cx));
-        }
-        let work = if after_update {
-            Work::ReconnectAfterUpdate(
-                self.updates
-                    .server
-                    .as_ref()
-                    .map_or(0, |server| server.instance),
-            )
-        } else {
-            Work::Connect
-        };
-        if self.work.send((generation, work)).is_err() {
-            self.disconnect(cx);
-            self.fail("The server connection worker stopped".into(), cx);
-        }
     }
 
     pub(crate) fn quit(&mut self, cx: &mut Context<Self>) {
@@ -1227,14 +1195,14 @@ impl AppModel {
             "quit.request",
             format_args!(
                 "quitting={:?} pending={:?} discarding={:?}",
-                self.quitting, self.pending, self.discarding
+                self.quitting, self.pending, self.servers.local.discarding
             ),
         );
         if self.quitting != Quitting::Idle || !self.preferences_before_quit(cx) {
             return;
         }
         self.quitting = Quitting::Preserve;
-        if !self.send(Work::Flush, cx) {
+        if !self.flush_servers(cx) {
             self.quitting = Quitting::Idle;
         }
     }
@@ -1243,17 +1211,18 @@ impl AppModel {
         if self.quitting != Quitting::Idle || !self.preferences_before_quit(cx) {
             return;
         }
-        if self.connection != ConnectionState::Ready {
+        let local = ServerId::local();
+        if !self.ready(local) {
             self.fail(
                 "Connect to the server before ending all sessions".into(),
                 cx,
             );
             return;
         }
-        let mut sessions = self.state.session_references(ServerId::local());
-        sessions.extend(self.state.pending_discards(ServerId::local()));
+        let mut sessions = self.state.session_references(local);
+        sessions.extend(self.state.pending_discards(local));
         self.quitting = Quitting::EndAll;
-        if !self.send(Work::EndAll(sessions), cx) {
+        if !self.send(local, Work::EndAll(sessions), cx) {
             self.quitting = Quitting::Idle;
         }
     }
@@ -1291,16 +1260,19 @@ impl AppModel {
             .map(|tab| tab.id)
     }
 
-    fn discard_pending(&mut self, cx: &mut Context<Self>) {
-        if self.connection != ConnectionState::Ready {
+    fn discard_pending(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        if !self.ready(server) || !self.confirmed(server) {
             return;
         }
-        let server = ServerId::local();
         for operation in self.state.pending_cancellations(server).to_vec() {
-            if self.catalog.cancelling.insert(operation)
-                && !self.send(Work::CancelCreation(operation), cx)
-            {
-                self.catalog.cancelling.remove(&operation);
+            let cancelling = self
+                .servers
+                .get_mut(server)
+                .is_some_and(|runtime| runtime.catalog.cancelling.insert(operation));
+            if cancelling && !self.send(server, Work::CancelCreation(operation), cx) {
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.catalog.cancelling.remove(&operation);
+                }
                 break;
             }
         }
@@ -1313,18 +1285,23 @@ impl AppModel {
             let Some(operation) = self.state.close_operation(server, session) else {
                 continue;
             };
-            if self.discarding.insert(session) && !self.send(Work::Discard(session, operation), cx)
-            {
-                self.discarding.remove(&session);
+            let discarding = self
+                .servers
+                .get_mut(server)
+                .is_some_and(|runtime| runtime.discarding.insert(session));
+            if discarding && !self.send(server, Work::Discard(session, operation), cx) {
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.discarding.remove(&session);
+                }
                 break;
             }
         }
     }
 
-    fn discard_created(&mut self, session: SessionId, cx: &mut Context<Self>) {
-        self.state.queue_discard(ServerId::local(), session);
+    fn discard_created(&mut self, server: ServerId, session: SessionId, cx: &mut Context<Self>) {
+        self.state.queue_discard(server, session);
         if self.save(cx) {
-            self.discard_pending(cx);
+            self.discard_pending(server, cx);
         }
     }
 
@@ -1377,15 +1354,23 @@ impl AppModel {
         }
     }
 
+    /// Tells each connected server which of its sessions this app shows, so
+    /// a server whose last pane closed hears an empty list.
     fn sync_references(&mut self, cx: &mut Context<Self>) {
-        if self.connection != ConnectionState::Ready {
-            return;
-        }
-        let references = self.state.session_references(ServerId::local());
-        if self.references.as_ref() != Some(&references)
-            && self.send(Work::References(references.clone()), cx)
-        {
-            self.references = Some(references);
+        for server in self.servers.ids() {
+            if !self.ready(server) {
+                continue;
+            }
+            let references = self.state.session_references(server);
+            if self
+                .servers
+                .get(server)
+                .is_some_and(|runtime| runtime.references.as_ref() != Some(&references))
+                && self.send(server, Work::References(references.clone()), cx)
+                && let Some(runtime) = self.servers.get_mut(server)
+            {
+                runtime.references = Some(references);
+            }
         }
     }
 
@@ -1420,10 +1405,10 @@ impl AppModel {
                         scroll.set_visible(false);
                     }
                 });
-                if let Some(channel) = pane.view.read(cx).channel()
-                    && self.connection == ConnectionState::Ready
+                if let Some((server, channel)) = pane.view.read(cx).attachment()
+                    && self.ready(server)
                 {
-                    self.send(Work::Detach(channel), cx);
+                    self.send(server, Work::Detach(channel), cx);
                 }
                 if let Some(grid) = pane.view.update(cx, |pane, _| pane.grid.take()) {
                     self.snapshots.insert(id, grid);
@@ -1441,9 +1426,13 @@ impl AppModel {
             .map(|pane| pane.id)
             .collect();
         self.completions.retain(|id| panes.contains(id));
-        let sessions = self.state.session_references(ServerId::local());
-        self.progress.retain(|id, _| sessions.contains(id));
-        self.sync_activity_panes(sessions);
+        for server in self.servers.ids() {
+            let sessions = self.state.session_references(server);
+            if let Some(runtime) = self.servers.get_mut(server) {
+                runtime.progress.retain(|id, _| sessions.contains(id));
+            }
+            self.sync_activity_panes(server, sessions);
+        }
         self.font_sizes.retain(|id, _| panes.contains(id));
         self.initial_directories.retain(|id, _| panes.contains(id));
         self.snapshots.retain(|id, _| panes.contains(id));
@@ -1512,29 +1501,19 @@ impl AppModel {
                         model.retained.contains(&id)
                     ),
                 );
-                if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
-                    model.send(Work::Input(*channel, bytes.clone()), cx);
-                }
+                model.send_channel(id, Work::Input(*channel, bytes.clone()), cx);
             }
             PaneEvent::TerminalInput(channel, input) => {
-                if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
-                    model.send(Work::TerminalInput(*channel, input.clone()), cx);
-                }
+                model.send_channel(id, Work::TerminalInput(*channel, input.clone()), cx);
             }
             PaneEvent::ClearScreen(channel) => {
-                if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
-                    model.send(Work::ClearScreen(*channel), cx);
-                }
+                model.send_channel(id, Work::ClearScreen(*channel), cx);
             }
             PaneEvent::CellSize(channel, cell) => {
-                if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
-                    model.send(Work::CellSize(*channel, *cell), cx);
-                }
+                model.send_channel(id, Work::CellSize(*channel, *cell), cx);
             }
             PaneEvent::Mouse(channel, event) => {
-                if model.quitting == Quitting::Idle && !model.retained.contains(&id) {
-                    model.send(Work::Mouse(*channel, *event), cx);
-                }
+                model.send_channel(id, Work::Mouse(*channel, *event), cx);
             }
         });
         self.grids.insert(
@@ -1549,8 +1528,19 @@ impl AppModel {
         }
     }
 
+    /// Sends a pane's channel work to the server that attached it.
+    fn send_channel(&mut self, pane: PaneId, work: Work, cx: &mut Context<Self>) {
+        if self.quitting == Quitting::Idle
+            && !self.retained.contains(&pane)
+            && let Some((server, _)) = self.attachment(pane, cx)
+        {
+            self.send(server, work, cx);
+        }
+    }
+
     fn pane_state(&self, id: PaneId) -> PaneState {
-        match self.connection {
+        let server = self.state.pane_server(id).unwrap_or_else(ServerId::local);
+        match self.connection(server) {
             ConnectionState::Connecting => PaneState::Connecting,
             ConnectionState::Disconnected => PaneState::Disconnected,
             ConnectionState::Ready if self.retained.contains(&id) => PaneState::Exited {
@@ -1562,7 +1552,7 @@ impl AppModel {
     }
 
     pub(crate) fn status(&self, cx: &gpui::App) -> PaneState {
-        match self.connection {
+        match self.connection(self.state.current_project().server_id) {
             ConnectionState::Connecting => PaneState::Connecting,
             ConnectionState::Disconnected => PaneState::Disconnected,
             ConnectionState::Ready => self
@@ -1572,9 +1562,16 @@ impl AppModel {
         }
     }
 
-    fn apply_restore(&mut self, sessions: &[SessionInfo], cx: &mut Context<Self>) {
-        self.restore_quick_terminal(sessions, cx);
-        let plan = restore::plan(&self.state, ServerId::local(), sessions);
+    fn apply_restore(
+        &mut self,
+        server: ServerId,
+        sessions: &[SessionInfo],
+        cx: &mut Context<Self>,
+    ) {
+        if server.is_local() {
+            self.restore_quick_terminal(sessions, cx);
+        }
+        let plan = restore::plan(&self.state, server, sessions);
         let active = self.active_pane();
         for (pane, _) in plan.close {
             if let Err(error) = self.state.close_session_pane(pane) {
@@ -1584,10 +1581,14 @@ impl AppModel {
         }
         self.focus_requested |= active != self.active_pane();
         self.save(cx);
-        self.discard_pending(cx);
-        self.loaded.clear();
-        self.pending.clear();
+        self.discard_pending(server, cx);
+        self.loaded
+            .retain(|pane| self.state.pane_server(*pane) != Some(server));
+        self.pending.retain(|_, owner| *owner != server);
         for (id, pane) in &self.grids {
+            if self.state.pane_server(*id) != Some(server) {
+                continue;
+            }
             let state = self.pane_state(*id);
             pane.view.update(cx, |pane, cx| pane.set_state(state, cx));
         }
@@ -1605,23 +1606,26 @@ impl AppModel {
             self.start_attach(pane, size, cx);
         }
         self.sync_visible(cx);
-        self.refresh_quick_terminal(cx);
+        if server.is_local() {
+            self.refresh_quick_terminal(cx);
+        }
     }
 
     fn ensure_visible(&mut self, cx: &mut Context<Self>) {
-        if self.connection != ConnectionState::Ready || self.quitting != Quitting::Idle {
+        if self.quitting != Quitting::Idle {
             return;
         }
         for id in self.attached_panes() {
-            if self.pending.contains(&id) {
+            let server = self.state.pane_server(id).unwrap_or_else(ServerId::local);
+            if self.pending.contains_key(&id) || !self.ready(server) || !self.confirmed(server) {
                 continue;
             }
             if self.retained.contains(&id) {
                 if !self.loaded.contains(&id)
                     && let Some(session) = self.pane_session(id)
                 {
-                    self.pending.insert(id);
-                    self.send(Work::ReadSaved { pane: id, session }, cx);
+                    self.pending.insert(id, server);
+                    self.send(server, Work::ReadSaved { pane: id, session }, cx);
                 }
             } else if let Some(pane) = self.terminal(&id)
                 && pane.view.read(cx).channel().is_none()
@@ -1633,24 +1637,29 @@ impl AppModel {
     }
 
     fn start_attach(&mut self, pane: PaneId, size: Size, cx: &mut Context<Self>) {
-        let server = ServerId::local();
+        let Some(server) = self.state.pane_server(pane) else {
+            return;
+        };
+        let restoring = self
+            .servers
+            .get(server)
+            .is_none_or(|runtime| runtime.catalog.restore.is_some());
         crate::diagnostics::event(
             "terminal.attach",
             format_args!(
-                "pane={pane} size={size:?} pending={} intents={} restore={} replacing={}",
-                self.pending.contains(&pane),
+                "pane={pane} server={server} size={size:?} pending={} intents={} restore={restoring} replacing={}",
+                self.pending.contains_key(&pane),
                 self.state.project_intents(server).len(),
-                self.catalog.restore.is_some(),
                 self.updates.replacing()
             ),
         );
-        if self.pending.contains(&pane)
+        if self.pending.contains_key(&pane)
             || !self.state.project_intents(server).is_empty()
-            || self.catalog.restore.is_some()
+            || restoring
         {
             return;
         }
-        if self.updates.replacing() {
+        if server.is_local() && self.updates.replacing() {
             self.updates.queued_attaches.insert(pane, size);
             return;
         }
@@ -1683,10 +1692,11 @@ impl AppModel {
             use std::os::unix::ffi::OsStringExt;
             PathBuf::from(std::ffi::OsString::from_vec(directory.0))
         };
-        if !self.pending.insert(pane) {
+        if self.pending.insert(pane, server).is_some() {
             return;
         }
         self.send(
+            server,
             Work::Attach {
                 pane,
                 project: project_id,
@@ -1699,21 +1709,24 @@ impl AppModel {
     }
 
     fn viewport(&mut self, id: PaneId, size: Size, cx: &mut Context<Self>) {
+        let attachment = self.attachment(id, cx);
+        let server = attachment.map_or_else(
+            || self.state.pane_server(id).unwrap_or_else(ServerId::local),
+            |(server, _)| server,
+        );
         crate::diagnostics::event(
             "terminal.viewport",
             format_args!(
-                "pane={id} size={size:?} connection={:?} quitting={:?}",
-                self.connection, self.quitting
+                "pane={id} server={server} size={size:?} connection={:?} quitting={:?}",
+                self.connection(server),
+                self.quitting
             ),
         );
-        if self.connection != ConnectionState::Ready || self.quitting != Quitting::Idle {
+        if !self.ready(server) || self.quitting != Quitting::Idle {
             return;
         }
-        if let Some(channel) = self
-            .terminal(&id)
-            .and_then(|pane| pane.view.read(cx).channel())
-        {
-            self.send(Work::Resize(channel, size), cx);
+        if let Some((server, channel)) = attachment {
+            self.send(server, Work::Resize(channel, size), cx);
         } else {
             self.ensure_visible(cx);
         }
@@ -1725,19 +1738,24 @@ impl AppModel {
         request: crate::views::terminal::scroll::HistoryRequest,
         cx: &mut Context<Self>,
     ) {
-        if self.quitting != Quitting::Idle || self.connection != ConnectionState::Ready {
+        let Some(server) = self.state.pane_server(pane) else {
+            return;
+        };
+        if self.quitting != Quitting::Idle || !self.ready(server) {
             return;
         }
         let Some(session) = self.pane_session(pane) else {
             return;
         };
         let channel = self
-            .terminal(&pane)
-            .and_then(|pane| pane.view.read(cx).channel());
+            .attachment(pane, cx)
+            .filter(|(owner, _)| *owner == server)
+            .map(|(_, channel)| channel);
         if channel.is_none() && !self.retained.contains(&pane) {
             return;
         }
         self.send(
+            server,
             Work::History {
                 pane,
                 session,
@@ -1754,21 +1772,26 @@ impl AppModel {
         request: crate::views::terminal::find::SearchRequest,
         cx: &mut Context<Self>,
     ) {
-        if self.quitting != Quitting::Idle || self.connection != ConnectionState::Ready {
+        let Some(server) = self.state.pane_server(pane) else {
+            return;
+        };
+        if self.quitting != Quitting::Idle || !self.ready(server) {
             return;
         }
         let Some(session) = self.pane_session(pane) else {
             return;
         };
         let channel = self
-            .terminal(&pane)
-            .and_then(|pane| pane.view.read(cx).channel());
+            .attachment(pane, cx)
+            .filter(|(owner, _)| *owner == server)
+            .map(|(_, channel)| channel);
         let source = match channel {
             Some(channel) => muxy_protocol::SearchSource::Live(channel),
             None if self.retained.contains(&pane) => muxy_protocol::SearchSource::Saved(session),
             None => return,
         };
         self.send(
+            server,
             Work::Search {
                 pane,
                 source,
@@ -1778,28 +1801,44 @@ impl AppModel {
         );
     }
 
-    fn receive_connected(&mut self, sessions: &[SessionInfo], cx: &mut Context<Self>) {
-        self.git.reset_context();
-        self.connection = ConnectionState::Ready;
-        let navigation = self.activity.navigation.take();
-        self.activity = activity::ActivityView::default();
-        self.activity.navigation = navigation;
-        self.references = None;
-        self.existing_sessions = crate::views::session_picker::ExistingSessions::default();
+    fn receive_connected(
+        &mut self,
+        server: ServerId,
+        sessions: &[SessionInfo],
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.current_project().server_id == server {
+            self.git.reset_context();
+        }
+        let Some(runtime) = self.servers.get_mut(server) else {
+            return;
+        };
+        runtime.connection = ConnectionState::Ready;
+        let failure = runtime.error.take();
+        let navigation = runtime.activity.navigation.take();
+        runtime.activity = activity::ActivityView::default();
+        runtime.activity.navigation = navigation;
+        runtime.references = None;
+        runtime.sessions_revision = 0;
+        self.forget_server_sessions(server, cx);
         self.sync_preferences(cx);
-        self.set_banner_error(None);
-        if !self.send(Work::Colors(self.palette.terminal_colors()), cx) {
+        if server.is_local() || (failure.is_some() && self.error == failure) {
+            self.set_banner_error(None);
+        }
+        if !self.send(server, Work::Colors(self.palette.terminal_colors()), cx) {
             return;
         }
-        self.extension_client(cx);
-        self.refresh_activity(cx);
+        self.extension_client(server, cx);
+        self.refresh_activity(server, cx);
         self.sync_references(cx);
-        self.catalog.pending = false;
-        self.catalog.replaying = false;
-        self.catalog.restore = Some(sessions.to_vec());
-        self.discard_pending(cx);
-        self.refresh_catalog(cx);
-        if self.settings_window.is_some() {
+        if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.catalog.pending = false;
+            runtime.catalog.replaying = false;
+            runtime.catalog.restore = Some(sessions.to_vec());
+        }
+        self.discard_pending(server, cx);
+        self.refresh_catalog(server, cx);
+        if server.is_local() && self.settings_window.is_some() {
             self.read_server_settings(cx);
             self.read_remote_access(cx);
         }
@@ -1810,10 +1849,15 @@ impl AppModel {
         clippy::too_many_lines,
         reason = "Exhaustive routing of client worker results"
     )]
-    fn receive(&mut self, (generation, update): (u64, Update), cx: &mut Context<Self>) {
-        if generation != self.generation {
+    fn receive(
+        &mut self,
+        (server, generation, update): (ServerId, u64, Update),
+        cx: &mut Context<Self>,
+    ) {
+        if self.generation(server) != generation {
             return;
         }
+        let local = server.is_local();
         match update {
             Update::ProjectLayouts {
                 project,
@@ -1826,44 +1870,62 @@ impl AppModel {
                 layout,
                 result,
             } => self.receive_project_layout(project, request, &layout, result, cx),
-            Update::Activity(result) => self.receive_activity(result, cx),
-            Update::ActivityClaimed(result) => self.deliver_activity(result),
+            Update::Activity(result) => self.receive_activity(server, result, cx),
+            Update::ActivityClaimed(result) => self.deliver_activity(server, result),
             Update::ActivityAcknowledged { ids, result } => {
-                self.activity_acknowledged(&ids, result, cx);
+                self.activity_acknowledged(server, &ids, result, cx);
             }
             Update::Git { request, result } => self.receive_git(&request, result, cx),
             Update::ProjectSessions { project, result } => {
                 self.receive_session_page(project, result, cx);
             }
             Update::CreationCancelled { operation, result } => {
-                self.receive_creation_cancelled(operation, result, cx);
+                self.receive_creation_cancelled(server, operation, result, cx);
             }
-            Update::Catalog(result) => self.receive_catalog(result, cx),
+            Update::Catalog(result) => self.receive_catalog(server, result, cx),
             Update::ProjectMutated { operation, result } => {
-                self.receive_project_mutation(operation, result, cx);
+                self.receive_project_mutation(server, operation, result, cx);
             }
-            Update::ServerInfo(server) => self.receive_server_info(server, cx),
-            Update::ServerChecked(result) => self.receive_server_update(result, cx),
-            Update::ServerSettings(result) => self.receive_server_settings(result, cx),
-            Update::RemoteAccess(result) => self.receive_remote_access(result, cx),
-            Update::Pairing(result) => self.receive_pairing(result, cx),
+            Update::ServerInfo(info) => {
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.info = Some(info.clone());
+                }
+                if local {
+                    self.receive_server_info(info, cx);
+                }
+            }
+            Update::ServerChecked(result) if local => self.receive_server_update(result, cx),
+            Update::ServerSettings(result) if local => self.receive_server_settings(result, cx),
+            Update::RemoteAccess(result) if local => self.receive_remote_access(result, cx),
+            Update::Pairing(result) if local => self.receive_pairing(result, cx),
             Update::ServerStopped { restart, result } => {
-                self.receive_server_stopped(restart, result, cx);
+                self.receive_server_stopped(server, restart, result, cx);
             }
-            Update::PreparedForInstall(result) => self.receive_update_prepared(result, cx),
+            Update::PreparedForInstall(result) if local => {
+                self.receive_update_prepared(result, cx);
+            }
             Update::Search {
                 pane,
                 request,
                 result,
             } => self.receive_search(pane, &request, result, cx),
             Update::Connected(sessions) => {
-                self.updates.sessions = sessions.len();
-                self.receive_connected(&sessions, cx);
-                self.reconcile_server_update(cx);
+                if local {
+                    self.updates.sessions = sessions.len();
+                }
+                self.receive_connected(server, &sessions, cx);
+                if local {
+                    self.reconcile_server_update(cx);
+                }
             }
             Update::ConnectFailed(error) => {
-                self.update_connect_failed();
-                self.disconnect(cx);
+                if local {
+                    self.update_connect_failed();
+                }
+                self.disconnect(server, cx);
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.error = Some(error.clone());
+                }
                 self.fail(error, cx);
             }
             Update::Attached {
@@ -1872,14 +1934,14 @@ impl AppModel {
                 attachment,
                 created,
             } => {
-                self.receive_attached(pane, session, attachment, created, cx);
+                self.receive_attached(server, pane, session, attachment, created, cx);
             }
             Update::AttachFailed {
                 pane,
                 session,
                 created,
                 error,
-            } => self.receive_attach_failed(pane, session, created, &error, cx),
+            } => self.receive_attach_failed(server, pane, session, created, &error, cx),
             Update::Saved { pane, result } => self.receive_saved(pane, result, cx),
             Update::History {
                 pane,
@@ -1892,46 +1954,60 @@ impl AppModel {
                 }
             }
             Update::ReferencesSynced(Err(error)) => {
-                self.disconnect(cx);
-                self.fail(format!("Could not register open terminals: {error}"), cx);
+                self.disconnect(server, cx);
+                let message = format!("Could not register open terminals: {error}");
+                self.fail(self.server_message(server, &message), cx);
             }
-            Update::Discarded { session, result } => self.receive_discarded(session, result, cx),
+            Update::Discarded { session, result } => {
+                self.receive_discarded(server, session, result, cx);
+            }
             Update::CloseChecked {
                 tab,
                 session,
                 result,
             } => {
-                if self
-                    .quick
-                    .closing
-                    .is_some_and(|(closing, _)| closing == tab)
+                if local
+                    && self
+                        .quick
+                        .closing
+                        .is_some_and(|(closing, _)| closing == tab)
                 {
                     self.check_quick_close(result, cx);
                 } else {
                     self.receive_close_checked(tab, session, result, cx);
                 }
             }
-            Update::EndedAll(result) => self.finish_end_all(result, cx),
+            Update::EndedAll(result) if local => self.finish_end_all(result, cx),
             Update::Flushed if self.quitting == Quitting::Preserve => {
-                if !self.pending.is_empty() || !self.discarding.is_empty() {
-                    self.send(Work::Flush, cx);
-                } else if self.save(cx) {
-                    cx.quit();
-                } else {
-                    self.quitting = Quitting::Idle;
+                if self.flushed(server, cx) {
+                    if self.save(cx) {
+                        cx.quit();
+                    } else {
+                        self.quitting = Quitting::Idle;
+                    }
                 }
             }
-            Update::Flushed if self.quitting == Quitting::Update => self.flush_before_update(cx),
-            Update::ReferencesSynced(Ok(())) | Update::Flushed => {}
-            Update::CloseSessionPanes(session) => self.close_ended_session(session, cx),
-            Update::Event(event) => self.receive_event(event, cx),
-            Update::Error(error) => self.fail(error, cx),
+            Update::Flushed if self.quitting == Quitting::Update => {
+                self.flush_before_update(server, cx);
+            }
+            Update::ReferencesSynced(Ok(()))
+            | Update::Flushed
+            | Update::ServerChecked(_)
+            | Update::ServerSettings(_)
+            | Update::RemoteAccess(_)
+            | Update::Pairing(_)
+            | Update::PreparedForInstall(_)
+            | Update::EndedAll(_) => {}
+            Update::CloseSessionPanes(session) => self.close_ended_session(server, session, cx),
+            Update::Event(event) => self.receive_event(server, event, cx),
+            Update::Error(error) => self.fail(self.server_message(server, &error), cx),
         }
         cx.notify();
     }
 
     fn receive_attached(
         &mut self,
+        server: ServerId,
         pane: PaneId,
         session: SessionId,
         attachment: muxy_client::Attachment,
@@ -1941,7 +2017,7 @@ impl AppModel {
         crate::diagnostics::event(
             "terminal.attached",
             format_args!(
-                "pane={pane} session={session:?} channel={:?} created={created} visible={} detached_pending={}",
+                "pane={pane} server={server} session={session:?} channel={:?} created={created} visible={} detached_pending={}",
                 attachment.channel,
                 self.terminal(&pane).is_some(),
                 self.detached_pending.contains(&pane)
@@ -1951,14 +2027,18 @@ impl AppModel {
         self.initial_directories.remove(&pane);
         let detached = self.detached_pending.remove(&pane);
         if detached {
-            self.references = None;
+            if let Some(runtime) = self.servers.get_mut(server) {
+                runtime.references = None;
+            }
             self.sync_references(cx);
         }
-        if self.state.set_pane_session(pane, Some(session)).is_err() {
+        if self.state.pane_server(pane) != Some(server)
+            || self.state.set_pane_session(pane, Some(session)).is_err()
+        {
             if created && !detached {
-                self.discard_created(session, cx);
+                self.discard_created(server, session, cx);
             } else {
-                self.send(Work::Detach(attachment.channel), cx);
+                self.send(server, Work::Detach(attachment.channel), cx);
             }
             return;
         }
@@ -1968,6 +2048,7 @@ impl AppModel {
         if let Some(command) = command
             && (!saved
                 || !self.send(
+                    server,
                     Work::Input(attachment.channel, format!("{command}\r").into_bytes()),
                     cx,
                 ))
@@ -1977,18 +2058,19 @@ impl AppModel {
         }
         if let Some(view) = self.terminal(&pane).map(|pane| pane.view.clone()) {
             let channel = attachment.channel;
-            let size = view.update(cx, |pane, cx| pane.attach(attachment, cx));
+            let size = view.update(cx, |pane, cx| pane.attach(server, attachment, cx));
             if let Some(size) = size {
-                self.send(Work::Resize(channel, size), cx);
+                self.send(server, Work::Resize(channel, size), cx);
             }
         } else {
-            self.send(Work::Detach(attachment.channel), cx);
+            self.send(server, Work::Detach(attachment.channel), cx);
             self.snapshots.insert(pane, attachment.grid);
         }
     }
 
     fn receive_attach_failed(
         &mut self,
+        server: ServerId,
         pane: PaneId,
         session: Option<SessionId>,
         created: bool,
@@ -1998,25 +2080,29 @@ impl AppModel {
         crate::diagnostics::event(
             "terminal.attach_failed",
             format_args!(
-                "pane={pane} session={session:?} created={created} error_kind={:?}",
+                "pane={pane} server={server} session={session:?} created={created} error_kind={:?}",
                 std::mem::discriminant(error)
             ),
         );
         self.pending.remove(&pane);
         let detached = self.detached_pending.remove(&pane);
         if detached {
-            self.references = None;
+            if let Some(runtime) = self.servers.get_mut(server) {
+                runtime.references = None;
+            }
             self.sync_references(cx);
         }
-        if self.is_quick_terminal(pane) && missing_session(error) {
+        if server.is_local() && self.is_quick_terminal(pane) && missing_session(error) {
             self.close_quick_terminal(cx);
             return;
         }
         if let Some(session) = session {
             self.initial_directories.remove(&pane);
-            if self.state.set_pane_session(pane, Some(session)).is_err() {
+            if self.state.pane_server(pane) != Some(server)
+                || self.state.set_pane_session(pane, Some(session)).is_err()
+            {
                 if created && !detached {
-                    self.discard_created(session, cx);
+                    self.discard_created(server, session, cx);
                 }
                 return;
             }
@@ -2027,10 +2113,10 @@ impl AppModel {
         }
         if missing_session(error) {
             if let Some(session) = self.pane_session(pane) {
-                self.close_ended_session(session, cx);
+                self.close_ended_session(server, session, cx);
             }
         } else {
-            self.fail(error.to_string(), cx);
+            self.fail(self.server_message(server, &error.to_string()), cx);
         }
     }
 
@@ -2110,20 +2196,23 @@ impl AppModel {
 
     fn receive_progress(
         &mut self,
+        server: ServerId,
         session: SessionId,
         progress: muxy_protocol::SessionProgress,
         cx: &mut Context<Self>,
     ) {
-        if !self
-            .state
-            .session_references(ServerId::local())
-            .contains(&session)
-        {
+        if !self.state.session_references(server).contains(&session) {
             return;
         }
-        let previous = self.progress.insert(session, progress).unwrap_or_default();
+        let Some(runtime) = self.servers.get_mut(server) else {
+            return;
+        };
+        let previous = runtime
+            .progress
+            .insert(session, progress)
+            .unwrap_or_default();
         if progress.completed > previous.completed
-            && !self
+            && !runtime
                 .activity
                 .snapshot
                 .agents
@@ -2131,25 +2220,34 @@ impl AppModel {
                 .any(|agent| agent.session == session)
         {
             let active = self.active_pane();
-            for pane in self
-                .state
-                .projects()
-                .iter()
-                .flat_map(|project| &project.tabs)
-                .flat_map(|tab| &tab.panes)
-            {
-                if Some(pane.id) != active
-                    && matches!(pane.content, PaneContent::Terminal { session: Some(id) } if id == session)
-                {
-                    self.completions.insert(pane.id);
+            for pane in self.server_session_panes(server, session) {
+                if Some(pane) != active {
+                    self.completions.insert(pane);
                 }
             }
         }
         cx.notify();
     }
 
+    /// Panes in projects that show `server`'s `session`.
+    fn server_session_panes(&self, server: ServerId, session: SessionId) -> Vec<PaneId> {
+        self.state
+            .projects()
+            .iter()
+            .filter(|project| project.server_id == server)
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .filter(|pane| {
+                matches!(pane.content,
+                PaneContent::Terminal { session: Some(id) } if id == session)
+            })
+            .map(|pane| pane.id)
+            .collect()
+    }
+
     fn receive_session_metadata(
         &mut self,
+        server: ServerId,
         session: SessionId,
         metadata: &muxy_protocol::SessionMetadata,
         cx: &mut Context<Self>,
@@ -2159,18 +2257,7 @@ impl AppModel {
             metadata.process.as_ref(),
             &metadata.directory,
         );
-        let panes: Vec<_> = self
-            .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter(|pane| {
-                matches!(pane.content,
-                PaneContent::Terminal { session: Some(id) } if id == session)
-            })
-            .map(|pane| pane.id)
-            .collect();
+        let panes = self.server_session_panes(server, session);
         for pane in panes {
             let _ = self.state.set_pane_title(pane, title.clone());
         }
@@ -2178,17 +2265,20 @@ impl AppModel {
         cx.notify();
     }
 
-    fn receive_event(&mut self, event: ClientEvent, cx: &mut Context<Self>) {
+    fn receive_event(&mut self, server: ServerId, event: ClientEvent, cx: &mut Context<Self>) {
+        let local = server.is_local();
         match event {
             ClientEvent::SessionMetadata { session, metadata } => {
-                self.receive_session_metadata(session, &metadata, cx);
+                self.receive_session_metadata(server, session, &metadata, cx);
             }
             ClientEvent::ActivityChanged { revision } => {
-                self.activity.dirty = self.activity.dirty.max(revision);
-                self.refresh_activity(cx);
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.activity.dirty = runtime.activity.dirty.max(revision);
+                }
+                self.refresh_activity(server, cx);
             }
             ClientEvent::Progress { session, progress } => {
-                self.receive_progress(session, progress, cx);
+                self.receive_progress(server, session, progress, cx);
             }
             ClientEvent::FilesChanged { project, changes } => {
                 self.extension_files_changed(project, changes, cx);
@@ -2198,58 +2288,77 @@ impl AppModel {
                 self.git_invalidated(project, cx);
             }
             ClientEvent::SessionsChanged { revision } => {
-                self.existing_sessions.revision = self.existing_sessions.revision.max(revision);
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.sessions_revision = runtime.sessions_revision.max(revision);
+                }
                 self.refresh_existing_sessions(cx);
             }
             ClientEvent::CatalogChanged { revision } => {
-                self.catalog.dirty = self.catalog.dirty.max(revision);
-                self.refresh_catalog(cx);
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.catalog.dirty = runtime.catalog.dirty.max(revision);
+                }
+                self.refresh_catalog(server, cx);
                 self.refresh_session_picker(cx);
             }
-            ClientEvent::RemoteAccessChanged { .. } => self.remote_access_changed(cx),
+            ClientEvent::RemoteAccessChanged { .. } if local => self.remote_access_changed(cx),
             ClientEvent::Frame { channel, frame } => {
-                let pane = self
-                    .grids
-                    .values()
-                    .find(|pane| pane.view.read(cx).channel() == Some(channel))
-                    .map(|pane| pane.view.clone());
-                if let Some(pane) = pane {
+                if let Some(pane) = self.attached_view(server, channel, cx) {
                     let seq = frame.seq;
                     pane.update(cx, |pane, cx| pane.apply(&frame, cx));
-                    self.send(Work::Ack(channel, seq), cx);
+                    self.send(server, Work::Ack(channel, seq), cx);
                 }
             }
             ClientEvent::SessionEnded { session, .. } => {
-                self.updates.sessions = self.updates.sessions.saturating_sub(1);
-                self.close_ended_session(session, cx);
+                if local {
+                    self.updates.sessions = self.updates.sessions.saturating_sub(1);
+                }
+                self.close_ended_session(server, session, cx);
                 self.refresh_session_picker(cx);
-                self.reconcile_server_update(cx);
+                if local {
+                    self.reconcile_server_update(cx);
+                }
             }
-            ClientEvent::ServerRestarting => self.expect_server_restart(),
-            ClientEvent::Disconnected => self.receive_disconnect(cx),
+            ClientEvent::ServerRestarting if local => self.expect_server_restart(),
+            ClientEvent::RemoteAccessChanged { .. } | ClientEvent::ServerRestarting => {}
+            ClientEvent::Disconnected if local => self.receive_disconnect(cx),
+            ClientEvent::Disconnected => self.disconnect(server, cx),
             ClientEvent::Metadata { channel, event } => {
-                if let Some(pane) = self
-                    .grids
-                    .values()
-                    .find(|pane| pane.view.read(cx).channel() == Some(channel))
-                    .map(|pane| pane.view.clone())
-                {
+                if let Some(pane) = self.attached_view(server, channel, cx) {
                     pane.update(cx, |pane, cx| pane.metadata(event, cx));
                 }
             }
         }
     }
 
-    fn close_ended_session(&mut self, session: SessionId, cx: &mut Context<Self>) {
-        let server = ServerId::local();
-        self.forget_session_activity(session, cx);
+    /// The pane `server` attached on `channel`. Each server numbers its own
+    /// channels, so both have to match.
+    fn attached_view(
+        &self,
+        server: ServerId,
+        channel: muxy_protocol::ChannelId,
+        cx: &gpui::App,
+    ) -> Option<Entity<TerminalPane>> {
+        self.grids
+            .values()
+            .find(|pane| pane.view.read(cx).attachment() == Some((server, channel)))
+            .map(|pane| pane.view.clone())
+    }
+
+    fn close_ended_session(
+        &mut self,
+        server: ServerId,
+        session: SessionId,
+        cx: &mut Context<Self>,
+    ) {
+        self.forget_session_activity(server, session, cx);
         if !self.state.session_references(server).contains(&session) {
             return;
         }
-        if self
-            .state
-            .quick_terminal()
-            .is_some_and(|pane| self.pane_session(pane.id) == Some(session))
+        if server.is_local()
+            && self
+                .state
+                .quick_terminal()
+                .is_some_and(|pane| self.pane_session(pane.id) == Some(session))
         {
             self.close_quick_terminal(cx);
         }
@@ -2270,7 +2379,7 @@ impl AppModel {
         }
         self.focus_requested |= active != self.active_pane();
         self.changed(cx);
-        self.discard_pending(cx);
+        self.discard_pending(server, cx);
     }
 
     fn receive_search(
@@ -2315,87 +2424,6 @@ impl AppModel {
         }
     }
 
-    fn disconnect(&mut self, cx: &mut Context<Self>) {
-        self.stop_extension_tasks(cx);
-        self.extensions.disconnect();
-        self.git.reset_context();
-        for repository in self.git.projects.values_mut() {
-            repository.disconnect();
-        }
-        self.connection = ConnectionState::Disconnected;
-        for progress in self.progress.values_mut() {
-            progress.progress = None;
-        }
-        self.completions.clear();
-        self.activity.snapshot.agents.clear();
-        self.activity.loaded = false;
-        self.activity.pending = false;
-        self.references = None;
-        self.existing_sessions = crate::views::session_picker::ExistingSessions::default();
-        self.update_session_picker(cx);
-        self.project_layouts = project_layouts::ProjectLayouts::default();
-        if matches!(self.overlay, Some(Overlay::Layouts(_))) {
-            self.dismiss_overlay(cx);
-        }
-        self.quick.closing = None;
-        self.refresh_quick_terminal(cx);
-        if self.server_preferences.busy || !self.server_preferences.pending.is_empty() {
-            let message = "Disconnected before settings were confirmed. Reconnect and reload before retrying.";
-            self.preference_result("server", Some(message), cx);
-            for id in self.pending_server_fields() {
-                self.preference_result(&id, Some(message), cx);
-            }
-        }
-        self.server_preferences.busy = false;
-        self.server_preferences.pending.clear();
-        self.mobile = mobile::MobileAccess::default();
-        self.sync_preferences(cx);
-        self.pending.clear();
-        self.pending_close = None;
-        if self.close_prompt.is_none() {
-            self.close_request = None;
-        }
-        self.discarding.clear();
-        self.loaded.clear();
-        for pane in self.grids.values() {
-            pane.view
-                .update(cx, |pane, cx| pane.set_state(PaneState::Disconnected, cx));
-        }
-        cx.notify();
-    }
-
-    fn send(&mut self, work: Work, cx: &mut Context<Self>) -> bool {
-        if !matches!(
-            work,
-            Work::Input(..)
-                | Work::TerminalInput(..)
-                | Work::Mouse(..)
-                | Work::CellSize(..)
-                | Work::Ack(..)
-                | Work::Flush
-        ) {
-            crate::diagnostics::event(
-                "model.send",
-                format_args!(
-                    "generation={} kind={} connection={:?}",
-                    self.generation,
-                    work.name(),
-                    self.connection
-                ),
-            );
-        }
-        if self.connection != ConnectionState::Ready && !matches!(work, Work::Flush) {
-            self.fail("Server disconnected".into(), cx);
-            return false;
-        }
-        if self.work.send((self.generation, work)).is_err() {
-            self.disconnect(cx);
-            self.fail("The server connection worker stopped".into(), cx);
-            return false;
-        }
-        true
-    }
-
     pub(crate) fn fail(&mut self, error: String, cx: &mut Context<Self>) {
         self.set_banner_error(Some(error));
         cx.notify();
@@ -2405,7 +2433,7 @@ impl AppModel {
 impl Drop for AppModel {
     fn drop(&mut self) {
         let _ = store::save(&self.path, &self.state);
-        let _ = self.work.send((self.generation, Work::Stop));
+        self.stop_workers();
     }
 }
 
@@ -2438,6 +2466,7 @@ mod tests {
     mod rendering;
     mod scrollback;
     mod server_status;
+    mod servers;
     mod session_ownership;
     mod shortcuts;
     mod sidebar;
@@ -2463,7 +2492,7 @@ mod tests {
     type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
     pub(in crate::model) fn acknowledge_catalog(model: &mut AppModel, cx: &mut Context<AppModel>) {
-        if let Some(sessions) = &mut model.catalog.restore {
+        if let Some(sessions) = &mut model.servers.local.catalog.restore {
             for session in sessions {
                 if let Some(project) = model.state.projects().iter().find(|project| project.tabs.iter().flat_map(|tab| &tab.panes).any(|pane| matches!(pane.content, PaneContent::Terminal { session: Some(id) } if id == session.id))) {
                     session.project = project.id;
@@ -2490,12 +2519,18 @@ mod tests {
                 .state
                 .projects()
                 .iter()
+                .filter(|project| project.server_id.is_local())
                 .map(muxy_app_core::Project::descriptor)
                 .collect(),
             next: None,
             legacy_home: None,
         };
-        model.receive_catalog(Ok(page), cx);
+        model.receive_catalog(ServerId::local(), Ok(page), cx);
+    }
+
+    /// An update from this computer's worker.
+    pub(in crate::model) fn local(generation: u64, update: Update) -> (ServerId, u64, Update) {
+        (ServerId::local(), generation, update)
     }
 
     fn acknowledge_close(model: &mut AppModel, cx: &mut Context<AppModel>) {
@@ -2508,7 +2543,8 @@ mod tests {
                 .and_then(|pane| pane.view.read(cx).process.clone());
             model.receive(
                 (
-                    model.generation,
+                    ServerId::local(),
+                    model.servers.local.generation,
                     Update::CloseChecked {
                         tab,
                         session,
@@ -2521,21 +2557,47 @@ mod tests {
     }
 
     pub(super) fn stub_boot(state: AppState) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>) {
+        let (boot, requests, _) = remote_boot(state, Vec::new());
+        (boot, requests)
+    }
+
+    /// What stub workers of other computers' servers were asked to do.
+    pub(in crate::model) type Remotes =
+        Rc<std::cell::RefCell<HashMap<ServerId, std::sync::mpsc::Receiver<(u64, Work)>>>>;
+
+    /// A stub boot whose settings list `servers`. Their workers are stubs too.
+    pub(in crate::model) fn remote_boot(
+        state: AppState,
+        servers: Vec<muxy_app_core::settings::ServerEntry>,
+    ) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>, Remotes) {
         let (work, requests) = std::sync::mpsc::channel();
         let (_, updates) = async_channel::unbounded();
         let directory = std::env::temp_dir().join(format!("muxy-app-restore-{}", ProjectId::new()));
+        let remotes = Remotes::default();
+        let started = Rc::clone(&remotes);
+        let workers = crate::boot::Workers::with(move |server, _| {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            started.borrow_mut().insert(server, receiver);
+            Ok(sender)
+        });
+        let settings = muxy_app_core::settings::Settings {
+            servers,
+            ..muxy_app_core::settings::Settings::default()
+        };
         (
             Boot {
                 import_error: None,
                 composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),
-                settings: muxy_app_core::settings::Settings::default(),
+                settings,
                 terminal: muxy_app_core::settings::TerminalSettings::default(),
                 work,
+                workers,
                 updates,
             },
             requests,
+            remotes,
         )
     }
 
@@ -2670,7 +2732,7 @@ mod tests {
         let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             model.new_tab(cx);
             let pane = model.active_pane().expect("pane");
@@ -2678,6 +2740,7 @@ mod tests {
             model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::AttachFailed {
                         pane,
@@ -2702,6 +2765,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Saved {
                         pane,
@@ -2712,6 +2776,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane,
@@ -2739,7 +2804,7 @@ mod tests {
         let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             model.new_tab(cx);
             let pane = model.active_pane().expect("pane");
@@ -2749,6 +2814,7 @@ mod tests {
             model.close_tab(tab, cx);
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::AttachFailed {
                         pane,
@@ -2768,6 +2834,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Discarded {
                         session,
@@ -2794,7 +2861,14 @@ mod tests {
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         let saved = view.update(cx, |model, cx| {
-            model.receive((1, Update::Event(ClientEvent::Disconnected)), cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::Disconnected),
+                ),
+                cx,
+            );
             model.close_tab(tab, cx);
             assert!(model.state.home().tabs.is_empty());
             assert!(model.error.is_none());
@@ -2811,6 +2885,7 @@ mod tests {
         view.update(cx, |model, cx| {
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Connected(vec![SessionInfo {
                         project: ProjectId::from_u128(1),
@@ -2830,6 +2905,7 @@ mod tests {
             assert!(!work.iter().any(|work| matches!(work, Work::Attach { .. })));
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Discarded {
                         session,
@@ -2860,7 +2936,7 @@ mod tests {
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             model.close_tab(tab, cx);
             assert_eq!(model.state.home().tabs.len(), 1);
@@ -2878,6 +2954,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Discarded {
                         session,
@@ -2890,7 +2967,7 @@ mod tests {
             assert_eq!(model.state.pending_discards(ServerId::local()), &[session]);
             assert!(model.error.is_none());
             model.connect(cx);
-            model.receive((2, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             assert!(
                 requests
@@ -2899,6 +2976,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     2,
                     Update::Discarded {
                         session,
@@ -2926,6 +3004,7 @@ mod tests {
         view.update(cx, |model, cx| {
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Connected(vec![SessionInfo {
                         project: ProjectId::from_u128(1),
@@ -2938,6 +3017,7 @@ mod tests {
             acknowledge_catalog(model, cx);
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane,
@@ -2999,7 +3079,7 @@ mod tests {
         cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             model.new_tab(cx);
             let pane = model.active_pane().expect("pane");
@@ -3010,6 +3090,7 @@ mod tests {
             });
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane,
@@ -3030,6 +3111,7 @@ mod tests {
         );
         view.update(cx, |model, cx| {
             model.receive_event(
+                ServerId::local(),
                 ClientEvent::Metadata {
                     channel: muxy_protocol::ChannelId(1),
                     event: muxy_protocol::MetadataEvent::Title("hello".into()),
@@ -3113,6 +3195,7 @@ mod tests {
         view.update(cx, |model, cx| {
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Connected(
                         [first_session, second_session]
@@ -3134,6 +3217,7 @@ mod tests {
             });
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane: first_pane,
@@ -3204,32 +3288,22 @@ mod tests {
                         name: "sh".into(),
                         is_shell: true,
                     });
-                    model.receive(
-                        (
-                            1,
-                            Update::Attached {
-                                pane,
-                                session,
-                                attachment,
-                                created: false,
-                            },
-                        ),
-                        cx,
-                    );
-                    model.receive((1, Update::Event(ClientEvent::Disconnected)), cx);
+                    let attached = Update::Attached {
+                        pane,
+                        session,
+                        attachment,
+                        created: false,
+                    };
+                    model.receive(local(1, attached), cx);
+                    model.receive(local(1, Update::Event(ClientEvent::Disconnected)), cx);
                     model.connect(cx);
                 }
-                model.receive(
-                    (
-                        generation,
-                        Update::Connected(vec![SessionInfo {
-                            project: ProjectId::from_u128(1),
-                            id: session,
-                            directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
-                        }]),
-                    ),
-                    cx,
-                );
+                let connected = Update::Connected(vec![SessionInfo {
+                    project: ProjectId::from_u128(1),
+                    id: session,
+                    directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                }]);
+                model.receive(local(generation, connected), cx);
                 acknowledge_catalog(model, cx);
                 model.select_tab(first, cx);
                 let terminal = model.terminal(&pane).expect("terminal");
@@ -3251,6 +3325,7 @@ mod tests {
                 );
                 model.receive(
                     (
+                        ServerId::local(),
                         generation,
                         Update::CloseChecked {
                             tab: first,
@@ -3299,6 +3374,7 @@ mod tests {
         view.update(cx, |model, cx| {
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Connected(vec![SessionInfo {
                         project: ProjectId::from_u128(1),
@@ -3323,6 +3399,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::CloseChecked {
                         tab: first,
@@ -3352,10 +3429,11 @@ mod tests {
             assert!(model.close_prompt.is_none());
             assert_eq!(model.state.home().tabs.len(), 2);
             model.close_tab(first, cx);
-            model.disconnect(cx);
+            model.disconnect(ServerId::local(), cx);
             assert!(model.pending_close.is_none());
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::CloseChecked {
                         tab: first,
@@ -3440,7 +3518,7 @@ mod tests {
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             assert!(model.state.home().tabs.is_empty());
             assert!(
@@ -3450,13 +3528,23 @@ mod tests {
                     .tabs
                     .is_empty()
             );
-            model.receive((1, Update::Event(ClientEvent::Disconnected)), cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::Disconnected),
+                ),
+                cx,
+            );
             model.connect(cx);
-            model.receive((1, Update::ConnectFailed("stale".into())), cx);
-            assert!(model.connection == ConnectionState::Connecting);
-            model.receive((2, Update::Connected(vec![])), cx);
+            model.receive(
+                (ServerId::local(), 1, Update::ConnectFailed("stale".into())),
+                cx,
+            );
+            assert!(model.servers.local.connection == ConnectionState::Connecting);
+            model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
-            assert!(model.connection == ConnectionState::Ready);
+            assert!(model.servers.local.connection == ConnectionState::Ready);
             assert!(model.state.home().tabs.is_empty());
             assert!(model.grids.is_empty());
         });
@@ -3489,6 +3577,7 @@ mod tests {
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
             model.apply_restore(
+                ServerId::local(),
                 &[SessionInfo {
                     project: home,
                     id: session,
@@ -3540,7 +3629,7 @@ mod tests {
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
             let active = model.active_pane();
-            model.receive((1, Update::CloseSessionPanes(dead)), cx);
+            model.receive((ServerId::local(), 1, Update::CloseSessionPanes(dead)), cx);
             assert_eq!(model.active_pane(), active);
             assert_eq!(model.state.home().tabs.len(), 1);
             assert_eq!(model.state.home().tabs[0].layout.leaves(), vec![neighbor]);
@@ -3564,6 +3653,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Event(ClientEvent::SessionEnded {
                         session: dead,
@@ -3574,6 +3664,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Event(ClientEvent::SessionEnded {
                         session: live,
@@ -3599,11 +3690,19 @@ mod tests {
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::ConnectFailed("offline".into())), cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::ConnectFailed("offline".into()),
+                ),
+                cx,
+            );
             assert_eq!(model.state.home().tabs.len(), 1);
             model.connect(cx);
             model.receive(
                 (
+                    ServerId::local(),
                     2,
                     Update::Connected(vec![SessionInfo {
                         project: ProjectId::from_u128(1),
@@ -3617,6 +3716,7 @@ mod tests {
             model.viewport(pane, Size { cols: 80, rows: 24 }, cx);
             model.receive(
                 (
+                    ServerId::local(),
                     2,
                     Update::Attached {
                         pane,
@@ -3629,6 +3729,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Event(ClientEvent::SessionEnded {
                         session,
@@ -3650,6 +3751,7 @@ mod tests {
             model.end_all_and_quit(cx);
             model.receive(
                 (
+                    ServerId::local(),
                     2,
                     Update::EndedAll(Err(io::Error::other("termination failed").into())),
                 ),
@@ -3676,7 +3778,7 @@ mod tests {
         let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             model.new_tab(cx);
             let tab = model.active_tab().expect("tab");
@@ -3687,6 +3789,7 @@ mod tests {
             let session = SessionId::new(42).expect("ID");
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane,
@@ -3704,6 +3807,7 @@ mod tests {
             );
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Discarded {
                         session,
@@ -3721,9 +3825,16 @@ mod tests {
         let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((1, Update::ConnectFailed("offline".into())), cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::ConnectFailed("offline".into()),
+                ),
+                cx,
+            );
             model.connect(cx);
-            model.receive((2, Update::Connected(vec![])), cx);
+            model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             assert!(model.state.home().tabs.is_empty());
         });
@@ -3932,7 +4043,7 @@ mod tests {
             closed.get(),
             other.get()
         ))?;
-        view.update(cx, AppModel::disconnect);
+        view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
         cx.simulate_keystrokes("cmd-w");
         assert!(view.read_with(cx, |model, _| model.state.home().tabs.is_empty()));
         assert!(process_exists(other_pid));
@@ -3942,7 +4053,7 @@ mod tests {
         );
         reload_model(cx, &view)?;
         wait(cx, &view, |model, _| {
-            model.connection == ConnectionState::Ready
+            model.servers.local.connection == ConnectionState::Ready
                 && model.state.pending_discards(ServerId::local()).is_empty()
         })?;
         assert!(!process_exists(other_pid));
@@ -3999,7 +4110,7 @@ mod tests {
         cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         wait(cx, &view, |model, _| {
-            model.connection == ConnectionState::Ready
+            model.servers.local.connection == ConnectionState::Ready
         })?;
         assert!(view.read_with(cx, |model, _| model.state.home().tabs.is_empty()));
         cx.simulate_keystrokes("cmd-t");
@@ -4100,7 +4211,8 @@ mod tests {
 
     fn wait_empty(cx: &mut VisualTestContext, view: &Entity<AppModel>) -> Result {
         wait(cx, view, |model, _| {
-            model.connection == ConnectionState::Ready && model.state.home().tabs.is_empty()
+            model.servers.local.connection == ConnectionState::Ready
+                && model.state.home().tabs.is_empty()
         })
     }
 
@@ -4140,7 +4252,7 @@ mod tests {
     ) -> Result {
         signal_test_server(directory, "-TERM")?;
         wait(cx, view, |model, _| {
-            model.connection == ConnectionState::Disconnected
+            model.servers.local.connection == ConnectionState::Disconnected
         })?;
         view.update(cx, AppModel::connect);
         wait_empty(cx, view)?;
@@ -4167,7 +4279,7 @@ mod tests {
         })?;
         signal_test_server(directory, "-KILL")?;
         wait(cx, view, |model, _| {
-            model.connection == ConnectionState::Disconnected
+            model.servers.local.connection == ConnectionState::Disconnected
         })?;
         reload_model(cx, view)?;
         wait_empty(cx, view)?;
@@ -4224,7 +4336,7 @@ mod tests {
         );
         reload_model(cx, view)?;
         wait(cx, view, |model, _| {
-            model.connection == ConnectionState::Ready
+            model.servers.local.connection == ConnectionState::Ready
         })?;
         assert!(view.read_with(cx, |model, _| model.state.home().tabs.is_empty()));
         assert!(probe.list_sessions()?.is_empty());

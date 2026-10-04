@@ -16,7 +16,8 @@ fn quick_catalog_walkthrough(cx: &mut TestAppContext) -> Result {
     let (view, cx) =
         cx.add_window_view(|window, cx| AppModel::new(Boot::load().expect("boot"), window, cx));
     wait(cx, &view, |model, _| {
-        model.connection == ConnectionState::Ready && model.catalog.restore.is_none()
+        model.servers.local.connection == ConnectionState::Ready
+            && model.servers.local.catalog.restore.is_none()
     })?;
     let before = view.read_with(cx, |model, _| model.state.window().clone());
     let quick = view.update(cx, |model, cx| {
@@ -42,7 +43,7 @@ fn quick_catalog_walkthrough(cx: &mut TestAppContext) -> Result {
         model.sync_visible(cx);
         model.start_attach(quick, Size { cols: 80, rows: 24 }, cx);
     });
-    wait(cx, &view, |model, _| !model.pending.contains(&quick))?;
+    wait(cx, &view, |model, _| !model.pending.contains_key(&quick))?;
     assert_eq!(probe.list_sessions()?.len(), 1);
     view.update(cx, AppModel::close_quick_terminal);
     wait(cx, &view, |model, _| {
@@ -65,7 +66,7 @@ fn quick_terminal_uses_home_without_changing_workspace_and_reattaches_after_hide
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
         model.new_tab(cx);
         let window = model.state.window().clone();
@@ -123,7 +124,7 @@ fn quick_terminal_disable_queues_cleanup_offline_and_preserves_preferences(
                 .try_iter()
                 .any(|(_, work)| matches!(work, Work::Discard(_, _)))
         );
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
         assert!(
             requests
@@ -140,7 +141,7 @@ fn quick_terminal_exit_discards_only_its_session_and_next_show_gets_new_identity
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
         model.new_tab(cx);
         let window = model.state.window().clone();
@@ -152,6 +153,7 @@ fn quick_terminal_exit_discards_only_its_session_and_next_show_gets_new_identity
             .expect("session");
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::Event(ClientEvent::SessionEnded {
                     session,

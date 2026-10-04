@@ -6,26 +6,33 @@ fn extensions_request_server_client_on_initial_connection_and_reconnect(cx: &mut
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
         for generation in 1..=2 {
-            assert!(model.connection == ConnectionState::Connecting);
-            assert_eq!(model.generation, generation);
+            assert!(model.servers.local.connection == ConnectionState::Connecting);
+            assert_eq!(model.servers.local.generation, generation);
             requests.try_iter().for_each(drop);
-            model.receive((generation, Update::Connected(Vec::new())), cx);
-            assert!(model.connection == ConnectionState::Ready);
+            model.receive(
+                (ServerId::local(), generation, Update::Connected(Vec::new())),
+                cx,
+            );
+            assert!(model.servers.local.connection == ConnectionState::Ready);
             assert!(model.error.is_none());
             let clients: Vec<_> = requests
                 .try_iter()
                 .filter_map(|(request_generation, work)| match work {
-                    Work::ExtensionClient(reply) => {
+                    Work::ExtensionConnection(reply) => {
                         assert_eq!(request_generation, generation);
                         Some(reply)
                     }
                     _ => None,
                 })
                 .collect();
-            assert_eq!(clients.len(), 1, "extensions must receive the ready client");
+            assert_eq!(
+                clients.len(),
+                1,
+                "extensions must ask for their own connection"
+            );
             assert!(!clients[0].is_closed());
             if generation == 1 {
-                model.disconnect(cx);
+                model.disconnect(ServerId::local(), cx);
                 model.connect(cx);
             }
         }

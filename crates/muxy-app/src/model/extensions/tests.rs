@@ -14,7 +14,7 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
             let mut call = Call {
                 owner: "files".into(),
                 epoch: model.extensions.epoch_for("files"),
-                generation: model.generation,
+                generation: model.servers.local.generation,
                 project: model.state.home().id,
                 verb: verb.into(),
                 args: Value::Null,
@@ -157,7 +157,7 @@ fn expired_confirmation_does_not_persist_permission(cx: &mut TestAppContext) {
         let call = Call {
             owner: "writer".into(),
             epoch: model.extensions.epoch_for("writer"),
-            generation: model.generation,
+            generation: model.servers.local.generation,
             project: model.state.home().id,
             verb: "files.write".into(),
             args: json!({"path":"file","content":"text"}),
@@ -295,7 +295,7 @@ fn notify_extension(
                 Call {
                     owner: "notifier".into(),
                     epoch: model.extensions.epoch_for("notifier"),
-                    generation: model.generation,
+                    generation: model.servers.local.generation,
                     project: model.state.home().id,
                     verb: verb.into(),
                     args,
@@ -394,7 +394,7 @@ fn script_call(
                 Call {
                     owner: owner.into(),
                     epoch: model.extensions.epoch_for(owner),
-                    generation: model.generation,
+                    generation: model.servers.local.generation,
                     project: model.state.current_project().id,
                     verb: verb.into(),
                     args,
@@ -684,7 +684,7 @@ fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContex
     )
     .expect("running a command needs consent");
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = crate::model::ConnectionState::Ready;
         crate::model::tests::acknowledge_catalog(model, cx);
         model
             .extensions
@@ -716,7 +716,14 @@ fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContex
     let session = muxy_protocol::SessionId::new(7).expect("session");
     requests.try_iter().for_each(drop);
     view.update(cx, |model, cx| {
-        model.receive_attached(pane, session, crate::model::tests::attachment(), true, cx);
+        model.receive_attached(
+            ServerId::local(),
+            pane,
+            session,
+            crate::model::tests::attachment(),
+            true,
+            cx,
+        );
     });
     let typed: Vec<_> = requests
         .try_iter()
@@ -838,7 +845,7 @@ fn background_scripts_follow_the_extension_not_the_connection(cx: &mut TestAppCo
     wait_for(&view, cx, "background start", |model| {
         logged(model, "ports", "[muxy] started ports v1.0.0")
     });
-    view.update(cx, AppModel::disconnect);
+    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
     view.read_with(cx, |model, _| {
         assert!(
             model.background_running("ports"),
@@ -966,7 +973,7 @@ fn runner_exec(model: &AppModel, argv: &Value, reply: std::sync::mpsc::SyncSende
     Call {
         owner: "runner".into(),
         epoch: model.extensions.epoch_for("runner"),
-        generation: model.generation,
+        generation: model.servers.local.generation,
         project: model.state.home().id,
         verb: "exec".into(),
         args: json!({ "argv": argv }),

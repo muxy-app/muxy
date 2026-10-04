@@ -23,6 +23,7 @@ fn attach_pane(model: &mut AppModel, pane: PaneId, channel: u32, cx: &mut Contex
         is_shell: false,
     });
     model.receive_attached(
+        ServerId::local(),
         pane,
         model.pane_session(pane).expect("session"),
         attached,
@@ -52,7 +53,7 @@ fn terminal_context_menu_detaches_clicked_split_and_last_pane_without_closing_se
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1000.0), px(600.0)));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         attach_pane(model, first, 1, cx);
         attach_pane(model, second, 2, cx);
     });
@@ -115,7 +116,7 @@ fn detach_save_failure_keeps_the_pane_and_sends_no_detach(cx: &mut TestAppContex
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         attach_pane(model, pane, 1, cx);
         let previous = model.state.clone();
         let original_path = model.path.clone();
@@ -149,15 +150,16 @@ fn late_attachment_replies_after_detach_never_discard_the_existing_session(
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             let session = model.pane_session(pane).expect("session");
-            model.pending.insert(pane);
+            model.pending.insert(pane, ServerId::local());
             requests.try_iter().for_each(drop);
             model.detach_terminal(pane, cx);
             if succeeds {
-                model.receive_attached(pane, session, attachment(), false, cx);
+                model.receive_attached(ServerId::local(), pane, session, attachment(), false, cx);
             } else {
                 model.receive_attach_failed(
+                    ServerId::local(),
                     pane,
                     Some(session),
                     false,

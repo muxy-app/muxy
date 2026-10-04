@@ -52,7 +52,7 @@ fn merged_pull_request_updates_the_base_branch_then_reports_it(cx: &mut TestAppC
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         model.git.projects.entry(project).or_default().pull_request = Some(open_pull_request());
         let merge = merge_request(project);
@@ -86,7 +86,7 @@ fn merged_pull_request_leaves_worktrees_whose_base_is_checked_out_elsewhere(
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         model.git.projects.entry(project).or_default().pull_request = Some(open_pull_request());
         let merge = merge_request(project);
@@ -113,7 +113,7 @@ fn failed_base_update_reports_that_the_merge_succeeded(cx: &mut TestAppContext) 
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         model.git.projects.entry(project).or_default().pull_request = Some(open_pull_request());
         let merge = merge_request(project);
@@ -144,7 +144,7 @@ fn newly_added_project_starts_git_after_server_registration(cx: &mut TestAppCont
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         assert!(model.add_project(std::env::temp_dir(), cx).is_some());
         let project = model.state.current_project().id;
@@ -162,7 +162,7 @@ fn newly_added_project_starts_git_after_server_registration(cx: &mut TestAppCont
             "Git must wait until the server knows this project"
         );
 
-        model.receive_project_mutation(create, Ok(1), cx);
+        model.receive_project_mutation(ServerId::local(), create, Ok(1), cx);
         assert!(requests.try_iter().any(|(_, work)| {
             matches!(work, Work::Git(request) if request.project == project && request.action == GitAction::Watch)
         }));
@@ -211,7 +211,7 @@ fn git_results_stay_with_the_requested_project_after_switching(cx: &mut TestAppC
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         model.git_request(first, GitAction::Summary, cx);
         model.select_project(second, cx);
@@ -253,7 +253,7 @@ fn git_refreshes_coalesce_and_disconnected_mutations_are_not_queued(cx: &mut Tes
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         for _ in 0..4 {
             model.git_request(project, GitAction::Summary, cx);
@@ -265,7 +265,7 @@ fn git_refreshes_coalesce_and_disconnected_mutations_are_not_queued(cx: &mut Tes
                 .count(),
             1
         );
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         requests.try_iter().for_each(drop);
         model.git_request(project, GitAction::DeleteBranch("branch".into()), cx);
         assert!(
@@ -282,7 +282,7 @@ fn an_accepted_git_action_waits_for_background_refresh(cx: &mut TestAppContext) 
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         model.git_request(project, GitAction::Summary, cx);
         model.git_request(project, GitAction::DeleteBranch("confirmed".into()), cx);
@@ -298,7 +298,7 @@ fn stale_git_mutations_and_inspections_do_not_change_a_new_form(cx: &mut TestApp
     let (boot, _) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.git_request(first, GitAction::CreateBranch("old".into()), cx);
         model.select_project(second, cx);
         model.open_git_form(second, false, cx);
@@ -342,7 +342,7 @@ fn git_popovers_open_from_their_controls_and_follow_their_anchors(cx: &mut TestA
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.receive_git(
             &GitRequest {
                 project,
@@ -405,7 +405,7 @@ fn distinct_reads_are_retained_and_cached_controls_stay_usable(cx: &mut TestAppC
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         requests.try_iter().for_each(drop);
         model.git_request(project, GitAction::Branches, cx);
         model.git_request(project, GitAction::Changes, cx);
@@ -432,7 +432,7 @@ fn background_git_errors_do_not_raise_alerts_or_retry_on_idle(cx: &mut TestAppCo
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.git_request(project, GitAction::Summary, cx);
         model.receive_git(
             &GitRequest {
@@ -466,7 +466,7 @@ fn filesystem_invalidations_refresh_only_the_active_project(cx: &mut TestAppCont
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.git.reset_context();
         model.sync_git(cx);
         model.receive_git(
@@ -521,7 +521,7 @@ fn successful_refresh_recovers_a_rejected_branch_switch(cx: &mut TestAppContext)
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         let request = GitRequest {
             project,
             action: GitAction::SwitchBranch("busy-branch".into()),
@@ -600,7 +600,7 @@ fn branch_form_validates_inline_and_submits_once(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.run_until_parked();
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.git.projects.entry(project).or_default().disconnect();
         model.open_git_form(project, false, cx);
     });
@@ -638,7 +638,7 @@ fn worktree_form_derives_location_and_preserves_a_manual_location(cx: &mut TestA
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.run_until_parked();
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.git.projects.entry(project).or_default().disconnect();
         model.open_git_form(project, true, cx);
         model.receive_git(
@@ -765,7 +765,7 @@ fn existing_branch_picker_restores_keyboard_submission_for_each_location(cx: &mu
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         cx.run_until_parked();
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.git.projects.entry(project).or_default().disconnect();
             model.open_git_form(project, true, cx);
             model.receive_git(
@@ -861,7 +861,7 @@ fn pull_request_toasts_report_success_only_for_the_active_project(cx: &mut TestA
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.git_request(
             project,
             GitAction::PullRequest(GitPullRequestAction::Close { number: 12 }),
@@ -925,7 +925,7 @@ fn worktree_form_reviews_hooks_validates_templates_and_saves_the_submitted_locat
         project: true,
     }];
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.git.projects.entry(project).or_default().disconnect();
         model.open_git_form(project, true, cx);
         model.receive_git(

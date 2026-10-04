@@ -6,6 +6,7 @@ use gpui::{
     Bounds, Context, EventEmitter, FocusHandle, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Render, Styled, Task, Window, div, prelude::FluentBuilder, px,
 };
+use muxy_app_core::ServerId;
 use muxy_client::{Attachment, RunGrid};
 use muxy_protocol::{
     ChannelId, ExitReason, ForegroundProcess, HistoryPage, InputModes, MetadataEvent, MouseAction,
@@ -100,7 +101,8 @@ pub(crate) struct TerminalPane {
     pub(crate) cursor_blink: super::cursor::CursorBlink,
     pub(crate) focus_border: Option<gpui::Hsla>,
     pub(crate) corner_radius: gpui::Pixels,
-    channel: Option<ChannelId>,
+    /// The server that attached this pane, and its channel there.
+    attachment: Option<(ServerId, ChannelId)>,
     viewport: Option<Size>,
     pub(crate) palette: Palette,
     pub(crate) background_opacity: f32,
@@ -183,7 +185,7 @@ impl TerminalPane {
             cursor_blink: super::cursor::CursorBlink::default(),
             focus_border: None,
             corner_radius: px(0.0),
-            channel: None,
+            attachment: None,
             viewport: None,
             palette,
             background_opacity: 1.0,
@@ -203,7 +205,11 @@ impl TerminalPane {
     }
 
     pub(crate) fn channel(&self) -> Option<ChannelId> {
-        self.channel
+        self.attachment.map(|(_, channel)| channel)
+    }
+
+    pub(crate) fn attachment(&self) -> Option<(ServerId, ChannelId)> {
+        self.attachment
     }
 
     pub(crate) fn viewport(&self) -> Option<Size> {
@@ -211,7 +217,7 @@ impl TerminalPane {
     }
 
     pub(crate) fn set_state(&mut self, state: PaneState, cx: &mut Context<Self>) {
-        self.channel = None;
+        self.attachment = None;
         self.reset_input();
         self.scroll.reset();
         self.saved_history = None;
@@ -234,7 +240,7 @@ impl TerminalPane {
             reason: screen.reason,
             unavailable: false,
         };
-        self.channel = None;
+        self.attachment = None;
         self.reset_input();
         self.scroll.reset();
         self.saved_history = None;
@@ -246,6 +252,7 @@ impl TerminalPane {
 
     pub(crate) fn attach(
         &mut self,
+        server: ServerId,
         attachment: Attachment,
         cx: &mut Context<Self>,
     ) -> Option<Size> {
@@ -255,7 +262,7 @@ impl TerminalPane {
         self.scroll.reset();
         self.saved_history = None;
         self.sent_cell_size = None;
-        self.channel = Some(attachment.channel);
+        self.attachment = Some((server, attachment.channel));
         self.server_input = attachment.server_input;
         self.state = PaneState::Live;
         self.cursor_blink = super::cursor::CursorBlink::default();
@@ -642,7 +649,7 @@ impl TerminalPane {
             return;
         }
         self.viewport = Some(size);
-        if self.channel.is_some() {
+        if self.attachment.is_some() {
             self.scroll.reset();
             self.saved_history = None;
         } else {
@@ -650,7 +657,7 @@ impl TerminalPane {
             self.saved_history = None;
             self.prepare_saved_history(cx);
         }
-        if self.channel.is_some()
+        if self.attachment.is_some()
             && let Some(grid) = &mut self.grid
         {
             grid.resize(size);
@@ -669,7 +676,7 @@ impl TerminalPane {
     #[allow(clippy::cast_precision_loss)]
     pub(super) fn scrollable_rows(&self, viewport_rows: u16) -> f64 {
         self.displayed_grid().map_or(0.0, |grid| {
-            if self.channel.is_some() && self.scroll.view.is_none() {
+            if self.attachment.is_some() && self.scroll.view.is_none() {
                 grid.history_total as f64
             } else {
                 (grid.history_total as f64 + grid.rows.len() as f64 - f64::from(viewport_rows))
@@ -734,7 +741,7 @@ impl TerminalPane {
         }
         if !active {
             self.composition = super::ime::Composition::default();
-            if let Some(channel) = self.channel {
+            if let Some(channel) = self.channel() {
                 for event in self.keyboard.release_all() {
                     cx.emit(PaneEvent::TerminalInput(
                         channel,
@@ -743,7 +750,7 @@ impl TerminalPane {
                 }
             }
             let buttons = std::mem::take(&mut self.held_buttons);
-            if let (Some(channel), Some(event)) = (self.channel, self.last_mouse) {
+            if let (Some(channel), Some(event)) = (self.channel(), self.last_mouse) {
                 for button in buttons {
                     cx.emit(PaneEvent::Mouse(
                         channel,
@@ -760,14 +767,14 @@ impl TerminalPane {
             self.wheel_remainder = 0.0;
         }
         if self.server_input
-            && let Some(channel) = self.channel
+            && let Some(channel) = self.channel()
         {
             cx.emit(PaneEvent::TerminalInput(
                 channel,
                 muxy_protocol::TerminalInput::Focus(active),
             ));
         } else if self.input_modes.focus_events
-            && let Some(channel) = self.channel
+            && let Some(channel) = self.channel()
         {
             cx.emit(PaneEvent::Input(
                 channel,
@@ -815,7 +822,7 @@ impl TerminalPane {
             return;
         }
         let (Some(channel), Some((bounds, cell)), Some(grid)) =
-            (self.channel, self.geometry, &self.grid)
+            (self.channel(), self.geometry, &self.grid)
         else {
             return;
         };
@@ -1288,7 +1295,7 @@ impl TerminalPane {
         if self.state != PaneState::Live {
             return None;
         }
-        let channel = self.channel?;
+        let channel = self.channel()?;
         if self.terminal.options.scroll_on_keystroke
             && (self.scroll.view.is_some() || self.scroll.elastic != 0.0)
         {
@@ -1432,7 +1439,7 @@ impl TerminalPane {
             }
             TerminalAction::ClearScreen => {
                 if self.state == PaneState::Live
-                    && let Some(channel) = self.channel
+                    && let Some(channel) = self.channel()
                 {
                     if self.server_input {
                         cx.emit(PaneEvent::TerminalInput(
@@ -1530,7 +1537,7 @@ impl TerminalPane {
     ) {
         if self.server_input
             && self.state == PaneState::Live
-            && let Some(channel) = self.channel
+            && let Some(channel) = self.channel()
             && let Some(event) = self.keyboard.release(&event.keystroke)
         {
             cx.emit(PaneEvent::TerminalInput(
@@ -1697,7 +1704,7 @@ mod tests {
     fn prepare_mouse(pane: &mut TerminalPane) {
         pane.grid = Some(grid());
         pane.state = PaneState::Live;
-        pane.channel = Some(ChannelId(1));
+        pane.attachment = Some((ServerId::local(), ChannelId(1)));
         pane.viewport = Some(Size { cols: 20, rows: 3 });
         pane.geometry = Some((
             Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(60.0))),
@@ -3007,7 +3014,7 @@ mod tests {
                     pane.update(cx, |pane, cx| {
                         pane.grid = Some(grid());
                         pane.grid.as_mut().unwrap().modes.bracketed_paste = bracketed_paste;
-                        pane.channel = Some(ChannelId(1));
+                        pane.attachment = Some((ServerId::local(), ChannelId(1)));
                         pane.state = PaneState::Live;
                         pane.paste(&muxy_ui::text_input::Paste, window, cx);
                     });
@@ -3049,7 +3056,7 @@ mod tests {
         pane.update(cx, |pane, _| {
             pane.grid = Some(grid());
             pane.state = PaneState::Live;
-            pane.channel = Some(ChannelId(1));
+            pane.attachment = Some((ServerId::local(), ChannelId(1)));
             pane.viewport = Some(Size { cols: 20, rows: 3 });
             pane.geometry = Some((
                 Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(60.0))),
@@ -3161,7 +3168,7 @@ mod tests {
                 cx,
             );
             pane.grid = Some(grid());
-            pane.channel = Some(ChannelId(1));
+            pane.attachment = Some((ServerId::local(), ChannelId(1)));
             pane.state = PaneState::Live;
             pane.open_find(
                 &muxy_ui::theme::Theme::from_scheme(&muxy_ui::theme::ColorScheme::default()),

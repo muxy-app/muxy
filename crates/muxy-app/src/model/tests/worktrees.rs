@@ -45,7 +45,7 @@ fn register(model: &mut AppModel, project: ProjectId, cx: &mut Context<AppModel>
         .find(|intent| matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project))
         .expect("pending create")
         .operation;
-    model.receive_project_mutation(create, Ok(1), cx);
+    model.receive_project_mutation(ServerId::local(), create, Ok(1), cx);
 }
 
 fn add_and_register(model: &mut AppModel, cx: &mut Context<AppModel>) -> ProjectId {
@@ -64,7 +64,9 @@ fn connected(
     let settings = boot.state_path.with_file_name("settings.toml");
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     let mut sent = Sent(requests, Vec::new());
-    view.update(cx, |model, _| model.connection = ConnectionState::Ready);
+    view.update(cx, |model, _| {
+        model.servers.local.connection = ConnectionState::Ready;
+    });
     sent.take();
     (view, cx, sent, settings)
 }
@@ -101,14 +103,19 @@ fn new_projects_show_worktrees_once_git_lists_linked_ones(cx: &mut TestAppContex
         assert_eq!(sent.syncs(), 0, "the server doesn't know the project yet");
         register(model, project, cx);
         assert_eq!(sent.syncs(), 1);
-        model.catalog.pending = false;
+        model.servers.local.catalog.pending = false;
         let linked = vec![worktree(b"/code/app-feature", false)];
-        model.worktrees_synced(project, model.generation + 1, Ok(linked.clone()), cx);
+        model.worktrees_synced(
+            project,
+            model.servers.local.generation + 1,
+            Ok(linked.clone()),
+            cx,
+        );
         assert!(
             !model.worktrees_visible(project),
             "results from another connection are ignored"
         );
-        model.worktrees_synced(project, model.generation, Ok(linked), cx);
+        model.worktrees_synced(project, model.servers.local.generation, Ok(linked), cx);
         assert!(model.worktrees_visible(project));
         let saved = Settings::load(&settings).expect("settings").appearance;
         assert!(!saved.hidden_worktrees.contains(&project));
@@ -127,8 +134,8 @@ fn new_projects_keep_worktrees_hidden_without_linked_ones(cx: &mut TestAppContex
     view.update(cx, |model, cx| {
         let project = add_and_register(model, cx);
         assert_eq!(sent.syncs(), 1, "one listing per new project");
-        model.catalog.pending = false;
-        model.worktrees_synced(project, model.generation, Ok(Vec::new()), cx);
+        model.servers.local.catalog.pending = false;
+        model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
         assert!(!model.worktrees_visible(project));
         let saved = Settings::load(&settings).expect("settings").appearance;
         assert!(saved.hidden_worktrees.contains(&project));
@@ -153,7 +160,7 @@ fn new_project_check_retries_after_disconnects_but_not_after_server_errors(
         assert_eq!(sent.syncs(), 1);
         model.worktrees_synced(
             project,
-            model.generation,
+            model.servers.local.generation,
             Err(muxy_client::ClientError::Disconnected),
             cx,
         );
@@ -162,7 +169,7 @@ fn new_project_check_retries_after_disconnects_but_not_after_server_errors(
         assert_eq!(sent.syncs(), 1, "the check runs again on the next sync");
         model.worktrees_synced(
             project,
-            model.generation,
+            model.servers.local.generation,
             Err(muxy_client::ClientError::Server(ErrorReply {
                 code: ErrorCode::BadRequest,
                 message: "not a git repository".into(),
@@ -185,7 +192,7 @@ fn a_worktrees_menu_choice_replaces_the_new_project_default(cx: &mut TestAppCont
         model.toggle_worktree_visibility(project, cx);
         model.worktrees_synced(
             project,
-            model.generation,
+            model.servers.local.generation,
             Ok(vec![worktree(b"/code/app-feature", false)]),
             cx,
         );
@@ -202,7 +209,7 @@ fn only_git_changes_rerun_a_sync_that_is_already_running(cx: &mut TestAppContext
         model.sync_worktrees(project, cx);
         assert_eq!(sent.syncs(), 1);
         model.sync_worktrees(project, cx);
-        model.worktrees_synced(project, model.generation, Ok(Vec::new()), cx);
+        model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
         assert_eq!(
             sent.syncs(),
             0,
@@ -211,7 +218,7 @@ fn only_git_changes_rerun_a_sync_that_is_already_running(cx: &mut TestAppContext
         model.sync_worktrees(project, cx);
         assert_eq!(sent.syncs(), 1);
         model.git_invalidated(project, cx);
-        model.worktrees_synced(project, model.generation, Ok(Vec::new()), cx);
+        model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
         assert_eq!(sent.syncs(), 1, "a Git change during a sync runs it again");
     });
 }
@@ -235,12 +242,12 @@ fn worktrees_sync_one_project_at_a_time_and_skip_hidden_ones(cx: &mut TestAppCon
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     let mut sent = Sent(requests, Vec::new());
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(Vec::new())), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(Vec::new())), cx);
         sent.take();
         acknowledge_catalog(model, cx);
         assert_eq!(sent.syncs(), 1, "one project syncs at a time");
         for (project, next) in [(first, 1), (second, 0)] {
-            model.worktrees_synced(project, model.generation, Ok(Vec::new()), cx);
+            model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
             assert_eq!(sent.syncs(), next);
         }
     });

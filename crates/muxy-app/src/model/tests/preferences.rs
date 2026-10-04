@@ -277,7 +277,7 @@ fn settings_shortcut_reuses_an_independent_window_without_a_server(cx: &mut Test
     let (boot, requests) = stub_boot(state);
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, main) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(main, AppModel::disconnect);
+    view.update(main, |model, cx| model.disconnect(ServerId::local(), cx));
     let before = view.read_with(main, |model, _| model.state.clone());
     main.simulate_keystrokes("cmd-,");
     let handle = view.read_with(main, |model, _| {
@@ -547,7 +547,9 @@ fn server_control_confirms_and_restart_connects_only_after_successful_stop(
     let (boot, requests) = stub_boot(state);
     let (view, cx) = settings_window(boot, cx);
     let settings = view.read_with(cx, |model, _| settings_view(model));
-    view.update(cx, |model, _| model.connection = ConnectionState::Ready);
+    view.update(cx, |model, _| {
+        model.servers.local.connection = ConnectionState::Ready;
+    });
     settings.update(cx, |_, cx| {
         cx.emit(SettingsEvent::ServerControl { restart: true });
     });
@@ -574,6 +576,7 @@ fn server_control_confirms_and_restart_connects_only_after_successful_stop(
     view.update(cx, |model, cx| {
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::ServerStopped {
                     restart: true,
@@ -652,7 +655,7 @@ fn invalid_queued_server_fields_do_not_stall_later_changes_or_allow_early_connec
     let (boot, requests) = stub_boot(state);
     let (view, cx) = settings_window(boot, cx);
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         let settings = muxy_protocol::ServerSettingsDoc { default_shell: None, history_budget_bytes: 1024 * 1024, shell_integration: true };
         model.server_preferences.document = Some(settings.clone());
         model.server_preferences.busy = true;
@@ -664,9 +667,9 @@ fn invalid_queued_server_fields_do_not_stall_later_changes_or_allow_early_connec
         assert!(settings_view(model).read(cx).errors.contains_key("history-budget"));
         assert!(requests.try_iter().any(|(_, work)| matches!(work, Work::WriteServerSettings(settings) if !settings.shell_integration)));
         model.server_preferences.control_busy = true;
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         model.connect(cx);
-        assert_eq!(model.generation, 1);
+        assert_eq!(model.servers.local.generation, 1);
         assert!(requests.try_iter().all(|(_, work)| !matches!(work, Work::Connect)));
     });
 }
@@ -740,7 +743,7 @@ fn server_field_drafts_survive_queued_saves_failures_and_disconnection(cx: &mut 
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = settings_window(boot, cx);
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.server_preferences.document = Some(muxy_protocol::ServerSettingsDoc {
             default_shell: None,
             history_budget_bytes: 1024 * 1024,
@@ -768,7 +771,7 @@ fn server_field_drafts_survive_queued_saves_failures_and_disconnection(cx: &mut 
     });
     click_preference(cx, "settings-field-default-shell");
     cx.simulate_keystrokes("cmd-a / b i n / b a s h enter");
-    view.update(cx, AppModel::disconnect);
+    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
     settings.read_with(cx, |pane, cx| {
         assert_eq!(pane.field_value("default-shell", cx), "/bin/bash");
         assert!(pane.errors.contains_key("default-shell"));
@@ -896,7 +899,7 @@ fn server_subsections_preserve_availability_messages_without_affecting_search(
         cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
         let (view, cx) = settings_window(boot, cx);
         view.update(cx, |model, cx| {
-            model.connection = if connected {
+            model.servers.local.connection = if connected {
                 ConnectionState::Ready
             } else {
                 ConnectionState::Disconnected
@@ -987,7 +990,7 @@ fn settings_show_quit_and_connection_failures_in_the_settings_window(cx: &mut Te
         );
     });
     assert!(cx.debug_bounds("settings-application-error").is_some());
-    view.update(cx, AppModel::disconnect);
+    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
     cx.dispatch_action(crate::views::workspace::EndAllSessionsAndQuit);
     cx.run_until_parked();
     view.read_with(cx, |model, cx| {

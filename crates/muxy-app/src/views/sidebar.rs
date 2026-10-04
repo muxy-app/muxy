@@ -56,7 +56,12 @@ pub(crate) fn register_commands(
                 return projects;
             };
             let model = model.read(cx);
-            for project in model.state.projects() {
+            for project in model
+                .state
+                .projects()
+                .iter()
+                .filter(|project| model.project_shown(project))
+            {
                 let id = project.id;
                 let handler: Handler = Rc::new(move |model, _, cx| model.select_project(id, cx));
                 let title = project
@@ -212,10 +217,24 @@ impl AppModel {
             .state
             .projects()
             .iter()
-            .filter(|project| project.parent_id.is_none() && self.state.is_listed(project))
+            .filter(|project| {
+                project.parent_id.is_none()
+                    && self.state.is_listed(project)
+                    && self.project_shown(project)
+            })
             .collect();
         if self.appearance.sidebar_project_order == ProjectOrder::Name {
-            parents.sort_by_cached_key(|project| (!project.home, project.name.to_lowercase()));
+            // This computer's projects first, then each other server's, in settings order.
+            let server = |project: &Project| {
+                self.settings
+                    .servers
+                    .iter()
+                    .position(|entry| entry.id == project.server_id)
+                    .map_or(0, |index| index + 1)
+            };
+            parents.sort_by_cached_key(|project| {
+                (server(project), !project.home, project.name.to_lowercase())
+            });
         }
         parents
     }
@@ -552,6 +571,7 @@ fn project_row(
             },
         );
     let activity = super::tab_activity::project_status(id, model);
+    let server = model.server_name(project.server_id);
     let drag = DraggedProject {
         id,
         last_target: Cell::new(None),
@@ -625,6 +645,9 @@ fn project_row(
                     )
                     .when(has_worktrees, |label| {
                         let selected = model.state.project(model.preferred_worktree(id));
+                        let worktree = selected
+                            .filter(|p| p.parent_id.is_some())
+                            .map_or("primary", |p| p.name.as_str());
                         label.child(
                             div()
                                 .debug_selector(move || format!("project-worktree-label-{id}"))
@@ -632,12 +655,21 @@ fn project_row(
                                 .text_size(m.font_footnote())
                                 .font_family(".AppleSystemUIFontMonospaced")
                                 .font_weight(FontWeight::NORMAL)
-                                .child(
-                                    selected
-                                        .filter(|p| p.parent_id.is_some())
-                                        .map_or("primary", |p| p.name.as_str())
-                                        .to_owned(),
-                                ),
+                                .child(server.map_or_else(
+                                    || worktree.to_owned(),
+                                    |server| format!("{server} · {worktree}"),
+                                )),
+                        )
+                    })
+                    .when_some(server.filter(|_| !has_worktrees), |label, server| {
+                        label.child(
+                            div()
+                                .debug_selector(move || format!("project-server-label-{id}"))
+                                .truncate()
+                                .text_size(m.font_footnote())
+                                .font_weight(FontWeight::NORMAL)
+                                .text_color(theme.fg_muted)
+                                .child(server.to_owned()),
                         )
                     }),
             )

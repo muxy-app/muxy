@@ -84,6 +84,7 @@ fn agents_sidebar_tracks_detection_including_idle_without_changing_topbar_naviga
     for state in [AgentState::Working, AgentState::Blocked, AgentState::Idle] {
         view.update(cx, |model, cx| {
             model.receive_activity(
+                ServerId::local(),
                 Ok(ActivitySnapshot {
                     revision: 1,
                     agents: vec![
@@ -137,9 +138,9 @@ fn agents_sidebar_tracks_detection_including_idle_without_changing_topbar_naviga
     let before_row = cx.debug_bounds(project_row).expect("project row");
     view.update(cx, |model, cx| {
         let before = model.state.clone();
-        let mut snapshot = model.activity.snapshot.clone();
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
         snapshot.agents.clear();
-        model.receive_activity(Ok(snapshot), cx);
+        model.receive_activity(ServerId::local(), Ok(snapshot), cx);
         assert_eq!(model.state, before);
         assert_eq!(model.sidebar_tabs(model.state.home()).count(), 0);
     });
@@ -173,6 +174,7 @@ fn agents_sidebar_selects_a_detected_split_even_when_a_shell_is_zoomed(cx: &mut 
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
         model.receive_activity(
+            ServerId::local(),
             Ok(ActivitySnapshot {
                 revision: 1,
                 agents: vec![AgentActivity {
@@ -197,7 +199,13 @@ fn agents_sidebar_selects_a_detected_split_even_when_a_shell_is_zoomed(cx: &mut 
     });
     view.update(cx, |model, cx| {
         let second_agent = detect(&mut model.state, home, first, 22);
-        model.activity.snapshot.agents.push(second_agent);
+        model
+            .servers
+            .local
+            .activity
+            .snapshot
+            .agents
+            .push(second_agent);
         model.focus_pane(shell, cx);
         let tab = &model.state.home().tabs[0];
         assert_eq!(
@@ -227,6 +235,7 @@ fn agents_sidebar_reuses_project_expansion_focus_sort_and_new_terminal_controls(
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
         model.receive_activity(
+            ServerId::local(),
             Ok(ActivitySnapshot {
                 revision: 1,
                 agents: vec![agent],
@@ -343,6 +352,7 @@ fn agents_sidebar_drag_keeps_shell_slots_and_is_independent_of_titlebar_drag(
     cx.simulate_resize(size(px(1000.0), px(600.0)));
     view.update(cx, |model, cx| {
         model.receive_activity(
+            ServerId::local(),
             Ok(ActivitySnapshot {
                 revision: 1,
                 agents,

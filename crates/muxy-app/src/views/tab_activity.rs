@@ -4,7 +4,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px, svg,
 };
 use muxy_app_core::{
-    PaneContent, ProjectId, Tab,
+    PaneContent, ProjectId, ServerId, Tab,
     activity::{ActivityIndicator, indicator},
     settings::AppLayout,
 };
@@ -26,13 +26,18 @@ pub(super) enum Status {
     Completed,
 }
 
+/// Sessions are numbered per server, so they are looked up on `server`.
 fn resolve(
+    server: ServerId,
     sessions: &[SessionId],
     completion: bool,
     count_unread: bool,
     model: &AppModel,
 ) -> Status {
-    let snapshot = &model.activity.snapshot;
+    let Some(runtime) = model.servers.get(server) else {
+        return Status::None;
+    };
+    let snapshot = &runtime.activity.snapshot;
     let activity = indicator(snapshot, |session| sessions.contains(&session));
     if activity == ActivityIndicator::Blocked {
         return Status::Blocked;
@@ -44,7 +49,10 @@ fn resolve(
             .find(|agent| agent.session == *session);
         muxy_app_core::activity::effective_progress(
             agent.map(|agent| agent.state),
-            model.progress.get(session).and_then(|state| state.progress),
+            runtime
+                .progress
+                .get(session)
+                .and_then(|state| state.progress),
         )
     });
     if let Some(progress) = progress {
@@ -65,6 +73,11 @@ fn resolve(
 }
 
 pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
+    let server = tab
+        .panes
+        .first()
+        .and_then(|pane| model.state.pane_server(pane.id))
+        .unwrap_or_else(ServerId::local);
     let sessions: Vec<_> = tab
         .panes
         .iter()
@@ -74,6 +87,7 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
         })
         .collect();
     resolve(
+        server,
         &sessions,
         tab.panes
             .iter()
@@ -126,6 +140,10 @@ fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel)
         .iter()
         .any(|pane| model.completions.contains(&pane.id));
     resolve(
+        model
+            .state
+            .project_server(id)
+            .unwrap_or_else(ServerId::local),
         &sessions,
         completion,
         model.appearance.worktree_show_unread,
@@ -136,15 +154,7 @@ fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel)
 pub(super) fn icon(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElement) -> AnyElement {
     let provider = tab
         .displayed_pane(model.state.window().active_pane)
-        .and_then(|pane| model.pane_session(pane.id))
-        .and_then(|session| {
-            model
-                .activity
-                .snapshot
-                .agents
-                .iter()
-                .find(|agent| agent.session == session)
-        })
+        .and_then(|pane| model.pane_agent(pane.id))
         .map(|agent| agent.provider);
     let id = tab.id;
     if let Some(provider) = provider {

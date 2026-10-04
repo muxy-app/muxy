@@ -3988,6 +3988,7 @@ dependencies = [
  "muxy-client",
  "muxy-core",
  "muxy-protocol",
+ "muxy-server",
  "muxy-terminal",
  "muxy-ui",
  "serde_json",

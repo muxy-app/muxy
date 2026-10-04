@@ -1,4 +1,5 @@
 use gpui::{Context, Window};
+use muxy_app_core::ServerId;
 
 use super::{AppModel, AppUpdatePhase, ConnectionState, Quitting, ServerUpdatePhase};
 use crate::views::overlays::Overlay;
@@ -60,7 +61,7 @@ impl AppModel {
             ));
         }
         if self.updates.phase == ServerUpdatePhase::Failed {
-            let action = if self.connection == ConnectionState::Disconnected {
+            let action = if self.connection(ServerId::local()) == ConnectionState::Disconnected {
                 "Retry connection"
             } else if self.server_update_pending() {
                 "Restart server…"
@@ -113,7 +114,7 @@ impl AppModel {
             ));
         }
         if let Some(update) = &self.updates.ready {
-            if self.connection != ConnectionState::Ready {
+            if self.connection(ServerId::local()) != ConnectionState::Ready {
                 return Some(UpdateDetails::new("App update ready", "Connect to the server so Muxy can check whether terminal sessions can be preserved.")
                     .action(UpdateAction::Connect, "Connect to server"));
             }
@@ -135,11 +136,13 @@ impl AppModel {
                 "Server update pending",
                 "The app is updated. The server will update when all terminal sessions end, or you can restart it now. Restarting ends all sessions, including idle and detached sessions.",
             );
-            return Some(if self.connection == ConnectionState::Ready {
-                detail.action(UpdateAction::RestartServer, "Restart server…")
-            } else {
-                detail.action(UpdateAction::Connect, "Connect to server")
-            });
+            return Some(
+                if self.connection(ServerId::local()) == ConnectionState::Ready {
+                    detail.action(UpdateAction::RestartServer, "Restart server…")
+                } else {
+                    detail.action(UpdateAction::Connect, "Connect to server")
+                },
+            );
         }
         None
     }
@@ -156,7 +159,7 @@ impl AppModel {
             || "Not connected".into(),
             |server| {
                 let version = version_transition(&server.build.version, installed);
-                if self.connection == ConnectionState::Ready {
+                if self.connection(ServerId::local()) == ConnectionState::Ready {
                     version
                 } else {
                     format!("{version} · Disconnected")
@@ -165,7 +168,7 @@ impl AppModel {
         );
         (
             app,
-            if self.connection == ConnectionState::Connecting {
+            if self.connection(ServerId::local()) == ConnectionState::Connecting {
                 "Connecting…".into()
             } else {
                 server
@@ -192,7 +195,7 @@ impl AppModel {
     }
 
     pub(crate) fn server_update_action(&self) -> (UpdateAction, &'static str) {
-        if self.connection == ConnectionState::Ready {
+        if self.connection(ServerId::local()) == ConnectionState::Ready {
             (UpdateAction::RestartServer, "Restart server…")
         } else {
             (UpdateAction::Connect, "Connect to server")
@@ -218,7 +221,7 @@ impl AppModel {
             && !self.updates.replacing()
             && !self.server_preferences.control_busy
             && !self.server_preferences.busy
-            && self.connection != ConnectionState::Connecting
+            && self.connection(ServerId::local()) != ConnectionState::Connecting
     }
 
     pub(crate) fn perform_update_action(&mut self, action: UpdateAction, cx: &mut Context<Self>) {
@@ -236,9 +239,9 @@ impl AppModel {
             UpdateAction::RetryServer => {
                 self.updates.phase = ServerUpdatePhase::Idle;
                 self.updates.server_error = None;
-                if self.connection == ConnectionState::Disconnected {
+                if self.connection(ServerId::local()) == ConnectionState::Disconnected {
                     self.updates.phase = ServerUpdatePhase::Reconnecting;
-                    self.connect_to_server(true, cx);
+                    self.connect_to_server(ServerId::local(), true, cx);
                 } else if self.server_update_pending() {
                     self.confirm_server_control(true, self.window, cx);
                 } else {

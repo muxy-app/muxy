@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use gpui::{AppContext, Context, Entity, Focusable, Window};
 use muxy_app_core::project_layouts::{Config, Descriptor};
-use muxy_app_core::{PaneId, ProjectId, ProjectStatus, TabId};
+use muxy_app_core::{PaneId, ProjectId, ProjectStatus, ServerId, TabId};
 use muxy_ui::icon::Icon;
 use muxy_ui::picker::{
     Picker, PickerConfig, PickerEvent, PickerItem, PickerLeading, PickerRow, PickerStatus,
@@ -44,12 +44,13 @@ impl AppModel {
     }
 
     pub(super) fn sync_project_layouts(&mut self, cx: &mut Context<Self>) {
-        if self.connection != ConnectionState::Ready
-            || !self
-                .state
-                .project_intents(self.state.current_project().server_id)
-                .is_empty()
-            || self.catalog.restore.is_some()
+        let server = self.state.current_project().server_id;
+        if !self.ready(server)
+            || !self.state.project_intents(server).is_empty()
+            || self
+                .servers
+                .get(server)
+                .is_none_or(|runtime| runtime.catalog.restore.is_some())
         {
             return;
         }
@@ -72,7 +73,11 @@ impl AppModel {
     fn request_project_layouts(&mut self, project: ProjectId, cx: &mut Context<Self>) -> u64 {
         self.project_layouts.next = self.project_layouts.next.wrapping_add(1);
         let request = self.project_layouts.next;
-        let sent = self.send(Work::ProjectLayouts { project, request }, cx);
+        let server = self
+            .state
+            .project_server(project)
+            .unwrap_or_else(ServerId::local);
+        let sent = self.send(server, Work::ProjectLayouts { project, request }, cx);
         self.project_layouts.listings.insert(
             project,
             Listing {
@@ -227,7 +232,12 @@ impl AppModel {
         let project = overlay.project;
         let request = overlay.request;
         overlay.loading = true;
+        let server = self
+            .state
+            .project_server(project)
+            .unwrap_or_else(ServerId::local);
         self.send(
+            server,
             Work::LoadProjectLayout {
                 project,
                 request,
@@ -326,16 +336,50 @@ impl AppModel {
         ) {
             return;
         }
+        let server = self
+            .state
+            .project_server(project)
+            .unwrap_or_else(ServerId::local);
         self.cancel_titlebar_drag(cx);
         self.changed(cx);
-        self.discard_pending(cx);
+        self.discard_pending(server, cx);
         self.focus_requested = true;
-        if self.connection == ConnectionState::Ready {
-            for pane in panes {
-                self.start_attach(pane, muxy_protocol::Size { cols: 80, rows: 24 }, cx);
+        match self.connection(server) {
+            ConnectionState::Ready => {
+                for pane in panes {
+                    self.start_attach(pane, muxy_protocol::Size { cols: 80, rows: 24 }, cx);
+                }
             }
-        } else if self.connection == ConnectionState::Disconnected {
-            self.connect(cx);
+            ConnectionState::Disconnected => self.connect_server(server, cx),
+            ConnectionState::Connecting => {}
+        }
+    }
+
+    /// Forgets the layouts `server` listed, which a new connection lists again.
+    pub(super) fn forget_server_layouts(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        let on_server =
+            |model: &Self, project: ProjectId| model.state.project_server(project) == Some(server);
+        let listed: Vec<_> = self
+            .project_layouts
+            .listings
+            .keys()
+            .copied()
+            .filter(|project| on_server(self, *project))
+            .collect();
+        for project in listed {
+            self.project_layouts.listings.remove(&project);
+        }
+        if self
+            .project_layouts
+            .active
+            .as_ref()
+            .is_some_and(|(project, _)| on_server(self, *project))
+        {
+            self.project_layouts.active = None;
+        }
+        if matches!(&self.overlay, Some(Overlay::Layouts(picker)) if on_server(self, picker.project))
+        {
+            self.dismiss_overlay(cx);
         }
     }
 }

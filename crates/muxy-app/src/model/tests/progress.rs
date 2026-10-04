@@ -10,6 +10,7 @@ fn report(
     cx: &mut Context<AppModel>,
 ) {
     model.receive_event(
+        ServerId::local(),
         ClientEvent::Progress {
             session,
             progress: SessionProgress {
@@ -65,7 +66,10 @@ fn progress_survives_hidden_tabs_projects_and_zoom_in_both_layouts(cx: &mut Test
             assert!(model.terminal(&pane).is_none());
             report(model, session, Some(ProgressState::Paused), 2, cx);
             assert_eq!(
-                model.progress[&session].progress.expect("progress").state,
+                model.servers.local.progress[&session]
+                    .progress
+                    .expect("progress")
+                    .state,
                 ProgressState::Paused
             );
             model.select_project(home, cx);
@@ -80,16 +84,21 @@ fn progress_survives_hidden_tabs_projects_and_zoom_in_both_layouts(cx: &mut Test
             report(model, session, Some(ProgressState::Error), 2, cx);
             assert!(model.terminal(&pane).is_none());
             assert_eq!(
-                model.progress[&session].progress.expect("progress").state,
+                model.servers.local.progress[&session]
+                    .progress
+                    .expect("progress")
+                    .state,
                 ProgressState::Error
             );
             model.toggle_zoom_pane(cx);
         });
     }
     view.update(cx, |model, cx| {
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         assert!(
             model
+                .servers
+                .local
                 .progress
                 .values()
                 .all(|state| state.progress.is_none())

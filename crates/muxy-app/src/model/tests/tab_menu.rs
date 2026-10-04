@@ -244,7 +244,7 @@ fn bulk_close_confirms_once_and_cancellation_preserves_every_target(cx: &mut Tes
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     for answer in ["Cancel", "Close"] {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.close_tabs(ids[2], TabCloseScope::Other, cx);
             let request = model.close_request.as_ref().expect("request");
             let tab = request.tab;

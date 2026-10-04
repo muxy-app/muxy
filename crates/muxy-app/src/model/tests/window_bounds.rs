@@ -58,7 +58,14 @@ fn tab_changes_and_quit_flush_pending_bounds_without_stale_saves(cx: &mut TestAp
             .any(|(_, work)| matches!(work, Work::Flush))
     );
     view.update(cx, |model, cx| {
-        model.receive((model.generation, Update::Flushed), cx);
+        model.receive(
+            (
+                ServerId::local(),
+                model.servers.local.generation,
+                Update::Flushed,
+            ),
+            cx,
+        );
         assert!(model.bounds_save.is_none());
         assert_eq!(
             store::load(&model.path).expect("saved before quit"),

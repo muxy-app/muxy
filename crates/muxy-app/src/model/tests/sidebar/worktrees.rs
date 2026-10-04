@@ -396,7 +396,7 @@ fn project_worktree_activity_moves_between_parent_and_worktree_rows(cx: &mut Tes
     boot.settings.appearance.sidebar_expanded = true;
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.activity.snapshot.agents = vec![muxy_protocol::AgentActivity {
+        model.servers.local.activity.snapshot.agents = vec![muxy_protocol::AgentActivity {
             session,
             project: child,
             provider: muxy_protocol::AgentProvider::Codex,

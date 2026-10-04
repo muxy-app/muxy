@@ -1,7 +1,7 @@
 use crate::{AppError, AppState, PaneId, Project, ProjectId, ProjectStatus, ServerId};
 use muxy_protocol::{
     CatalogPage, OperationId, ProjectDescriptor, ProjectIntent, ProjectMutation, ProjectPatch,
-    ServerPath,
+    ServerIdentity, ServerPath,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -88,6 +88,11 @@ impl AppState {
         self.servers
             .get(&server)
             .map_or(0, |state| state.catalog_revision)
+    }
+
+    /// The server that answered for `server` last time, once a catalog was applied.
+    pub fn server_identity(&self, server: ServerId) -> Option<ServerIdentity> {
+        self.servers.get(&server).and_then(|state| state.identity)
     }
 
     pub(crate) fn queue_project(

@@ -22,13 +22,14 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use gpui::{Context, Entity, Window};
+use muxy_app_core::ServerId;
 use muxy_app_core::extensions::{
     AUDIT_LOG, AuditLog, Grants, Registry, Request, Rule, required_permission,
 };
 use muxy_protocol::ProjectId;
 use serde_json::{Map, Value, json};
 
-use super::{AppModel, ConnectionState};
+use super::AppModel;
 use crate::views::webview::{Request as PageRequest, Webview};
 
 pub(crate) struct Runtime {
@@ -38,7 +39,8 @@ pub(crate) struct Runtime {
     local_revision: u64,
     pub epoch: u64,
     epochs: HashMap<String, u64>,
-    client: Option<muxy_client::Client>,
+    /// Each server's extension connection, kept apart from the app's own.
+    clients: HashMap<ServerId, muxy_client::Client>,
     scripts: HashMap<u64, scripts::Running>,
     backgrounds: HashMap<String, background::Background>,
     loading_scripts: usize,
@@ -69,7 +71,7 @@ impl Runtime {
             local_revision: 0,
             epoch: 1,
             epochs: HashMap::new(),
-            client: None,
+            clients: HashMap::new(),
             scripts: HashMap::new(),
             backgrounds: HashMap::new(),
             loading_scripts: 0,
@@ -90,13 +92,6 @@ impl Runtime {
         }
     }
 
-    pub(super) fn disconnect(&mut self) {
-        if let Some(client) = self.client.take() {
-            client.disconnect();
-        }
-        self.events.disconnect();
-    }
-
     fn epoch_for(&self, owner: &str) -> u64 {
         self.epochs.get(owner).copied().unwrap_or(0)
     }
@@ -104,7 +99,9 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        self.disconnect();
+        for (_, client) in self.clients.drain() {
+            client.disconnect();
+        }
     }
 }
 
@@ -162,26 +159,18 @@ struct Call {
 }
 
 impl AppModel {
-    pub(super) fn extension_client(&mut self, cx: &mut Context<Self>) {
+    /// Opens `server`'s extension connection, through its worker.
+    pub(super) fn extension_client(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let (sender, receiver) = async_channel::bounded(1);
-        let generation = self.generation;
-        if !self.send(crate::boot::Work::ExtensionClient(sender), cx) {
+        let generation = self.generation(server);
+        if !self.send(server, crate::boot::Work::ExtensionConnection(sender), cx) {
             return;
         }
-        let socket = self.path.with_file_name("server.sock");
         cx.spawn(async move |model, cx| {
-            let Ok(Some(app_client)) = receiver.recv().await else {
+            let Ok(connected) = receiver.recv().await else {
                 return;
             };
-            let instance = app_client.server_info().instance;
-            drop(app_client);
-            let connected = crate::extensions::io::run(move || {
-                let client =
-                    muxy_client::Client::connect(&socket).map_err(|error| error.to_string())?;
-                if client.server_info().instance != instance {
-                    client.disconnect();
-                    return Err("server changed while connecting extensions".into());
-                }
+            let connected = connected.and_then(|client| {
                 let events = client.events().ok_or("extension events already taken")?;
                 let (sender, receiver) = async_channel::bounded(64);
                 std::thread::Builder::new()
@@ -200,24 +189,24 @@ impl AppModel {
                     })
                     .map_err(|error| error.to_string())?;
                 Ok((client, receiver))
-            })
-            .await;
+            });
             let (client, events) = match connected {
                 Ok(connected) => connected,
                 Err(error) => {
                     let _ = model.update(cx, |model, _| {
-                        model.extension_log("", format!("[muxy] {error}"));
+                        let message = model.server_message(server, &error);
+                        model.extension_log("", format!("[muxy] {message}"));
                     });
                     return;
                 }
             };
             let installed = model
                 .update(cx, |model, cx| {
-                    if model.generation != generation || model.connection != ConnectionState::Ready
-                    {
+                    if model.generation(server) != generation || !model.ready(server) {
                         return false;
                     }
-                    model.extensions.client = Some(client.clone());
+                    model.disconnect_extensions(server);
+                    model.extensions.clients.insert(server, client.clone());
                     model.sync_extension_events(cx);
                     true
                 })
@@ -230,7 +219,7 @@ impl AppModel {
             while let Ok(event) = events.recv().await {
                 if model
                     .update(cx, |model, cx| {
-                        if model.generation != generation {
+                        if model.generation(server) != generation {
                             return;
                         }
                         match event {
@@ -238,15 +227,12 @@ impl AppModel {
                                 model.extension_files_changed(project, changes, cx);
                             }
                             muxy_client::ClientEvent::Disconnected => {
-                                model.extensions.disconnect();
-                                model.extension_log(
-                                    "",
-                                    "[muxy] extension server connection closed".into(),
-                                );
-                                if model.connection == ConnectionState::Ready
-                                    && model.quitting == super::Quitting::Idle
-                                {
-                                    model.extension_client(cx);
+                                model.disconnect_extensions(server);
+                                let message = model
+                                    .server_message(server, "extension server connection closed");
+                                model.extension_log("", format!("[muxy] {message}"));
+                                if model.ready(server) && model.quitting == super::Quitting::Idle {
+                                    model.extension_client(server, cx);
                                 }
                             }
                             _ => (),
@@ -259,6 +245,31 @@ impl AppModel {
             }
         })
         .detach();
+    }
+
+    /// Closes `server`'s extension connection. Its file watches end with it.
+    pub(super) fn disconnect_extensions(&mut self, server: ServerId) {
+        if let Some(client) = self.extensions.clients.remove(&server) {
+            client.disconnect();
+        }
+        let state = &self.state;
+        self.extensions
+            .events
+            .forget_watches(|project| state.project_server(project) == Some(server));
+    }
+
+    /// The server an extension call acts on: its project's.
+    fn call_server(&self, call: &Call) -> ServerId {
+        self.state
+            .project_server(call.project)
+            .unwrap_or_else(ServerId::local)
+    }
+
+    fn call_client(&self, call: &Call) -> Option<muxy_client::Client> {
+        self.extensions
+            .clients
+            .get(&self.call_server(call))
+            .cloned()
     }
 
     fn receive_extension_snapshot(&mut self, snapshot: local::Snapshot, cx: &mut Context<Self>) {
@@ -495,7 +506,7 @@ impl AppModel {
             .collect();
         for key in expired {
             if let Some(job) = self.extensions.jobs.remove(&key)
-                && let Some(client) = self.extensions.client.clone()
+                && let Some(client) = self.call_client(&job.call)
             {
                 cx.spawn(async move |_, _| {
                     let _ = client.cancel_exec_async(job.id).await;
@@ -613,7 +624,7 @@ impl AppModel {
             } else {
                 job.call.reply.send(error, cx);
             }
-            if let Some(client) = self.extensions.client.clone() {
+            if let Some(client) = self.call_client(&job.call) {
                 cx.spawn(async move |_, _| {
                     let _ = client.cancel_exec_async(job.id).await;
                 })
@@ -716,7 +727,7 @@ impl AppModel {
                 Call {
                     owner: owner.clone(),
                     epoch: self.extensions.epoch_for(&owner),
-                    generation: self.generation,
+                    generation: self.project_generation(project),
                     project,
                     verb: request.body["verb"].as_str().unwrap_or("").into(),
                     args,
@@ -763,7 +774,7 @@ impl AppModel {
 
     fn call_live(&self, call: &Call, cx: &gpui::App) -> bool {
         call.epoch == self.extensions.epoch_for(&call.owner)
-            && call.generation == self.generation
+            && call.generation == self.project_generation(call.project)
             && self.extensions.registry.enabled(&call.owner).is_some()
             && match &call.reply {
                 Reply::Page(view, request) => view

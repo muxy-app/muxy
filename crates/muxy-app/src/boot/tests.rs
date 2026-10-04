@@ -10,6 +10,34 @@ use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, SUPPORTED};
 
 type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
+/// An `ssh` for tests that plays the other computer: it prints the bridge's
+/// ready line and relays to `socket` with macOS's `nc`.
+pub(crate) fn fake_ssh(
+    directory: &std::path::Path,
+    socket: &std::path::Path,
+) -> std::io::Result<SshTarget> {
+    use std::os::unix::fs::PermissionsExt;
+    let program = directory.join("ssh");
+    fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\nprintf 'MUXY-STDIO/1\\n'\nexec /usr/bin/nc -U '{}'\n",
+            socket.display()
+        ),
+    )?;
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+    Ok(SshTarget::new("box")?.with_program(program))
+}
+
+/// This computer's worker on `socket`, with the updates it sends.
+fn local_worker(socket: PathBuf) -> std::io::Result<(Worker, Updates)> {
+    let (sender, updates) = async_channel::unbounded();
+    Ok((
+        worker(ServerId::local(), Target::Local(socket), sender)?,
+        updates,
+    ))
+}
+
 #[test]
 fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> TestResult {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -24,10 +52,10 @@ fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> Test
     let (progress, received) = mpsc::channel();
     let (release, gate) = mpsc::channel();
     let server = thread::spawn(move || fake_server(&listener, &progress, &gate));
-    let (work, updates) = bridge(socket)?;
+    let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.1, Update::ServerInfo(_)));
-    assert!(matches!(updates.recv_blocking()?.1, Update::Connected(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
     let session = SessionId::from(std::num::NonZeroU64::MIN);
     work.send((
         1,
@@ -57,8 +85,8 @@ fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> Test
     let mut flushed = false;
     while !flushed && Instant::now() < deadline {
         match updates.try_recv() {
-            Ok((1, Update::Saved { .. })) => saved = true,
-            Ok((1, Update::Flushed)) => {
+            Ok((_, 1, Update::Saved { .. })) => saved = true,
+            Ok((_, 1, Update::Flushed)) => {
                 assert!(saved);
                 flushed = true;
             }
@@ -309,6 +337,7 @@ fn a_full_event_buffer_preserves_the_only_disconnect_after_history_completion() 
 }
 
 mod resize;
+mod servers;
 
 fn identify_desktop<R: std::io::Read, W: std::io::Write>(
     decoder: &mut Decoder<R>,
@@ -367,10 +396,10 @@ fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult 
     let listener = UnixListener::bind(directory.path().join("server.sock"))?;
     let (started, pending) = mpsc::channel();
     let server = thread::spawn(move || withhold_extension_replies(&listener, &started));
-    let (work, updates) = bridge(directory.path().join("server.sock"))?;
+    let (work, updates) = local_worker(directory.path().join("server.sock"))?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.1, Update::ServerInfo(_)));
-    assert!(matches!(updates.recv_blocking()?.1, Update::Connected(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
     let (reply, client) = async_channel::bounded(1);
     work.send((1, Work::ExtensionClient(reply)))?;
     let client = client.recv_blocking()?.ok_or("missing client")?;
@@ -421,7 +450,7 @@ fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult 
     let mut received = [false; 6];
     while Instant::now() < deadline && !received.iter().all(|received| *received) {
         match updates.try_recv() {
-            Ok((1, update)) => match update {
+            Ok((_, 1, update)) => match update {
                 Update::Catalog(_) => received[0] = true,
                 Update::Activity(_) => received[1] = true,
                 Update::ServerSettings(_) => received[2] = true,

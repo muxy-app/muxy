@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -8,7 +9,7 @@ use gpui::{
     Subscription, Task, Window, div,
 };
 use muxy_app_core::{
-    PaneId,
+    PaneId, ServerId,
     composer::{
         ComposerDraft, ComposerStore, DraftId, SAVE_DEBOUNCE,
         image_storage::prepare_image_source,
@@ -26,6 +27,9 @@ use crate::{
     boot::Work,
     views::composer::{Composer, ComposerEvent, PANEL},
 };
+
+/// A pane to send to, with the server that attached it and its channel there.
+type Target = (PaneId, (ServerId, ChannelId), Modes);
 
 pub(crate) struct ComposerRuntime {
     pub(crate) view: Option<Entity<Composer>>,
@@ -625,19 +629,33 @@ impl AppModel {
         &self,
         key: &DraftId,
         pane: PaneId,
-        channel: ChannelId,
+        attachment: (ServerId, ChannelId),
         generation: u64,
         cx: &gpui::App,
     ) -> bool {
-        self.generation == generation
+        self.generation(attachment.0) == generation
             && &self.composer_key() == key
             && self
                 .grids
                 .get(&pane)
-                .is_some_and(|pane| pane.view.read(cx).channel() == Some(channel))
+                .is_some_and(|pane| pane.view.read(cx).attachment() == Some(attachment))
     }
 
-    fn composer_targets(&self, cx: &gpui::App) -> Result<Vec<(PaneId, ChannelId, Modes)>, String> {
+    /// The worker and connection generation of each server the targets use.
+    fn composer_workers(
+        &self,
+        targets: &[Target],
+    ) -> HashMap<ServerId, (crate::boot::Worker, u64)> {
+        targets
+            .iter()
+            .filter_map(|(_, (server, _), _)| {
+                let runtime = self.servers.get(*server)?;
+                Some((*server, (runtime.work.clone()?, runtime.generation)))
+            })
+            .collect()
+    }
+
+    fn composer_targets(&self, cx: &gpui::App) -> Result<Vec<Target>, String> {
         let requested = if self.settings.composer.broadcast {
             self.visible_panes()
         } else {
@@ -646,14 +664,14 @@ impl AppModel {
         let mut sessions = std::collections::HashSet::new();
         let mut targets = Vec::new();
         for id in requested {
-            let Some((session, channel, modes)) = self.pane_session(id).and_then(|session| {
+            let Some((session, attachment, modes)) = self.pane_session(id).and_then(|session| {
                 let pane = self.grids.get(&id)?.view.read(cx);
-                Some((session, pane.channel()?, pane.grid.as_ref()?.modes))
+                Some((session, pane.attachment()?, pane.grid.as_ref()?.modes))
             }) else {
                 return Err("Every target must have a live terminal before sending.".into());
             };
-            if sessions.insert(session) {
-                targets.push((id, channel, modes));
+            if sessions.insert((attachment.0, session)) {
+                targets.push((id, attachment, modes));
             }
         }
         Ok(targets)
@@ -663,7 +681,7 @@ impl AppModel {
         &self,
         key: &DraftId,
         view: &Entity<Composer>,
-        targets: &[(PaneId, ChannelId, Modes)],
+        targets: &[Target],
         enter: bool,
         cx: &gpui::App,
     ) -> Option<(u64, SubmissionPlan)> {
@@ -719,8 +737,7 @@ impl AppModel {
             cx.notify();
         });
         let store = self.composer.store.clone();
-        let worker = self.work.clone();
-        let generation = self.generation;
+        let workers = self.composer_workers(&targets);
         self.composer.submission = Some(cx.spawn(async move |model, cx| {
             let prepared = cx.background_executor().spawn(async move { prepare(&plan, &mut store.lock().unwrap_or_else(PoisonError::into_inner)) }).await;
             let mut completed = 0;
@@ -733,25 +750,28 @@ impl AppModel {
                     }
                 });
                 let mut clipboard = if steps.iter().any(|step| matches!(step, Step::Image(_))) { Some(muxy_ui::pasteboard::Lease::capture()?) } else { None };
-                for (pane, channel, modes) in &targets {
+                for (pane, attachment, modes) in &targets {
+                    let (server, channel) = *attachment;
+                    let (worker, generation) = workers.get(&server).ok_or("Terminal connection closed before delivery was confirmed")?;
+                    let generation = *generation;
                     let mut payload = vec![0x15];
                     for step in &steps {
-                        let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *channel, generation, cx)).unwrap_or(false);
+                        let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
                         if !current { return Err("Composer target changed; sending stopped.".into()); }
                         match step {
                             Step::Text(text) => payload.extend(crate::views::terminal::clipboard::paste(text, *modes)),
                             Step::Image(png) => {
-                                if !payload.is_empty() { deliver(&worker, generation, *channel, std::mem::take(&mut payload)).await?; }
+                                if !payload.is_empty() { deliver(worker, generation, channel, std::mem::take(&mut payload)).await?; }
                                 if let Some(clipboard) = &mut clipboard { clipboard.write_png(png.clone())?; }
-                                deliver(&worker, generation, *channel, vec![0x16]).await?;
+                                deliver(worker, generation, channel, vec![0x16]).await?;
                                 cx.background_executor().timer(std::time::Duration::from_millis(350)).await;
                             }
                         }
                     }
-                    let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *channel, generation, cx)).unwrap_or(false);
+                    let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
                     if !current { return Err("Composer target changed; sending stopped.".into()); }
                     if enter { payload.push(b'\r'); }
-                    if !payload.is_empty() { deliver(&worker, generation, *channel, payload).await?; }
+                    if !payload.is_empty() { deliver(worker, generation, channel, payload).await?; }
                     completed += 1;
                 }
                 Ok::<_, String>(())

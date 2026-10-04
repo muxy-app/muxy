@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 
-use super::{Client, Update, Work, Worker, WorkerPool, delivery::Delivery, rejected, schedule};
+use super::{
+    Client, Target, Update, Work, Worker, WorkerPool, delivery::Delivery, rejected, schedule,
+};
 
 const MAX_QUEUED_REQUESTS: usize = 128;
 
@@ -70,6 +72,7 @@ impl Requests {
     pub(super) fn start(
         &mut self,
         client: &Client,
+        target: &Target,
         generation: u64,
         completed: &Worker,
         delivery: &mut Delivery,
@@ -83,6 +86,7 @@ impl Requests {
                 &self.pool,
                 work,
                 client.clone(),
+                target.clone(),
                 generation,
                 completed.clone(),
             ) {

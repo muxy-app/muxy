@@ -123,7 +123,7 @@ impl AppModel {
                     .jobs
                     .get(&(call.reply.key(), id.into()))
                     .map(|job| job.id)
-                    && let Some(client) = self.extensions.client.clone()
+                    && let Some(client) = self.call_client(&call)
                 {
                     cx.background_executor()
                         .spawn(async move {
@@ -291,9 +291,10 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<gpui::Task<Result<muxy_protocol::ExecResult, String>>, String> {
         let client = self
-            .extensions
-            .client
-            .clone()
+            .state
+            .project_server(request.project)
+            .and_then(|server| self.extensions.clients.get(&server))
+            .cloned()
             .ok_or("server is disconnected")?;
         Ok(cx
             .background_executor()
@@ -477,7 +478,7 @@ impl AppModel {
     }
 
     fn extension_server_call(&mut self, call: Call, cx: &mut Context<Self>) {
-        let Some(client) = self.extensions.client.clone() else {
+        let Some(client) = self.call_client(&call) else {
             call.reply.send(Err("server is disconnected".into()), cx);
             return;
         };
@@ -512,7 +513,9 @@ impl AppModel {
                 if model.call_live(&call, cx) {
                     if let Some(catalog) = catalog {
                         match catalog {
-                            Ok(page) => model.receive_catalog(Ok(page), cx),
+                            Ok(page) => {
+                                model.receive_catalog(model.call_server(&call), Ok(page), cx);
+                            }
                             Err(error) => {
                                 result = Err(format!(
                                     "Operation finished, but could not refresh worktrees: {error}"
@@ -541,7 +544,7 @@ impl AppModel {
     }
 
     fn extension_exec(&mut self, call: Call, cx: &mut Context<Self>) {
-        let Some(client) = self.extensions.client.clone() else {
+        let Some(client) = self.call_client(&call) else {
             call.reply.send(Err("server is disconnected".into()), cx);
             return;
         };

@@ -63,7 +63,7 @@ fn connected(
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = settings_window(boot, cx);
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.read_remote_access(cx);
         model.receive_remote_access(Ok(state), cx);
     });
@@ -132,7 +132,11 @@ fn a_pairing_code_shows_until_it_is_used_cancelled_or_expires(cx: &mut TestAppCo
     assert!(cx.debug_bounds("settings-mobile-code").is_some());
 
     view.update(cx, |model, cx| {
-        model.receive_event(ClientEvent::RemoteAccessChanged { revision: 2 }, cx);
+        model.receive_event(
+            ServerId::local(),
+            ClientEvent::RemoteAccessChanged { revision: 2 },
+            cx,
+        );
     });
     assert!(
         requests
@@ -315,10 +319,13 @@ fn closing_settings_with_the_shortcut_withdraws_a_pending_code(cx: &mut TestAppC
 fn mobile_access_reloads_after_a_reconnect(cx: &mut TestAppContext) {
     let (view, cx, requests) = connected(cx, access(true, None, vec![phone(false)]));
     view.update(cx, |model, cx| {
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         assert!(model.mobile.state.is_none());
-        let generation = model.generation;
-        model.receive((generation, Update::Connected(Vec::new())), cx);
+        let generation = model.servers.local.generation;
+        model.receive(
+            (ServerId::local(), generation, Update::Connected(Vec::new())),
+            cx,
+        );
     });
     assert!(
         requests
