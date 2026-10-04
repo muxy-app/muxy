@@ -269,7 +269,7 @@ fn command_palette_navigates_projects_and_opens_settings_with_a_remapped_shortcu
     let directory = tempfile::tempdir().expect("project directory");
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(directory.path().to_path_buf())
+        .add_project(ServerId::local(), directory.path().to_path_buf())
         .expect("project");
     state
         .rename_project(project, "Palette Project")

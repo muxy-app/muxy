@@ -1,7 +1,7 @@
 use super::*;
 use crate::model::tests::{extensions::finish_extension, stub_boot};
 use gpui::TestAppContext;
-use muxy_app_core::{AppState, PaneId};
+use muxy_app_core::{AppState, PaneId, ServerId};
 
 #[gpui::test]
 fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppContext) {
@@ -1210,7 +1210,9 @@ fn pane_focused_fires_only_when_focus_moves_within_a_tab(cx: &mut TestAppContext
         .split_pane(left, muxy_app_core::Direction::Right)
         .expect("right pane");
     let other = state.open_terminal_tab(home).expect("other tab");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     state.open_terminal_tab(project).expect("project tab");
     state.select_project(home).expect("home");
     state.select_tab(home, split).expect("split tab selected");
@@ -1259,10 +1261,12 @@ fn project_with_worktree() -> (AppState, ProjectId, ProjectId, tempfile::TempDir
     )
     .expect(".git");
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
-    while let Some(intent) = state.project_intents().first().cloned() {
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
         state
-            .complete_project_intent(intent.operation)
+            .complete_project_intent(ServerId::local(), intent.operation)
             .expect("registered");
     }
     let mut worktree = state.project(project).expect("project").descriptor();
@@ -1278,16 +1282,22 @@ fn project_with_worktree() -> (AppState, ProjectId, ProjectId, tempfile::TempDir
         .map(muxy_app_core::Project::descriptor)
         .collect();
     projects.push(worktree);
-    let (home, revision) = (state.home().id, state.catalog_revision() + 1);
+    let (home, revision) = (
+        state.home().id,
+        state.catalog_revision(ServerId::local()) + 1,
+    );
     state
-        .apply_catalog(&muxy_protocol::CatalogPage {
-            server: muxy_protocol::ServerIdentity::from_u128(1),
-            home,
-            revision,
-            projects,
-            next: None,
-            legacy_home: None,
-        })
+        .apply_catalog(
+            ServerId::local(),
+            &muxy_protocol::CatalogPage {
+                server: muxy_protocol::ServerIdentity::from_u128(1),
+                home,
+                revision,
+                projects,
+                next: None,
+                legacy_home: None,
+            },
+        )
         .expect("worktree");
     state.refresh_project_statuses();
     (state, project, id, folder)
@@ -1520,7 +1530,9 @@ fn terminal_titles_reach_tab_updated_once_they_settle(cx: &mut TestAppContext) {
 #[gpui::test]
 fn project_and_agent_lists_use_main_shapes(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let (view, cx, _package, _requests) = enabled(
         cx,
         "lister",
@@ -1582,7 +1594,9 @@ fn grouper(
     Requests,
 ) {
     let mut state = AppState::bootstrap().expect("state");
-    let alpha = state.add_project(std::env::temp_dir()).expect("alpha");
+    let alpha = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("alpha");
     state.rename_project(alpha, "Alpha").expect("name");
     enabled(
         cx,
@@ -1707,7 +1721,9 @@ fn tab_titles_switch_only_within_the_current_project(cx: &mut TestAppContext) {
     state
         .set_tab_title(home, Some("zsh".into()))
         .expect("home title");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let first = state.open_terminal_tab(project).expect("first tab");
     let second = state.open_terminal_tab(project).expect("second tab");
     state

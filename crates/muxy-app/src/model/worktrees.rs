@@ -254,7 +254,7 @@ impl AppModel {
             && project.parent_id.is_none()
             && project.status() == ProjectStatus::Available
             && (self.worktrees_visible(root) || self.git.worktrees.unchecked.contains(&root))
-            && !self.project_creation_pending(root))
+            && !self.state.project_creation_pending(root))
         .then(|| ServerPath(project.directory.as_os_str().as_bytes().to_vec()))
     }
 

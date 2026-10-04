@@ -36,7 +36,9 @@ fn progress_survives_hidden_tabs_projects_and_zoom_in_both_layouts(cx: &mut Test
         .set_pane_session(pane, Some(session))
         .expect("session");
     let other = state.open_terminal_tab(home).expect("other tab");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     state.select_tab(home, other).expect("select");
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));

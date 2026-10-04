@@ -27,12 +27,12 @@ impl AppState {
         self.window.workspace.and_then(|id| self.workspace(id))
     }
 
-    /// Whether the active workspace lists `project`. Home is always listed and
-    /// worktrees follow their parent.
+    /// Whether the active workspace lists `project`. Every server's Home is
+    /// always listed and worktrees follow their parent.
     pub fn is_listed(&self, project: &Project) -> bool {
         let root = project.parent_id.unwrap_or(project.id);
         self.active_workspace()
-            .is_none_or(|workspace| root == self.home().id || workspace.projects.contains(&root))
+            .is_none_or(|workspace| project.home || workspace.projects.contains(&root))
     }
 
     pub fn create_workspace(&mut self, name: &str) -> Result<WorkspaceId, AppError> {

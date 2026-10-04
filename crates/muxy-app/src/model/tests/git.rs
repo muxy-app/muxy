@@ -26,9 +26,9 @@ pub(super) fn open_pull_request() -> GitPullRequest {
 
 pub(super) fn registered_current_project() -> (AppState, ProjectId) {
     let (mut state, _, project, _, _) = two_projects();
-    while let Some(intent) = state.project_intents().first().cloned() {
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
         state
-            .complete_project_intent(intent.operation)
+            .complete_project_intent(ServerId::local(), intent.operation)
             .expect("projects registered");
     }
     (state, project)
@@ -150,7 +150,7 @@ fn newly_added_project_starts_git_after_server_registration(cx: &mut TestAppCont
         let project = model.state.current_project().id;
         let create = model
             .state
-            .project_intents()
+            .project_intents(ServerId::local())
             .iter()
             .find(|intent| matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project))
             .expect("pending project create")
@@ -457,9 +457,9 @@ fn background_git_errors_do_not_raise_alerts_or_retry_on_idle(cx: &mut TestAppCo
 #[gpui::test]
 fn filesystem_invalidations_refresh_only_the_active_project(cx: &mut TestAppContext) {
     let (mut state, _, _, _, _) = two_projects();
-    while let Some(intent) = state.project_intents().first().cloned() {
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
         state
-            .complete_project_intent(intent.operation)
+            .complete_project_intent(ServerId::local(), intent.operation)
             .expect("projects registered");
     }
     let project = state.current_project().id;

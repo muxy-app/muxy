@@ -17,6 +17,7 @@ mod project;
 pub mod project_layouts;
 pub mod qr;
 pub mod restore;
+mod servers;
 mod state;
 pub mod store;
 mod tab;

@@ -111,9 +111,13 @@ impl Project {
         self.name.graphemes(true).next().unwrap_or("?")
     }
 
+    /// Only this computer's folders can be checked here, so remote projects
+    /// stay available.
     pub(crate) fn refresh_status(&mut self) {
-        self.status = if self.directory.is_dir()
-            && (self.kind != Some(ProjectKind::Worktree) || self.directory.join(".git").is_file())
+        self.status = if !self.server_id.is_local()
+            || (self.directory.is_dir()
+                && (self.kind != Some(ProjectKind::Worktree)
+                    || self.directory.join(".git").is_file()))
         {
             ProjectStatus::Available
         } else {

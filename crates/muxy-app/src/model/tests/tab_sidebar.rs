@@ -33,7 +33,9 @@ fn fixture() -> (Boot, Requests, [ProjectId; 2], [TabId; 3]) {
     let home = state.home().id;
     let first = state.open_terminal_tab(home).expect("first");
     let second = state.open_terminal_tab(home).expect("second");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let third = state.open_terminal_tab(project).expect("third");
     state.select_tab(home, first).expect("select first");
     let (mut boot, requests) = stub_boot(state);
@@ -123,7 +125,7 @@ fn filter_and_sort_menus_persist_and_control_tab_navigation(cx: &mut TestAppCont
     let directory = tempfile::tempdir().expect("project folder");
     let alpha = boot
         .state
-        .add_project(directory.path().to_owned())
+        .add_project(ServerId::local(), directory.path().to_owned())
         .expect("project");
     boot.state.rename_project(alpha, "Alpha").expect("rename");
     let fourth = boot.state.open_terminal_tab(alpha).expect("tab");
@@ -179,7 +181,10 @@ fn filter_and_sort_menus_persist_and_control_tab_navigation(cx: &mut TestAppCont
 fn switching_layouts_keeps_the_sidebar_frame_filter_and_order(cx: &mut TestAppContext) {
     let (mut boot, _requests, [home, project], _) = fixture();
     boot.state.rename_project(project, "Zulu").expect("rename");
-    let alpha = boot.state.add_project(std::env::temp_dir()).expect("alpha");
+    let alpha = boot
+        .state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("alpha");
     boot.state.rename_project(alpha, "Alpha").expect("rename");
     boot.state.select_project(home).expect("home");
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
@@ -387,7 +392,7 @@ fn selecting_an_empty_project_does_not_create_tabs(cx: &mut TestAppContext) {
     let (mut boot, _requests, [home, _], _) = fixture();
     let empty = boot
         .state
-        .add_project(std::env::temp_dir())
+        .add_project(ServerId::local(), std::env::temp_dir())
         .expect("empty project");
     boot.state.select_project(home).expect("select home");
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -539,7 +544,7 @@ fn selecting_a_worktree_reveals_its_tabs_without_expanding_its_parent(cx: &mut T
     std::fs::write(directory.path().join(".git"), "gitdir: /tmp/unused").expect("worktree marker");
     let child = boot
         .state
-        .add_project(directory.path().to_owned())
+        .add_project(ServerId::local(), directory.path().to_owned())
         .expect("child");
     let tab = boot.state.open_terminal_tab(child).expect("child tab");
     boot.state.select_project(home).expect("home");

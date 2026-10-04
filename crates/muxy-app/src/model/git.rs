@@ -192,7 +192,7 @@ impl AppModel {
         {
             self.ai.confirmation = None;
         }
-        if self.project_creation_pending(current) {
+        if self.state.project_creation_pending(current) {
             return;
         }
         if self.git.current != Some(current) {
@@ -254,7 +254,7 @@ impl AppModel {
         actions: Vec<GitAction>,
         cx: &mut Context<Self>,
     ) {
-        if !self.session_listing_ready() || self.project_creation_pending(project) {
+        if !self.session_listing_ready() || self.state.project_creation_pending(project) {
             return;
         }
         let repository = self.git.projects.entry(project).or_default();

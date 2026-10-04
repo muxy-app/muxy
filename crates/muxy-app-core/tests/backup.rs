@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use muxy_app_core::{AppState, Direction, backup, settings::Settings};
+use muxy_app_core::{AppState, Direction, ServerId, backup, settings::Settings};
 use serde_json::json;
 
 #[test]
@@ -79,7 +79,9 @@ fn shortcuts_and_commands_migrate_without_running_commands() {
 fn portable_restore_clears_sessions_and_queues_projects_before_catalog_reconciliation() {
     let directory = tempfile::tempdir().unwrap();
     let mut state = AppState::bootstrap().unwrap();
-    let project = state.add_project(directory.path().into()).unwrap();
+    let project = state
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
     state.open_terminal_tab(project).unwrap();
     let pane = state.project(project).unwrap().tabs[0].panes[0].id;
     state.split_pane(pane, Direction::Right).unwrap();
@@ -87,22 +89,25 @@ fn portable_restore_clears_sessions_and_queues_projects_before_catalog_reconcili
         .set_pane_session(pane, muxy_protocol::SessionId::new(42))
         .unwrap();
     let portable = state.configuration_backup();
-    assert!(portable.session_references().is_empty());
-    assert!(portable.project_intents().is_empty());
+    assert!(portable.session_references(ServerId::local()).is_empty());
+    assert!(portable.project_intents(ServerId::local()).is_empty());
     let current = AppState::bootstrap().unwrap();
     let mut restored = portable.restore_configuration(&current).unwrap();
     assert_ne!(restored.project(project).unwrap().tabs[0].panes[0].id, pane);
-    assert_eq!(restored.project_intents().len(), 1);
+    assert_eq!(restored.project_intents(ServerId::local()).len(), 1);
     assert_eq!(restored.project(project).unwrap().tabs[0].panes.len(), 2);
     restored
-        .apply_catalog(&muxy_protocol::CatalogPage {
-            server: muxy_protocol::ServerIdentity::new(),
-            revision: 0,
-            home: current.home().id,
-            projects: vec![current.home().descriptor()],
-            next: None,
-            legacy_home: None,
-        })
+        .apply_catalog(
+            ServerId::local(),
+            &muxy_protocol::CatalogPage {
+                server: muxy_protocol::ServerIdentity::new(),
+                revision: 0,
+                home: current.home().id,
+                projects: vec![current.home().descriptor()],
+                next: None,
+                legacy_home: None,
+            },
+        )
         .unwrap();
     assert!(restored.project(project).is_some());
 }
@@ -145,9 +150,13 @@ fn legacy_projects_restore_groups_and_split_terminal_layouts_and_skip_remote_dat
 fn matching_project_directories_keep_local_identity_and_remap_project_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let mut current = AppState::bootstrap().unwrap();
-    let current_id = current.add_project(directory.path().into()).unwrap();
+    let current_id = current
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
     let mut backup = AppState::bootstrap().unwrap();
-    let backup_id = backup.add_project(directory.path().into()).unwrap();
+    let backup_id = backup
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
     backup.open_terminal_tab(backup_id).unwrap();
     let tab = backup.open_terminal_tab(backup_id).unwrap();
     let state = backup.restore_configuration(&current).unwrap();
@@ -183,8 +192,12 @@ fn matching_project_directories_keep_local_identity_and_remap_project_preference
 fn duplicate_project_paths_preserve_each_identity_layout_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let mut current = AppState::bootstrap().unwrap();
-    let first = current.add_project(directory.path().into()).unwrap();
-    let second = current.add_project(directory.path().into()).unwrap();
+    let first = current
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
+    let second = current
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
     current.open_terminal_tab(first).unwrap();
     current.open_terminal_tab(second).unwrap();
     current.open_terminal_tab(second).unwrap();
@@ -213,9 +226,13 @@ fn duplicate_project_paths_preserve_each_identity_layout_and_preferences() {
 fn directory_matches_cannot_claim_later_exact_ids_or_reuse_a_project() {
     let directory = tempfile::tempdir().unwrap();
     let mut current = AppState::bootstrap().unwrap();
-    let exact = current.add_project(directory.path().into()).unwrap();
+    let exact = current
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
     let mut imported = current.configuration_backup();
-    let added = imported.add_project(directory.path().into()).unwrap();
+    let added = imported
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
     imported.open_terminal_tab(added).unwrap();
     imported.move_project(added, 1).unwrap();
     let restored = imported.restore_configuration(&current).unwrap();
@@ -223,7 +240,9 @@ fn directory_matches_cannot_claim_later_exact_ids_or_reuse_a_project() {
     assert!(restored.project(exact).unwrap().tabs.is_empty());
 
     let mut target = AppState::bootstrap().unwrap();
-    let target_id = target.add_project(directory.path().into()).unwrap();
+    let target_id = target
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
     let restored = imported.restore_configuration(&target).unwrap();
     assert_eq!(restored.projects().len(), 3);
     assert_eq!(restored.project(target_id).unwrap().tabs.len(), 1);

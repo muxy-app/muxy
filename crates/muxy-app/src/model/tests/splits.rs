@@ -249,7 +249,7 @@ fn closing_one_pane_discards_only_its_session_and_last_closes_tab(cx: &mut TestA
         assert_eq!(model.state.home().tabs[0].panes.len(), 2);
         assert_eq!(model.active_pane(), Some(panes[2]));
         assert_eq!(
-            model.state.pending_discards(),
+            model.state.pending_discards(ServerId::local()),
             [SessionId::new(101).expect("session")]
         );
         let discarded: Vec<_> = requests
@@ -259,7 +259,7 @@ fn closing_one_pane_discards_only_its_session_and_last_closes_tab(cx: &mut TestA
                 _ => None,
             })
             .collect();
-        assert_eq!(discarded, model.state.pending_discards());
+        assert_eq!(discarded, model.state.pending_discards(ServerId::local()));
         let loaded = store::load(&model.path).expect("saved");
         assert_eq!(loaded.home().tabs[0].layout.leaves(), [panes[0], panes[2]]);
         model.close_pane(panes[2], cx);
@@ -293,7 +293,7 @@ fn closing_tab_checks_every_hidden_pane_and_cancel_keeps_all(cx: &mut TestAppCon
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.home().tabs[0].panes.len(), 3);
-        assert!(model.state.pending_discards().is_empty());
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
     });
 }
 
@@ -482,7 +482,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
             assert!(
                 model
                     .state
-                    .pending_discards()
+                    .pending_discards(ServerId::local())
                     .contains(&SessionId::new(101).expect("session"))
             );
             assert!(model.initial_directories.is_empty());
@@ -865,7 +865,7 @@ fn verify_close_panes(
     cx.simulate_prompt_answer("Close");
     wait(cx, view, |model, _| {
         model.state.home().tabs[0].panes.len() == 2
-            && model.state.pending_discards().is_empty()
+            && model.state.pending_discards(ServerId::local()).is_empty()
             && !process_exists(vim_pid)
     })?;
     assert!(process_exists(top_pid) && process_exists(shell_pid));
@@ -881,11 +881,13 @@ fn verify_close_panes(
     assert!(cx.has_pending_prompt());
     cx.simulate_prompt_answer("Close");
     wait(cx, view, |model, _| {
-        model.state.home().tabs[0].panes.len() == 1 && model.state.pending_discards().is_empty()
+        model.state.home().tabs[0].panes.len() == 1
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     cx.simulate_keystrokes("cmd-w");
     wait(cx, view, |model, _| {
-        model.state.home().tabs.is_empty() && model.state.pending_discards().is_empty()
+        model.state.home().tabs.is_empty()
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     assert!(probe.list_sessions()?.is_empty());
     assert!(!process_exists(top_pid) && !process_exists(shell_pid));

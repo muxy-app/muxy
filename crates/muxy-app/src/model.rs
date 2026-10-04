@@ -28,8 +28,8 @@ use std::rc::Rc;
 
 use gpui::{AppContext, Context, Entity, FocusHandle, Subscription, Task, Window};
 use muxy_app_core::{
-    AppState, Direction, PaneContent, PaneId, ProjectId, ProjectStatus, TabId, WindowBounds,
-    restore, store,
+    AppState, Direction, PaneContent, PaneId, ProjectId, ProjectStatus, ServerId, TabId,
+    WindowBounds, restore, store,
 };
 use muxy_client::{ClientEvent, RunGrid};
 use muxy_protocol::{SessionId, SessionInfo, Size};
@@ -744,7 +744,7 @@ impl AppModel {
         let mut added = None;
         if !self.edit_project(
             |state| {
-                added = Some(state.add_project(directory)?);
+                added = Some(state.add_project(ServerId::local(), directory)?);
                 Ok(())
             },
             cx,
@@ -799,8 +799,11 @@ impl AppModel {
     pub(crate) fn remove_project_confirmed(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         if self.edit_project(
             |state| {
+                let server = state
+                    .project_server(project)
+                    .ok_or(muxy_app_core::AppError::UnknownProject(project))?;
                 for session in state.remove_project(project)? {
-                    state.queue_discard(session);
+                    state.queue_discard(server, session);
                 }
                 Ok(())
             },
@@ -1124,7 +1127,7 @@ impl AppModel {
         {
             return;
         }
-        let project_id = project.id;
+        let (project_id, server) = (project.id, project.server_id);
         let previous = self.state.clone();
         let closing: Vec<_> = request
             .panes
@@ -1146,8 +1149,8 @@ impl AppModel {
             self.state.close_pane(request.panes[0])
         };
         for session in closing {
-            if !detach && !self.state.session_references().contains(&session) {
-                self.state.queue_discard(session);
+            if !detach && !self.state.session_references(server).contains(&session) {
+                self.state.queue_discard(server, session);
             }
         }
         if result.is_err() || !self.save(cx) {
@@ -1247,20 +1250,8 @@ impl AppModel {
             );
             return;
         }
-        let mut sessions: Vec<_> = self
-            .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter_map(|pane| self.pane_session(pane.id))
-            .collect();
-        sessions.extend(
-            self.state
-                .quick_terminal()
-                .and_then(|pane| self.pane_session(pane.id)),
-        );
-        sessions.extend(self.state.pending_discards());
+        let mut sessions = self.state.session_references(ServerId::local());
+        sessions.extend(self.state.pending_discards(ServerId::local()));
         self.quitting = Quitting::EndAll;
         if !self.send(Work::EndAll(sessions), cx) {
             self.quitting = Quitting::Idle;
@@ -1304,7 +1295,8 @@ impl AppModel {
         if self.connection != ConnectionState::Ready {
             return;
         }
-        for operation in self.state.pending_cancellations().to_vec() {
+        let server = ServerId::local();
+        for operation in self.state.pending_cancellations(server).to_vec() {
             if self.catalog.cancelling.insert(operation)
                 && !self.send(Work::CancelCreation(operation), cx)
             {
@@ -1313,12 +1305,12 @@ impl AppModel {
             }
         }
         self.sync_references(cx);
-        self.state.prepare_closes();
-        if !self.state.pending_discards().is_empty() && !self.save(cx) {
+        self.state.prepare_closes(server);
+        if !self.state.pending_discards(server).is_empty() && !self.save(cx) {
             return;
         }
-        for session in self.state.pending_discards().to_vec() {
-            let Some(operation) = self.state.close_operation(session) else {
+        for session in self.state.pending_discards(server).to_vec() {
+            let Some(operation) = self.state.close_operation(server, session) else {
                 continue;
             };
             if self.discarding.insert(session) && !self.send(Work::Discard(session, operation), cx)
@@ -1330,7 +1322,7 @@ impl AppModel {
     }
 
     fn discard_created(&mut self, session: SessionId, cx: &mut Context<Self>) {
-        self.state.queue_discard(session);
+        self.state.queue_discard(ServerId::local(), session);
         if self.save(cx) {
             self.discard_pending(cx);
         }
@@ -1389,7 +1381,7 @@ impl AppModel {
         if self.connection != ConnectionState::Ready {
             return;
         }
-        let references = self.state.session_references();
+        let references = self.state.session_references(ServerId::local());
         if self.references.as_ref() != Some(&references)
             && self.send(Work::References(references.clone()), cx)
         {
@@ -1449,7 +1441,7 @@ impl AppModel {
             .map(|pane| pane.id)
             .collect();
         self.completions.retain(|id| panes.contains(id));
-        let sessions = self.state.session_references();
+        let sessions = self.state.session_references(ServerId::local());
         self.progress.retain(|id, _| sessions.contains(id));
         self.sync_activity_panes(sessions);
         self.font_sizes.retain(|id, _| panes.contains(id));
@@ -1582,7 +1574,7 @@ impl AppModel {
 
     fn apply_restore(&mut self, sessions: &[SessionInfo], cx: &mut Context<Self>) {
         self.restore_quick_terminal(sessions, cx);
-        let plan = restore::plan(&self.state, sessions);
+        let plan = restore::plan(&self.state, ServerId::local(), sessions);
         let active = self.active_pane();
         for (pane, _) in plan.close {
             if let Err(error) = self.state.close_session_pane(pane) {
@@ -1641,18 +1633,19 @@ impl AppModel {
     }
 
     fn start_attach(&mut self, pane: PaneId, size: Size, cx: &mut Context<Self>) {
+        let server = ServerId::local();
         crate::diagnostics::event(
             "terminal.attach",
             format_args!(
                 "pane={pane} size={size:?} pending={} intents={} restore={} replacing={}",
                 self.pending.contains(&pane),
-                self.state.project_intents().len(),
+                self.state.project_intents(server).len(),
                 self.catalog.restore.is_some(),
                 self.updates.replacing()
             ),
         );
         if self.pending.contains(&pane)
-            || !self.state.project_intents().is_empty()
+            || !self.state.project_intents(server).is_empty()
             || self.catalog.restore.is_some()
         {
             return;
@@ -2121,7 +2114,11 @@ impl AppModel {
         progress: muxy_protocol::SessionProgress,
         cx: &mut Context<Self>,
     ) {
-        if !self.state.session_references().contains(&session) {
+        if !self
+            .state
+            .session_references(ServerId::local())
+            .contains(&session)
+        {
             return;
         }
         let previous = self.progress.insert(session, progress).unwrap_or_default();
@@ -2244,8 +2241,9 @@ impl AppModel {
     }
 
     fn close_ended_session(&mut self, session: SessionId, cx: &mut Context<Self>) {
+        let server = ServerId::local();
         self.forget_session_activity(session, cx);
-        if !self.state.session_references().contains(&session) {
+        if !self.state.session_references(server).contains(&session) {
             return;
         }
         if self
@@ -2256,7 +2254,7 @@ impl AppModel {
             self.close_quick_terminal(cx);
         }
         let active = self.active_pane();
-        if let Err(error) = self.state.close_session_panes(session) {
+        if let Err(error) = self.state.close_session_panes(server, session) {
             self.fail(error.to_string(), cx);
             return;
         }
@@ -2299,14 +2297,15 @@ impl AppModel {
             self.ensure_visible(cx);
             return;
         }
+        let local = ServerId::local();
         let previous = self.state.clone();
-        if let Err(error) = self.state.clear_terminal_panes() {
+        if let Err(error) = self.state.clear_terminal_panes(local) {
             self.state = previous;
             self.fail(format!("Could not clear terminal panes: {error}"), cx);
             return;
         }
-        for session in self.state.pending_discards().to_vec() {
-            self.state.complete_discard(session);
+        for session in self.state.pending_discards(local).to_vec() {
+            self.state.complete_discard(local, session);
         }
         if self.save(cx) {
             cx.quit();
@@ -2472,16 +2471,21 @@ mod tests {
             }
         }
 
-        while let Some(intent) = model.state.project_intents().first().cloned() {
+        while let Some(intent) = model
+            .state
+            .project_intents(ServerId::local())
+            .first()
+            .cloned()
+        {
             model
                 .state
-                .complete_project_intent(intent.operation)
+                .complete_project_intent(ServerId::local(), intent.operation)
                 .expect("fixture server acknowledged project");
         }
         let page = muxy_protocol::CatalogPage {
             server: muxy_protocol::ServerIdentity::from_u128(1),
             home: model.state.home().id,
-            revision: model.state.catalog_revision() + 1,
+            revision: model.state.catalog_revision(ServerId::local()) + 1,
             projects: model
                 .state
                 .projects()
@@ -2722,7 +2726,7 @@ mod tests {
             let restored = store::load(&model.path).expect("saved state");
             assert!(restored.home().tabs.is_empty());
             assert_eq!(
-                restore::plan(&restored, &[]),
+                restore::plan(&restored, ServerId::local(), &[]),
                 restore::RestorePlan::default()
             );
         });
@@ -2756,7 +2760,7 @@ mod tests {
                 cx,
             );
             assert!(model.state.home().tabs.is_empty());
-            assert_eq!(model.state.pending_discards(), &[session]);
+            assert_eq!(model.state.pending_discards(ServerId::local()), &[session]);
             assert!(
                 requests
                     .try_iter()
@@ -2794,7 +2798,7 @@ mod tests {
             model.close_tab(tab, cx);
             assert!(model.state.home().tabs.is_empty());
             assert!(model.error.is_none());
-            assert_eq!(model.state.pending_discards(), &[session]);
+            assert_eq!(model.state.pending_discards(ServerId::local()), &[session]);
             assert!(
                 !requests
                     .try_iter()
@@ -2837,7 +2841,7 @@ mod tests {
             assert!(
                 store::load(&model.path)
                     .expect("cleanup acknowledged")
-                    .pending_discards()
+                    .pending_discards(ServerId::local())
                     .is_empty()
             );
         });
@@ -2864,7 +2868,7 @@ mod tests {
             assert_eq!(
                 store::load(&model.path)
                     .expect("persisted close")
-                    .pending_discards(),
+                    .pending_discards(ServerId::local()),
                 &[session]
             );
             assert!(
@@ -2883,7 +2887,7 @@ mod tests {
                 cx,
             );
             assert_eq!(model.state.home().tabs.len(), 1);
-            assert_eq!(model.state.pending_discards(), &[session]);
+            assert_eq!(model.state.pending_discards(ServerId::local()), &[session]);
             assert!(model.error.is_none());
             model.connect(cx);
             model.receive((2, Update::Connected(vec![])), cx);
@@ -2903,7 +2907,7 @@ mod tests {
                 ),
                 cx,
             );
-            assert!(model.state.pending_discards().is_empty());
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
         });
     }
 
@@ -3047,7 +3051,7 @@ mod tests {
             assert!(model.close_prompt.is_some());
             assert!(model.overlay.is_none());
             assert_eq!(model.state.home().tabs.len(), 1);
-            assert!(model.state.pending_discards().is_empty());
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
         });
         assert_eq!(
             cx.pending_prompt(),
@@ -3234,7 +3238,7 @@ mod tests {
                 model.close_tab(first, cx);
                 assert_eq!(model.pending_close, Some(first));
                 assert_eq!(model.state.home().tabs.len(), 2);
-                assert!(model.state.pending_discards().is_empty());
+                assert!(model.state.pending_discards(ServerId::local()).is_empty());
                 let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
                 assert!(!work.iter().any(|work| matches!(work, Work::Discard(_, _))));
                 assert_eq!(
@@ -3274,7 +3278,7 @@ mod tests {
             assert!(!cx.has_pending_prompt());
             view.read_with(cx, |model, _| {
                 assert_eq!(model.state.home().tabs.len(), 2);
-                assert!(model.state.pending_discards().is_empty());
+                assert!(model.state.pending_discards(ServerId::local()).is_empty());
                 assert!(model.close_prompt.is_none());
             });
         }
@@ -3473,7 +3477,9 @@ mod tests {
         state
             .set_pane_session(valid, Some(session))
             .expect("session");
-        let other = state.add_project(std::env::temp_dir()).expect("project");
+        let other = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         state.open_terminal_tab(other).expect("tab");
         let invalid = state.window().active_pane.expect("pane");
         state
@@ -3492,7 +3498,12 @@ mod tests {
             );
             assert_eq!(model.pane_session(valid), Some(session));
             assert!(model.pane_tab(invalid).is_none());
-            assert!(!model.state.pending_discards().contains(&session));
+            assert!(
+                !model
+                    .state
+                    .pending_discards(ServerId::local())
+                    .contains(&session)
+            );
         });
     }
 
@@ -3515,7 +3526,9 @@ mod tests {
         state
             .set_pane_session(state.window().active_pane.expect("pane"), Some(dead))
             .expect("session");
-        let hidden = state.add_project(std::env::temp_dir()).expect("project");
+        let hidden = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         state.open_terminal_tab(hidden).expect("tab");
         state
             .set_pane_session(state.window().active_pane.expect("pane"), Some(dead))
@@ -3539,11 +3552,14 @@ mod tests {
                     .tabs
                     .is_empty()
             );
-            assert_eq!(model.state.session_references(), vec![live]);
+            assert_eq!(
+                model.state.session_references(ServerId::local()),
+                vec![live]
+            );
             assert_eq!(
                 store::load(&model.path)
                     .expect("saved state")
-                    .session_references(),
+                    .session_references(ServerId::local()),
                 vec![live]
             );
             model.receive(
@@ -3829,7 +3845,8 @@ mod tests {
         report("14.5: BEL -> accent bell icon rendered; icon cleared after 1,250 ms")?;
         cx.simulate_keystrokes("cmd-w");
         wait(cx, &view, |model, _| {
-            model.state.home().tabs.is_empty() && model.state.pending_discards().is_empty()
+            model.state.home().tabs.is_empty()
+                && model.state.pending_discards(ServerId::local()).is_empty()
         })?;
         report("Phase 14 GPUI/live-server walkthrough: PASS")
     }
@@ -3892,7 +3909,7 @@ mod tests {
             1
         );
         wait(cx, &view, |model, _| {
-            model.state.pending_discards().is_empty()
+            model.state.pending_discards(ServerId::local()).is_empty()
         })?;
         assert!(!process_exists(closed_pid));
         assert!(process_exists(other_pid));
@@ -3920,12 +3937,13 @@ mod tests {
         assert!(view.read_with(cx, |model, _| model.state.home().tabs.is_empty()));
         assert!(process_exists(other_pid));
         assert_eq!(
-            store::load(directory.join("desktop-state.json"))?.pending_discards(),
+            store::load(directory.join("desktop-state.json"))?.pending_discards(ServerId::local()),
             &[other]
         );
         reload_model(cx, &view)?;
         wait(cx, &view, |model, _| {
-            model.connection == ConnectionState::Ready && model.state.pending_discards().is_empty()
+            model.connection == ConnectionState::Ready
+                && model.state.pending_discards(ServerId::local()).is_empty()
         })?;
         assert!(!process_exists(other_pid));
         assert!(probe.list_sessions()?.is_empty());
@@ -4176,7 +4194,8 @@ mod tests {
             .expect("session");
         cx.simulate_keystrokes("cmd-w");
         wait(cx, view, |model, _| {
-            model.state.home().tabs.is_empty() && model.state.pending_discards().is_empty()
+            model.state.home().tabs.is_empty()
+                && model.state.pending_discards(ServerId::local()).is_empty()
         })?;
         assert!(probe.list_sessions()?.is_empty());
         assert!(probe.read_saved_screen(live).is_err());

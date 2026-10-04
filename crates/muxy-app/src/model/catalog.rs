@@ -1,18 +1,13 @@
 use super::{AppModel, ConnectionState, Work};
 use gpui::Context;
+use muxy_app_core::ServerId;
 use muxy_client::ClientError;
 use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation};
 
 impl AppModel {
-    pub(super) fn project_creation_pending(&self, project: ProjectId) -> bool {
-        self.state.project_intents().iter().any(|intent| {
-            matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project)
-        })
-    }
-
     fn created_project(&self, operation: OperationId) -> Option<ProjectId> {
         self.state
-            .project_intents()
+            .project_intents(ServerId::local())
             .iter()
             .find_map(|intent| match &intent.mutation {
                 ProjectMutation::Create(record) if intent.operation == operation => Some(record.id),
@@ -30,7 +25,12 @@ impl AppModel {
         if self.connection != ConnectionState::Ready || self.catalog.replaying {
             return;
         }
-        if let Some(intent) = self.state.project_intents().first().cloned() {
+        if let Some(intent) = self
+            .state
+            .project_intents(ServerId::local())
+            .first()
+            .cloned()
+        {
             self.catalog.replaying = self.send(Work::MutateProject(intent), cx);
         }
     }
@@ -41,6 +41,7 @@ impl AppModel {
         result: Result<u64, ClientError>,
         cx: &mut Context<Self>,
     ) {
+        let server = ServerId::local();
         let accepted = result.is_ok();
         let created = self.created_project(operation);
         self.catalog.replaying = false;
@@ -55,7 +56,7 @@ impl AppModel {
             }
         }
         let previous = self.state.clone();
-        if let Err(error) = self.state.complete_project_intent(operation) {
+        if let Err(error) = self.state.complete_project_intent(server, operation) {
             self.fail(error.to_string(), cx);
             return;
         }
@@ -69,7 +70,7 @@ impl AppModel {
                 self.sync_worktrees(project, cx);
             }
         }
-        if self.state.project_intents().is_empty() {
+        if self.state.project_intents(server).is_empty() {
             self.refresh_catalog(cx);
         } else {
             self.replay_projects(cx);
@@ -81,6 +82,7 @@ impl AppModel {
         result: Result<CatalogPage, ClientError>,
         cx: &mut Context<Self>,
     ) {
+        let server = ServerId::local();
         self.catalog.pending = false;
         let page = match result {
             Ok(page) => page,
@@ -89,11 +91,11 @@ impl AppModel {
                 return;
             }
         };
-        if page.revision < self.state.catalog_revision() {
+        if page.revision < self.state.catalog_revision(server) {
             return;
         }
         let previous = self.state.clone();
-        if let Err(error) = self.state.apply_catalog(&page) {
+        if let Err(error) = self.state.apply_catalog(server, &page) {
             self.fail(error.to_string(), cx);
             return;
         }
@@ -101,7 +103,7 @@ impl AppModel {
             self.state = previous;
             return;
         }
-        if !self.state.project_intents().is_empty() {
+        if !self.state.project_intents(server).is_empty() {
             self.replay_projects(cx);
         } else if let Some(sessions) = self.catalog.restore.take() {
             self.apply_restore(&sessions, cx);
@@ -150,7 +152,8 @@ impl AppModel {
         match result {
             Ok(()) => {
                 let previous = self.state.clone();
-                self.state.complete_cancellation(operation);
+                self.state
+                    .complete_cancellation(ServerId::local(), operation);
                 if !self.save(cx) {
                     self.state = previous;
                 }
@@ -168,7 +171,7 @@ impl AppModel {
         match result {
             Ok(()) => {
                 let previous = self.state.clone();
-                self.state.complete_discard(session);
+                self.state.complete_discard(ServerId::local(), session);
                 if !self.save(cx) {
                     self.state = previous;
                 }
@@ -197,7 +200,12 @@ impl AppModel {
         session: &muxy_protocol::ProjectSession,
         cx: &mut Context<Self>,
     ) {
-        if self.state.session_references().contains(&session.info.id) || session.attached {
+        let shown = self.state.project_server(project).is_some_and(|server| {
+            self.state
+                .session_references(server)
+                .contains(&session.info.id)
+        });
+        if shown || session.attached {
             return;
         }
         if session.info.project != project {

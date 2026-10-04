@@ -258,6 +258,7 @@ impl AppState {
             .project(project)
             .ok_or(AppError::UnknownProject(project))?;
         target.require_available()?;
+        let server = target.server_id;
         let (tabs, commands) = config.build();
         let selected = tabs[0].id;
         let panes: Vec<_> = tabs
@@ -283,10 +284,10 @@ impl AppState {
         self.window.current_project = project;
         self.window.selected_tab.insert(project, selected);
         self.window.activate(panes.first().copied());
-        let references = self.session_references();
+        let references = self.session_references(server);
         for session in closing {
             if !references.contains(&session) {
-                self.queue_discard(session);
+                self.queue_discard(server, session);
             }
         }
         Ok(panes)

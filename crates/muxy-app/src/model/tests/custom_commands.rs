@@ -27,7 +27,9 @@ fn custom_command_shortcut_creates_named_tab_and_submits_once_after_attach(
 ) {
     let project_dir = tempfile::tempdir().unwrap();
     let mut state = AppState::bootstrap().unwrap();
-    let project = state.add_project(project_dir.path().to_owned()).unwrap();
+    let project = state
+        .add_project(ServerId::local(), project_dir.path().to_owned())
+        .unwrap();
     state.select_project(project).unwrap();
     let (boot, requests) = configured_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));

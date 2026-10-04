@@ -217,7 +217,10 @@ fn agents_sidebar_reuses_project_expansion_focus_sort_and_new_terminal_controls(
     let (mut boot, _requests, [home, project], [first, _, third]) = fixture();
     boot.settings.appearance.layout = AppLayout::AgentsFocused;
     let agent = detect(&mut boot.state, project, third, 31);
-    let empty = boot.state.add_project(std::env::temp_dir()).expect("empty");
+    let empty = boot
+        .state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("empty");
     boot.state.rename_project(empty, "Alpha").expect("name");
     boot.state.rename_project(project, "Zulu").expect("name");
     boot.state.select_tab(home, first).expect("home");

@@ -3,11 +3,18 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-use crate::{PaneId, ProjectId, TabId};
+use crate::{PaneId, ProjectId, ServerId, TabId};
 
 #[derive(Debug)]
 pub enum AppError {
     HomeDirectoryUnavailable,
+    /// A different Muxy server now answers for this entry; its saved state is kept.
+    ServerChanged(ServerId),
+    /// The Muxy server answering for `server` is already listed as `existing`.
+    DuplicateServer {
+        server: ServerId,
+        existing: ServerId,
+    },
     UnknownProject(ProjectId),
     UnknownTab {
         project: ProjectId,
@@ -37,6 +44,12 @@ impl fmt::Display for AppError {
             Self::HomeDirectoryUnavailable => {
                 formatter.write_str("OS home directory is unavailable")
             }
+            Self::ServerChanged(_) => formatter.write_str(
+                "invalid app state: server identity changed; original desktop state preserved",
+            ),
+            Self::DuplicateServer { .. } => formatter.write_str(
+                "invalid app state: this server is already listed under another name; original desktop state preserved",
+            ),
             Self::UnknownProject(id) => write!(formatter, "project {id} does not exist"),
             Self::UnknownTab { project, tab } => {
                 write!(formatter, "tab {tab} does not belong to project {project}")

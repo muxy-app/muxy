@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use crate::{AppError, AppState, Color, Project, ProjectId, ProjectStatus, ServerId, WindowState};
@@ -15,32 +15,29 @@ impl AppState {
             workspace: None,
         };
         Ok(Self {
-            pending_cancellations: Vec::new(),
-            catalog_server: None,
-            catalog_revision: 0,
-            project_intents: Vec::new(),
-            starting_directories: std::collections::BTreeMap::new(),
-            startup_commands: std::collections::BTreeMap::new(),
+            servers: BTreeMap::new(),
+            starting_directories: BTreeMap::new(),
+            startup_commands: BTreeMap::new(),
             quick_terminal: None,
-            version: 2,
+            version: crate::state::VERSION,
             projects: vec![home],
             workspaces: Vec::new(),
             window,
-            pending_discards: Vec::new(),
-            close_operations: std::collections::BTreeMap::new(),
         })
     }
 
+    /// The local Home goes first, in the OS home directory. A remote server's
+    /// Home comes from its catalog and goes first among its projects.
     pub(crate) fn ensure_home(&mut self) -> Result<(), AppError> {
         let directory = home_directory()?;
         let index = self
             .projects
             .iter()
-            .position(|project| project.home)
+            .position(|project| project.home && project.server_id.is_local())
             .or_else(|| {
                 self.projects.iter().position(|project| {
                     project.name == "Home"
-                        && project.server_id == ServerId::local()
+                        && project.server_id.is_local()
                         && project.kind.is_none()
                         && project.parent_id.is_none()
                 })
@@ -52,6 +49,17 @@ impl AppState {
             self.projects.insert(0, home);
         } else {
             self.projects.insert(0, new_home(directory));
+        }
+        let remote_homes: Vec<_> = self
+            .projects
+            .iter()
+            .filter(|project| project.home && !project.server_id.is_local())
+            .map(|project| project.id)
+            .collect();
+        for home in remote_homes {
+            if let Some(index) = self.projects.iter().position(|project| project.id == home) {
+                self.place_home(index);
+            }
         }
         self.refresh_project_statuses();
         if self.project(self.window.current_project).is_none() {
@@ -69,6 +77,24 @@ impl AppState {
             }
         }
         Ok(())
+    }
+
+    /// Moves the Home at `index` in front of its server's other projects, and
+    /// the local Home in front of all. A Home already there stays put.
+    pub(crate) fn place_home(&mut self, index: usize) {
+        let server = self.projects[index].server_id;
+        let first = if server.is_local() {
+            0
+        } else {
+            self.projects
+                .iter()
+                .position(|project| project.server_id == server)
+                .unwrap_or(index)
+        };
+        if first < index {
+            let home = self.projects.remove(index);
+            self.projects.insert(first, home);
+        }
     }
 }
 

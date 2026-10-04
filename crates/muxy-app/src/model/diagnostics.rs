@@ -1,4 +1,5 @@
 use gpui::Context;
+use muxy_app_core::ServerId;
 
 use super::AppModel;
 use crate::diagnostics::event;
@@ -35,7 +36,7 @@ impl AppModel {
                 self.active_pane(),
                 self.pending,
                 self.discarding.len(),
-                self.state.project_intents().len(),
+                self.state.project_intents(ServerId::local()).len(),
                 self.catalog.restore.is_some(),
                 self.updates.replacing(),
                 self.webviews.panels.len(),

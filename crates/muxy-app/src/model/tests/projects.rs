@@ -8,7 +8,7 @@ fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &m
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
         model.connection = ConnectionState::Ready;
-        let pending = model.state.project_intents().to_vec();
+        let pending = model.state.project_intents(ServerId::local()).to_vec();
         let error = |code| {
             muxy_client::ClientError::Server(muxy_protocol::ErrorReply {
                 code,
@@ -20,14 +20,17 @@ fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &m
             Err(error(ErrorCode::PersistenceFailed)),
             cx,
         );
-        assert_eq!(model.state.project_intents(), pending);
+        assert_eq!(model.state.project_intents(ServerId::local()), pending);
         requests.try_iter().for_each(drop);
         model.receive_project_mutation(pending[0].operation, Err(error(ErrorCode::BadPath)), cx);
-        assert_eq!(model.state.project_intents(), &pending[1..]);
+        assert_eq!(
+            model.state.project_intents(ServerId::local()),
+            &pending[1..]
+        );
         assert_eq!(
             store::load(&model.path)
                 .expect("saved state")
-                .project_intents(),
+                .project_intents(ServerId::local()),
             &pending[1..]
         );
         assert!(
@@ -61,15 +64,15 @@ fn migration_walkthrough(cx: &mut TestAppContext, server_first: bool) -> Result 
     assert!(!directory.join("state.json").exists());
     let mut state = AppState::bootstrap()?;
     for id in [501, 502] {
-        let project = state.add_project(directory.clone())?;
+        let project = state.add_project(ServerId::local(), directory.clone())?;
         state.open_terminal_tab(project)?;
         state.set_pane_session(
             state.current_project().tabs[0].panes[0].id,
             SessionId::new(id),
         )?;
     }
-    while let Some(intent) = state.project_intents().first().cloned() {
-        state.complete_project_intent(intent.operation)?;
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
+        state.complete_project_intent(ServerId::local(), intent.operation)?;
     }
     let mut legacy = serde_json::to_value(&state)?;
     legacy["version"] = 1.into();
@@ -93,10 +96,10 @@ fn migration_walkthrough(cx: &mut TestAppContext, server_first: bool) -> Result 
         model.connection == ConnectionState::Ready
             && model.catalog.restore.is_none()
             && !model.catalog.pending
-            && model.state.catalog_revision() > 0
+            && model.state.catalog_revision(ServerId::local()) > 0
     })?;
-    for session in state.session_references() {
-        state.close_session_panes(session)?;
+    for session in state.session_references(ServerId::local()) {
+        state.close_session_panes(ServerId::local(), session)?;
     }
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.projects(), state.projects());
@@ -138,12 +141,12 @@ fn migration_walkthrough(cx: &mut TestAppContext, server_first: bool) -> Result 
 pub(super) fn two_projects() -> (AppState, ProjectId, ProjectId, PaneId, PaneId) {
     let mut state = AppState::bootstrap().expect("state");
     let first = state
-        .add_project(std::env::temp_dir())
+        .add_project(ServerId::local(), std::env::temp_dir())
         .expect("first project");
     state.open_terminal_tab(first).expect("first tab");
     let first_pane = state.current_project().tabs[0].panes[0].id;
     let second = state
-        .add_project(std::env::current_dir().expect("cwd"))
+        .add_project(ServerId::local(), std::env::current_dir().expect("cwd"))
         .expect("second project");
     state.open_terminal_tab(second).expect("second tab");
     let second_pane = state.current_project().tabs[0].panes[0].id;
@@ -208,7 +211,7 @@ fn hidden_restore_creates_in_each_project_and_removal_discards_late_creations(
         let session = SessionId::new(51).expect("session");
         model.receive((1, Update::Attached { pane: first_pane, session, attachment: attachment(), created: true }), cx);
         assert!(model.state.project(first).is_none());
-        assert_eq!(model.state.pending_discards(), [session]);
+        assert_eq!(model.state.pending_discards(ServerId::local()), [session]);
         assert!(requests.try_iter().any(|(_, work)| matches!(work, Work::Discard(id, _) if id == session)));
         assert_eq!(model.state.project(second).expect("second").tabs.len(), 1);
         assert!(model.grids.is_empty());
@@ -264,10 +267,10 @@ fn project_removal_requires_confirmation_and_persists_offline_cleanup(cx: &mut T
     view.read_with(cx, |model, _| {
         assert!(model.state.project(first).is_none());
         assert_eq!(model.state.current_project().id, second);
-        assert_eq!(model.state.pending_discards(), [session]);
+        assert_eq!(model.state.pending_discards(ServerId::local()), [session]);
         let saved = store::load(&model.path).expect("load");
         assert!(saved.project(first).is_none());
-        assert_eq!(saved.pending_discards(), [session]);
+        assert_eq!(saved.pending_discards(ServerId::local()), [session]);
     });
     assert!(
         !requests
@@ -290,7 +293,9 @@ fn missing_folder_hides_its_terminal_until_refresh_finds_it_again(cx: &mut TestA
     let directory = std::env::temp_dir().join(format!("muxy-project-status-{}", ProjectId::new()));
     std::fs::create_dir(&directory).expect("mkdir");
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(directory.clone()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), directory.clone())
+        .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (boot, _) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -480,7 +485,8 @@ fn verify_removal(
     cx.run_until_parked();
     cx.simulate_prompt_answer("Remove");
     wait(cx, view, |model, _| {
-        model.state.project(first).is_none() && model.state.pending_discards().is_empty()
+        model.state.project(first).is_none()
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     assert_eq!(std::fs::read_to_string(moved.join("keep.txt"))?, "keep");
     assert!(
@@ -500,7 +506,8 @@ fn verify_removal(
     cx.run_until_parked();
     cx.simulate_prompt_answer("Remove");
     wait(cx, view, |model, _| {
-        model.state.project(second).is_none() && model.state.pending_discards().is_empty()
+        model.state.project(second).is_none()
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     assert!(probe.list_sessions()?.is_empty());
     assert!(second_path.is_dir());
@@ -592,7 +599,9 @@ fn status_bar_empty_space_does_not_reveal_the_path_or_open_its_menu(cx: &mut Tes
     for expanded in [false, true] {
         for connection in [ConnectionState::Ready, ConnectionState::Disconnected] {
             let mut state = AppState::bootstrap().expect("state");
-            state.add_project(std::env::temp_dir()).expect("project");
+            state
+                .add_project(ServerId::local(), std::env::temp_dir())
+                .expect("project");
             let (mut boot, _requests) = stub_boot(state);
             boot.settings.appearance.sidebar_expanded = expanded;
             let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -645,7 +654,9 @@ fn long_project_paths_leave_connection_controls_inside_a_narrow_window(cx: &mut 
     }
     std::fs::create_dir_all(&directory).expect("mkdir");
     let mut state = AppState::bootstrap().expect("state");
-    state.add_project(directory).expect("project");
+    state
+        .add_project(ServerId::local(), directory)
+        .expect("project");
     let (mut boot, _) = stub_boot(state);
     boot.settings.appearance.sidebar_expanded = true;
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -703,7 +714,9 @@ fn command_o_opens_the_picker_and_existing_paths_select_the_project(cx: &mut Tes
     let root = std::env::temp_dir().join(format!("muxy-open-project-{}", ProjectId::new()));
     std::fs::create_dir_all(root.join("Alpha")).expect("mkdir");
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(root.join("Alpha")).expect("project");
+    let project = state
+        .add_project(ServerId::local(), root.join("Alpha"))
+        .expect("project");
     state.select_project(state.home().id).expect("home");
     let (mut boot, requests) = stub_boot(state);
     boot.settings.projects.search_root = Some(root.clone());

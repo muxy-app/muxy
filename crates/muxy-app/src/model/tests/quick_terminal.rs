@@ -46,7 +46,11 @@ fn quick_catalog_walkthrough(cx: &mut TestAppContext) -> Result {
     assert_eq!(probe.list_sessions()?.len(), 1);
     view.update(cx, AppModel::close_quick_terminal);
     wait(cx, &view, |model, _| {
-        model.state.pending_discards().is_empty() && model.state.pending_cancellations().is_empty()
+        model.state.pending_discards(ServerId::local()).is_empty()
+            && model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
     })?;
     assert!(probe.list_sessions()?.is_empty());
     report(
@@ -108,7 +112,11 @@ fn quick_terminal_disable_queues_cleanup_offline_and_preserves_preferences(
         model.apply_quick_settings(settings, cx).expect("disable");
         assert!(model.state.quick_terminal().is_none());
         let restored = store::load(&model.path).expect("state");
-        assert!(restored.pending_discards().contains(&session));
+        assert!(
+            restored
+                .pending_discards(ServerId::local())
+                .contains(&session)
+        );
         assert_eq!(model.settings.quick_terminal.width, 900);
         assert!(
             !requests

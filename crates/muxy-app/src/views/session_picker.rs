@@ -64,7 +64,11 @@ impl AppModel {
     }
 
     fn available_sessions(&self, project: ProjectId) -> Vec<&ProjectSession> {
-        let references = self.state.session_references();
+        let references = self
+            .state
+            .project_server(project)
+            .map(|server| self.state.session_references(server))
+            .unwrap_or_default();
         self.existing_sessions
             .projects
             .get(&project)

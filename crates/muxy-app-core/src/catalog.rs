@@ -38,12 +38,17 @@ impl Project {
 }
 
 impl AppState {
-    pub fn pending_cancellations(&self) -> &[OperationId] {
-        &self.pending_cancellations
+    pub fn pending_cancellations(&self, server: ServerId) -> &[OperationId] {
+        self.servers
+            .get(&server)
+            .map_or(&[], |state| &state.pending_cancellations)
     }
-    pub fn complete_cancellation(&mut self, operation: OperationId) {
-        self.pending_cancellations
-            .retain(|pending| *pending != operation);
+    pub fn complete_cancellation(&mut self, server: ServerId, operation: OperationId) {
+        if let Some(state) = self.servers.get_mut(&server) {
+            state
+                .pending_cancellations
+                .retain(|pending| *pending != operation);
+        }
     }
     pub(crate) fn cancel_pending_creation(&mut self, pane: PaneId) {
         self.startup_commands.remove(&pane);
@@ -51,47 +56,79 @@ impl AppState {
             && self.pane_mut(pane).is_ok_and(|pane| {
                 matches!(pane.content, crate::PaneContent::Terminal { session: None })
             })
-            && !self.pending_cancellations.contains(&pane.creation_token())
+            && let Some(server) = self.pane_server(pane)
         {
-            self.pending_cancellations.push(pane.creation_token());
+            let cancellations = &mut self
+                .servers
+                .entry(server)
+                .or_default()
+                .pending_cancellations;
+            if !cancellations.contains(&pane.creation_token()) {
+                cancellations.push(pane.creation_token());
+            }
         }
     }
 
-    pub fn project_intents(&self) -> &[ProjectIntent] {
-        &self.project_intents
+    pub fn project_intents(&self, server: ServerId) -> &[ProjectIntent] {
+        self.servers
+            .get(&server)
+            .map_or(&[], |state| &state.project_intents)
     }
-    pub fn catalog_revision(&self) -> u64 {
-        self.catalog_revision
+    /// Whether `project` still waits for its server to create it, even if it
+    /// was removed in the meantime.
+    pub fn project_creation_pending(&self, project: ProjectId) -> bool {
+        self.servers
+            .values()
+            .flat_map(|state| &state.project_intents)
+            .any(|intent| {
+                matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project)
+            })
+    }
+    pub fn catalog_revision(&self, server: ServerId) -> u64 {
+        self.servers
+            .get(&server)
+            .map_or(0, |state| state.catalog_revision)
     }
 
-    pub(crate) fn queue_project(&mut self, mutation: ProjectMutation) -> Result<(), AppError> {
+    pub(crate) fn queue_project(
+        &mut self,
+        server: ServerId,
+        mutation: ProjectMutation,
+    ) -> Result<(), AppError> {
         mutation
             .validate()
             .map_err(|_| AppError::InvalidState("invalid project metadata".into()))?;
-        if self.project_intents.len() >= 1024 {
+        let intents = &mut self.servers.entry(server).or_default().project_intents;
+        if intents.len() >= 1024 {
             return Err(AppError::InvalidState(
                 "pending project edits are full; reconnect before editing more projects".into(),
             ));
         }
-        self.project_intents.push(ProjectIntent {
+        intents.push(ProjectIntent {
             operation: OperationId::new(),
             mutation,
         });
         Ok(())
     }
 
-    pub fn complete_project_intent(&mut self, operation: OperationId) -> Result<(), AppError> {
-        if self
-            .project_intents
-            .first()
-            .is_some_and(|intent| intent.operation == operation)
-        {
-            self.project_intents.remove(0);
-            Ok(())
-        } else {
-            Err(AppError::InvalidState(
+    pub fn complete_project_intent(
+        &mut self,
+        server: ServerId,
+        operation: OperationId,
+    ) -> Result<(), AppError> {
+        match self.servers.get_mut(&server) {
+            Some(state)
+                if state
+                    .project_intents
+                    .first()
+                    .is_some_and(|intent| intent.operation == operation) =>
+            {
+                state.project_intents.remove(0);
+                Ok(())
+            }
+            _ => Err(AppError::InvalidState(
                 "project acknowledgement is out of order".into(),
-            ))
+            )),
         }
     }
 
@@ -102,36 +139,43 @@ impl AppState {
             .clone()
     }
 
-    pub fn apply_catalog(&mut self, page: &CatalogPage) -> Result<(), AppError> {
+    /// Replaces `server`'s projects with its catalog, overlaid with its
+    /// pending edits. Other servers' projects are untouched.
+    pub fn apply_catalog(&mut self, server: ServerId, page: &CatalogPage) -> Result<(), AppError> {
         if page.next.is_some() {
             return Err(AppError::InvalidState("incomplete project catalog".into()));
         }
         if self
-            .catalog_server
-            .is_some_and(|server| server != page.server)
+            .servers
+            .get(&server)
+            .and_then(|state| state.identity)
+            .is_some_and(|identity| identity != page.server)
         {
-            return Err(AppError::InvalidState(
-                "server identity changed; original desktop state preserved".into(),
-            ));
+            return Err(AppError::ServerChanged(server));
+        }
+        if let Some(existing) = self.servers.iter().find_map(|(id, state)| {
+            (*id != server && state.identity == Some(page.server)).then_some(*id)
+        }) {
+            return Err(AppError::DuplicateServer { server, existing });
         }
         let mut next = self.clone();
-        next.merge_catalog(page)?;
+        next.merge_catalog(server, page)?;
         next.validate()?;
-        next.catalog_server = Some(page.server);
-        next.catalog_revision = page.revision;
-        next.version = 2;
+        let state = next.servers.entry(server).or_default();
+        state.identity = Some(page.server);
+        state.catalog_revision = page.revision;
         *self = next;
         Ok(())
     }
 
-    fn merge_catalog(&mut self, page: &CatalogPage) -> Result<(), AppError> {
-        self.remap_home(page.home);
+    fn merge_catalog(&mut self, server: ServerId, page: &CatalogPage) -> Result<(), AppError> {
+        self.remap_home(server, page.home);
         let mut descriptors: BTreeMap<_, _> = page
             .projects
             .iter()
             .map(|project| (project.id, project.clone()))
             .collect();
-        for intent in &self.project_intents {
+        for intent in self.project_intents(server) {
             match &intent.mutation {
                 ProjectMutation::Create(project) => {
                     descriptors.insert(project.id, project.clone());
@@ -149,9 +193,11 @@ impl AppState {
             }
         }
         self.projects
-            .retain(|project| descriptors.contains_key(&project.id));
+            .retain(|project| project.server_id != server || descriptors.contains_key(&project.id));
         for project in &mut self.projects {
-            if let Some(descriptor) = descriptors.remove(&project.id) {
+            if project.server_id == server
+                && let Some(descriptor) = descriptors.remove(&project.id)
+            {
                 project.with_descriptor(&descriptor)?;
             }
         }
@@ -163,7 +209,7 @@ impl AppState {
                 icon: None,
                 logo: None,
                 color: crate::Color::default(),
-                server_id: ServerId::local(),
+                server_id: server,
                 directory: PathBuf::new(),
                 kind: None,
                 parent_id: None,
@@ -176,10 +222,9 @@ impl AppState {
         let home = self
             .projects
             .iter()
-            .position(|project| project.id == page.home)
+            .position(|project| project.id == page.home && project.server_id == server)
             .ok_or_else(|| AppError::InvalidState("catalog has no Home".into()))?;
-        let home = self.projects.remove(home);
-        self.projects.insert(0, home);
+        self.place_home(home);
         self.retain_workspace_members();
         let projects: HashSet<_> = self.projects.iter().map(|project| project.id).collect();
         self.window
@@ -215,17 +260,30 @@ impl AppState {
         Ok(())
     }
 
-    fn remap_home(&mut self, home: ProjectId) {
-        let old_home = self.home().id;
+    fn remap_home(&mut self, server: ServerId, home: ProjectId) {
+        let Some(old_home) = self.server_home(server).map(|project| project.id) else {
+            return;
+        };
         if old_home != home {
-            self.projects[0].id = home;
+            if let Some(project) = self
+                .projects
+                .iter_mut()
+                .find(|project| project.id == old_home)
+            {
+                project.id = home;
+            }
             if self.window.current_project == old_home {
                 self.window.current_project = home;
             }
             if let Some(tab) = self.window.selected_tab.remove(&old_home) {
                 self.window.selected_tab.insert(home, tab);
             }
-            for intent in &mut self.project_intents {
+            for intent in self
+                .servers
+                .get_mut(&server)
+                .into_iter()
+                .flat_map(|state| &mut state.project_intents)
+            {
                 match &mut intent.mutation {
                     ProjectMutation::Patch { project, .. } | ProjectMutation::Delete(project)
                         if *project == old_home =>
@@ -243,7 +301,10 @@ impl AppState {
         project: ProjectId,
         patch: ProjectPatch,
     ) -> Result<(), AppError> {
-        self.queue_project(ProjectMutation::Patch { project, patch })
+        let server = self
+            .project_server(project)
+            .ok_or(AppError::UnknownProject(project))?;
+        self.queue_project(server, ProjectMutation::Patch { project, patch })
     }
 }
 

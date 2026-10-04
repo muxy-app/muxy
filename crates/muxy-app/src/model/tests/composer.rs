@@ -92,7 +92,9 @@ fn shared_panel_header_preserves_composer_actions(cx: &mut TestAppContext) {
 fn composer_shortcut_focus_drafts_and_panel_modes(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     state.select_project(home).expect("select home");
     let (boot, _requests) = stub_boot(state);
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));

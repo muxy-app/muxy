@@ -103,8 +103,18 @@ fn project_layouts_require_confirmation_and_preserve_other_projects(cx: &mut Tes
         assert_ne!(tab.id, old);
         assert_eq!(tab.panes.len(), 2);
         assert_eq!(store::load(&model.path).expect("saved"), model.state);
-        assert!(model.state.pending_discards().contains(&session));
-        assert!(model.state.pending_cancellations().is_empty());
+        assert!(
+            model
+                .state
+                .pending_discards(ServerId::local())
+                .contains(&session)
+        );
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
     });
     let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
     assert!(

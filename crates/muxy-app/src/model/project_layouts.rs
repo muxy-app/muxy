@@ -45,7 +45,10 @@ impl AppModel {
 
     pub(super) fn sync_project_layouts(&mut self, cx: &mut Context<Self>) {
         if self.connection != ConnectionState::Ready
-            || !self.state.project_intents().is_empty()
+            || !self
+                .state
+                .project_intents(self.state.current_project().server_id)
+                .is_empty()
             || self.catalog.restore.is_some()
         {
             return;

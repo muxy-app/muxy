@@ -40,7 +40,7 @@ fn worktree(directory: &[u8], primary: bool) -> GitWorktree {
 fn register(model: &mut AppModel, project: ProjectId, cx: &mut Context<AppModel>) {
     let create = model
         .state
-        .project_intents()
+        .project_intents(ServerId::local())
         .iter()
         .find(|intent| matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project))
         .expect("pending create")
@@ -219,11 +219,14 @@ fn only_git_changes_rerun_a_sync_that_is_already_running(cx: &mut TestAppContext
 #[gpui::test]
 fn worktrees_sync_one_project_at_a_time_and_skip_hidden_ones(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
-    let [first, second, hidden] =
-        [(); 3].map(|()| state.add_project(std::env::temp_dir()).expect("project"));
-    while let Some(intent) = state.project_intents().first().cloned() {
+    let [first, second, hidden] = [(); 3].map(|()| {
         state
-            .complete_project_intent(intent.operation)
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project")
+    });
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
+        state
+            .complete_project_intent(ServerId::local(), intent.operation)
             .expect("registered");
     }
     state.select_project(state.home().id).expect("home");

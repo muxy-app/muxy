@@ -16,7 +16,11 @@ fn numbered_shortcuts_and_cycles_work_from_terminal_focus(cx: &mut TestAppContex
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let projects: Vec<_> = std::iter::once(home)
-        .chain((1..9).map(|_| state.add_project(std::env::temp_dir()).expect("project")))
+        .chain((1..9).map(|_| {
+            state
+                .add_project(ServerId::local(), std::env::temp_dir())
+                .expect("project")
+        }))
         .collect();
     let tabs: Vec<_> = (0..9)
         .map(|_| state.open_terminal_tab(home).expect("tab"))
@@ -87,9 +91,13 @@ fn project_shortcuts_follow_sort_and_workspace_filter_even_when_sidebar_is_focus
 ) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
-    let zulu = state.add_project(std::env::temp_dir()).expect("zulu");
+    let zulu = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("zulu");
     state.rename_project(zulu, "Zulu").expect("name");
-    let alpha = state.add_project(std::env::temp_dir()).expect("alpha");
+    let alpha = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("alpha");
     state.rename_project(alpha, "Alpha").expect("name");
     state.select_project(home).expect("home");
     let workspace = state.create_workspace("Work").expect("workspace");
@@ -313,7 +321,9 @@ fn remapped_number_shortcut_replaces_default_and_tab_cycles_follow_visible_rows(
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let first = state.open_terminal_tab(home).expect("first");
-    let other = state.add_project(std::env::temp_dir()).expect("other");
+    let other = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("other");
     let second = state.open_terminal_tab(other).expect("second");
     state.select_tab(home, first).expect("home");
     let (mut boot, _requests) = stub_boot(state);

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use gpui::Context;
+use muxy_app_core::ServerId;
 use muxy_client::ClientError;
 use muxy_protocol::{ActivitySnapshot, SessionId};
 
@@ -149,7 +150,7 @@ impl AppModel {
                 );
                 self.activity.snapshot = snapshot;
                 self.activity_notifications_posted(&ids, cx);
-                self.sync_activity_panes(self.state.session_references());
+                self.sync_activity_panes(self.state.session_references(ServerId::local()));
                 let ids: Vec<_> = self
                     .activity_notification_events(&ids)
                     .map(|event| event.id)

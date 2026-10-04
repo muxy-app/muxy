@@ -202,7 +202,7 @@ fn unavailable_webview_is_client_owned_and_can_close_while_offline(cx: &mut Test
         assert_eq!(model.active_pane(), Some(pane));
         assert!(model.grids.is_empty());
         assert!(model.webviews.panes.is_empty());
-        assert!(model.state.session_references().is_empty());
+        assert!(model.state.session_references(ServerId::local()).is_empty());
     });
     assert!(
         !requests

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use muxy_protocol::{ProjectMutation, ProjectPatch};
 use serde_json::Value;
@@ -9,16 +9,22 @@ use crate::{
     Tab, TabId, Workspace,
 };
 
+// Backups hold this computer's projects only, for now: exports leave remote
+// projects out, and restoring never creates or replaces them.
 impl AppState {
     #[must_use]
     pub fn configuration_backup(&self) -> Self {
         let mut state = self.clone();
-        state.catalog_server = None;
-        state.catalog_revision = 0;
-        state.project_intents.clear();
-        state.pending_cancellations.clear();
-        state.pending_discards.clear();
-        state.close_operations.clear();
+        let remote: BTreeSet<_> = state
+            .projects
+            .iter()
+            .map(|project| project.server_id)
+            .filter(|server| !server.is_local())
+            .collect();
+        for server in remote {
+            state.remove_remote_projects(server);
+        }
+        state.servers.clear();
         state.startup_commands.clear();
         state.starting_directories.clear();
         state.quick_terminal = None;
@@ -37,7 +43,7 @@ impl AppState {
 
     pub fn check_restore_directories(&self, current: &Self) -> Result<()> {
         let matched = self.match_restore_projects(current);
-        for project in &self.projects {
+        for project in self.local_projects() {
             if !project.home && !matched.contains_key(&project.id) && !project.directory.is_dir() {
                 return Err(format!("Project folder unavailable: {} ({}). Make this folder available before importing the backup.", project.name, project.directory.display()).into());
             }
@@ -45,11 +51,17 @@ impl AppState {
         Ok(())
     }
 
+    fn local_projects(&self) -> impl Iterator<Item = &Project> {
+        self.projects
+            .iter()
+            .filter(|project| project.server_id.is_local())
+    }
+
     fn match_restore_projects(&self, current: &Self) -> BTreeMap<ProjectId, ProjectId> {
         let mut ids = BTreeMap::new();
         let mut claimed = HashSet::new();
-        for project in &self.projects {
-            let existing = current.projects.iter().find(|candidate| {
+        for project in self.local_projects() {
+            let existing = current.local_projects().find(|candidate| {
                 if project.home {
                     candidate.home
                 } else {
@@ -61,11 +73,11 @@ impl AppState {
                 claimed.insert(existing.id);
             }
         }
-        for project in &self.projects {
+        for project in self.local_projects() {
             if ids.contains_key(&project.id) {
                 continue;
             }
-            if let Some(existing) = current.projects.iter().find(|candidate| {
+            if let Some(existing) = current.local_projects().find(|candidate| {
                 !candidate.home
                     && candidate.directory == project.directory
                     && !claimed.contains(&candidate.id)
@@ -136,11 +148,12 @@ impl AppState {
                 .filter_map(|id| ids.get(id).copied())
                 .collect();
         }
-        restored.catalog_server = current.catalog_server;
-        restored.catalog_revision = current.catalog_revision;
-        restored
-            .project_intents
-            .clone_from(&current.project_intents);
+        restored.servers.clone_from(&current.servers);
+        if let Some(local) = restored.servers.get_mut(&ServerId::local()) {
+            local.pending_cancellations.clear();
+            local.pending_discards.clear();
+            local.close_operations.clear();
+        }
         let imported: HashSet<_> = restored.projects.iter().map(|project| project.id).collect();
         for project in &current.projects {
             if !imported.contains(&project.id) {
@@ -151,11 +164,19 @@ impl AppState {
             }
         }
         for workspace in &current.workspaces {
-            if !restored
+            if let Some(replaced) = restored
                 .workspaces
-                .iter()
-                .any(|candidate| candidate.id == workspace.id)
+                .iter_mut()
+                .find(|candidate| candidate.id == workspace.id)
             {
+                replaced
+                    .projects
+                    .extend(workspace.projects.iter().filter(|project| {
+                        current
+                            .project_server(**project)
+                            .is_some_and(|server| !server.is_local())
+                    }));
+            } else {
                 restored.workspaces.push(workspace.clone());
             }
         }
@@ -170,7 +191,7 @@ impl AppState {
             .filter(|project| project.parent_id.is_none())
             .chain(creates.iter().filter(|project| project.parent_id.is_some()))
         {
-            restored.queue_project(ProjectMutation::Create(project.clone()))?;
+            restored.queue_project(ServerId::local(), ProjectMutation::Create(project.clone()))?;
         }
         let patches: Vec<_> = restored
             .projects
@@ -197,7 +218,7 @@ impl AppState {
             })
             .collect();
         for (project, patch) in patches {
-            restored.queue_project(ProjectMutation::Patch { project, patch })?;
+            restored.patch_project(project, patch)?;
         }
         restored.ensure_home()?;
         restored.focus_selected_tab();

@@ -407,6 +407,6 @@ fn terminal_menu_close_checks_only_the_clicked_pane_and_can_be_cancelled(cx: &mu
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.home().tabs[0].layout.leaves(), [first, second]);
-        assert!(model.state.pending_discards().is_empty());
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
     });
 }

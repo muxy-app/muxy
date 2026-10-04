@@ -187,7 +187,7 @@ mod tests {
     fn worktree_location_precedence_and_saved_preferences() -> Result<()> {
         let mut state = crate::AppState::bootstrap().map_err(|e| Error::new("test", e))?;
         let id = state
-            .add_project(std::env::temp_dir())
+            .add_project(crate::ServerId::local(), std::env::temp_dir())
             .map_err(|e| Error::new("test", e))?;
         let mut project = state
             .project(id)

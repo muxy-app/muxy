@@ -477,14 +477,17 @@ fn project_prompt_is_shared_by_worktrees_but_not_other_projects(cx: &mut TestApp
         .collect();
     projects.push(child);
     state
-        .apply_catalog(&muxy_protocol::CatalogPage {
-            server: muxy_protocol::ServerIdentity::from_u128(1),
-            home: state.home().id,
-            revision: state.catalog_revision() + 1,
-            projects,
-            next: None,
-            legacy_home: None,
-        })
+        .apply_catalog(
+            ServerId::local(),
+            &muxy_protocol::CatalogPage {
+                server: muxy_protocol::ServerIdentity::from_u128(1),
+                home: state.home().id,
+                revision: state.catalog_revision(ServerId::local()) + 1,
+                projects,
+                next: None,
+                legacy_home: None,
+            },
+        )
         .unwrap();
     let other = state
         .projects()

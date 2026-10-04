@@ -34,8 +34,13 @@ fn configured_close_detaches_a_whole_split_tab_or_only_the_shortcut_pane(cx: &mu
                 assert_eq!(model.active_pane(), Some(first));
                 assert_eq!(model.state.home().tabs[0].panes.len(), 1);
             }
-            assert!(model.state.pending_cancellations().is_empty());
-            assert!(model.state.pending_discards().is_empty());
+            assert!(
+                model
+                    .state
+                    .pending_cancellations(ServerId::local())
+                    .is_empty()
+            );
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
             assert!(model.close_prompt.is_none());
             assert_eq!(store::load(&model.path).expect("layout"), model.state);
         });
@@ -76,8 +81,13 @@ fn configured_detach_rolls_back_a_whole_tab_on_save_failure_and_works_disconnect
         model.disconnect(cx);
         model.close_tab(tab, cx);
         assert!(model.state.home().tabs.is_empty());
-        assert!(model.state.pending_cancellations().is_empty());
-        assert!(model.state.pending_discards().is_empty());
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
         assert_eq!(store::load(&model.path).expect("layout"), model.state);
     });
     assert!(requests.try_iter().all(|(_, work)| non_destructive(&work)));
@@ -115,8 +125,13 @@ fn configured_detach_during_creation_preserves_late_sessions_and_releases_owners
             }
             assert!(model.detached_pending.is_empty());
             assert!(model.state.home().tabs.is_empty());
-            assert!(model.state.pending_cancellations().is_empty());
-            assert!(model.state.pending_discards().is_empty());
+            assert!(
+                model
+                    .state
+                    .pending_cancellations(ServerId::local())
+                    .is_empty()
+            );
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
             let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
             assert!(work.iter().all(non_destructive));
             assert!(

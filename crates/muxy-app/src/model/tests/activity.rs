@@ -623,9 +623,11 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
     ] {
         let mut state = AppState::bootstrap().expect("state");
         let home = state.home().id;
-        let parent = state.add_project(std::env::temp_dir()).expect("parent");
+        let parent = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("parent");
         let child = state
-            .add_project(directory.path().to_owned())
+            .add_project(ServerId::local(), directory.path().to_owned())
             .expect("child");
         state.open_terminal_tab(child).expect("child tab");
         let pane = state.window().active_pane.expect("child pane");

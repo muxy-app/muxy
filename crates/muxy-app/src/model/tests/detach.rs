@@ -75,8 +75,13 @@ fn terminal_context_menu_detaches_clicked_split_and_last_pane_without_closing_se
     view.update(cx, |model, cx| {
         assert_eq!(model.active_pane(), Some(second));
         assert_eq!(model.state.home().tabs[0].panes.len(), 1);
-        assert!(model.state.pending_cancellations().is_empty());
-        assert!(model.state.pending_discards().is_empty());
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
         assert!(model.close_prompt.is_none());
         model.detach_terminal(second, cx);
         assert!(model.state.home().tabs.is_empty());
@@ -161,8 +166,13 @@ fn late_attachment_replies_after_detach_never_discard_the_existing_session(
                 );
             }
             assert!(model.state.home().tabs.is_empty());
-            assert!(model.state.pending_discards().is_empty());
-            assert!(model.state.pending_cancellations().is_empty());
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
+            assert!(
+                model
+                    .state
+                    .pending_cancellations(ServerId::local())
+                    .is_empty()
+            );
             let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
             assert!(work.iter().all(non_destructive));
             if succeeds {
@@ -199,8 +209,13 @@ fn detach_shortcut_is_unassigned_and_can_be_configured(cx: &mut TestAppContext) 
     cx.simulate_keystrokes("cmd-shift-e");
     view.read_with(cx, |model, _| {
         assert!(model.state.home().tabs.is_empty());
-        assert!(model.state.pending_cancellations().is_empty());
-        assert!(model.state.pending_discards().is_empty());
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
     });
     assert!(requests.try_iter().all(|(_, work)| non_destructive(&work)));
 }
@@ -245,7 +260,10 @@ fn verify_live_detach_mode(
         }
     });
     wait(cx, view, |model, _| {
-        !model.state.session_references().contains(&session)
+        !model
+            .state
+            .session_references(ServerId::local())
+            .contains(&session)
             && model.existing_terminal_count() > 0
             && probe
                 .project_sessions(project, None, None)
@@ -291,7 +309,7 @@ fn verify_live_detach_mode(
         model.close_tab(model.active_tab().expect("reattached tab"), cx);
     });
     wait(cx, view, |model, _| {
-        model.state.pending_discards().is_empty()
+        model.state.pending_discards(ServerId::local()).is_empty()
             && probe
                 .list_sessions()
                 .is_ok_and(|sessions| !sessions.iter().any(|info| info.id == session))

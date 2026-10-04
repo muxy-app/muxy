@@ -38,7 +38,9 @@ fn projects() -> (AppState, [ProjectId; 4]) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let mut add = |name: &str| {
-        let id = state.add_project(std::env::temp_dir()).expect("project");
+        let id = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         state.rename_project(id, name).expect("name");
         id
     };
@@ -240,7 +242,7 @@ fn navigation_and_opened_projects_follow_the_workspace_filter(cx: &mut TestAppCo
     std::fs::create_dir(root.path().join("Epsilon")).expect("epsilon");
     let (mut state, [home, alpha, beta, gamma]) = projects();
     let existing = state
-        .add_project(root.path().join("Epsilon"))
+        .add_project(ServerId::local(), root.path().join("Epsilon"))
         .expect("existing");
     let work = state.create_workspace("Work").expect("work");
     let other = state.create_workspace("Other").expect("other");

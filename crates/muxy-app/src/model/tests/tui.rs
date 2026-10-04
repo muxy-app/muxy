@@ -186,7 +186,8 @@ fn shared_closes(
     })?;
     view.update(cx, |model, cx| model.close_tab(original, cx));
     wait(cx, view, |model, _| {
-        model.state.home().tabs.len() == 1 && model.state.pending_discards().is_empty()
+        model.state.home().tabs.len() == 1
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     assert!(
         probe
@@ -237,7 +238,8 @@ fn shared_closes(
     );
     view.update(cx, |model, cx| model.close_tab(last, cx));
     wait(cx, view, |model, _| {
-        model.state.pending_discards().is_empty() && model.state.home().tabs.len() == 1
+        model.state.pending_discards(ServerId::local()).is_empty()
+            && model.state.home().tabs.len() == 1
     })?;
     assert!(
         !probe

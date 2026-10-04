@@ -1,0 +1,386 @@
+{
+  "catalog_revision": 41,
+  "catalog_server": "00000000000000000000000000005eed",
+  "close_operations": {
+    "8": "6677a789e973456eb45fe57a3f7df657",
+    "9": "637f5c2ff92e49539b39389dea7bd188"
+  },
+  "pending_cancellations": [
+    "7db397a6e48f4c68aa99a6f007316015"
+  ],
+  "pending_discards": [
+    9,
+    8
+  ],
+  "project_intents": [
+    {
+      "mutation": {
+        "Patch": {
+          "patch": {
+            "Name": "App"
+          },
+          "project": "67d7da59e5a94f658cc157234c82c83a"
+        }
+      },
+      "operation": "7d8bfd851b1f41d7a188da4ef9cb0f93"
+    }
+  ],
+  "projects": [
+    {
+      "color": "#808080",
+      "directory": [
+        47,
+        85,
+        115,
+        101,
+        114,
+        115,
+        47,
+        109,
+        101
+      ],
+      "home": true,
+      "icon": null,
+      "id": "b92ae28c2c5f45629e57b96d892ed444",
+      "kind": null,
+      "logo": null,
+      "name": "Home",
+      "parent_id": null,
+      "server_id": "9eedd63357b54359b76e762c6bc2775c",
+      "tabs": [
+        {
+          "color": "#30a46c",
+          "custom_title": "server",
+          "id": "5264cd7e97c44649bce635e92e90e7f1",
+          "layout": {
+            "Leaf": "e07f51e35d6143a485b8d82f27a20405"
+          },
+          "panes": [
+            {
+              "content": {
+                "session": 4,
+                "type": "terminal"
+              },
+              "id": "e07f51e35d6143a485b8d82f27a20405",
+              "title": "Terminal"
+            }
+          ],
+          "pinned": true,
+          "zoomed": null
+        },
+        {
+          "color": null,
+          "custom_title": null,
+          "id": "aacd778a867045db854a85bf3c75b3fe",
+          "layout": {
+            "Split": {
+              "axis": "horizontal",
+              "first": {
+                "Leaf": "537e0a1b53aa47d8bdb3dffb7233337d"
+              },
+              "ratio": 0.5,
+              "second": {
+                "Split": {
+                  "axis": "vertical",
+                  "first": {
+                    "Leaf": "8ea936f8129a4905a1a15b33bb4f900f"
+                  },
+                  "ratio": 0.5,
+                  "second": {
+                    "Leaf": "bd1d9f54e68d4b289cbd7941782d0f64"
+                  }
+                }
+              }
+            }
+          },
+          "panes": [
+            {
+              "content": {
+                "session": 1,
+                "type": "terminal"
+              },
+              "id": "537e0a1b53aa47d8bdb3dffb7233337d",
+              "title": "zsh — ~"
+            },
+            {
+              "content": {
+                "session": 2,
+                "type": "terminal"
+              },
+              "id": "8ea936f8129a4905a1a15b33bb4f900f",
+              "title": "Terminal"
+            },
+            {
+              "content": {
+                "session": 3,
+                "type": "terminal"
+              },
+              "id": "bd1d9f54e68d4b289cbd7941782d0f64",
+              "title": "Terminal"
+            }
+          ],
+          "pinned": false,
+          "zoomed": "8ea936f8129a4905a1a15b33bb4f900f"
+        }
+      ]
+    },
+    {
+      "color": "#e5484d",
+      "directory": [
+        47,
+        85,
+        115,
+        101,
+        114,
+        115,
+        47,
+        109,
+        101,
+        47,
+        99,
+        111,
+        100,
+        101,
+        47,
+        97,
+        112,
+        112
+      ],
+      "home": false,
+      "icon": "🚀",
+      "id": "67d7da59e5a94f658cc157234c82c83a",
+      "kind": null,
+      "logo": [
+        137,
+        80,
+        78,
+        71,
+        13,
+        10,
+        26,
+        10,
+        0,
+        0,
+        0,
+        13,
+        73,
+        72,
+        68,
+        82,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        8,
+        6,
+        0,
+        0,
+        0,
+        31,
+        21,
+        196,
+        137
+      ],
+      "name": "App",
+      "parent_id": null,
+      "server_id": "9eedd63357b54359b76e762c6bc2775c",
+      "tabs": [
+        {
+          "color": null,
+          "custom_title": null,
+          "id": "3f7d790aac8f444eb7e940a7abdf0c62",
+          "layout": {
+            "Split": {
+              "axis": "vertical",
+              "first": {
+                "Leaf": "76f8dad8789746fb9fb7479a9df93b4f"
+              },
+              "ratio": 0.5,
+              "second": {
+                "Leaf": "05db02346af1442d8ea33d4606d93398"
+              }
+            }
+          },
+          "panes": [
+            {
+              "content": {
+                "session": 5,
+                "type": "terminal"
+              },
+              "id": "76f8dad8789746fb9fb7479a9df93b4f",
+              "title": "Terminal"
+            },
+            {
+              "content": {
+                "session": null,
+                "type": "terminal"
+              },
+              "id": "05db02346af1442d8ea33d4606d93398",
+              "title": "Terminal"
+            }
+          ],
+          "pinned": false,
+          "zoomed": null
+        },
+        {
+          "color": null,
+          "custom_title": null,
+          "id": "956e1487587241ffb82670f49171c0b2",
+          "layout": {
+            "Leaf": "3e4fb27624e644588d1fcf12084588f3"
+          },
+          "panes": [
+            {
+              "content": {
+                "data": {
+                  "url": "https://example.com/docs"
+                },
+                "kind": "panel",
+                "owner": "example.docs",
+                "type": "webview"
+              },
+              "id": "3e4fb27624e644588d1fcf12084588f3",
+              "title": "Docs"
+            }
+          ],
+          "pinned": false,
+          "zoomed": null
+        }
+      ]
+    },
+    {
+      "color": "#3e63dd",
+      "directory": [
+        47,
+        85,
+        115,
+        101,
+        114,
+        115,
+        47,
+        109,
+        101,
+        47,
+        99,
+        111,
+        100,
+        101,
+        47,
+        97,
+        112,
+        112,
+        45,
+        102,
+        101,
+        97,
+        116,
+        117,
+        114,
+        101
+      ],
+      "home": false,
+      "icon": null,
+      "id": "0000000000000000000000000000fea7",
+      "kind": "worktree",
+      "logo": null,
+      "name": "feature-x",
+      "parent_id": "67d7da59e5a94f658cc157234c82c83a",
+      "server_id": "9eedd63357b54359b76e762c6bc2775c",
+      "tabs": [
+        {
+          "color": null,
+          "custom_title": null,
+          "id": "c630443ad0c9416b9b1312f0302256c4",
+          "layout": {
+            "Leaf": "443fa979a24c4ee88915a99ae5315b99"
+          },
+          "panes": [
+            {
+              "content": {
+                "session": 6,
+                "type": "terminal"
+              },
+              "id": "443fa979a24c4ee88915a99ae5315b99",
+              "title": "Terminal"
+            }
+          ],
+          "pinned": false,
+          "zoomed": null
+        }
+      ]
+    }
+  ],
+  "quick_terminal": {
+    "content": {
+      "session": 7,
+      "type": "terminal"
+    },
+    "id": "30212a06d4874f0998e83645f33213f6",
+    "title": "Quick Terminal"
+  },
+  "starting_directories": {
+    "05db02346af1442d8ea33d4606d93398": [
+      47,
+      85,
+      115,
+      101,
+      114,
+      115,
+      47,
+      109,
+      101,
+      47,
+      99,
+      111,
+      100,
+      101,
+      47,
+      97,
+      112,
+      112
+    ]
+  },
+  "startup_commands": {
+    "05db02346af1442d8ea33d4606d93398": "npm run dev"
+  },
+  "version": 2,
+  "window": {
+    "active_pane": "8ea936f8129a4905a1a15b33bb4f900f",
+    "bounds": {
+      "height": 900.0,
+      "width": 1200.0,
+      "x": -1400.0,
+      "y": 40.0
+    },
+    "current_project": "b92ae28c2c5f45629e57b96d892ed444",
+    "focus_history": [
+      "537e0a1b53aa47d8bdb3dffb7233337d",
+      "bd1d9f54e68d4b289cbd7941782d0f64",
+      "e07f51e35d6143a485b8d82f27a20405",
+      "05db02346af1442d8ea33d4606d93398",
+      "3e4fb27624e644588d1fcf12084588f3",
+      "443fa979a24c4ee88915a99ae5315b99",
+      "76f8dad8789746fb9fb7479a9df93b4f",
+      "8ea936f8129a4905a1a15b33bb4f900f"
+    ],
+    "selected_tab": {
+      "0000000000000000000000000000fea7": "c630443ad0c9416b9b1312f0302256c4",
+      "67d7da59e5a94f658cc157234c82c83a": "3f7d790aac8f444eb7e940a7abdf0c62",
+      "b92ae28c2c5f45629e57b96d892ed444": "aacd778a867045db854a85bf3c75b3fe"
+    },
+    "workspace": "c10c95a4df8c47afae2878ddf1a2a4e7"
+  },
+  "workspaces": [
+    {
+      "id": "c10c95a4df8c47afae2878ddf1a2a4e7",
+      "name": "Work",
+      "projects": [
+        "67d7da59e5a94f658cc157234c82c83a"
+      ]
+    }
+  ]
+}
