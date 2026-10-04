@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use muxy_protocol::transport::{ByteStream, tls};
 use muxy_protocol::{
-    DeviceCredential, DeviceId, PairRequest, Paired, PairingInvite, PairingOffer,
-    RemoteAccessSettings, RemoteAccessState, ReplyBody, RequestBody,
+    DeviceCredential, DeviceId, ErrorCode, ErrorReply, PairRequest, Paired, PairingInvite,
+    PairingOffer, RemoteAccessSettings, RemoteAccessState, ReplyBody, RequestBody,
 };
 
 use crate::{Client, ClientError};
@@ -73,6 +73,30 @@ impl Client {
         match self.request(RequestBody::StartPairing)? {
             ReplyBody::Pairing(offer) => Ok(offer),
             body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    /// Like [`Client::start_pairing`], but the link lists `hosts` before the
+    /// addresses the server finds itself, for a server that phones reach by
+    /// another name, such as behind NAT. Without hosts it sends the plain
+    /// request, which older servers also know.
+    pub fn start_pairing_with(&self, hosts: Vec<String>) -> Result<PairingOffer, ClientError> {
+        if hosts.is_empty() {
+            return self.start_pairing();
+        }
+        muxy_protocol::validate_pairing_hosts(&hosts).map_err(ClientError::Invalid)?;
+        match self.request(RequestBody::StartPairingWithHosts(hosts)) {
+            Ok(ReplyBody::Pairing(offer)) => Ok(offer),
+            Ok(body) => Err(ClientError::UnexpectedReply(Box::new(body))),
+            Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported => {
+                Err(ClientError::Server(ErrorReply {
+                    code: ErrorCode::Unsupported,
+                    message:
+                        "This server can't add addresses to a pairing code. Update Muxy on it."
+                            .into(),
+                }))
+            }
+            Err(error) => Err(error),
         }
     }
 

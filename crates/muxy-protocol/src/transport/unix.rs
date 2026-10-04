@@ -94,7 +94,9 @@ pub fn connect(path: impl AsRef<Path>) -> io::Result<Box<dyn ByteStream>> {
     Ok(Box::new(stream))
 }
 
-pub(super) fn socket_pair() -> io::Result<(UnixStream, UnixStream)> {
+/// Two connected sockets, for adapters that pump another transport into one
+/// end while the other end serves as an ordinary byte stream.
+pub fn socket_pair() -> io::Result<(UnixStream, UnixStream)> {
     let (first, second) = UnixStream::pair()?;
     // std sets no SO_NOSIGPIPE on Apple socket pairs, and an iOS host app does
     // not ignore SIGPIPE the way Rust executables do.

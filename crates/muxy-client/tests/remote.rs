@@ -8,7 +8,11 @@ use std::time::{Duration, Instant};
 use muxy_client::{Client, ClientError, ClientEvent, RemoteEndpoint};
 use muxy_protocol::transport::Listener;
 use muxy_protocol::transport::tls::TlsListener;
-use muxy_protocol::{ErrorCode, ListenerStatus, PairingOffer, RemoteAccessSettings, Size};
+use muxy_protocol::wire::{Decoder, Encoder, WireError};
+use muxy_protocol::{
+    CONTROL, CURRENT, ErrorCode, ErrorReply, ListenerStatus, Message, PairingOffer,
+    RemoteAccessSettings, ReplyBody, ServerInfo, Size,
+};
 use muxy_server::connection::{serve, serve_remote};
 use muxy_server::{Registry, ServerEvent, ServerSettings};
 
@@ -189,5 +193,62 @@ fn local_watchers_hear_when_a_phone_connects() -> TestResult {
     let state = local.read_remote_access()?;
     assert_eq!(state.devices.len(), 1);
     assert!(state.devices[0].connected);
+    Ok(())
+}
+
+/// A server from before pairing addresses, which answers a request it can't
+/// read with "unsupported".
+fn older_server() -> TestResult<Client> {
+    let (client, server) = UnixStream::pair()?;
+    thread::spawn(move || -> Result<(), WireError> {
+        let mut decoder = Decoder::new(server.try_clone()?);
+        let mut encoder = Encoder::new(server);
+        decoder.next()?;
+        encoder.send(
+            CONTROL,
+            &Message::HelloReply {
+                versions: vec![CURRENT],
+                server: ServerInfo::current(),
+                features: Vec::new(),
+            },
+        )?;
+        while let Ok((_, Message::Request { id, .. })) = decoder.next() {
+            let unsupported = ErrorReply {
+                code: ErrorCode::Unsupported,
+                message: "This server doesn't support the request. Update Muxy.".into(),
+            };
+            encoder.send(
+                CONTROL,
+                &Message::Reply {
+                    id,
+                    body: ReplyBody::Error(unsupported),
+                },
+            )?;
+        }
+        Ok(())
+    });
+    Ok(Client::from_stream(Box::new(client))?)
+}
+
+#[test]
+fn pairing_codes_can_list_other_addresses_first() -> TestResult {
+    let server = Server::new();
+    let (local, _) = server.pairing()?;
+    let offer = local.start_pairing_with(vec!["box.example.com".into(), "203.0.113.7".into()])?;
+    assert_eq!(offer.invite.hosts[..2], ["box.example.com", "203.0.113.7"]);
+    assert!(matches!(
+        local.start_pairing_with(vec!["box.example.com:7419".into()]),
+        Err(ClientError::Invalid(ErrorCode::BadRequest))
+    ));
+
+    let older = older_server()?;
+    let error = older
+        .start_pairing_with(vec!["box.example.com".into()])
+        .err()
+        .ok_or("an older server added the address")?;
+    assert_eq!(
+        error.to_string(),
+        "Unsupported: This server can't add addresses to a pairing code. Update Muxy on it."
+    );
     Ok(())
 }

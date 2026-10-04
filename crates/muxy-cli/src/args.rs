@@ -2,10 +2,15 @@ use std::ffi::OsString;
 use std::io;
 
 use muxy_client::{SshTarget, Start};
+use muxy_protocol::MAX_PAIRING_HOSTS;
+
+use crate::manage::help;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Command {
     Help,
+    /// One command's usage, which needs no server.
+    Usage(&'static str),
     Version,
     BuildInfo,
     Interactive,
@@ -20,7 +25,7 @@ pub(crate) enum Mobile {
     Status,
     Enable { port: Option<u16> },
     Disable,
-    Pair,
+    Pair { addresses: Vec<String> },
     Revoke { device: String },
 }
 
@@ -63,6 +68,9 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
     }
     match arguments {
         [] => Ok(Command::Interactive),
+        [command, .., flag] if command == "mobile" && (flag == "--help" || flag == "-h") => {
+            Ok(Command::Usage(help::MOBILE))
+        }
         [command, rest @ ..] if command == "mobile" => mobile(rest).map(Command::Mobile),
         [command, rest @ ..] if command == "stdio" => stdio(rest).map(Command::Stdio),
         _ => {
@@ -83,12 +91,34 @@ fn mobile(arguments: &[OsString]) -> io::Result<Mobile> {
             ),
         }),
         [Some("disable")] => Ok(Mobile::Disable),
-        [Some("pair")] => Ok(Mobile::Pair),
+        [Some("pair"), options @ ..] => pair(options),
         [Some("revoke"), Some(device)] if !device.is_empty() => Ok(Mobile::Revoke {
             device: (*device).to_owned(),
         }),
-        _ => Err(invalid("unknown mobile command; run muxy --help")),
+        _ => Err(invalid("unknown mobile command; run muxy mobile --help")),
     }
+}
+
+fn pair(options: &[Option<&str>]) -> io::Result<Mobile> {
+    let mut addresses = Vec::new();
+    for option in options.chunks(2) {
+        let [Some("--address"), Some(address)] = option else {
+            return Err(invalid("usage: muxy mobile pair [--address HOST]..."));
+        };
+        let address = (*address).to_owned();
+        if muxy_protocol::validate_pairing_hosts(std::slice::from_ref(&address)).is_err() {
+            return Err(invalid(&format!(
+                "--address {address}: use a DNS name or an IPv4 address, without a port"
+            )));
+        }
+        addresses.push(address);
+    }
+    if addresses.len() > MAX_PAIRING_HOSTS {
+        return Err(invalid(&format!(
+            "a pairing code holds at most {MAX_PAIRING_HOSTS} addresses"
+        )));
+    }
+    Ok(Mobile::Pair { addresses })
 }
 
 fn stdio(arguments: &[OsString]) -> io::Result<Start> {
@@ -140,6 +170,54 @@ mod tests {
         ] {
             assert!(parse_words(words).is_err(), "{words:?}");
         }
+        for words in [&["mobile", "--help"][..], &["mobile", "pair", "-h"]] {
+            assert_eq!(parse_words(words)?, (None, Command::Usage(help::MOBILE)));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pairing_takes_repeated_addresses_that_fit_a_pairing_link() -> io::Result<()> {
+        assert_eq!(
+            parse_words(&["mobile", "pair"])?,
+            (
+                None,
+                Command::Mobile(Mobile::Pair {
+                    addresses: Vec::new()
+                })
+            )
+        );
+        assert_eq!(
+            parse_words(&[
+                "mobile",
+                "pair",
+                "--address",
+                "box.example.com",
+                "--address",
+                "203.0.113.7"
+            ])?,
+            (
+                None,
+                Command::Mobile(Mobile::Pair {
+                    addresses: vec!["box.example.com".into(), "203.0.113.7".into()]
+                })
+            )
+        );
+        let mut nine = vec!["mobile", "pair"];
+        for _ in 0..9 {
+            nine.extend(["--address", "box"]);
+        }
+        for words in [
+            &["mobile", "pair", "--address"][..],
+            &["mobile", "pair", "--address", ""],
+            &["mobile", "pair", "--address", "box.example.com:7419"],
+            &["mobile", "pair", "--address", "::1"],
+            &["mobile", "pair", "box.example.com"],
+            &["mobile", "pair", "--address", "box", "--port", "7419"],
+            &nine,
+        ] {
+            assert!(parse_words(words).is_err(), "{words:?}");
+        }
         Ok(())
     }
 
@@ -172,7 +250,16 @@ mod tests {
         );
         assert_eq!(
             parse_words(&["--host", "dev@box", "mobile", "pair"])?,
-            (Some(host), Command::Mobile(Mobile::Pair))
+            (
+                Some(host.clone()),
+                Command::Mobile(Mobile::Pair {
+                    addresses: Vec::new()
+                })
+            )
+        );
+        assert_eq!(
+            parse_words(&["--host", "dev@box", "mobile", "--help"])?,
+            (Some(host), Command::Usage(help::MOBILE))
         );
         let (host, command) =
             parse_words(&["--host", "ssh://dev@box:2222", "session", "list", "--json"])?;

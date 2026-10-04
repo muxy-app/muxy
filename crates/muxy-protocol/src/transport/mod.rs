@@ -14,4 +14,4 @@ mod unix;
 pub use error::BindError;
 pub use stdio::{ChildProcess, ChildStream, relay};
 pub use stream::{ByteStream, Listener, StreamCancellation};
-pub use unix::{UnixSocketListener, connect};
+pub use unix::{UnixSocketListener, connect, socket_pair};

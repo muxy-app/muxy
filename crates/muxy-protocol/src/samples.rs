@@ -137,6 +137,7 @@ fn remote_samples() -> Vec<Message> {
         RequestBody::ReadRemoteAccess,
         RequestBody::WriteRemoteAccess(settings),
         RequestBody::StartPairing,
+        RequestBody::StartPairingWithHosts(vec!["box.example.com".into(), "203.0.113.7".into()]),
         RequestBody::CancelPairing,
         RequestBody::RevokeDevice(device),
     ] {

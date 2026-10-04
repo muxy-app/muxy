@@ -215,8 +215,14 @@ impl RemoteAccess {
         status
     }
 
-    pub(crate) fn start_pairing(&self, owner: ClientId) -> Result<PairingOffer, ServerError> {
-        let hosts = hosts::candidates();
+    /// Offers a pairing code whose link lists the `given` addresses first,
+    /// for a server that phones reach by another name, such as behind NAT.
+    pub(crate) fn start_pairing(
+        &self,
+        owner: ClientId,
+        given: &[String],
+    ) -> Result<PairingOffer, ServerError> {
+        let hosts = hosts::candidates(given);
         let mut state = self.lock();
         let Some(identity) = state.stored.identity.as_ref() else {
             return Err(unavailable("Mobile access is off"));

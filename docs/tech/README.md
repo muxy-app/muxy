@@ -15,6 +15,7 @@ flowchart LR
     TUI <-->|"Unix socket"| SERVER
     TUI <-->|"SSH · muxy stdio"| REMOTE
     PHONE <-->|"TLS"| SERVER
+    PHONE <-->|"SSH · muxy stdio"| REMOTE
 ```
 
 The big ideas:

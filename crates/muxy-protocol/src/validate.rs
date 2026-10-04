@@ -190,6 +190,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         RequestBody::SavedHistoryPage { max_rows, .. } => validate_page_size(*max_rows),
         RequestBody::Pair(request) => request.validate(),
         RequestBody::WriteRemoteAccess(settings) => settings.validate(),
+        RequestBody::StartPairingWithHosts(hosts) => crate::validate_pairing_hosts(hosts),
         RequestBody::Authenticate(_)
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing

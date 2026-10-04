@@ -399,6 +399,7 @@ fn paired_devices_cannot_manage_access_or_the_server() -> TestResult {
         RequestBody::ReadRemoteAccess,
         RequestBody::WriteRemoteAccess(RemoteAccessSettings::default()),
         RequestBody::StartPairing,
+        RequestBody::StartPairingWithHosts(vec!["box.example.com".into()]),
         RequestBody::CancelPairing,
         RequestBody::RevokeDevice(DeviceId::new()),
         RequestBody::StopServer,
@@ -431,10 +432,30 @@ fn paired_devices_cannot_manage_access_or_the_server() -> TestResult {
         })?,
         ReplyBody::Catalog(_)
     ));
+    // A phone that reaches the computer over SSH connects locally, through the bridge.
     match local.request(RequestBody::IdentifyClient(ClientKind::Mobile))? {
-        ReplyBody::Error(error) => assert_eq!(error.code, ErrorCode::BadRequest),
-        other => return Err(format!("local client claimed mobile: {other:?}").into()),
+        ReplyBody::ClientIdentified(client) => assert_eq!(client.kind, ClientKind::Mobile),
+        other => return Err(format!("expected identified, got {other:?}").into()),
     }
+    Ok(())
+}
+
+#[test]
+fn a_pairing_code_lists_the_given_addresses_first() -> TestResult {
+    let fixture = Fixture::new();
+    let mut local = fixture.enabled()?;
+    let given = vec!["box.example.com".into()];
+    let offer = match local.request(RequestBody::StartPairingWithHosts(given))? {
+        ReplyBody::Pairing(offer) => offer,
+        other => return Err(format!("expected pairing, got {other:?}").into()),
+    };
+    assert_eq!(offer.invite.hosts[0], "box.example.com");
+    let with_port = vec!["box.example.com:7419".into()];
+    match local.request(RequestBody::StartPairingWithHosts(with_port))? {
+        ReplyBody::Error(error) => assert_eq!(error.code, ErrorCode::BadRequest),
+        other => return Err(format!("expected a refusal, got {other:?}").into()),
+    }
+    assert_eq!(local.request(RequestBody::Ping)?, ReplyBody::Pong);
     Ok(())
 }
 

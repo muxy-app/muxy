@@ -31,6 +31,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (host, command) = args::parse(&std::env::args_os().skip(1).collect::<Vec<_>>())?;
     match command {
         Command::Help => writeln!(io::stdout(), "{}", manage::help::ROOT)?,
+        Command::Usage(usage) => writeln!(io::stdout(), "{usage}")?,
         Command::Version => writeln!(io::stdout(), "muxy {}", env!("CARGO_PKG_VERSION"))?,
         Command::BuildInfo => {
             serde_json::to_writer(io::stdout().lock(), &muxy_protocol::BuildInfo::current())?;

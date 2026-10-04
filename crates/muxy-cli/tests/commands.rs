@@ -100,6 +100,9 @@ fn informational_commands_and_invalid_arguments_do_not_create_profile_data() -> 
         assert!(output.status.success(), "{output:?}");
         assert!(!output.stdout.is_empty());
     }
+    let usage = profile.run(&["mobile", "--help"])?;
+    assert!(usage.status.success(), "{usage:?}");
+    assert!(String::from_utf8(usage.stdout)?.contains("pair [--address HOST]..."));
     for args in [
         vec![],
         vec!["remote"],

@@ -27,6 +27,16 @@ belong to UI clients.
 Project selectors accept an exact ID, unique name or directory path.
 Use -- before literal arguments that start with a dash.";
 
+pub(crate) const MOBILE: &str = "Usage: muxy mobile [action]
+  (no action)               Mobile access status and paired devices
+  enable [--port N]         Let phones connect; --port changes the port (7419)
+  disable                   Turn mobile access off
+  pair [--address HOST]...  Show a pairing code and wait for the phone
+  revoke <device>           Revoke a device by the start of its ID
+
+Pairing codes list the server's own addresses. --address puts a DNS name or
+IPv4 address first, for a server that phones reach by another name, such as a
+cloud server's public name. Repeat it for more, up to 8 addresses in all.";
 pub(crate) const SERVER: &str = "Usage: muxy server start|status|stop [--json]
   stop [--force]  Stop only if idle; --force ends all running terminals.";
 pub(crate) const PROJECT: &str = "Usage: muxy project <action> [--json]

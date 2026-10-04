@@ -20,7 +20,7 @@ raw reports are in git history.
 | D8 | One merged frame in flight | Slow apps never pile up |
 | D9 | The app draws rows directly | Redraws only on change |
 | D10 | portable-pty for PTYs | Same speed, ready for Windows |
-| D11 | Phones pin a certificate | No cloud and no SSH setup |
+| D11 | Phones pin a certificate, or use SSH | No cloud; pairing needs no SSH setup |
 | D12 | Protocol changes are additive | Old and new builds keep talking |
 
 ## D1. Ghostty is the terminal engine
@@ -105,9 +105,13 @@ Phones connect over TLS 1.3 to a self-signed certificate that they pin when
 scanning the pairing code. Each phone gets its own token, which the server keeps
 only as a hash. The phone apps embed the same Rust client as the desktop app.
 
-Turned down: a cloud relay, which is another service to trust; SSH from the
-phone, for its setup; mutual TLS, for handling certificates on phones; and a
-native Swift, Kotlin, or JSON protocol, which would drift from the Rust one.
+Pairing stays the default because it needs no SSH setup. Phones can also
+connect over SSH, since the apps already embed an SSH client: it runs
+`muxy stdio` on the computer (D7).
+
+Turned down: a cloud relay, which is another service to trust; mutual TLS, for
+handling certificates on phones; and a native Swift, Kotlin, or JSON protocol,
+which would drift from the Rust one.
 
 ## D12. Protocol changes are additive
 

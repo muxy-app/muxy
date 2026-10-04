@@ -59,6 +59,14 @@ impl fmt::Display for MobileError {
 
 impl std::error::Error for MobileError {}
 
+/// Something the app's own code threw while the SDK called it, such as a
+/// write to an SSH channel that broke.
+impl From<uniffi::UnexpectedUniFFICallbackError> for MobileError {
+    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Disconnected
+    }
+}
+
 impl From<ClientError> for MobileError {
     fn from(error: ClientError) -> Self {
         match error {

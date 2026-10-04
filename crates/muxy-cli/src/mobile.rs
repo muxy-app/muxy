@@ -40,7 +40,7 @@ pub(crate) fn run(command: Mobile, client: &Client) -> Result {
                 ..current
             })?)
         }
-        Mobile::Pair => pair(client),
+        Mobile::Pair { addresses } => pair(client, addresses),
         Mobile::Revoke { device } => revoke(client, &device),
     }
 }
@@ -109,7 +109,7 @@ fn revoke(client: &Client, prefix: &str) -> Result {
 
 /// Shows a pairing code until a new device pairs, the code expires, or Ctrl-C
 /// closes the connection, which cancels the code.
-fn pair(client: &Client) -> Result {
+fn pair(client: &Client, addresses: Vec<String>) -> Result {
     let events = client.events().ok_or("event stream already taken")?;
     let known: HashSet<_> = client
         .read_remote_access()?
@@ -117,7 +117,7 @@ fn pair(client: &Client) -> Result {
         .iter()
         .map(|device| device.id)
         .collect();
-    let offer = client.start_pairing()?;
+    let offer = client.start_pairing_with(addresses)?;
     let link = offer.invite.to_link();
     let code = QrCode::encode(&link).ok_or("the pairing link does not fit in a QR code")?;
     let mut stdout = io::stdout().lock();

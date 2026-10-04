@@ -378,6 +378,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("StartPairing", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::StartPairingWithHosts(_),
+                ..
+            } => ("StartPairingWithHosts", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::CancelPairing,
                 ..
             } => ("CancelPairing", ChannelKind::Control),
@@ -793,6 +797,7 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "ReadRemoteAccess",
             "WriteRemoteAccess",
             "StartPairing",
+            "StartPairingWithHosts",
             "CancelPairing",
             "RevokeDevice",
             "Authenticated",

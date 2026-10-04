@@ -402,7 +402,10 @@ fn ordered_request(
             ReplyBody::RemoteAccess(registry.write_remote_access(settings)?)
         }
         RequestBody::StartPairing => {
-            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id)?)
+            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id, &[])?)
+        }
+        RequestBody::StartPairingWithHosts(hosts) => {
+            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id, &hosts)?)
         }
         RequestBody::CancelPairing => {
             registry.remote.cancel_pairing();

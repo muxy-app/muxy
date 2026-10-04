@@ -8,7 +8,7 @@ How people use Muxy: the apps, navigation, settings, and updates.
 | --- | --- |
 | Desktop app (macOS) | The server on the same computer, starting it if needed. |
 | `muxy` terminal UI | The server on the same computer, starting it if needed, or with `--host`, the server on another computer over SSH. Ships with the desktop app and also on its own. |
-| Phone app | A paired computer's server, over the local network or a VPN. |
+| Phone app | A paired computer's server, over the local network or a VPN, or any computer's server over SSH. |
 
 `muxy --host` works with another machine's server over SSH. Connecting the
 desktop app to other machines comes later. Every project already knows which

@@ -202,17 +202,23 @@ fn the_bridge_alone_starts_the_server_announces_itself_and_ends_with_stdin() -> 
     Ok(())
 }
 
-/// Runs `muxy --host box` on this computer, with `local` as its own profile.
-fn host(remote: &FakeRemote, local: &Path, args: &[&str]) -> Result<Output> {
-    Ok(Command::new(support::binary())
+/// `muxy --host box` on this computer, with `local` as its own profile.
+fn host_command(remote: &FakeRemote, local: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new(support::binary());
+    command
         .args(["--host", "box"])
         .args(args)
         .env("MUXY_SSH", remote.ssh())
         .env("MUXY_DIR", local)
         .env_remove("MUXY_SERVER_BIN")
         .env_remove("MUXY_PANE_ID")
-        .stdin(Stdio::null())
-        .output()?)
+        .stdin(Stdio::null());
+    command
+}
+
+/// Runs `muxy --host box` on this computer, with `local` as its own profile.
+fn host(remote: &FakeRemote, local: &Path, args: &[&str]) -> Result<Output> {
+    Ok(host_command(remote, local, args).output()?)
 }
 
 fn succeeded(output: Output) -> Result<String> {
@@ -336,5 +342,67 @@ fn host_problems_print_one_line_and_never_reach_the_bridge_through_ssh() -> Resu
         );
     }
     assert!(!watched.home().join("reached").exists());
+    Ok(())
+}
+
+#[test]
+fn a_pairing_code_from_another_computer_lists_the_given_address_first() -> Result {
+    use std::io::{BufRead, BufReader, Read};
+
+    let remote = FakeRemote::new()?;
+    let local = tempfile::tempdir()?;
+    let port = TcpListener::bind("127.0.0.1:0")?
+        .local_addr()?
+        .port()
+        .to_string();
+    succeeded(host(
+        &remote,
+        local.path(),
+        &["mobile", "enable", "--port", &port],
+    )?)?;
+    let mut pairing = host_command(
+        &remote,
+        local.path(),
+        &["mobile", "pair", "--address", "box.example.com"],
+    )
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()?;
+    let mut output = BufReader::new(pairing.stdout.take().ok_or("no stdout")?);
+    let (sender, lines) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut line = String::new();
+        while output.read_line(&mut line).is_ok_and(|read| read > 0) {
+            if sender.send(std::mem::take(&mut line)).is_err() {
+                break;
+            }
+        }
+    });
+    let link = loop {
+        let line = lines.recv_timeout(TIMEOUT)?;
+        if line.starts_with("muxy://pair?") {
+            break line.trim().to_owned();
+        }
+    };
+    let mut invite = muxy_protocol::PairingInvite::parse_link(&link)
+        .map_err(|code| format!("invalid link {link}: {code:?}"))?;
+    assert_eq!(invite.hosts[0], "box.example.com", "{link}");
+
+    // The fake remote is this computer, so the phone reaches it on loopback.
+    invite.hosts = vec!["127.0.0.1".into()];
+    let (_phone, _) = Client::pair(&invite, "Test phone")?;
+    let status = pairing.wait()?;
+    let mut rest = String::new();
+    while let Ok(line) = lines.recv_timeout(Duration::from_secs(1)) {
+        rest.push_str(&line);
+    }
+    let mut errors = String::new();
+    pairing
+        .stderr
+        .take()
+        .ok_or("no stderr")?
+        .read_to_string(&mut errors)?;
+    assert!(status.success(), "{rest}{errors}");
+    assert!(rest.contains("Paired Test phone."), "{rest}");
     Ok(())
 }

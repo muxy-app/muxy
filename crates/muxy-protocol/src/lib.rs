@@ -58,7 +58,7 @@ mod remote;
 pub use remote::{
     DEFAULT_REMOTE_PORT, DeviceCredential, ListenerStatus, MAX_DEVICE_NAME, MAX_DEVICES,
     MAX_PAIRING_HOSTS, PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer,
-    RemoteAccessSettings, RemoteAccessState, validate_device_name,
+    RemoteAccessSettings, RemoteAccessState, validate_device_name, validate_pairing_hosts,
 };
 
 pub mod wire;

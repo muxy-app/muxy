@@ -166,6 +166,8 @@ pub enum RequestBody {
     AttachWithoutResize(#[n(0)] SessionId),
     #[n(40)]
     ClearScreen(#[n(0)] ChannelId),
+    #[n(41)]
+    StartPairingWithHosts(#[n(0)] Vec<String>),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
