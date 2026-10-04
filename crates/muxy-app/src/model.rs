@@ -426,7 +426,7 @@ impl AppModel {
         });
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
         let (theme, fallback) = themes.resolve(&boot.settings.appearance, dark);
-        let mut configuration_error = None;
+        let mut configuration_error = boot.import_error;
         let palette = themes
             .terminal_palette(
                 &fallback,
@@ -437,7 +437,12 @@ impl AppModel {
                     .unwrap_or_else(|| std::path::Path::new(".")),
             )
             .unwrap_or_else(|error| {
-                configuration_error = Some(error);
+                if let Some(message) = &mut configuration_error {
+                    message.push('\n');
+                    message.push_str(&error);
+                } else {
+                    configuration_error = Some(error);
+                }
                 fallback
             });
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
@@ -2517,6 +2522,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("muxy-app-restore-{}", ProjectId::new()));
         (
             Boot {
+                import_error: None,
                 composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),

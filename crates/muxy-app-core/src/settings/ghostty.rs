@@ -110,6 +110,98 @@ impl Default for TerminalSettings {
 }
 
 impl TerminalSettings {
+    pub fn backup_source(path: &Path) -> Result<String> {
+        let mut pending = VecDeque::from([(path.to_owned(), false, 0)]);
+        let mut loaded = HashSet::new();
+        let mut settings = Self::default();
+        let mut families = Vec::new();
+        let mut output = String::new();
+        while let Some((path, optional, depth)) = pending.pop_front() {
+            if optional
+                && !path
+                    .try_exists()
+                    .map_err(|error| Error::new("backup", error))?
+            {
+                continue;
+            }
+            let canonical = fs::canonicalize(&path).map_err(|error| Error::new("backup", error))?;
+            if !loaded.insert(canonical) || depth >= 32 {
+                return Err(Error::new(
+                    "backup",
+                    "config-file cycle or nesting exceeds 32 files",
+                ));
+            }
+            if fs::metadata(&path)
+                .map_err(|error| Error::new("backup", error))?
+                .len()
+                > 8 * 1024 * 1024
+            {
+                return Err(Error::new("backup", "Ghostty configuration exceeds 8 MiB"));
+            }
+            let source = fs::read_to_string(&path).map_err(|error| Error::new("backup", error))?;
+            for line in source.lines().filter(|line| {
+                line.split('=')
+                    .next()
+                    .is_none_or(|key| key.trim() != "config-file")
+            }) {
+                output.push_str(line);
+                output.push('\n');
+            }
+            if output.len() > 8 * 1024 * 1024 {
+                return Err(Error::new(
+                    "backup",
+                    "Combined Ghostty configuration exceeds 8 MiB",
+                ));
+            }
+            pending.extend(
+                settings
+                    .read(&path, &mut families, None)?
+                    .into_iter()
+                    .map(|(path, optional)| (path, optional, depth + 1)),
+            );
+        }
+        Ok(output)
+    }
+
+    pub fn import_supported_source(source: &str) -> (String, Vec<String>) {
+        let mut output = String::new();
+        let mut skipped = Vec::new();
+        for line in source.lines() {
+            let key = line.split('=').next().unwrap_or_default().trim();
+            if key.is_empty() || key.starts_with('#') {
+                continue;
+            }
+            let supported = matches!(
+                key,
+                "font-family"
+                    | "font-size"
+                    | "adjust-cell-height"
+                    | "font-family-bold"
+                    | "font-family-italic"
+                    | "font-family-bold-italic"
+                    | "font-feature"
+                    | "font-codepoint-map"
+                    | "font-thicken"
+                    | "font-thicken-strength"
+                    | "adjust-cell-width"
+                    | "macos-option-as-alt"
+            ) || options::KEYS.contains(&key);
+            let binding = key == "keybind"
+                && line.split_once('=').is_some_and(|(_, value)| {
+                    TerminalBindings::default()
+                        .read(value.trim())
+                        .is_ok_and(|warning| warning.is_none())
+                });
+            if supported || binding {
+                output.push_str(line);
+                output.push('\n');
+            } else {
+                skipped.push(format!("ghostty.conf: {key}"));
+            }
+        }
+        (output, skipped)
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let seed =
             std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/ghostty/config"));

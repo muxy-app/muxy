@@ -2,6 +2,28 @@ use super::*;
 use crate::model::banners::BannerKind;
 
 #[gpui::test]
+fn failed_import_is_reported_after_connecting_and_settings_remain_available(
+    cx: &mut TestAppContext,
+) {
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let profile = boot.state_path.parent().expect("profile");
+    std::fs::create_dir_all(profile).expect("profile directory");
+    std::fs::write(profile.join("pending-import.muxy"), "invalid backup").expect("pending import");
+    boot.import_error = crate::backup::apply_pending(profile).expect("safe startup");
+    let error = boot.import_error.clone().expect("import error");
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive_connected(&[], cx);
+        assert_eq!(
+            model.visible_banner(),
+            Some((BannerKind::Configuration, error.as_str()))
+        );
+    });
+    view.update_in(cx, AppModel::open_settings);
+    view.read_with(cx, |model, _| assert!(model.settings_window.is_some()));
+}
+
+#[gpui::test]
 fn opening_commands_does_not_repeat_dismissed_theme_errors(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let themes = boot.state_path.with_file_name("themes");

@@ -88,6 +88,14 @@ and stop.
   server. Stopping or restarting it asks first.
 - **Settings → Mobile** turns phone access on, shows a pairing code, and lists
   paired phones. `muxy mobile` does the same without the desktop app.
+- **Settings → Backup & Restore** exports settings, themes, extension preferences,
+  projects, and layouts. Restore applies on the next launch and keeps a recovery
+  copy in `Backups`. Existing projects are kept; matching projects receive the
+  saved layouts. Server settings take effect after restarting the server.
+- Import supported 1.x settings and local projects from the installed app, a
+  `.muxy` backup, or `settings.json`. Unsupported options are listed before import.
+  Config files open in the system editor. Backups exclude live terminal sessions,
+  paired-device credentials, extension packages, and project files.
 
 ## Updates
 

@@ -1,5 +1,6 @@
 mod ai;
 mod appearance;
+mod backup;
 mod catalog;
 mod commands;
 mod composer;
@@ -59,10 +60,11 @@ pub(crate) enum Category {
     Server,
     Mobile,
     Extensions,
+    Backup,
 }
 
 impl Category {
-    pub(crate) const ALL: [Self; 11] = [
+    pub(crate) const ALL: [Self; 12] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -74,6 +76,7 @@ impl Category {
         Self::Mobile,
         Self::Extensions,
         Self::Ai,
+        Self::Backup,
     ];
 
     fn label(self) -> &'static str {
@@ -89,6 +92,7 @@ impl Category {
             Self::Server => "Server",
             Self::Mobile => "Mobile",
             Self::Extensions => "Extensions",
+            Self::Backup => "Backup & Restore",
         }
     }
 }
@@ -123,6 +127,7 @@ pub(crate) enum Change {
 }
 
 pub(crate) enum SettingsEvent {
+    Backup(backup::Action),
     Change(Change),
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
@@ -159,6 +164,9 @@ pub(crate) struct Snapshot {
 }
 
 pub(crate) struct SettingsView {
+    backup_busy: bool,
+    backup_import: Option<crate::backup::PreparedImport>,
+    backup_status: String,
     pub(crate) extensions: Option<Entity<extensions::ExtensionsView>>,
     navigation_view: Entity<super::cached::CachedView<Self>>,
     content_view: Entity<super::cached::CachedView<Self>>,
@@ -231,6 +239,9 @@ impl SettingsView {
             });
         });
         let mut pane = Self {
+            backup_busy: false,
+            backup_import: None,
+            backup_status: String::new(),
             extensions: None,
             navigation_view: super::cached::CachedView::new(|view, _, cx| view.navigation(cx), cx),
             content_view: super::cached::CachedView::new(|view, _, cx| view.content(cx), cx),

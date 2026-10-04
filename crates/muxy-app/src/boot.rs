@@ -21,6 +21,7 @@ pub(crate) type Worker = Sender<(u64, Work)>;
 
 #[derive(Debug)]
 pub(crate) struct Boot {
+    pub(crate) import_error: Option<String>,
     pub(crate) composer: muxy_app_core::composer::ComposerStore,
     pub(crate) state: AppState,
     pub(crate) state_path: PathBuf,
@@ -38,6 +39,8 @@ impl Boot {
                 .parent()
                 .unwrap_or_else(|| std::path::Path::new(".")),
         );
+        let import_error =
+            crate::backup::apply_pending(state_path.parent().ok_or("Missing profile directory")?)?;
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -48,6 +51,7 @@ impl Boot {
         let (work, updates) = bridge(state_path.with_file_name("server.sock"))?;
         work.send((1, Work::Connect))?;
         Ok(Self {
+            import_error,
             composer: muxy_app_core::composer::ComposerStore::load_from(
                 state_path
                     .parent()
@@ -448,6 +452,14 @@ fn connect(
         crate::server::ensure_server_running(socket)?
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
+    let profile = socket
+        .parent()
+        .ok_or_else(|| std::io::Error::other("Missing profile directory"))?;
+    crate::backup::apply_mobile_settings(profile, |settings| {
+        client.write_remote_access(settings)?;
+        Ok(())
+    })
+    .map_err(std::io::Error::other)?;
     let events = client
         .events()
         .ok_or_else(|| std::io::Error::other("client events already taken"))?;

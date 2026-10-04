@@ -49,7 +49,7 @@ impl SettingsOverlay {
 }
 
 pub(crate) struct SettingsWindow {
-    model: WeakEntity<AppModel>,
+    pub(super) model: WeakEntity<AppModel>,
     pub(crate) view: Entity<SettingsView>,
     pub(crate) overlay: Option<SettingsOverlay>,
     overlay_subscription: Option<Subscription>,
@@ -435,6 +435,7 @@ impl SettingsWindow {
 
     fn handle_event(&mut self, event: &SettingsEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
+            SettingsEvent::Backup(action) => self.backup_action(*action, cx),
             SettingsEvent::Change(change) => {
                 let _ = self
                     .model
@@ -506,15 +507,19 @@ impl SettingsWindow {
                         .create(true)
                         .append(true)
                         .open(&path)?;
-                    let status = std::process::Command::new("/usr/bin/open")
-                        .args(["-a", "TextEdit"])
-                        .arg(path)
-                        .status()?;
+                    let mut command = if cfg!(target_os = "macos") {
+                        let mut command = std::process::Command::new("/usr/bin/open");
+                        command.arg("-t");
+                        command
+                    } else {
+                        std::process::Command::new("xdg-open")
+                    };
+                    let status = command.arg(path).status()?;
                     if status.success() {
                         Ok(())
                     } else {
                         Err(std::io::Error::other(format!(
-                            "TextEdit exited with {status}"
+                            "System editor exited with {status}"
                         )))
                     }
                 })

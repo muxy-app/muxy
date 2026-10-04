@@ -10,6 +10,34 @@ pub(super) struct Setting {
 
 pub(super) const SETTINGS: &[Setting] = &[
     Setting {
+        id: "backup-export",
+        label: "Export backup",
+        description: "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file.",
+        category: Category::Backup,
+        section: "Backup & Restore",
+    },
+    Setting {
+        id: "backup-restore",
+        label: "Restore backup",
+        description: "Choose a .muxy backup or a 1.x settings.json file. Review the import before applying it on the next launch.",
+        category: Category::Backup,
+        section: "Backup & Restore",
+    },
+    Setting {
+        id: "backup-legacy",
+        label: "Import from Muxy 1.x",
+        description: "Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped.",
+        category: Category::Backup,
+        section: "Migration",
+    },
+    Setting {
+        id: "backup-files",
+        label: "Configuration files",
+        description: "Open configuration files in the system editor. Restart Muxy after editing app settings, or reload terminal configuration from Terminal settings.",
+        category: Category::Backup,
+        section: "Configuration",
+    },
+    Setting {
         id: "ai-commit-provider",
         label: "Commit provider",
         description: "AI CLI that drafts commit messages. Auto uses the first installed provider.",

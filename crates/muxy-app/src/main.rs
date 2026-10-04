@@ -1,4 +1,5 @@
 mod ai;
+mod backup;
 mod boot;
 mod cli_install;
 mod diagnostics;

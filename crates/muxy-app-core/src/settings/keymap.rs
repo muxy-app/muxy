@@ -147,7 +147,7 @@ impl Keymap {
             .map_err(|error| Error::new("keymap", error))
     }
 
-    pub(super) fn overrides(&self) -> &BTreeMap<String, String> {
+    pub(crate) fn overrides(&self) -> &BTreeMap<String, String> {
         &self.1
     }
 
