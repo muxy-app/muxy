@@ -6,13 +6,13 @@ use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use muxy_app_core::{Direction, PaneId};
-use muxy_client::{Client, ClientError};
+use muxy_client::{Client, ClientError, Start};
 use muxy_protocol::{
     CatalogPage, ErrorCode, ProjectId, ProjectSession, ServerIdentity, SessionId, Size,
 };
@@ -20,6 +20,10 @@ use ratatui::layout::Rect;
 
 use crate::input::Input;
 use crate::state::{Discard, Result, Store};
+use crate::target::{self, Target};
+
+/// How long the worker waits for a request before checking whether to quit.
+const POLL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Debug)]
 pub(crate) enum Action {
@@ -52,7 +56,9 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-    pub(crate) fn start(profile: PathBuf, executable: PathBuf, viewport: Rect) -> Result<Self> {
+    /// Starts serving `target`, beginning with `first` if it is already
+    /// connected.
+    pub(crate) fn start(target: Target, first: Option<Client>, viewport: Rect) -> Result<Self> {
         let shared = Arc::new(Mutex::new(Shared::default()));
         let input = Arc::new(InputWriter::new(Arc::clone(&shared))?);
         let ordered = Arc::new(AtomicUsize::new(0));
@@ -62,8 +68,7 @@ impl Worker {
         let connection = Arc::new(Mutex::new(None));
         let (sender, receiver) = mpsc::sync_channel(1024);
         let mut core = Core {
-            profile,
-            executable,
+            target,
             shared: Arc::clone(&shared),
             viewport: Arc::clone(&viewport),
             stop: Arc::clone(&stop),
@@ -77,7 +82,7 @@ impl Worker {
         let worker = thread::Builder::new()
             .name("muxy-tui-requests".into())
             .spawn(move || {
-                core.run(&receiver);
+                core.run(first, &receiver);
                 lock(&core.shared).exit.get_or_insert(Ok(()));
             })
             .map_err(|error| error.to_string())?;
@@ -160,8 +165,7 @@ impl Drop for Worker {
 }
 
 struct Core {
-    profile: PathBuf,
-    executable: PathBuf,
+    target: Target,
     shared: Arc<Mutex<Shared>>,
     viewport: Arc<Mutex<Rect>>,
     stop: Arc<AtomicBool>,
@@ -174,35 +178,31 @@ struct Core {
 }
 
 impl Core {
-    fn run(&mut self, requests: &Receiver<Action>) {
+    fn run(&mut self, mut first: Option<Client>, requests: &Receiver<Action>) {
+        let mut failures = 0;
         while !self.stop.load(Ordering::Acquire) {
-            self.message("Connecting to local server…");
-            let client = match muxy_client::local::ensure_running(
-                &self.profile.join("server.sock"),
-                &self.executable,
-            ) {
-                Ok(client) => client,
-                Err(error) => {
-                    self.message(&error.to_string());
-                    match requests.recv_timeout(Duration::from_millis(500)) {
-                        Ok(Action::Detach) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                        Ok(action) => {
-                            if !matches!(action, Action::ListSessions) {
-                                self.ordered.fetch_sub(1, Ordering::AcqRel);
-                            }
-                            if let Action::Input(input) = action {
-                                self.queued_bytes
-                                    .fetch_sub(input.length(), Ordering::AcqRel);
-                            }
-                            self.message(
-                                "Server is disconnected; the pending action was not applied",
-                            );
-                        }
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+            let client = if let Some(client) = first.take() {
+                client
+            } else {
+                self.message(&format!("Connecting to {}…", self.target.describe()));
+                match self.connect(requests) {
+                    Some(Ok(client)) => client,
+                    Some(Err(error)) if !target::recoverable(&error) => {
+                        self.fail(error.to_string());
+                        break;
                     }
-                    continue;
+                    Some(Err(error)) => {
+                        self.message(&self.target.explain(error).to_string());
+                        failures += 1;
+                        if self.pause(requests, self.target.retry_delay(failures)) {
+                            continue;
+                        }
+                        break;
+                    }
+                    None => break,
                 }
             };
+            failures = 0;
             *lock(&self.connection) = Some(client.clone());
             let reader = match io::reader(client.clone(), Arc::clone(&self.shared)) {
                 Ok(reader) => reader,
@@ -220,13 +220,80 @@ impl Core {
                 Ok(true) => break,
                 Ok(false) => {}
                 Err(error) => {
-                    let mut shared = lock(&self.shared);
-                    shared.message.clone_from(&error);
-                    shared.exit = Some(Err(error));
+                    self.fail(error);
                     break;
                 }
             }
         }
+    }
+
+    /// Ends the TUI with `error`.
+    fn fail(&self, error: String) {
+        let mut shared = lock(&self.shared);
+        shared.message.clone_from(&error);
+        shared.exit = Some(Err(error));
+    }
+
+    /// Connects on another thread, so Detach and quitting never wait for a
+    /// slow host. Returns `None` if the TUI stops first.
+    fn connect(
+        &self,
+        requests: &Receiver<Action>,
+    ) -> Option<std::result::Result<Client, ClientError>> {
+        let (sender, connected) = mpsc::sync_channel(1);
+        let target = self.target.clone();
+        let spawned = thread::Builder::new()
+            .name("muxy-tui-connect".into())
+            .spawn(move || {
+                let _ = sender.send(target.connect(Start::IfNeeded));
+            });
+        if let Err(error) = spawned {
+            return Some(Err(error.into()));
+        }
+        loop {
+            match connected.recv_timeout(POLL) {
+                Ok(result) => return Some(result),
+                Err(RecvTimeoutError::Disconnected) => return Some(Err(ClientError::Disconnected)),
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if !self.idle(requests, Duration::ZERO) {
+                return None;
+            }
+        }
+    }
+
+    /// Waits before connecting again. Returns false if the TUI stops first.
+    fn pause(&self, requests: &Receiver<Action>, delay: Duration) -> bool {
+        let deadline = Instant::now() + delay;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return true;
+            }
+            if !self.idle(requests, left.min(POLL)) {
+                return false;
+            }
+        }
+    }
+
+    /// Answers a request that arrives within `timeout` while disconnected.
+    /// Returns false once the TUI should stop: on Detach, or when it closes.
+    fn idle(&self, requests: &Receiver<Action>, timeout: Duration) -> bool {
+        match requests.recv_timeout(timeout) {
+            Ok(Action::Detach) | Err(RecvTimeoutError::Disconnected) => return false,
+            Ok(action) => {
+                if !matches!(action, Action::ListSessions) {
+                    self.ordered.fetch_sub(1, Ordering::AcqRel);
+                }
+                if let Action::Input(input) = action {
+                    self.queued_bytes
+                        .fetch_sub(input.length(), Ordering::AcqRel);
+                }
+                self.message("Server is disconnected; the pending action was not applied");
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+        !self.stop.load(Ordering::Acquire)
     }
 
     fn connected(&mut self, client: &Client, requests: &Receiver<Action>) -> Result<bool> {
@@ -235,9 +302,7 @@ impl Core {
             .identify(muxy_protocol::ClientKind::Tui)
             .map_err(|error| error.to_string())?;
         let mut catalog = client.catalog().map_err(|error| error.to_string())?;
-        if self.store.is_none() {
-            self.store = Some(Store::load(&self.profile, &catalog)?);
-        }
+        self.load_layout(&catalog)?;
         self.store_mut()?
             .change(|state| state.reconcile(&catalog))?;
         let references = self.store_mut()?.state.session_references();
@@ -286,8 +351,8 @@ impl Core {
             if sessions_dirty && let Err(error) = self.list_sessions(client, &catalog) {
                 self.message(&error);
             }
-            match requests.recv_timeout(Duration::from_millis(100)) {
-                Ok(Action::Detach) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(true),
+            match requests.recv_timeout(POLL) {
+                Ok(Action::Detach) | Err(RecvTimeoutError::Disconnected) => return Ok(true),
                 Ok(action) => {
                     let ordered = !matches!(action, Action::ListSessions);
                     let bytes = match &action {
@@ -303,10 +368,30 @@ impl Core {
                         self.ordered.fetch_sub(1, Ordering::AcqRel);
                     }
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Timeout) => {}
             }
         }
         Ok(self.stop.load(Ordering::Acquire))
+    }
+
+    /// Loads the layout once the server is known. A remote's layout belongs
+    /// to the server that first answered there, so a different one answering
+    /// after a reconnect needs a fresh start.
+    fn load_layout(&mut self, catalog: &CatalogPage) -> Result {
+        match (&self.store, &self.target) {
+            (None, _) => {}
+            (Some(store), Target::Ssh { host, .. }) if store.state.server != catalog.server => {
+                return Err(format!(
+                    "A different Muxy server now runs on {host}. Run muxy --host {host} again to use it."
+                ));
+            }
+            (Some(_), _) => return Ok(()),
+        }
+        self.store = Some(Store::load(
+            &self.target.layout_directory(catalog.server),
+            catalog,
+        )?);
+        Ok(())
     }
 
     fn action(&mut self, action: Action, client: &Client, catalog: &CatalogPage) -> Result {

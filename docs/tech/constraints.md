@@ -10,9 +10,12 @@ Supported platforms, and lessons that shape the code.
 | `muxy` and `muxy-server` | macOS 14 and later, and Linux with glibc 2.35 or later, on x86_64 and ARM64 |
 | Mobile SDK | iOS and Android |
 
-Not yet supported: Windows, musl or Alpine Linux, and desktop or terminal UI
-connections to other machines. Linux builds must be built and run natively on
-both architectures to count as supported.
+Not yet supported: Windows, musl or Alpine Linux, and desktop app connections
+to other machines. Linux builds must be built and run natively on both
+architectures to count as supported.
+
+On Linux hosts that end a user's processes at logout, run
+`loginctl enable-linger` so the server keeps running after an SSH session ends.
 
 Turning on mobile access may show a macOS firewall prompt for `muxy-server`, and
 the iOS app needs local network permission.

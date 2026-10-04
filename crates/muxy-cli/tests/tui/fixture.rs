@@ -109,6 +109,15 @@ pub(super) struct Tui<'a> {
 
 impl<'a> Tui<'a> {
     pub(super) fn start(fixture: &'a Fixture, extra: &[(&str, &str)]) -> Result<Self> {
+        Self::launch(fixture, extra, &[])
+    }
+
+    /// Starts `muxy` with `arguments`, such as `--host`.
+    pub(super) fn launch(
+        fixture: &'a Fixture,
+        extra: &[(&str, &str)],
+        arguments: &[&str],
+    ) -> Result<Self> {
         let mut env = fixture.environment();
         env.extend(
             extra
@@ -116,12 +125,15 @@ impl<'a> Tui<'a> {
                 .map(|(key, value)| ((*key).into(), (*value).into())),
         );
         env.push(("MUXY_TEST_TUI_BIN".into(), super::support::binary().into()));
+        let mut args = vec![
+            "-c".into(),
+            "stty -g > \"$MUXY_DIR/termios-$$\"; tty > \"$MUXY_DIR/tty-$$\"; exec \"$MUXY_TEST_TUI_BIN\" \"$@\"".into(),
+            "sh".into(),
+        ];
+        args.extend(arguments.iter().map(Into::into));
         let pty = Pty::spawn(SpawnRequest {
             program: "/bin/sh".into(),
-            args: vec![
-                "-c".into(),
-                "stty -g > \"$MUXY_DIR/termios-$$\"; tty > \"$MUXY_DIR/tty-$$\"; exec \"$MUXY_TEST_TUI_BIN\"".into(),
-            ],
+            args,
             cwd: fixture.directory.path().to_owned(),
             env,
             size: PtySize {

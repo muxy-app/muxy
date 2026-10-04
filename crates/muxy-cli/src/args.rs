@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::io;
 
-use muxy_client::Start;
+use muxy_client::{SshTarget, Start};
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Command {
@@ -24,7 +24,37 @@ pub(crate) enum Mobile {
     Revoke { device: String },
 }
 
-pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
+/// Reads the command, and the other computer whose server it uses when it
+/// starts with `--host DESTINATION`.
+pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Command)> {
+    match arguments {
+        [flag, destination, rest @ ..] if flag == "--host" => {
+            if rest.first().is_some_and(|word| word == "--host") {
+                return Err(invalid("duplicate option --host"));
+            }
+            let host = destination
+                .to_str()
+                .ok_or_else(|| invalid("--host must be UTF-8"))?
+                .parse()?;
+            match (command(rest)?, rest) {
+                // These describe this computer's muxy, and a bridge must never
+                // reach on to another computer.
+                (
+                    Command::Help | Command::Version | Command::BuildInfo | Command::Stdio(_),
+                    [word, ..],
+                ) => Err(invalid(&format!(
+                    "--host can't be combined with {}",
+                    word.to_string_lossy()
+                ))),
+                (command, _) => Ok((Some(host), command)),
+            }
+        }
+        [flag] if flag == "--host" => Err(invalid("usage: muxy --host DESTINATION [COMMAND]")),
+        _ => Ok((None, command(arguments)?)),
+    }
+}
+
+fn command(arguments: &[OsString]) -> io::Result<Command> {
     match arguments {
         [flag] if flag == "--help" || flag == "-h" => return Ok(Command::Help),
         [flag] if flag == "--version" || flag == "-V" => return Ok(Command::Version),
@@ -76,23 +106,30 @@ fn invalid(message: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manage::args::Action;
 
-    fn parse_words(words: &[&str]) -> io::Result<Command> {
+    fn parse_words(words: &[&str]) -> io::Result<(Option<SshTarget>, Command)> {
         parse(&words.iter().map(OsString::from).collect::<Vec<_>>())
     }
 
     #[test]
     fn mobile_commands_parse_and_reject_malformed_input() -> io::Result<()> {
-        assert_eq!(parse_words(&["mobile"])?, Command::Mobile(Mobile::Status));
+        assert_eq!(
+            parse_words(&["mobile"])?,
+            (None, Command::Mobile(Mobile::Status))
+        );
         assert_eq!(
             parse_words(&["mobile", "enable", "--port", "7420"])?,
-            Command::Mobile(Mobile::Enable { port: Some(7420) })
+            (None, Command::Mobile(Mobile::Enable { port: Some(7420) }))
         );
         assert_eq!(
             parse_words(&["mobile", "revoke", "3f2a"])?,
-            Command::Mobile(Mobile::Revoke {
-                device: "3f2a".into()
-            })
+            (
+                None,
+                Command::Mobile(Mobile::Revoke {
+                    device: "3f2a".into()
+                })
+            )
         );
         for words in [
             &["mobile", "enable", "--port", "70000"][..],
@@ -108,10 +145,13 @@ mod tests {
 
     #[test]
     fn stdio_starts_the_server_unless_told_not_to() -> io::Result<()> {
-        assert_eq!(parse_words(&["stdio"])?, Command::Stdio(Start::IfNeeded));
+        assert_eq!(
+            parse_words(&["stdio"])?,
+            (None, Command::Stdio(Start::IfNeeded))
+        );
         assert_eq!(
             parse_words(&["stdio", "--no-start"])?,
-            Command::Stdio(Start::Never)
+            (None, Command::Stdio(Start::Never))
         );
         for words in [
             &["stdio", "--help"][..],
@@ -121,5 +161,47 @@ mod tests {
             assert!(parse_words(words).is_err(), "{words:?}");
         }
         Ok(())
+    }
+
+    #[test]
+    fn host_comes_first_and_applies_to_the_tui_and_server_commands() -> io::Result<()> {
+        let host = SshTarget::new("dev@box")?;
+        assert_eq!(
+            parse_words(&["--host", "dev@box"])?,
+            (Some(host.clone()), Command::Interactive)
+        );
+        assert_eq!(
+            parse_words(&["--host", "dev@box", "mobile", "pair"])?,
+            (Some(host), Command::Mobile(Mobile::Pair))
+        );
+        let (host, command) =
+            parse_words(&["--host", "ssh://dev@box:2222", "session", "list", "--json"])?;
+        assert_eq!(host, Some(SshTarget::new("ssh://dev@box:2222")?));
+        assert!(matches!(command, Command::Manage(invocation) if invocation.json));
+        let (_, help) = parse_words(&["--host", "box", "session", "--help"])?;
+        assert!(
+            matches!(help, Command::Manage(invocation) if matches!(invocation.action, Action::Help(_)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn host_must_be_valid_and_never_reaches_this_muxy_or_its_bridge() {
+        for words in [
+            &["--host"][..],
+            &["--host", ""],
+            &["--host", "-oProxyCommand=sh"],
+            &["--host", "dev box"],
+            &["--host", "box", "--help"],
+            &["--host", "box", "-h"],
+            &["--host", "box", "--version"],
+            &["--host", "box", "--build-info"],
+            &["--host", "box", "stdio"],
+            &["--host", "box", "stdio", "--no-start"],
+            &["--host", "box", "--host", "other"],
+            &["session", "list", "--host", "box"],
+        ] {
+            assert!(parse_words(words).is_err(), "{words:?}");
+        }
     }
 }

@@ -8,6 +8,7 @@ The processes, the crates, and how data moves between them.
 flowchart LR
     DESKTOP["Desktop app"] <-->|"Unix socket"| LOCAL
     TUI["muxy terminal UI"] <-->|"Unix socket"| LOCAL
+    TUI <-->|"SSH · muxy stdio<br/>from another computer"| LOCAL
     PHONE["Phone app"] <-->|"TLS · after pairing"| NETWORK
     subgraph SERVER["muxy-server · one per profile"]
         LOCAL["Local listener"]

@@ -4,8 +4,12 @@ mod applications;
 mod faults;
 #[path = "tui/fixture.rs"]
 mod fixture;
+#[path = "tui/host.rs"]
+mod host;
 #[path = "tui/proxy.rs"]
 mod proxy;
+#[path = "support/ssh.rs"]
+mod remote;
 mod support;
 
 use fixture::{Fixture, Result, Tui};

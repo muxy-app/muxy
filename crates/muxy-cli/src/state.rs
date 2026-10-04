@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use muxy_app_core::{Branch, Direction, Layout, PaneId};
@@ -461,8 +461,15 @@ impl Store {
             Ok(())
         }
     }
-    pub(crate) fn load(profile: &Path, catalog: &CatalogPage) -> Result<Self> {
-        let path = profile.join("tui-state.json");
+    /// Loads the layout kept in `directory`, creating the folder, private to
+    /// this user, if it is missing.
+    pub(crate) fn load(directory: &Path, catalog: &CatalogPage) -> Result<Self> {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(directory)
+            .map_err(|error| format!("Cannot create {}: {error}", directory.display()))?;
+        let path = directory.join("tui-state.json");
         let _guard = state_lock(&path)?;
         let saved = read_state(&path)?;
         Ok(Self {
@@ -745,6 +752,26 @@ mod tests {
         again.change(|state| state.reconcile(&catalog))?;
         assert!(again.state.tab().is_none());
         assert!(again.state.discards.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_missing_layout_folder_is_created_private_to_the_user() -> Result {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let servers = directory.path().join("servers");
+        let layouts = servers.join("one");
+        let catalog = catalog();
+        let mut store = Store::load(&layouts, &catalog)?;
+        store.change(|state| state.reconcile(&catalog))?;
+        assert!(layouts.join("tui-state.json").is_file());
+        for folder in [servers, layouts] {
+            let mode = fs::metadata(&folder)
+                .map_err(|error| error.to_string())?
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o700, "{}", folder.display());
+        }
         Ok(())
     }
 

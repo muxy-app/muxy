@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use muxy_client::Client;
 use muxy_protocol::{
@@ -8,21 +8,33 @@ use muxy_protocol::{
 use serde_json::{Value, json};
 
 use super::args::{Project, Worktree};
-use super::{Output, Result, absolute, local_path, path_text, server_path};
+use super::{Output, Paths, Result, absolute, local_path, path_text, server_path};
 
-pub(super) fn resolve(client: &Client, selector: &str) -> Result<ProjectDescriptor> {
-    select(client.catalog()?.projects, selector)
+pub(super) fn resolve(client: &Client, selector: &str, paths: Paths) -> Result<ProjectDescriptor> {
+    select(client.catalog()?.projects, selector, paths)
 }
 
-fn select(projects: Vec<ProjectDescriptor>, selector: &str) -> Result<ProjectDescriptor> {
+fn select(
+    projects: Vec<ProjectDescriptor>,
+    selector: &str,
+    paths: Paths,
+) -> Result<ProjectDescriptor> {
     if let Ok(id) = selector.parse::<ProjectId>() {
         return projects
             .into_iter()
             .find(|project| project.id == id)
             .ok_or_else(|| format!("project not found: {selector}").into());
     }
-    let path = absolute(Path::new(selector))?;
-    let canonical = path.canonicalize().ok();
+    let (path, canonical) = match paths {
+        Paths::Local => {
+            let path = absolute(Path::new(selector))?;
+            let canonical = path.canonicalize().ok();
+            (path, canonical)
+        }
+        // Another computer's folders can't be resolved here; only the exact
+        // path matches.
+        Paths::Remote => (PathBuf::from(selector), None),
+    };
     let mut matches = projects.into_iter().filter(|project| {
         let directory = local_path(&project.directory);
         project.name.eq_ignore_ascii_case(selector)
@@ -46,7 +58,7 @@ pub(super) fn record(project: &ProjectDescriptor) -> Value {
         "kind":project.kind, "color":project.color, "icon":project.icon})
 }
 
-pub(super) fn run(command: Project, client: &Client, output: &Output) -> Result {
+pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Paths) -> Result {
     match command {
         Project::List => output.list(
             &client
@@ -58,9 +70,13 @@ pub(super) fn run(command: Project, client: &Client, output: &Output) -> Result 
             &["id", "name", "directory"],
         ),
         Project::Add { directory, name } => {
-            let directory = absolute(&directory)?.canonicalize()?;
-            if !directory.is_dir() {
-                return Err("project directory must exist".into());
+            let mut directory = paths.directory(&directory)?;
+            // Another computer's server checks its own folders.
+            if paths == Paths::Local {
+                directory = directory.canonicalize()?;
+                if !directory.is_dir() {
+                    return Err("project directory must exist".into());
+                }
             }
             let name = name.unwrap_or_else(|| {
                 directory
@@ -86,18 +102,18 @@ pub(super) fn run(command: Project, client: &Client, output: &Output) -> Result 
         Project::Delete(selector) => {
             mutate(
                 client,
-                ProjectMutation::Delete(resolve(client, &selector)?.id),
+                ProjectMutation::Delete(resolve(client, &selector, paths)?.id),
             )?;
             output.ok()
         }
         Project::Rename { project, name } => {
-            patch(client, &project, ProjectPatch::Name(name), output)
+            patch(client, &project, ProjectPatch::Name(name), output, paths)
         }
         Project::Color { project, color } => {
-            patch(client, &project, ProjectPatch::Color(color), output)
+            patch(client, &project, ProjectPatch::Color(color), output, paths)
         }
         Project::Icon { project, icon } => {
-            patch(client, &project, ProjectPatch::Icon(icon), output)
+            patch(client, &project, ProjectPatch::Icon(icon), output, paths)
         }
     }
 }
@@ -112,18 +128,29 @@ fn mutate(client: &Client, mutation: ProjectMutation) -> Result {
     })?;
     Ok(())
 }
-fn patch(client: &Client, selector: &str, patch: ProjectPatch, output: &Output) -> Result {
+fn patch(
+    client: &Client,
+    selector: &str,
+    patch: ProjectPatch,
+    output: &Output,
+    paths: Paths,
+) -> Result {
     mutate(
         client,
         ProjectMutation::Patch {
-            project: resolve(client, selector)?.id,
+            project: resolve(client, selector, paths)?.id,
             patch,
         },
     )?;
     output.ok()
 }
 
-pub(super) fn worktree(command: Worktree, client: &Client, output: &Output) -> Result {
+pub(super) fn worktree(
+    command: Worktree,
+    client: &Client,
+    output: &Output,
+    paths: Paths,
+) -> Result {
     let (selector, action) = match command {
         Worktree::List(project) => (project, GitAction::Worktrees),
         Worktree::Create {
@@ -135,7 +162,7 @@ pub(super) fn worktree(command: Worktree, client: &Client, output: &Output) -> R
             project,
             intent(WorktreeAction::Create {
                 project: ProjectId::new(),
-                directory: server_path(&absolute(&directory)?),
+                directory: server_path(&paths.directory(&directory)?),
                 branch,
                 base,
             }),
@@ -144,11 +171,11 @@ pub(super) fn worktree(command: Worktree, client: &Client, output: &Output) -> R
             project,
             intent(WorktreeAction::Register {
                 project: ProjectId::new(),
-                directory: server_path(&absolute(&directory)?),
+                directory: server_path(&paths.directory(&directory)?),
             }),
         ),
         Worktree::Remove(selector) => {
-            let project = resolve(client, &selector)?;
+            let project = resolve(client, &selector, paths)?;
             if project.parent_id.is_none() {
                 return Err("project is not a worktree".into());
             }
@@ -169,7 +196,7 @@ pub(super) fn worktree(command: Worktree, client: &Client, output: &Output) -> R
             return output.ok();
         }
     };
-    let project = resolve(client, &selector)?;
+    let project = resolve(client, &selector, paths)?;
     let reply = client.git(GitRequest {
         project: project.parent_id.unwrap_or(project.id),
         action,
@@ -191,27 +218,56 @@ fn intent(action: WorktreeAction) -> GitAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn ids_win_and_duplicate_names_or_paths_are_rejected() -> Result {
-        let project = ProjectDescriptor {
+
+    fn project(name: &str, directory: &str) -> ProjectDescriptor {
+        ProjectDescriptor {
             id: ProjectId::new(),
             home: false,
-            name: "Example".into(),
-            directory: server_path(Path::new("/tmp")),
+            name: name.into(),
+            directory: server_path(Path::new(directory)),
             icon: None,
             logo: None,
             color: "#808080".into(),
             kind: None,
             parent_id: None,
-        };
+        }
+    }
+
+    #[test]
+    fn ids_win_and_duplicate_names_or_paths_are_rejected() -> Result {
+        let project = project("Example", "/tmp");
         let second = ProjectDescriptor {
             id: ProjectId::new(),
             ..project.clone()
         };
         let projects = vec![project.clone(), second];
-        assert!(select(projects.clone(), "example").is_err());
-        assert!(select(projects.clone(), "/tmp").is_err());
-        assert_eq!(select(projects, &project.id.to_string())?, project);
+        for paths in [Paths::Local, Paths::Remote] {
+            assert!(select(projects.clone(), "example", paths).is_err());
+            assert!(select(projects.clone(), "/tmp", paths).is_err());
+            assert_eq!(
+                select(projects.clone(), &project.id.to_string(), paths)?,
+                project
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn remote_selectors_match_names_and_exact_paths_only() -> Result {
+        let directory = std::env::current_dir()?;
+        let here = project("Here", &directory.to_string_lossy());
+        let projects = vec![here.clone()];
+        assert_eq!(select(projects.clone(), ".", Paths::Local)?, here);
+        assert!(select(projects.clone(), ".", Paths::Remote).is_err());
+        assert_eq!(
+            select(
+                projects.clone(),
+                &directory.to_string_lossy(),
+                Paths::Remote
+            )?,
+            here
+        );
+        assert_eq!(select(projects, "here", Paths::Remote)?, here);
         Ok(())
     }
 }

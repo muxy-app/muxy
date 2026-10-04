@@ -6,8 +6,10 @@ mod remote;
 mod support;
 
 use std::fs;
+use std::net::TcpListener;
 use std::os::unix::fs::symlink;
-use std::process::{Command, Stdio};
+use std::path::Path;
+use std::process::{Command, Output, Stdio};
 use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -15,6 +17,7 @@ use std::time::{Duration, Instant};
 use muxy_client::{Client, ClientError, ClientEvent, RemoteReason, Start};
 use muxy_protocol::{ChannelId, ClientKind, SessionClient, SessionInfo, Size};
 use remote::{FakeRemote, Result};
+use serde_json::Value;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 const SIZE: Size = Size { cols: 80, rows: 24 };
@@ -196,5 +199,142 @@ fn the_bridge_alone_starts_the_server_announces_itself_and_ends_with_stdin() -> 
     assert_eq!(output.stdout, b"MUXY-STDIO/1\n");
     assert!(output.stderr.is_empty(), "{output:?}");
     assert!(remote.socket().exists());
+    Ok(())
+}
+
+/// Runs `muxy --host box` on this computer, with `local` as its own profile.
+fn host(remote: &FakeRemote, local: &Path, args: &[&str]) -> Result<Output> {
+    Ok(Command::new(support::binary())
+        .args(["--host", "box"])
+        .args(args)
+        .env("MUXY_SSH", remote.ssh())
+        .env("MUXY_DIR", local)
+        .env_remove("MUXY_SERVER_BIN")
+        .env_remove("MUXY_PANE_ID")
+        .stdin(Stdio::null())
+        .output()?)
+}
+
+fn succeeded(output: Output) -> Result<String> {
+    assert!(output.status.success(), "{output:?}");
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+fn failed(output: Output) -> Result<String> {
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    Ok(String::from_utf8(output.stderr)?)
+}
+
+#[test]
+fn host_runs_server_commands_on_the_other_computer_only() -> Result {
+    let remote = FakeRemote::new()?;
+    let local = tempfile::tempdir()?;
+    let muxy = |args: &[&str]| host(&remote, local.path(), args);
+
+    for command in [&["server", "status"][..], &["server", "stop"]] {
+        assert_eq!(
+            failed(muxy(command)?)?,
+            "muxy: Muxy's server isn't running on box.\n"
+        );
+    }
+    assert!(!remote.socket().exists());
+    let info: Value = serde_json::from_str(&succeeded(muxy(&["server", "start"])?)?)?;
+    assert!(info["build"]["version"].is_string(), "{info}");
+    succeeded(muxy(&["server", "status"])?)?;
+
+    let folder = remote.home().join("app");
+    fs::create_dir(&folder)?;
+    let folder = folder.to_str().ok_or("folder")?;
+    let added: Value = serde_json::from_str(&succeeded(muxy(&[
+        "project", "add", folder, "--name", "App", "--json",
+    ])?)?)?;
+    let projects: Value = serde_json::from_str(&succeeded(muxy(&["project", "list", "--json"])?)?)?;
+    assert!(
+        projects
+            .as_array()
+            .ok_or("projects")?
+            .iter()
+            .any(|project| project["id"] == added["id"] && project["directory"] == folder),
+        "{projects}"
+    );
+    assert_eq!(
+        failed(muxy(&["project", "add", "app"])?)?,
+        "muxy: app: with --host, directories must be absolute paths on that computer\n"
+    );
+    assert!(failed(muxy(&["project", "add", "/missing/app"])?)?.contains("does not exist"));
+
+    let created: Value =
+        serde_json::from_str(&succeeded(muxy(&["session", "create", "App", "--json"])?)?)?;
+    assert_eq!(created["directory"], folder);
+    let session = created["id"].as_str().ok_or("session ID")?;
+    succeeded(muxy(&[
+        "session",
+        "send",
+        session,
+        "echo remote-$((40+2))",
+    ])?)?;
+    succeeded(muxy(&["session", "send-keys", session, "Enter"])?)?;
+    let deadline = Instant::now() + TIMEOUT;
+    while !succeeded(muxy(&["session", "read-screen", session])?)?.contains("remote-42") {
+        assert!(
+            Instant::now() < deadline,
+            "the remote terminal never answered"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    assert!(succeeded(muxy(&["mobile"])?)?.contains("Mobile access: off"));
+    let port = TcpListener::bind("127.0.0.1:0")?
+        .local_addr()?
+        .port()
+        .to_string();
+    assert!(
+        succeeded(muxy(&["mobile", "enable", "--port", &port])?)?
+            .contains(&format!("listening on port {port}"))
+    );
+
+    assert_eq!(succeeded(muxy(&["server", "stop", "--force"])?)?, "ok\n");
+    let deadline = Instant::now() + TIMEOUT;
+    while remote.socket().exists() {
+        assert!(Instant::now() < deadline, "the remote server kept running");
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(fs::read_dir(local.path())?.count(), 0);
+    Ok(())
+}
+
+#[test]
+fn host_problems_print_one_line_and_never_reach_the_bridge_through_ssh() -> Result {
+    let local = tempfile::tempdir()?;
+    let refused =
+        FakeRemote::with_script("echo 'dev@box: Permission denied (publickey).' >&2; exit 255")?;
+    let message = failed(host(&refused, local.path(), &["session", "list"])?)?;
+    assert!(
+        message.starts_with("muxy: SSH refused the login to box."),
+        "{message}"
+    );
+    assert_eq!(message.lines().count(), 1, "{message}");
+    let missing = FakeRemote::with_script("export PATH=/usr/bin:/bin")?;
+    assert_eq!(
+        failed(host(&missing, local.path(), &["project", "list"])?)?,
+        "muxy: Muxy isn't installed on box (looked on PATH and in ~/.local/bin).\n"
+    );
+
+    let vanished = FakeRemote::with_script("printf 'MUXY-STDIO/1\\n'; exit 0")?;
+    assert_eq!(
+        failed(host(&vanished, local.path(), &["session", "list"])?)?,
+        "muxy: box: disconnected from server\n"
+    );
+
+    let watched = FakeRemote::with_script(r#"touch "$HOME/reached""#)?;
+    for args in [&["stdio"][..], &["--version"]] {
+        let message = failed(host(&watched, local.path(), args)?)?;
+        assert!(
+            message.starts_with("muxy: --host can't be combined with"),
+            "{message}"
+        );
+    }
+    assert!(!watched.home().join("reached").exists());
     Ok(())
 }

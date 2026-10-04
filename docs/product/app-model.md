@@ -7,13 +7,13 @@ How people use Muxy: the apps, navigation, settings, and updates.
 | App | Connects to |
 | --- | --- |
 | Desktop app (macOS) | The server on the same computer, starting it if needed. |
-| `muxy` terminal UI | The server on the same computer, starting it if needed. Ships with the desktop app and also on its own. |
+| `muxy` terminal UI | The server on the same computer, starting it if needed, or with `--host`, the server on another computer over SSH. Ships with the desktop app and also on its own. |
 | Phone app | A paired computer's server, over the local network or a VPN. |
 
-To work on another machine, SSH in and run `muxy` there. Connecting the desktop
-app to other machines comes later. Every project already knows which server it
-lives on, so one app can later show projects from several servers. There is no
-global "current server".
+`muxy --host` works with another machine's server over SSH. Connecting the
+desktop app to other machines comes later. Every project already knows which
+server it lives on, so one app can later show projects from several servers.
+There is no global "current server".
 
 Each app keeps its own layout: tabs, splits, workspaces, and project order.
 Projects and terminals are shared. Several `muxy` windows can open the same
