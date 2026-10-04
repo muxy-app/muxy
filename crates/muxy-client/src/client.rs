@@ -19,7 +19,7 @@ use crate::handshake;
 use crate::requests::Pending;
 use crate::{ClientError, RunGrid};
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attachment {

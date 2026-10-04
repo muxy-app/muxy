@@ -94,6 +94,17 @@ pub fn connect(path: impl AsRef<Path>) -> io::Result<Box<dyn ByteStream>> {
     Ok(Box::new(stream))
 }
 
+pub(super) fn socket_pair() -> io::Result<(UnixStream, UnixStream)> {
+    let (first, second) = UnixStream::pair()?;
+    // std sets no SO_NOSIGPIPE on Apple socket pairs, and an iOS host app does
+    // not ignore SIGPIPE the way Rust executables do.
+    #[cfg(target_vendor = "apple")]
+    for socket in [&first, &second] {
+        rustix::net::sockopt::set_socket_nosigpipe(socket, true)?;
+    }
+    Ok((first, second))
+}
+
 impl ByteStream for UnixStream {
     fn cancellation(&self) -> io::Result<Box<dyn StreamCancellation>> {
         Ok(Box::new(SocketCancellation {

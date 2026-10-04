@@ -1,6 +1,8 @@
 use std::ffi::OsString;
 use std::io;
 
+use muxy_client::Start;
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Command {
     Help,
@@ -9,6 +11,8 @@ pub(crate) enum Command {
     Interactive,
     Manage(Box<crate::manage::args::Invocation>),
     Mobile(Mobile),
+    /// Joins stdin and stdout to the server, for clients on other computers.
+    Stdio(Start),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -30,6 +34,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
     match arguments {
         [] => Ok(Command::Interactive),
         [command, rest @ ..] if command == "mobile" => mobile(rest).map(Command::Mobile),
+        [command, rest @ ..] if command == "stdio" => stdio(rest).map(Command::Stdio),
         _ => {
             crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
         }
@@ -53,6 +58,14 @@ fn mobile(arguments: &[OsString]) -> io::Result<Mobile> {
             device: (*device).to_owned(),
         }),
         _ => Err(invalid("unknown mobile command; run muxy --help")),
+    }
+}
+
+fn stdio(arguments: &[OsString]) -> io::Result<Start> {
+    match arguments {
+        [] => Ok(Start::IfNeeded),
+        [flag] if flag == "--no-start" => Ok(Start::Never),
+        _ => Err(invalid("usage: muxy stdio [--no-start]")),
     }
 }
 
@@ -87,6 +100,23 @@ mod tests {
             &["mobile", "revoke"],
             &["mobile", "pair", "now"],
             &["mobile", "unknown"],
+        ] {
+            assert!(parse_words(words).is_err(), "{words:?}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn stdio_starts_the_server_unless_told_not_to() -> io::Result<()> {
+        assert_eq!(parse_words(&["stdio"])?, Command::Stdio(Start::IfNeeded));
+        assert_eq!(
+            parse_words(&["stdio", "--no-start"])?,
+            Command::Stdio(Start::Never)
+        );
+        for words in [
+            &["stdio", "--help"][..],
+            &["stdio", "--no-start", "--no-start"],
+            &["stdio", "now"],
         ] {
             assert!(parse_words(words).is_err(), "{words:?}");
         }

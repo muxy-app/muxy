@@ -1,6 +1,6 @@
 use std::fmt;
 
-use muxy_client::ClientError;
+use muxy_client::{ClientError, RemoteReason};
 use muxy_protocol::ErrorCode;
 
 /// Failures the app can act on.
@@ -63,7 +63,11 @@ impl From<ClientError> for MobileError {
     fn from(error: ClientError) -> Self {
         match error {
             ClientError::IdentityMismatch => Self::IdentityMismatch,
-            ClientError::VersionUnsupported => Self::IncompatibleVersion,
+            ClientError::VersionUnsupported
+            | ClientError::Remote {
+                reason: RemoteReason::Incompatible,
+                ..
+            } => Self::IncompatibleVersion,
             ClientError::Timeout => Self::Timeout,
             ClientError::Disconnected | ClientError::Wire(_) | ClientError::Protocol(_) => {
                 Self::Disconnected
@@ -81,6 +85,34 @@ impl From<ClientError> for MobileError {
             ClientError::Invalid(_) | ClientError::UnexpectedReply(_) => Self::Server {
                 reason: error.to_string(),
             },
+            ClientError::Remote { .. } => Self::Unreachable {
+                reason: error.to_string(),
+            },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn remote(reason: RemoteReason) -> ClientError {
+        ClientError::Remote {
+            reason,
+            destination: "box".into(),
+            detail: "it speaks bridge version 2".into(),
+        }
+    }
+
+    #[test]
+    fn bridge_failures_keep_their_message_and_versions_stay_incompatible() {
+        assert!(matches!(
+            MobileError::from(remote(RemoteReason::NotInstalled)),
+            MobileError::Unreachable { reason } if reason == "Muxy isn't installed on box (looked on PATH and in ~/.local/bin)."
+        ));
+        assert!(matches!(
+            MobileError::from(remote(RemoteReason::Incompatible)),
+            MobileError::IncompatibleVersion
+        ));
     }
 }

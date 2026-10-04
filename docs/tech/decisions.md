@@ -16,7 +16,7 @@ raw reports are in git history.
 | D4 | Rows travel as style runs | 4 to 8 times smaller than cells |
 | D5 | CBOR messages, postcard rows | Messages can grow, rows stay compact |
 | D6 | zstd streaming compression, planned | Halves interactive traffic |
-| D7 | Any byte stream is a transport | Unix socket locally, TLS for phones |
+| D7 | Any byte stream is a transport | Unix socket locally, SSH to other computers, TLS for phones |
 | D8 | One merged frame in flight | Slow apps never pile up |
 | D9 | The app draws rows directly | Redraws only on change |
 | D10 | portable-pty for PTYs | Same speed, ready for Windows |
@@ -74,8 +74,8 @@ dictionaries, which fit their training data and little else.
 
 Unix sockets, TCP, and stdio pipes were all ten times faster than any real
 program writes to a terminal. Apps on the same computer use a Unix socket and
-phones use TLS (D11). stdio, for reaching servers through SSH or `docker exec`,
-is planned.
+phones use TLS (D11). Other computers are reached over SSH, which runs
+`muxy stdio` there to join its stdin and stdout to that computer's server.
 
 Turned down: a stream multiplexing library, because D8 fits terminals better.
 

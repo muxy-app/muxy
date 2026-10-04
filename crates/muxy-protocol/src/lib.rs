@@ -1,4 +1,5 @@
-//! Shared protocol contracts, screen types, framing, and local and TLS transports.
+//! Shared protocol contracts, screen types, framing, and local, TLS, and
+//! child-process transports.
 //!
 //! Client and server runtime policy, persistence, UI, and native terminal
 //! execution stay with their owners.

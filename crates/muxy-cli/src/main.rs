@@ -39,6 +39,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             )?;
             mobile::run(command, &client()?)?;
         }
+        Command::Stdio(start) => {
+            let _lease = muxy_client::local::bundle::acquire_runtime(
+                &muxy_core::executable::current_path()?,
+            )?;
+            muxy_client::bridge::serve(
+                &muxy_core::dirs::muxy_dir()?.join("server.sock"),
+                &muxy_client::local::server_executable()?,
+                start,
+            )?;
+        }
     }
     Ok(())
 }

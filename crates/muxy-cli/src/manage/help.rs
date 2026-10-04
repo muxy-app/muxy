@@ -13,6 +13,7 @@ Usage: muxy [COMMAND]
   files         Run a server file action using JSON
   exec          Execute a program in a server project
   mobile        Enable access, pair phones and revoke devices
+  stdio         Connect stdin/stdout to the server; used over SSH
   --help | --version | --build-info
 
 Run muxy <command> --help for usage. Management commands accept --json.
