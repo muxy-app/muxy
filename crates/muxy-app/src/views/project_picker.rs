@@ -1,12 +1,14 @@
 use super::overlays::Overlay;
 use crate::model::AppModel;
 use crate::picker::path_service::{self, DirectoryItem};
+use crate::picker::remote::RemoteFolders;
 use crate::picker::search::{SearchService, Snapshot};
 use crate::picker::session::{InputMode, LoadState, Session};
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
     Subscription,
 };
+use muxy_app_core::ServerId;
 use muxy_ui::icon::Icon;
 use muxy_ui::picker::{
     Picker, PickerAction, PickerConfig, PickerEvent as ListEvent, PickerItem, PickerLeading,
@@ -43,6 +45,10 @@ pub(crate) enum PickerEvent {
 pub(crate) struct ProjectPicker {
     session: Session,
     search: SearchService,
+    /// Another computer's folders, instead of this one's.
+    remote: Option<RemoteFolders>,
+    /// Why the folder couldn't be listed, when the server said.
+    listing_error: Option<String>,
     picker: Entity<Picker>,
     generation: usize,
     cancelled: Arc<AtomicBool>,
@@ -68,11 +74,65 @@ impl ProjectPicker {
         metrics: Metrics,
         cx: &mut Context<Self>,
     ) -> Self {
+        let session = Session::new(search_root, project_paths);
+        let picker = Self::build(
+            session,
+            search,
+            None,
+            "Search folders or enter a path…".into(),
+            theme,
+            metrics,
+            cx,
+        );
+        let warm_root = picker.session.search_root_path.clone();
+        let warm_search = picker.search.clone();
+        let cancelled = picker.cancelled.clone();
+        cx.background_executor()
+            .spawn(async move { warm_search.prepare(&warm_root, &cancelled) })
+            .detach();
+        picker
+    }
+
+    /// Browses another computer from its Home. There is no folder search,
+    /// Finder, or folder creation there.
+    pub(crate) fn remote(
+        folders: RemoteFolders,
+        project_paths: Vec<String>,
+        theme: Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let session = Session::remote(&folders.home, project_paths);
+        let placeholder = format!("Enter a path on {}…", folders.name);
+        let mut picker = Self::build(
+            session,
+            SearchService::new(),
+            Some(folders),
+            placeholder,
+            theme,
+            metrics,
+            cx,
+        );
+        picker.session.set_input("~/");
+        picker.apply_input(cx);
+        picker.reload(cx);
+        picker
+    }
+
+    fn build(
+        session: Session,
+        search: SearchService,
+        remote: Option<RemoteFolders>,
+        placeholder: String,
+        theme: Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let picker = cx.new(|cx| {
             Picker::new(
                 PickerConfig {
                     completion_on_tab: true,
-                    ..PickerConfig::new("project-picker", "Search folders or enter a path…")
+                    ..PickerConfig::new("project-picker", placeholder)
                 },
                 theme,
                 metrics,
@@ -114,8 +174,10 @@ impl ProjectPicker {
                 },
             );
         let mut project_picker = Self {
-            session: Session::new(search_root, project_paths),
+            session,
             search,
+            remote,
+            listing_error: None,
             picker,
             generation: 0,
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -123,12 +185,6 @@ impl ProjectPicker {
             directory_cache_order: Vec::new(),
             _subscriptions: vec![subscription],
         };
-        let warm_root = project_picker.session.search_root_path.clone();
-        let warm_search = project_picker.search.clone();
-        let cancelled = project_picker.cancelled.clone();
-        cx.background_executor()
-            .spawn(async move { warm_search.prepare(&warm_root, &cancelled) })
-            .detach();
         project_picker.reload(cx);
         project_picker
     }
@@ -144,7 +200,7 @@ impl ProjectPicker {
         let search = self.search.clone();
         let cancelled = self.cancelled.clone();
 
-        if mode == InputMode::FolderSearch && query.is_empty() {
+        if mode == InputMode::FolderSearch && (query.is_empty() || self.remote.is_some()) {
             self.session.apply_search_snapshot(Snapshot::default());
             self.sync_picker(cx);
             return;
@@ -197,43 +253,50 @@ impl ProjectPicker {
                 })
                 .detach();
             }
-            InputMode::Path => {
-                let directory = path_state.directory_path.clone();
-                cx.spawn(async move |picker, cx| {
-                    cx.background_executor().timer(RELOAD_DELAY).await;
-                    if picker.read_with(cx, |picker, _| picker.generation).ok() != Some(generation)
-                    {
-                        return;
-                    }
-                    let listed = directory.clone();
-                    let contents = cx
-                        .background_executor()
-                        .spawn(async move { path_service::directory_contents(&listed) })
-                        .await;
-                    let _ = picker.update(cx, |picker, cx| {
-                        if picker.generation != generation {
-                            return;
-                        }
-                        let path_state = picker.session.path_state();
-                        match contents {
-                            Ok(items) => {
-                                picker.cache_items(&directory, items.clone());
-                                picker.session.apply_directory_snapshot(
-                                    path_state.directory_items(items),
-                                    false,
-                                );
-                            }
-                            Err(_) => picker.session.apply_directory_snapshot(
-                                path_state.directory_read_failure_items(),
-                                true,
-                            ),
-                        }
-                        picker.sync_picker(cx);
-                    });
-                })
-                .detach();
-            }
+            InputMode::Path => self.list_directory(path_state.directory_path, generation, cx),
         }
+    }
+
+    /// Lists a folder here, or through another computer's server.
+    fn list_directory(&self, directory: String, generation: usize, cx: &mut Context<Self>) {
+        let remote = self.remote.clone();
+        cx.spawn(async move |picker, cx| {
+            cx.background_executor().timer(RELOAD_DELAY).await;
+            if picker.read_with(cx, |picker, _| picker.generation).ok() != Some(generation) {
+                return;
+            }
+            let listed = directory.clone();
+            let contents = cx
+                .background_executor()
+                .spawn(async move {
+                    match remote {
+                        Some(remote) => remote.list(&listed),
+                        None => path_service::directory_contents(&listed)
+                            .map_err(|error| error.to_string()),
+                    }
+                })
+                .await;
+            let _ = picker.update(cx, |picker, cx| {
+                if picker.generation != generation {
+                    return;
+                }
+                let path_state = picker.session.path_state();
+                picker.listing_error = contents.as_ref().err().cloned();
+                match contents {
+                    Ok(items) => {
+                        picker.cache_items(&directory, items.clone());
+                        picker
+                            .session
+                            .apply_directory_snapshot(path_state.directory_items(items), false);
+                    }
+                    Err(_) => picker
+                        .session
+                        .apply_directory_snapshot(path_state.directory_read_failure_items(), true),
+                }
+                picker.sync_picker(cx);
+            });
+        })
+        .detach();
     }
 
     fn sync_picker(&self, cx: &mut Context<Self>) {
@@ -279,13 +342,17 @@ impl ProjectPicker {
                     .collect(),
             }
         };
+        let unreadable = match (&self.remote, &self.listing_error) {
+            (Some(_), Some(error)) => error.clone(),
+            _ => "Could not read this folder".to_owned(),
+        };
         if !loading && self.session.shows_unavailable_state() && !items.is_empty() {
             let label = if matches!(self.session.load_state, LoadState::Failed) {
-                "Could not read this folder"
+                unreadable.clone()
             } else if self.session.input_mode() == InputMode::Path {
-                "Folder is empty"
+                "Folder is empty".to_owned()
             } else {
-                "No matching folders"
+                "No matching folders".to_owned()
             };
             let mut row = PickerRow::new("path-unavailable", label);
             row.disabled = true;
@@ -299,7 +366,7 @@ impl ProjectPicker {
                 shows_message: false,
             } => PickerStatus::Loading("".into()),
             LoadState::Failed if !items.is_empty() => PickerStatus::Ready,
-            LoadState::Failed => PickerStatus::Error("Could not read this folder".into()),
+            LoadState::Failed => PickerStatus::Error(unreadable.clone().into()),
             LoadState::Loaded if self.session.shows_unavailable_state() && !items.is_empty() => {
                 PickerStatus::Ready
             }
@@ -309,13 +376,7 @@ impl ProjectPicker {
             LoadState::Loaded => PickerStatus::Ready,
         };
         let ghost = self.session.ghost_text();
-        let actions = vec![
-            PickerAction::new("confirm-path", self.session.top_right_action_title())
-                .icon(PickerLeading::Icon(Icon::Plus))
-                .disabled(self.session.confirmation_path().is_none()),
-            PickerAction::new("finder", "Finder…"),
-            PickerAction::new("location", "Search Location…"),
-        ];
+        let actions = self.footer_actions();
         self.picker.update(cx, |picker, cx| {
             picker.set_items(items, cx);
             picker.set_status(status, cx);
@@ -332,6 +393,20 @@ impl ProjectPicker {
                 .input()
                 .update(cx, |input, cx| input.set_ghost(ghost, cx));
         });
+    }
+
+    /// Another computer has no Finder or search location.
+    fn footer_actions(&self) -> Vec<PickerAction> {
+        let mut actions = vec![
+            PickerAction::new("confirm-path", self.session.top_right_action_title())
+                .icon(PickerLeading::Icon(Icon::Plus))
+                .disabled(self.session.confirmation_path().is_none()),
+        ];
+        if self.remote.is_none() {
+            actions.push(PickerAction::new("finder", "Finder…"));
+            actions.push(PickerAction::new("location", "Search Location…"));
+        }
+        actions
     }
 
     fn activate(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -391,6 +466,12 @@ impl ProjectPicker {
         let Some(path) = self.session.confirmation_path() else {
             return;
         };
+        if let Some(missing) = self.missing_remote_folder(&path) {
+            self.picker.update(cx, |picker, cx| {
+                picker.set_status(PickerStatus::Error(missing.into()), cx);
+            });
+            return;
+        }
         let create_if_missing = allow_create
             && self.session.input_mode() == InputMode::Path
             && self.session.typed_path_state() == path_service::TypedPathState::Missing;
@@ -400,13 +481,33 @@ impl ProjectPicker {
         });
     }
 
+    /// Why `path` on another computer can't be added, when the listing of
+    /// its parent already shows it isn't there. Otherwise the server checks.
+    fn missing_remote_folder(&self, path: &str) -> Option<String> {
+        self.remote.as_ref()?;
+        let parent = path_service::parent_path(path);
+        let name = path_service::last_component(path);
+        let listed = self.directory_cache.get(&parent)?;
+        if name.is_empty() || listed.iter().any(|item| item.name() == name) {
+            return None;
+        }
+        let parent = self.session.path_service.abbreviated_display_path(&parent);
+        Some(format!("There is no folder named {name} in {parent}"))
+    }
+
     fn choose_finder(&self, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            return;
+        }
         cx.emit(PickerEvent::ChooseFinder {
             directory: self.session.path_state().directory_path,
         });
     }
 
     fn edit_search_location(&self, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            return;
+        }
         cx.emit(PickerEvent::EditSearchLocation {
             directory: self.session.search_root_path.clone(),
         });
@@ -455,13 +556,7 @@ impl AppModel {
             .unwrap_or(&self.state.home().directory)
             .to_string_lossy()
             .into_owned();
-        let paths = self
-            .state
-            .projects()
-            .iter()
-            .filter(|project| project.server_id.is_local())
-            .map(|project| project.directory.to_string_lossy().into_owned())
-            .collect();
+        let paths = self.project_paths(ServerId::local());
         let picker = cx.new(|cx| {
             ProjectPicker::new(
                 self.picker_search.clone(),
@@ -473,22 +568,136 @@ impl AppModel {
             )
         });
         picker.focus_handle(cx).focus(window);
+        self.show_project_picker(ServerId::local(), picker, cx);
+    }
+
+    /// Opens the same picker on another computer's folders, from its Home.
+    /// A server that isn't ready yet connects first, asking for its password
+    /// if needed, and the picker opens once it is.
+    pub(crate) fn open_remote_project_picker(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        let Some(name) = self.server_name(server).map(str::to_owned) else {
+            return;
+        };
+        let home: Option<(muxy_app_core::ProjectId, String)> = self
+            .state
+            .server_home(server)
+            .map(|home| (home.id, home.directory.to_string_lossy().into_owned()));
+        let ready = self.server_ready(server);
+        // Until its catalog confirms it, the server may not be the one whose
+        // Home the app knows. Folders are listed on its second connection.
+        let client = self.extensions.client(server);
+        let (Some((project, home)), true, true, Some(client)) =
+            (home, ready, self.confirmed(server), client)
+        else {
+            self.pending_remote_picker = Some((server, std::time::Instant::now()));
+            if ready && self.extensions.client(server).is_none() {
+                self.extension_client(server, cx);
+            } else {
+                self.connect_remote_server(server, cx);
+            }
+            cx.notify();
+            return;
+        };
+        self.pending_remote_picker = None;
+        let folders = RemoteFolders::through(client, name, project, &home);
+        let paths = self.project_paths(server);
+        let picker = cx
+            .new(|cx| ProjectPicker::remote(folders, paths, self.theme.clone(), self.metrics, cx));
+        self.show_project_picker(server, picker, cx);
+    }
+
+    /// Opens the remote picker that waited for `server` to be ready. It is
+    /// dropped once the user moved on: something else is open, or the wait
+    /// was long.
+    pub(crate) fn resume_remote_picker(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        const PATIENCE: Duration = Duration::from_secs(60);
+        let Some((pending, asked)) = self.pending_remote_picker else {
+            return;
+        };
+        if pending != server {
+            return;
+        }
+        if self.overlay.is_some() || asked.elapsed() > PATIENCE {
+            self.pending_remote_picker = None;
+            return;
+        }
+        self.open_remote_project_picker(server, cx);
+    }
+
+    /// The folders of the projects the sidebar lists on `server`.
+    fn project_paths(&self, server: ServerId) -> Vec<String> {
+        self.state
+            .projects()
+            .iter()
+            .filter(|project| project.server_id == server && self.project_listed(project))
+            .map(|project| project.directory.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    pub(crate) fn show_project_picker(
+        &mut self,
+        server: ServerId,
+        picker: Entity<ProjectPicker>,
+        cx: &mut Context<Self>,
+    ) {
+        self.focus_later(picker.focus_handle(cx), cx);
         self.overlay_subscription =
-            Some(cx.subscribe(&picker, |model, _, event, cx| match event {
-                PickerEvent::Confirm {
-                    path,
-                    create_if_missing,
-                } => model.confirm_project_path(path, *create_if_missing, cx),
-                PickerEvent::ChooseFinder { directory } => {
-                    model.choose_project_folder(directory.clone(), false, cx);
-                }
-                PickerEvent::EditSearchLocation { directory } => {
-                    model.choose_project_folder(directory.clone(), true, cx);
-                }
-                PickerEvent::Dismiss => model.dismiss_overlay(cx),
-            }));
+            Some(
+                cx.subscribe(&picker, move |model, _, event, cx| match event {
+                    PickerEvent::Confirm { path, .. } if !server.is_local() => {
+                        model.open_remote_project_path(server, path, cx);
+                    }
+                    PickerEvent::Confirm {
+                        path,
+                        create_if_missing,
+                    } => model.confirm_project_path(path, *create_if_missing, cx),
+                    PickerEvent::ChooseFinder { directory } => {
+                        model.choose_project_folder(directory.clone(), false, cx);
+                    }
+                    PickerEvent::EditSearchLocation { directory } => {
+                        model.choose_project_folder(directory.clone(), true, cx);
+                    }
+                    PickerEvent::Dismiss => model.dismiss_overlay(cx),
+                }),
+            );
         self.overlay = Some(Overlay::Projects(picker));
         cx.notify();
+    }
+
+    /// Adds a folder on another computer; its server checks that it exists.
+    fn open_remote_project_path(&mut self, server: ServerId, path: &str, cx: &mut Context<Self>) {
+        let path = path_service::standardize(path);
+        let existing = self
+            .state
+            .projects()
+            .iter()
+            .find(|project| {
+                project.server_id == server
+                    && path_service::standardize(&project.directory.to_string_lossy()) == path
+            })
+            .map(|project| project.id);
+        if self
+            .state
+            .server_home(server)
+            .is_some_and(|home| Some(home.id) == existing)
+        {
+            let name = self.server_name(server).unwrap_or("the server").to_owned();
+            self.project_picker_error(
+                format!("Choose a folder inside the home folder on {name}."),
+                cx,
+            );
+        } else if let Some(id) = existing {
+            self.join_active_workspace(id, cx);
+            self.select_project(id, cx);
+            self.dismiss_overlay(cx);
+        } else if self
+            .add_project_on(server, PathBuf::from(path), cx)
+            .is_some()
+        {
+            self.dismiss_overlay(cx);
+        } else if let Some(error) = self.error.clone() {
+            self.project_picker_error(error, cx);
+        }
     }
 
     fn confirm_project_path(

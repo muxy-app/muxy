@@ -71,6 +71,19 @@ impl Client {
         }
     }
 
+    /// The folders directly inside `directory`, an absolute path on the
+    /// server's computer. Servers from before this request answer
+    /// `Unsupported`.
+    pub fn list_folders(
+        &self,
+        directory: muxy_protocol::ServerPath,
+    ) -> Result<Vec<muxy_protocol::ServerPath>, ClientError> {
+        match self.request(RequestBody::ListFolders(directory))? {
+            ReplyBody::Folders(names) => Ok(names),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
     pub fn git(
         &self,
         request: muxy_protocol::GitRequest,

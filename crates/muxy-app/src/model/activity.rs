@@ -252,8 +252,7 @@ impl AppModel {
                 }
             }
             Err(error) => {
-                let message = format!("Could not read activity: {error}");
-                self.fail(self.server_message(server, &message), cx);
+                self.server_problem(server, format!("Could not read activity: {error}"), cx);
             }
         }
         self.sync_extension_events(cx);

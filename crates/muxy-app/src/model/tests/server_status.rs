@@ -165,7 +165,7 @@ fn disconnected_server_popover_connects_once_and_tracks_connection_changes(
             (
                 ServerId::local(),
                 model.servers.local.generation,
-                Update::ConnectFailed("unavailable".into()),
+                Update::ConnectFailed("unavailable".into(), None),
             ),
             cx,
         );

@@ -120,7 +120,7 @@ fn connected(updates: &Updates, expected: &[(ServerId, u64)]) -> TestResult {
             Ok((server, generation, Update::Connected(_))) => {
                 missing.retain(|pair| *pair != (server, generation));
             }
-            Ok((_, _, Update::ConnectFailed(error))) => return Err(error.into()),
+            Ok((_, _, Update::ConnectFailed(error, _))) => return Err(error.into()),
             Ok(_) => {}
             Err(_) => thread::sleep(Duration::from_millis(5)),
         }

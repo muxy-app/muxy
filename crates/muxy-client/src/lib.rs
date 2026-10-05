@@ -22,7 +22,7 @@ pub use client::{Attachment, Client};
 pub use error::{ClientError, RemoteReason};
 pub use events::ClientEvent;
 pub use grid::{RunGrid, ScreenLinks, ScreenPrompts};
-pub use ssh::SshTarget;
+pub use ssh::{Askpass, SshTarget};
 
 mod catalog;
 

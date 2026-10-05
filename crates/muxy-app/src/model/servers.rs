@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use gpui::Context;
+use muxy_app_core::settings::ServerEntry;
 use muxy_app_core::{PaneId, Project, ServerId};
 use muxy_client::SshTarget;
 use muxy_protocol::{ChannelId, SessionId, SessionProgress};
@@ -21,6 +22,16 @@ pub(crate) struct Runtime {
     pub(super) info: Option<muxy_protocol::ServerInfo>,
     /// Why the last connection attempt failed, for the server's own status.
     pub(super) error: Option<String>,
+    /// Another computer's server is stopping or restarting at the user's request.
+    pub(super) stopping: bool,
+    /// What kind of failure `error` is, when ssh or the bridge said.
+    pub(super) failure: Option<muxy_client::RemoteReason>,
+    /// Installing Muxy there, at the user's request.
+    pub(super) install: Option<super::remote_servers::Install>,
+    /// How the worker reaches another computer.
+    pub(super) target: Option<SshTarget>,
+    /// It logs in with a password, which the app asks for before connecting.
+    pub(super) password_login: bool,
     pub(super) catalog: catalog::Synchronization,
     pub(super) references: Option<Vec<SessionId>>,
     pub(super) discarding: HashSet<SessionId>,
@@ -37,6 +48,11 @@ impl Runtime {
             generation,
             info: None,
             error: None,
+            stopping: false,
+            failure: None,
+            install: None,
+            target: None,
+            password_login: false,
             catalog: catalog::Synchronization::default(),
             references: None,
             discarding: HashSet::new(),
@@ -49,6 +65,8 @@ impl Runtime {
 
 pub(crate) struct Servers {
     workers: Workers,
+    /// Passwords typed this session, which ssh asks the app for.
+    pub(super) passwords: crate::askpass::Passwords,
     /// This computer's server, which is always there.
     pub(crate) local: Runtime,
     remotes: BTreeMap<ServerId, Runtime>,
@@ -56,9 +74,11 @@ pub(crate) struct Servers {
 
 impl Servers {
     /// Boot already asked the local worker to connect, as generation 1.
-    pub(super) fn new(workers: Workers, local: Worker) -> Self {
+    /// ssh asks for passwords on `askpass`, a socket path.
+    pub(super) fn new(workers: Workers, local: Worker, askpass: std::path::PathBuf) -> Self {
         Self {
             workers,
+            passwords: crate::askpass::Passwords::new(askpass),
             local: Runtime::new(Some(local), ConnectionState::Connecting, 1),
             remotes: BTreeMap::new(),
         }
@@ -92,27 +112,75 @@ impl Servers {
             .chain(self.remotes.iter().map(|(id, runtime)| (*id, runtime)))
     }
 
-    /// Starts the worker for a server reached over SSH. An invalid destination
-    /// leaves the server without a worker, and its error says why.
-    fn add(&mut self, server: ServerId, destination: &str) {
-        let mut runtime = Runtime::new(None, ConnectionState::Disconnected, 0);
-        match SshTarget::new(destination)
-            .and_then(|host| self.workers.start(server, Target::Ssh(host)))
-        {
+    /// Starts the worker for a server reached over SSH. An invalid entry
+    /// leaves the server without a worker, and its error says why. A server
+    /// that had a worker before keeps counting from its `generation`, so
+    /// updates from that worker are never taken for the new one's.
+    fn add(&mut self, entry: &ServerEntry, generation: u64) {
+        let mut runtime = Runtime::new(None, ConnectionState::Disconnected, generation);
+        runtime.password_login = entry.password_login;
+        match self.target(entry).and_then(|target| {
+            runtime.target = Some(target.clone());
+            self.workers.start(entry.id, Target::Ssh(target))
+        }) {
             Ok(work) => runtime.work = Some(work),
-            Err(error) => runtime.error = Some(format!("{destination}: {error}")),
+            Err(error) => runtime.error = Some(format!("{}: {error}", entry.ssh)),
         }
-        self.remotes.insert(server, runtime);
+        self.remotes.insert(entry.id, runtime);
+    }
+
+    /// How ssh reaches `entry`: its key file, and asking the app for a
+    /// password when it logs in with one.
+    pub(super) fn target(&mut self, entry: &ServerEntry) -> std::io::Result<SshTarget> {
+        let mut target = SshTarget::new(&entry.ssh)?;
+        if let Some(identity) = &entry.identity_file {
+            target = target.with_identity(identity);
+        }
+        if entry.password_login {
+            let login = target.login()?;
+            target = target.with_askpass(self.passwords.askpass(entry.id, login)?);
+        }
+        Ok(target)
+    }
+
+    /// Stops another computer's worker and drops what its connection kept.
+    /// Returns the generation it reached.
+    pub(super) fn remove(&mut self, server: ServerId) -> Option<u64> {
+        let runtime = self.remotes.remove(&server)?;
+        if let Some(worker) = &runtime.work {
+            let _ = worker.send((runtime.generation, Work::Stop));
+        }
+        Some(runtime.generation)
+    }
+
+    /// Starts a server listed after launch, or one whose way in changed. The
+    /// new worker starts a generation past the old one's, so the old one's
+    /// updates are dropped even before the new one connects.
+    pub(super) fn restart(&mut self, entry: &ServerEntry) {
+        let generation = self.remove(entry.id).map_or(0, |generation| generation + 1);
+        self.add(entry, generation);
+    }
+
+    pub(super) fn probe(&self) -> crate::boot::Probe {
+        self.workers.probe()
+    }
+
+    pub(super) fn run(&self) -> crate::boot::Run {
+        self.workers.run()
     }
 }
 
 impl AppModel {
     /// Connects every server listed in settings, each on its own worker, so
     /// SSH never blocks the window.
+    /// Servers that log in with a password wait until one of their projects
+    /// is opened or they are connected by hand, so launching never asks.
     pub(super) fn start_servers(&mut self, cx: &mut Context<Self>) {
         for entry in self.settings.servers.clone() {
-            self.servers.add(entry.id, &entry.ssh);
-            self.connect_server(entry.id, cx);
+            self.servers.add(&entry, 0);
+            if !entry.password_login {
+                self.connect_server(entry.id, cx);
+            }
         }
     }
 
@@ -126,11 +194,15 @@ impl AppModel {
         self.connection(server) == ConnectionState::Ready
     }
 
+    pub(crate) fn server_ready(&self, server: ServerId) -> bool {
+        self.ready(server)
+    }
+
     /// Whether another computer's catalog has shown, on this connection, that
     /// it is still the server the app knew. Until then its session numbers
     /// may belong to someone else's sessions, so none are closed or read.
     /// This computer's server is trusted as before.
-    pub(super) fn confirmed(&self, server: ServerId) -> bool {
+    pub(crate) fn confirmed(&self, server: ServerId) -> bool {
         server.is_local()
             || self
                 .servers
@@ -165,11 +237,65 @@ impl AppModel {
         project.server_id.is_local() || self.settings.server(project.server_id).is_some()
     }
 
+    /// The Home folder of another computer's server, from its catalog; `None`
+    /// for this computer's, whose Home is `$HOME`.
+    pub(crate) fn remote_home(&self, server: ServerId) -> Option<&std::path::Path> {
+        if server.is_local() {
+            return None;
+        }
+        self.state
+            .server_home(server)
+            .map(|home| home.directory.as_path())
+    }
+
+    pub(crate) fn project_is_local(&self, project: muxy_protocol::ProjectId) -> bool {
+        self.state
+            .project_server(project)
+            .is_none_or(ServerId::is_local)
+    }
+
+    /// The Muxy version the server runs, once it connected.
+    pub(crate) fn server_version(&self, server: ServerId) -> Option<&str> {
+        self.servers
+            .get(server)
+            .and_then(|runtime| runtime.info.as_ref())
+            .map(|info| info.build.version.as_str())
+    }
+
+    /// Why the server's last connection attempt failed.
+    pub(crate) fn server_error(&self, server: ServerId) -> Option<&str> {
+        self.servers
+            .get(server)
+            .and_then(|runtime| runtime.error.as_deref())
+    }
+
+    /// Projects the sidebar and Switch Project list: shown ones, except
+    /// another computer's Home, which only backs browsing its folders.
+    pub(crate) fn project_listed(&self, project: &Project) -> bool {
+        self.project_shown(project) && (project.server_id.is_local() || !project.home)
+    }
+
     /// The name settings give another computer's server.
     pub(crate) fn server_name(&self, server: ServerId) -> Option<&str> {
         self.settings
             .server(server)
             .map(|entry| entry.name.as_str())
+    }
+
+    /// A failure nobody asked about: this computer's server alerts; another
+    /// computer's shows beside it in the sidebar's Remote section.
+    pub(super) fn server_problem(
+        &mut self,
+        server: ServerId,
+        message: String,
+        cx: &mut Context<Self>,
+    ) {
+        if server.is_local() {
+            self.fail(message, cx);
+        } else if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.error = Some(message);
+            cx.notify();
+        }
     }
 
     /// Names another computer's server in a message about it.
@@ -198,14 +324,14 @@ impl AppModel {
         self.connect_server(ServerId::local(), cx);
     }
 
-    pub(super) fn connect_server(&mut self, server: ServerId, cx: &mut Context<Self>) {
+    pub(crate) fn connect_server(&mut self, server: ServerId, cx: &mut Context<Self>) {
         self.connect_to_server(server, false, cx);
     }
 
     /// Reconnects a remote server when one of its projects or tabs is shown.
     /// This computer's server keeps connecting only when a terminal needs it,
     /// so a server stopped from Settings stays stopped.
-    pub(super) fn connect_on_demand(&mut self, server: ServerId, cx: &mut Context<Self>) {
+    pub(crate) fn connect_on_demand(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if !server.is_local() && self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
         }
@@ -220,6 +346,17 @@ impl AppModel {
         if self.quitting != Quitting::Idle
             || (server.is_local() && self.server_preferences.control_busy)
         {
+            return;
+        }
+        let needs_password = self
+            .servers
+            .get(server)
+            .is_some_and(|runtime| runtime.password_login)
+            && !self.servers.passwords.has(server);
+        if needs_password {
+            if self.connection(server) == ConnectionState::Disconnected {
+                self.ask_password(server, cx);
+            }
             return;
         }
         let instance = self
@@ -238,6 +375,7 @@ impl AppModel {
         };
         runtime.generation = generation;
         runtime.connection = ConnectionState::Connecting;
+        runtime.stopping = false;
         runtime.discarding.clear();
         runtime.catalog.cancelling.clear();
         let work = if after_update && server.is_local() {
@@ -254,12 +392,9 @@ impl AppModel {
         self.set_server_panes(server, PaneState::Connecting, cx);
         if !sent {
             self.disconnect(server, cx);
-            let error = self
-                .servers
-                .get(server)
-                .and_then(|runtime| runtime.error.clone())
-                .unwrap_or_else(|| "The server connection worker stopped".into());
-            self.fail(error, cx);
+            if server.is_local() {
+                self.fail("The server connection worker stopped".into(), cx);
+            }
         }
     }
 
@@ -352,7 +487,9 @@ impl AppModel {
 
     pub(super) fn send(&mut self, server: ServerId, work: Work, cx: &mut Context<Self>) -> bool {
         let Some(runtime) = self.servers.get(server) else {
-            self.fail("Server disconnected".into(), cx);
+            if server.is_local() {
+                self.fail("Server disconnected".into(), cx);
+            }
             return false;
         };
         if !matches!(
@@ -374,8 +511,11 @@ impl AppModel {
                 ),
             );
         }
+        // Another computer's state shows in the sidebar's Remote section.
         if runtime.connection != ConnectionState::Ready && !matches!(work, Work::Flush) {
-            self.fail("Server disconnected".into(), cx);
+            if server.is_local() {
+                self.fail("Server disconnected".into(), cx);
+            }
             return false;
         }
         let sent = runtime
@@ -384,7 +524,7 @@ impl AppModel {
             .is_some_and(|worker| worker.send((runtime.generation, work)).is_ok());
         if !sent {
             self.disconnect(server, cx);
-            self.fail("The server connection worker stopped".into(), cx);
+            self.server_problem(server, "The server connection worker stopped".into(), cx);
         }
         sent
     }

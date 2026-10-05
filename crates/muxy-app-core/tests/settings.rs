@@ -1450,6 +1450,8 @@ fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
             id: first,
             name: "box".into(),
             ssh: "dev@box".into(),
+            identity_file: None,
+            password_login: false,
         }]
     );
     assert_eq!(
@@ -1471,11 +1473,21 @@ fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
     settings.update_server(
         ServerEntry {
             name: "builder".into(),
+            identity_file: Some("~/.ssh/build key".into()),
+            password_login: true,
             ..build.clone()
         },
         &path,
     )?;
     assert_eq!(server_names(&settings), ["box", "builder", "hand"]);
+    let source = fs::read_to_string(&path)?;
+    assert!(source.contains("identity_file = \"~/.ssh/build key\""));
+    assert!(source.contains("password_login = true"));
+    assert_eq!(
+        source.matches("password_login").count(),
+        1,
+        "false is left out"
+    );
     let loaded = Settings::load(&path)?;
     assert_eq!(loaded.servers, settings.servers);
     assert!(!loaded.window.confirm_running_process);
@@ -1507,6 +1519,7 @@ fn invalid_servers_are_rejected_without_changing_the_file() -> Result {
         entry(&other, "box", " "),
         entry(&other, "box", "dev@box\\u0007"),
         entry(&other, "box", "dev@box") + "port = 22\n",
+        entry(&other, "box", "dev@box") + "identity_file = \" \"\n",
         entry("box", "box", "dev@box"),
     ] {
         let path = fixture.write("settings.toml", &source)?;

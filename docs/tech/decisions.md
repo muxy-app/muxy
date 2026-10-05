@@ -75,7 +75,10 @@ dictionaries, which fit their training data and little else.
 Unix sockets, TCP, and stdio pipes were all ten times faster than any real
 program writes to a terminal. Apps on the same computer use a Unix socket and
 phones use TLS (D11). Other computers are reached over SSH, which runs
-`muxy stdio` there to join its stdin and stdout to that computer's server.
+`muxy stdio` there to join its stdin and stdout to that computer's server. ssh
+logs in with the user's keys, agent, or certificates. For a password login, the
+desktop asks for the password, keeps it only in memory, and answers ssh's
+prompt for it.
 
 Turned down: a stream multiplexing library, because D8 fits terminals better.
 

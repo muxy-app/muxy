@@ -235,7 +235,9 @@ impl AppModel {
                 self.confirm_update(cx);
             }
             UpdateAction::CancelSchedule => self.schedule_update(false, cx),
-            UpdateAction::RestartServer => self.confirm_server_control(true, self.window, cx),
+            UpdateAction::RestartServer => {
+                self.confirm_server_control(ServerId::local(), true, self.window, cx);
+            }
             UpdateAction::RetryServer => {
                 self.updates.phase = ServerUpdatePhase::Idle;
                 self.updates.server_error = None;
@@ -243,7 +245,7 @@ impl AppModel {
                     self.updates.phase = ServerUpdatePhase::Reconnecting;
                     self.connect_to_server(ServerId::local(), true, cx);
                 } else if self.server_update_pending() {
-                    self.confirm_server_control(true, self.window, cx);
+                    self.confirm_server_control(ServerId::local(), true, self.window, cx);
                 } else {
                     self.reconcile_server_update(cx);
                 }

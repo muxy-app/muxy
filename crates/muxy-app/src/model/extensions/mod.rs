@@ -41,6 +41,13 @@ pub(crate) struct Runtime {
     epochs: HashMap<String, u64>,
     /// Each server's extension connection, kept apart from the app's own.
     clients: HashMap<ServerId, muxy_client::Client>,
+    /// Which install each server's connection is, so events from one that was
+    /// replaced are ignored.
+    installs: HashMap<ServerId, u64>,
+    next_install: u64,
+    /// Connections being opened, by server and connection generation, so
+    /// only one opens at a time.
+    opening: HashSet<(ServerId, u64)>,
     scripts: HashMap<u64, scripts::Running>,
     backgrounds: HashMap<String, background::Background>,
     loading_scripts: usize,
@@ -72,6 +79,9 @@ impl Runtime {
             epoch: 1,
             epochs: HashMap::new(),
             clients: HashMap::new(),
+            installs: HashMap::new(),
+            next_install: 0,
+            opening: HashSet::new(),
             scripts: HashMap::new(),
             backgrounds: HashMap::new(),
             loading_scripts: 0,
@@ -94,6 +104,12 @@ impl Runtime {
 
     fn epoch_for(&self, owner: &str) -> u64 {
         self.epochs.get(owner).copied().unwrap_or(0)
+    }
+
+    /// The server's extension connection, which other app work that must not
+    /// queue behind terminals, such as listing folders, may share.
+    pub(crate) fn client(&self, server: ServerId) -> Option<muxy_client::Client> {
+        self.clients.get(&server).cloned()
     }
 }
 
@@ -159,15 +175,24 @@ struct Call {
 }
 
 impl AppModel {
-    /// Opens `server`'s extension connection, through its worker.
-    pub(super) fn extension_client(&mut self, server: ServerId, cx: &mut Context<Self>) {
+    /// Opens `server`'s extension connection, through its worker, unless one
+    /// is already opening for this connection.
+    pub(crate) fn extension_client(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let (sender, receiver) = async_channel::bounded(1);
         let generation = self.generation(server);
+        if self.extensions.opening.contains(&(server, generation)) {
+            return;
+        }
         if !self.send(server, crate::boot::Work::ExtensionConnection(sender), cx) {
             return;
         }
+        self.extensions.opening.insert((server, generation));
         cx.spawn(async move |model, cx| {
-            let Ok(connected) = receiver.recv().await else {
+            let connected = receiver.recv().await;
+            let _ = model.update(cx, |model, _| {
+                model.extensions.opening.remove(&(server, generation));
+            });
+            let Ok(connected) = connected else {
                 return;
             };
             let connected = connected.and_then(|client| {
@@ -203,23 +228,30 @@ impl AppModel {
             let installed = model
                 .update(cx, |model, cx| {
                     if model.generation(server) != generation || !model.ready(server) {
-                        return false;
+                        return None;
                     }
                     model.disconnect_extensions(server);
+                    model.extensions.next_install += 1;
+                    let install = model.extensions.next_install;
                     model.extensions.clients.insert(server, client.clone());
+                    model.extensions.installs.insert(server, install);
                     model.sync_extension_events(cx);
-                    true
+                    model.resume_remote_picker(server, cx);
+                    Some(install)
                 })
-                .unwrap_or(false);
-            if !installed {
+                .ok()
+                .flatten();
+            let Some(install) = installed else {
                 client.disconnect();
                 return;
-            }
+            };
             drop(client);
             while let Ok(event) = events.recv().await {
                 if model
                     .update(cx, |model, cx| {
-                        if model.generation(server) != generation {
+                        if model.generation(server) != generation
+                            || model.extensions.installs.get(&server) != Some(&install)
+                        {
                             return;
                         }
                         match event {
@@ -249,6 +281,7 @@ impl AppModel {
 
     /// Closes `server`'s extension connection. Its file watches end with it.
     pub(super) fn disconnect_extensions(&mut self, server: ServerId) {
+        self.extensions.installs.remove(&server);
         if let Some(client) = self.extensions.clients.remove(&server) {
             client.disconnect();
         }

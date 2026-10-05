@@ -333,6 +333,25 @@ pub fn choose_folder_with(
     directory: &std::path::Path,
     on_complete: impl FnOnce(Option<std::path::PathBuf>) + 'static,
 ) -> io::Result<FolderPicker> {
+    open_panel(message, prompt, directory, false, on_complete)
+}
+
+/// A file picker that also shows hidden files, such as keys in `~/.ssh`.
+pub fn choose_file(
+    message: &str,
+    directory: &std::path::Path,
+    on_complete: impl FnOnce(Option<std::path::PathBuf>) + 'static,
+) -> io::Result<FolderPicker> {
+    open_panel(message, "", directory, true, on_complete)
+}
+
+fn open_panel(
+    message: &str,
+    prompt: &str,
+    directory: &std::path::Path,
+    files: bool,
+    on_complete: impl FnOnce(Option<std::path::PathBuf>) + 'static,
+) -> io::Result<FolderPicker> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
     let panel = objc2_app_kit::NSOpenPanel::openPanel(main_thread);
@@ -340,8 +359,9 @@ pub fn choose_folder_with(
     if !prompt.is_empty() {
         panel.setPrompt(Some(&NSString::from_str(prompt)));
     }
-    panel.setCanChooseFiles(false);
-    panel.setCanChooseDirectories(true);
+    panel.setCanChooseFiles(files);
+    panel.setCanChooseDirectories(!files);
+    panel.setShowsHiddenFiles(files);
     panel.setAllowsMultipleSelection(false);
     panel.setDirectoryURL(Some(&objc2_foundation::NSURL::fileURLWithPath(
         &NSString::from_str(&directory.to_string_lossy()),

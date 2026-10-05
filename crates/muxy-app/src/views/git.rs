@@ -1,6 +1,7 @@
 mod ai;
 mod ai_provider;
 mod form;
+pub(crate) use form::field as form_field;
 mod pr;
 mod worktree_form;
 pub(crate) use ai::AiConfirmation;

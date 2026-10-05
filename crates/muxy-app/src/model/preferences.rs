@@ -193,7 +193,7 @@ impl AppModel {
         }
     }
 
-    pub(super) fn preference_result(&self, id: &str, error: Option<&str>, cx: &mut Context<Self>) {
+    pub(crate) fn preference_result(&self, id: &str, error: Option<&str>, cx: &mut Context<Self>) {
         if let Some(settings) = &self.settings_window {
             settings
                 .view
@@ -611,6 +611,8 @@ impl AppModel {
         if server.is_local() {
             self.server_preferences.control_busy = false;
             self.server_update_control_finished(&result, cx);
+        } else if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.stopping = false;
         }
         match result {
             Ok(()) => {
@@ -620,7 +622,8 @@ impl AppModel {
                 }
             }
             Err(error) => {
-                let message = format!("Could not stop server: {error}");
+                let message =
+                    self.server_message(server, &format!("Could not stop server: {error}"));
                 if server.is_local() {
                     self.preference_result("server", Some(&message), cx);
                 }
@@ -630,39 +633,52 @@ impl AppModel {
         self.sync_preferences(cx);
     }
 
+    /// Asks before stopping or restarting `server`, which ends its sessions.
     pub(crate) fn confirm_server_control(
         &mut self,
+        server: ServerId,
         restart: bool,
         window: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        if !self.server_control_enabled() {
+        if !self.control_enabled(server) {
             return;
         }
         self.dismiss_overlay(cx);
-        let generation = self.servers.local.generation;
+        let generation = self.generation(server);
+        let name = (!server.is_local()).then(|| self.server_label(server));
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_server(window, restart, cx).await;
+            let response =
+                crate::views::confirm::prompt_server(window, restart, name.as_deref(), cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.close_prompt = None;
                 model.focus_requested = true;
-                if generation == model.servers.local.generation {
+                if generation == model.generation(server) {
                     match response {
-                        Ok(true) => {
-                            model.server_preferences.control_busy =
-                                model.send(ServerId::local(), Work::StopServer { restart }, cx);
-                            if model.server_preferences.control_busy {
-                                model.server_update_control_started(restart);
-                            }
-                            model.sync_preferences(cx);
-                        }
+                        Ok(true) => model.stop_server(server, restart, cx),
                         Ok(false) => {}
-                        Err(error) => model.preference_result("server", Some(&error), cx),
+                        Err(error) if server.is_local() => {
+                            model.preference_result("server", Some(&error), cx);
+                        }
+                        Err(error) => model.fail(error, cx),
                     }
                 }
                 cx.notify();
             });
         }));
+    }
+
+    fn stop_server(&mut self, server: ServerId, restart: bool, cx: &mut Context<Self>) {
+        let sent = self.send(server, Work::StopServer { restart }, cx);
+        if server.is_local() {
+            self.server_preferences.control_busy = sent;
+            if sent {
+                self.server_update_control_started(restart);
+            }
+        } else if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.stopping = sent;
+        }
+        self.sync_preferences(cx);
     }
 }
 

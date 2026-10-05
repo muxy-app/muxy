@@ -11,7 +11,7 @@ pub(crate) use macos::{Installation, PreparedUpdate};
 pub(crate) type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 const FEED: &str = "https://github.com/muxy-app/muxy/releases/download/beta-2.x/update.json";
-const RELEASES: &str = "https://github.com/muxy-app/muxy/releases/download";
+pub(crate) const RELEASES: &str = "https://github.com/muxy-app/muxy/releases/download";
 const MAX_DOWNLOAD: u64 = 2 * 1024 * 1024 * 1024;
 
 pub(crate) fn build_number(version: &str) -> Option<u64> {

@@ -1,4 +1,5 @@
 mod ai;
+mod askpass;
 mod backup;
 mod boot;
 mod cli_install;
@@ -30,6 +31,7 @@ mod views {
     pub(crate) mod project_menu;
     pub(crate) mod project_picker;
     pub(crate) mod quick_terminal;
+    pub(crate) mod remote_servers;
     pub(crate) mod server_status;
     pub(crate) mod session_picker;
     pub(crate) mod settings;
@@ -82,6 +84,13 @@ use views::workspace::{
 };
 
 fn main() -> ExitCode {
+    if let Some(socket) = std::env::var_os(askpass::SOCKET) {
+        let prompt = std::env::args_os()
+            .nth(1)
+            .map(|prompt| prompt.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        return askpass::run(&socket, &prompt);
+    }
     let profile = profiler::init();
     let boot = {
         let _span = profiler::span(profiler::Metric::BootLoad);

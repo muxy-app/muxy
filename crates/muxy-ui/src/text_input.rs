@@ -539,6 +539,8 @@ pub struct TextInput {
     history: History,
     coalesce_next: bool,
     paste_delegate: Option<PasteDelegate>,
+    /// Shows `*` for the text, such as a password, and never copies it.
+    secure: bool,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -574,7 +576,15 @@ impl TextInput {
             history: History::default(),
             coalesce_next: true,
             paste_delegate: None,
+            secure: false,
         }
+    }
+
+    /// Hides the text, such as a password. Each byte shows as `*`, so
+    /// offsets into the text stay offsets into what is drawn.
+    pub fn secure(mut self) -> Self {
+        self.secure = true;
+        self
     }
 
     pub fn multiline(mut self) -> Self {
@@ -997,7 +1007,7 @@ impl TextInput {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.selected_range.is_empty() && !self.secure {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
@@ -1005,7 +1015,7 @@ impl TextInput {
     }
 
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.selected_range.is_empty() && !self.secure {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
@@ -1627,6 +1637,8 @@ impl Element for TextElement {
         let shows_placeholder = input.content.is_empty();
         let display_text: SharedString = if shows_placeholder {
             input.placeholder.clone()
+        } else if input.secure {
+            "*".repeat(input.content.len()).into()
         } else {
             input.content.clone()
         };

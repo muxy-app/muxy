@@ -40,6 +40,7 @@ impl AppModel {
         super::sidebar::register_commands(&mut registry, self, cx);
         super::settings::register_commands(&mut registry, self);
         registry.register(super::theme_picker::command(self, dark, cx));
+        registry.register(super::remote_servers::command(self, cx));
         self.register_extension_commands(&mut registry);
         self.register_custom_commands(&mut registry);
         registry
@@ -78,6 +79,20 @@ impl AppModel {
             return;
         }
         let registry = self.command_registry(self.dark, cx);
+        self.show_palette(registry, page, window, cx);
+    }
+
+    /// Shows `registry` in the palette, opened at its list `page`.
+    pub(crate) fn show_palette(
+        &mut self,
+        registry: Registry<Handler>,
+        page: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.close_prompt.is_some() {
+            return;
+        }
         let palette =
             cx.new(|cx| CommandPalette::new(registry, self.theme.clone(), self.metrics, cx));
         if let Some(page) = page {

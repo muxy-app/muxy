@@ -13,6 +13,7 @@ flowchart LR
         TUI["muxy terminal UI"] <--> SERVER
     end
     PHONE["Phone app"] <-->|"paired · local network or VPN"| SERVER
+    DESKTOP <-->|"SSH"| REMOTE["muxy-server<br/>on another computer"]
 ```
 
 Three ideas explain most of Muxy:

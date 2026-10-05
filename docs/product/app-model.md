@@ -6,14 +6,20 @@ How people use Muxy: the apps, navigation, settings, and updates.
 
 | App | Connects to |
 | --- | --- |
-| Desktop app (macOS) | The server on the same computer, starting it if needed. |
+| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of remote devices over SSH. |
 | `muxy` terminal UI | The server on the same computer, starting it if needed, or with `--host`, the server on another computer over SSH. Ships with the desktop app and also on its own. |
 | Phone app | A paired computer's server, over the local network or a VPN, or any computer's server over SSH. |
 
-`muxy --host` works with another machine's server over SSH. Connecting the
-desktop app to other machines comes later. Every project already knows which
-server it lives on, so one app can later show projects from several servers.
-There is no global "current server".
+Every project knows which server it lives on, so the desktop app shows
+projects from several servers in one sidebar. Remote projects are marked with
+their server and path. There is no global "current server".
+
+The **Remote** section at the bottom of the sidebar shows each remote server's
+state. Its popover adds servers (host, user, port, key file, or a password that
+Muxy asks for and keeps only in memory) and manages them. **Add Project →
+Remote** browses that server's folders. When a server lacks Muxy, a released
+app offers to install the same version there. Removing a server only forgets
+its projects in this app.
 
 Each app keeps its own layout: tabs, splits, workspaces, and project order.
 Projects and terminals are shared. Several `muxy` windows can open the same

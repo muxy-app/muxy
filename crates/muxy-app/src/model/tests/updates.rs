@@ -100,7 +100,7 @@ fn server_update_action_confirms_without_settings_and_reconnects(cx: &mut TestAp
             (
                 ServerId::local(),
                 2,
-                Update::ConnectFailed("unavailable".into()),
+                Update::ConnectFailed("unavailable".into(), None),
             ),
             cx,
         );
@@ -475,7 +475,7 @@ fn only_update_notifications_reconnect_other_clients_and_queue_new_terminals(
             (
                 ServerId::local(),
                 2,
-                Update::ConnectFailed("start failed".into()),
+                Update::ConnectFailed("start failed".into(), None),
             ),
             cx,
         );

@@ -42,6 +42,39 @@ impl Files {
     }
 }
 
+/// The folders directly inside `directory`, an absolute path anywhere on
+/// this computer, for choosing a new project's folder. Links to folders
+/// count. A folder with more than the protocol allows lists only its first.
+pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
+    muxy_protocol::validate_folder_path(directory)
+        .map_err(|code| ServerError::new(code, "Use an absolute folder path"))?;
+    let directory = path(directory);
+    let entries = std::fs::read_dir(directory).map_err(|cause| match cause.kind() {
+        std::io::ErrorKind::NotFound => error("folder does not exist"),
+        std::io::ErrorKind::NotADirectory => error("not a folder"),
+        _ => error(cause),
+    })?;
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(error)?;
+        let folder = entry
+            .file_type()
+            .is_ok_and(|kind| kind.is_dir() || (kind.is_symlink() && entry.path().is_dir()));
+        if folder {
+            names.push(ServerPath(entry.file_name().as_bytes().to_vec()));
+        }
+    }
+    names.sort_by_cached_key(|name| String::from_utf8_lossy(&name.0).to_lowercase());
+    // A huge folder lists its first folders, like `Files`, instead of none.
+    names.truncate(muxy_protocol::MAX_FILE_ENTRIES);
+    let mut bytes = 0;
+    names.retain(|name| {
+        bytes += name.0.len();
+        bytes <= muxy_protocol::MAX_FILE_PATH_BYTES
+    });
+    Ok(names)
+}
+
 pub(crate) fn is_read(action: &FilesAction) -> bool {
     matches!(
         action,

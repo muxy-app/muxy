@@ -54,12 +54,15 @@ impl WorktreeLocation {
 }
 
 impl WorktreeSettings {
+    /// Where a new worktree goes. `~` means `home`, the Home of the project's
+    /// computer; `None` is this computer's `$HOME`.
     pub fn directory(
         &self,
         project: &crate::Project,
         location: &WorktreeLocation,
         name: &str,
         branch: &str,
+        home: Option<&Path>,
     ) -> Result<PathBuf> {
         let inherited = location.is_default();
         let location = if inherited {
@@ -84,13 +87,13 @@ impl WorktreeSettings {
                 )
                 .replace("{base-dir}", &sanitized_component(&base, "project"))
                 .replace("{branch}", &sanitized_component(branch, "branch"));
-            return resolve(&project.directory, &template);
+            return resolve(&project.directory, &template, home);
         }
         let folder = match location.parent_path.trim() {
             "" => DEFAULT_WORKTREE_FOLDER,
             folder => folder,
         };
-        let mut parent = resolve(&project.directory, folder)?;
+        let mut parent = resolve(&project.directory, folder, home)?;
         if inherited {
             parent.push(sanitized_component(&project.name, "project"));
         }
@@ -121,12 +124,16 @@ pub fn sanitized_component(value: &str, fallback: &str) -> String {
     }
 }
 
-fn resolve(project: &Path, value: &str) -> Result<PathBuf> {
+fn resolve(project: &Path, value: &str, home: Option<&Path>) -> Result<PathBuf> {
     let path = if value == "~" || value.starts_with("~/") {
-        PathBuf::from(
-            std::env::var_os("HOME").ok_or_else(|| Error::new("worktrees", "HOME is not set"))?,
-        )
-        .join(value.strip_prefix("~/").unwrap_or(""))
+        let home = match home {
+            Some(home) => home.to_path_buf(),
+            None => PathBuf::from(
+                std::env::var_os("HOME")
+                    .ok_or_else(|| Error::new("worktrees", "HOME is not set"))?,
+            ),
+        };
+        home.join(value.strip_prefix("~/").unwrap_or(""))
     } else {
         project.join(value)
     };
@@ -201,23 +208,35 @@ mod tests {
         assert_eq!(
             settings
                 .worktrees
-                .directory(&project, &default, "Feature A", "feature/a")?,
+                .directory(&project, &default, "Feature A", "feature/a", None)?,
             home.join(".muxy/worktrees/My-Project/Feature-A")
         );
         settings.worktrees.default_location.parent_path = "  ".into();
         assert_eq!(
             settings
                 .worktrees
-                .directory(&project, &default, "Feature A", "feature/a")?,
+                .directory(&project, &default, "Feature A", "feature/a", None)?,
             home.join(".muxy/worktrees/My-Project/Feature-A")
         );
         settings.worktrees.default_location.parent_path = "/trees".into();
         assert_eq!(
             settings
                 .worktrees
-                .directory(&project, &default, "Feature A", "feature/a")?,
+                .directory(&project, &default, "Feature A", "feature/a", None)?,
             Path::new("/trees/My-Project/Feature-A")
         );
+        settings.worktrees.default_location.parent_path = "~/trees".into();
+        assert_eq!(
+            settings.worktrees.directory(
+                &project,
+                &default,
+                "Feature A",
+                "feature/a",
+                Some(Path::new("/home/dev"))
+            )?,
+            Path::new("/home/dev/trees/My-Project/Feature-A")
+        );
+        settings.worktrees.default_location.parent_path = "/trees".into();
         let folder = WorktreeLocation {
             parent_path: "../trees".into(),
             ..Default::default()
@@ -225,7 +244,7 @@ mod tests {
         assert_eq!(
             settings
                 .worktrees
-                .directory(&project, &folder, "Feature A", "feature/a")?,
+                .directory(&project, &folder, "Feature A", "feature/a", None)?,
             Path::new("/code/trees/Feature-A")
         );
         let template = WorktreeLocation {
@@ -235,7 +254,7 @@ mod tests {
         assert_eq!(
             settings
                 .worktrees
-                .directory(&project, &template, "ignored", "feature/a")?,
+                .directory(&project, &template, "ignored", "feature/a", None)?,
             Path::new("/code/repo.feature-a/My-Project")
         );
         settings.worktrees.projects.insert(id, template);

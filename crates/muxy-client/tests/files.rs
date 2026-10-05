@@ -153,3 +153,48 @@ fn subscriptions_report_external_changes_and_unwatch_projects_independently() ->
     serving.join().map_err(|_| "server panicked")??;
     Ok(())
 }
+
+#[test]
+fn folders_anywhere_are_listed_for_choosing_a_project() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    for folder in ["beta", "Alpha", ".hidden", "beta/nested"] {
+        std::fs::create_dir(directory.path().join(folder))?;
+    }
+    std::fs::write(directory.path().join("file.txt"), "not a folder")?;
+    std::os::unix::fs::symlink(directory.path().join("beta"), directory.path().join("link"))?;
+    let (send, events) = mpsc::channel();
+    let registry = Arc::new(Registry::new(ServerSettings::default(), send));
+    let (local, remote) = UnixStream::pair()?;
+    let serving = std::thread::spawn(move || connection::serve(Box::new(remote), registry, events));
+    let client = Client::from_stream(Box::new(local))?;
+    let root = directory.path().canonicalize()?;
+    let listed = client.list_folders(ServerPath(root.as_os_str().as_bytes().to_vec()))?;
+    let names: Vec<_> = listed
+        .iter()
+        .map(|name| String::from_utf8_lossy(&name.0).into_owned())
+        .collect();
+    assert_eq!(names, [".hidden", "Alpha", "beta", "link"]);
+    for bad in ["relative", "/does/not/exist"] {
+        let error = client
+            .list_folders(p(bad))
+            .err()
+            .map(|error| error.to_string());
+        assert!(error.is_some(), "{bad}");
+    }
+    let file = root.join("file.txt");
+    assert!(
+        client
+            .list_folders(ServerPath(file.as_os_str().as_bytes().to_vec()))
+            .is_err()
+    );
+    assert_eq!(
+        client
+            .list_folders(ServerPath(root.as_os_str().as_bytes().to_vec()))?
+            .len(),
+        4,
+        "the connection stays usable"
+    );
+    drop(client);
+    serving.join().map_err(|_| "server thread panicked")??;
+    Ok(())
+}

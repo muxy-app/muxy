@@ -11,6 +11,11 @@ mod mobile;
 mod preferences;
 pub(crate) mod project_layouts;
 mod quick_terminal;
+mod remote_servers;
+pub(crate) use remote_servers::{
+    ConnectionTest, DeviceForm, Install, RemoteServer, join_destination, released_version,
+    split_destination,
+};
 mod server_status;
 mod servers;
 pub(crate) use server_status::ServerStatus;
@@ -118,7 +123,13 @@ pub(crate) struct AppModel {
     terminal: muxy_app_core::settings::TerminalSettings,
     server_preferences: preferences::ServerPreferences,
     mobile: mobile::MobileAccess,
+    /// The last Test Connection in Settings, with the destination it tried.
+    server_probe: Option<(String, ConnectionTest)>,
     server_anchor: muxy_ui::popover::PopoverAnchor,
+    pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
+    /// Add Project waits for this server to be ready, then opens its picker,
+    /// if that happens soon after the user asked.
+    pub(crate) pending_remote_picker: Option<(ServerId, std::time::Instant)>,
     pub(crate) tips: tips::Tips,
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
     font_sizes: HashMap<PaneId, f32>,
@@ -468,7 +479,12 @@ impl AppModel {
             voice: voice::VoiceRuntime::default(),
             git: git::GitState::default(),
             ai: ai::Runtime::default(),
-            servers: servers::Servers::new(boot.workers, boot.work),
+            servers: servers::Servers::new(
+                boot.workers,
+                boot.work,
+                boot.state_path
+                    .with_file_name(format!("askpass-{}.sock", std::process::id())),
+            ),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
             quick: quick_terminal::QuickTerminalRuntime::new(&boot.settings.quick_terminal, cx),
             window: window.window_handle(),
@@ -491,7 +507,10 @@ impl AppModel {
             terminal: boot.terminal,
             server_preferences: preferences::ServerPreferences::default(),
             mobile: mobile::MobileAccess::default(),
+            server_probe: None,
             server_anchor: Rc::default(),
+            remote_anchor: Rc::default(),
+            pending_remote_picker: None,
             tips: tips::Tips::default(),
             settings_window: None,
             font_sizes: HashMap::new(),
@@ -742,10 +761,21 @@ impl AppModel {
         directory: PathBuf,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
+        self.add_project_on(ServerId::local(), directory, cx)
+    }
+
+    /// Adds `directory` on `server` as a project; another computer's must be
+    /// an absolute path there.
+    pub(crate) fn add_project_on(
+        &mut self,
+        server: ServerId,
+        directory: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Option<ProjectId> {
         let mut added = None;
         if !self.edit_project(
             |state| {
-                added = Some(state.add_project(ServerId::local(), directory)?);
+                added = Some(state.add_project(server, directory)?);
                 Ok(())
             },
             cx,
@@ -1375,6 +1405,13 @@ impl AppModel {
     }
 
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
+        // The project shown is always one the sidebar lists, never another
+        // computer's Home or a removed server's project, so new tabs never
+        // open somewhere the user can't see.
+        if !self.project_listed(self.state.current_project()) {
+            let home = self.state.home().id;
+            let _ = self.state.select_project(home);
+        }
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
         self.sync_voice(cx);
@@ -1814,6 +1851,8 @@ impl AppModel {
             return;
         };
         runtime.connection = ConnectionState::Ready;
+        runtime.failure = None;
+        runtime.install = None;
         let failure = runtime.error.take();
         let navigation = runtime.activity.navigation.take();
         runtime.activity = activity::ActivityView::default();
@@ -1918,15 +1957,31 @@ impl AppModel {
                     self.reconcile_server_update(cx);
                 }
             }
-            Update::ConnectFailed(error) => {
+            Update::ConnectFailed(error, reason) => {
                 if local {
                     self.update_connect_failed();
                 }
                 self.disconnect(server, cx);
+                // Another computer's failure shows in the sidebar's Remote
+                // section, not as an alert. A refused login forgets the
+                // password, so connecting asks again.
                 if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.failure = reason;
                     runtime.error = Some(error.clone());
                 }
-                self.fail(error, cx);
+                if reason == Some(muxy_client::RemoteReason::AuthenticationFailed) {
+                    self.servers.passwords.forget(server);
+                }
+                if self
+                    .pending_remote_picker
+                    .is_some_and(|(pending, _)| pending == server)
+                {
+                    self.pending_remote_picker = None;
+                }
+                self.sync_preferences(cx);
+                if local {
+                    self.fail(error, cx);
+                }
             }
             Update::Attached {
                 pane,
@@ -1955,8 +2010,11 @@ impl AppModel {
             }
             Update::ReferencesSynced(Err(error)) => {
                 self.disconnect(server, cx);
-                let message = format!("Could not register open terminals: {error}");
-                self.fail(self.server_message(server, &message), cx);
+                self.server_problem(
+                    server,
+                    format!("Could not register open terminals: {error}"),
+                    cx,
+                );
             }
             Update::Discarded { session, result } => {
                 self.receive_discarded(server, session, result, cx);
@@ -2000,7 +2058,7 @@ impl AppModel {
             | Update::EndedAll(_) => {}
             Update::CloseSessionPanes(session) => self.close_ended_session(server, session, cx),
             Update::Event(event) => self.receive_event(server, event, cx),
-            Update::Error(error) => self.fail(self.server_message(server, &error), cx),
+            Update::Error(error) => self.server_problem(server, error, cx),
         }
         cx.notify();
     }
@@ -2463,6 +2521,7 @@ mod tests {
     mod project_layouts;
     mod projects;
     mod quick_terminal;
+    mod remote_devices;
     mod rendering;
     mod scrollback;
     mod server_status;
@@ -3538,7 +3597,11 @@ mod tests {
             );
             model.connect(cx);
             model.receive(
-                (ServerId::local(), 1, Update::ConnectFailed("stale".into())),
+                (
+                    ServerId::local(),
+                    1,
+                    Update::ConnectFailed("stale".into(), None),
+                ),
                 cx,
             );
             assert!(model.servers.local.connection == ConnectionState::Connecting);
@@ -3694,7 +3757,7 @@ mod tests {
                 (
                     ServerId::local(),
                     1,
-                    Update::ConnectFailed("offline".into()),
+                    Update::ConnectFailed("offline".into(), None),
                 ),
                 cx,
             );
@@ -3829,7 +3892,7 @@ mod tests {
                 (
                     ServerId::local(),
                     1,
-                    Update::ConnectFailed("offline".into()),
+                    Update::ConnectFailed("offline".into(), None),
                 ),
                 cx,
             );

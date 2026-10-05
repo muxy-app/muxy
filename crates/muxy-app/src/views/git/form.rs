@@ -153,7 +153,7 @@ pub(crate) fn render(
     .into_any_element()
 }
 
-pub(super) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
+pub(crate) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
     let selector = format!("git-field-{label}");
     div()
         .debug_selector(move || selector.clone())

@@ -73,6 +73,9 @@ pub(crate) enum Command {
     ProjectLogo(muxy_app_core::ProjectId),
     RemoveProjectLogo(muxy_app_core::ProjectId),
     RemoveProject(muxy_app_core::ProjectId),
+    AddProject,
+    AddRemoteProject(muxy_app_core::ServerId),
+    ManageRemoteDevices,
 }
 
 #[derive(Clone, Debug)]
@@ -618,6 +621,18 @@ impl AppModel {
                 self.edit_project(|state| state.set_project_logo(id, None), cx);
             }
             Command::RemoveProject(id) => self.confirm_remove_project(id, cx),
+            Command::AddProject => {
+                self.open_project_picker(window, cx);
+                return;
+            }
+            Command::AddRemoteProject(server) => {
+                self.open_remote_project_picker(server, cx);
+                return;
+            }
+            Command::ManageRemoteDevices => {
+                self.open_remote_servers(None, window, cx);
+                return;
+            }
         }
         self.focus_active(window, cx);
     }

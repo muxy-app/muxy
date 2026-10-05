@@ -168,6 +168,10 @@ pub enum RequestBody {
     ClearScreen(#[n(0)] ChannelId),
     #[n(41)]
     StartPairingWithHosts(#[n(0)] Vec<String>),
+    /// The folders directly inside an absolute path on the server's
+    /// computer, for choosing a new project's folder there.
+    #[n(42)]
+    ListFolders(#[n(0)] ServerPath),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -275,6 +279,9 @@ pub enum ReplyBody {
     Pairing(#[n(0)] crate::PairingOffer),
     #[n(36)]
     ScreenCleared,
+    /// Folder names, sorted ignoring case.
+    #[n(37)]
+    Folders(#[n(0)] Vec<ServerPath>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

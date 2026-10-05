@@ -151,6 +151,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         }
         RequestBody::Git(request) => request.validate(),
         RequestBody::Files(request) => request.validate(),
+        RequestBody::ListFolders(path) => crate::validate_folder_path(path),
         RequestBody::Exec(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {
             if sessions.len() > 16_384 {
@@ -240,6 +241,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             }
         }
         ReplyBody::Files(reply) => reply.validate(),
+        ReplyBody::Folders(names) => crate::validate_folder_names(names),
         ReplyBody::Exec(reply) => reply.validate(),
         ReplyBody::Catalog(page) => page.validate(),
         ReplyBody::ProjectSessions(page) => page.validate(),

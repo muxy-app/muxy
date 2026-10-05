@@ -17,6 +17,12 @@ pub struct ServerEntry {
     /// An SSH destination: a `~/.ssh/config` alias, `user@host`, or
     /// `ssh://user@host:port`. It is fully checked when connecting.
     pub ssh: String,
+    /// The private key to log in with, instead of ssh's own choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_file: Option<String>,
+    /// Logs in with a password, which the app asks for and never saves.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub password_login: bool,
 }
 
 impl ServerEntry {
@@ -25,6 +31,8 @@ impl ServerEntry {
             id: ServerId::new(),
             name,
             ssh,
+            identity_file: None,
+            password_login: false,
         }
     }
 
@@ -48,6 +56,16 @@ impl ServerEntry {
             return Err(Error::new(
                 "servers",
                 "enter an SSH destination without control characters",
+            ));
+        }
+        if self
+            .identity_file
+            .as_ref()
+            .is_some_and(|path| path.trim().is_empty() || path.chars().any(char::is_control))
+        {
+            return Err(Error::new(
+                "servers",
+                "enter an identity file path without control characters",
             ));
         }
         Ok(())

@@ -2,15 +2,17 @@ use super::*;
 use muxy_app_core::settings::{AppLayout, ServerEntry};
 use muxy_protocol::{ChannelId, ProjectDescriptor, ServerPath};
 
-fn entry(id: ServerId, name: &str) -> ServerEntry {
+pub(super) fn entry(id: ServerId, name: &str) -> ServerEntry {
     ServerEntry {
         id,
         name: name.into(),
         ssh: "dev@box".into(),
+        identity_file: None,
+        password_login: false,
     }
 }
 
-fn descriptor(id: ProjectId, home: bool, name: &str) -> ProjectDescriptor {
+pub(super) fn descriptor(id: ProjectId, home: bool, name: &str) -> ProjectDescriptor {
     ProjectDescriptor {
         id,
         home,
@@ -25,7 +27,7 @@ fn descriptor(id: ProjectId, home: bool, name: &str) -> ProjectDescriptor {
 }
 
 /// A catalog with a Home and `projects`, from a server with `identity`.
-fn page(
+pub(super) fn page(
     identity: u128,
     home: ProjectId,
     projects: &[(ProjectId, &str)],
@@ -47,7 +49,7 @@ fn page(
 }
 
 /// Connects `server` as its worker would, with its catalog. Returns its Home.
-fn connect_remote(
+pub(super) fn connect_remote(
     model: &mut AppModel,
     server: ServerId,
     sessions: Vec<SessionInfo>,
@@ -67,7 +69,7 @@ fn connect_remote(
     home
 }
 
-fn work(requests: &std::sync::mpsc::Receiver<(u64, Work)>) -> Vec<Work> {
+pub(super) fn work(requests: &std::sync::mpsc::Receiver<(u64, Work)>) -> Vec<Work> {
     requests.try_iter().map(|(_, work)| work).collect()
 }
 
@@ -106,15 +108,15 @@ fn first_row(model: &AppModel, pane: PaneId, cx: &gpui::App) -> String {
 }
 
 /// An update from `server`'s first connection.
-fn from(server: ServerId, update: Update) -> (ServerId, u64, Update) {
+pub(super) fn from(server: ServerId, update: Update) -> (ServerId, u64, Update) {
     (server, 1, update)
 }
 
-fn drawn(cx: &mut VisualTestContext, selector: String) -> bool {
+pub(super) fn drawn(cx: &mut VisualTestContext, selector: String) -> bool {
     cx.debug_bounds(selector.leak()).is_some()
 }
 
-fn redraw(cx: &mut VisualTestContext) {
+pub(super) fn redraw(cx: &mut VisualTestContext) {
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
 }
@@ -139,8 +141,9 @@ fn attach_local_and_remote(
 ) -> (PaneId, PaneId) {
     model.receive(from(ServerId::local(), Update::Connected(vec![])), cx);
     acknowledge_catalog(model, cx);
-    let home = connect_remote(model, remote, vec![], &[], cx);
-    model.select_project(home, cx);
+    let api = ProjectId::new();
+    connect_remote(model, remote, vec![], &[(api, "api")], cx);
+    model.select_project(api, cx);
     model.new_tab(cx);
     let remote_pane = model.active_pane().expect("remote pane");
     let local_pane = model.state.ensure_quick_terminal();
@@ -269,7 +272,7 @@ fn show_local_and_remote(
         acknowledge_catalog(model, cx);
         let api = ProjectId::new();
         let home = connect_remote(model, remote, vec![], &[(api, "api")], cx);
-        model.select_project(home, cx);
+        model.select_project(api, cx);
         model.new_tab(cx);
         let remote_pane = model.active_pane().expect("remote pane");
         let remote_tab = model.active_tab().expect("remote tab");
@@ -294,22 +297,19 @@ fn show_local_and_remote(
 #[gpui::test]
 fn remote_projects_show_their_server_and_their_own_progress(cx: &mut TestAppContext) {
     let (scene, view, cx) = show_local_and_remote(cx);
-    assert!(row_drawn(cx, 2));
+    assert!(row_drawn(cx, 1));
     assert!(
-        !row_drawn(cx, 3),
-        "the dormant server's projects stay hidden"
+        !row_drawn(cx, 2),
+        "the remote Home and the dormant server's projects stay hidden"
     );
-    for project in [scene.home, scene.api] {
-        assert!(drawn(cx, format!("project-server-label-{project}")));
+    assert!(drawn(cx, format!("project-server-label-{}", scene.api)));
+    for project in [scene.local_home, scene.home] {
+        assert!(!drawn(cx, format!("project-server-label-{project}")));
     }
-    assert!(!drawn(
-        cx,
-        format!("project-server-label-{}", scene.local_home)
-    ));
 
     view.update(cx, |model, cx| {
         model.appearance.layout = AppLayout::TabFocused;
-        for project in [scene.local_home, scene.home] {
+        for project in [scene.local_home, scene.api] {
             model.appearance.tab_focused_expanded.insert(project, true);
         }
         model.select_project(scene.local_home, cx);
@@ -348,7 +348,7 @@ fn a_remote_going_offline_leaves_local_panes_live_and_reconnects_when_opened(
         model.select_project(scene.local_home, cx);
         assert_eq!(model.status(cx), PaneState::Live);
         work(&remote_work);
-        model.select_project(scene.home, cx);
+        model.select_project(scene.api, cx);
         assert_eq!(model.connection(scene.remote), ConnectionState::Connecting);
     });
     assert!(
@@ -395,8 +395,8 @@ fn remote_terminal(cx: &mut TestAppContext) -> Result {
         model.state.server_home(remote).is_some()
     })?;
     let pane = view.update(cx, |model, cx| {
-        let home = model.state.server_home(remote).map(|home| home.id);
-        model.select_project(home.expect("remote Home"), cx);
+        let project = model.add_project_on(remote, directory.path().to_path_buf(), cx);
+        model.select_project(project.expect("remote project"), cx);
         model.new_tab(cx);
         let pane = model.active_pane().expect("pane");
         model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
@@ -419,7 +419,7 @@ fn remote_terminal(cx: &mut TestAppContext) -> Result {
 }
 
 /// A server on `socket`, where the fake ssh's relay reaches it.
-fn serve_remote(socket: &std::path::Path) -> io::Result<()> {
+pub(super) fn serve_remote(socket: &std::path::Path) -> io::Result<()> {
     let listener = std::os::unix::net::UnixListener::bind(socket)?;
     let (events, kept) = std::sync::mpsc::channel();
     let registry = std::sync::Arc::new(muxy_server::Registry::new(

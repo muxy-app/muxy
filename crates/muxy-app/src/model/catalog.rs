@@ -69,7 +69,7 @@ impl AppModel {
         match result {
             Ok(revision) => runtime.catalog.dirty = runtime.catalog.dirty.max(revision),
             Err(ClientError::Server(error)) if error.code != ErrorCode::PersistenceFailed => {
-                self.fail(error.message, cx);
+                self.fail(self.server_message(server, &error.message), cx);
             }
             Err(error) => {
                 self.fail(format!("Project edit is pending: {error}"), cx);
@@ -112,8 +112,7 @@ impl AppModel {
         let page = match result {
             Ok(page) => page,
             Err(error) => {
-                let message = format!("Could not refresh projects: {error}");
-                self.fail(self.server_message(server, &message), cx);
+                self.server_problem(server, format!("Could not refresh projects: {error}"), cx);
                 return;
             }
         };
@@ -180,19 +179,14 @@ impl AppModel {
             self.refresh_catalog(server, cx);
         }
         self.resume_activity_navigation(server, cx);
+        self.resume_remote_picker(server, cx);
         cx.notify();
     }
 
     /// A catalog this app can't take keeps the state as it was. For another
-    /// computer, the reason stays with that server too.
+    /// computer, the reason shows in the sidebar's Remote section instead.
     fn server_failed(&mut self, server: ServerId, error: &AppError, cx: &mut Context<Self>) {
-        let message = self.server_message(server, &error.to_string());
-        if !server.is_local()
-            && let Some(runtime) = self.servers.get_mut(server)
-        {
-            runtime.error = Some(message.clone());
-        }
-        self.fail(message, cx);
+        self.server_problem(server, error.to_string(), cx);
     }
 }
 

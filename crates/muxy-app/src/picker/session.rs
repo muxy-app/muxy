@@ -54,6 +54,8 @@ pub(crate) struct Session {
     pub(crate) project_paths: Vec<String>,
     pub(crate) search_root_path: String,
     pub(crate) path_service: PathService,
+    /// Browses another computer, whose server checks typed folders.
+    pub(crate) remote: bool,
 }
 
 impl Session {
@@ -74,10 +76,25 @@ impl Session {
             project_paths,
             search_root_path,
             path_service,
+            remote: false,
         }
     }
 
+    /// Browses another computer from its Home, which `~` means there.
+    pub(crate) fn remote(home: &str, project_paths: Vec<String>) -> Self {
+        let home = super::path_service::standardize(home);
+        let mut session = Self::new(&home, project_paths);
+        session.path_service.home_directory.clone_from(&home);
+        session.search_root_path = home;
+        session.remote = true;
+        session
+    }
+
+    /// Another computer has no folder search, so everything typed is a path.
     pub(crate) fn input_mode(&self) -> InputMode {
+        if self.remote {
+            return InputMode::Path;
+        }
         InputMode::resolve(&self.input)
     }
 
@@ -112,7 +129,11 @@ impl Session {
         }
     }
 
+    /// Another computer's folders are checked by its server when added.
     pub(crate) fn typed_path_state(&self) -> TypedPathState {
+        if self.remote {
+            return TypedPathState::Directory;
+        }
         PathService::typed_path_state(&self.path_state().standardized_confirm_path)
     }
 

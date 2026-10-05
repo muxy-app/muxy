@@ -511,3 +511,29 @@ fn withhold_extension_replies(listener: &UnixListener, started: &Sender<()>) -> 
     }
     Ok(())
 }
+
+#[test]
+fn a_remote_command_reports_the_last_line_it_printed_when_it_fails() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir()?;
+    let program = directory.path().join("ssh");
+    fs::write(
+        &program,
+        "#!/bin/sh\nfor last; do :; done\nexec sh -c \"$last\"\n",
+    )?;
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+    let host = SshTarget::new("box")?.with_program(program);
+    assert_eq!(run(&host, "echo installed"), Ok(()));
+    assert_eq!(
+        run(
+            &host,
+            "echo Downloading; echo 'Error: Install curl and retry.' >&2; exit 1"
+        ),
+        Err("Error: Install curl and retry.".into())
+    );
+    assert_eq!(
+        run(&host, "exit 3"),
+        Err("box exited with exit status: 3".into())
+    );
+    Ok(())
+}

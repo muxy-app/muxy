@@ -31,6 +31,10 @@ pub(crate) enum Overlay {
     ProjectIcons(super::project_editor::icons::Icons),
     ProjectLogo(super::project_editor::logo::Cropper),
     Projects(Entity<super::project_picker::ProjectPicker>),
+    /// The popover above the sidebar's Remote section.
+    RemoteServers,
+    ServerForm(Box<super::remote_servers::ServerForm>),
+    Password(Box<super::remote_servers::PasswordPrompt>),
 }
 
 impl AppModel {
@@ -45,6 +49,10 @@ impl AppModel {
         }
         self.project_logo_task = None;
         self.git.interaction = self.git.interaction.wrapping_add(1);
+        if matches!(self.overlay, Some(Overlay::Password(_))) {
+            // Without the password, Add Project no longer waits for it.
+            self.pending_remote_picker = None;
+        }
         self.overlay = None;
         self.overlay_subscription = None;
         self.focus_requested = true;
@@ -69,6 +77,19 @@ impl AppModel {
 }
 
 pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
+
+fn centered(content: AnyElement) -> AnyElement {
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(content)
+        .into_any_element()
+}
 
 #[allow(
     clippy::too_many_lines,
@@ -112,6 +133,20 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                 let _ = model.update(cx, AppModel::dismiss_overlay);
             })
         }
+        Some(Overlay::RemoteServers) => {
+            let content = super::remote_servers::popover(model, window, cx);
+            let anchor = model.remote_anchor.clone();
+            let model = cx.entity().downgrade();
+            muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
+                let _ = model.update(cx, AppModel::dismiss_overlay);
+            })
+        }
+        Some(Overlay::ServerForm(form)) => {
+            centered(super::remote_servers::render_form(form, model, window, cx))
+        }
+        Some(Overlay::Password(prompt)) => centered(super::remote_servers::render_password(
+            prompt, model, window, cx,
+        )),
         Some(Overlay::Native(picker)) => picker.clone().into_any_element(),
         Some(Overlay::GitForm(form)) => div()
             .absolute()

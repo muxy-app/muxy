@@ -105,26 +105,107 @@ impl Target {
     }
 }
 
+/// Checks that another computer's server answers over SSH, and reports its
+/// version or why it doesn't.
+pub(crate) type Probe = Arc<dyn Fn(&SshTarget) -> Result<String, String> + Send + Sync>;
+
+/// Runs a command on another computer over SSH, such as an installer, and
+/// reports why it failed.
+pub(crate) type Run = Arc<dyn Fn(&SshTarget, &str) -> Result<(), String> + Send + Sync>;
+
 /// Starts one worker per server.
-pub(crate) struct Workers(Box<dyn Fn(ServerId, Target) -> std::io::Result<Worker>>);
+pub(crate) struct Workers {
+    start: Box<dyn Fn(ServerId, Target) -> std::io::Result<Worker>>,
+    probe: Probe,
+    run: Run,
+}
 
 impl Workers {
     fn new(updates: async_channel::Sender<(ServerId, u64, Update)>) -> Self {
-        Self(Box::new(move |server, target| {
-            worker(server, target, updates.clone())
-        }))
+        Self {
+            start: Box::new(move |server, target| worker(server, target, updates.clone())),
+            probe: Arc::new(probe),
+            run: Arc::new(run),
+        }
     }
 
+    /// Workers from `start`, with a probe that never reaches a network.
     #[cfg(test)]
     pub(crate) fn with(
         start: impl Fn(ServerId, Target) -> std::io::Result<Worker> + 'static,
     ) -> Self {
-        Self(Box::new(start))
+        Self {
+            start: Box::new(start),
+            probe: Arc::new(|_| Err("SSH is unavailable in tests".into())),
+            run: Arc::new(|_, _| Err("SSH is unavailable in tests".into())),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_run(
+        self,
+        run: impl Fn(&SshTarget, &str) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            run: Arc::new(run),
+            ..self
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_probe(
+        self,
+        probe: impl Fn(&SshTarget) -> Result<String, String> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            probe: Arc::new(probe),
+            ..self
+        }
     }
 
     pub(crate) fn start(&self, server: ServerId, target: Target) -> std::io::Result<Worker> {
-        (self.0)(server, target)
+        (self.start)(server, target)
     }
+
+    pub(crate) fn probe(&self) -> Probe {
+        self.probe.clone()
+    }
+
+    pub(crate) fn run(&self) -> Run {
+        self.run.clone()
+    }
+}
+
+/// Runs `remote` there and waits for it. On failure, the last line of its
+/// error output, else of its output, says why.
+fn run(host: &SshTarget, remote: &str) -> Result<(), String> {
+    let output = host
+        .command(remote)
+        .and_then(|mut command| command.stdin(std::process::Stdio::null()).output())
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let last = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .map(str::trim)
+            .rfind(|line| !line.is_empty())
+            .map(str::to_owned)
+    };
+    Err(last(&output.stderr)
+        .or_else(|| last(&output.stdout))
+        .unwrap_or_else(|| format!("{host} exited with {}", output.status)))
+}
+
+/// Connects once, starting the server if needed, as a worker would. It
+/// blocks for as long as SSH takes, so it runs off the UI thread.
+pub(crate) fn probe(host: &SshTarget) -> Result<String, String> {
+    let client = Client::connect_ssh(host, Start::IfNeeded)
+        .map_err(|error| explain(&Target::Ssh(host.clone()), &error))?;
+    let version = client.server_info().build.version.clone();
+    client.disconnect();
+    Ok(version)
 }
 
 impl std::fmt::Debug for Workers {
@@ -339,7 +420,8 @@ pub(crate) enum Update {
     PreparedForInstall(Result<Option<std::fs::File>, ClientError>),
     ServerInfo(muxy_protocol::ServerInfo),
     ServerChecked(Result<ServerUpdate, ClientError>),
-    ConnectFailed(String),
+    /// Why connecting failed, and for another computer, the kind of failure.
+    ConnectFailed(String, Option<muxy_client::RemoteReason>),
     Attached {
         pane: PaneId,
         session: SessionId,
@@ -463,7 +545,13 @@ pub(crate) fn worker(
                                 client = Some(connected);
                                 vec![Update::ServerInfo(info), Update::Connected(sessions)]
                             }
-                            Err(error) => vec![Update::ConnectFailed(explain(&target, &error))],
+                            Err(error) => {
+                                let reason = match &error {
+                                    ClientError::Remote { reason, .. } => Some(*reason),
+                                    _ => None,
+                                };
+                                vec![Update::ConnectFailed(explain(&target, &error), reason)]
+                            }
                         }
                     }
                     _ if requested != generation => Vec::new(),
@@ -577,7 +665,7 @@ fn start_connect(
         });
     match spawned {
         Ok(_) => Vec::new(),
-        Err(error) => vec![Update::ConnectFailed(error.to_string())],
+        Err(error) => vec![Update::ConnectFailed(error.to_string(), None)],
     }
 }
 

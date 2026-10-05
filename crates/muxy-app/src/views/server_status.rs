@@ -61,7 +61,15 @@ pub(crate) fn control(model: &AppModel, cx: &mut Context<AppModel>) -> impl Into
             div()
                 .text_size(m.font_footnote())
                 .font_weight(FontWeight::MEDIUM)
-                .child(format!("Server · {}", status.label())),
+                .child(if model.status_server().is_local() {
+                    format!("Server · {}", status.label())
+                } else {
+                    format!(
+                        "{} · {}",
+                        model.server_label(model.status_server()),
+                        status.label()
+                    )
+                }),
         )
 }
 
@@ -69,6 +77,10 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
     let m = model.metrics;
     let theme = &model.theme;
     let status = model.server_status();
+    let server = model.status_server();
+    let label = model.server_label(server);
+    let version = model.server_version(server);
+    let error = model.server_error(server);
     let width = m
         .scaled(360.0)
         .min((window.viewport_size().width - px(16.0)).max(px(0.0)));
@@ -78,18 +90,38 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
                 .flex()
                 .justify_between()
                 .gap(m.spacing6())
-                .child("Current device")
+                .child(
+                    div()
+                        .debug_selector(|| "server-popover-name".into())
+                        .child(label.clone()),
+                )
                 .child(div().text_color(status_color(status, model)).child(status.label())),
         )
         .child(
             div()
                 .text_color(theme.fg_muted)
-                .child(format!("Server for {}", model.state.current_project().name)),
+                .child(match version {
+                    Some(version) => format!(
+                        "Server for {} · Muxy {version}",
+                        model.state.current_project().name
+                    ),
+                    None => format!("Server for {}", model.state.current_project().name),
+                }),
         )
+        .children(error.map(|error| {
+            div()
+                .debug_selector(|| "server-popover-error".into())
+                .text_color(theme.danger)
+                .child(error.to_owned())
+        }))
         .child(
             div()
                 .text_color(theme.fg_muted)
-                .child("Restarting or stopping this server ends all terminal sessions on this device, including sessions in other projects and clients."),
+                .child(if server.is_local() {
+                    "Restarting or stopping this server ends all terminal sessions on this device, including sessions in other projects and clients.".to_owned()
+                } else {
+                    format!("Restarting or stopping this server ends all terminal sessions on {label}, including sessions in other projects and clients.")
+                }),
         );
     let panel = popover::surface(theme, m)
         .id("server-popover")
@@ -136,7 +168,7 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
                 model.server_connect_enabled(),
                 cx.listener(|model, _, _, cx| {
                     if model.server_connect_enabled() {
-                        model.connect(cx);
+                        model.connect_server(model.status_server(), cx);
                         cx.notify();
                     }
                 }),
@@ -155,7 +187,12 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
                     label,
                     model.server_control_enabled(),
                     cx.listener(move |model, _, window, cx| {
-                        model.confirm_server_control(restart, window.window_handle(), cx);
+                        model.confirm_server_control(
+                            model.status_server(),
+                            restart,
+                            window.window_handle(),
+                            cx,
+                        );
                     }),
                 )
                 .debug_selector(move || id.into()),

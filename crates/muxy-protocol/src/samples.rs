@@ -757,6 +757,14 @@ fn activity_samples(session: SessionId) -> Vec<Message> {
 fn files_samples() -> Vec<Message> {
     vec![
         Message::Request {
+            id: RequestId(9),
+            body: RequestBody::ListFolders(ServerPath(b"/home/dev".to_vec())),
+        },
+        Message::Reply {
+            id: RequestId(9),
+            body: ReplyBody::Folders(vec![ServerPath(b"code".to_vec())]),
+        },
+        Message::Request {
             id: RequestId(1),
             body: RequestBody::Files(crate::FilesRequest {
                 project: crate::ProjectId::from_u128(1),

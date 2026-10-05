@@ -382,6 +382,9 @@ fn ordered_request(
         | RequestBody::ListProjectSessions { .. } => project_request(body, registry, outbox)?,
         RequestBody::Git(request) => ReplyBody::Git(registry.git(&request)?),
         RequestBody::Files(request) => ReplyBody::Files(registry.files(&request)?),
+        RequestBody::ListFolders(directory) => {
+            ReplyBody::Folders(crate::files::folders(&directory)?)
+        }
         RequestBody::Exec(_) | RequestBody::CancelExec(_) => {
             return Err(ServerError::new(
                 ErrorCode::BadRequest,
