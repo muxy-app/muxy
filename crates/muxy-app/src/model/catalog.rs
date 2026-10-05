@@ -124,6 +124,14 @@ impl AppModel {
         if !server.is_local() && self.state.server_identity(local).is_none() {
             return;
         }
+        if self
+            .servers
+            .get(server)
+            .is_some_and(|runtime| page.revision < runtime.catalog.dirty)
+        {
+            self.refresh_catalog(server, cx);
+            return;
+        }
         let first = self.state.server_identity(server).is_none();
         let previous = self.state.clone();
         if let Err(error) = self.state.apply_catalog(server, &page) {
@@ -171,6 +179,7 @@ impl AppModel {
             self.select_project(project, cx);
         }
         self.sync_visible(cx);
+        self.resume_worktree_pruning(server, cx);
         if self
             .servers
             .get(server)

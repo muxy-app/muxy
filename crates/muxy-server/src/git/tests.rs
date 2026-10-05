@@ -11,6 +11,7 @@ use muxy_protocol::{
 use std::sync::mpsc;
 mod worktree_concurrency;
 mod worktree_hooks;
+mod worktree_pruning;
 
 struct Repo {
     path: PathBuf,

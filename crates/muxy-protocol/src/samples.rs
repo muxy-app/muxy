@@ -538,7 +538,18 @@ fn project_samples() -> Vec<Message> {
         },
     ];
     samples.extend(changed_samples());
+    samples.push(prune_worktree_sample());
     samples
+}
+
+fn prune_worktree_sample() -> Message {
+    Message::Request {
+        id: RequestId(6),
+        body: RequestBody::MutateProject(crate::ProjectIntent {
+            operation: crate::OperationId::from_u128(2),
+            mutation: crate::ProjectMutation::PruneWorktree(crate::ProjectId::from_u128(1)),
+        }),
+    }
 }
 
 fn close_samples() -> Vec<Message> {

@@ -4,7 +4,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use gpui::Context;
-use muxy_app_core::ProjectStatus;
+use muxy_app_core::{ProjectStatus, ServerId};
 use muxy_client::{Client, ClientError};
 use muxy_protocol::{
     GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectId, ReplyBody, ServerPath,
@@ -20,6 +20,8 @@ pub(crate) struct WorktreeSync {
     queue: VecDeque<ProjectId>,
     /// The project syncing now, with the connection generation it runs on.
     running: Option<(ProjectId, u64)>,
+    candidates: HashSet<ProjectId>,
+    pending_pruning: HashSet<ProjectId>,
     /// Git changed while the running project synced, so it syncs once more.
     again: bool,
     /// New projects keep worktrees hidden unless their repository already has some.
@@ -125,8 +127,63 @@ async fn import(
     let own = resolved(directory, local);
     Ok(worktrees
         .into_iter()
-        .filter(|worktree| listed(worktree, &own, local))
+        .filter(|worktree| listed(worktree, &own, local) || worktree.locked)
         .collect())
+}
+
+pub(super) async fn prune_candidates<
+    F: Future<Output = Result<bool, ClientError>>,
+    G: Future<Output = bool>,
+>(
+    worktrees: &[GitWorktree],
+    candidates: Vec<(ProjectId, PathBuf)>,
+    mut has_sessions: impl FnMut(ProjectId) -> F,
+    mut folder_gone: impl FnMut(ProjectId, &Path) -> G,
+) -> HashSet<ProjectId> {
+    let mut eligible = HashSet::new();
+    for (project, directory) in candidates {
+        if worktrees.iter().any(|worktree| {
+            worktree.registered == Some(project)
+                || worktree.directory.0 == directory.as_os_str().as_bytes()
+        }) || !folder_gone(project, &directory).await
+        {
+            continue;
+        }
+        if has_sessions(project)
+            .await
+            .is_ok_and(|has_sessions| !has_sessions)
+        {
+            eligible.insert(project);
+        }
+    }
+    eligible
+}
+
+/// Whether a worktree's folder is gone: checked on this disk, or for
+/// another computer's project, by its server.
+fn folder_gone(
+    client: &Client,
+    local: bool,
+    project: ProjectId,
+    directory: &Path,
+) -> impl Future<Output = bool> + use<> {
+    let here = local.then(|| directory.try_exists().is_ok_and(|exists| !exists));
+    let there = (!local).then(|| {
+        client.files_async(muxy_protocol::FilesRequest {
+            project,
+            action: muxy_protocol::FilesAction::Stat(ServerPath(Vec::new())),
+        })
+    });
+    async move {
+        match (here, there) {
+            (Some(gone), _) => gone,
+            (None, Some(stat)) => matches!(
+                stat.await,
+                Err(ClientError::Server(error)) if error.code == muxy_protocol::ErrorCode::BadPath
+            ),
+            (None, None) => false,
+        }
+    }
 }
 
 impl AppModel {
@@ -247,15 +304,43 @@ impl AppModel {
                 break;
             }
             self.git.worktrees.running = Some((root, generation));
+            let candidates: Vec<_> = self
+                .state
+                .projects()
+                .iter()
+                .filter(|project| project.parent_id == Some(root) && project.tabs.is_empty())
+                .map(|project| (project.id, project.directory.clone()))
+                .collect();
+            self.git.worktrees.candidates = candidates.iter().map(|(id, _)| *id).collect();
             let task = cx.background_executor().spawn(async move {
                 match receiver.recv().await {
-                    Ok(Some(client)) => import(&client, root, &directory, local).await,
+                    Ok(Some(client)) => {
+                        let worktrees = import(&client, root, &directory, local).await?;
+                        let eligible = prune_candidates(
+                            &worktrees,
+                            candidates,
+                            |project| client.project_has_sessions_async(project),
+                            |project, directory| folder_gone(&client, local, project, directory),
+                        )
+                        .await;
+                        Ok((worktrees, eligible))
+                    }
                     _ => Err(ClientError::Disconnected),
                 }
             });
             cx.spawn(async move |model, cx| {
                 let result = task.await;
                 let _ = model.update(cx, |model, cx| {
+                    let result = result.map(|(worktrees, eligible)| {
+                        if model.git.worktrees.running == Some((root, generation)) {
+                            model
+                                .git
+                                .worktrees
+                                .candidates
+                                .retain(|id| eligible.contains(id));
+                        }
+                        worktrees
+                    });
                     model.worktrees_synced(root, generation, result, cx);
                 });
             })
@@ -264,6 +349,26 @@ impl AppModel {
         }
         for root in waiting.into_iter().rev() {
             self.git.worktrees.queue.push_front(root);
+        }
+    }
+
+    /// Syncs again the roots of `server` that had more worktrees to prune
+    /// than its pending edits could hold, once those are confirmed.
+    pub(super) fn resume_worktree_pruning(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        if !self.state.project_intents(server).is_empty() {
+            return;
+        }
+        let roots: Vec<_> = self
+            .git
+            .worktrees
+            .pending_pruning
+            .iter()
+            .copied()
+            .filter(|root| self.project_server_or_local(*root) == server)
+            .collect();
+        for root in roots {
+            self.git.worktrees.pending_pruning.remove(&root);
+            self.sync_worktrees(root, cx);
         }
     }
 
@@ -285,12 +390,58 @@ impl AppModel {
         result: Result<Vec<GitWorktree>, ClientError>,
         cx: &mut Context<Self>,
     ) {
-        if self.git.worktrees.running != Some((root, generation)) {
+        let server = self.project_server_or_local(root);
+        if generation != self.generation(server)
+            || !self.ready(server)
+            || self.git.worktrees.running != Some((root, generation))
+        {
             return;
         }
-        self.git.worktrees.running = None;
+        let candidates = std::mem::take(&mut self.git.worktrees.candidates);
         match result {
             Ok(worktrees) => {
+                let registered: HashSet<_> = worktrees
+                    .iter()
+                    .filter_map(|worktree| worktree.registered)
+                    .collect();
+                let directories: HashSet<_> = worktrees
+                    .iter()
+                    .map(|worktree| worktree.directory.0.as_slice())
+                    .collect();
+                let candidates: Vec<_> = self
+                    .state
+                    .projects()
+                    .iter()
+                    .filter(|project| {
+                        candidates.contains(&project.id)
+                            && !registered.contains(&project.id)
+                            && project.parent_id == Some(root)
+                            && project.tabs.is_empty()
+                            && !directories.contains(project.directory.as_os_str().as_bytes())
+                    })
+                    .map(|project| project.id)
+                    .collect();
+                // Another computer's projects are pruned only once its
+                // catalog shows it is still the server the app knew.
+                let capacity = if self.confirmed(server) {
+                    self.state.project_intent_capacity(server)
+                } else {
+                    0
+                };
+                if candidates.len() > capacity {
+                    self.git.worktrees.pending_pruning.insert(root);
+                }
+                if !candidates.is_empty() && capacity > 0 {
+                    self.edit_project(
+                        |state| {
+                            for project in candidates.into_iter().take(capacity) {
+                                state.prune_worktree(project)?;
+                            }
+                            Ok(())
+                        },
+                        cx,
+                    );
+                }
                 if self.git.worktrees.unchecked.remove(&root) && !worktrees.is_empty() {
                     self.appearance.hidden_worktrees.remove(&root);
                     self.save_appearance(cx);
@@ -312,6 +463,7 @@ impl AppModel {
                 );
             }
         }
+        self.git.worktrees.running = None;
         if std::mem::take(&mut self.git.worktrees.again) {
             self.git.worktrees.queue.push_front(root);
         }
