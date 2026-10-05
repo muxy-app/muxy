@@ -66,14 +66,6 @@ brew install --cask muxy
 
 Download the latest release from the [releases page](https://github.com/muxy-app/muxy/releases)
 
-### iOS
-
-[Instructions](https://github.com/muxy-app/mobile)
-
-### Android
-
-[Instructions](https://github.com/muxy-app/mobile)
-
 ## Local Development
 
 ```bash
