@@ -142,3 +142,30 @@ fn remote_requests_and_replies_validate_their_bounds() {
     empty_hosts.hosts.clear();
     assert_eq!(empty_hosts.validate(), Err(ErrorCode::BadRequest));
 }
+
+#[test]
+fn extra_pairing_addresses_follow_the_pairing_link_rules() {
+    let start = |hosts: &[&str]| {
+        Message::Request {
+            id: RequestId(1),
+            body: RequestBody::StartPairingWithHosts(
+                hosts.iter().map(|host| (*host).to_owned()).collect(),
+            ),
+        }
+        .validate()
+    };
+    assert_eq!(start(&[]), Ok(()));
+    assert_eq!(start(&["box.example.com", "203.0.113.7"]), Ok(()));
+    assert_eq!(start(&["host"; 8]), Ok(()));
+    let long = "a".repeat(254);
+    for hosts in [
+        &["host"; 9][..],
+        &["box.example.com:7419"],
+        &["::1"],
+        &["bad host"],
+        &[""],
+        &[long.as_str()],
+    ] {
+        assert_eq!(start(hosts), Err(ErrorCode::BadRequest), "{hosts:?}");
+    }
+}

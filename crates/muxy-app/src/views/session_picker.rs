@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::overlays::Overlay;
 use crate::{boot::Work, model::AppModel};
 use gpui::{AppContext, Context, Focusable, Window};
-use muxy_app_core::ProjectId;
+use muxy_app_core::{ProjectId, ServerId};
 use muxy_protocol::{ProjectSession, ProjectSessions, SessionId};
 use muxy_ui::icon::Icon;
 use muxy_ui::picker::{
@@ -12,7 +12,6 @@ use muxy_ui::picker::{
 
 #[derive(Default)]
 pub(crate) struct ExistingSessions {
-    pub(crate) revision: u64,
     projects: HashMap<ProjectId, Listing>,
 }
 
@@ -64,7 +63,11 @@ impl AppModel {
     }
 
     fn available_sessions(&self, project: ProjectId) -> Vec<&ProjectSession> {
-        let references = self.state.session_references();
+        let references = self
+            .state
+            .project_server(project)
+            .map(|server| self.state.session_references(server))
+            .unwrap_or_default();
         self.existing_sessions
             .projects
             .get(&project)
@@ -75,14 +78,20 @@ impl AppModel {
     }
 
     pub(crate) fn refresh_existing_sessions(&mut self, cx: &mut Context<Self>) {
-        if !self.session_listing_ready() {
-            return;
-        }
         let project = self.state.current_project().id;
         self.request_sessions(project, cx);
         if let Some(Overlay::Sessions(picker)) = &self.overlay {
             self.request_sessions(picker.project, cx);
         }
+        self.update_session_picker(cx);
+    }
+
+    /// Forgets what `server` listed, which a new connection lists again.
+    pub(crate) fn forget_server_sessions(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        let state = &self.state;
+        self.existing_sessions
+            .projects
+            .retain(|project, _| state.project_server(*project) != Some(server));
         self.update_session_picker(cx);
     }
 
@@ -98,15 +107,14 @@ impl AppModel {
     }
 
     fn request_sessions(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(current) = self.sessions_revision(project) else {
+            return;
+        };
         let listing = self.existing_sessions.projects.entry(project).or_default();
-        if listing.pending
-            || listing
-                .revision
-                .is_some_and(|revision| revision >= self.existing_sessions.revision)
-        {
+        if listing.pending || listing.revision.is_some_and(|revision| revision >= current) {
             return;
         }
-        if self.send_session_request(Work::ProjectSessions { project }, cx) {
+        if self.send_session_request(project, Work::ProjectSessions { project }, cx) {
             let listing = self.existing_sessions.projects.entry(project).or_default();
             listing.pending = true;
             listing.error = None;
@@ -119,6 +127,7 @@ impl AppModel {
         result: Result<ProjectSessions, muxy_client::ClientError>,
         cx: &mut Context<Self>,
     ) {
+        let current = self.sessions_revision(project).unwrap_or_default();
         let listing = self.existing_sessions.projects.entry(project).or_default();
         listing.pending = false;
         match result {
@@ -129,7 +138,7 @@ impl AppModel {
             }
             Err(error) => {
                 listing.entries.clear();
-                listing.revision = Some(self.existing_sessions.revision);
+                listing.revision = Some(current);
                 listing.error = Some(error.to_string());
             }
         }
@@ -165,7 +174,7 @@ impl AppModel {
             })
             .collect();
         let listing = self.existing_sessions.projects.get(&picker.project);
-        let status = if !self.session_listing_ready() {
+        let status = if self.sessions_revision(picker.project).is_none() {
             PickerStatus::Error("Reconnect to see existing terminals".into())
         } else if let Some(error) = listing.and_then(|listing| listing.error.as_ref()) {
             PickerStatus::Error(error.clone().into())

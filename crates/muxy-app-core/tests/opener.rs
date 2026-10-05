@@ -92,7 +92,7 @@ fn local_targets_preserve_locations_and_decode_only_local_file_uris() {
         "/project/Makefile",
     ];
     let resolve = |text| {
-        Target::local_file(
+        Target::file(
             text,
             Path::new("/project"),
             Some(Path::new("/home/me")),

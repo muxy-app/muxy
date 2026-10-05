@@ -12,7 +12,7 @@ fn server_popover_is_always_available_beside_updates_and_dismisses(cx: &mut Test
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         cx.notify();
     });
     cx.simulate_resize(size(px(1000.0), px(700.0)));
@@ -75,7 +75,7 @@ fn server_popover_confirms_stop_and_restart_and_only_reconnects_for_restart(
         let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             cx.notify();
         });
         let action = if restart {
@@ -111,6 +111,7 @@ fn server_popover_confirms_stop_and_restart_and_only_reconnects_for_restart(
             assert!(!model.server_control_enabled());
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::ServerStopped {
                         restart,
@@ -120,7 +121,7 @@ fn server_popover_confirms_stop_and_restart_and_only_reconnects_for_restart(
                 cx,
             );
             assert_eq!(
-                model.connection,
+                model.servers.local.connection,
                 if restart {
                     ConnectionState::Connecting
                 } else {
@@ -143,7 +144,7 @@ fn disconnected_server_popover_connects_once_and_tracks_connection_changes(
 ) {
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, AppModel::disconnect);
+    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
     click(cx, "project-connection-status");
     assert!(cx.debug_bounds("restart-project-server").is_none());
     click(cx, "connect-server");
@@ -162,14 +163,15 @@ fn disconnected_server_popover_connects_once_and_tracks_connection_changes(
     view.update(cx, |model, cx| {
         model.receive(
             (
-                model.generation,
-                Update::ConnectFailed("unavailable".into()),
+                ServerId::local(),
+                model.servers.local.generation,
+                Update::ConnectFailed("unavailable".into(), None),
             ),
             cx,
         );
         assert_eq!(model.server_status(), ServerStatus::Disconnected);
         assert!(model.server_connect_enabled());
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         cx.notify();
     });
     cx.run_until_parked();
@@ -186,7 +188,7 @@ fn server_controls_respect_busy_state_and_surface_stop_errors_without_settings(
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.server_preferences.busy = true;
         cx.notify();
     });
@@ -203,6 +205,7 @@ fn server_controls_respect_busy_state_and_surface_stop_errors_without_settings(
         model.server_preferences.control_busy = true;
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::ServerStopped {
                     restart: false,

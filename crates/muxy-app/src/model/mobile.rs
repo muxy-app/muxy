@@ -1,9 +1,10 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gpui::{AnyWindowHandle, Context, Task};
+use muxy_app_core::ServerId;
 use muxy_protocol::{DeviceId, PairingOffer, RemoteAccessSettings, RemoteAccessState};
 
-use super::{AppModel, ConnectionState, Quitting};
+use super::{AppModel, Quitting};
 use crate::boot::Work;
 use crate::views::settings::Change;
 use crate::views::settings::mobile::Pairing;
@@ -31,7 +32,7 @@ pub(super) struct MobileAccess {
 
 impl AppModel {
     fn mobile_available(&self) -> bool {
-        self.quitting == Quitting::Idle && self.connection == ConnectionState::Ready
+        self.quitting == Quitting::Idle && self.ready(ServerId::local())
     }
 
     pub(crate) fn read_remote_access(&mut self, cx: &mut Context<Self>) {
@@ -42,7 +43,7 @@ impl AppModel {
             self.mobile.stale = true;
             return;
         }
-        self.mobile.busy = self.send(Work::ReadRemoteAccess, cx);
+        self.mobile.busy = self.send(ServerId::local(), Work::ReadRemoteAccess, cx);
         self.sync_preferences(cx);
     }
 
@@ -84,7 +85,7 @@ impl AppModel {
             .validate()
             .map_err(|_| "Use a port from 1024 to 65535".to_owned())?;
         if settings != current {
-            self.mobile.busy = self.send(Work::WriteRemoteAccess(settings), cx);
+            self.mobile.busy = self.send(ServerId::local(), Work::WriteRemoteAccess(settings), cx);
             if !self.mobile.busy {
                 return Err("Could not send the change to the server".into());
             }
@@ -95,7 +96,7 @@ impl AppModel {
     pub(crate) fn pair_phone(&mut self, cx: &mut Context<Self>) {
         if self.mobile_available() && !self.mobile.busy {
             self.mobile.error = None;
-            self.mobile.busy = self.send(Work::StartPairing, cx);
+            self.mobile.busy = self.send(ServerId::local(), Work::StartPairing, cx);
             self.mobile.starting = self.mobile.busy;
             self.sync_preferences(cx);
         }
@@ -107,7 +108,7 @@ impl AppModel {
         if self.mobile.busy {
             self.mobile.cancel = true;
         } else if self.mobile_available() {
-            self.mobile.busy = self.send(Work::CancelPairing, cx);
+            self.mobile.busy = self.send(ServerId::local(), Work::CancelPairing, cx);
         }
         self.sync_preferences(cx);
     }
@@ -137,18 +138,22 @@ impl AppModel {
         if self.close_prompt.is_some() {
             return;
         }
-        let generation = self.generation;
+        let generation = self.servers.local.generation;
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = crate::views::confirm::prompt_revoke(window, &name, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.close_prompt = None;
                 match response {
-                    Ok(true) if generation == model.generation && model.mobile_available() => {
+                    Ok(true)
+                        if generation == model.servers.local.generation
+                            && model.mobile_available() =>
+                    {
                         if model.mobile.busy {
                             model.mobile.error =
                                 Some("Wait for the current mobile access change to finish".into());
                         } else {
-                            model.mobile.busy = model.send(Work::RevokeDevice(device), cx);
+                            model.mobile.busy =
+                                model.send(ServerId::local(), Work::RevokeDevice(device), cx);
                         }
                     }
                     Err(error) => model.mobile.error = Some(error),
@@ -219,7 +224,7 @@ impl AppModel {
 
     fn finish_mobile_request(&mut self, cx: &mut Context<Self>) {
         if std::mem::take(&mut self.mobile.cancel) && self.mobile_available() {
-            self.mobile.busy = self.send(Work::CancelPairing, cx);
+            self.mobile.busy = self.send(ServerId::local(), Work::CancelPairing, cx);
         }
         if std::mem::take(&mut self.mobile.stale) {
             self.read_remote_access(cx);

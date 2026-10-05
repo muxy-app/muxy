@@ -42,17 +42,17 @@ fn hidden_agent_status_and_shared_reads_do_not_require_terminal_views(cx: &mut T
         muxy_app_core::settings::AppLayout::TabFocused,
     ] {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.appearance.layout = layout;
             model.select_tab(other, cx);
             assert!(model.terminal(&pane).is_none());
-            model.receive_activity(Ok(snapshot.clone()), cx);
+            model.receive_activity(ServerId::local(), Ok(snapshot.clone()), cx);
             assert_eq!(
-                indicator(&model.activity.snapshot, |_| true),
+                indicator(&model.servers.local.activity.snapshot, |_| true),
                 ActivityIndicator::Blocked
             );
             assert_eq!(
-                model.activity.snapshot.events.len(),
+                model.servers.local.activity.snapshot.events.len(),
                 usize::from(!snapshot.events[0].read)
             );
         });
@@ -60,15 +60,15 @@ fn hidden_agent_status_and_shared_reads_do_not_require_terminal_views(cx: &mut T
         snapshot.events[0].read = true;
         snapshot.revision += 1;
         view.update(cx, |model, cx| {
-            model.receive_activity(Ok(snapshot.clone()), cx);
-            assert_eq!(model.activity.snapshot.events.len(), 0);
+            model.receive_activity(ServerId::local(), Ok(snapshot.clone()), cx);
+            assert_eq!(model.servers.local.activity.snapshot.events.len(), 0);
             assert_eq!(
-                indicator(&model.activity.snapshot, |_| true),
+                indicator(&model.servers.local.activity.snapshot, |_| true),
                 ActivityIndicator::Blocked
             );
-            model.disconnect(cx);
-            assert!(model.activity.snapshot.agents.is_empty());
-            assert!(model.activity.snapshot.events.is_empty());
+            model.disconnect(ServerId::local(), cx);
+            assert!(model.servers.local.activity.snapshot.agents.is_empty());
+            assert!(model.servers.local.activity.snapshot.events.is_empty());
         });
     }
 }
@@ -87,12 +87,13 @@ fn native_click_waits_for_connection_catalog_and_activity(cx: &mut TestAppContex
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Disconnected;
-        model.navigate_activity(7, cx);
-        assert_eq!(model.activity.navigation, Some(7));
-        model.receive_connected(&[], cx);
-        assert_eq!(model.activity.navigation, Some(7));
+        model.servers.local.connection = ConnectionState::Disconnected;
+        model.navigate_activity(ServerId::local(), 7, cx);
+        assert_eq!(model.servers.local.activity.navigation, Some(7));
+        model.receive_connected(ServerId::local(), &[], cx);
+        assert_eq!(model.servers.local.activity.navigation, Some(7));
         model.receive_activity(
+            ServerId::local(),
             Ok(ActivitySnapshot {
                 events: vec![ActivityEvent {
                     id: 7,
@@ -108,11 +109,11 @@ fn native_click_waits_for_connection_catalog_and_activity(cx: &mut TestAppContex
             cx,
         );
         assert_eq!(model.active_tab(), Some(other));
-        assert_eq!(model.activity.navigation, Some(7));
-        model.catalog.pending = false;
-        model.catalog.restore = None;
-        model.resume_activity_navigation(cx);
-        assert_eq!(model.activity.navigation, None);
+        assert_eq!(model.servers.local.activity.navigation, Some(7));
+        model.servers.local.catalog.pending = false;
+        model.servers.local.catalog.restore = None;
+        model.resume_activity_navigation(ServerId::local(), cx);
+        assert_eq!(model.servers.local.activity.navigation, None);
         assert_eq!(model.active_tab(), Some(target));
         assert_eq!(model.active_pane(), Some(pane));
     });
@@ -158,36 +159,37 @@ fn ended_sessions_clear_indicators_even_when_an_old_activity_read_arrives_later(
         let (boot, _requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.window_active = false;
-            model.receive_activity(Ok(snapshot.clone()), cx);
+            model.receive_activity(ServerId::local(), Ok(snapshot.clone()), cx);
             assert_eq!(
-                indicator(&model.activity.snapshot, |_| true),
+                indicator(&model.servers.local.activity.snapshot, |_| true),
                 ActivityIndicator::Blocked
             );
-            model.refresh_activity(cx);
-            assert!(model.activity.pending);
+            model.refresh_activity(ServerId::local(), cx);
+            assert!(model.servers.local.activity.pending);
             model.receive_event(
+                ServerId::local(),
                 ClientEvent::SessionEnded {
                     session,
                     reason: ExitReason::Ended,
                 },
                 cx,
             );
-            assert!(model.activity.snapshot.events.is_empty());
-            assert!(model.activity.snapshot.agents.is_empty());
+            assert!(model.servers.local.activity.snapshot.events.is_empty());
+            assert!(model.servers.local.activity.snapshot.agents.is_empty());
             let tab = model.tab(tab).expect("surviving tab");
             assert_eq!(tab.panes.len(), 1);
             assert_eq!(tab.panes[0].id, survivor);
             assert_eq!(
-                indicator(&model.activity.snapshot, |_| true),
+                indicator(&model.servers.local.activity.snapshot, |_| true),
                 ActivityIndicator::None
             );
-            model.receive_activity(Ok(snapshot), cx);
-            assert!(model.activity.snapshot.events.is_empty());
-            assert!(model.activity.snapshot.agents.is_empty());
+            model.receive_activity(ServerId::local(), Ok(snapshot), cx);
+            assert!(model.servers.local.activity.snapshot.events.is_empty());
+            assert!(model.servers.local.activity.snapshot.agents.is_empty());
             assert_eq!(
-                indicator(&model.activity.snapshot, |_| true),
+                indicator(&model.servers.local.activity.snapshot, |_| true),
                 ActivityIndicator::None
             );
         });
@@ -231,15 +233,16 @@ fn hidden_codex_title_and_finished_spinner_update_in_both_layouts(cx: &mut TestA
             model.appearance.tab_focused_expanded.insert(home, true);
             model.select_tab(other, cx);
             assert!(model.terminal(&pane).is_none());
-            model.activity.snapshot.agents = vec![AgentActivity {
+            model.servers.local.activity.snapshot.agents = vec![AgentActivity {
                 session,
                 project: home,
                 provider: AgentProvider::Codex,
                 state: AgentState::Working,
             }];
-            model.receive_event(title_update(session, "Fix tests"), cx);
+            model.receive_event(ServerId::local(), title_update(session, "Fix tests"), cx);
             assert_eq!(model.state.home().tabs[0].title(None), "Fix tests");
             model.receive_progress(
+                ServerId::local(),
                 session,
                 muxy_protocol::SessionProgress {
                     progress: Some(muxy_protocol::TerminalProgress {
@@ -255,8 +258,8 @@ fn hidden_codex_title_and_finished_spinner_update_in_both_layouts(cx: &mut TestA
         let spinner_bounds = cx.debug_bounds(spinner).expect("spinner");
         let working_icon = cx.debug_bounds(provider);
         view.update(cx, |model, cx| {
-            model.activity.snapshot.agents[0].state = AgentState::Idle;
-            model.receive_event(title_update(session, "Tests passed"), cx);
+            model.servers.local.activity.snapshot.agents[0].state = AgentState::Idle;
+            model.receive_event(ServerId::local(), title_update(session, "Tests passed"), cx);
             assert_eq!(model.state.home().tabs[0].title(None), "Tests passed");
             assert!(model.terminal(&pane).is_none());
         });
@@ -289,6 +292,7 @@ fn hidden_codex_title_and_finished_spinner_update_in_both_layouts(cx: &mut TestA
                 (None, "/tmp/project", "project"),
             ] {
                 model.receive_event(
+                    ServerId::local(),
                     ClientEvent::SessionMetadata {
                         session,
                         metadata: muxy_protocol::SessionMetadata {
@@ -343,7 +347,7 @@ fn tab_provider_icon_follows_pane_focus_in_both_layouts(cx: &mut TestAppContext)
             model.appearance.layout = layout;
             model.appearance.sidebar_expanded = true;
             model.appearance.tab_focused_expanded.insert(home, true);
-            model.activity.snapshot.agents = agents;
+            model.servers.local.activity.snapshot.agents = agents;
             model
         });
         cx.simulate_resize(size(px(1000.0), px(600.0)));
@@ -360,10 +364,19 @@ fn tab_provider_icon_follows_pane_focus_in_both_layouts(cx: &mut TestAppContext)
     }
 }
 
+fn indeterminate() -> muxy_protocol::SessionProgress {
+    muxy_protocol::SessionProgress {
+        progress: Some(muxy_protocol::TerminalProgress {
+            state: muxy_protocol::ProgressState::Indeterminate,
+            percent: None,
+        }),
+        completed: 0,
+    }
+}
+
 #[gpui::test]
 fn sidebar_status_keeps_provider_and_title_separate_at_every_scale(cx: &mut TestAppContext) {
     use muxy_app_core::settings::AppLayout;
-    use muxy_protocol::{ProgressState, SessionProgress, TerminalProgress};
     for scale in [1.0, 1.5] {
         for (agent_state, unread, kind) in [
             (AgentState::Working, false, Some("progress")),
@@ -397,27 +410,19 @@ fn sidebar_status_keeps_provider_and_title_separate_at_every_scale(cx: &mut Test
                 model.metrics = Metrics::new(scale);
                 model.appearance.layout = AppLayout::TabFocused;
                 model.appearance.sidebar_expanded = true;
-                model.activity.snapshot.agents = vec![AgentActivity {
+                let local = &mut model.servers.local;
+                local.activity.snapshot.agents = vec![AgentActivity {
                     session,
                     project: home,
                     provider: AgentProvider::Codex,
                     state: agent_state,
                 }];
-                model.progress.insert(
-                    session,
-                    SessionProgress {
-                        progress: Some(TerminalProgress {
-                            state: ProgressState::Indeterminate,
-                            percent: None,
-                        }),
-                        completed: 0,
-                    },
-                );
+                local.progress.insert(session, indeterminate());
                 if agent_state == AgentState::Blocked {
-                    model.progress.insert(second, model.progress[&session]);
+                    local.progress.insert(second, local.progress[&session]);
                 }
                 if unread {
-                    model.activity.snapshot.events.push(ActivityEvent {
+                    local.activity.snapshot.events.push(ActivityEvent {
                         id: 1,
                         session,
                         project: home,
@@ -480,12 +485,18 @@ fn pinned_sidebar_tabs_keep_provider_and_trailing_pin(cx: &mut TestAppContext) {
         let mut model = AppModel::new(boot, window, cx);
         model.appearance.layout = muxy_app_core::settings::AppLayout::TabFocused;
         model.appearance.sidebar_expanded = true;
-        model.activity.snapshot.agents.push(AgentActivity {
-            session,
-            project: home,
-            provider: AgentProvider::Codex,
-            state: AgentState::Working,
-        });
+        model
+            .servers
+            .local
+            .activity
+            .snapshot
+            .agents
+            .push(AgentActivity {
+                session,
+                project: home,
+                provider: AgentProvider::Codex,
+                state: AgentState::Working,
+            });
         model
     });
     window.run_until_parked();
@@ -534,9 +545,10 @@ fn project_indicators_only_include_current_panes(cx: &mut TestAppContext) {
                     model.appearance.layout = layout;
                     model.appearance.sidebar_expanded = layout == AppLayout::TabFocused || expanded;
                     model.appearance.tab_focused_expanded.insert(home, expanded);
+                    let local = &mut model.servers.local;
                     match kind {
                         "progress" => {
-                            model.progress.insert(
+                            local.progress.insert(
                                 session,
                                 SessionProgress {
                                     progress: Some(TerminalProgress {
@@ -550,25 +562,21 @@ fn project_indicators_only_include_current_panes(cx: &mut TestAppContext) {
                         "completion" => {
                             model.completions.insert(pane);
                         }
-                        "blocked" => {
-                            model.activity.snapshot.agents.push(AgentActivity {
-                                session,
-                                project: home,
-                                provider: AgentProvider::Codex,
-                                state: AgentState::Blocked,
-                            });
-                        }
-                        "unread" => {
-                            model.activity.snapshot.events.push(ActivityEvent {
-                                id: 1,
-                                session,
-                                project: home,
-                                provider: AgentProvider::Codex,
-                                kind: ActivityKind::Completed,
-                                read: false,
-                                timestamp: 0,
-                            });
-                        }
+                        "blocked" => local.activity.snapshot.agents.push(AgentActivity {
+                            session,
+                            project: home,
+                            provider: AgentProvider::Codex,
+                            state: AgentState::Blocked,
+                        }),
+                        "unread" => local.activity.snapshot.events.push(ActivityEvent {
+                            id: 1,
+                            session,
+                            project: home,
+                            provider: AgentProvider::Codex,
+                            kind: ActivityKind::Completed,
+                            read: false,
+                            timestamp: 0,
+                        }),
                         _ => unreachable!(),
                     }
                     if detached {
@@ -578,9 +586,13 @@ fn project_indicators_only_include_current_panes(cx: &mut TestAppContext) {
                             "detach failed: {:?}",
                             model.error
                         );
-                        assert!(!model.progress.contains_key(&session));
+                        assert!(!model.servers.local.progress.contains_key(&session));
                         // A late snapshot still contains this session after detachment.
-                        model.receive_activity(Ok(model.activity.snapshot.clone()), cx);
+                        model.receive_activity(
+                            ServerId::local(),
+                            Ok(model.servers.local.activity.snapshot.clone()),
+                            cx,
+                        );
                     }
                     model
                 });
@@ -623,9 +635,11 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
     ] {
         let mut state = AppState::bootstrap().expect("state");
         let home = state.home().id;
-        let parent = state.add_project(std::env::temp_dir()).expect("parent");
+        let parent = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("parent");
         let child = state
-            .add_project(directory.path().to_owned())
+            .add_project(ServerId::local(), directory.path().to_owned())
             .expect("child");
         state.open_terminal_tab(child).expect("child tab");
         let pane = state.window().active_pane.expect("child pane");
@@ -657,12 +671,18 @@ fn project_rollups_follow_tab_groups_and_project_sidebar_width(cx: &mut TestAppC
             if layout == AppLayout::ProjectFocused && expanded {
                 model.expanded_worktrees.insert(parent);
             }
-            model.activity.snapshot.agents.push(AgentActivity {
-                session,
-                project: child,
-                provider: AgentProvider::Codex,
-                state: AgentState::Blocked,
-            });
+            model
+                .servers
+                .local
+                .activity
+                .snapshot
+                .agents
+                .push(AgentActivity {
+                    session,
+                    project: child,
+                    provider: AgentProvider::Codex,
+                    state: AgentState::Blocked,
+                });
             model
         });
         window.run_until_parked();
@@ -705,12 +725,12 @@ fn detached_sessions_do_not_claim_alerts_or_reopen_from_notification_clicks(
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.window_active = false;
-        assert!(model.activity.pane_sessions.is_empty());
-        model.receive_attached(pane, session, attachment(), true, cx);
-        model.receive_attached(sibling, session, attachment(), false, cx);
-        model.activity.loaded = true;
+        assert!(model.servers.local.activity.pane_sessions.is_empty());
+        model.receive_attached(ServerId::local(), pane, session, attachment(), true, cx);
+        model.receive_attached(ServerId::local(), sibling, session, attachment(), false, cx);
+        model.servers.local.activity.loaded = true;
         let mut snapshot = ActivitySnapshot {
             events: [42, 99]
                 .into_iter()
@@ -726,9 +746,9 @@ fn detached_sessions_do_not_claim_alerts_or_reopen_from_notification_clicks(
                 .collect(),
             ..ActivitySnapshot::default()
         };
-        model.receive_activity(Ok(snapshot.clone()), cx);
+        model.receive_activity(ServerId::local(), Ok(snapshot.clone()), cx);
         assert_eq!(
-            model.activity.pane_sessions,
+            model.servers.local.activity.pane_sessions,
             vec![session],
             "track ownership before delivering alerts"
         );
@@ -746,7 +766,7 @@ fn detached_sessions_do_not_claim_alerts_or_reopen_from_notification_clicks(
         );
         model.detach_terminal(pane, cx);
         snapshot.events[0].id = 100;
-        model.receive_activity(Ok(snapshot.clone()), cx);
+        model.receive_activity(ServerId::local(), Ok(snapshot.clone()), cx);
         assert!(
             requests
                 .try_iter()
@@ -755,13 +775,13 @@ fn detached_sessions_do_not_claim_alerts_or_reopen_from_notification_clicks(
         );
         model.detach_terminal(sibling, cx);
         assert!(model.state.home().tabs.is_empty());
-        model.navigate_activity(100, cx);
+        model.navigate_activity(ServerId::local(), 100, cx);
         assert!(
             model.state.home().tabs.is_empty(),
             "stale clicks cannot reopen detached panes"
         );
         snapshot.events[0].id = 101;
-        model.receive_activity(Ok(snapshot), cx);
+        model.receive_activity(ServerId::local(), Ok(snapshot), cx);
         assert!(
             !requests
                 .try_iter()

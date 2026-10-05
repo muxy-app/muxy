@@ -1,6 +1,6 @@
 use std::os::unix::ffi::OsStrExt;
 
-use muxy_app_core::{AppState, ProjectId, ProjectKind, WorkspaceId, store};
+use muxy_app_core::{AppState, ProjectId, ProjectKind, ServerId, WorkspaceId, store};
 use muxy_protocol::{CatalogPage, ServerIdentity, ServerPath};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -21,8 +21,8 @@ fn catalog(state: &AppState) -> CatalogPage {
 }
 
 fn acknowledge(state: &mut AppState) -> Result {
-    while let Some(intent) = state.project_intents().first().cloned() {
-        state.complete_project_intent(intent.operation)?;
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
+        state.complete_project_intent(ServerId::local(), intent.operation)?;
     }
     Ok(())
 }
@@ -41,7 +41,7 @@ fn with_worktree(
     child.kind = Some(ProjectKind::Worktree);
     child.parent_id = Some(parent);
     page.projects.push(child.clone());
-    state.apply_catalog(&page)?;
+    state.apply_catalog(ServerId::local(), &page)?;
     Ok(child.id)
 }
 
@@ -58,8 +58,8 @@ fn listed(state: &AppState) -> Vec<ProjectId> {
 fn overlapping_workspaces_filter_top_level_projects_and_their_worktrees() -> Result {
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;
-    let shared = state.add_project(std::env::temp_dir())?;
-    let personal = state.add_project(std::env::temp_dir())?;
+    let shared = state.add_project(ServerId::local(), std::env::temp_dir())?;
+    let personal = state.add_project(ServerId::local(), std::env::temp_dir())?;
     acknowledge(&mut state)?;
     let checkout = tempfile::tempdir()?;
     let worktree = with_worktree(&mut state, shared, &checkout)?;
@@ -113,10 +113,10 @@ fn overlapping_workspaces_filter_top_level_projects_and_their_worktrees() -> Res
 fn opened_projects_join_the_active_workspace_and_deleted_projects_leave_it() -> Result {
     let mut state = AppState::bootstrap()?;
     let work = state.create_workspace("Work")?;
-    let outside = state.add_project(std::env::temp_dir())?;
+    let outside = state.add_project(ServerId::local(), std::env::temp_dir())?;
     state.select_workspace(Some(work))?;
-    let inside = state.add_project(std::env::temp_dir())?;
-    let remote = state.add_project(std::env::temp_dir())?;
+    let inside = state.add_project(ServerId::local(), std::env::temp_dir())?;
+    let remote = state.add_project(ServerId::local(), std::env::temp_dir())?;
     state.join_active_workspace(state.home().id);
     let members = |state: &AppState| -> Vec<ProjectId> {
         state.workspaces()[0].projects.iter().copied().collect()
@@ -132,7 +132,7 @@ fn opened_projects_join_the_active_workspace_and_deleted_projects_leave_it() -> 
     acknowledge(&mut state)?;
     let mut page = catalog(&state);
     page.projects.retain(|project| project.id != remote);
-    state.apply_catalog(&page)?;
+    state.apply_catalog(ServerId::local(), &page)?;
     assert!(members(&state).is_empty());
     assert_eq!(state.active_workspace().map(|w| w.id), Some(work));
     Ok(())
@@ -141,9 +141,9 @@ fn opened_projects_join_the_active_workspace_and_deleted_projects_leave_it() -> 
 #[test]
 fn navigating_outside_the_filter_reveals_a_workspace_that_lists_the_project() -> Result {
     let mut state = AppState::bootstrap()?;
-    let first = state.add_project(std::env::temp_dir())?;
-    let second = state.add_project(std::env::temp_dir())?;
-    let loose = state.add_project(std::env::temp_dir())?;
+    let first = state.add_project(ServerId::local(), std::env::temp_dir())?;
+    let second = state.add_project(ServerId::local(), std::env::temp_dir())?;
+    let loose = state.add_project(ServerId::local(), std::env::temp_dir())?;
     acknowledge(&mut state)?;
     let checkout = tempfile::tempdir()?;
     let worktree = with_worktree(&mut state, first, &checkout)?;
@@ -188,7 +188,7 @@ fn workspaces_persist_and_older_or_stale_state_files_still_load() -> Result {
     assert!(untouched.get("workspaces").is_none());
     assert!(untouched["window"].get("workspace").is_none());
 
-    let project = state.add_project(std::env::temp_dir())?;
+    let project = state.add_project(ServerId::local(), std::env::temp_dir())?;
     let work = state.create_workspace("Work")?;
     state.set_workspace_member(work, project, true)?;
     state.select_workspace(Some(work))?;

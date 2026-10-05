@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fs;
 
-use muxy_app_core::{AppState, ProjectId, WindowBounds, restore, store};
+use muxy_app_core::{AppState, ProjectId, ServerId, WindowBounds, restore, store};
 use muxy_protocol::{ServerPath, SessionId, SessionInfo};
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -13,17 +13,24 @@ fn closing_offline_persists_cleanup_without_restoring_the_tab() -> TestResult {
     let tab = state.open_terminal_tab(state.home().id)?;
     let session = SessionId::new(42).ok_or("zero ID")?;
     state.set_pane_session(state.home().tabs[0].panes[0].id, Some(session))?;
-    state.queue_discard(session);
-    state.queue_discard(session);
+    state.queue_discard(ServerId::local(), session);
+    state.queue_discard(ServerId::local(), session);
     state.close_tab(state.home().id, tab)?;
     store::save(&path, &state)?;
     let mut loaded = store::load(&path)?;
     assert!(loaded.home().tabs.is_empty());
-    assert_eq!(loaded.pending_discards(), &[session]);
-    assert_eq!(restore::plan(&loaded, &[]), restore::RestorePlan::default());
-    loaded.complete_discard(session);
+    assert_eq!(loaded.pending_discards(ServerId::local()), &[session]);
+    assert_eq!(
+        restore::plan(&loaded, ServerId::local(), &[]),
+        restore::RestorePlan::default()
+    );
+    loaded.complete_discard(ServerId::local(), session);
     store::save(&path, &loaded)?;
-    assert!(store::load(&path)?.pending_discards().is_empty());
+    assert!(
+        store::load(&path)?
+            .pending_discards(ServerId::local())
+            .is_empty()
+    );
     fs::remove_file(path)?;
     Ok(())
 }
@@ -38,7 +45,7 @@ fn existing_state_files_load_without_pending_cleanup() -> TestResult {
         .remove("pending_discards");
     let loaded: AppState = serde_json::from_value(value)?;
     assert_eq!(loaded, state);
-    assert!(loaded.pending_discards().is_empty());
+    assert!(loaded.pending_discards(ServerId::local()).is_empty());
     Ok(())
 }
 
@@ -63,6 +70,7 @@ fn mixed_restore_identifies_dead_panes_without_mutating_selection() -> TestResul
     let before = state.clone();
     let plan = restore::plan(
         &state,
+        ServerId::local(),
         &[SessionInfo {
             project: state.home().id,
             id: live,
@@ -73,7 +81,7 @@ fn mixed_restore_identifies_dead_panes_without_mutating_selection() -> TestResul
     assert_eq!(plan.close, vec![(panes[1], missing)]);
     assert_eq!(plan.create, vec![panes[2]]);
     assert_eq!(state, before);
-    let all_missing = restore::plan(&state, &[]);
+    let all_missing = restore::plan(&state, ServerId::local(), &[]);
     assert_eq!(
         all_missing.close,
         vec![(panes[0], live), (panes[1], missing)]
@@ -92,7 +100,7 @@ fn empty_restore_does_not_create_a_tab_or_adopt_an_unreferenced_session() -> Tes
         directory: ServerPath(b"/tmp".to_vec()),
     };
     assert_eq!(
-        restore::plan(&state, &[live]),
+        restore::plan(&state, ServerId::local(), &[live]),
         restore::RestorePlan::default()
     );
     assert!(state.home().tabs.is_empty());
@@ -117,7 +125,7 @@ fn saved_bounds_and_ended_session_references_round_trip() -> TestResult {
     let loaded = store::load(&path)?;
     fs::remove_file(path)?;
     assert_eq!(loaded, state);
-    let plan = restore::plan(&loaded, &[]);
+    let plan = restore::plan(&loaded, ServerId::local(), &[]);
     assert_eq!(plan.close, vec![(pane, session)]);
     assert!(plan.attach.is_empty());
     assert!(plan.create.is_empty());
@@ -131,16 +139,17 @@ fn restore_covers_hidden_projects_without_creating_tabs_for_empty_projects() -> 
     let ended = SessionId::new(25).ok_or("session")?;
     let mut panes = Vec::new();
     for session in [Some(live), Some(ended), None] {
-        let project = state.add_project(std::env::temp_dir())?;
+        let project = state.add_project(ServerId::local(), std::env::temp_dir())?;
         state.open_terminal_tab(project)?;
         let pane = state.current_project().tabs[0].panes[0].id;
         state.set_pane_session(pane, session)?;
         panes.push(pane);
     }
-    state.add_project(std::env::temp_dir())?;
+    state.add_project(ServerId::local(), std::env::temp_dir())?;
     let loaded: AppState = serde_json::from_value(serde_json::to_value(&state)?)?;
     let plan = restore::plan(
         &loaded,
+        ServerId::local(),
         &[SessionInfo {
             project: loaded.projects()[1].id,
             id: live,

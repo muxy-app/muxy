@@ -95,19 +95,48 @@ async fn prompt(
     })
 }
 
+/// Stops or restarts a server; `name` is another computer's, `None` this one's.
 pub(crate) async fn prompt_server(
     window: AnyWindowHandle,
     restart: bool,
+    name: Option<&str>,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
-    let title = if restart {
-        "Restart Server?"
-    } else {
-        "Stop Server?"
+    let title = match (restart, name) {
+        (true, None) => "Restart Server?".to_owned(),
+        (false, None) => "Stop Server?".to_owned(),
+        (true, Some(name)) => format!("Restart the Server on {name}?"),
+        (false, Some(name)) => format!("Stop the Server on {name}?"),
     };
     let label = if restart { "Restart" } else { "Stop" };
-    let message = "All running terminal sessions on this device will end. Saved terminal output and settings will remain.";
-    server_prompt(window, title, label, message, cx).await
+    let message = format!(
+        "All running terminal sessions on {} will end. Saved terminal output and settings will remain.",
+        name.unwrap_or("this device")
+    );
+    server_prompt(window, &title, label, &message, cx).await
+}
+
+pub(crate) async fn prompt_install_server(
+    window: AnyWindowHandle,
+    name: &str,
+    version: &str,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = format!("Install Muxy on {name}?");
+    let message = format!(
+        "Muxy {version} is downloaded from GitHub and installed in ~/.local/bin on {name}. It needs curl and glibc 2.35 or newer there."
+    );
+    server_prompt(window, &title, "Install", &message, cx).await
+}
+
+pub(crate) async fn prompt_forget_server(
+    window: AnyWindowHandle,
+    name: &str,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = format!("Forget {name}?");
+    let message = "Its projects and layouts leave this app; nothing on the server changes.";
+    server_prompt(window, &title, "Forget", message, cx).await
 }
 
 pub(crate) async fn prompt_revoke(

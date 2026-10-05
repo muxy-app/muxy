@@ -15,7 +15,7 @@ fn configured_close_detaches_a_whole_split_tab_or_only_the_shortcut_pane(cx: &mu
         cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             attach_pane(model, first, 1, cx);
             attach_pane(model, second, 2, cx);
             requests.try_iter().for_each(drop);
@@ -34,8 +34,13 @@ fn configured_close_detaches_a_whole_split_tab_or_only_the_shortcut_pane(cx: &mu
                 assert_eq!(model.active_pane(), Some(first));
                 assert_eq!(model.state.home().tabs[0].panes.len(), 1);
             }
-            assert!(model.state.pending_cancellations().is_empty());
-            assert!(model.state.pending_discards().is_empty());
+            assert!(
+                model
+                    .state
+                    .pending_cancellations(ServerId::local())
+                    .is_empty()
+            );
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
             assert!(model.close_prompt.is_none());
             assert_eq!(store::load(&model.path).expect("layout"), model.state);
         });
@@ -73,11 +78,16 @@ fn configured_detach_rolls_back_a_whole_tab_on_save_failure_and_works_disconnect
         assert_eq!(model.state, before);
         assert!(model.detached_pending.is_empty());
         model.path = path;
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         model.close_tab(tab, cx);
         assert!(model.state.home().tabs.is_empty());
-        assert!(model.state.pending_cancellations().is_empty());
-        assert!(model.state.pending_discards().is_empty());
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
         assert_eq!(store::load(&model.path).expect("layout"), model.state);
     });
     assert!(requests.try_iter().all(|(_, work)| non_destructive(&work)));
@@ -96,16 +106,17 @@ fn configured_detach_during_creation_preserves_late_sessions_and_releases_owners
         boot.settings.window.close_behavior = CloseBehavior::Detach;
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
-            model.pending.insert(pane);
+            model.servers.local.connection = ConnectionState::Ready;
+            model.pending.insert(pane, ServerId::local());
             model.close_tab(model.active_tab().expect("tab"), cx);
             assert!(model.detached_pending.contains(&pane));
             requests.try_iter().for_each(drop);
             let session = SessionId::new(73).expect("session");
             if succeeds {
-                model.receive_attached(pane, session, attachment(), true, cx);
+                model.receive_attached(ServerId::local(), pane, session, attachment(), true, cx);
             } else {
                 model.receive_attach_failed(
+                    ServerId::local(),
                     pane,
                     Some(session),
                     true,
@@ -115,8 +126,13 @@ fn configured_detach_during_creation_preserves_late_sessions_and_releases_owners
             }
             assert!(model.detached_pending.is_empty());
             assert!(model.state.home().tabs.is_empty());
-            assert!(model.state.pending_cancellations().is_empty());
-            assert!(model.state.pending_discards().is_empty());
+            assert!(
+                model
+                    .state
+                    .pending_cancellations(ServerId::local())
+                    .is_empty()
+            );
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
             let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
             assert!(work.iter().all(non_destructive));
             assert!(
@@ -144,7 +160,7 @@ fn changing_close_behavior_during_confirmation_preserves_the_original_intent(
     );
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         attach_pane(model, pane, 1, cx);
         requests.try_iter().for_each(drop);
         let tab = model.active_tab().expect("tab");

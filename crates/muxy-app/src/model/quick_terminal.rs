@@ -2,7 +2,7 @@ use gpui::{
     AppContext, Bounds, Context, Task, WindowBounds, WindowHandle, WindowKind, WindowOptions, px,
     size,
 };
-use muxy_app_core::{PaneId, TabId};
+use muxy_app_core::{PaneId, ServerId, TabId};
 use muxy_core::quick_terminal::keys::{COMMAND, CONTROL, KeyCombo, OPTION, SHIFT};
 use muxy_core::quick_terminal::{ConflictCandidate, QuickTerminalShortcut};
 use muxy_core::shortcuts::ShortcutSettings;
@@ -149,7 +149,7 @@ impl AppModel {
             appearance: effective_appearance(configuration, self.quick.accessibility),
             theme: self.theme.clone(),
             metrics: self.metrics,
-            status: match self.connection {
+            status: match self.connection(ServerId::local()) {
                 ConnectionState::Connecting => "Connecting…",
                 ConnectionState::Disconnected => "Disconnected",
                 ConnectionState::Ready => "Ready",
@@ -193,7 +193,7 @@ impl AppModel {
     }
 
     fn show_quick_terminal(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
-        if self.connection == ConnectionState::Disconnected {
+        if self.connection(ServerId::local()) == ConnectionState::Disconnected {
             self.connect(cx);
         }
         if self.quick.panel.is_none() {
@@ -352,7 +352,7 @@ impl AppModel {
         self.hide_quick_terminal(true, cx);
         self.state.close_quick_terminal();
         if self.save(cx) {
-            self.discard_pending(cx);
+            self.discard_pending(ServerId::local(), cx);
         }
     }
 
@@ -381,7 +381,7 @@ impl AppModel {
             self.close_quick_terminal(cx);
             return;
         };
-        if self.session_used_outside(session, &[pane])
+        if self.session_used_outside(ServerId::local(), session, &[pane])
             || !self.settings.window.confirm_running_process
         {
             self.close_quick_terminal(cx);
@@ -389,7 +389,7 @@ impl AppModel {
         }
         let tab = TabId::new();
         self.quick.closing = Some((tab, pane));
-        if self.connection != ConnectionState::Ready {
+        if !self.ready(ServerId::local()) {
             let process = self
                 .terminal(&pane)
                 .and_then(|pane| pane.view.read(cx).process.clone());
@@ -402,6 +402,7 @@ impl AppModel {
             .and_then(|pane| pane.view.read(cx).viewport())
             .unwrap_or(muxy_protocol::Size { cols: 80, rows: 24 });
         if !self.send(
+            ServerId::local(),
             Work::CheckClose {
                 tab,
                 session,

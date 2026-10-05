@@ -4,11 +4,13 @@ use muxy_app_core::settings::{AppLayout, Settings};
 fn fixture() -> (AppState, tempfile::TempDir, [ProjectId; 3], TabId) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
-    let parent = state.add_project(std::env::temp_dir()).expect("parent");
+    let parent = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("parent");
     let directory = tempfile::tempdir().expect("worktree");
     std::fs::write(directory.path().join(".git"), "gitdir: /tmp/unused").expect("marker");
     let child = state
-        .add_project(directory.path().to_owned())
+        .add_project(ServerId::local(), directory.path().to_owned())
         .expect("child");
     let tab = state.open_terminal_tab(child).expect("tab");
     state.select_project(parent).expect("select");
@@ -394,7 +396,7 @@ fn project_worktree_activity_moves_between_parent_and_worktree_rows(cx: &mut Tes
     boot.settings.appearance.sidebar_expanded = true;
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.activity.snapshot.agents = vec![muxy_protocol::AgentActivity {
+        model.servers.local.activity.snapshot.agents = vec![muxy_protocol::AgentActivity {
             session,
             project: child,
             provider: muxy_protocol::AgentProvider::Codex,

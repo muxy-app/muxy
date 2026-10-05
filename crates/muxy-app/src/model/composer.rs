@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -8,7 +9,7 @@ use gpui::{
     Subscription, Task, Window, div,
 };
 use muxy_app_core::{
-    PaneId,
+    PaneId, ServerId,
     composer::{
         ComposerDraft, ComposerStore, DraftId, SAVE_DEBOUNCE,
         image_storage::prepare_image_source,
@@ -22,10 +23,14 @@ use muxy_protocol::{ChannelId, Modes};
 use muxy_ui::panel::PanelId;
 
 use super::AppModel;
+use super::remote_files::Upload;
 use crate::{
     boot::Work,
     views::composer::{Composer, ComposerEvent, PANEL},
 };
+
+/// A pane to send to, with the server that attached it and its channel there.
+type Target = (PaneId, (ServerId, ChannelId), Modes);
 
 pub(crate) struct ComposerRuntime {
     pub(crate) view: Option<Entity<Composer>>,
@@ -554,6 +559,10 @@ impl AppModel {
 #[derive(Clone)]
 enum Step {
     Text(String),
+    /// A file here: its path for this computer's terminals; another
+    /// computer's get the file sent first, and its path there.
+    File(PathBuf),
+    /// An image for the clipboard; another computer gets it as a file.
     Image(Vec<u8>),
 }
 
@@ -563,18 +572,12 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
         match segment {
             SubmissionSegment::Text(text) => steps.push(Step::Text(text.clone())),
             SubmissionSegment::LocalPath(path) => {
-                if !std::path::Path::new(path)
-                    .try_exists()
-                    .map_err(|error| error.to_string())?
-                {
-                    return Err(format!("Attached file is missing: {path}"));
+                let path = PathBuf::from(path);
+                if !path.try_exists().map_err(|error| error.to_string())? {
+                    return Err(format!("Attached file is missing: {}", path.display()));
                 }
-                let bytes =
-                    crate::views::terminal::clipboard::paths(&[path.into()], Modes::default())
-                        .ok_or("Invalid attachment path")?;
-                steps.push(Step::Text(
-                    String::from_utf8(bytes).map_err(|error| error.to_string())?,
-                ));
+                quoted(std::slice::from_ref(&path)).ok_or("Invalid attachment path")?;
+                steps.push(Step::File(path));
             }
             SubmissionSegment::CopiedImage { filename, .. } => {
                 let images = store
@@ -586,16 +589,11 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
                 if plan.image_strategy == ImageSubmissionStrategy::Clipboard {
                     steps.push(Step::Image(png));
                 } else {
-                    let bytes = crate::views::terminal::clipboard::paths(
-                        &[images
-                            .path_for(filename)
-                            .map_err(|error| error.to_string())?],
-                        Modes::default(),
-                    )
-                    .ok_or("Invalid image path")?;
-                    steps.push(Step::Text(
-                        String::from_utf8(bytes).map_err(|error| error.to_string())?,
-                    ));
+                    let path = images
+                        .path_for(filename)
+                        .map_err(|error| error.to_string())?;
+                    quoted(std::slice::from_ref(&path)).ok_or("Invalid image path")?;
+                    steps.push(Step::File(path));
                 }
             }
         }
@@ -604,6 +602,7 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
         .iter()
         .map(|step| match step {
             Step::Text(text) => text.len() + 16,
+            Step::File(path) => path.as_os_str().len() + 16,
             Step::Image(_) => 1,
         })
         .sum::<usize>()
@@ -620,24 +619,68 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
     Ok(steps)
 }
 
+/// Paths quoted for a shell, as a terminal paste.
+fn quoted(paths: &[PathBuf]) -> Option<String> {
+    let bytes = crate::views::terminal::clipboard::paths(paths, Modes::default())?;
+    String::from_utf8(bytes).ok()
+}
+
+/// Sends a file or image to the terminal's computer, and returns its path
+/// there, quoted.
+async fn send_remote(
+    model: &gpui::WeakEntity<AppModel>,
+    cx: &mut gpui::AsyncApp,
+    pane: PaneId,
+    server: ServerId,
+    upload: Upload,
+) -> Result<String, String> {
+    let (files, session) = model
+        .update(cx, |model, cx| {
+            let session = model
+                .pane_session(pane)
+                .ok_or("The terminal closed before sending.")?;
+            Ok::<_, String>((model.remote_files(server, cx)?, session))
+        })
+        .map_err(|error| error.to_string())??;
+    let paths = cx
+        .background_executor()
+        .spawn(async move { files.upload(session, upload) })
+        .await?;
+    quoted(&paths).ok_or_else(|| "The server kept the file at an invalid path.".into())
+}
+
 impl AppModel {
     fn composer_target_current(
         &self,
         key: &DraftId,
         pane: PaneId,
-        channel: ChannelId,
+        attachment: (ServerId, ChannelId),
         generation: u64,
         cx: &gpui::App,
     ) -> bool {
-        self.generation == generation
+        self.generation(attachment.0) == generation
             && &self.composer_key() == key
             && self
                 .grids
                 .get(&pane)
-                .is_some_and(|pane| pane.view.read(cx).channel() == Some(channel))
+                .is_some_and(|pane| pane.view.read(cx).attachment() == Some(attachment))
     }
 
-    fn composer_targets(&self, cx: &gpui::App) -> Result<Vec<(PaneId, ChannelId, Modes)>, String> {
+    /// The worker and connection generation of each server the targets use.
+    fn composer_workers(
+        &self,
+        targets: &[Target],
+    ) -> HashMap<ServerId, (crate::boot::Worker, u64)> {
+        targets
+            .iter()
+            .filter_map(|(_, (server, _), _)| {
+                let runtime = self.servers.get(*server)?;
+                Some((*server, (runtime.work.clone()?, runtime.generation)))
+            })
+            .collect()
+    }
+
+    fn composer_targets(&self, cx: &gpui::App) -> Result<Vec<Target>, String> {
         let requested = if self.settings.composer.broadcast {
             self.visible_panes()
         } else {
@@ -646,14 +689,14 @@ impl AppModel {
         let mut sessions = std::collections::HashSet::new();
         let mut targets = Vec::new();
         for id in requested {
-            let Some((session, channel, modes)) = self.pane_session(id).and_then(|session| {
+            let Some((session, attachment, modes)) = self.pane_session(id).and_then(|session| {
                 let pane = self.grids.get(&id)?.view.read(cx);
-                Some((session, pane.channel()?, pane.grid.as_ref()?.modes))
+                Some((session, pane.attachment()?, pane.grid.as_ref()?.modes))
             }) else {
                 return Err("Every target must have a live terminal before sending.".into());
             };
-            if sessions.insert(session) {
-                targets.push((id, channel, modes));
+            if sessions.insert((attachment.0, session)) {
+                targets.push((id, attachment, modes));
             }
         }
         Ok(targets)
@@ -663,7 +706,7 @@ impl AppModel {
         &self,
         key: &DraftId,
         view: &Entity<Composer>,
-        targets: &[(PaneId, ChannelId, Modes)],
+        targets: &[Target],
         enter: bool,
         cx: &gpui::App,
     ) -> Option<(u64, SubmissionPlan)> {
@@ -719,8 +762,7 @@ impl AppModel {
             cx.notify();
         });
         let store = self.composer.store.clone();
-        let worker = self.work.clone();
-        let generation = self.generation;
+        let workers = self.composer_workers(&targets);
         self.composer.submission = Some(cx.spawn(async move |model, cx| {
             let prepared = cx.background_executor().spawn(async move { prepare(&plan, &mut store.lock().unwrap_or_else(PoisonError::into_inner)) }).await;
             let mut completed = 0;
@@ -732,26 +774,42 @@ impl AppModel {
                         model.dismiss_composer(false, cx);
                     }
                 });
-                let mut clipboard = if steps.iter().any(|step| matches!(step, Step::Image(_))) { Some(muxy_ui::pasteboard::Lease::capture()?) } else { None };
-                for (pane, channel, modes) in &targets {
+                let pastes_images = steps.iter().any(|step| matches!(step, Step::Image(_))) && targets.iter().any(|(_, (server, _), _)| server.is_local());
+                let mut clipboard = if pastes_images { Some(muxy_ui::pasteboard::Lease::capture()?) } else { None };
+                for (pane, attachment, modes) in &targets {
+                    let (server, channel) = *attachment;
+                    let (worker, generation) = workers.get(&server).ok_or("Terminal connection closed before delivery was confirmed")?;
+                    let generation = *generation;
                     let mut payload = vec![0x15];
                     for step in &steps {
-                        let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *channel, generation, cx)).unwrap_or(false);
+                        let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
                         if !current { return Err("Composer target changed; sending stopped.".into()); }
                         match step {
                             Step::Text(text) => payload.extend(crate::views::terminal::clipboard::paste(text, *modes)),
+                            Step::File(path) if !server.is_local() => {
+                                let remote = send_remote(&model, cx, *pane, server, Upload::Files(vec![path.clone()])).await?;
+                                payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));
+                            }
+                            Step::File(path) => {
+                                let text = quoted(std::slice::from_ref(path)).ok_or("Invalid attachment path")?;
+                                payload.extend(crate::views::terminal::clipboard::paste(&text, *modes));
+                            }
+                            Step::Image(png) if !server.is_local() => {
+                                let remote = send_remote(&model, cx, *pane, server, Upload::Image(png.clone(), "png")).await?;
+                                payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));
+                            }
                             Step::Image(png) => {
-                                if !payload.is_empty() { deliver(&worker, generation, *channel, std::mem::take(&mut payload)).await?; }
+                                if !payload.is_empty() { deliver(worker, generation, channel, std::mem::take(&mut payload)).await?; }
                                 if let Some(clipboard) = &mut clipboard { clipboard.write_png(png.clone())?; }
-                                deliver(&worker, generation, *channel, vec![0x16]).await?;
+                                deliver(worker, generation, channel, vec![0x16]).await?;
                                 cx.background_executor().timer(std::time::Duration::from_millis(350)).await;
                             }
                         }
                     }
-                    let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *channel, generation, cx)).unwrap_or(false);
+                    let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
                     if !current { return Err("Composer target changed; sending stopped.".into()); }
                     if enter { payload.push(b'\r'); }
-                    if !payload.is_empty() { deliver(&worker, generation, *channel, payload).await?; }
+                    if !payload.is_empty() { deliver(worker, generation, channel, payload).await?; }
                     completed += 1;
                 }
                 Ok::<_, String>(())

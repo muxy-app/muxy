@@ -73,6 +73,12 @@ pub(crate) enum Command {
     ProjectLogo(muxy_app_core::ProjectId),
     RemoveProjectLogo(muxy_app_core::ProjectId),
     RemoveProject(muxy_app_core::ProjectId),
+    AddProject,
+    AddRemoteProject(muxy_app_core::ServerId),
+    ManageRemoteDevices,
+    /// The open remote file link's menu: copy the file here and open it.
+    OpenRemoteCopy,
+    CopyRemotePath,
 }
 
 #[derive(Clone, Debug)]
@@ -600,6 +606,7 @@ impl AppModel {
             Command::RevealPath(id) => {
                 if let Some(project) = self.state.project(id)
                     && project.status() == muxy_app_core::ProjectStatus::Available
+                    && project.server_id.is_local()
                 {
                     cx.reveal_path(&project.directory);
                 }
@@ -618,6 +625,20 @@ impl AppModel {
                 self.edit_project(|state| state.set_project_logo(id, None), cx);
             }
             Command::RemoveProject(id) => self.confirm_remove_project(id, cx),
+            Command::AddProject => {
+                self.open_project_picker(window, cx);
+                return;
+            }
+            Command::AddRemoteProject(server) => {
+                self.open_remote_project_picker(server, cx);
+                return;
+            }
+            Command::ManageRemoteDevices => {
+                self.open_remote_servers(None, window, cx);
+                return;
+            }
+            Command::OpenRemoteCopy => self.open_remote_copy(cx),
+            Command::CopyRemotePath => self.copy_remote_path(cx),
         }
         self.focus_active(window, cx);
     }
@@ -705,7 +726,7 @@ mod tests {
     use super::*;
     use crate::views::{project_menu, tab_menu};
     use gpui::{point, size};
-    use muxy_app_core::AppState;
+    use muxy_app_core::{AppState, ServerId};
     use muxy_ui::theme::Metrics;
 
     fn labels(items: &[Item]) -> Vec<String> {
@@ -778,7 +799,9 @@ mod tests {
     #[test]
     fn project_menus_group_actions_and_nest_appearance_workspaces_and_worktrees() {
         let mut state = AppState::bootstrap().expect("state");
-        let id = state.add_project(std::env::temp_dir()).expect("project");
+        let id = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         let project = state.project(id).expect("project");
         let items = project_menu::items(&state, project, Some(true));
         assert_eq!(
@@ -851,7 +874,7 @@ mod tests {
         let mut state = AppState::bootstrap().expect("state");
         let folder = tempfile::tempdir().expect("folder");
         let id = state
-            .add_project(folder.path().to_owned())
+            .add_project(ServerId::local(), folder.path().to_owned())
             .expect("project");
         drop(folder);
         state.refresh_project_statuses();
@@ -868,7 +891,9 @@ mod tests {
     #[test]
     fn worktree_rows_share_one_menu_and_the_primary_row_skips_removal() {
         let mut state = AppState::bootstrap().expect("state");
-        let id = state.add_project(std::env::temp_dir()).expect("project");
+        let id = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         let project = state.project(id).expect("project");
         assert_eq!(
             labels(&project_menu::worktree_items(project, false)),
@@ -898,7 +923,9 @@ mod tests {
     #[test]
     fn workspace_menus_check_memberships_for_top_level_projects() {
         let mut state = AppState::bootstrap().expect("state");
-        let project = state.add_project(std::env::temp_dir()).expect("project");
+        let project = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         let items = project_menu::workspace_items(&state, project);
         assert_eq!(items.len(), 1);
         assert!(!items[0].separator_before);
@@ -931,7 +958,9 @@ mod tests {
     #[test]
     fn color_menus_list_the_palette_with_dots_and_check_the_current_color() {
         let mut state = AppState::bootstrap().expect("state");
-        let id = state.add_project(std::env::temp_dir()).expect("project");
+        let id = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         let color = PROJECT_COLORS[3].1.parse().expect("color");
         state.set_project_color(id, color).expect("color");
         let items = project_menu::items(&state, state.project(id).expect("project"), None);

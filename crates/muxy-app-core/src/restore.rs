@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use muxy_protocol::{SessionId, SessionInfo};
 
-use crate::{AppState, PaneContent, PaneId, ProjectStatus};
+use crate::{AppState, PaneContent, PaneId, ProjectStatus, ServerId};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RestorePlan {
@@ -11,18 +11,24 @@ pub struct RestorePlan {
     pub close: Vec<(PaneId, SessionId)>,
 }
 
-pub fn plan(state: &AppState, sessions: &[SessionInfo]) -> RestorePlan {
+/// Plans `server`'s panes against the sessions that server listed.
+pub fn plan(state: &AppState, server: ServerId, sessions: &[SessionInfo]) -> RestorePlan {
     let live: HashSet<_> = sessions
         .iter()
         .map(|session| (session.project, session.id))
         .collect();
     let mut plan = RestorePlan::default();
-    for (project, pane) in state.projects().iter().flat_map(|project| {
-        project
-            .tabs
-            .iter()
-            .flat_map(move |tab| tab.panes.iter().map(move |pane| (project, pane)))
-    }) {
+    for (project, pane) in state
+        .projects()
+        .iter()
+        .filter(|project| project.server_id == server)
+        .flat_map(|project| {
+            project
+                .tabs
+                .iter()
+                .flat_map(move |tab| tab.panes.iter().map(move |pane| (project, pane)))
+        })
+    {
         match pane.content {
             PaneContent::Terminal { session: Some(id) } if live.contains(&(project.id, id)) => {
                 plan.attach.push((pane.id, id));

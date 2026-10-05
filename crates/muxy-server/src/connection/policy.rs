@@ -10,10 +10,6 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
             ErrorCode::BadRequest,
             "authentication is only the first request of a network connection",
         )),
-        RequestBody::IdentifyClient(ClientKind::Mobile) if !device => Err(ServerError::new(
-            ErrorCode::BadRequest,
-            "only paired devices identify as mobile",
-        )),
         RequestBody::IdentifyClient(ClientKind::Unrecognized(_)) => Err(ServerError::new(
             ErrorCode::Unsupported,
             "this server doesn't know the client kind",
@@ -21,6 +17,7 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
         RequestBody::ReadRemoteAccess
         | RequestBody::WriteRemoteAccess(_)
         | RequestBody::StartPairing
+        | RequestBody::StartPairingWithHosts(_)
         | RequestBody::CancelPairing
         | RequestBody::RevokeDevice(_)
         | RequestBody::StopServer
@@ -59,6 +56,8 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
         | RequestBody::AcknowledgeActivity(_)
         | RequestBody::ClaimActivity(_)
         | RequestBody::Files(_)
+        | RequestBody::ListFolders(_)
+        | RequestBody::Upload(_)
         | RequestBody::WriteInput { .. } => Ok(()),
     }
 }

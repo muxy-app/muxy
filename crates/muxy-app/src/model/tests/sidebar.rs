@@ -8,9 +8,15 @@ use gpui::{Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pi
 fn projects() -> (AppState, [ProjectId; 4]) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
-    let first = state.add_project(std::env::temp_dir()).expect("first");
-    let second = state.add_project(std::env::temp_dir()).expect("second");
-    let third = state.add_project(std::env::temp_dir()).expect("third");
+    let first = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("first");
+    let second = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("second");
+    let third = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("third");
     state.select_project(second).expect("select second");
     (state, [home, first, second, third])
 }
@@ -174,12 +180,18 @@ fn project_reordering_handles_a_fast_drop_and_release_outside_the_sidebar(cx: &m
 fn home_and_missing_projects_cannot_be_dragged_or_used_as_reorder_targets(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
-    let first = state.add_project(std::env::temp_dir()).expect("first");
+    let first = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("first");
     let missing = std::env::temp_dir().join(format!("muxy-missing-drag-{}", ProjectId::new()));
     std::fs::create_dir(&missing).expect("temporary directory");
-    let second = state.add_project(missing.clone()).expect("second");
+    let second = state
+        .add_project(ServerId::local(), missing.clone())
+        .expect("second");
     std::fs::remove_dir(missing).expect("remove empty test directory");
-    let third = state.add_project(std::env::temp_dir()).expect("third");
+    let third = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("third");
     state.refresh_project_statuses();
     let ids = [home, first, second, third];
     let (boot, _requests) = stub_boot(state);
@@ -240,7 +252,9 @@ fn project_dragging_uses_scrolled_row_bounds_and_ignores_clipped_rows(cx: &mut T
     for wide in [true, false] {
         let mut state = AppState::bootstrap().expect("state");
         for _ in 0..24 {
-            state.add_project(std::env::temp_dir()).expect("project");
+            state
+                .add_project(ServerId::local(), std::env::temp_dir())
+                .expect("project");
         }
         let original: Vec<_> = state.projects().iter().map(|project| project.id).collect();
         let (mut boot, _requests) = stub_boot(state);

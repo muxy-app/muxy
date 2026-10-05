@@ -20,12 +20,13 @@ fn terminal_menu_focuses_the_clicked_split_and_routes_clipboard_actions(cx: &mut
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1000.0), px(600.0)));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         for (id, channel) in [(first, 1), (second, 2)] {
             let mut attachment = attachment();
             attachment.channel = ChannelId(channel);
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane: id,
@@ -142,7 +143,7 @@ fn prompt_shortcuts_and_command_output_menu_act_on_the_focused_terminal(cx: &mut
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     let terminal = view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.new_tab(cx);
         model
             .terminal(&model.active_pane().expect("pane"))
@@ -181,7 +182,7 @@ fn prompt_shortcuts_and_command_output_menu_act_on_the_focused_terminal(cx: &mut
             col: 2,
             visible: true,
         };
-        pane.attach(attached, cx);
+        pane.attach(ServerId::local(), attached, cx);
     });
     cx.run_until_parked();
     cx.simulate_keystrokes("cmd-up");

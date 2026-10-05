@@ -16,11 +16,11 @@ raw reports are in git history.
 | D4 | Rows travel as style runs | 4 to 8 times smaller than cells |
 | D5 | CBOR messages, postcard rows | Messages can grow, rows stay compact |
 | D6 | zstd streaming compression, planned | Halves interactive traffic |
-| D7 | Any byte stream is a transport | Unix socket locally, TLS for phones |
+| D7 | Any byte stream is a transport | Unix socket locally, SSH to other computers, TLS for phones |
 | D8 | One merged frame in flight | Slow apps never pile up |
 | D9 | The app draws rows directly | Redraws only on change |
 | D10 | portable-pty for PTYs | Same speed, ready for Windows |
-| D11 | Phones pin a certificate | No cloud and no SSH setup |
+| D11 | Phones pin a certificate, or use SSH | No cloud; pairing needs no SSH setup |
 | D12 | Protocol changes are additive | Old and new builds keep talking |
 
 ## D1. Ghostty is the terminal engine
@@ -74,8 +74,11 @@ dictionaries, which fit their training data and little else.
 
 Unix sockets, TCP, and stdio pipes were all ten times faster than any real
 program writes to a terminal. Apps on the same computer use a Unix socket and
-phones use TLS (D11). stdio, for reaching servers through SSH or `docker exec`,
-is planned.
+phones use TLS (D11). Other computers are reached over SSH, which runs
+`muxy stdio` there to join its stdin and stdout to that computer's server. ssh
+logs in with the user's keys, agent, or certificates. For a password login, the
+desktop asks for the password, keeps it only in memory, and answers ssh's
+prompt for it.
 
 Turned down: a stream multiplexing library, because D8 fits terminals better.
 
@@ -105,9 +108,13 @@ Phones connect over TLS 1.3 to a self-signed certificate that they pin when
 scanning the pairing code. Each phone gets its own token, which the server keeps
 only as a hash. The phone apps embed the same Rust client as the desktop app.
 
-Turned down: a cloud relay, which is another service to trust; SSH from the
-phone, for its setup; mutual TLS, for handling certificates on phones; and a
-native Swift, Kotlin, or JSON protocol, which would drift from the Rust one.
+Pairing stays the default because it needs no SSH setup. Phones can also
+connect over SSH, since the apps already embed an SSH client: it runs
+`muxy stdio` on the computer (D7).
+
+Turned down: a cloud relay, which is another service to trust; mutual TLS, for
+handling certificates on phones; and a native Swift, Kotlin, or JSON protocol,
+which would drift from the Rust one.
 
 ## D12. Protocol changes are additive
 

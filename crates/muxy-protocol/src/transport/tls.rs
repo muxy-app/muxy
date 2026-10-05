@@ -20,6 +20,7 @@ use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::{CertificateError, DigitallySignedStruct, SignatureScheme};
 
+use crate::transport::unix::socket_pair;
 use crate::transport::{ByteStream, Listener, StreamCancellation};
 
 const ALPN: &[u8] = b"muxy/1";
@@ -382,17 +383,6 @@ fn remaining(deadline: Instant) -> io::Result<Duration> {
         .checked_duration_since(Instant::now())
         .filter(|left| !left.is_zero())
         .ok_or_else(|| io::ErrorKind::TimedOut.into())
-}
-
-fn socket_pair() -> io::Result<(UnixStream, UnixStream)> {
-    let (app, pump) = UnixStream::pair()?;
-    // std sets no SO_NOSIGPIPE on Apple socket pairs, and an iOS host app does
-    // not ignore SIGPIPE the way Rust executables do.
-    #[cfg(target_vendor = "apple")]
-    for socket in [&app, &pump] {
-        rustix::net::sockopt::set_socket_nosigpipe(socket, true)?;
-    }
-    Ok((app, pump))
 }
 
 fn start(

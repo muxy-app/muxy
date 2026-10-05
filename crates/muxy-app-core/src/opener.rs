@@ -49,9 +49,11 @@ impl Target {
         Some(Self::Url(text.into()))
     }
 
-    /// Resolve a local file candidate. The caller supplies filesystem lookup so
-    /// UI code can run it on a bounded worker, never in rendering or hit testing.
-    pub fn local_file(
+    /// Resolve a file candidate against `directory`, where `~` means `home`.
+    /// The caller supplies the lookup, on this disk or through another
+    /// computer's server, so UI code can run it on a bounded worker, never in
+    /// rendering or hit testing.
+    pub fn file(
         text: &str,
         directory: &Path,
         home: Option<&Path>,
@@ -68,7 +70,7 @@ impl Target {
                 if !host.eq_ignore_ascii_case("localhost") {
                     return None;
                 }
-                return Self::local_file(&format!("file:///{path}"), directory, home, exists);
+                return Self::file(&format!("file:///{path}"), directory, home, exists);
             };
             if path.contains(['?', '#']) {
                 return None;

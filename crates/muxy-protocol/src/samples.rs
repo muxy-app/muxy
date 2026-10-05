@@ -137,6 +137,7 @@ fn remote_samples() -> Vec<Message> {
         RequestBody::ReadRemoteAccess,
         RequestBody::WriteRemoteAccess(settings),
         RequestBody::StartPairing,
+        RequestBody::StartPairingWithHosts(vec!["box.example.com".into(), "203.0.113.7".into()]),
         RequestBody::CancelPairing,
         RequestBody::RevokeDevice(device),
     ] {
@@ -766,6 +767,31 @@ fn activity_samples(session: SessionId) -> Vec<Message> {
 
 fn files_samples() -> Vec<Message> {
     vec![
+        Message::Request {
+            id: RequestId(9),
+            body: RequestBody::ListFolders(ServerPath(b"/home/dev".to_vec())),
+        },
+        Message::Reply {
+            id: RequestId(9),
+            body: ReplyBody::Folders(vec![ServerPath(b"code".to_vec())]),
+        },
+        Message::Request {
+            id: RequestId(10),
+            body: RequestBody::Upload(crate::UploadChunk {
+                session: SessionId::from(NonZeroU64::MIN),
+                upload: crate::OperationId::from_u128(1),
+                name: "screenshot.png".into(),
+                offset: 0,
+                bytes: b"\x89PNG".to_vec(),
+                last: true,
+            }),
+        },
+        Message::Reply {
+            id: RequestId(10),
+            body: ReplyBody::Uploaded(Some(ServerPath(
+                b"/home/dev/.local/state/muxy/uploads/1/screenshot.png".to_vec(),
+            ))),
+        },
         Message::Request {
             id: RequestId(1),
             body: RequestBody::Files(crate::FilesRequest {

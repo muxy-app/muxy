@@ -1,4 +1,5 @@
 use gpui::{Context, Window};
+use muxy_app_core::ServerId;
 
 use super::{AppModel, ConnectionState, Quitting};
 use crate::views::overlays::Overlay;
@@ -25,34 +26,47 @@ impl ServerStatus {
 }
 
 impl AppModel {
-    pub(crate) fn server_status(&self) -> ServerStatus {
-        if self.updates.replacing() {
-            ServerStatus::Restarting
-        } else if self.server_preferences.control_busy {
-            ServerStatus::Stopping
-        } else {
-            match self.connection {
-                ConnectionState::Ready => ServerStatus::Connected,
-                ConnectionState::Connecting => ServerStatus::Connecting,
-                ConnectionState::Disconnected => ServerStatus::Disconnected,
-            }
+    /// The server of the project on screen, which the status bar shows.
+    pub(crate) fn status_server(&self) -> ServerId {
+        self.state.current_project().server_id
+    }
+
+    /// A server's name: settings name another computer's.
+    pub(crate) fn server_label(&self, server: ServerId) -> String {
+        match self.server_name(server) {
+            Some(name) if !server.is_local() => name.to_owned(),
+            _ if cfg!(target_os = "macos") => "This Mac".into(),
+            _ => "This Computer".into(),
         }
     }
 
+    pub(crate) fn server_status(&self) -> ServerStatus {
+        self.status_of(self.status_server())
+    }
+
     pub(crate) fn server_control_enabled(&self) -> bool {
-        self.server_actions_enabled() && self.connection == ConnectionState::Ready
+        self.control_enabled(self.status_server())
+    }
+
+    pub(super) fn control_enabled(&self, server: ServerId) -> bool {
+        self.server_actions_enabled(server) && self.ready(server)
     }
 
     pub(crate) fn server_connect_enabled(&self) -> bool {
-        self.server_actions_enabled() && self.connection == ConnectionState::Disconnected
+        let server = self.status_server();
+        self.server_actions_enabled(server)
+            && self.connection(server) == ConnectionState::Disconnected
     }
 
-    fn server_actions_enabled(&self) -> bool {
-        self.quitting == Quitting::Idle
-            && self.close_prompt.is_none()
-            && !self.server_preferences.control_busy
-            && !self.server_preferences.busy
-            && !self.updates.replacing()
+    fn server_actions_enabled(&self, server: ServerId) -> bool {
+        let idle = self.quitting == Quitting::Idle && self.close_prompt.is_none();
+        if server.is_local() {
+            idle && !self.server_preferences.control_busy
+                && !self.server_preferences.busy
+                && !self.updates.replacing()
+        } else {
+            idle && self.status_of(server) != ServerStatus::Stopping
+        }
     }
 
     pub(crate) fn server_anchor(&self) -> muxy_ui::popover::PopoverAnchor {

@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use muxy_app_core::{
-    AppState, Axis, Layout, PaneContent,
+    AppState, Axis, Layout, PaneContent, ServerId,
     project_layouts::{Config, discover},
 };
 use muxy_protocol::{FileEntry, ServerPath, SessionId};
@@ -142,7 +142,9 @@ fn rejects_invalid_or_unbounded_layouts_instead_of_partially_replacing_tabs() {
 #[test]
 fn replacement_closes_only_target_references_and_cancels_pending_creations() {
     let mut state = state();
-    let target = state.add_project(std::env::temp_dir()).expect("project");
+    let target = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let old = state.open_terminal_tab(target).expect("tab");
     let pane = state.project(target).expect("project").tabs[0].panes[0].id;
     let session = SessionId::new(91).expect("session");
@@ -163,8 +165,11 @@ fn replacement_closes_only_target_references_and_cancels_pending_creations() {
     let config = Config::parse("tab: echo hello").expect("layout");
     let panes = state.apply_project_layout(target, &config).expect("apply");
     assert_eq!(state.home().tabs[0].id, home_tab);
-    assert!(state.pending_discards().is_empty());
-    assert_eq!(state.pending_cancellations(), [pending.creation_token()]);
+    assert!(state.pending_discards(ServerId::local()).is_empty());
+    assert_eq!(
+        state.pending_cancellations(ServerId::local()),
+        [pending.creation_token()]
+    );
     assert!(matches!(
         state.project(target).expect("target").tabs[0].panes[0].content,
         PaneContent::Terminal { session: None }
@@ -176,14 +181,16 @@ fn replacement_closes_only_target_references_and_cancels_pending_creations() {
     state
         .apply_project_layout(state.home().id, &config)
         .expect("close last reference");
-    assert_eq!(state.pending_discards(), [session]);
+    assert_eq!(state.pending_discards(ServerId::local()), [session]);
 }
 
 #[test]
 fn unavailable_targets_and_closed_panes_do_not_retain_commands() {
     let mut state = state();
     let directory = tempfile::tempdir().expect("folder");
-    let project = state.add_project(directory.path().into()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), directory.path().into())
+        .expect("project");
     let config = Config::parse("tab: nvim").expect("layout");
     let panes = state.apply_project_layout(project, &config).expect("apply");
     state.close_pane(panes[0]).expect("close");

@@ -50,6 +50,10 @@ impl ServerId {
     pub const fn local() -> Self {
         Self(Uuid::from_u128(0x9eed_d633_57b5_4359_b76e_762c_6bc2_775c))
     }
+
+    pub fn is_local(self) -> bool {
+        self == Self::local()
+    }
 }
 
 impl PaneId {

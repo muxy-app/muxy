@@ -171,7 +171,9 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme.fg_muted)
         .hover(|style| style.bg(theme.hover).text_color(theme.fg))
-        .on_click(cx.listener(|model, _, window, cx| model.open_project_picker(window, cx)))
+        .on_click(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
+            model.choose_project_source(event.position(), window, cx);
+        }))
         .child(
             div()
                 .flex()
@@ -291,6 +293,7 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 })
                 .child(project.name.clone()),
         )
+        .children(super::sidebar::remote_marker(project, model))
         .child(project_accessory(project, group, model, cx))
         .into_any_element()
 }

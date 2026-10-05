@@ -8,7 +8,10 @@ The processes, the crates, and how data moves between them.
 flowchart LR
     DESKTOP["Desktop app"] <-->|"Unix socket"| LOCAL
     TUI["muxy terminal UI"] <-->|"Unix socket"| LOCAL
+    DESKTOP <-->|"SSH · muxy stdio<br/>from another computer"| LOCAL
+    TUI <-->|"SSH · muxy stdio<br/>from another computer"| LOCAL
     PHONE["Phone app"] <-->|"TLS · after pairing"| NETWORK
+    PHONE <-->|"SSH · muxy stdio"| LOCAL
     subgraph SERVER["muxy-server · one per profile"]
         LOCAL["Local listener"]
         NETWORK["Network listener · opt-in"]
@@ -28,6 +31,8 @@ flowchart LR
   also released on their own. Either app starts the server if it isn't running.
 - The server keeps projects and which sessions belong to them. Apps keep tabs,
   panes, order, and workspaces.
+- The desktop app keeps one connection per server: this computer's, and one per
+  remote device.
 - Apps never include server code. They only speak the [protocol](./protocol.md).
 
 ## Crates

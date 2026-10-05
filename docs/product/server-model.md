@@ -101,3 +101,5 @@ sequenceDiagram
   mobile access, change server settings, stop the server, or run extension
   commands.
 - Revoking a phone, or turning mobile access off, disconnects it at once.
+- A phone can pair with a server on another computer too, with
+  `muxy --host <computer> mobile pair`.

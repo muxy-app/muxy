@@ -56,7 +56,12 @@ pub(crate) fn register_commands(
                 return projects;
             };
             let model = model.read(cx);
-            for project in model.state.projects() {
+            for project in model
+                .state
+                .projects()
+                .iter()
+                .filter(|project| model.project_listed(project))
+            {
                 let id = project.id;
                 let handler: Handler = Rc::new(move |model, _, cx| model.select_project(id, cx));
                 let title = project
@@ -152,10 +157,65 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .child(header)
         .child(contents)
         .children(tips::footer(model, cx))
+        .child(super::remote_servers::section(model, cx))
         .into_any_element()
 }
 
 impl AppModel {
+    /// Add Project opens the picker on this computer, or, with remote
+    /// devices, a menu to choose where the project is.
+    pub(crate) fn choose_project_source(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings.servers.is_empty() {
+            self.open_project_picker(window, cx);
+            return;
+        }
+        let devices = self
+            .settings
+            .servers
+            .iter()
+            .map(|entry| Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id)))
+            .chain(std::iter::once(
+                Item::action("Manage Remote Servers…", Command::ManageRemoteDevices).separated(),
+            ))
+            .collect();
+        self.open_menu(
+            vec![
+                Item::action("Local", Command::AddProject),
+                Item::submenu("Remote", devices),
+            ],
+            position,
+            window,
+            cx,
+        );
+    }
+
+    /// Where another computer's project is, as `box · ~/code/app`.
+    pub(crate) fn remote_location(&self, project: &Project) -> Option<String> {
+        let name = self.server_name(project.server_id)?;
+        Some(format!("{name} · {}", self.project_path_label(project)))
+    }
+
+    /// The project's folder, with `~` for its own computer's Home.
+    pub(crate) fn project_path_label(&self, project: &Project) -> String {
+        if project.server_id.is_local() {
+            return super::project_picker::display_path(&project.directory);
+        }
+        let directory = project.directory.to_string_lossy();
+        match self.remote_home(project.server_id) {
+            Some(home) if project.directory == home => "~".to_owned(),
+            Some(home) => project.directory.strip_prefix(home).map_or_else(
+                |_| directory.into_owned(),
+                |relative| format!("~/{}", relative.display()),
+            ),
+            None => directory.into_owned(),
+        }
+    }
+
     pub(crate) fn cached_sidebar(&self) -> gpui::AnyView {
         gpui::AnyView::from(self.sidebar_view.clone()).cached(
             div()
@@ -212,10 +272,23 @@ impl AppModel {
             .state
             .projects()
             .iter()
-            .filter(|project| project.parent_id.is_none() && self.state.is_listed(project))
+            .filter(|project| {
+                project.parent_id.is_none()
+                    && self.state.is_listed(project)
+                    && self.project_listed(project)
+            })
             .collect();
         if self.appearance.sidebar_project_order == ProjectOrder::Name {
-            parents.sort_by_cached_key(|project| (!project.home, project.name.to_lowercase()));
+            let server = |project: &Project| {
+                self.settings
+                    .servers
+                    .iter()
+                    .position(|entry| entry.id == project.server_id)
+                    .map_or(0, |index| index + 1)
+            };
+            parents.sort_by_cached_key(|project| {
+                (server(project), !project.home, project.name.to_lowercase())
+            });
         }
         parents
     }
@@ -552,6 +625,7 @@ fn project_row(
             },
         );
     let activity = super::tab_activity::project_status(id, model);
+    let server = model.server_name(project.server_id);
     let drag = DraggedProject {
         id,
         last_target: Cell::new(None),
@@ -625,6 +699,9 @@ fn project_row(
                     )
                     .when(has_worktrees, |label| {
                         let selected = model.state.project(model.preferred_worktree(id));
+                        let worktree = selected
+                            .filter(|p| p.parent_id.is_some())
+                            .map_or("primary", |p| p.name.as_str());
                         label.child(
                             div()
                                 .debug_selector(move || format!("project-worktree-label-{id}"))
@@ -632,16 +709,29 @@ fn project_row(
                                 .text_size(m.font_footnote())
                                 .font_family(".AppleSystemUIFontMonospaced")
                                 .font_weight(FontWeight::NORMAL)
-                                .child(
-                                    selected
-                                        .filter(|p| p.parent_id.is_some())
-                                        .map_or("primary", |p| p.name.as_str())
-                                        .to_owned(),
-                                ),
+                                .child(server.map_or_else(
+                                    || worktree.to_owned(),
+                                    |server| format!("{server} · {worktree}"),
+                                )),
                         )
-                    }),
+                    })
+                    .when_some(
+                        model.remote_location(project).filter(|_| !has_worktrees),
+                        |label, location| {
+                            label.child(
+                                div()
+                                    .debug_selector(move || format!("project-server-label-{id}"))
+                                    .truncate()
+                                    .text_size(m.font_footnote())
+                                    .font_weight(FontWeight::NORMAL)
+                                    .text_color(theme.fg_muted)
+                                    .child(location),
+                            )
+                        },
+                    ),
             )
         })
+        .when(wide, |row| row.children(remote_marker(project, model)))
         .when(activity != super::tab_activity::Status::None, |row| {
             row.child(
                 div()
@@ -685,6 +775,43 @@ fn project_row(
         .into_any_element()
 }
 
+/// Marks another computer's project, naming it in a tooltip.
+pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyElement> {
+    let name = model.server_name(project.server_id)?;
+    let id = project.id;
+    let m = model.metrics;
+    let theme = model.theme.clone();
+    let tooltip = format!("Remote project on {name}");
+    Some(
+        div()
+            .id(SharedString::from(format!("project-remote-{id}")))
+            .debug_selector(move || format!("project-remote-{id}"))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(m.scaled(18.0))
+            .tooltip(move |_, cx| {
+                cx.new(|_| {
+                    muxy_ui::components::Tooltip::new(
+                        tooltip.clone(),
+                        theme.raised(),
+                        theme.fg,
+                        theme.border,
+                        theme.bg,
+                    )
+                })
+                .into()
+            })
+            .child(IconGlyph::new(
+                Icon::Network,
+                m.font_caption(),
+                model.theme.fg_muted,
+            ))
+            .into_any_element(),
+    )
+}
+
 pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
@@ -702,7 +829,9 @@ pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -
                 .hover(|style| style.bg(theme.hover))
         })
         .when(!wide, |row| row.justify_center().size(m.scaled(34.0)))
-        .on_click(cx.listener(|model, _, window, cx| model.open_project_picker(window, cx)))
+        .on_click(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
+            model.choose_project_source(event.position(), window, cx);
+        }))
         .child(
             div()
                 .flex()

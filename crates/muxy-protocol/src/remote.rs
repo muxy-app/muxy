@@ -159,11 +159,8 @@ impl fmt::Debug for PairingInvite {
 
 impl PairingInvite {
     pub fn validate(&self) -> Result<(), ErrorCode> {
-        if self.hosts.is_empty()
-            || self.hosts.len() > MAX_PAIRING_HOSTS
-            || self.port < 1024
-            || !self.hosts.iter().all(|host| is_host(host))
-        {
+        validate_pairing_hosts(&self.hosts)?;
+        if self.hosts.is_empty() || self.port < 1024 {
             Err(ErrorCode::BadRequest)
         } else {
             Ok(())
@@ -307,6 +304,15 @@ pub fn validate_device_name(name: &str) -> Result<(), ErrorCode> {
         Err(ErrorCode::BadRequest)
     } else {
         Ok(())
+    }
+}
+
+/// Addresses a pairing link can carry: DNS names and IPv4 addresses, without ports.
+pub fn validate_pairing_hosts(hosts: &[String]) -> Result<(), ErrorCode> {
+    if hosts.len() <= MAX_PAIRING_HOSTS && hosts.iter().all(|host| is_host(host)) {
+        Ok(())
+    } else {
+        Err(ErrorCode::BadRequest)
     }
 }
 

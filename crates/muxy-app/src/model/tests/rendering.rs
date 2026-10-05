@@ -17,7 +17,7 @@ fn dismissing_overlay_restarts_idle_cursor_blink(cx: &mut TestAppContext) {
     terminal.update(cx, |pane, cx| {
         let mut attachment = attachment();
         attachment.grid.cursor.visible = true;
-        pane.attach(attachment, cx);
+        pane.attach(ServerId::local(), attachment, cx);
     });
     cx.run_until_parked();
     cx.executor().advance_clock(Duration::from_millis(530));

@@ -32,10 +32,22 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
             items.push(Item::submenu("Worktrees", worktree_toggle_items(id, visible)).separated());
         }
     }
-    items.push(Item::action("Reveal in Finder", Command::RevealPath(id)).separated());
-    items.push(Item::action("Copy Path", Command::CopyPath(id)));
+    items.extend(path_items(project));
     items.extend(removal(project).into_iter().map(Item::separated));
     items
+}
+
+/// A folder on another computer can't be revealed here, but its path can be copied.
+fn path_items(project: &Project) -> Vec<Item> {
+    let copy = Item::action("Copy Path", Command::CopyPath(project.id));
+    if project.server_id.is_local() {
+        vec![
+            Item::action("Reveal in Finder", Command::RevealPath(project.id)).separated(),
+            copy,
+        ]
+    } else {
+        vec![copy.separated()]
+    }
 }
 
 fn removal(project: &Project) -> Vec<Item> {
@@ -107,8 +119,7 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
             Item::action("Rename Worktree…", Command::EditProject(id, Field::Name)).separated(),
         );
     }
-    items.push(Item::action("Reveal in Finder", Command::RevealPath(id)).separated());
-    items.push(Item::action("Copy Path", Command::CopyPath(id)));
+    items.extend(path_items(project));
     if !primary {
         items.push(
             Item::action("Remove Worktree and Files…", Command::RemoveWorktree(id)).separated(),

@@ -218,7 +218,7 @@ pub(super) fn replace_sections<'a>(
     write_document(path, &document)
 }
 
-fn write_document(path: &Path, document: &toml::Table) -> Result<()> {
+pub(super) fn write_document(path: &Path, document: &toml::Table) -> Result<()> {
     atomic_write(path, &toml::to_string_pretty(document)?)
 }
 
@@ -248,7 +248,7 @@ pub(crate) fn atomic_write(path: &Path, source: &str) -> Result<()> {
     result.map_err(Into::into)
 }
 
-fn read_document(path: &Path) -> Result<toml::Table> {
+pub(super) fn read_document(path: &Path) -> Result<toml::Table> {
     match fs::read_to_string(path) {
         Ok(source) => source.parse().map_err(Into::into),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(toml::Table::new()),

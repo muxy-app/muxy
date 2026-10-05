@@ -105,12 +105,13 @@ fn find_searches_each_edit_immediately_ignores_case_and_keeps_input_out_of_the_s
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
         model.new_tab(cx);
         let pane = model.active_pane().expect("pane");
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::Attached {
                     pane,
@@ -142,6 +143,7 @@ fn find_searches_each_edit_immediately_ignores_case_and_keeps_input_out_of_the_s
         view.update(cx, |model, cx| {
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Search {
                         pane: pane_id,
@@ -297,7 +299,7 @@ fn walkthrough(cx: &mut TestAppContext) -> Result {
     wait_empty(cx, &view)?;
     signal_test_server(&directory, "-TERM")?;
     wait(cx, &view, |model, _| {
-        model.connection == ConnectionState::Disconnected
+        model.servers.local.connection == ConnectionState::Disconnected
     })?;
     reload_model(cx, &view)?;
     wait_empty(cx, &view)?;

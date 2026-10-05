@@ -35,7 +35,9 @@ fn operation(action: WorktreeAction) -> GitAction {
     })
 }
 
-pub(super) async fn call(client: &Client, call: &Call) -> Result<Value, String> {
+/// Runs a worktree call on the project's server. `local` says its folders
+/// are on this computer.
+pub(super) async fn call(client: &Client, call: &Call, local: bool) -> Result<Value, String> {
     let catalog = client
         .catalog_async()
         .await
@@ -59,13 +61,22 @@ pub(super) async fn call(client: &Client, call: &Call) -> Result<Value, String> 
         let worktrees = crate::model::worktrees::list(client, root)
             .await
             .map_err(|error| error.to_string())?;
-        crate::model::worktrees::register(client, root, directory, &worktrees)
+        crate::model::worktrees::register(client, root, directory, local, &worktrees)
             .await
             .map_err(|error| error.to_string())?;
         return Ok(json!({"count":worktrees.len()}));
     }
     let requested = api::text(&call.args, "path")?;
-    let directory = resolve_path(requested, api::path_text(&origin.directory)?)?;
+    let home = catalog
+        .projects
+        .iter()
+        .find(|project| project.id == catalog.home)
+        .ok_or("the server's Home is unavailable")?;
+    let directory = resolve_path(
+        requested,
+        api::path_text(&origin.directory)?,
+        api::path_text(&home.directory)?,
+    )?;
     if call.verb == "git.worktree.remove" {
         let target = catalog
             .projects
@@ -126,12 +137,9 @@ pub(super) async fn call(client: &Client, call: &Call) -> Result<Value, String> 
     }
 }
 
-fn resolve_path(path: &str, origin: &str) -> Result<ServerPath, String> {
+fn resolve_path(path: &str, origin: &str, home: &str) -> Result<ServerPath, String> {
     let path = if let Some(suffix) = path.strip_prefix("~/") {
-        std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .ok_or("home directory is unavailable")?
-            .join(suffix)
+        std::path::Path::new(home).join(suffix)
     } else {
         std::path::Path::new(origin).join(path)
     };

@@ -3,7 +3,9 @@ use gpui::{Bounds, MouseButton, Pixels, Point, point};
 
 fn open(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext, ProjectId) {
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let (mut boot, _requests) = stub_boot(state);
     boot.settings.appearance.sidebar_expanded = true;
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));

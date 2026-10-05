@@ -13,7 +13,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 fn bootstrap_has_only_home_with_no_tabs() -> TestResult {
     let state = AppState::bootstrap()?;
     let home = state.home();
-    assert_eq!(state.version(), 2);
+    assert_eq!(state.version(), 3);
     assert_eq!(state.projects().len(), 1);
     assert_eq!(state.projects().first(), Some(home));
     assert_eq!(home.name, "Home");
@@ -280,10 +280,10 @@ fn projects_at_the_same_location_keep_independent_identity_and_tabs() -> TestRes
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;
     let directory = std::env::temp_dir();
-    let first = state.add_project(directory.clone())?;
+    let first = state.add_project(ServerId::local(), directory.clone())?;
     assert!(state.current_project().tabs.is_empty());
     let first_tab = state.open_terminal_tab(first)?;
-    let second = state.add_project(directory)?;
+    let second = state.add_project(ServerId::local(), directory)?;
     assert_ne!(first, second);
     assert!(state.current_project().tabs.is_empty());
     let second_tab = state.open_terminal_tab(second)?;
@@ -327,7 +327,7 @@ fn legacy_home_migrates_and_renamed_home_wins_over_another_home_name() -> TestRe
     assert_eq!(migrated.home().id, home);
     assert_eq!(migrated.home().tabs[0].id, tab);
     migrated.rename_project(home, "Personal")?;
-    let other = migrated.add_project(std::env::temp_dir())?;
+    let other = migrated.add_project(ServerId::local(), std::env::temp_dir())?;
     migrated.rename_project(other, "Home")?;
     let restored: AppState = serde_json::from_value(serde_json::to_value(&migrated)?)?;
     assert_eq!(restored.home().id, home);
@@ -345,7 +345,7 @@ fn project_customization_accepts_one_grapheme_and_cycles_approved_colors() -> Te
         .cycle()
         .take(muxy_app_core::PROJECT_COLORS.len() * 2)
     {
-        let project = state.add_project(std::env::temp_dir())?;
+        let project = state.add_project(ServerId::local(), std::env::temp_dir())?;
         assert_eq!(state.current_project().color.as_str(), *color);
         for icon in ["👩🏽‍💻", "🇩🇪", "e\u{301}"] {
             state.set_project_icon(project, Some(icon.into()))?;
@@ -373,7 +373,7 @@ fn missing_projects_preserve_tabs_and_only_allow_removal() -> TestResult {
     std::fs::write(&marker, "keep")?;
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;
-    let project = state.add_project(directory.clone())?;
+    let project = state.add_project(ServerId::local(), directory.clone())?;
     let tab = state.open_terminal_tab(project)?;
     let session = SessionId::new(24).ok_or("session")?;
     state.set_pane_session(state.current_project().tabs[0].panes[0].id, Some(session))?;
@@ -410,7 +410,7 @@ fn missing_projects_preserve_tabs_and_only_allow_removal() -> TestResult {
 fn duplicate_projects_and_cross_project_tab_or_pane_ids_are_rejected() -> TestResult {
     let mut state = AppState::bootstrap()?;
     state.open_terminal_tab(state.home().id)?;
-    let project = state.add_project(std::env::temp_dir())?;
+    let project = state.add_project(ServerId::local(), std::env::temp_dir())?;
     state.open_terminal_tab(project)?;
     let valid = serde_json::to_value(state)?;
     for (pointer, replacement) in [
@@ -473,7 +473,7 @@ fn legacy_settings_are_removed_without_losing_terminal_splits_or_sessions() -> T
             .ok_or("focus history")?
             .contains(&serde_json::to_value(legacy)?)
     );
-    assert!(restored.pending_discards().is_empty());
+    assert!(restored.pending_discards(ServerId::local()).is_empty());
     assert_eq!(
         serde_json::from_value::<AppState>(serde_json::to_value(&restored)?)?,
         restored
@@ -507,7 +507,7 @@ fn legacy_settings_tab_migration_preserves_the_surviving_tabs_zoom_and_focus() -
             Some(&terminal_tab)
         );
         assert_eq!(restored.window().active_pane, Some(focused));
-        assert!(restored.pending_discards().is_empty());
+        assert!(restored.pending_discards(ServerId::local()).is_empty());
         assert!(
             !serde_json::to_value(restored.window())?["focus_history"]
                 .as_array()
@@ -527,7 +527,7 @@ fn legacy_settings_only_tabs_are_removed_even_in_missing_projects() -> TestResul
     let directory = std::env::temp_dir().join(format!("muxy-settings-{}", ProjectId::new()));
     std::fs::create_dir(&directory)?;
     let mut state = AppState::bootstrap()?;
-    let project = state.add_project(directory.clone())?;
+    let project = state.add_project(ServerId::local(), directory.clone())?;
     state.open_terminal_tab(project)?;
     let mut stored = serde_json::to_value(&state)?;
     stored["projects"][1]["tabs"][0]["panes"][0]["content"] =

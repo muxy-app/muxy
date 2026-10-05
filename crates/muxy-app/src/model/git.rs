@@ -95,7 +95,8 @@ pub(crate) struct GitState {
     pub(crate) pull_request_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) projects: HashMap<ProjectId, Repository>,
     current: Option<ProjectId>,
-    pub(crate) select_after_catalog: Option<(ProjectId, u64)>,
+    /// A new worktree to select once its server's catalog lists it.
+    pub(crate) select_after_catalog: Option<(muxy_app_core::ServerId, ProjectId, u64)>,
     pub(crate) interaction: u64,
     pub(super) worktrees: super::worktrees::WorktreeSync,
 }
@@ -135,7 +136,8 @@ impl AppModel {
         context: u64,
         cx: &mut Context<Self>,
     ) {
-        if !self.session_listing_ready() {
+        let server = self.project_server_or_local(project);
+        if !self.ready(server) {
             return;
         }
         if read_slot(&action).is_none() && self.ai.running(project) {
@@ -167,7 +169,7 @@ impl AppModel {
             project,
             action: action.clone(),
         };
-        if self.send(Work::Git(request), cx) {
+        if self.send(server, Work::Git(request), cx) {
             let repository = self.git.projects.entry(project).or_default();
             repository.pending = true;
             repository.mutating = !read;
@@ -192,7 +194,7 @@ impl AppModel {
         {
             self.ai.confirmation = None;
         }
-        if self.project_creation_pending(current) {
+        if self.state.project_creation_pending(current) {
             return;
         }
         if self.git.current != Some(current) {
@@ -254,7 +256,7 @@ impl AppModel {
         actions: Vec<GitAction>,
         cx: &mut Context<Self>,
     ) {
-        if !self.session_listing_ready() || self.project_creation_pending(project) {
+        if !self.session_listing_ready() || self.state.project_creation_pending(project) {
             return;
         }
         let repository = self.git.projects.entry(project).or_default();
@@ -366,9 +368,11 @@ impl AppModel {
                 if context_matches {
                     self.save_worktree_location(request, cx);
                     self.dismiss_overlay(cx);
-                    self.git.select_after_catalog = Some((project.id, self.git.interaction));
+                    let server = self.project_server_or_local(request.project);
+                    self.git.select_after_catalog =
+                        Some((server, project.id, self.git.interaction));
                 }
-                self.refresh_catalog(cx);
+                self.refresh_catalog(self.project_server_or_local(request.project), cx);
             }
             Ok(GitReply::Done) if request.action == GitAction::Watch => (),
             Ok(GitReply::Done) => {
@@ -415,7 +419,7 @@ impl AppModel {
                     if context_matches {
                         self.dismiss_overlay(cx);
                     }
-                    self.refresh_catalog(cx);
+                    self.refresh_catalog(self.project_server_or_local(request.project), cx);
                 }
                 if let Some((_, base)) = follow_up {
                     self.git_request(request.project, GitAction::SwitchToBase(base), cx);

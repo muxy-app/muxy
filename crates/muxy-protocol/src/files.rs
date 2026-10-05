@@ -162,6 +162,35 @@ impl FileChanges {
     }
 }
 
+/// A `ListFolders` path: absolute, without NUL, at most 4096 bytes.
+pub fn validate_folder_path(path: &ServerPath) -> Result<(), ErrorCode> {
+    if path.0.len() > 4096 || path.0.contains(&0) || !path.0.starts_with(b"/") {
+        return Err(ErrorCode::BadPath);
+    }
+    Ok(())
+}
+
+/// `Folders` names: each one path component, within the listing limits.
+pub fn validate_folder_names(names: &[ServerPath]) -> Result<(), ErrorCode> {
+    if names.len() > MAX_FILE_ENTRIES
+        || names.iter().map(|name| name.0.len()).sum::<usize>() > MAX_FILE_PATH_BYTES
+    {
+        return Err(ErrorCode::BadRequest);
+    }
+    let component = |name: &ServerPath| {
+        !name.0.is_empty()
+            && !name.0.contains(&b'/')
+            && !name.0.contains(&0)
+            && name.0 != b"."
+            && name.0 != b".."
+    };
+    if names.iter().all(component) {
+        Ok(())
+    } else {
+        Err(ErrorCode::BadPath)
+    }
+}
+
 fn relative_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if path.0.len() > 4096 || path.0.contains(&0) || path.0.starts_with(b"/") {
         return Err(ErrorCode::BadPath);

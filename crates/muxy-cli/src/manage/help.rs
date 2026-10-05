@@ -1,9 +1,9 @@
 pub(crate) const ROOT: &str = "Muxy - terminal client and server management
 
-Usage: muxy [COMMAND]
+Usage: muxy [--host DESTINATION] [COMMAND]
 
   (no command)  Open the terminal UI; Ctrl-B ? shows help
-  server        Start, inspect or stop the local server
+  server        Start, inspect or stop the server
   project       List, add, edit or delete server projects
   session       Create terminals, send input, read output and end sessions
   worktree      List, create, register or remove Git worktree projects
@@ -13,15 +13,30 @@ Usage: muxy [COMMAND]
   files         Run a server file action using JSON
   exec          Execute a program in a server project
   mobile        Enable access, pair phones and revoke devices
+  stdio         Connect stdin/stdout to the server; used over SSH
   --help | --version | --build-info
 
 Run muxy <command> --help for usage. Management commands accept --json.
-MUXY_DIR selects the local server profile. Commands connect directly to the
-server, starting it if needed, except server status/stop, which never start it.
-No desktop app is required. Tabs, panes and workspaces belong to UI clients.
+Commands connect directly to the server, starting it if needed, except server
+status/stop, which never start it. --host uses the server on another computer
+over SSH (user@host, an ssh_config alias or ssh://user@host:port); Muxy must be
+installed there, and directories are absolute paths on that computer.
+MUXY_DIR selects the local profile, which also keeps the terminal UI layouts
+for other computers. No desktop app is required. Tabs, panes and workspaces
+belong to UI clients.
 Project selectors accept an exact ID, unique name or directory path.
 Use -- before literal arguments that start with a dash.";
 
+pub(crate) const MOBILE: &str = "Usage: muxy mobile [action]
+  (no action)               Mobile access status and paired devices
+  enable [--port N]         Let phones connect; --port changes the port (7419)
+  disable                   Turn mobile access off
+  pair [--address HOST]...  Show a pairing code and wait for the phone
+  revoke <device>           Revoke a device by the start of its ID
+
+Pairing codes list the server's own addresses. --address puts a DNS name or
+IPv4 address first, for a server that phones reach by another name, such as a
+cloud server's public name. Repeat it for more, up to 8 addresses in all.";
 pub(crate) const SERVER: &str = "Usage: muxy server start|status|stop [--json]
   stop [--force]  Stop only if idle; --force ends all running terminals.";
 pub(crate) const PROJECT: &str = "Usage: muxy project <action> [--json]

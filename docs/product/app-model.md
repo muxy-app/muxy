@@ -6,14 +6,25 @@ How people use Muxy: the apps, navigation, settings, and updates.
 
 | App | Connects to |
 | --- | --- |
-| Desktop app (macOS) | The server on the same computer, starting it if needed. |
-| `muxy` terminal UI | The server on the same computer, starting it if needed. Ships with the desktop app and also on its own. |
-| Phone app | A paired computer's server, over the local network or a VPN. |
+| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of remote devices over SSH. |
+| `muxy` terminal UI | The server on the same computer, starting it if needed, or with `--host`, the server on another computer over SSH. Ships with the desktop app and also on its own. |
+| Phone app | A paired computer's server, over the local network or a VPN, or any computer's server over SSH. |
 
-To work on another machine, SSH in and run `muxy` there. Connecting the desktop
-app to other machines comes later. Every project already knows which server it
-lives on, so one app can later show projects from several servers. There is no
-global "current server".
+Every project knows which server it lives on, so the desktop app shows
+projects from several servers in one sidebar. Remote projects are marked with
+their server and path. There is no global "current server".
+
+The **Remote** section at the bottom of the sidebar shows each remote server's
+state. Its popover adds servers (host, user, port, key file, or a password that
+Muxy asks for and keeps only in memory) and manages them. **Add Project →
+Remote** browses that server's folders. When a server lacks Muxy, a released
+app offers to install the same version there; when its version can't talk to
+the app, the section explains how to update it. Removing a server only forgets
+its projects in this app.
+
+Files and images dropped or pasted on a remote terminal, or sent from the
+composer, are copied to that computer and its path is pasted. Clicking a file
+path in a remote terminal offers a read-only copy here, or its path.
 
 Each app keeps its own layout: tabs, splits, workspaces, and project order.
 Projects and terminals are shared. Several `muxy` windows can open the same
@@ -69,6 +80,8 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 | Situation | What you see |
 | --- | --- |
 | The server is offline | Projects stay visible, terminals keep their last screen, and web panes keep working. Edits and closes are replayed on reconnect. |
+| A remote server drops | Its section shows it offline and it reconnects on its own, waiting longer each time, until a login or host key needs you. Its projects never show as failed while offline. |
+| A project's folder is gone | The project shows as failed, also on a remote server. |
 | A terminal ends | Its panes close in every app, including hidden tabs. |
 | You quit or detach | Terminals keep running. |
 | **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
@@ -95,7 +108,9 @@ and stop.
 - Import supported 1.x settings and local projects from the installed app, a
   `.muxy` backup, or `settings.json`. Unsupported options are listed before import.
   Config files open in the system editor. Backups exclude live terminal sessions,
-  paired-device credentials, extension packages, and project files.
+  paired-device credentials, extension packages, and project files. They keep
+  the list of remote servers but not remote projects, which come back from
+  their server.
 
 ## Updates
 

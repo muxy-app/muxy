@@ -17,12 +17,13 @@ fn split_state() -> (AppState, TabId, [PaneId; 3]) {
 }
 
 fn attach_panes(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppModel>) {
-    model.connection = ConnectionState::Ready;
+    model.servers.local.connection = ConnectionState::Ready;
     for (index, pane) in panes.iter().enumerate() {
         let mut attachment = attachment();
         attachment.channel = ChannelId(u32::try_from(index + 1).expect("channel"));
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::Attached {
                     pane: *pane,
@@ -249,7 +250,7 @@ fn closing_one_pane_discards_only_its_session_and_last_closes_tab(cx: &mut TestA
         assert_eq!(model.state.home().tabs[0].panes.len(), 2);
         assert_eq!(model.active_pane(), Some(panes[2]));
         assert_eq!(
-            model.state.pending_discards(),
+            model.state.pending_discards(ServerId::local()),
             [SessionId::new(101).expect("session")]
         );
         let discarded: Vec<_> = requests
@@ -259,7 +260,7 @@ fn closing_one_pane_discards_only_its_session_and_last_closes_tab(cx: &mut TestA
                 _ => None,
             })
             .collect();
-        assert_eq!(discarded, model.state.pending_discards());
+        assert_eq!(discarded, model.state.pending_discards(ServerId::local()));
         let loaded = store::load(&model.path).expect("saved");
         assert_eq!(loaded.home().tabs[0].layout.leaves(), [panes[0], panes[2]]);
         model.close_pane(panes[2], cx);
@@ -293,7 +294,7 @@ fn closing_tab_checks_every_hidden_pane_and_cancel_keeps_all(cx: &mut TestAppCon
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.home().tabs[0].panes.len(), 3);
-        assert!(model.state.pending_discards().is_empty());
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
     });
 }
 
@@ -330,7 +331,7 @@ fn shortcuts_split_focus_zoom_and_close_the_expected_pane(cx: &mut TestAppContex
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
     });
     cx.simulate_keystrokes("cmd-t");
@@ -428,11 +429,12 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
         boot.settings.panes.new_pane_directory = setting;
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             let mut data = attachment();
             data.directory = muxy_protocol::ServerPath(reported.to_vec());
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane: original,
@@ -469,6 +471,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
             model.close_pane(new, cx);
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane: new,
@@ -482,7 +485,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
             assert!(
                 model
                     .state
-                    .pending_discards()
+                    .pending_discards(ServerId::local())
                     .contains(&SessionId::new(101).expect("session"))
             );
             assert!(model.initial_directories.is_empty());
@@ -865,7 +868,7 @@ fn verify_close_panes(
     cx.simulate_prompt_answer("Close");
     wait(cx, view, |model, _| {
         model.state.home().tabs[0].panes.len() == 2
-            && model.state.pending_discards().is_empty()
+            && model.state.pending_discards(ServerId::local()).is_empty()
             && !process_exists(vim_pid)
     })?;
     assert!(process_exists(top_pid) && process_exists(shell_pid));
@@ -881,11 +884,13 @@ fn verify_close_panes(
     assert!(cx.has_pending_prompt());
     cx.simulate_prompt_answer("Close");
     wait(cx, view, |model, _| {
-        model.state.home().tabs[0].panes.len() == 1 && model.state.pending_discards().is_empty()
+        model.state.home().tabs[0].panes.len() == 1
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     cx.simulate_keystrokes("cmd-w");
     wait(cx, view, |model, _| {
-        model.state.home().tabs.is_empty() && model.state.pending_discards().is_empty()
+        model.state.home().tabs.is_empty()
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     assert!(probe.list_sessions()?.is_empty());
     assert!(!process_exists(top_pid) && !process_exists(shell_pid));

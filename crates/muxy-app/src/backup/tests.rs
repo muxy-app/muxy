@@ -3,7 +3,7 @@
 use std::fs;
 use std::io::Write;
 
-use muxy_app_core::{AppState, settings::Settings};
+use muxy_app_core::{AppState, ServerId, settings::Settings};
 
 use super::*;
 
@@ -20,7 +20,9 @@ fn backup_round_trip_is_portable_and_restore_waits_for_restart() {
     let target = profile();
     let project = tempfile::tempdir().unwrap();
     let mut state = AppState::bootstrap().unwrap();
-    let id = state.add_project(project.path().into()).unwrap();
+    let id = state
+        .add_project(ServerId::local(), project.path().into())
+        .unwrap();
     state.open_terminal_tab(id).unwrap();
     fs::create_dir(source.path().join("themes")).unwrap();
     fs::write(source.path().join("themes/custom"), "background = 111111").unwrap();
@@ -43,7 +45,7 @@ fn backup_round_trip_is_portable_and_restore_waits_for_restart() {
     assert!(complete);
     assert!(!files.contains_key("identity.pem"));
     let saved: AppState = serde_json::from_slice(&files["desktop-state.json"]).unwrap();
-    assert!(saved.project_intents().is_empty());
+    assert!(saved.project_intents(ServerId::local()).is_empty());
     fs::write(target.path().join("ghostty.conf"), "font-size = 12\n").unwrap();
     let import = prepare(target.path(), &archive).unwrap();
     stage(target.path(), &import).unwrap();
@@ -65,7 +67,7 @@ fn backup_round_trip_is_portable_and_restore_waits_for_restart() {
     );
     let restored = muxy_app_core::store::load(target.path().join("desktop-state.json")).unwrap();
     assert!(restored.project(id).is_some());
-    assert_eq!(restored.project_intents().len(), 1);
+    assert_eq!(restored.project_intents(ServerId::local()).len(), 1);
     let recovery = fs::read_dir(target.path().join("Backups"))
         .unwrap()
         .next()
@@ -352,7 +354,7 @@ fn missing_project_directories_are_reported_before_confirmation_and_rechecked_at
     let project = tempfile::tempdir().unwrap();
     let path = project.path().to_path_buf();
     let mut state = AppState::bootstrap().unwrap();
-    state.add_project(path.clone()).unwrap();
+    state.add_project(ServerId::local(), path.clone()).unwrap();
     let archive = directory.path().join("test.muxy");
     export(directory.path(), &archive, &state).unwrap();
     let import = prepare(directory.path(), &archive).unwrap();

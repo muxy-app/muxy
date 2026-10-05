@@ -382,6 +382,10 @@ fn ordered_request(
         | RequestBody::ListProjectSessions { .. } => project_request(body, registry, outbox)?,
         RequestBody::Git(request) => ReplyBody::Git(registry.git(&request)?),
         RequestBody::Files(request) => ReplyBody::Files(registry.files(&request)?),
+        RequestBody::ListFolders(directory) => {
+            ReplyBody::Folders(crate::files::folders(&directory)?)
+        }
+        RequestBody::Upload(chunk) => ReplyBody::Uploaded(registry.upload(&chunk)?),
         RequestBody::Exec(_) | RequestBody::CancelExec(_) => {
             return Err(ServerError::new(
                 ErrorCode::BadRequest,
@@ -402,7 +406,10 @@ fn ordered_request(
             ReplyBody::RemoteAccess(registry.write_remote_access(settings)?)
         }
         RequestBody::StartPairing => {
-            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id)?)
+            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id, &[])?)
+        }
+        RequestBody::StartPairingWithHosts(hosts) => {
+            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id, &hosts)?)
         }
         RequestBody::CancelPairing => {
             registry.remote.cancel_pairing();

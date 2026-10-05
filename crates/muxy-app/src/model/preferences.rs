@@ -2,9 +2,10 @@ use gpui::{
     AppContext, Bounds, Context, Entity, TitlebarOptions, Window, WindowBounds, WindowHandle,
     WindowOptions, point, px, size,
 };
+use muxy_app_core::ServerId;
 use muxy_app_core::settings::CellHeight;
 
-use super::{AppModel, ConnectionState, Quitting};
+use super::{AppModel, Quitting};
 use crate::boot::Work;
 use crate::views::settings::window::SettingsWindow;
 use crate::views::settings::{Change, SettingsView, Snapshot};
@@ -126,7 +127,7 @@ impl AppModel {
             terminal: self.terminal.clone(),
             server: self.server_preferences.document.clone(),
             server_update: self.server_update_description(),
-            connected: self.connection == ConnectionState::Ready,
+            connected: self.ready(ServerId::local()),
             server_busy: self.server_preferences.busy
                 || self.server_preferences.control_busy
                 || self.updates.replacing(),
@@ -192,7 +193,7 @@ impl AppModel {
         }
     }
 
-    pub(super) fn preference_result(&self, id: &str, error: Option<&str>, cx: &mut Context<Self>) {
+    pub(crate) fn preference_result(&self, id: &str, error: Option<&str>, cx: &mut Context<Self>) {
         if let Some(settings) = &self.settings_window {
             settings
                 .view
@@ -527,18 +528,19 @@ impl AppModel {
 
     pub(crate) fn read_server_settings(&mut self, cx: &mut Context<Self>) {
         if self.quitting == Quitting::Idle
-            && self.connection == ConnectionState::Ready
+            && self.ready(ServerId::local())
             && !self.server_preferences.busy
             && !self.server_preferences.control_busy
         {
-            self.server_preferences.busy = self.send(Work::ReadServerSettings, cx);
+            self.server_preferences.busy =
+                self.send(ServerId::local(), Work::ReadServerSettings, cx);
             self.server_preferences.row = "server".into();
             self.sync_preferences(cx);
         }
     }
 
     fn write_server_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
-        if self.connection != ConnectionState::Ready || self.server_preferences.control_busy {
+        if !self.ready(ServerId::local()) || self.server_preferences.control_busy {
             return Err("Connect to the server before editing its settings".into());
         }
         let mut settings = self
@@ -564,7 +566,8 @@ impl AppModel {
         settings.validate().map_err(
             |_| "Use an absolute shell path and a history budget between 0 and 65536 MiB",
         )?;
-        self.server_preferences.busy = self.send(Work::WriteServerSettings(settings), cx);
+        self.server_preferences.busy =
+            self.send(ServerId::local(), Work::WriteServerSettings(settings), cx);
         self.server_preferences.row = id;
         if !self.server_preferences.busy {
             return Err("Could not send server settings".into());
@@ -596,68 +599,88 @@ impl AppModel {
         self.sync_preferences(cx);
     }
 
+    /// A stopped server counts as disconnected. Restarting connects again,
+    /// which starts it, over SSH too.
     pub(super) fn receive_server_stopped(
         &mut self,
+        server: ServerId,
         restart: bool,
         result: std::result::Result<(), muxy_client::ClientError>,
         cx: &mut Context<Self>,
     ) {
-        self.server_preferences.control_busy = false;
-        self.server_update_control_finished(&result, cx);
+        if server.is_local() {
+            self.server_preferences.control_busy = false;
+            self.server_update_control_finished(&result, cx);
+        } else if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.stopping = false;
+        }
         match result {
             Ok(()) => {
-                self.disconnect(cx);
+                self.disconnect(server, cx);
                 if restart {
-                    self.connect(cx);
+                    self.connect_server(server, cx);
+                } else if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.retry.held = true;
                 }
             }
             Err(error) => {
-                let message = format!("Could not stop server: {error}");
-                self.preference_result("server", Some(&message), cx);
+                let message =
+                    self.server_message(server, &format!("Could not stop server: {error}"));
+                if server.is_local() {
+                    self.preference_result("server", Some(&message), cx);
+                }
                 self.fail(message, cx);
             }
         }
         self.sync_preferences(cx);
     }
 
+    /// Asks before stopping or restarting `server`, which ends its sessions.
     pub(crate) fn confirm_server_control(
         &mut self,
+        server: ServerId,
         restart: bool,
         window: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        if !self.server_control_enabled() {
+        if !self.control_enabled(server) {
             return;
         }
         self.dismiss_overlay(cx);
-        let generation = self.generation;
+        let generation = self.generation(server);
+        let name = (!server.is_local()).then(|| self.server_label(server));
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_server(window, restart, cx).await;
+            let response =
+                crate::views::confirm::prompt_server(window, restart, name.as_deref(), cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.close_prompt = None;
                 model.focus_requested = true;
-                if generation == model.generation {
+                if generation == model.generation(server) {
                     match response {
-                        Ok(true) => {
-                            model.server_preferences.control_busy = model.send(
-                                Work::StopServer {
-                                    socket: model.path.with_file_name("server.sock"),
-                                    restart,
-                                },
-                                cx,
-                            );
-                            if model.server_preferences.control_busy {
-                                model.server_update_control_started(restart);
-                            }
-                            model.sync_preferences(cx);
-                        }
+                        Ok(true) => model.stop_server(server, restart, cx),
                         Ok(false) => {}
-                        Err(error) => model.preference_result("server", Some(&error), cx),
+                        Err(error) if server.is_local() => {
+                            model.preference_result("server", Some(&error), cx);
+                        }
+                        Err(error) => model.fail(error, cx),
                     }
                 }
                 cx.notify();
             });
         }));
+    }
+
+    fn stop_server(&mut self, server: ServerId, restart: bool, cx: &mut Context<Self>) {
+        let sent = self.send(server, Work::StopServer { restart }, cx);
+        if server.is_local() {
+            self.server_preferences.control_busy = sent;
+            if sent {
+                self.server_update_control_started(restart);
+            }
+        } else if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.stopping = sent;
+        }
+        self.sync_preferences(cx);
     }
 }
 

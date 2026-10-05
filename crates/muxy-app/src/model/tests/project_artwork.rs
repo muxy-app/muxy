@@ -26,7 +26,9 @@ fn project_symbol_search_selects_and_removes_icons_without_touching_other_metada
     cx: &mut TestAppContext,
 ) {
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let color = state.current_project().color.clone();
     let (boot, _requests) = stub_boot(state);
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
@@ -81,7 +83,9 @@ fn project_logo_apply_cancel_and_remove_preserve_icon_and_release_cached_image(
     cx: &mut TestAppContext,
 ) {
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     state
         .set_project_icon(project, Some("sf:star.fill".into()))
         .expect("icon");

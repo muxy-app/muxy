@@ -149,8 +149,8 @@ impl AppModel {
         let path = path.to_owned();
         let owner = extension.name.clone();
         let epoch = self.extensions.epoch_for(&owner);
-        let generation = self.generation;
         let project = self.state.current_project().id;
+        let generation = self.project_generation(project);
         self.extensions.loading_scripts += 1;
         let task = crate::extensions::io::run(move || {
             read_source(&extension, &path).map(|source| runtime(&extension.name, "script", &source))
@@ -160,7 +160,7 @@ impl AppModel {
             let _ = model.update(cx, |model, cx| {
                 model.extensions.loading_scripts =
                     model.extensions.loading_scripts.saturating_sub(1);
-                if generation != model.generation
+                if generation != model.project_generation(project)
                     || epoch != model.extensions.epoch_for(&owner)
                     || model.extensions.registry.enabled(&owner).is_none()
                 {
@@ -246,7 +246,7 @@ impl AppModel {
                             Call {
                                 owner: owner.into(),
                                 epoch: self.extensions.epoch_for(owner),
-                                generation: self.generation,
+                                generation: self.project_generation(project),
                                 project,
                                 verb: body["verb"].as_str().unwrap_or("").into(),
                                 args: body["args"].clone(),

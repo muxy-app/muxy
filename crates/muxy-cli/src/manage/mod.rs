@@ -8,37 +8,71 @@ use std::io::{self, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
-use muxy_client::Client;
+use muxy_client::{Client, SshTarget, Start};
 use muxy_protocol::{FilesAction, FilesRequest, GitAction, GitRequest, ServerPath};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::target::Target;
 use args::{Action, Invocation, Server};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub(crate) fn run(invocation: Invocation) -> Result {
+pub(crate) fn run(invocation: Invocation, host: Option<SshTarget>) -> Result {
     if let Action::Help(text) = invocation.action {
         writeln!(io::stdout(), "{text}")?;
         return Ok(());
     }
     let _lease =
         muxy_client::local::bundle::acquire_runtime(&muxy_core::executable::current_path()?)?;
-    let client = if matches!(
+    let target = Target::new(host)?;
+    let start = if matches!(
         invocation.action,
         Action::Server(Server::Status | Server::Stop { .. })
     ) {
-        Client::connect(&muxy_core::dirs::muxy_dir()?.join("server.sock"))?
+        Start::Never
     } else {
-        super::client()?
+        Start::IfNeeded
     };
-    client.identify(muxy_protocol::ClientKind::Cli)?;
-    let result = execute(invocation, &client);
+    let client = target
+        .connect(start)
+        .map_err(|error| target.explain(error))?;
+    let paths = match target {
+        Target::Local { .. } => Paths::Local,
+        Target::Ssh { .. } => Paths::Remote,
+    };
+    let result = match client.identify(muxy_protocol::ClientKind::Cli) {
+        Ok(_) => execute(invocation, &client, paths),
+        Err(error) => Err(error.into()),
+    };
     client.disconnect();
-    result
+    result.map_err(|error| target.explain(error))
 }
 
-fn execute(invocation: Invocation, client: &Client) -> Result {
+/// How directory arguments name folders. This computer's may be relative or
+/// start with `~`. Another computer's must be absolute, and its server checks
+/// that they exist.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Paths {
+    Local,
+    Remote,
+}
+
+impl Paths {
+    fn directory(self, path: &Path) -> Result<PathBuf> {
+        match self {
+            Self::Local => absolute(path),
+            Self::Remote if path.is_absolute() => Ok(std::path::absolute(path)?),
+            Self::Remote => Err(format!(
+                "{}: with --host, directories must be absolute paths on that computer",
+                path.display()
+            )
+            .into()),
+        }
+    }
+}
+
+fn execute(invocation: Invocation, client: &Client, paths: Paths) -> Result {
     let output = Output {
         json: invocation.json,
     };
@@ -55,9 +89,9 @@ fn execute(invocation: Invocation, client: &Client) -> Result {
                 output.ok()
             }
         },
-        Action::Project(command) => projects::run(command, client, &output),
-        Action::Session(command) => sessions::run(command, client, &output),
-        Action::Worktree(command) => projects::worktree(command, client, &output),
+        Action::Project(command) => projects::run(command, client, &output, paths),
+        Action::Session(command) => sessions::run(command, client, &output, paths),
+        Action::Worktree(command) => projects::worktree(command, client, &output, paths),
         Action::SettingsGet => settings(client),
         Action::SettingsSet { key, value } => {
             set_setting(client, &key, &value)?;
@@ -75,7 +109,7 @@ fn execute(invocation: Invocation, client: &Client) -> Result {
             if matches!(action, GitAction::Watch) {
                 return Err("watch requires a persistent client".into());
             }
-            let project = projects::resolve(client, &project)?.id;
+            let project = projects::resolve(client, &project, paths)?.id;
             Output::json(&client.git(GitRequest { project, action })?)
         }
         Action::Files { project, action } => {
@@ -83,7 +117,7 @@ fn execute(invocation: Invocation, client: &Client) -> Result {
             if matches!(action, FilesAction::Watch | FilesAction::Unwatch) {
                 return Err("watch requires a persistent client".into());
             }
-            let project = projects::resolve(client, &project)?.id;
+            let project = projects::resolve(client, &project, paths)?.id;
             Output::json(&client.files(FilesRequest { project, action })?)
         }
         Action::Exec {
@@ -91,7 +125,7 @@ fn execute(invocation: Invocation, client: &Client) -> Result {
             argv,
             timeout_ms,
         } => {
-            let project = projects::resolve(client, &project)?.id;
+            let project = projects::resolve(client, &project, paths)?.id;
             let result = client.exec(muxy_protocol::ExecRequest {
                 job: 1,
                 project,
@@ -224,4 +258,28 @@ fn absolute(path: &Path) -> Result<PathBuf> {
         path.to_owned()
     };
     Ok(std::path::absolute(path)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_directories_must_be_absolute_and_are_not_resolved_here() -> Result {
+        assert_eq!(
+            Paths::Remote.directory(Path::new("/srv//app/./src"))?,
+            PathBuf::from("/srv/app/src")
+        );
+        for relative in ["app", "./app", "~", "~/app"] {
+            assert!(
+                Paths::Remote.directory(Path::new(relative)).is_err(),
+                "{relative}"
+            );
+        }
+        assert_eq!(
+            Paths::Local.directory(Path::new("app"))?,
+            std::env::current_dir()?.join("app")
+        );
+        Ok(())
+    }
 }

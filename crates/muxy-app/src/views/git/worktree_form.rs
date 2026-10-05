@@ -1,5 +1,6 @@
 use std::fmt::Write as _;
 
+use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled, div};
 use muxy_app_core::settings::{DEFAULT_WORKTREE_FOLDER, WorktreeLocation};
 use muxy_protocol::{
@@ -36,7 +37,7 @@ impl Form {
 }
 
 impl AppModel {
-    pub(super) fn worktree_directory(
+    pub(crate) fn worktree_directory(
         &self,
         form: &Form,
         cx: &App,
@@ -61,6 +62,7 @@ impl AppModel {
                 &location,
                 form.name.read(cx).text().trim(),
                 form.branch_input().read(cx).text().trim(),
+                self.remote_home(project.server_id),
             )
             .map_err(|e| e.to_string())
     }
@@ -245,13 +247,15 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
                     &form.directory,
                     None,
                 ))
-                .child(controls::button(
-                    style,
-                    "worktree-choose-folder",
-                    "Choose Folder…",
-                    true,
-                    cx.listener(|model, _, _, cx| model.choose_worktree_folder(cx)),
-                ));
+                .when(model.project_is_local(form.project), |content| {
+                    content.child(controls::button(
+                        style,
+                        "worktree-choose-folder",
+                        "Choose Folder…",
+                        true,
+                        cx.listener(|model, _, _, cx| model.choose_worktree_folder(cx)),
+                    ))
+                });
         }
         _ => {
             let default = &model.settings.worktrees.default_location;

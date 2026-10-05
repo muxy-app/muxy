@@ -90,8 +90,9 @@ impl AppModel {
         }
         self.changed(cx);
         self.focus_requested = true;
-        if self.connection == ConnectionState::Disconnected {
-            self.connect(cx);
+        let server = self.state.current_project().server_id;
+        if self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
         }
     }
 

@@ -23,6 +23,8 @@ pub struct Settings {
     pub panes: PaneSettings,
     pub clipboard: ClipboardSettings,
     pub openers: OpenerSettings,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub servers: Vec<super::ServerEntry>,
 }
 
 /// Per-action AI choices. Hand edits are expected here, so unknown keys and
@@ -179,6 +181,7 @@ impl Settings {
         self.quick_terminal.validate()?;
         self.composer.validate()?;
         self.validate_commands()?;
+        self.validate_servers()?;
         for (name, value, minimum) in [
             ("width", self.window.default_size[0], 640.0),
             ("height", self.window.default_size[1], 400.0),

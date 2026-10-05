@@ -60,7 +60,10 @@ impl AppModel {
         side: TabSide,
         cx: &mut Context<Self>,
     ) {
-        let Some(project) = self.tab_project(anchor).map(|project| project.id) else {
+        let Some((project, project_server)) = self
+            .tab_project(anchor)
+            .map(|project| (project.id, project.server_id))
+        else {
             return;
         };
         if self.edit_tab(
@@ -73,8 +76,8 @@ impl AppModel {
         ) {
             self.changed(cx);
             self.focus_requested = true;
-            if self.connection == ConnectionState::Disconnected {
-                self.connect(cx);
+            if self.connection(project_server) == ConnectionState::Disconnected {
+                self.connect_server(project_server, cx);
             }
         }
     }

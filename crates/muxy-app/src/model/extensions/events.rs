@@ -32,12 +32,15 @@ pub(super) struct Tracker {
     agents: BTreeMap<String, Value>,
     pub(super) watched: BTreeSet<ProjectId>,
     pub(super) watch_pending: bool,
+    watch_epoch: u64,
 }
 
 impl Tracker {
-    pub(super) fn disconnect(&mut self) {
-        self.watched.clear();
+    /// Watches end with their server's extension connection.
+    pub(super) fn forget_watches(&mut self, ended: impl Fn(ProjectId) -> bool) {
+        self.watched.retain(|project| !ended(*project));
         self.watch_pending = false;
+        self.watch_epoch = self.watch_epoch.wrapping_add(1);
     }
 }
 
@@ -433,17 +436,16 @@ impl AppModel {
     /// One entry per worktree: its most active agent, as `agents.list` reports.
     pub(super) fn agent_statuses(&self) -> BTreeMap<String, Value> {
         let mut best: BTreeMap<String, (u8, Value)> = BTreeMap::new();
-        for agent in &self.activity.snapshot.agents {
-            let Some((project, pane)) = self.state.projects().iter().find_map(|project| {
-                project
-                    .tabs
-                    .iter()
-                    .flat_map(|tab| &tab.panes)
-                    .find(|pane| {
-                        matches!(pane.content, PaneContent::Terminal { session: Some(session) } if session == agent.session)
-                    })
-                    .map(|pane| (project, pane.id))
-            }) else {
+        let agents = self.servers.iter().flat_map(|(server, runtime)| {
+            runtime
+                .activity
+                .snapshot
+                .agents
+                .iter()
+                .map(move |agent| (server, agent))
+        });
+        for (server, agent) in agents {
+            let Some((project, _, pane)) = self.session_pane(server, agent.session) else {
                 continue;
             };
             let (rank, status) = agent_rank(agent.state);
@@ -487,9 +489,6 @@ impl AppModel {
         if self.extensions.events.watch_pending {
             return;
         }
-        let Some(client) = self.extensions.client.clone() else {
-            return;
-        };
         let mut desired = BTreeSet::new();
         if self
             .extensions
@@ -507,6 +506,14 @@ impl AppModel {
                 }
             }
         }
+        let client = |model: &Self, project: ProjectId| {
+            model
+                .state
+                .project_server(project)
+                .and_then(|server| model.extensions.clients.get(&server))
+                .cloned()
+        };
+        desired.retain(|project| client(self, *project).is_some());
         if desired == self.extensions.events.watched {
             return;
         }
@@ -521,28 +528,29 @@ impl AppModel {
             .difference(&self.extensions.events.watched)
             .copied()
             .collect();
-        self.extensions.events.watched = desired;
-        self.extensions.events.watch_pending = true;
-        let generation = self.generation;
         let trace = crate::diagnostics::Span::new(
             "extension.watch",
-            format_args!("generation={generation} added={added:?} removed={removed:?}"),
+            format_args!("added={added:?} removed={removed:?}"),
         );
+        let requests: Vec<_> = removed
+            .into_iter()
+            .map(|project| (project, FilesAction::Unwatch))
+            .chain(
+                added
+                    .into_iter()
+                    .map(|project| (project, FilesAction::Watch)),
+            )
+            .filter_map(|(project, action)| Some((client(self, project)?, project, action)))
+            .collect();
+        self.extensions.events.watched = desired;
+        self.extensions.events.watch_pending = true;
+        let epoch = self.extensions.events.watch_epoch;
         let task = cx.spawn(async move |_, _| {
             trace.stage(format_args!("phase=started"));
             let mut errors = Vec::new();
-            for (projects, action) in [(removed, FilesAction::Unwatch), (added, FilesAction::Watch)]
-            {
-                for project in projects {
-                    if let Err(error) = client
-                        .files_async(FilesRequest {
-                            project,
-                            action: action.clone(),
-                        })
-                        .await
-                    {
-                        errors.push(error.to_string());
-                    }
+            for (client, project, action) in requests {
+                if let Err(error) = client.files_async(FilesRequest { project, action }).await {
+                    errors.push(error.to_string());
                 }
             }
             trace.stage(format_args!("phase=reply errors={}", errors.len()));
@@ -551,7 +559,7 @@ impl AppModel {
         cx.spawn(async move |model, cx| {
             let errors = task.await;
             let _ = model.update(cx, |model, cx| {
-                if generation != model.generation {
+                if epoch != model.extensions.events.watch_epoch {
                     return;
                 }
                 model.extensions.events.watch_pending = false;
@@ -607,26 +615,19 @@ impl AppModel {
 
     /// New AI-hook notifications reach extensions as `notification.posted`,
     /// with the agent provider as their source.
-    pub(in crate::model) fn activity_notifications_posted(&self, ids: &[u64], cx: &gpui::App) {
+    pub(in crate::model) fn activity_notifications_posted(
+        &self,
+        server: muxy_app_core::ServerId,
+        ids: &[u64],
+        cx: &gpui::App,
+    ) {
         for event in self
-            .activity
-            .snapshot
-            .events
-            .iter()
+            .activity(server)
+            .into_iter()
+            .flat_map(|activity| &activity.snapshot.events)
             .filter(|event| ids.contains(&event.id))
         {
-            let located = self.state.projects().iter().find_map(|project| {
-                project.tabs.iter().find_map(|tab| {
-                    tab.panes
-                        .iter()
-                        .find(|pane| {
-                            matches!(pane.content,
-                                PaneContent::Terminal { session: Some(session) } if session == event.session)
-                        })
-                        .map(|pane| (project, tab.id, pane.id))
-                })
-            });
-            let Some((project, tab, pane)) = located else {
+            let Some((project, tab, pane)) = self.session_pane(server, event.session) else {
                 continue;
             };
             let payload = strings([

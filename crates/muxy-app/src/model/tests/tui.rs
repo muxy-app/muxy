@@ -96,9 +96,7 @@ fn walkthrough(cx: &mut TestAppContext) -> Result {
     );
     shared_closes(cx, &view, &probe, channel, &session, &executable)?;
     detach::verify_live_detach(cx, &view, &probe)?;
-    view.update(cx, |model, _| {
-        model.work.send((model.generation, Work::Stop))
-    })?;
+    view.update(cx, |model, _| model.stop_workers());
     crate::server::stop_server(&probe, &directory.join("server.sock"))?;
     report(
         "Nested live TUI excludes its desktop host; bidirectional shared-session output and independent layouts survive detach: PASS",
@@ -186,7 +184,8 @@ fn shared_closes(
     })?;
     view.update(cx, |model, cx| model.close_tab(original, cx));
     wait(cx, view, |model, _| {
-        model.state.home().tabs.len() == 1 && model.state.pending_discards().is_empty()
+        model.state.home().tabs.len() == 1
+            && model.state.pending_discards(ServerId::local()).is_empty()
     })?;
     assert!(
         probe
@@ -237,7 +236,8 @@ fn shared_closes(
     );
     view.update(cx, |model, cx| model.close_tab(last, cx));
     wait(cx, view, |model, _| {
-        model.state.pending_discards().is_empty() && model.state.home().tabs.len() == 1
+        model.state.pending_discards(ServerId::local()).is_empty()
+            && model.state.home().tabs.len() == 1
     })?;
     assert!(
         !probe

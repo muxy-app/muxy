@@ -1,37 +1,25 @@
 use std::io::{self, Write};
+use std::path::Path;
 
 use muxy_client::{Attachment, Client, ClientError, RunGrid};
-use muxy_protocol::{ErrorCode, ProjectId, ProjectSession, SearchSource, SessionId, SessionStatus};
+use muxy_protocol::{
+    ErrorCode, ProjectId, ProjectSession, SearchSource, SessionId, SessionStatus, Size,
+};
 use serde_json::{Value, json};
 
 use super::args::Session;
-use super::{Output, Result, absolute, local_path, path_text, projects};
+use super::{Output, Paths, Result, local_path, path_text, projects};
 
-pub(super) fn run(command: Session, client: &Client, output: &Output) -> Result {
+pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Paths) -> Result {
     match command {
-        Session::List { project, all } => list_projects(client, project.as_deref(), all, output),
+        Session::List { project, all } => {
+            list_projects(client, project.as_deref(), all, output, paths)
+        }
         Session::Create {
             project,
             directory,
             size,
-        } => {
-            let project = projects::resolve(client, &project)?;
-            let directory = directory.map_or_else(
-                || Ok(local_path(&project.directory)),
-                |path| absolute(&path),
-            )?;
-            let session = client.create_project_session(
-                project.id,
-                muxy_protocol::OperationId::new(),
-                &directory,
-                size,
-            )?;
-            output.record(
-                &json!({"id":session.id.get().to_string(), "project_id":session.project,
-                "directory":path_text(&session.directory), "directory_bytes":session.directory.0}),
-                &["id"],
-            )
-        }
+        } => create(client, &project, directory.as_deref(), size, output, paths),
         Session::End(session) => {
             client.end_session(session)?;
             output.ok()
@@ -109,9 +97,41 @@ pub(super) fn run(command: Session, client: &Client, output: &Output) -> Result 
     }
 }
 
-fn list_projects(client: &Client, project: Option<&str>, all: bool, output: &Output) -> Result {
+fn create(
+    client: &Client,
+    project: &str,
+    directory: Option<&Path>,
+    size: Size,
+    output: &Output,
+    paths: Paths,
+) -> Result {
+    let project = projects::resolve(client, project, paths)?;
+    let directory = directory.map_or_else(
+        || Ok(local_path(&project.directory)),
+        |path| paths.directory(path),
+    )?;
+    let session = client.create_project_session(
+        project.id,
+        muxy_protocol::OperationId::new(),
+        &directory,
+        size,
+    )?;
+    output.record(
+        &json!({"id":session.id.get().to_string(), "project_id":session.project,
+        "directory":path_text(&session.directory), "directory_bytes":session.directory.0}),
+        &["id"],
+    )
+}
+
+fn list_projects(
+    client: &Client,
+    project: Option<&str>,
+    all: bool,
+    output: &Output,
+    paths: Paths,
+) -> Result {
     let projects = match project {
-        Some(project) => vec![projects::resolve(client, project)?],
+        Some(project) => vec![projects::resolve(client, project, paths)?],
         None => client.catalog()?.projects,
     };
     let mut records = Vec::new();

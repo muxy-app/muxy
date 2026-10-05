@@ -1,6 +1,7 @@
 pub mod bundle;
 
 use crate::{Client, ClientError};
+use muxy_protocol::transport::ByteStream;
 use std::fs::File;
 use std::io;
 use std::os::unix::process::CommandExt;
@@ -23,10 +24,30 @@ pub fn server_executable() -> io::Result<PathBuf> {
 }
 
 pub fn ensure_running(socket: &Path, executable: &Path) -> Result<Client, ClientError> {
+    start_and_connect(socket, executable, Client::connect_with_timeout)
+}
+
+/// Like [`ensure_running`], but returns the socket without a handshake, so a
+/// bridge can leave version negotiation to the client at its other end.
+pub fn ensure_listening(
+    socket: &Path,
+    executable: &Path,
+) -> Result<Box<dyn ByteStream>, ClientError> {
+    start_and_connect(socket, executable, |socket, _| {
+        Ok(muxy_protocol::transport::connect(socket)?)
+    })
+}
+
+/// Connects, first starting the server if nothing listens on `socket`.
+fn start_and_connect<T>(
+    socket: &Path,
+    executable: &Path,
+    connect: impl Fn(&Path, Duration) -> Result<T, ClientError>,
+) -> Result<T, ClientError> {
     let _startup = wait_for_startup_lock(socket)?;
     let deadline = Instant::now() + Duration::from_secs(3);
-    match Client::connect_with_timeout(socket, deadline.saturating_duration_since(Instant::now())) {
-        Ok(client) => return Ok(client),
+    match connect(socket, deadline.saturating_duration_since(Instant::now())) {
+        Ok(connected) => return Ok(connected),
         Err(error) if unavailable(&error) => {}
         Err(error) => return Err(error),
     }
@@ -58,8 +79,8 @@ pub fn ensure_running(socket: &Path, executable: &Path) -> Result<Client, Client
         if remaining.is_zero() {
             return Err(ClientError::Timeout);
         }
-        match Client::connect_with_timeout(socket, remaining) {
-            Ok(client) => return Ok(client),
+        match connect(socket, remaining) {
+            Ok(connected) => return Ok(connected),
             Err(error) if unavailable(&error) => {}
             Err(error) => return Err(error),
         }

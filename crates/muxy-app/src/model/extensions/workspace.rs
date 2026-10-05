@@ -90,9 +90,10 @@ impl AppModel {
     pub(super) fn find_project(&self, identifier: &str) -> Option<&Project> {
         let path = standardized(identifier);
         let matches = |project: &&Project| {
-            project.id.to_string().eq_ignore_ascii_case(identifier)
-                || project.name.to_lowercase() == identifier.to_lowercase()
-                || project.directory == path
+            self.project_shown(project)
+                && (project.id.to_string().eq_ignore_ascii_case(identifier)
+                    || project.name.to_lowercase() == identifier.to_lowercase()
+                    || project.directory == path)
         };
         let projects = self.state.projects();
         projects
@@ -108,7 +109,7 @@ impl AppModel {
         self.state
             .projects()
             .iter()
-            .filter(|project| project.parent_id.is_none())
+            .filter(|project| project.parent_id.is_none() && self.project_shown(project))
             .enumerate()
             .map(|(order, project)| {
                 json!({
@@ -606,8 +607,9 @@ impl AppModel {
             }
             self.changed(cx);
             self.focus_requested = true;
-            if self.connection == super::super::ConnectionState::Disconnected {
-                self.connect(cx);
+            let server = self.state.current_project().server_id;
+            if self.connection(server) == super::super::ConnectionState::Disconnected {
+                self.connect_server(server, cx);
             }
             return Ok(json!(tab.to_string()));
         }
@@ -713,11 +715,8 @@ impl AppModel {
                 } else {
                     key_bytes(call.args["key"].as_str().unwrap_or(""))?.to_vec()
                 };
-                let channel = self
-                    .terminal(&pane)
-                    .and_then(|view| view.view.read(cx).channel())
-                    .ok_or_else(not_ready)?;
-                self.send(crate::boot::Work::Input(channel, bytes), cx);
+                let (server, channel) = self.attachment(pane, cx).ok_or_else(not_ready)?;
+                self.send(server, crate::boot::Work::Input(channel, bytes), cx);
                 Ok(Value::Null)
             }
             "panes.readScreen" => {

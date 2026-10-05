@@ -1,7 +1,7 @@
 use super::*;
 
 fn ready(model: &mut AppModel) {
-    model.connection = ConnectionState::Ready;
+    model.servers.local.connection = ConnectionState::Ready;
     model.updates.server = Some(muxy_protocol::ServerInfo::current());
     model.updates.ready = Some(crate::updater::PreparedUpdate::fixture().expect("update"));
 }
@@ -79,6 +79,7 @@ fn server_update_action_confirms_without_settings_and_reconnects(cx: &mut TestAp
         );
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::ServerStopped {
                     restart: true,
@@ -87,7 +88,7 @@ fn server_update_action_confirms_without_settings_and_reconnects(cx: &mut TestAp
             ),
             cx,
         );
-        assert!(model.connection == ConnectionState::Connecting);
+        assert!(model.servers.local.connection == ConnectionState::Connecting);
     });
     assert!(
         requests
@@ -95,13 +96,20 @@ fn server_update_action_confirms_without_settings_and_reconnects(cx: &mut TestAp
             .any(|(_, work)| matches!(work, Work::Connect))
     );
     view.update(cx, |model, cx| {
-        model.receive((2, Update::ConnectFailed("unavailable".into())), cx);
+        model.receive(
+            (
+                ServerId::local(),
+                2,
+                Update::ConnectFailed("unavailable".into(), None),
+            ),
+            cx,
+        );
         assert_eq!(
             model.update_details().expect("status").action,
             Some((UpdateAction::RetryServer, "Retry connection"))
         );
         model.perform_update_action(UpdateAction::RetryServer, cx);
-        assert!(model.connection == ConnectionState::Connecting);
+        assert!(model.servers.local.connection == ConnectionState::Connecting);
     });
     assert!(
         requests
@@ -141,7 +149,9 @@ fn update_confirmation_cancels_or_flushes_before_stopping_the_server(cx: &mut Te
             .iter()
             .any(|(_, work)| matches!(work, Work::PrepareUpdate { .. }))
     );
-    view.update(cx, |model, cx| model.receive((1, Update::Flushed), cx));
+    view.update(cx, |model, cx| {
+        model.receive((ServerId::local(), 1, Update::Flushed), cx);
+    });
     assert!(requests.try_iter().any(|(_, work)| matches!(
         work,
         Work::PrepareUpdate {
@@ -169,7 +179,7 @@ fn compatible_update_can_restart_the_server_without_asking_again(cx: &mut TestAp
     assert!(!cx.has_pending_prompt());
     view.update(cx, |model, cx| {
         assert!(model.quitting == Quitting::Update);
-        model.receive((1, Update::Flushed), cx);
+        model.receive((ServerId::local(), 1, Update::Flushed), cx);
     });
     assert!(requests.try_iter().any(|(_, work)| matches!(
         work,
@@ -192,6 +202,7 @@ fn failed_server_shutdown_retains_update_tabs_and_retry(cx: &mut TestAppContext)
         let before = model.state.clone();
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::PreparedForInstall(Err(muxy_client::ClientError::Timeout)),
             ),
@@ -225,8 +236,8 @@ fn update_waits_for_attaches_and_refuses_to_stop_when_saving_fails(cx: &mut Test
     view.update(cx, |model, cx| {
         ready(model);
         model.begin_update(cx);
-        model.pending.insert(PaneId::new());
-        model.receive((1, Update::Flushed), cx);
+        model.pending.insert(PaneId::new(), ServerId::local());
+        model.receive((ServerId::local(), 1, Update::Flushed), cx);
     });
     assert!(
         !requests
@@ -236,7 +247,7 @@ fn update_waits_for_attaches_and_refuses_to_stop_when_saving_fails(cx: &mut Test
     view.update(cx, |model, cx| {
         model.pending.clear();
         model.path = model.path.join("invalid/state.json");
-        model.receive((1, Update::Flushed), cx);
+        model.receive((ServerId::local(), 1, Update::Flushed), cx);
         assert!(model.quitting == Quitting::Idle);
         assert!(model.updates.ready.is_some());
     });
@@ -257,7 +268,7 @@ fn update_requires_connected_server_and_finished_settings(cx: &mut TestAppContex
         model.begin_update(cx);
         assert!(model.quitting == Quitting::Idle);
         model.server_preferences.busy = false;
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         model.begin_update(cx);
         assert!(model.quitting == Quitting::Idle);
         assert!(model.updates.ready.is_some());
@@ -351,7 +362,9 @@ fn ending_sessions_requires_a_second_explicit_confirmation(cx: &mut TestAppConte
     cx.run_until_parked();
     cx.simulate_prompt_answer("Update and End Sessions");
     cx.run_until_parked();
-    view.update(cx, |model, cx| model.receive((1, Update::Flushed), cx));
+    view.update(cx, |model, cx| {
+        model.receive((ServerId::local(), 1, Update::Flushed), cx);
+    });
     assert!(requests.try_iter().any(|(_, work)| matches!(
         work,
         Work::PrepareUpdate {
@@ -373,9 +386,12 @@ fn scheduled_install_uses_atomic_idle_check_and_resumes_waiting_if_busy(cx: &mut
             sessions: 0,
             replaced: false,
         };
-        model.receive((1, Update::ServerChecked(Ok(status))), cx);
+        model.receive(
+            (ServerId::local(), 1, Update::ServerChecked(Ok(status))),
+            cx,
+        );
         assert!(model.quitting == Quitting::Update);
-        model.receive((1, Update::Flushed), cx);
+        model.receive((ServerId::local(), 1, Update::Flushed), cx);
     });
     assert!(requests.try_iter().any(|(_, work)| matches!(
         work,
@@ -385,7 +401,10 @@ fn scheduled_install_uses_atomic_idle_check_and_resumes_waiting_if_busy(cx: &mut
         }
     )));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::PreparedForInstall(Ok(None))), cx);
+        model.receive(
+            (ServerId::local(), 1, Update::PreparedForInstall(Ok(None))),
+            cx,
+        );
         assert!(model.quitting == Quitting::Idle);
         assert!(model.updates.scheduled);
         assert!(model.updates.ready.is_some());
@@ -408,8 +427,15 @@ fn only_update_notifications_reconnect_other_clients_and_queue_new_terminals(
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
         ready(model);
-        model.receive((1, Update::Event(ClientEvent::Disconnected)), cx);
-        assert!(model.connection == ConnectionState::Disconnected);
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::Disconnected),
+            ),
+            cx,
+        );
+        assert!(model.servers.local.connection == ConnectionState::Disconnected);
     });
     assert!(
         !requests
@@ -417,12 +443,26 @@ fn only_update_notifications_reconnect_other_clients_and_queue_new_terminals(
             .any(|(_, work)| matches!(work, Work::Connect | Work::ReconnectAfterUpdate(_)))
     );
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
-        model.receive((1, Update::Event(ClientEvent::ServerRestarting)), cx);
+        model.servers.local.connection = ConnectionState::Ready;
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::ServerRestarting),
+            ),
+            cx,
+        );
         model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
         assert!(model.updates.queued_attaches.contains_key(&pane));
-        model.receive((1, Update::Event(ClientEvent::Disconnected)), cx);
-        assert!(model.connection == ConnectionState::Connecting);
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::Disconnected),
+            ),
+            cx,
+        );
+        assert!(model.servers.local.connection == ConnectionState::Connecting);
     });
     assert!(
         requests
@@ -431,8 +471,15 @@ fn only_update_notifications_reconnect_other_clients_and_queue_new_terminals(
                 && matches!(work, Work::ReconnectAfterUpdate(_)))
     );
     view.update(cx, |model, cx| {
-        model.receive((2, Update::ConnectFailed("start failed".into())), cx);
-        assert!(model.connection == ConnectionState::Disconnected);
+        model.receive(
+            (
+                ServerId::local(),
+                2,
+                Update::ConnectFailed("start failed".into(), None),
+            ),
+            cx,
+        );
+        assert!(model.servers.local.connection == ConnectionState::Disconnected);
         assert_eq!(
             model.update_details().expect("status").action,
             Some((UpdateAction::RetryServer, "Retry connection"))
@@ -455,9 +502,23 @@ fn explicit_stop_does_not_reconnect_when_another_client_announces_an_update(
     view.update(cx, |model, cx| {
         ready(model);
         model.server_preferences.control_busy = true;
-        model.receive((1, Update::Event(ClientEvent::ServerRestarting)), cx);
-        model.receive((1, Update::Event(ClientEvent::Disconnected)), cx);
-        assert!(model.connection == ConnectionState::Disconnected);
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::ServerRestarting),
+            ),
+            cx,
+        );
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::Disconnected),
+            ),
+            cx,
+        );
+        assert!(model.servers.local.connection == ConnectionState::Disconnected);
     });
     assert!(
         !requests

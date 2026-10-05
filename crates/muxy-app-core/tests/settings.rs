@@ -9,7 +9,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use muxy_app_core::settings::{CellHeight, KeyChord, Keymap, Settings, TerminalSettings};
+use muxy_app_core::ServerId;
+use muxy_app_core::settings::{
+    CellHeight, KeyChord, Keymap, ServerEntry, Settings, TerminalSettings,
+};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -1421,5 +1424,123 @@ fn ghostty_option_resets_and_errors_keep_source_locations() -> Result {
             "{error}"
         );
     }
+    Ok(())
+}
+
+fn server_names(settings: &Settings) -> Vec<&str> {
+    settings
+        .servers
+        .iter()
+        .map(|server| server.name.as_str())
+        .collect()
+}
+
+#[test]
+fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n\n[[servers]]\nid = \"6F9619FF-8B86-D011-B42D-00C04FC964FF\"\nname = \"box\"\nssh = \"dev@box\"\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    let first: ServerId = "6f9619ff8b86d011b42d00c04fc964ff".parse()?;
+    assert_eq!(
+        settings.servers,
+        [ServerEntry {
+            id: first,
+            name: "box".into(),
+            ssh: "dev@box".into(),
+            identity_file: None,
+            password_login: false,
+        }]
+    );
+    assert_eq!(
+        settings.server(first).map(|server| server.ssh.as_str()),
+        Some("dev@box")
+    );
+
+    let build = ServerEntry::new("build".into(), "ci@build.example.com".into());
+    settings.add_server(build.clone(), &path)?;
+    let hand = ServerEntry::new("hand".into(), "hand@host".into());
+    let source = fs::read_to_string(&path)?;
+    fs::write(
+        &path,
+        format!(
+            "{source}\n[[servers]]\nid = \"{}\"\nname = \"hand\"\nssh = \"hand@host\"\n",
+            hand.id
+        ),
+    )?;
+    settings.update_server(
+        ServerEntry {
+            name: "builder".into(),
+            identity_file: Some("~/.ssh/build key".into()),
+            password_login: true,
+            ..build.clone()
+        },
+        &path,
+    )?;
+    assert_eq!(server_names(&settings), ["box", "builder", "hand"]);
+    let source = fs::read_to_string(&path)?;
+    assert!(source.contains("identity_file = \"~/.ssh/build key\""));
+    assert!(source.contains("password_login = true"));
+    assert_eq!(
+        source.matches("password_login").count(),
+        1,
+        "false is left out"
+    );
+    let loaded = Settings::load(&path)?;
+    assert_eq!(loaded.servers, settings.servers);
+    assert!(!loaded.window.confirm_running_process);
+    let backup: Settings = toml::from_str(&muxy_app_core::backup::settings_source(&loaded)?)?;
+    assert_eq!(backup.servers, settings.servers);
+
+    settings.remove_server(first, &path)?;
+    assert_eq!(server_names(&settings), ["builder", "hand"]);
+    settings.remove_server(build.id, &path)?;
+    settings.remove_server(hand.id, &path)?;
+    assert!(settings.servers.is_empty());
+    assert!(!fs::read_to_string(&path)?.contains("servers"));
+    assert!(!Settings::load(&path)?.window.confirm_running_process);
+    Ok(())
+}
+
+#[test]
+fn invalid_servers_are_rejected_without_changing_the_file() -> Result {
+    let fixture = Fixture::new()?;
+    let entry = |id: &str, name: &str, ssh: &str| {
+        format!("[[servers]]\nid = \"{id}\"\nname = \"{name}\"\nssh = \"{ssh}\"\n")
+    };
+    let local = ServerId::local().to_string();
+    let other = ServerId::new().to_string();
+    for source in [
+        entry(&local, "This Mac", "me@localhost"),
+        entry(&other, "a", "a@host") + &entry(&other, "b", "b@host"),
+        entry(&other, " ", "dev@box"),
+        entry(&other, "box", " "),
+        entry(&other, "box", "dev@box\\u0007"),
+        entry(&other, "box", "dev@box") + "port = 22\n",
+        entry(&other, "box", "dev@box") + "identity_file = \" \"\n",
+        entry("box", "box", "dev@box"),
+    ] {
+        let path = fixture.write("settings.toml", &source)?;
+        assert!(Settings::load(&path).is_err(), "{source}");
+        assert_eq!(fs::read_to_string(&path)?, source);
+    }
+
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    let before = fs::read_to_string(&path)?;
+    let this_mac = ServerEntry {
+        id: ServerId::local(),
+        ..ServerEntry::new("This Mac".into(), "me@localhost".into())
+    };
+    assert!(settings.add_server(this_mac, &path).is_err());
+    let unknown = ServerEntry::new("box".into(), "dev@box".into());
+    assert!(settings.update_server(unknown, &path).is_err());
+    assert_eq!(fs::read_to_string(&path)?, before);
+    assert!(settings.servers.is_empty());
     Ok(())
 }

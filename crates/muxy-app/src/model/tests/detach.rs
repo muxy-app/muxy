@@ -23,6 +23,7 @@ fn attach_pane(model: &mut AppModel, pane: PaneId, channel: u32, cx: &mut Contex
         is_shell: false,
     });
     model.receive_attached(
+        ServerId::local(),
         pane,
         model.pane_session(pane).expect("session"),
         attached,
@@ -52,7 +53,7 @@ fn terminal_context_menu_detaches_clicked_split_and_last_pane_without_closing_se
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1000.0), px(600.0)));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         attach_pane(model, first, 1, cx);
         attach_pane(model, second, 2, cx);
     });
@@ -75,8 +76,13 @@ fn terminal_context_menu_detaches_clicked_split_and_last_pane_without_closing_se
     view.update(cx, |model, cx| {
         assert_eq!(model.active_pane(), Some(second));
         assert_eq!(model.state.home().tabs[0].panes.len(), 1);
-        assert!(model.state.pending_cancellations().is_empty());
-        assert!(model.state.pending_discards().is_empty());
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
         assert!(model.close_prompt.is_none());
         model.detach_terminal(second, cx);
         assert!(model.state.home().tabs.is_empty());
@@ -110,7 +116,7 @@ fn detach_save_failure_keeps_the_pane_and_sends_no_detach(cx: &mut TestAppContex
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         attach_pane(model, pane, 1, cx);
         let previous = model.state.clone();
         let original_path = model.path.clone();
@@ -144,15 +150,16 @@ fn late_attachment_replies_after_detach_never_discard_the_existing_session(
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             let session = model.pane_session(pane).expect("session");
-            model.pending.insert(pane);
+            model.pending.insert(pane, ServerId::local());
             requests.try_iter().for_each(drop);
             model.detach_terminal(pane, cx);
             if succeeds {
-                model.receive_attached(pane, session, attachment(), false, cx);
+                model.receive_attached(ServerId::local(), pane, session, attachment(), false, cx);
             } else {
                 model.receive_attach_failed(
+                    ServerId::local(),
                     pane,
                     Some(session),
                     false,
@@ -161,8 +168,13 @@ fn late_attachment_replies_after_detach_never_discard_the_existing_session(
                 );
             }
             assert!(model.state.home().tabs.is_empty());
-            assert!(model.state.pending_discards().is_empty());
-            assert!(model.state.pending_cancellations().is_empty());
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
+            assert!(
+                model
+                    .state
+                    .pending_cancellations(ServerId::local())
+                    .is_empty()
+            );
             let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
             assert!(work.iter().all(non_destructive));
             if succeeds {
@@ -199,8 +211,13 @@ fn detach_shortcut_is_unassigned_and_can_be_configured(cx: &mut TestAppContext) 
     cx.simulate_keystrokes("cmd-shift-e");
     view.read_with(cx, |model, _| {
         assert!(model.state.home().tabs.is_empty());
-        assert!(model.state.pending_cancellations().is_empty());
-        assert!(model.state.pending_discards().is_empty());
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
     });
     assert!(requests.try_iter().all(|(_, work)| non_destructive(&work)));
 }
@@ -245,7 +262,10 @@ fn verify_live_detach_mode(
         }
     });
     wait(cx, view, |model, _| {
-        !model.state.session_references().contains(&session)
+        !model
+            .state
+            .session_references(ServerId::local())
+            .contains(&session)
             && model.existing_terminal_count() > 0
             && probe
                 .project_sessions(project, None, None)
@@ -291,7 +311,7 @@ fn verify_live_detach_mode(
         model.close_tab(model.active_tab().expect("reattached tab"), cx);
     });
     wait(cx, view, |model, _| {
-        model.state.pending_discards().is_empty()
+        model.state.pending_discards(ServerId::local()).is_empty()
             && probe
                 .list_sessions()
                 .is_ok_and(|sessions| !sessions.iter().any(|info| info.id == session))

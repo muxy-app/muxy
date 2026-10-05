@@ -10,6 +10,7 @@ use super::{AppModel, ConnectionState, Quitting};
 use crate::boot::Work;
 use crate::server::{ServerUpdate, UpdateMode};
 use crate::updater::{Installation, PreparedUpdate, Release};
+use muxy_app_core::ServerId;
 
 pub(crate) use status::UpdateAction;
 use std::io::Write;
@@ -129,10 +130,10 @@ impl AppModel {
         if notified {
             self.updates.phase = ServerUpdatePhase::Idle;
         }
-        self.disconnect(cx);
+        self.disconnect(ServerId::local(), cx);
         if reconnect {
             self.updates.phase = ServerUpdatePhase::Reconnecting;
-            self.connect_to_server(true, cx);
+            self.connect_to_server(ServerId::local(), true, cx);
         }
     }
 
@@ -170,11 +171,11 @@ impl AppModel {
     }
 
     pub(super) fn resume_update_attaches(&mut self, cx: &mut Context<Self>) {
-        if self.connection != ConnectionState::Ready || self.updates.replacing() {
+        if !self.ready(ServerId::local()) || self.updates.replacing() {
             return;
         }
         for (pane, size) in std::mem::take(&mut self.updates.queued_attaches) {
-            if !self.pending.contains(&pane) && self.pane_session(pane).is_none() {
+            if !self.pending.contains_key(&pane) && self.pane_session(pane).is_none() {
                 self.start_attach(pane, size, cx);
             }
         }
@@ -188,7 +189,7 @@ impl AppModel {
     }
 
     pub(super) fn server_update_description(&self) -> Option<String> {
-        if self.connection != ConnectionState::Ready {
+        if !self.ready(ServerId::local()) {
             return None;
         }
         self.updates.server.as_ref().map(|server| {
@@ -211,21 +212,22 @@ impl AppModel {
     }
 
     pub(super) fn reconcile_server_update(&mut self, cx: &mut Context<Self>) {
+        let local = ServerId::local();
         if (self.updates.installation.is_none() && !self.updates.scheduled)
-            || self.connection != ConnectionState::Ready
+            || !self.ready(local)
             || self.quitting != Quitting::Idle
             || self.updates.phase != ServerUpdatePhase::Idle
             || self.close_prompt.is_some()
             || self.updates.checking()
             || (self.updates.scheduled && self.updates.app_error.is_some())
-            || !self.pending.is_empty()
-            || !self.discarding.is_empty()
+            || self.pending_on(local)
+            || !self.servers.local.discarding.is_empty()
             || self.server_preferences.control_busy
             || self.server_preferences.busy
         {
             return;
         }
-        if self.updates.retry_preparation.take() == Some(self.generation) {
+        if self.updates.retry_preparation.take() == Some(self.servers.local.generation) {
             self.begin_update(cx);
             return;
         }
@@ -235,13 +237,7 @@ impl AppModel {
         } else {
             ServerUpdatePhase::Checking
         };
-        if !self.send(
-            Work::CheckServerUpdate {
-                socket: self.path.with_file_name("server.sock"),
-                replace,
-            },
-            cx,
-        ) {
+        if !self.send(local, Work::CheckServerUpdate { replace }, cx) {
             self.updates.phase = ServerUpdatePhase::Idle;
         }
     }
@@ -284,8 +280,8 @@ impl AppModel {
                 self.updates.server = Some(status.server);
                 if status.replaced {
                     self.updates.phase = ServerUpdatePhase::Reconnecting;
-                    self.disconnect(cx);
-                    self.connect_to_server(true, cx);
+                    self.disconnect(ServerId::local(), cx);
+                    self.connect_to_server(ServerId::local(), true, cx);
                 } else if self.updates.scheduled
                     && status.sessions == 0
                     && self.close_prompt.is_none()
@@ -478,7 +474,7 @@ impl AppModel {
         let scheduled = self.updates.scheduled;
         let sessions = self.updates.sessions;
         let window = self.window;
-        let generation = self.generation;
+        let generation = self.servers.local.generation;
         self.dismiss_overlay(cx);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = crate::views::confirm::prompt_update(
@@ -487,7 +483,7 @@ impl AppModel {
             .await;
             let _ = model.update(cx, |model, cx| {
                 model.close_prompt = None;
-                if model.generation != generation
+                if model.servers.local.generation != generation
                     || model
                         .updates
                         .ready
@@ -549,7 +545,7 @@ impl AppModel {
         {
             return;
         }
-        if self.connection != ConnectionState::Ready {
+        if !self.ready(ServerId::local()) {
             self.fail("Connect to the server before installing so Muxy can check whether sessions can be preserved".into(), cx);
             return;
         }
@@ -558,32 +554,28 @@ impl AppModel {
         }
         self.updates.app_error = None;
         self.quitting = Quitting::Update;
-        if !self.send(Work::Flush, cx) {
+        if !self.flush_servers(cx) {
             self.quitting = Quitting::Idle;
         }
         cx.notify();
     }
 
-    pub(super) fn flush_before_update(&mut self, cx: &mut Context<Self>) {
-        if !self.pending.is_empty() || !self.discarding.is_empty() {
-            if !self.send(Work::Flush, cx) {
-                self.quitting = Quitting::Idle;
-            }
+    pub(super) fn flush_before_update(&mut self, flushed: ServerId, cx: &mut Context<Self>) {
+        if !self.flushed(flushed, cx) {
             return;
         }
-        let (Some(update), Some(server)) =
-            (self.updates.ready.clone(), self.updates.server.clone())
+        let (Some(update), Some(info)) = (self.updates.ready.clone(), self.updates.server.clone())
         else {
             self.quitting = Quitting::Idle;
             return;
         };
         if !self.save(cx)
             || !self.send(
+                ServerId::local(),
                 Work::PrepareUpdate {
-                    socket: self.path.with_file_name("server.sock"),
                     update,
                     mode: self.updates.mode.unwrap_or(UpdateMode::Preserve),
-                    server,
+                    server: info,
                 },
                 cx,
             )
@@ -605,7 +597,7 @@ impl AppModel {
             Ok(None) => {
                 self.quitting = Quitting::Idle;
                 if self.updates.mode != Some(UpdateMode::WhenIdle) {
-                    self.updates.retry_preparation = Some(self.generation);
+                    self.updates.retry_preparation = Some(self.servers.local.generation);
                 }
                 self.ensure_visible(cx);
                 cx.notify();
@@ -627,7 +619,7 @@ impl AppModel {
                 return;
             }
         };
-        self.disconnect(cx);
+        self.disconnect(ServerId::local(), cx);
         let (Some(update), Some(server)) =
             (self.updates.ready.clone(), self.updates.server.clone())
         else {

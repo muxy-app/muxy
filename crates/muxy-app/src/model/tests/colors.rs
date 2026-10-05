@@ -9,7 +9,7 @@ fn colors_are_sent_before_attach_and_refreshed_on_theme_change_and_reconnect(
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((1, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
         let pane = model.active_pane().expect("pane");
         model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
@@ -24,13 +24,13 @@ fn colors_are_sent_before_attach_and_refreshed_on_theme_change_and_reconnect(
         assert_ne!(initial.background, updated.background);
         assert!(matches!(requests.try_recv(), Ok((1, Work::Colors(colors))) if colors == updated));
 
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         model.dark = !model.dark;
         model.refresh_theme(cx);
         assert!(requests.try_iter().next().is_none());
         model.connect(cx);
         assert!(matches!(requests.try_recv(), Ok((2, Work::Connect))));
-        model.receive((2, Update::Connected(vec![])), cx);
+        model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
         assert!(matches!(requests.try_recv(), Ok((2, Work::Colors(colors))) if colors == initial));
     });

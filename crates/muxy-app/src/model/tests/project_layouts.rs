@@ -65,7 +65,7 @@ fn project_layouts_require_confirmation_and_preserve_other_projects(cx: &mut Tes
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
     });
     let request = open_picker(&view, cx, &requests, first);
@@ -103,8 +103,18 @@ fn project_layouts_require_confirmation_and_preserve_other_projects(cx: &mut Tes
         assert_ne!(tab.id, old);
         assert_eq!(tab.panes.len(), 2);
         assert_eq!(store::load(&model.path).expect("saved"), model.state);
-        assert!(model.state.pending_discards().contains(&session));
-        assert!(model.state.pending_cancellations().is_empty());
+        assert!(
+            model
+                .state
+                .pending_discards(ServerId::local())
+                .contains(&session)
+        );
+        assert!(
+            model
+                .state
+                .pending_cancellations(ServerId::local())
+                .is_empty()
+        );
     });
     let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
     assert!(
@@ -125,7 +135,7 @@ fn project_layouts_reject_bad_files_stale_replies_and_failed_saves(cx: &mut Test
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
     });
     let original = view.read_with(cx, |model, _| {
@@ -193,10 +203,11 @@ fn project_layout_commands_survive_restore_and_run_once_even_for_hidden_tabs(
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
         requests.try_iter().for_each(drop);
         model.receive_attach_failed(
+            ServerId::local(),
             panes[1],
             None,
             false,
@@ -205,6 +216,7 @@ fn project_layout_commands_survive_restore_and_run_once_even_for_hidden_tabs(
         );
         assert_eq!(model.state.startup_command(panes[1]), Some("echo hidden"));
         model.receive_attached(
+            ServerId::local(),
             panes[1],
             SessionId::new(71).expect("session"),
             attachment(),
@@ -219,6 +231,7 @@ fn project_layout_commands_survive_restore_and_run_once_even_for_hidden_tabs(
                 .is_none()
         );
         model.receive_attached(
+            ServerId::local(),
             panes[1],
             SessionId::new(71).expect("session"),
             attachment(),
@@ -257,6 +270,7 @@ fn project_layout_restore_starts_pending_commands_in_existing_hidden_sessions(
     view.update(cx, |model, cx| {
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::Connected(vec![SessionInfo {
                     project,
@@ -279,7 +293,7 @@ fn project_layout_replacement_rejects_panes_added_during_confirmation(cx: &mut T
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
     });
     let request = open_picker(&view, cx, &requests, project);
@@ -319,7 +333,7 @@ fn project_layout_discovery_does_not_repeat_during_view_updates(cx: &mut TestApp
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
         for _ in 0..10 {
             model.sync_visible(cx);

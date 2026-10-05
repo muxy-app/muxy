@@ -21,6 +21,7 @@ type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Fixture {
+    uploads: PathBuf,
     registry: Arc<Registry>,
     subscribers: Arc<Mutex<Vec<Sender<ServerEvent>>>>,
     running: Arc<AtomicBool>,
@@ -36,6 +37,8 @@ struct Client {
 impl Fixture {
     fn new() -> Self {
         let (sender, events) = mpsc::channel();
+        let uploads =
+            std::env::temp_dir().join(format!("muxy-remote-uploads-{}", OperationId::new()));
         let registry = Arc::new(
             Registry::new(
                 ServerSettings {
@@ -44,6 +47,7 @@ impl Fixture {
                 },
                 sender,
             )
+            .with_uploads(uploads.clone())
             .with_remote_listener(|listening| {
                 if listening.is_some() {
                     ListenerStatus::Listening
@@ -70,6 +74,7 @@ impl Fixture {
             }
         });
         Self {
+            uploads,
             registry,
             subscribers,
             running,
@@ -332,6 +337,46 @@ fn a_paired_device_reconnects_and_uses_a_terminal() -> TestResult {
 }
 
 #[test]
+fn paired_devices_may_upload_files_for_a_session() -> TestResult {
+    let fixture = Fixture::new();
+    let mut local = fixture.enabled()?;
+    let (_, mut phone) = fixture.pair(&mut local)?;
+    let session = match phone.request(RequestBody::CreateSession {
+        project: fixture.registry.home_project(),
+        operation: OperationId::new(),
+        directory: ServerPath(b"/tmp".to_vec()),
+        size: Size { cols: 40, rows: 5 },
+    })? {
+        ReplyBody::SessionCreated(session) => session,
+        other => return Err(format!("expected session, got {other:?}").into()),
+    };
+    let chunk = |session, bytes: &[u8]| {
+        RequestBody::Upload(muxy_protocol::UploadChunk {
+            session,
+            upload: OperationId::new(),
+            name: "photo.jpg".into(),
+            offset: 0,
+            bytes: bytes.to_vec(),
+            last: true,
+        })
+    };
+    let path = match phone.request(chunk(session.id, b"jpeg"))? {
+        ReplyBody::Uploaded(Some(path)) => PathBuf::from(String::from_utf8(path.0)?),
+        other => return Err(format!("expected a path, got {other:?}").into()),
+    };
+    assert_eq!(std::fs::read(&path)?, b"jpeg");
+    assert!(path.starts_with(fixture.uploads.canonicalize()?));
+    let unknown = muxy_protocol::SessionId::new(999).ok_or("session")?;
+    match phone.request(chunk(unknown, b"x"))? {
+        ReplyBody::Error(error) => assert_eq!(error.code, ErrorCode::UnknownSession),
+        other => return Err(format!("expected an error, got {other:?}").into()),
+    }
+    fixture.registry.end(session.id)?;
+    std::fs::remove_dir_all(&fixture.uploads)?;
+    Ok(())
+}
+
+#[test]
 fn unknown_devices_and_wrong_tokens_are_indistinguishable() -> TestResult {
     let fixture = Fixture::new();
     let mut local = fixture.enabled()?;
@@ -399,6 +444,7 @@ fn paired_devices_cannot_manage_access_or_the_server() -> TestResult {
         RequestBody::ReadRemoteAccess,
         RequestBody::WriteRemoteAccess(RemoteAccessSettings::default()),
         RequestBody::StartPairing,
+        RequestBody::StartPairingWithHosts(vec!["box.example.com".into()]),
         RequestBody::CancelPairing,
         RequestBody::RevokeDevice(DeviceId::new()),
         RequestBody::StopServer,
@@ -432,9 +478,28 @@ fn paired_devices_cannot_manage_access_or_the_server() -> TestResult {
         ReplyBody::Catalog(_)
     ));
     match local.request(RequestBody::IdentifyClient(ClientKind::Mobile))? {
-        ReplyBody::Error(error) => assert_eq!(error.code, ErrorCode::BadRequest),
-        other => return Err(format!("local client claimed mobile: {other:?}").into()),
+        ReplyBody::ClientIdentified(client) => assert_eq!(client.kind, ClientKind::Mobile),
+        other => return Err(format!("expected identified, got {other:?}").into()),
     }
+    Ok(())
+}
+
+#[test]
+fn a_pairing_code_lists_the_given_addresses_first() -> TestResult {
+    let fixture = Fixture::new();
+    let mut local = fixture.enabled()?;
+    let given = vec!["box.example.com".into()];
+    let offer = match local.request(RequestBody::StartPairingWithHosts(given))? {
+        ReplyBody::Pairing(offer) => offer,
+        other => return Err(format!("expected pairing, got {other:?}").into()),
+    };
+    assert_eq!(offer.invite.hosts[0], "box.example.com");
+    let with_port = vec!["box.example.com:7419".into()];
+    match local.request(RequestBody::StartPairingWithHosts(with_port))? {
+        ReplyBody::Error(error) => assert_eq!(error.code, ErrorCode::BadRequest),
+        other => return Err(format!("expected a refusal, got {other:?}").into()),
+    }
+    assert_eq!(local.request(RequestBody::Ping)?, ReplyBody::Pong);
     Ok(())
 }
 

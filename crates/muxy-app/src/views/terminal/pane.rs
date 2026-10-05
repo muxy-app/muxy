@@ -6,6 +6,7 @@ use gpui::{
     Bounds, Context, EventEmitter, FocusHandle, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Render, Styled, Task, Window, div, prelude::FluentBuilder, px,
 };
+use muxy_app_core::ServerId;
 use muxy_client::{Attachment, RunGrid};
 use muxy_protocol::{
     ChannelId, ExitReason, ForegroundProcess, HistoryPage, InputModes, MetadataEvent, MouseAction,
@@ -23,6 +24,11 @@ use super::{
 pub(crate) enum PaneEvent {
     Focused,
     OpenLink(muxy_app_core::opener::Target),
+    /// A link on another computer, which only its server can look up.
+    ResolveLink(super::links::Candidate),
+    /// Files or an image for a terminal on another computer, which can't
+    /// reach this computer's.
+    Upload(crate::model::remote_files::Upload),
     ContextMenu(gpui::Point<gpui::Pixels>),
     SelectionCopied,
     Viewport(Size),
@@ -100,7 +106,8 @@ pub(crate) struct TerminalPane {
     pub(crate) cursor_blink: super::cursor::CursorBlink,
     pub(crate) focus_border: Option<gpui::Hsla>,
     pub(crate) corner_radius: gpui::Pixels,
-    channel: Option<ChannelId>,
+    /// The server that attached this pane, and its channel there.
+    attachment: Option<(ServerId, ChannelId)>,
     viewport: Option<Size>,
     pub(crate) palette: Palette,
     pub(crate) background_opacity: f32,
@@ -183,7 +190,7 @@ impl TerminalPane {
             cursor_blink: super::cursor::CursorBlink::default(),
             focus_border: None,
             corner_radius: px(0.0),
-            channel: None,
+            attachment: None,
             viewport: None,
             palette,
             background_opacity: 1.0,
@@ -203,7 +210,11 @@ impl TerminalPane {
     }
 
     pub(crate) fn channel(&self) -> Option<ChannelId> {
-        self.channel
+        self.attachment.map(|(_, channel)| channel)
+    }
+
+    pub(crate) fn attachment(&self) -> Option<(ServerId, ChannelId)> {
+        self.attachment
     }
 
     pub(crate) fn viewport(&self) -> Option<Size> {
@@ -211,7 +222,7 @@ impl TerminalPane {
     }
 
     pub(crate) fn set_state(&mut self, state: PaneState, cx: &mut Context<Self>) {
-        self.channel = None;
+        self.attachment = None;
         self.reset_input();
         self.scroll.reset();
         self.saved_history = None;
@@ -234,7 +245,7 @@ impl TerminalPane {
             reason: screen.reason,
             unavailable: false,
         };
-        self.channel = None;
+        self.attachment = None;
         self.reset_input();
         self.scroll.reset();
         self.saved_history = None;
@@ -246,6 +257,7 @@ impl TerminalPane {
 
     pub(crate) fn attach(
         &mut self,
+        server: ServerId,
         attachment: Attachment,
         cx: &mut Context<Self>,
     ) -> Option<Size> {
@@ -255,7 +267,7 @@ impl TerminalPane {
         self.scroll.reset();
         self.saved_history = None;
         self.sent_cell_size = None;
-        self.channel = Some(attachment.channel);
+        self.attachment = Some((server, attachment.channel));
         self.server_input = attachment.server_input;
         self.state = PaneState::Live;
         self.cursor_blink = super::cursor::CursorBlink::default();
@@ -642,7 +654,7 @@ impl TerminalPane {
             return;
         }
         self.viewport = Some(size);
-        if self.channel.is_some() {
+        if self.attachment.is_some() {
             self.scroll.reset();
             self.saved_history = None;
         } else {
@@ -650,7 +662,7 @@ impl TerminalPane {
             self.saved_history = None;
             self.prepare_saved_history(cx);
         }
-        if self.channel.is_some()
+        if self.attachment.is_some()
             && let Some(grid) = &mut self.grid
         {
             grid.resize(size);
@@ -669,7 +681,7 @@ impl TerminalPane {
     #[allow(clippy::cast_precision_loss)]
     pub(super) fn scrollable_rows(&self, viewport_rows: u16) -> f64 {
         self.displayed_grid().map_or(0.0, |grid| {
-            if self.channel.is_some() && self.scroll.view.is_none() {
+            if self.attachment.is_some() && self.scroll.view.is_none() {
                 grid.history_total as f64
             } else {
                 (grid.history_total as f64 + grid.rows.len() as f64 - f64::from(viewport_rows))
@@ -734,7 +746,7 @@ impl TerminalPane {
         }
         if !active {
             self.composition = super::ime::Composition::default();
-            if let Some(channel) = self.channel {
+            if let Some(channel) = self.channel() {
                 for event in self.keyboard.release_all() {
                     cx.emit(PaneEvent::TerminalInput(
                         channel,
@@ -743,7 +755,7 @@ impl TerminalPane {
                 }
             }
             let buttons = std::mem::take(&mut self.held_buttons);
-            if let (Some(channel), Some(event)) = (self.channel, self.last_mouse) {
+            if let (Some(channel), Some(event)) = (self.channel(), self.last_mouse) {
                 for button in buttons {
                     cx.emit(PaneEvent::Mouse(
                         channel,
@@ -760,14 +772,14 @@ impl TerminalPane {
             self.wheel_remainder = 0.0;
         }
         if self.server_input
-            && let Some(channel) = self.channel
+            && let Some(channel) = self.channel()
         {
             cx.emit(PaneEvent::TerminalInput(
                 channel,
                 muxy_protocol::TerminalInput::Focus(active),
             ));
         } else if self.input_modes.focus_events
-            && let Some(channel) = self.channel
+            && let Some(channel) = self.channel()
         {
             cx.emit(PaneEvent::Input(
                 channel,
@@ -815,7 +827,7 @@ impl TerminalPane {
             return;
         }
         let (Some(channel), Some((bounds, cell)), Some(grid)) =
-            (self.channel, self.geometry, &self.grid)
+            (self.channel(), self.geometry, &self.grid)
         else {
             return;
         };
@@ -1251,9 +1263,20 @@ impl TerminalPane {
         cx.stop_propagation();
     }
 
+    /// Whether another computer's server runs this terminal.
+    pub(crate) fn remote(&self) -> bool {
+        self.attachment
+            .is_some_and(|(server, _)| !server.is_local())
+    }
+
     pub(crate) fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(item) = cx.read_from_clipboard() {
-            if self.server_input
+            if self.remote()
+                && self.state == PaneState::Live
+                && let Some(upload) = crate::model::remote_files::clipboard_upload(&item)
+            {
+                cx.emit(PaneEvent::Upload(upload));
+            } else if self.server_input
                 && let Some(text) = item.text()
             {
                 self.send_clipboard(text.as_bytes(), cx);
@@ -1265,7 +1288,21 @@ impl TerminalPane {
         }
     }
 
+    /// Pastes dropped files' paths; another computer gets the files first.
     pub(crate) fn drop_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        if self.remote() {
+            if self.state == PaneState::Live {
+                cx.emit(PaneEvent::Upload(
+                    crate::model::remote_files::Upload::Files(paths.to_vec()),
+                ));
+            }
+        } else {
+            self.paste_paths(paths, cx);
+        }
+    }
+
+    /// Pastes paths quoted for a shell.
+    pub(crate) fn paste_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid
             && let Some(bytes) = clipboard::paths(
                 paths,
@@ -1288,7 +1325,7 @@ impl TerminalPane {
         if self.state != PaneState::Live {
             return None;
         }
-        let channel = self.channel?;
+        let channel = self.channel()?;
         if self.terminal.options.scroll_on_keystroke
             && (self.scroll.view.is_some() || self.scroll.elastic != 0.0)
         {
@@ -1432,7 +1469,7 @@ impl TerminalPane {
             }
             TerminalAction::ClearScreen => {
                 if self.state == PaneState::Live
-                    && let Some(channel) = self.channel
+                    && let Some(channel) = self.channel()
                 {
                     if self.server_input {
                         cx.emit(PaneEvent::TerminalInput(
@@ -1530,7 +1567,7 @@ impl TerminalPane {
     ) {
         if self.server_input
             && self.state == PaneState::Live
-            && let Some(channel) = self.channel
+            && let Some(channel) = self.channel()
             && let Some(event) = self.keyboard.release(&event.keystroke)
         {
             cx.emit(PaneEvent::TerminalInput(
@@ -1697,7 +1734,7 @@ mod tests {
     fn prepare_mouse(pane: &mut TerminalPane) {
         pane.grid = Some(grid());
         pane.state = PaneState::Live;
-        pane.channel = Some(ChannelId(1));
+        pane.attachment = Some((ServerId::local(), ChannelId(1)));
         pane.viewport = Some(Size { cols: 20, rows: 3 });
         pane.geometry = Some((
             Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(60.0))),
@@ -3007,7 +3044,7 @@ mod tests {
                     pane.update(cx, |pane, cx| {
                         pane.grid = Some(grid());
                         pane.grid.as_mut().unwrap().modes.bracketed_paste = bracketed_paste;
-                        pane.channel = Some(ChannelId(1));
+                        pane.attachment = Some((ServerId::local(), ChannelId(1)));
                         pane.state = PaneState::Live;
                         pane.paste(&muxy_ui::text_input::Paste, window, cx);
                     });
@@ -3049,7 +3086,7 @@ mod tests {
         pane.update(cx, |pane, _| {
             pane.grid = Some(grid());
             pane.state = PaneState::Live;
-            pane.channel = Some(ChannelId(1));
+            pane.attachment = Some((ServerId::local(), ChannelId(1)));
             pane.viewport = Some(Size { cols: 20, rows: 3 });
             pane.geometry = Some((
                 Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(60.0))),
@@ -3161,7 +3198,7 @@ mod tests {
                 cx,
             );
             pane.grid = Some(grid());
-            pane.channel = Some(ChannelId(1));
+            pane.attachment = Some((ServerId::local(), ChannelId(1)));
             pane.state = PaneState::Live;
             pane.open_find(
                 &muxy_ui::theme::Theme::from_scheme(&muxy_ui::theme::ColorScheme::default()),
@@ -3388,6 +3425,94 @@ mod tests {
         });
         cx.run_until_parked();
         assert_eq!(*sent.borrow(), b"\x1b[200~'/tmp/a b'\x1b[201~");
+    }
+
+    #[gpui::test]
+    fn another_computers_terminal_gets_files_and_images_sent_and_asks_its_server_about_links(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::model::remote_files::Upload;
+        let (pane, cx) = cx.add_window_view(|_, cx| {
+            TerminalPane::new(
+                Palette::new(true),
+                muxy_app_core::settings::TerminalSettings::default(),
+                cx,
+            )
+        });
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|_, cx| {
+            let events = events.clone();
+            cx.subscribe(&pane, move |_, event, _| {
+                let seen = match event {
+                    PaneEvent::Input(_, bytes) => {
+                        format!("input {}", String::from_utf8_lossy(bytes))
+                    }
+                    PaneEvent::Upload(Upload::Files(paths)) => format!("files {paths:?}"),
+                    PaneEvent::Upload(Upload::Image(bytes, extension)) => {
+                        format!("image {} {extension}", bytes.len())
+                    }
+                    PaneEvent::ResolveLink(candidate) => format!("resolve {}", candidate.text),
+                    _ => return,
+                };
+                events.borrow_mut().push(seen);
+            })
+            .detach();
+        });
+        let remote = ServerId::new();
+        pane.update(cx, |pane, cx| {
+            prepare_mouse(pane);
+            pane.attachment = Some((remote, ChannelId(1)));
+            pane.open_context = Some(muxy_app_core::opener::OpenContext {
+                project: muxy_protocol::ProjectId::new(),
+                pane: muxy_app_core::PaneId::new(),
+                server: remote,
+                directory: "/home/dev".into(),
+                project_directory: "/home/dev".into(),
+            });
+            pane.drop_paths(&["/tmp/shot.png".into()], cx);
+            let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, b"\x89PNG".to_vec());
+            cx.write_to_clipboard(gpui::ClipboardItem::new_image(&image));
+            pane.paste_clipboard(cx);
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string("text".into()));
+            pane.paste_clipboard(cx);
+            pane.hover_link(point(px(10.0), px(5.0)), true, cx);
+            assert!(pane.link_hover.target.is_none(), "its server answers later");
+            pane.metadata(
+                MetadataEvent::Links {
+                    seq: 0,
+                    rows: vec![muxy_protocol::LinkRow {
+                        row: 1,
+                        spans: vec![muxy_protocol::LinkSpan {
+                            start: 0,
+                            end: 6,
+                            uri: "https://example.com".into(),
+                        }],
+                    }],
+                },
+                cx,
+            );
+            pane.hover_link(point(px(10.0), px(25.0)), true, cx);
+            assert_eq!(
+                pane.link_hover.target,
+                Some(muxy_app_core::opener::Target::Url(
+                    "https://example.com".into()
+                )),
+                "web links open here, without asking"
+            );
+            pane.set_state(PaneState::Disconnected, cx);
+            pane.attachment = Some((remote, ChannelId(1)));
+            pane.drop_paths(&["/tmp/ignored".into()], cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            *events.borrow(),
+            [
+                "files [\"/tmp/shot.png\"]",
+                "image 4 png",
+                "input text",
+                "resolve alpha",
+            ]
+        );
     }
 
     #[gpui::test]

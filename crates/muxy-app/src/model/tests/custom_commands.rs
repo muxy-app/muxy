@@ -27,12 +27,14 @@ fn custom_command_shortcut_creates_named_tab_and_submits_once_after_attach(
 ) {
     let project_dir = tempfile::tempdir().unwrap();
     let mut state = AppState::bootstrap().unwrap();
-    let project = state.add_project(project_dir.path().to_owned()).unwrap();
+    let project = state
+        .add_project(ServerId::local(), project_dir.path().to_owned())
+        .unwrap();
     state.select_project(project).unwrap();
     let (boot, requests) = configured_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
     });
     requests.try_iter().for_each(drop);
@@ -54,8 +56,8 @@ fn custom_command_shortcut_creates_named_tab_and_submits_once_after_attach(
     assert!(work.iter().any(|work| matches!(work, Work::Attach { pane: target, directory, .. } if *target == pane && directory == project_dir.path())));
     let session = SessionId::new(7).unwrap();
     view.update(cx, |model, cx| {
-        model.receive_attached(pane, session, attachment(), true, cx);
-        model.receive_attached(pane, session, attachment(), false, cx);
+        model.receive_attached(ServerId::local(), pane, session, attachment(), true, cx);
+        model.receive_attached(ServerId::local(), pane, session, attachment(), false, cx);
     });
     let typed: Vec<_> = requests
         .try_iter()

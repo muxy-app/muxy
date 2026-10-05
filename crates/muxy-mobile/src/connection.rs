@@ -12,6 +12,7 @@ use muxy_protocol::{
 };
 
 use crate::MobileError;
+use crate::channel::BridgeChannel;
 use crate::files::ProjectFiles;
 use crate::git::GitRepository;
 use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
@@ -59,7 +60,7 @@ pub enum ConnectionEvent {
     Disconnected,
 }
 
-/// A live connection to one paired server.
+/// A live connection to one server, paired or reached over SSH.
 #[derive(uniffi::Object)]
 pub struct Connection {
     client: Client,
@@ -112,25 +113,33 @@ impl Connection {
                 .try_into()
                 .map_err(|_| MobileError::InvalidCredential)?,
         };
-        let client = Client::connect_remote(&endpoint, device)?;
-        let events = client.events().ok_or(MobileError::Disconnected)?;
-        let terminals = Arc::<Terminals>::default();
-        let pump = (client.clone(), Arc::clone(&terminals));
-        thread::Builder::new()
-            .name("muxy-mobile-events".into())
-            .spawn(move || deliver(&pump.0, &events, &pump.1, listener.as_ref()))
-            .map_err(|error| MobileError::Unreachable {
-                reason: error.to_string(),
-            })?;
-        Ok(Arc::new(Self {
-            client,
-            terminals,
-            attaching: Mutex::new(()),
-        }))
+        Self::start(Client::connect_remote(&endpoint, device)?, listener)
+    }
+
+    /// Connects through an SSH exec channel that the app opened to run
+    /// `bridge_command()`. `host` names the computer in errors. The server
+    /// sees a local client, which older servers keep calling a CLI.
+    #[uniffi::constructor]
+    pub fn connect_channel(
+        channel: Arc<BridgeChannel>,
+        host: String,
+        listener: Arc<dyn ConnectionListener>,
+    ) -> Result<Arc<Self>, MobileError> {
+        let client = channel.connect(&host)?;
+        match client.identify(muxy_protocol::ClientKind::Mobile) {
+            Ok(_) | Err(ClientError::Server(_)) => {}
+            Err(error) => return Err(error.into()),
+        }
+        Self::start(client, listener)
     }
 
     pub fn server_version(&self) -> String {
         self.client.server_info().build.version.clone()
+    }
+
+    /// The server's stable id, the same as `serverId` from pairing with it.
+    pub fn server_id(&self) -> Result<String, MobileError> {
+        Ok(self.client.catalog_page(None, None)?.server.to_string())
     }
 
     pub fn projects(&self) -> Result<Vec<Project>, MobileError> {
@@ -240,6 +249,28 @@ impl Connection {
 
     pub fn disconnect(&self) {
         self.client.disconnect();
+    }
+}
+
+impl Connection {
+    fn start(
+        client: Client,
+        listener: Arc<dyn ConnectionListener>,
+    ) -> Result<Arc<Self>, MobileError> {
+        let events = client.events().ok_or(MobileError::Disconnected)?;
+        let terminals = Arc::<Terminals>::default();
+        let pump = (client.clone(), Arc::clone(&terminals));
+        thread::Builder::new()
+            .name("muxy-mobile-events".into())
+            .spawn(move || deliver(&pump.0, &events, &pump.1, listener.as_ref()))
+            .map_err(|error| MobileError::Unreachable {
+                reason: error.to_string(),
+            })?;
+        Ok(Arc::new(Self {
+            client,
+            terminals,
+            attaching: Mutex::new(()),
+        }))
     }
 }
 

@@ -21,10 +21,10 @@ fn check_resize_delivery(saturated: bool) -> TestResult {
     let (progress, received) = mpsc::channel();
     let (release, gate) = mpsc::channel();
     let server = thread::spawn(move || resize_server(&listener, &progress, &gate));
-    let (work, updates) = bridge(socket)?;
+    let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.1, Update::ServerInfo(_)));
-    assert!(matches!(updates.recv_blocking()?.1, Update::Connected(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
     let session = SessionId::from(std::num::NonZeroU64::MIN);
     let read = || Work::ReadSaved {
         pane: PaneId::new(),
@@ -92,8 +92,8 @@ fn check_resize_delivery(saturated: bool) -> TestResult {
     let mut flushed = false;
     while !flushed && Instant::now() < deadline {
         match updates.try_recv() {
-            Ok((1, Update::Saved { .. })) => saved += 1,
-            Ok((1, Update::Flushed)) => flushed = true,
+            Ok((_, 1, Update::Saved { .. })) => saved += 1,
+            Ok((_, 1, Update::Flushed)) => flushed = true,
             Ok(other) => return Err(format!("unexpected update: {other:?}").into()),
             Err(_) => thread::sleep(Duration::from_millis(5)),
         }
@@ -182,12 +182,12 @@ fn reconnect_discards_old_resizes_and_stale_completion_unblocks_new_work() -> Te
     let listener = UnixListener::bind(&socket)?;
     let (started, running) = mpsc::channel();
     let server = thread::spawn(move || reconnect_server(&listener, &started));
-    let (work, updates) = bridge(socket)?;
+    let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.1, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
     assert!(matches!(
         updates.recv_blocking()?,
-        (1, Update::Connected(_))
+        (_, 1, Update::Connected(_))
     ));
     work.send((
         1,
@@ -224,9 +224,9 @@ fn reconnect_discards_old_resizes_and_stale_completion_unblocks_new_work() -> Te
     let mut flushed = false;
     while !flushed && Instant::now() < deadline {
         match updates.try_recv() {
-            Ok((2, Update::ServerInfo(_))) => {}
-            Ok((2, Update::Connected(_))) => connected = true,
-            Ok((2, Update::Flushed)) => {
+            Ok((_, 2, Update::ServerInfo(_))) => {}
+            Ok((_, 2, Update::Connected(_))) => connected = true,
+            Ok((_, 2, Update::Flushed)) => {
                 assert!(connected);
                 flushed = true;
             }

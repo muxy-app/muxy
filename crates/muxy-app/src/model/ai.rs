@@ -292,14 +292,20 @@ impl AppModel {
         });
     }
 
+    /// Runs `operation` with the client of `project`'s server.
     fn with_client<T: Send + 'static>(
         &mut self,
+        project: ProjectId,
         cx: &mut Context<Self>,
         operation: impl FnOnce(muxy_client::Client) -> Result<T, String> + Send + 'static,
         finish: impl FnOnce(&mut Self, Result<T, String>, &mut Context<Self>) + 'static,
     ) {
         let (sender, receiver) = async_channel::bounded(1);
-        self.send(Work::ExtensionClient(sender), cx);
+        self.send(
+            self.project_server_or_local(project),
+            Work::ExtensionClient(sender),
+            cx,
+        );
         cx.spawn(async move |this, cx| {
             let result = match receiver.recv().await {
                 Ok(Some(client)) => crate::ai::run(move || operation(client)).await,
@@ -408,6 +414,7 @@ impl AppModel {
         let id = self.ai.next;
         let cancellation = self.ai.start(project, id, action);
         self.with_client(
+            project,
             cx,
             move |client| {
                 let plan = repository_actions::prepare(

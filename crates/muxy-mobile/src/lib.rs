@@ -1,8 +1,9 @@
 //! Rust core for the Muxy mobile apps, exposed to Swift and Kotlin through `UniFFI`.
 //!
 //! An app pairs once from a scanned link, keeps the returned credential in secure
-//! storage, and connects with it afterwards. Calls block, so apps make them off
-//! the main thread; connection events arrive on an SDK thread.
+//! storage, and connects with it afterwards. It can also connect through an SSH
+//! channel it opens itself. Calls block, so apps make them off the main thread;
+//! connection events arrive on an SDK thread.
 
 #![allow(unsafe_code, reason = "UniFFI generates the C ABI exports")]
 #![allow(
@@ -10,6 +11,7 @@
     reason = "exported functions receive owned values from Swift and Kotlin"
 )]
 
+mod channel;
 mod connection;
 mod error;
 mod files;
@@ -24,6 +26,7 @@ mod terminals;
 use muxy_client::Client;
 use muxy_protocol::{MAX_DEVICE_NAME, PairingInvite};
 
+pub use channel::{BridgeChannel, ChannelWriter, bridge_command};
 pub use connection::{Connection, ConnectionEvent, ConnectionListener};
 pub use error::MobileError;
 pub use files::{FileEntry, FileInfo, ProjectFiles};

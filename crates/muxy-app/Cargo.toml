@@ -25,6 +25,7 @@ muxy-protocol = { path = "../muxy-protocol" }
 
 [dev-dependencies]
 muxy-ui = { path = "../muxy-ui", features = ["test-support"] }
+muxy-server = { path = "../muxy-server" }
 muxy-terminal = { path = "../muxy-terminal" }
 gpui = { version = "=0.2.2", default-features = false, features = ["test-support"] }
 

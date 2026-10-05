@@ -1,7 +1,7 @@
 use super::*;
 use crate::model::tests::{extensions::finish_extension, stub_boot};
 use gpui::TestAppContext;
-use muxy_app_core::{AppState, PaneId};
+use muxy_app_core::{AppState, PaneId, ServerId};
 
 #[gpui::test]
 fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppContext) {
@@ -14,7 +14,7 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
             let mut call = Call {
                 owner: "files".into(),
                 epoch: model.extensions.epoch_for("files"),
-                generation: model.generation,
+                generation: model.servers.local.generation,
                 project: model.state.home().id,
                 verb: verb.into(),
                 args: Value::Null,
@@ -157,7 +157,7 @@ fn expired_confirmation_does_not_persist_permission(cx: &mut TestAppContext) {
         let call = Call {
             owner: "writer".into(),
             epoch: model.extensions.epoch_for("writer"),
-            generation: model.generation,
+            generation: model.servers.local.generation,
             project: model.state.home().id,
             verb: "files.write".into(),
             args: json!({"path":"file","content":"text"}),
@@ -295,7 +295,7 @@ fn notify_extension(
                 Call {
                     owner: "notifier".into(),
                     epoch: model.extensions.epoch_for("notifier"),
-                    generation: model.generation,
+                    generation: model.servers.local.generation,
                     project: model.state.home().id,
                     verb: verb.into(),
                     args,
@@ -394,7 +394,7 @@ fn script_call(
                 Call {
                     owner: owner.into(),
                     epoch: model.extensions.epoch_for(owner),
-                    generation: model.generation,
+                    generation: model.servers.local.generation,
                     project: model.state.current_project().id,
                     verb: verb.into(),
                     args,
@@ -684,7 +684,7 @@ fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContex
     )
     .expect("running a command needs consent");
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = crate::model::ConnectionState::Ready;
         crate::model::tests::acknowledge_catalog(model, cx);
         model
             .extensions
@@ -716,7 +716,14 @@ fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContex
     let session = muxy_protocol::SessionId::new(7).expect("session");
     requests.try_iter().for_each(drop);
     view.update(cx, |model, cx| {
-        model.receive_attached(pane, session, crate::model::tests::attachment(), true, cx);
+        model.receive_attached(
+            ServerId::local(),
+            pane,
+            session,
+            crate::model::tests::attachment(),
+            true,
+            cx,
+        );
     });
     let typed: Vec<_> = requests
         .try_iter()
@@ -838,7 +845,7 @@ fn background_scripts_follow_the_extension_not_the_connection(cx: &mut TestAppCo
     wait_for(&view, cx, "background start", |model| {
         logged(model, "ports", "[muxy] started ports v1.0.0")
     });
-    view.update(cx, AppModel::disconnect);
+    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
     view.read_with(cx, |model, _| {
         assert!(
             model.background_running("ports"),
@@ -966,7 +973,7 @@ fn runner_exec(model: &AppModel, argv: &Value, reply: std::sync::mpsc::SyncSende
     Call {
         owner: "runner".into(),
         epoch: model.extensions.epoch_for("runner"),
-        generation: model.generation,
+        generation: model.servers.local.generation,
         project: model.state.home().id,
         verb: "exec".into(),
         args: json!({ "argv": argv }),
@@ -1210,7 +1217,9 @@ fn pane_focused_fires_only_when_focus_moves_within_a_tab(cx: &mut TestAppContext
         .split_pane(left, muxy_app_core::Direction::Right)
         .expect("right pane");
     let other = state.open_terminal_tab(home).expect("other tab");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     state.open_terminal_tab(project).expect("project tab");
     state.select_project(home).expect("home");
     state.select_tab(home, split).expect("split tab selected");
@@ -1259,10 +1268,12 @@ fn project_with_worktree() -> (AppState, ProjectId, ProjectId, tempfile::TempDir
     )
     .expect(".git");
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
-    while let Some(intent) = state.project_intents().first().cloned() {
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
         state
-            .complete_project_intent(intent.operation)
+            .complete_project_intent(ServerId::local(), intent.operation)
             .expect("registered");
     }
     let mut worktree = state.project(project).expect("project").descriptor();
@@ -1278,16 +1289,22 @@ fn project_with_worktree() -> (AppState, ProjectId, ProjectId, tempfile::TempDir
         .map(muxy_app_core::Project::descriptor)
         .collect();
     projects.push(worktree);
-    let (home, revision) = (state.home().id, state.catalog_revision() + 1);
+    let (home, revision) = (
+        state.home().id,
+        state.catalog_revision(ServerId::local()) + 1,
+    );
     state
-        .apply_catalog(&muxy_protocol::CatalogPage {
-            server: muxy_protocol::ServerIdentity::from_u128(1),
-            home,
-            revision,
-            projects,
-            next: None,
-            legacy_home: None,
-        })
+        .apply_catalog(
+            ServerId::local(),
+            &muxy_protocol::CatalogPage {
+                server: muxy_protocol::ServerIdentity::from_u128(1),
+                home,
+                revision,
+                projects,
+                next: None,
+                legacy_home: None,
+            },
+        )
         .expect("worktree");
     state.refresh_project_statuses();
     (state, project, id, folder)
@@ -1520,7 +1537,9 @@ fn terminal_titles_reach_tab_updated_once_they_settle(cx: &mut TestAppContext) {
 #[gpui::test]
 fn project_and_agent_lists_use_main_shapes(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let (view, cx, _package, _requests) = enabled(
         cx,
         "lister",
@@ -1582,7 +1601,9 @@ fn grouper(
     Requests,
 ) {
     let mut state = AppState::bootstrap().expect("state");
-    let alpha = state.add_project(std::env::temp_dir()).expect("alpha");
+    let alpha = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("alpha");
     state.rename_project(alpha, "Alpha").expect("name");
     enabled(
         cx,
@@ -1707,7 +1728,9 @@ fn tab_titles_switch_only_within_the_current_project(cx: &mut TestAppContext) {
     state
         .set_tab_title(home, Some("zsh".into()))
         .expect("home title");
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     let first = state.open_terminal_tab(project).expect("first tab");
     let second = state.open_terminal_tab(project).expect("second tab");
     state

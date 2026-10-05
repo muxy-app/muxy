@@ -473,7 +473,9 @@ fn interrupted_tab_drags_cannot_resume_on_later_pointer_motion(cx: &mut TestAppC
     ] {
         let (mut state, ids) = tabs(3);
         let home = state.home().id;
-        let other = state.add_project(std::env::temp_dir()).expect("project");
+        let other = state
+            .add_project(ServerId::local(), std::env::temp_dir())
+            .expect("project");
         state.select_project(home).expect("home");
         let (boot, _requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -617,7 +619,7 @@ fn settings_button_stays_reachable_and_reuses_the_settings_window(cx: &mut TestA
             let model = observer.read_with(cx, |observer, _| observer.model.clone());
             model.update(cx, |model, cx| {
                 model.appearance.sidebar_expanded = expanded;
-                model.connection = ConnectionState::Disconnected;
+                model.servers.local.connection = ConnectionState::Disconnected;
                 cx.notify();
             });
             for width in [640.0, 1000.0] {
@@ -684,7 +686,9 @@ fn settings_button_remains_available_when_the_project_directory_is_missing(
     let directory = std::env::temp_dir().join(format!("muxy-settings-button-{}", ProjectId::new()));
     std::fs::create_dir(&directory).expect("mkdir");
     let mut state = AppState::bootstrap().expect("state");
-    state.add_project(directory.clone()).expect("project");
+    state
+        .add_project(ServerId::local(), directory.clone())
+        .expect("project");
     std::fs::remove_dir(&directory).expect("remove project directory");
     state.refresh_project_statuses();
     let (observer, cx) = observe_window_zoom(state, cx);

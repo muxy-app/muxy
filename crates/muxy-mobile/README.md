@@ -9,13 +9,17 @@ The Rust source is in `crates/muxy-mobile`, and
 ## How it works
 
 The app embeds the SDK, which connects directly to `muxy-server` on the user's
-computer over TLS 1.3. There is no cloud service: the phone must reach the
-computer on the same network or through a VPN such as Tailscale.
+computer over TLS 1.3. There is no cloud service: the phone reaches the
+computer on the same network, through a VPN such as Tailscale, or at an
+address added to the pairing code.
 
 1. The computer shows a QR code holding a pairing link.
 2. The app pairs with that link once and stores the returned
    `ServerCredential`.
 3. From then on the app connects with the credential.
+
+An app with its own SSH client can also reach a computer over SSH, without
+pairing. See [Connecting over SSH](#connecting-over-ssh).
 
 The server owns projects and terminal sessions, the same ones the desktop app
 and the terminal client show. The SDK keeps each attached terminal's screen up
@@ -59,6 +63,7 @@ screen and sends input.
 8. Agent activity.
 9. Git and files.
 10. Error states for every case in [Errors](#errors).
+11. If the app has an SSH client, [connecting over SSH](#connecting-over-ssh).
 
 ## Getting the SDK
 
@@ -202,7 +207,12 @@ Swift names are shown. Kotlin uses the same names without argument labels.
 | `parsePairingLink(link:)` | `PairingLink` | no |
 | `pair(link:deviceName:)` | `ServerCredential` | yes |
 | `Connection.connect(credential:listener:)` | `Connection` | yes |
+| `bridgeCommand()` | `String` | no |
+| `BridgeChannel(writer:)` | `BridgeChannel` | no |
+| `channel.receive(bytes:)`, `receiveError(bytes:)`, `finish(exitStatus:)` | — | no |
+| `Connection.connectChannel(channel:host:listener:)` | `Connection` | yes |
 | `connection.serverVersion()` | `String` | no |
+| `connection.serverId()` | `String` | yes |
 | `connection.projects()` | `[Project]` | yes |
 | `connection.sessions(projectId:)` | `[Session]` | yes |
 | `connection.createSession(projectId:columns:rows:)` | `Session` | yes |
@@ -228,7 +238,8 @@ Swift names are shown. Kotlin uses the same names without argument labels.
 | `scrollback.loadOlder(maxRows:)` | `[Line]` | yes |
 
 Calls that don't talk to the server read local state and are fine on the main
-thread. Every call that talks to the server can throw.
+thread, except `BridgeChannel.receive`, which can block. Every call that talks
+to the server can throw.
 
 | Type | Fields or cases |
 | --- | --- |
@@ -257,6 +268,7 @@ thread. Every call that talks to the server can throw.
 | `ActivityKind` | `attention`, `completed` |
 | `GitRepository`, `ProjectFiles`, and what they return | see [Git and files](#git-and-files) |
 | `ConnectionEvent` | see [Events](#events) |
+| `ChannelWriter` | a protocol the app implements: `write(bytes:)` and `close()`; see [Connecting over SSH](#connecting-over-ssh) |
 | `MobileError` | see [Errors](#errors) |
 
 Kotlin differences:
@@ -271,10 +283,10 @@ Kotlin differences:
   `TerminalColor.Default`.
 - `MobileError` is `MobileException`, with one subclass per case.
 - Records are data classes without default values, so pass every field.
-- `Connection`, `Terminal`, `Scrollback`, `GitRepository`, and `ProjectFiles`
-  are `AutoCloseable`. Close them when you're done, or they're freed when
-  garbage-collected. In Swift they're freed with their last reference.
-  Releasing a `Connection` disconnects it.
+- `Connection`, `BridgeChannel`, `Terminal`, `Scrollback`, `GitRepository`,
+  and `ProjectFiles` are `AutoCloseable`. Close them when you're done, or
+  they're freed when garbage-collected. In Swift they're freed with their last
+  reference. Releasing a `Connection` disconnects it.
 
 ## Threads
 
@@ -313,7 +325,9 @@ code holds a link:
 muxy://pair?v=1&h=192.168.1.20&h=100.101.7.12&h=studio.local&p=7419&f=<64 hex>&s=<32 hex>
 ```
 
-- `h`: up to 8 addresses, tried in order.
+- `h`: up to 8 addresses, tried in order. The computer lists its own. For a
+  computer that phones reach by another name, such as a cloud server's public
+  name, `muxy mobile pair --address box.example.com` lists that name first.
 - `p`: the TCP port, 7419 by default.
 - `f`: the SHA-256 of the server's certificate. The SDK accepts only that
   certificate.
@@ -473,6 +487,98 @@ val connection = withContext(sdk) { Connection.connect(credential, events) }
 | `filesChanged(projectId, paths)` | Files changed in a watched project | Read `paths` and their folders again, or everything when `paths` is empty |
 | `serverRestarting` | The server is restarting, usually for an update | Show "Reconnecting…" and connect again shortly |
 | `disconnected` | The connection closed. This is always the last event | Drop the connection and its terminals, then reconnect when it makes sense |
+
+## Connecting over SSH
+
+An app with its own SSH client can reach any computer the user can log in to,
+with no pairing and no open port. Muxy must be installed there. The bridge,
+`muxy stdio`, starts the computer's server when needed.
+
+1. Log in with your SSH client. Host keys, keys, passwords, and agents belong
+   to your SSH layer; the SDK never sees them.
+2. Open an exec channel that runs `bridgeCommand()`.
+3. Create a `BridgeChannel` with a `ChannelWriter` that writes to the
+   channel's stdin and closes the channel.
+4. Pass on what the channel receives: stdout to `receive`, stderr to
+   `receiveError`, and its end to `finish(exitStatus:)`.
+5. Call `Connection.connectChannel`. `host` names the computer in errors,
+   such as `dev@box`.
+
+The connection then works like a paired one, with the same calls and events.
+`serverId()` returns the id that pairing with the same computer returns, so
+the app can tell that two entries are one server.
+
+```swift
+/// Writes what the SDK sends to the SSH channel's stdin.
+final class ExecWriter: ChannelWriter, @unchecked Sendable {
+    private let exec: ExecChannel   // your SSH library's exec channel
+
+    init(_ exec: ExecChannel) { self.exec = exec }
+
+    func write(bytes: Data) throws { try exec.writeAndWait(bytes) }   // throw once it's closed
+    func close() throws { exec.close() }
+}
+
+let exec = try await ssh.openExec(command: bridgeCommand())
+let channel = try BridgeChannel(writer: ExecWriter(exec))
+let output = DispatchQueue(label: "app.muxy.ssh-output")   // one queue keeps the bytes in order
+exec.onStdout { data in output.async { channel.receive(bytes: data) } }
+exec.onStderr { data in output.async { channel.receiveError(bytes: data) } }
+exec.onClose { status in output.async { channel.finish(exitStatus: status) } }   // nil if unknown
+let connection = try await SDK.run {
+    try Connection.connectChannel(channel: channel, host: "dev@box", listener: events)
+}
+```
+
+```kotlin
+// Writes what the SDK sends to the SSH channel's stdin (sshj).
+class ExecWriter(private val command: Session.Command) : ChannelWriter {
+    override fun write(bytes: ByteArray) {
+        command.outputStream.write(bytes)
+        command.outputStream.flush()
+    }
+
+    override fun close() = command.close()
+}
+
+fun InputStream.forEachChunk(deliver: (ByteArray) -> Unit) {
+    val buffer = ByteArray(64 * 1024)
+    while (true) {
+        val read = read(buffer)
+        if (read < 0) return
+        deliver(buffer.copyOf(read))
+    }
+}
+
+val command = ssh.startSession().exec(bridgeCommand())
+val channel = BridgeChannel(ExecWriter(command))
+val errors = thread { command.errorStream.forEachChunk(channel::receiveError) }
+thread {
+    command.inputStream.forEachChunk(channel::receive)
+    errors.join()
+    command.join()
+    channel.finish(command.exitStatus)
+}
+val connection = withContext(sdk) { Connection.connectChannel(channel, "dev@box", events) }
+```
+
+- `receive` blocks while the SDK catches up. Call it in order from one
+  background thread or serial queue, never from the main thread or the SSH
+  library's event loop, and connect from another thread. `receiveError` may
+  come from any thread.
+- Call `finish` once the channel has closed, after the last `receive` and
+  `receiveError`. To give up before connecting, call `finish` directly rather
+  than through that queue; it releases a waiting `receive`.
+- The SDK calls `write` and `close` from its own thread. `write` may block
+  until the channel takes the bytes. `close` comes once, when the connection
+  ends or fails to start.
+- A `BridgeChannel` carries one connection. Open a new exec channel and
+  `BridgeChannel` for each attempt.
+- Login, host-key, and network failures happen in your SSH layer, before the
+  channel exists. If the bridge can't start, `connectChannel` throws
+  `Unreachable(reason)`, where `reason` says why, such as "Muxy isn't
+  installed on dev@box (looked on PATH and in ~/.local/bin)." Show it.
+- Reconnect as for a paired connection; see [Reconnecting](#reconnecting).
 
 ## Projects and sessions
 
@@ -776,6 +882,7 @@ files.writeText("notes.md", text)
   with backoff: 1 s, 2 s, 5 s, then every 10 s.
 - Stop retrying on `Unauthorized`, `IdentityMismatch`, `InvalidCredential`, and
   `IncompatibleVersion`. Only the user can fix those.
+- Over SSH, open a new exec channel for each attempt.
 - After reconnecting, attach again to the sessions the user had open, watch
   again, and read projects, sessions, activity, and what you show from Git and
   files again.
@@ -789,7 +896,7 @@ for each case.
 | --- | --- | --- | --- |
 | `InvalidLink` | The text isn't a Muxy pairing link | "This isn't a Muxy pairing code." | No |
 | `InvalidCredential` | The saved credential is damaged | "Pair this phone again." | No |
-| `Unreachable(reason)` | No address answered. The computer may be asleep or on another network, mobile access may be off, or a firewall or a declined local network permission blocked it | "Can't reach *serverName*. Check that it's awake and on the same network or VPN." | Yes |
+| `Unreachable(reason)` | No address answered. The computer may be asleep or on another network, mobile access may be off, or a firewall or a declined local network permission blocked it. Over SSH, the bridge didn't start | "Can't reach *serverName*. Check that it's awake and on the same network or VPN." Over SSH, show `reason` | Yes |
 | `IdentityMismatch` | A server with a different certificate answered | "This computer's identity changed. Pair again." | No |
 | `Unauthorized` | The phone was revoked, or while pairing, the code expired, was used, or was replaced | "This phone isn't paired anymore." or "Show a new code on your computer." | No |
 | `IncompatibleVersion` | The app's SDK and the server share no protocol version | "Update Muxy on your phone or computer." | No |
@@ -832,12 +939,12 @@ try {
 | What | Value |
 | --- | --- |
 | Default port | 7419, which the user can change |
-| Network | IPv4, on the local network or through a VPN |
+| Network | Paired: IPv4, on the local network, through a VPN, or at an address added to the pairing code. Over SSH: wherever the app's SSH client reaches |
 | Pairing code | Single use, 5 minutes, replaced by a newer code |
 | Addresses in a pairing code | Up to 8 |
 | Paired devices per computer | 64 |
 | Device name | Up to 64 bytes |
-| Connect timeout | 4 s per address |
+| Connect timeout | 4 s per address; over SSH, 15 s for the bridge to start |
 | Input per call | 1 MiB |
 | Scrollback page | 1–500 rows |
 | File read or write | 5 MiB |
@@ -854,6 +961,8 @@ try {
   computer.
 - Revoking a phone in Settings → Mobile closes its connection and invalidates
   its token at once.
+- Over SSH, the app acts as the SSH user, so the limits above for paired
+  phones don't apply. Never weaken your SSH layer's host-key checks.
 - The desktop withdraws its pairing code when Settings closes, and the CLI
   withdraws its code when `muxy mobile pair` exits.
 
@@ -876,9 +985,11 @@ target/debug/muxy mobile disable
   connections. Allow it.
 - The iOS Simulator and the Android Emulator reach the Mac through the LAN
   address in the pairing link.
+- For SSH, use any computer with Muxy installed and an SSH login. From a Mac,
+  `muxy --host you@computer project list` checks that the bridge works there.
 - `cargo test -p muxy-mobile` pairs, connects, attaches, types, scrolls back,
   sends taps and scrolling, works with Git and files, and revokes against a
-  real server.
+  real server. It also connects through a simulated SSH channel.
 
 ## Not in this version
 
@@ -886,4 +997,4 @@ target/debug/muxy mobile disable
 - Mouse drags and inline images
 - Push notifications
 - Finding computers automatically; pairing always starts from the QR code
-- IPv6, and access from outside the network without a VPN
+- IPv6

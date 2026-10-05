@@ -453,7 +453,12 @@ impl SettingsWindow {
             }
             SettingsEvent::ServerControl { restart } => {
                 let _ = self.model.update(cx, |model, cx| {
-                    model.confirm_server_control(*restart, window.window_handle(), cx);
+                    model.confirm_server_control(
+                        muxy_app_core::ServerId::local(),
+                        *restart,
+                        window.window_handle(),
+                        cx,
+                    );
                 });
             }
             SettingsEvent::ReadServer => {

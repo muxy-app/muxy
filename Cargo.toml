@@ -28,7 +28,7 @@ muxy-ui = ["muxy-core"]
 muxy-mobile = ["muxy-client", "muxy-protocol"]
 
 [workspace.metadata.architecture.allowed-dev-dependencies]
-muxy-app = ["muxy-terminal"]
+muxy-app = ["muxy-server", "muxy-terminal"]
 muxy-client = ["muxy-server"]
 muxy-cli = ["muxy-terminal"]
 muxy-mobile = ["muxy-server"]

@@ -166,6 +166,15 @@ pub enum RequestBody {
     AttachWithoutResize(#[n(0)] SessionId),
     #[n(40)]
     ClearScreen(#[n(0)] ChannelId),
+    #[n(41)]
+    StartPairingWithHosts(#[n(0)] Vec<String>),
+    /// The folders directly inside an absolute path on the server's
+    /// computer, for choosing a new project's folder there.
+    #[n(42)]
+    ListFolders(#[n(0)] ServerPath),
+    /// A piece of a file to keep on the server's computer for a session.
+    #[n(43)]
+    Upload(#[n(0)] crate::UploadChunk),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -273,6 +282,12 @@ pub enum ReplyBody {
     Pairing(#[n(0)] crate::PairingOffer),
     #[n(36)]
     ScreenCleared,
+    /// Folder names, sorted ignoring case.
+    #[n(37)]
+    Folders(#[n(0)] Vec<ServerPath>),
+    /// An upload chunk arrived; after the last one, the file's absolute path.
+    #[n(38)]
+    Uploaded(#[n(0)] Option<ServerPath>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

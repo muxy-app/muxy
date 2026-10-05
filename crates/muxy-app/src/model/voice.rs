@@ -4,13 +4,13 @@ use gpui::{
     AppContext, Context, Entity, Focusable, IntoElement, ParentElement, Styled, Subscription,
     Window, div,
 };
-use muxy_app_core::{PaneId, composer::DraftId};
+use muxy_app_core::{PaneId, ServerId, composer::DraftId};
 use muxy_protocol::{ChannelId, Modes};
 
 struct Target {
     project: DraftId,
     pane: PaneId,
-    channel: ChannelId,
+    attachment: (ServerId, ChannelId),
     generation: u64,
     modes: Modes,
 }
@@ -40,11 +40,12 @@ impl AppModel {
         }
         let target = self.active_pane().and_then(|pane| {
             let view = self.grids.get(&pane)?.view.read(cx);
+            let attachment = view.attachment()?;
             Some(Target {
                 project: self.composer_key(),
                 pane,
-                channel: view.channel()?,
-                generation: self.generation,
+                attachment,
+                generation: self.generation(attachment.0),
                 modes: view.grid.as_ref()?.modes,
             })
         });
@@ -108,12 +109,12 @@ impl AppModel {
     }
 
     fn voice_target_current(&self, target: &Target, cx: &gpui::App) -> bool {
-        self.generation == target.generation
+        self.generation(target.attachment.0) == target.generation
             && self.composer_key() == target.project
             && self
                 .grids
                 .get(&target.pane)
-                .is_some_and(|pane| pane.view.read(cx).channel() == Some(target.channel))
+                .is_some_and(|pane| pane.view.read(cx).attachment() == Some(target.attachment))
     }
 
     fn finish_voice(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -129,10 +130,17 @@ impl AppModel {
             bytes.push(b'\r');
         }
         self.close_voice(cx);
-        let worker = self.work.clone();
+        let (server, channel) = target.attachment;
+        let Some(worker) = self
+            .servers
+            .get(server)
+            .and_then(|runtime| runtime.work.clone())
+        else {
+            return;
+        };
         cx.spawn(async move |model, cx| {
             if let Err(error) =
-                super::composer::deliver(&worker, target.generation, target.channel, bytes).await
+                super::composer::deliver(&worker, target.generation, channel, bytes).await
             {
                 let _ = model.update(cx, |model, cx| {
                     model.set_banner_error(Some(format!("Dictation delivery failed: {error}")));

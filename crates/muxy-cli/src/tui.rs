@@ -2,6 +2,7 @@ use std::io;
 use std::sync::atomic::Ordering;
 
 use muxy_app_core::{Direction, PaneId};
+use muxy_client::{SshTarget, Start};
 use muxy_protocol::CursorShape;
 use ratatui::crossterm::{
     cursor,
@@ -10,6 +11,7 @@ use ratatui::crossterm::{
 };
 
 use crate::state::Result;
+use crate::target::Target;
 use crate::{
     input, render,
     terminal::{self, Host},
@@ -26,17 +28,28 @@ pub(crate) enum Overlay {
     Confirm(PaneId),
 }
 
-pub(crate) fn run() -> Result {
+/// Runs the TUI against this computer's server, or the one on `remote`.
+/// Another computer is reached before the terminal is taken over, so an
+/// unreachable host or a refused login reports to the shell.
+pub(crate) fn run(remote: Option<SshTarget>) -> Result {
     terminal::require_interactive().map_err(|error| error.to_string())?;
-    let profile = muxy_core::dirs::muxy_dir().map_err(|error| error.to_string())?;
+    let target = Target::new(remote).map_err(|error| error.to_string())?;
     let executable = muxy_core::executable::current_path().map_err(|error| error.to_string())?;
     let _lease = muxy_client::local::bundle::acquire_runtime(&executable)
         .map_err(|error| error.to_string())?;
+    let first = match target {
+        Target::Local { .. } => None,
+        Target::Ssh { .. } => Some(
+            target
+                .connect(Start::IfNeeded)
+                .map_err(|error| target.explain(error).to_string())?,
+        ),
+    };
     let mut host = Host::enter().map_err(|error| error.to_string())?;
     let viewport = host.terminal.size().map_err(|error| error.to_string())?;
     let worker = Worker::start(
-        profile,
-        muxy_client::local::server_executable().map_err(|error| error.to_string())?,
+        target,
+        first,
         ratatui::layout::Rect::new(0, 0, viewport.width, viewport.height),
     )?;
     let result = events(&mut host, &worker);

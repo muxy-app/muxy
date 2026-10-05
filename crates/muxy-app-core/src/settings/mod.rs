@@ -11,6 +11,7 @@ mod error;
 mod ghostty;
 mod keymap;
 mod quick_terminal;
+mod servers;
 mod worktrees;
 
 pub use worktrees::{
@@ -33,3 +34,4 @@ pub use ghostty::{
 };
 pub use keymap::Keymap;
 pub use quick_terminal::QuickTerminalSettings;
+pub use servers::ServerEntry;

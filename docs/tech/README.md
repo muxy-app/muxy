@@ -10,9 +10,13 @@ flowchart LR
         PHONE["Phone apps<br/>muxy-mobile SDK"]
     end
     SERVER["muxy-server<br/>Ghostty terminals · history · projects"]
+    REMOTE["muxy-server<br/>on another computer"]
     DESKTOP <-->|"Unix socket"| SERVER
     TUI <-->|"Unix socket"| SERVER
+    DESKTOP <-->|"SSH · muxy stdio"| REMOTE
+    TUI <-->|"SSH · muxy stdio"| REMOTE
     PHONE <-->|"TLS"| SERVER
+    PHONE <-->|"SSH · muxy stdio"| REMOTE
 ```
 
 The big ideas:

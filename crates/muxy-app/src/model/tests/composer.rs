@@ -92,7 +92,9 @@ fn shared_panel_header_preserves_composer_actions(cx: &mut TestAppContext) {
 fn composer_shortcut_focus_drafts_and_panel_modes(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
-    let project = state.add_project(std::env::temp_dir()).expect("project");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
     state.select_project(home).expect("select home");
     let (boot, _requests) = stub_boot(state);
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
@@ -167,9 +169,10 @@ fn attached_composer(
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1000.0), px(600.0)));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.receive(
             (
+                ServerId::local(),
                 1,
                 Update::Attached {
                     pane,
@@ -310,13 +313,14 @@ fn composer_broadcast_deduplicates_sessions_and_retains_partial_failure(cx: &mut
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         for (index, pane) in [first, second, third].into_iter().enumerate() {
             let mut attachment = attachment();
             attachment.channel =
                 muxy_protocol::ChannelId(u32::try_from(index + 1).expect("channel"));
             model.receive(
                 (
+                    ServerId::local(),
                     1,
                     Update::Attached {
                         pane,

@@ -166,6 +166,18 @@ impl Catalog {
         })
     }
 
+    /// Every session the catalog keeps, live or saved, except those being
+    /// discarded.
+    pub(crate) fn sessions(&self) -> std::collections::BTreeSet<SessionId> {
+        let state = self.lock();
+        state
+            .sessions
+            .keys()
+            .filter(|id| !state.discarding.contains(id))
+            .copied()
+            .collect()
+    }
+
     pub(crate) fn discarding(&self) -> Vec<SessionId> {
         let state = self.lock();
         state

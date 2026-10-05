@@ -1,15 +1,20 @@
 # Mobile
 
 Phones connect straight to `muxy-server` on the user's computer. There is no
-cloud service: the phone must be on the same network or reach the computer
-through a VPN such as Tailscale.
+cloud service. A phone connects in one of two ways:
+
+- **Paired, over TLS.** The phone reaches the computer on the same network,
+  through a VPN such as Tailscale, or at an address added to the pairing code.
+- **Over SSH**, with the phone app's own SSH client. It runs `muxy stdio` on
+  the computer, like `muxy --host` does, so no pairing or open port is needed.
 
 ```mermaid
 flowchart LR
     subgraph PHONE["Phone app · Swift or Kotlin"]
         VIEW["Screen and keyboard"] --> SDK["muxy-mobile<br/>Rust client library"]
     end
-    SDK <-->|"TLS 1.3 · pinned certificate"| SERVER["muxy-server<br/>network listener"]
+    SDK <-->|"TLS 1.3 · pinned certificate"| SERVER["muxy-server"]
+    SDK <-->|"SSH · muxy stdio<br/>through the app's SSH client"| SERVER
 ```
 
 ## Pairing
@@ -28,6 +33,10 @@ sequenceDiagram
     Phone->>Server: Later: connect with the token
 ```
 
+The computer lists its own addresses. One that phones reach by another name,
+such as a cloud server behind NAT, puts that name first with
+`muxy mobile pair --address`.
+
 ## Security
 
 - Mobile access is off until the user turns it on.
@@ -36,8 +45,10 @@ sequenceDiagram
 - Each phone has its own token and can be revoked at any time. Revoking closes
   its connection at once.
 - A connection that hasn't signed in gets nothing else from the server.
-- Phones can't manage mobile access, change server settings, stop the server,
-  or run extension commands.
+- Paired phones can't manage mobile access, change server settings, stop the
+  server, or run extension commands.
+- Over SSH, the phone logs in as the user and can do what that login can. Host
+  keys and credentials stay in the app's SSH client.
 
 ## The SDK
 

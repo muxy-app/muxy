@@ -135,7 +135,7 @@ mod tests {
                 muxy_app_core::settings::TerminalSettings::default(),
                 cx,
             );
-            pane.attach(attachment(), cx);
+            pane.attach(muxy_app_core::ServerId::local(), attachment(), cx);
             pane.focus.focus(window);
             window.activate_window();
             pane
@@ -249,7 +249,7 @@ mod tests {
         assert!(!pane.read_with(cx, |pane, _| pane.cursor_blink.visible));
         pane.update(cx, |pane, cx| {
             pane.metadata(MetadataEvent::CursorBlinking(false), cx);
-            pane.attach(attachment(), cx);
+            pane.attach(muxy_app_core::ServerId::local(), attachment(), cx);
         });
         cx.run_until_parked();
         tick(cx);
@@ -287,7 +287,7 @@ mod tests {
         let (pane, cx) = setup(cx);
         for reason in 0..5 {
             pane.update(cx, |pane, cx| {
-                pane.attach(attachment(), cx);
+                pane.attach(muxy_app_core::ServerId::local(), attachment(), cx);
                 pane.set_focused(true, cx);
                 pane.native_visible = true;
             });

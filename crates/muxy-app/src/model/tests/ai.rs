@@ -61,7 +61,7 @@ fn ai_actions_say_why_they_cannot_run(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         load(model, project, feature_changes(), cx);
         assert_eq!(
             describe(model.ai_availability(Action::Commit)),
@@ -153,7 +153,7 @@ fn confirmation_does_not_start_work_and_cancel_is_side_effect_free(cx: &mut Test
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.ai.installed = vec![PROVIDERS[0]];
         load(model, project, feature_changes(), cx);
     });
@@ -194,7 +194,7 @@ fn one_confirmation_starts_background_work_and_cannot_start_twice(cx: &mut TestA
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.ai.installed = vec![PROVIDERS[0]];
             load(model, project, feature_changes(), cx);
             model.open_ai_action(Action::Commit, window, cx);
@@ -239,7 +239,7 @@ fn confirming_a_stale_branch_does_not_start_work(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.ai.installed = vec![PROVIDERS[0]];
             load(model, project, feature_changes(), cx);
             model.open_ai_action(Action::Commit, window, cx);
@@ -287,7 +287,7 @@ fn provider_menu_allows_uninstalled_choices_and_project_prompt_save_reset(cx: &m
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.ai.installed = vec![PROVIDERS[0]];
             load(model, project, feature_changes(), cx);
             model.open_ai_provider_menu(Action::Commit, window, cx);
@@ -346,7 +346,7 @@ fn native_pr_confirmation_starts_only_the_pr_action(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.ai.installed = vec![PROVIDERS[0]];
             load(model, project, feature_changes(), cx);
             model.open_ai_action(Action::CreatePullRequest, window, cx);
@@ -393,7 +393,7 @@ fn switching_projects_cancels_an_unconfirmed_action(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.ai.installed = vec![PROVIDERS[0]];
             load(model, project, feature_changes(), cx);
             model.open_ai_action(Action::Commit, window, cx);
@@ -425,7 +425,7 @@ fn provider_menu_keyboard_selects_auto_and_editor_cancel_preserves_prompt(cx: &m
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.update(|window, cx| {
         view.update(cx, |model, cx| {
-            model.connection = ConnectionState::Ready;
+            model.servers.local.connection = ConnectionState::Ready;
             model.ai.installed = vec![PROVIDERS[0]];
             load(model, project, feature_changes(), cx);
             model.set_ai_provider(Action::Commit, "codex", cx);
@@ -477,14 +477,17 @@ fn project_prompt_is_shared_by_worktrees_but_not_other_projects(cx: &mut TestApp
         .collect();
     projects.push(child);
     state
-        .apply_catalog(&muxy_protocol::CatalogPage {
-            server: muxy_protocol::ServerIdentity::from_u128(1),
-            home: state.home().id,
-            revision: state.catalog_revision() + 1,
-            projects,
-            next: None,
-            legacy_home: None,
-        })
+        .apply_catalog(
+            ServerId::local(),
+            &muxy_protocol::CatalogPage {
+                server: muxy_protocol::ServerIdentity::from_u128(1),
+                home: state.home().id,
+                revision: state.catalog_revision(ServerId::local()) + 1,
+                projects,
+                next: None,
+                legacy_home: None,
+            },
+        )
         .unwrap();
     let other = state
         .projects()

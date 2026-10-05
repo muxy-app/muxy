@@ -1,4 +1,5 @@
-//! Shared protocol contracts, screen types, framing, and local and TLS transports.
+//! Shared protocol contracts, screen types, framing, and local, TLS, and
+//! child-process transports.
 //!
 //! Client and server runtime policy, persistence, UI, and native terminal
 //! execution stay with their owners.
@@ -57,7 +58,7 @@ mod remote;
 pub use remote::{
     DEFAULT_REMOTE_PORT, DeviceCredential, ListenerStatus, MAX_DEVICE_NAME, MAX_DEVICES,
     MAX_PAIRING_HOSTS, PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer,
-    RemoteAccessSettings, RemoteAccessState, validate_device_name,
+    RemoteAccessSettings, RemoteAccessState, validate_device_name, validate_pairing_hosts,
 };
 
 pub mod wire;
@@ -83,4 +84,10 @@ mod files;
 pub use files::{
     FileBytes, FileChanges, FileContent, FileEntry, FileInfo, FilesAction, FilesReply,
     FilesRequest, MAX_FILE_BYTES, MAX_FILE_CHANGES, MAX_FILE_ENTRIES, MAX_FILE_PATH_BYTES,
+    validate_folder_names, validate_folder_path,
+};
+
+mod upload;
+pub use upload::{
+    MAX_UPLOAD_BYTES, MAX_UPLOAD_CHUNK, MAX_UPLOAD_NAME, UploadChunk, validate_uploaded,
 };

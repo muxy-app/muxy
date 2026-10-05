@@ -1,4 +1,4 @@
-use muxy_app_core::{AppState, Axis, Branch, Direction, Layout, PaneId, restore};
+use muxy_app_core::{AppState, Axis, Branch, Direction, Layout, PaneId, ServerId, restore};
 use muxy_protocol::{ServerPath, SessionId, SessionInfo};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -127,6 +127,7 @@ fn restore_accounts_for_each_leaf_even_when_zoomed() -> Result {
     state.toggle_zoom(third)?;
     let plan = restore::plan(
         &state,
+        ServerId::local(),
         &[SessionInfo {
             project: state.home().id,
             id: live,
@@ -204,7 +205,7 @@ fn closing_tabs_in_a_missing_project_keeps_saved_window_state_loadable() -> Resu
     let mut state = AppState::bootstrap()?;
     let directory = std::env::temp_dir().join(format!("muxy-missing-{}", PaneId::new()));
     std::fs::create_dir(&directory)?;
-    let project = state.add_project(directory.clone())?;
+    let project = state.add_project(ServerId::local(), directory.clone())?;
     let first = state.open_terminal_tab(project)?;
     let second = state.open_terminal_tab(project)?;
     state.select_tab(project, first)?;

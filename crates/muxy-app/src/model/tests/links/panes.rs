@@ -365,11 +365,12 @@ fn terminal_menu_close_checks_only_the_clicked_pane_and_can_be_cancelled(cx: &mu
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1000.0), px(700.0)));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         for (pane, channel) in [(first, 1), (second, 2)] {
             let mut attached = attachment();
             attached.channel = ChannelId(channel);
             model.receive_attached(
+                ServerId::local(),
                 pane,
                 model.pane_session(pane).expect("session"),
                 attached,
@@ -407,6 +408,6 @@ fn terminal_menu_close_checks_only_the_clicked_pane_and_can_be_cancelled(cx: &mu
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.home().tabs[0].layout.leaves(), [first, second]);
-        assert!(model.state.pending_discards().is_empty());
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
     });
 }

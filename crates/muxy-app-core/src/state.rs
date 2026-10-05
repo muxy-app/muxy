@@ -1,21 +1,23 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 use muxy_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 
+use crate::servers::ServerState;
 use crate::{
     AppError, Branch, Color, Direction, PROJECT_COLORS, Pane, PaneContent, PaneId, Project,
     ProjectId, ProjectStatus, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
 };
 
+/// The layout this build writes. Versions 1 and 2 kept one server's catalog
+/// and pending work at the top level; version 3 keeps them per server.
+pub(crate) const VERSION: u32 = 3;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "StoredState")]
 pub struct AppState {
-    pub(crate) pending_cancellations: Vec<muxy_protocol::OperationId>,
-    pub(crate) catalog_server: Option<muxy_protocol::ServerIdentity>,
-    pub(crate) catalog_revision: u64,
-    pub(crate) project_intents: Vec<muxy_protocol::ProjectIntent>,
+    pub(crate) servers: BTreeMap<ServerId, ServerState>,
     pub(crate) starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) startup_commands: BTreeMap<PaneId, String>,
@@ -26,21 +28,12 @@ pub struct AppState {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) workspaces: Vec<Workspace>,
     pub(crate) window: WindowState,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) pending_discards: Vec<SessionId>,
-    pub(crate) close_operations: BTreeMap<SessionId, muxy_protocol::OperationId>,
 }
 
 #[derive(Deserialize)]
 struct StoredState {
     #[serde(default)]
-    pending_cancellations: Vec<muxy_protocol::OperationId>,
-    #[serde(default)]
-    catalog_server: Option<muxy_protocol::ServerIdentity>,
-    #[serde(default)]
-    catalog_revision: u64,
-    #[serde(default)]
-    project_intents: Vec<muxy_protocol::ProjectIntent>,
+    servers: BTreeMap<ServerId, ServerState>,
     #[serde(default)]
     starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
     #[serde(default)]
@@ -52,6 +45,15 @@ struct StoredState {
     #[serde(default)]
     workspaces: Vec<Workspace>,
     window: WindowState,
+    /// Versions 1 and 2 kept the local server's state here, at the top level.
+    #[serde(default)]
+    catalog_server: Option<muxy_protocol::ServerIdentity>,
+    #[serde(default)]
+    catalog_revision: u64,
+    #[serde(default)]
+    project_intents: Vec<muxy_protocol::ProjectIntent>,
+    #[serde(default)]
+    pending_cancellations: Vec<muxy_protocol::OperationId>,
     #[serde(default)]
     pending_discards: Vec<SessionId>,
     #[serde(default)]
@@ -62,23 +64,33 @@ impl TryFrom<StoredState> for AppState {
     type Error = AppError;
 
     fn try_from(stored: StoredState) -> Result<Self, Self::Error> {
-        if ![1, 2].contains(&stored.version) {
+        if !(1..=VERSION).contains(&stored.version) {
             return Err(AppError::UnsupportedVersion(stored.version));
         }
+        let servers = if stored.version < 3 {
+            BTreeMap::from([(
+                ServerId::local(),
+                ServerState {
+                    identity: stored.catalog_server,
+                    catalog_revision: stored.catalog_revision,
+                    project_intents: stored.project_intents,
+                    pending_cancellations: stored.pending_cancellations,
+                    pending_discards: stored.pending_discards,
+                    close_operations: stored.close_operations,
+                },
+            )])
+        } else {
+            stored.servers
+        };
         let mut state = Self {
-            pending_cancellations: stored.pending_cancellations,
-            catalog_server: stored.catalog_server,
-            catalog_revision: stored.catalog_revision,
-            project_intents: stored.project_intents,
+            servers,
             starting_directories: stored.starting_directories,
             startup_commands: stored.startup_commands,
             quick_terminal: stored.quick_terminal,
-            version: 2,
+            version: VERSION,
             projects: stored.projects,
             workspaces: stored.workspaces,
             window: stored.window,
-            pending_discards: stored.pending_discards,
-            close_operations: stored.close_operations,
         };
         let previous_project = state.window.current_project;
         let previous_tab = state.window.selected_tab.get(&previous_project).copied();
@@ -177,52 +189,9 @@ impl AppState {
             },
             ..
         }) = self.quick_terminal.take()
-            && !self.session_references().contains(&session)
         {
-            self.queue_discard(session);
+            self.discard_unreferenced(ServerId::local(), session);
         }
-    }
-    pub fn pending_discards(&self) -> &[SessionId] {
-        &self.pending_discards
-    }
-
-    pub fn session_references(&self) -> Vec<SessionId> {
-        self.projects
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.quick_terminal())
-            .filter_map(|pane| match pane.content {
-                PaneContent::Terminal { session } => session,
-                PaneContent::Settings | PaneContent::Webview(_) => None,
-            })
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect()
-    }
-
-    pub fn prepare_closes(&mut self) {
-        self.close_operations
-            .retain(|session, _| self.pending_discards.contains(session));
-        for session in &self.pending_discards {
-            self.close_operations.entry(*session).or_default();
-        }
-    }
-
-    pub fn close_operation(&self, session: SessionId) -> Option<muxy_protocol::OperationId> {
-        self.close_operations.get(&session).copied()
-    }
-
-    pub fn queue_discard(&mut self, session: SessionId) {
-        self.close_operations.entry(session).or_default();
-        if !self.pending_discards.contains(&session) {
-            self.pending_discards.push(session);
-        }
-    }
-
-    pub fn complete_discard(&mut self, session: SessionId) {
-        self.close_operations.remove(&session);
-        self.pending_discards.retain(|pending| *pending != session);
     }
 
     pub fn version(&self) -> u32 {
@@ -256,6 +225,32 @@ impl AppState {
         }
     }
 
+    /// Another computer's server says whether the project's folder is there.
+    /// This computer's projects are checked on disk instead.
+    pub fn set_remote_project_status(
+        &mut self,
+        project: ProjectId,
+        status: ProjectStatus,
+    ) -> Result<(), AppError> {
+        let project = self.project_mut(project)?;
+        if project.server_id.is_local() {
+            return Err(AppError::InvalidState(
+                "this computer's projects are checked on disk".into(),
+            ));
+        }
+        project.status = status;
+        Ok(())
+    }
+
+    /// An offline server's projects are available: nothing says otherwise.
+    pub fn forget_remote_statuses(&mut self, server: ServerId) {
+        for project in &mut self.projects {
+            if project.server_id == server && !server.is_local() {
+                project.status = ProjectStatus::Available;
+            }
+        }
+    }
+
     pub fn select_project(&mut self, id: ProjectId) -> Result<(), AppError> {
         self.project_mut(id)?.require_available()?;
         self.window.current_project = id;
@@ -263,10 +258,25 @@ impl AppState {
         Ok(())
     }
 
-    pub fn add_project(&mut self, directory: PathBuf) -> Result<ProjectId, AppError> {
-        if !directory.is_absolute() || !directory.is_dir() {
+    /// A remote server checks the folder itself when it creates the project.
+    pub fn add_project(
+        &mut self,
+        server: ServerId,
+        directory: PathBuf,
+    ) -> Result<ProjectId, AppError> {
+        if server.is_local() && !(directory.is_absolute() && directory.is_dir()) {
             return Err(AppError::InvalidState(
                 "project path must be an existing absolute directory".into(),
+            ));
+        }
+        if !directory.is_absolute() {
+            return Err(AppError::InvalidState(
+                "project path must be absolute".into(),
+            ));
+        }
+        if self.server_home(server).is_none() {
+            return Err(AppError::InvalidState(
+                "connect to the server before adding projects to it".into(),
             ));
         }
         let id = ProjectId::new();
@@ -284,14 +294,17 @@ impl AppState {
             icon: None,
             logo: None,
             color,
-            server_id: ServerId::local(),
+            server_id: server,
             directory,
             kind: None,
             parent_id: None,
             tabs: Vec::new(),
             status: ProjectStatus::Available,
         };
-        self.queue_project(muxy_protocol::ProjectMutation::Create(project.descriptor()))?;
+        self.queue_project(
+            server,
+            muxy_protocol::ProjectMutation::Create(project.descriptor()),
+        )?;
         self.projects.push(project);
         self.join_active_workspace(id);
         self.window.current_project = id;
@@ -347,7 +360,12 @@ impl AppState {
     pub fn move_project(&mut self, id: ProjectId, to: usize) -> Result<(), AppError> {
         let project = self.project_mut(id)?;
         project.require_available()?;
-        if project.home || to == 0 || to >= self.projects.len() {
+        let (home, server) = (project.home, project.server_id);
+        let server_home = self
+            .projects
+            .iter()
+            .position(|candidate| candidate.home && candidate.server_id == server);
+        if home || to >= self.projects.len() || server_home.is_none_or(|index| to <= index) {
             return Err(AppError::InvalidState(
                 "Home stays first; project destination must be in range".into(),
             ));
@@ -379,7 +397,8 @@ impl AppState {
         if self.projects[index].home {
             return Err(AppError::InvalidState("Home cannot be removed".into()));
         }
-        self.queue_project(mutation)?;
+        let server = self.projects[index].server_id;
+        self.queue_project(server, mutation)?;
         let project = self.projects.remove(index);
         self.retain_workspace_members();
         self.window.selected_tab.remove(&id);
@@ -541,38 +560,46 @@ impl AppState {
         self.remove_pane(pane)
     }
 
-    pub fn close_session_panes(&mut self, session: SessionId) -> Result<(), AppError> {
-        let panes: Vec<_> = self.projects.iter().flat_map(|project| &project.tabs)
+    pub fn close_session_panes(
+        &mut self,
+        server: ServerId,
+        session: SessionId,
+    ) -> Result<(), AppError> {
+        let panes: Vec<_> = self.projects.iter().filter(|project| project.server_id == server)
+            .flat_map(|project| &project.tabs)
             .flat_map(|tab| &tab.panes)
             .filter(|pane| matches!(pane.content, PaneContent::Terminal { session: Some(id) } if id == session))
             .map(|pane| pane.id).collect();
         for pane in panes {
             self.remove_pane(pane)?;
         }
-        if !self.session_references().contains(&session) {
-            self.queue_discard(session);
-        }
+        self.discard_unreferenced(server, session);
         Ok(())
     }
 
     pub fn close_session_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+        let server = self.pane_server(pane).ok_or(AppError::UnknownPane(pane))?;
         let content = self.pane_mut(pane)?.content.clone();
         self.remove_pane(pane)?;
         if let PaneContent::Terminal {
             session: Some(session),
         } = content
-            && !self.session_references().contains(&session)
         {
-            self.queue_discard(session);
+            self.discard_unreferenced(server, session);
         }
         Ok(())
     }
 
-    pub fn clear_terminal_panes(&mut self) -> Result<(), AppError> {
-        self.close_quick_terminal();
+    /// Closes `server`'s terminal panes, and the Quick Terminal for this
+    /// computer's server.
+    pub fn clear_terminal_panes(&mut self, server: ServerId) -> Result<(), AppError> {
+        if server.is_local() {
+            self.close_quick_terminal();
+        }
         let terminals: Vec<_> = self
             .projects
             .iter()
+            .filter(|project| project.server_id == server)
             .flat_map(|project| &project.tabs)
             .flat_map(|tab| &tab.panes)
             .filter(|pane| matches!(pane.content, PaneContent::Terminal { .. }))
@@ -898,14 +925,16 @@ impl AppState {
     }
 
     pub(crate) fn validate(&self) -> Result<(), AppError> {
-        if self.projects.first().is_none_or(|project| !project.home)
-            || self.projects.iter().filter(|project| project.home).count() != 1
+        let home_first = || AppError::InvalidState("exactly one Home project must be first".into());
+        if self
+            .projects
+            .first()
+            .is_none_or(|project| !project.home || !project.server_id.is_local())
         {
-            return Err(AppError::InvalidState(
-                "exactly one Home project must be first".into(),
-            ));
+            return Err(home_first());
         }
         let mut projects = HashSet::new();
+        let mut servers = HashSet::new();
         for project in &self.projects {
             if !projects.insert(project.id) {
                 return Err(AppError::InvalidState(format!(
@@ -913,10 +942,9 @@ impl AppState {
                     project.id
                 )));
             }
-            if project.server_id != ServerId::local() {
-                return Err(AppError::InvalidState(
-                    "only projects on the current device are supported".into(),
-                ));
+            let first_of_its_server = servers.insert(project.server_id);
+            if first_of_its_server != project.home {
+                return Err(home_first());
             }
             project
                 .descriptor()

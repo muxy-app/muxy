@@ -26,21 +26,29 @@ impl AppModel {
         event(
             "model.state",
             format_args!(
-                "generation={} connection={:?} quitting={:?} project={:?} tab={:?} active={:?} pending={:?} discarding={} intents={} restore={} replacing={} panels={}",
-                self.generation,
-                self.connection,
+                "quitting={:?} project={:?} tab={:?} active={:?} pending={:?} replacing={} panels={}",
                 self.quitting,
                 self.state.current_project().id,
                 self.active_tab(),
                 self.active_pane(),
                 self.pending,
-                self.discarding.len(),
-                self.state.project_intents().len(),
-                self.catalog.restore.is_some(),
                 self.updates.replacing(),
                 self.webviews.panels.len(),
             ),
         );
+        for (server, runtime) in self.servers.iter() {
+            event(
+                "server.state",
+                format_args!(
+                    "server={server} generation={} connection={:?} discarding={} intents={} restore={}",
+                    runtime.generation,
+                    runtime.connection,
+                    runtime.discarding.len(),
+                    self.state.project_intents(server).len(),
+                    runtime.catalog.restore.is_some(),
+                ),
+            );
+        }
         for id in self.attached_panes() {
             let pane = self.terminal(&id).map(|pane| pane.view.read(cx));
             event(

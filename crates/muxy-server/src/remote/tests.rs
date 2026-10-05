@@ -37,7 +37,7 @@ fn server() -> ServerIdentity {
 
 /// Starts pairing, falling back to a fixed offer where the machine has no network.
 fn offer(remote: &RemoteAccess, owner: ClientId) -> [u8; 16] {
-    if let Ok(offer) = remote.start_pairing(owner) {
+    if let Ok(offer) = remote.start_pairing(owner, &[]) {
         return offer.invite.secret;
     }
     let secret = [9; 16];
@@ -156,9 +156,18 @@ fn revoked_devices_are_no_longer_authorized() -> Result<(), ServerError> {
 }
 
 #[test]
+fn given_addresses_lead_the_pairing_link_even_without_a_network() -> Result<(), ServerError> {
+    let remote = enabled()?;
+    let offer = remote.start_pairing(ClientId::new(), &["box.example.com".into()])?;
+    assert_eq!(offer.invite.hosts[0], "box.example.com");
+    assert_eq!(offer.invite.validate(), Ok(()));
+    Ok(())
+}
+
+#[test]
 fn pairing_needs_access_on_and_listening() -> Result<(), ServerError> {
     let remote = RemoteAccess::memory();
-    assert!(remote.start_pairing(ClientId::new()).is_err());
+    assert!(remote.start_pairing(ClientId::new(), &[]).is_err());
     remote.configure(RemoteAccessSettings {
         enabled: true,
         port: 7419,
@@ -167,7 +176,7 @@ fn pairing_needs_access_on_and_listening() -> Result<(), ServerError> {
         remote.state(&HashSet::new()).status,
         ListenerStatus::Failed(_)
     ));
-    assert!(remote.start_pairing(ClientId::new()).is_err());
+    assert!(remote.start_pairing(ClientId::new(), &[]).is_err());
     Ok(())
 }
 
@@ -225,7 +234,7 @@ fn pairing_is_refused_once_the_device_limit_is_reached() -> Result<(), ServerErr
         })
         .collect();
     let error = remote
-        .start_pairing(ClientId::new())
+        .start_pairing(ClientId::new(), &[])
         .err()
         .ok_or_else(|| unavailable("pairing started"))?;
     assert!(error.message().contains("Revoke"), "{error}");

@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::Read;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-use muxy_app_core::{AppError, AppState, PaneId, ProjectId, TabId, WindowBounds, store};
+use muxy_app_core::{AppError, AppState, PaneId, ProjectId, ServerId, TabId, WindowBounds, store};
 use muxy_protocol::SessionId;
 use serde_json::{Value, json};
 
@@ -74,7 +76,7 @@ fn saved_json_is_readable_and_round_trips_every_field() -> TestResult {
     let state = populated()?;
     store::save(fixture.path(), &state)?;
     let bytes = fs::read_to_string(fixture.path())?;
-    assert!(bytes.contains("\n  \"version\": 2,"));
+    assert!(bytes.contains("\n  \"version\": 3,"));
     assert!(bytes.ends_with('\n'));
     assert_eq!(
         serde_json::from_str::<Value>(&bytes)?,
@@ -197,7 +199,7 @@ fn malformed_domain_state_is_rejected_with_the_path() -> TestResult {
     let fixture = Fixture::new()?;
     let valid = serde_json::to_value(populated()?)?;
     let mut invalid_states = Vec::new();
-    for version in [0, 3] {
+    for version in [0, 4] {
         let mut value = valid.clone();
         value["version"] = json!(version);
         invalid_states.push(value);
@@ -319,5 +321,77 @@ fn overlapping_save_preserves_the_active_writer_and_previous_state() -> TestResu
     drop(active_writer);
     store::save(fixture.path(), &state)?;
     assert_eq!(store::load(fixture.path())?, state);
+    Ok(())
+}
+
+#[test]
+fn older_files_keep_everything_and_move_server_state_to_the_local_entry() -> TestResult {
+    let fixture = Fixture::new()?;
+    for version in [1, 2] {
+        let mut legacy: Value =
+            serde_json::from_str(include_str!("fixtures/desktop-state-v2.json"))?;
+        legacy["version"] = json!(version);
+        fixture.write(&legacy)?;
+        let state = store::load(fixture.path())?;
+        assert_eq!(state.version(), 3);
+        store::save(fixture.path(), &state)?;
+        let saved: Value = serde_json::from_slice(&fs::read(fixture.path())?)?;
+
+        let keys: BTreeSet<_> = saved
+            .as_object()
+            .ok_or("state object")?
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            BTreeSet::from([
+                "projects",
+                "quick_terminal",
+                "servers",
+                "starting_directories",
+                "startup_commands",
+                "version",
+                "window",
+                "workspaces",
+            ])
+        );
+        assert_eq!(saved["version"], 3);
+        let servers = saved["servers"].as_object().ok_or("servers")?;
+        assert_eq!(servers.len(), 1);
+        let local = &servers[&ServerId::local().to_string()];
+        for (old, new) in [
+            ("catalog_server", "identity"),
+            ("catalog_revision", "catalog_revision"),
+            ("project_intents", "project_intents"),
+            ("pending_cancellations", "pending_cancellations"),
+            ("pending_discards", "pending_discards"),
+            ("close_operations", "close_operations"),
+        ] {
+            assert!(!legacy[old].is_null() && legacy[old] != json!([]) && legacy[old] != json!({}));
+            assert_eq!(local[new], legacy[old], "{old}");
+        }
+        let mut expected = legacy.clone();
+        let home = std::env::home_dir().ok_or("home directory")?;
+        expected["projects"][0]["directory"] = json!(home.as_os_str().as_bytes());
+        for key in [
+            "projects",
+            "quick_terminal",
+            "starting_directories",
+            "startup_commands",
+            "window",
+            "workspaces",
+        ] {
+            assert_eq!(saved[key], expected[key], "{key}");
+        }
+
+        let reloaded = store::load(fixture.path())?;
+        assert_eq!(reloaded, state);
+        store::save(fixture.path(), &reloaded)?;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(fixture.path())?)?,
+            saved
+        );
+    }
     Ok(())
 }

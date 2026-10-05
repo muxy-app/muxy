@@ -1,4 +1,4 @@
-use muxy_app_core::AppState;
+use muxy_app_core::{AppState, ServerId};
 use muxy_protocol::SessionId;
 
 #[test]
@@ -17,7 +17,7 @@ fn quick_terminal_is_lazy_persistent_and_does_not_own_workspace_tabs()
     state.close_quick_terminal();
     assert!(state.quick_terminal().is_none());
     assert_eq!(
-        state.pending_discards(),
+        state.pending_discards(ServerId::local()),
         &[SessionId::new(99).ok_or("session")?]
     );
     Ok(())

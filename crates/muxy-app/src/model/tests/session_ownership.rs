@@ -45,7 +45,7 @@ fn existing_modal_filters_attached_sessions_preserves_owner_search_and_opens_one
         session(project, 4, false, Some(owner)),
     ];
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.receive_session_page(project, Ok(page(5, entries.clone())), cx);
         assert_eq!(model.existing_terminal_count(), 2);
     });
@@ -127,10 +127,18 @@ fn session_availability_coalesces_refreshes_and_retries_changes_during_a_fetch(
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.connection = ConnectionState::Ready;
+        model.servers.local.connection = ConnectionState::Ready;
         model.refresh_existing_sessions(cx);
-        model.receive_event(ClientEvent::SessionsChanged { revision: 5 }, cx);
-        model.receive_event(ClientEvent::SessionsChanged { revision: 6 }, cx);
+        model.receive_event(
+            ServerId::local(),
+            ClientEvent::SessionsChanged { revision: 5 },
+            cx,
+        );
+        model.receive_event(
+            ServerId::local(),
+            ClientEvent::SessionsChanged { revision: 6 },
+            cx,
+        );
         assert_eq!(
             requests
                 .try_iter()
@@ -162,7 +170,7 @@ fn session_availability_coalesces_refreshes_and_retries_changes_during_a_fetch(
             cx,
         );
         assert_eq!(model.existing_terminal_count(), 0);
-        model.disconnect(cx);
+        model.disconnect(ServerId::local(), cx);
         assert_eq!(model.existing_terminal_count(), 0);
     });
 }

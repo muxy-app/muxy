@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
@@ -40,6 +40,7 @@ pub struct Registry {
     pub(crate) catalog: Arc<crate::catalog::Catalog>,
     pub(crate) git: crate::git::Git,
     pub(crate) files: crate::files::Files,
+    uploads: crate::uploads::Uploads,
     pub(crate) operations: Mutex<()>,
     connections: Mutex<Vec<Weak<crate::connection::Outbox>>>,
     pub(crate) attachment_changes: Arc<AtomicU64>,
@@ -62,6 +63,7 @@ impl Registry {
             operations: Mutex::new(()),
             git: crate::git::Git::default(),
             files: crate::files::Files::default(),
+            uploads: crate::uploads::Uploads::system(),
             connections: Mutex::default(),
             attachment_changes: Arc::default(),
             archive: Archive::memory(settings.history_budget_bytes),
@@ -249,6 +251,25 @@ impl Registry {
             self.catalog.finish_deletions()?;
         }
         Ok(())
+    }
+
+    /// Keeps uploads in `directory` instead of the system's temporary folder.
+    #[must_use]
+    pub fn with_uploads(mut self, directory: PathBuf) -> Self {
+        self.uploads = crate::uploads::Uploads::in_directory(directory);
+        self
+    }
+
+    /// Keeps a piece of a file sent for a live or saved session; after the
+    /// last piece, the file's absolute path.
+    pub fn upload(
+        &self,
+        chunk: &muxy_protocol::UploadChunk,
+    ) -> Result<Option<ServerPath>, ServerError> {
+        if !self.catalog.sessions().contains(&chunk.session) {
+            return Err(ServerError::unknown_session(chunk.session));
+        }
+        self.uploads.receive(chunk)
     }
 
     #[must_use]
