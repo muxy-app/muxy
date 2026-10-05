@@ -13,6 +13,7 @@ use muxy_client::{Client, SshTarget};
 pub(super) type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub(super) struct FakeRemote {
+    /// Under `/tmp`, so the server's socket path is short enough.
     directory: tempfile::TempDir,
 }
 
@@ -25,7 +26,6 @@ impl FakeRemote {
     /// Runs `script` in the fake ssh before the remote command, to print
     /// noise, change PATH, or fail the way ssh does.
     pub(super) fn with_script(script: &str) -> Result<Self> {
-        // Short, so the server's socket path fits.
         let directory = tempfile::Builder::new()
             .prefix("muxy-ssh-")
             .tempdir_in("/tmp")?;

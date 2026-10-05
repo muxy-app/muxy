@@ -123,11 +123,11 @@ fn keep(partial: &Path, folder: &Path, name: &str) -> Result<PathBuf, ServerErro
 }
 
 /// Moves the partial file to `path`, unless something already has that name.
+/// Some file systems can't refuse to replace a file; a hard link can.
 fn take_name(partial: &Path, path: &Path) -> io::Result<()> {
     use rustix::fs::{CWD, RenameFlags, renameat_with};
     use rustix::io::Errno;
     match renameat_with(CWD, partial, CWD, path, RenameFlags::NOREPLACE) {
-        // Some file systems can't refuse to replace a file; a hard link can.
         Err(Errno::INVAL | Errno::NOSYS | Errno::NOTSUP) => {
             fs::hard_link(partial, path)?;
             fs::remove_file(partial)
@@ -282,12 +282,12 @@ mod tests {
         assert!(system.directory.starts_with(std::env::temp_dir()));
         let (root, uploads) = uploads();
         fs::create_dir_all(&root).unwrap();
-        // Someone could create the name first in a shared temporary folder.
         std::os::unix::fs::symlink(std::env::temp_dir(), root.join("uploads")).unwrap();
         assert!(
             uploads
                 .receive(&chunk(OperationId::new(), 0, b"x", true))
-                .is_err()
+                .is_err(),
+            "a name someone else made first in the shared folder is refused"
         );
         fs::remove_file(root.join("uploads")).unwrap();
         fs::write(root.join("uploads"), "").unwrap();

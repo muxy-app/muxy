@@ -29,14 +29,14 @@ pub(crate) enum Overlay {
 }
 
 /// Runs the TUI against this computer's server, or the one on `remote`.
+/// Another computer is reached before the terminal is taken over, so an
+/// unreachable host or a refused login reports to the shell.
 pub(crate) fn run(remote: Option<SshTarget>) -> Result {
     terminal::require_interactive().map_err(|error| error.to_string())?;
     let target = Target::new(remote).map_err(|error| error.to_string())?;
     let executable = muxy_core::executable::current_path().map_err(|error| error.to_string())?;
     let _lease = muxy_client::local::bundle::acquire_runtime(&executable)
         .map_err(|error| error.to_string())?;
-    // Another computer is reached before the terminal is taken over, so an
-    // unreachable host or a refused login reports to the shell.
     let first = match target {
         Target::Local { .. } => None,
         Target::Ssh { .. } => Some(

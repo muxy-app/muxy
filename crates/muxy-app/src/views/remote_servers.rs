@@ -133,10 +133,6 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
                 .justify_center()
                 .size(m.scaled(34.0))
         })
-        // A resting background, like the sidebar's other controls, keeps the
-        // label and the chevron together as one button. It sits in the
-        // window's corner, so its corner follows the window's: about 16 pt,
-        // less the 6 pt gap.
         .rounded(m.radius_xl())
         .bg(if open { theme.hover } else { theme.surface })
         .text_color(if open { theme.fg } else { theme.fg_muted })

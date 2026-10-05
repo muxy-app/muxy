@@ -31,8 +31,6 @@ fn select(
             let canonical = path.canonicalize().ok();
             (path, canonical)
         }
-        // Another computer's folders can't be resolved here; only the exact
-        // path matches.
         Paths::Remote => (PathBuf::from(selector), None),
     };
     let mut matches = projects.into_iter().filter(|project| {
@@ -71,7 +69,6 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
         ),
         Project::Add { directory, name } => {
             let mut directory = paths.directory(&directory)?;
-            // Another computer's server checks its own folders.
             if paths == Paths::Local {
                 directory = directory.canonicalize()?;
                 if !directory.is_dir() {

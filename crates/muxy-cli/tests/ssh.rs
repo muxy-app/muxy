@@ -156,7 +156,6 @@ fn dropping_the_client_ends_ssh_and_its_bridge_but_not_the_server() -> Result {
     let ssh = fs::read_to_string(remote.home().join("ssh.pid"))?;
 
     drop(client);
-    // Killed and reaped, so nothing answers to its process ID.
     let signalled = Command::new("kill")
         .args(["-0", ssh.trim()])
         .stderr(Stdio::null())
@@ -388,7 +387,6 @@ fn a_pairing_code_from_another_computer_lists_the_given_address_first() -> Resul
         .map_err(|code| format!("invalid link {link}: {code:?}"))?;
     assert_eq!(invite.hosts[0], "box.example.com", "{link}");
 
-    // The fake remote is this computer, so the phone reaches it on loopback.
     invite.hosts = vec!["127.0.0.1".into()];
     let (_phone, _) = Client::pair(&invite, "Test phone")?;
     let status = pairing.wait()?;

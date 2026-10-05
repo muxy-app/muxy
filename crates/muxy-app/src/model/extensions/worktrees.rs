@@ -67,7 +67,6 @@ pub(super) async fn call(client: &Client, call: &Call, local: bool) -> Result<Va
         return Ok(json!({"count":worktrees.len()}));
     }
     let requested = api::text(&call.args, "path")?;
-    // `~` is the Home of the computer the server runs on.
     let home = catalog
         .projects
         .iter()

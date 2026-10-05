@@ -45,7 +45,7 @@ struct StoredState {
     #[serde(default)]
     workspaces: Vec<Workspace>,
     window: WindowState,
-    // Versions 1 and 2: the local server's state, at the top level.
+    /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
     catalog_server: Option<muxy_protocol::ServerIdentity>,
     #[serde(default)]
@@ -942,8 +942,8 @@ impl AppState {
                     project.id
                 )));
             }
-            // Each server's projects start with its one Home.
-            if servers.insert(project.server_id) != project.home {
+            let first_of_its_server = servers.insert(project.server_id);
+            if first_of_its_server != project.home {
                 return Err(home_first());
             }
             project

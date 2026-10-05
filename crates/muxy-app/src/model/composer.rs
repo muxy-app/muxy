@@ -794,7 +794,6 @@ impl AppModel {
                                 let text = quoted(std::slice::from_ref(path)).ok_or("Invalid attachment path")?;
                                 payload.extend(crate::views::terminal::clipboard::paste(&text, *modes));
                             }
-                            // Another computer can't read this one's clipboard.
                             Step::Image(png) if !server.is_local() => {
                                 let remote = send_remote(&model, cx, *pane, server, Upload::Image(png.clone(), "png")).await?;
                                 payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));

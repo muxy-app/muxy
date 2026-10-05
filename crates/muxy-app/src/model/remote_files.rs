@@ -214,8 +214,6 @@ fn local_path(path: &ServerPath) -> PathBuf {
 /// another computer gets sent instead of their names or a paste key it can't
 /// act on. Text pastes as text, as it does here.
 pub(crate) fn clipboard_upload(item: &gpui::ClipboardItem) -> Option<Upload> {
-    // The system pasteboard also holds copied files; tests read only the
-    // test clipboard.
     #[cfg(not(test))]
     let copied = muxy_ui::pasteboard::read_content().ok();
     #[cfg(test)]
@@ -373,7 +371,6 @@ impl AppModel {
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
         };
-        // Only the latest check counts; an older one may finish later.
         runtime.status_checks += 1;
         let check = runtime.status_checks;
         let checked = cx.background_executor().spawn(async move {

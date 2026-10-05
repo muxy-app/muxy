@@ -583,8 +583,6 @@ impl AppModel {
             .server_home(server)
             .map(|home| (home.id, home.directory.to_string_lossy().into_owned()));
         let ready = self.server_ready(server);
-        // Until its catalog confirms it, the server may not be the one whose
-        // Home the app knows. Folders are listed on its second connection.
         let client = self.extensions.client(server);
         let (Some((project, home)), true, true, Some(client)) =
             (home, ready, self.confirmed(server), client)

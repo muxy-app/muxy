@@ -9,9 +9,9 @@ use crate::{
     Tab, TabId, Workspace,
 };
 
-// Backups hold this computer's projects only, for now: exports leave remote
-// projects out, and restoring never creates or replaces them.
 impl AppState {
+    /// Backups hold this computer's projects only, for now: exports leave
+    /// remote projects out, and restoring never creates or replaces them.
     #[must_use]
     pub fn configuration_backup(&self) -> Self {
         let mut state = self.clone();

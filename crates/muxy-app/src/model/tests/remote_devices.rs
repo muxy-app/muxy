@@ -1233,8 +1233,11 @@ fn the_remote_popover_opens_above_the_section_from_its_left_edge(cx: &mut TestAp
     click(cx, "remote-servers-section");
     let section = cx.debug_bounds("remote-servers-section").expect("section");
     let popover = cx.debug_bounds("remote-servers-popover").expect("popover");
-    // Popovers keep 8px from the window's edge.
-    assert_eq!(popover.left(), section.left().max(px(8.0)));
+    assert_eq!(
+        popover.left(),
+        section.left().max(px(8.0)),
+        "popovers keep 8px from the window's edge"
+    );
     assert!(popover.bottom() <= section.top());
 }
 

@@ -67,7 +67,6 @@ impl AppModel {
             }
             return;
         }
-        // Apps here can't open another computer's files; a copy can be.
         if let Target::File(file) = &target
             && !context.server.is_local()
         {

@@ -1412,10 +1412,10 @@ impl AppModel {
         }
     }
 
+    /// The project shown is always one the sidebar lists, never another
+    /// computer's Home or a removed server's project, so new tabs never open
+    /// somewhere the user can't see.
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
-        // The project shown is always one the sidebar lists, never another
-        // computer's Home or a removed server's project, so new tabs never
-        // open somewhere the user can't see.
         if !self.project_listed(self.state.current_project()) {
             let home = self.state.home().id;
             let _ = self.state.select_project(home);
@@ -1863,6 +1863,7 @@ impl AppModel {
             return;
         };
         runtime.connection = ConnectionState::Ready;
+        runtime.catalog.identified = false;
         runtime.failure = None;
         runtime.install = None;
         runtime.retry.connected();
@@ -1975,9 +1976,6 @@ impl AppModel {
                     self.update_connect_failed();
                 }
                 self.disconnect(server, cx);
-                // Another computer's failure shows in the sidebar's Remote
-                // section, not as an alert. A refused login forgets the
-                // password, so connecting asks again.
                 if let Some(runtime) = self.servers.get_mut(server) {
                     runtime.failure = reason;
                     runtime.error = Some(error.clone());

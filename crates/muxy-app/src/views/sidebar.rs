@@ -279,7 +279,6 @@ impl AppModel {
             })
             .collect();
         if self.appearance.sidebar_project_order == ProjectOrder::Name {
-            // This computer's projects first, then each other server's, in settings order.
             let server = |project: &Project| {
                 self.settings
                     .servers

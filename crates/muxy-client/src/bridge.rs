@@ -69,7 +69,8 @@ pub fn command(start: Start) -> &'static str {
 }
 
 /// Runs the bridge: connects to the server behind `socket`, writes the ready
-/// line, then relays stdin and stdout until the server closes.
+/// line, then relays stdin and stdout until the server closes. The copies are
+/// unbuffered, since std's line-buffered stdout would hold binary data back.
 pub fn serve(socket: &Path, executable: &Path, start: Start) -> Result<(), ClientError> {
     let server = match start {
         Start::IfNeeded => local::ensure_listening(socket, executable)?,
@@ -82,7 +83,6 @@ pub fn serve(socket: &Path, executable: &Path, start: Start) -> Result<(), Clien
             }
         })?,
     };
-    // Unbuffered copies: std's line-buffered stdout would hold binary data back.
     let input = File::from(io::stdin().as_fd().try_clone_to_owned()?);
     let mut output = File::from(io::stdout().as_fd().try_clone_to_owned()?);
     output.write_all(&[READY, VERSION, b"\n"].concat())?;
@@ -129,8 +129,6 @@ impl Client {
                     cancellation,
                 };
                 return Self::from_stream_with_timeout(Box::new(stream), DEFAULT_TIMEOUT).map_err(
-                    // The other computer's server answered; name it instead of
-                    // giving the advice meant for a local server.
                     |error| match error {
                         ClientError::VersionUnsupported => ClientError::Remote {
                             reason: RemoteReason::Incompatible,
@@ -280,7 +278,6 @@ fn explain(exit: &BridgeExit, printed: &[u8]) -> (RemoteReason, String) {
     let stderr = exit.stderr.as_str();
     let said = |texts: &[&str]| texts.iter().any(|text| stderr.contains(text));
     let last = last_line(stderr.as_bytes());
-    // ssh exits 255 for its own failures; any other status is the remote command's.
     let ssh = matches!(exit.status, Some(255) | None);
     let reason = if ssh && said(&["REMOTE HOST IDENTIFICATION HAS CHANGED"]) {
         RemoteReason::HostKeyChanged
@@ -304,7 +301,6 @@ fn explain(exit: &BridgeExit, printed: &[u8]) -> (RemoteReason, String) {
         RemoteReason::BridgeFailed
     };
     let detail = match reason {
-        // Builds from before the bridge reject `muxy stdio` as an unknown command.
         RemoteReason::Incompatible => "it predates remote connections".into(),
         RemoteReason::UnexpectedOutput => last_line(printed),
         RemoteReason::BridgeFailed if last.is_empty() => match exit.status {
@@ -445,7 +441,6 @@ mod tests {
                 (RemoteReason::Unreachable, unreachable.trim().into())
             );
         }
-        // Without a status, only words that ssh itself prints count.
         let reset = exit(
             None,
             "kex_exchange_identification: Connection reset by peer\n",

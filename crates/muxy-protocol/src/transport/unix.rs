@@ -95,11 +95,11 @@ pub fn connect(path: impl AsRef<Path>) -> io::Result<Box<dyn ByteStream>> {
 }
 
 /// Two connected sockets, for adapters that pump another transport into one
-/// end while the other end serves as an ordinary byte stream.
+/// end while the other end serves as an ordinary byte stream. On Apple
+/// platforms both get `SO_NOSIGPIPE`, which std doesn't set on socket pairs,
+/// since an iOS host app does not ignore SIGPIPE the way Rust executables do.
 pub fn socket_pair() -> io::Result<(UnixStream, UnixStream)> {
     let (first, second) = UnixStream::pair()?;
-    // std sets no SO_NOSIGPIPE on Apple socket pairs, and an iOS host app does
-    // not ignore SIGPIPE the way Rust executables do.
     #[cfg(target_vendor = "apple")]
     for socket in [&first, &second] {
         rustix::net::sockopt::set_socket_nosigpipe(socket, true)?;

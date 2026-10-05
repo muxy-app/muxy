@@ -189,22 +189,31 @@ fn respond(mut stream: UnixStream, answers: &Mutex<HashMap<String, Answer>>) -> 
     stream.write_all(answer.as_bytes())
 }
 
-/// A key's passphrase never leaves this computer, so passphrase prompts get
-/// the password. A password goes to a host, so only a prompt that names the
-/// destination's login gets it. Anything else, such as trusting an unknown
-/// host, is refused.
+/// A key's passphrase never leaves this computer, so ssh's own passphrase
+/// prompt gets the password. A password goes to a host, so only a prompt
+/// for exactly the destination's login gets it. Anything else, such as a jump
+/// host's prompt or trusting an unknown host, is refused.
 fn answer_for(answer: &Answer, prompt: &str) -> Option<String> {
-    let prompt = prompt.to_lowercase();
-    let wanted = if prompt.contains("passphrase") {
-        true
-    } else {
-        prompt.contains("password")
-            && answer
-                .login
-                .as_ref()
-                .is_some_and(|login| prompt.contains(&login.to_lowercase()))
-    };
+    let wanted = prompt.starts_with("Enter passphrase for key '")
+        || answer
+            .login
+            .as_deref()
+            .is_some_and(|login| asks_password_of(prompt, login));
     answer.password.clone().filter(|_| wanted)
+}
+
+/// ssh starts a password prompt with the login it is for: `user@host's
+/// password: `, or `(user@host) ` before the server's own words. Both parts
+/// are as `ssh -G` resolves them, so they match exactly.
+fn asks_password_of(prompt: &str, login: &str) -> bool {
+    if prompt.strip_prefix(login).map(str::trim_end) == Some("'s password:") {
+        return true;
+    }
+    prompt
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_prefix(login))
+        .and_then(|rest| rest.strip_prefix(") "))
+        .is_some_and(|words| words.to_lowercase().contains("password"))
 }
 
 /// Answers one ssh prompt by asking the app, then exits.
@@ -289,5 +298,33 @@ mod tests {
         drop(passwords);
         assert!(!socket.exists());
         Ok(())
+    }
+
+    #[test]
+    fn only_prompts_for_the_destinations_own_login_get_its_password() {
+        let answer = Answer {
+            password: Some("hunter2".into()),
+            login: Some("dev@box".into()),
+        };
+        for prompt in [
+            "dev@box's password: ",
+            "(dev@box) Password: ",
+            "Enter passphrase for key '/Users/dev/.ssh/id_ed25519': ",
+        ] {
+            assert_eq!(answer_for(&answer, prompt).as_deref(), Some("hunter2"));
+        }
+        for prompt in [
+            "dev@box-jump's password: ",
+            "otherdev@box's password: ",
+            "Dev@box's password: ",
+            "(dev@box-jump) Password: ",
+            "(otherdev@box) Password: ",
+            "(jump@gateway) dev@box's password: ",
+            "(jump@gateway) Enter passphrase for key 'id': ",
+            "(dev@box) Verification code: ",
+            "Enter dev@box's new password: ",
+        ] {
+            assert_eq!(answer_for(&answer, prompt), None, "{prompt}");
+        }
     }
 }

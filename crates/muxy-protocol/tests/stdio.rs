@@ -142,7 +142,6 @@ fn relay_flushes_every_chunk_and_half_closes_when_input_ends() -> TestResult {
     let (output, mut stdout) = UnixStream::pair()?;
     server.set_read_timeout(Some(TIMEOUT))?;
     stdout.set_read_timeout(Some(TIMEOUT))?;
-    // A buffered output holds anything the relay forgets to flush.
     let relaying = thread::spawn(move || relay(Box::new(stream), input, BufWriter::new(output)));
 
     stdin.write_all(b"request")?;

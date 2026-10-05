@@ -219,7 +219,9 @@ impl AppModel {
     }
 
     /// Adds a remote server, or edits the one with `id`, and connects it. A
-    /// typed password stays in memory, never in `settings.toml`.
+    /// typed password stays in memory, never in `settings.toml`. It is kept
+    /// first: if it can't be, nothing is saved, so saving again can't add the
+    /// server twice.
     pub(crate) fn save_remote_server(
         &mut self,
         id: Option<ServerId>,
@@ -234,8 +236,6 @@ impl AppModel {
         }
         let entry = form.entry(id)?;
         let server = entry.id;
-        // The password first: if it can't be kept, nothing is saved, so
-        // saving again can't add the server twice.
         if form.password_login && !form.password.is_empty() {
             self.servers
                 .passwords

@@ -117,7 +117,8 @@ impl Connection {
     }
 
     /// Connects through an SSH exec channel that the app opened to run
-    /// `bridge_command()`. `host` names the computer in errors.
+    /// `bridge_command()`. `host` names the computer in errors. The server
+    /// sees a local client, which older servers keep calling a CLI.
     #[uniffi::constructor]
     pub fn connect_channel(
         channel: Arc<BridgeChannel>,
@@ -125,7 +126,6 @@ impl Connection {
         listener: Arc<dyn ConnectionListener>,
     ) -> Result<Arc<Self>, MobileError> {
         let client = channel.connect(&host)?;
-        // The server sees a local client, which older servers keep calling a CLI.
         match client.identify(muxy_protocol::ClientKind::Mobile) {
             Ok(_) | Err(ClientError::Server(_)) => {}
             Err(error) => return Err(error.into()),

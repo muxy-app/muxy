@@ -216,6 +216,18 @@ impl AppModel {
                 .is_some_and(|runtime| runtime.catalog.restore.is_none())
     }
 
+    /// Whether another computer's catalog has shown, on this connection, that
+    /// it is the server the app knew, so the project edits waiting for that
+    /// server can go to it. A server that answers as another one never gets
+    /// them. This computer's server is trusted as before.
+    pub(super) fn identified(&self, server: ServerId) -> bool {
+        server.is_local()
+            || self
+                .servers
+                .get(server)
+                .is_some_and(|runtime| runtime.catalog.identified)
+    }
+
     /// The project's server; this computer's for a project that is gone.
     pub(super) fn project_server_or_local(&self, project: muxy_protocol::ProjectId) -> ServerId {
         self.state
@@ -441,7 +453,6 @@ impl AppModel {
                 repository.disconnect();
             }
         }
-        // Nothing is known of an offline server's folders, so none fail.
         self.state.forget_remote_statuses(server);
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
@@ -515,7 +526,6 @@ impl AppModel {
                 ),
             );
         }
-        // Another computer's state shows in the sidebar's Remote section.
         if runtime.connection != ConnectionState::Ready && !matches!(work, Work::Flush) {
             if server.is_local() {
                 self.fail("Server disconnected".into(), cx);

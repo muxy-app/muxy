@@ -480,8 +480,69 @@ fn a_restarted_server_lists_its_existing_sessions_once(cx: &mut TestAppContext) 
         model.receive(local(2, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
         assert_eq!(listings(&requests), 1);
-        // The restarted server counts its session list revisions from the start.
         model.receive(local(2, page(5)), cx);
-        assert_eq!(listings(&requests), 0, "the listing must not repeat");
+        assert_eq!(
+            listings(&requests),
+            0,
+            "a restarted server counts its revisions from the start"
+        );
+    });
+}
+
+/// Reconnects `server` to whichever server answers with `catalog`.
+fn reconnect(
+    model: &mut AppModel,
+    server: ServerId,
+    catalog: muxy_protocol::CatalogPage,
+    cx: &mut Context<AppModel>,
+) {
+    let generation = model.generation(server);
+    let offline = Update::Event(ClientEvent::Disconnected);
+    model.receive((server, generation, offline), cx);
+    model.connect_server(server, cx);
+    let generation = model.generation(server);
+    model.receive((server, generation, Update::Connected(vec![])), cx);
+    model.receive((server, generation, Update::Catalog(Ok(catalog))), cx);
+}
+
+#[gpui::test]
+fn project_edits_wait_until_the_server_they_were_made_for_answers(cx: &mut TestAppContext) {
+    let remote = ServerId::new();
+    let state = AppState::bootstrap().expect("state");
+    let (boot, _local_work, remotes) = remote_boot(state, vec![entry(remote, "box")]);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let worker = remotes.borrow_mut().remove(&remote).expect("worker");
+    let edits = || {
+        work(&worker)
+            .iter()
+            .filter(|work| matches!(work, Work::MutateProject(_)))
+            .count()
+    };
+    view.update(cx, |model, cx| {
+        model.receive(from(ServerId::local(), Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        let local_home = model.state.home().id;
+        let api = ProjectId::new();
+        let home = connect_remote(model, remote, vec![], &[(api, "api")], cx);
+        let offline = Update::Event(ClientEvent::Disconnected);
+        model.receive(from(remote, offline), cx);
+        assert!(model.edit_project(|state| state.rename_project(api, "renamed"), cx));
+        assert_eq!(model.state.project_intents(remote).len(), 1);
+
+        model.connect_server(remote, cx);
+        let generation = model.generation(remote);
+        model.receive((remote, generation, Update::Connected(vec![])), cx);
+        assert!(model.edit_project(|state| state.rename_project(local_home, "Home"), cx));
+        assert_eq!(edits(), 0, "the catalog has not shown which server this is");
+
+        let other = page(3, ProjectId::new(), &[]);
+        model.receive((remote, generation, Update::Catalog(Ok(other))), cx);
+        assert!(model.server_error(remote).is_some());
+        assert!(model.edit_project(|state| state.rename_project(local_home, "Home"), cx));
+        assert_eq!(edits(), 0, "another server never gets this one's edits");
+        assert_eq!(model.state.project_intents(remote).len(), 1);
+
+        reconnect(model, remote, page(2, home, &[(api, "api")]), cx);
+        assert_eq!(edits(), 1, "the server they were made for gets them");
     });
 }

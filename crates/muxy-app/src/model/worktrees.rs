@@ -421,8 +421,6 @@ impl AppModel {
                     })
                     .map(|project| project.id)
                     .collect();
-                // Another computer's projects are pruned only once its
-                // catalog shows it is still the server the app knew.
                 let capacity = if self.confirmed(server) {
                     self.state.project_intent_capacity(server)
                 } else {

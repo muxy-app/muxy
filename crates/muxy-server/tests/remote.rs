@@ -477,7 +477,6 @@ fn paired_devices_cannot_manage_access_or_the_server() -> TestResult {
         })?,
         ReplyBody::Catalog(_)
     ));
-    // A phone that reaches the computer over SSH connects locally, through the bridge.
     match local.request(RequestBody::IdentifyClient(ClientKind::Mobile))? {
         ReplyBody::ClientIdentified(client) => assert_eq!(client.kind, ClientKind::Mobile),
         other => return Err(format!("expected identified, got {other:?}").into()),

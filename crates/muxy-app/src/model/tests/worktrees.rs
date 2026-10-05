@@ -90,8 +90,6 @@ fn listed_worktrees_skip_the_main_checkout_leftovers_and_the_projects_own_folder
     assert!(!listed(&worktree(b"/code/app", true)));
     assert!(!listed(&prunable));
     assert!(listed(&worktree(b"/code/app-feature", false)));
-    // Another computer's folders are compared as its server reports them,
-    // never resolved against this disk.
     let remote = crate::model::worktrees::resolved(&ServerPath(bytes(&link)), false);
     assert_eq!(remote, link);
     assert!(crate::model::worktrees::listed(

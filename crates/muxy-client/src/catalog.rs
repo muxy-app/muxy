@@ -103,7 +103,6 @@ impl Client {
         let mut chunks = bytes.chunks(muxy_protocol::MAX_UPLOAD_CHUNK).peekable();
         let mut offset = 0;
         loop {
-            // An empty file is one empty chunk.
             let chunk = chunks.next().unwrap_or_default();
             let last = chunks.peek().is_none();
             let reply = self.request_with_timeout(

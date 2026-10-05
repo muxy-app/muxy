@@ -35,9 +35,9 @@ pub fn bridge_command() -> String {
     bridge::command(Start::IfNeeded).into()
 }
 
-// A callback interface: a foreign trait's generated Kotlin class would also
-// get `close()` from `AutoCloseable`, and the two would clash.
-/// The app's SSH channel, which the SDK writes to from an SDK thread.
+/// The app's SSH channel, which the SDK writes to from an SDK thread. It is a
+/// callback interface: a foreign trait's generated Kotlin class would also get
+/// `close()` from `AutoCloseable`, and the two would clash.
 #[uniffi::export(callback_interface)]
 pub trait ChannelWriter: Send + Sync {
     /// Writes to the channel's stdin, in order, and may block while the
@@ -83,9 +83,9 @@ impl BridgeChannel {
 
     /// Passes on what the channel's stdout received, in order. It blocks
     /// while the SDK catches up, so call it from one background thread,
-    /// never the main thread or the SSH library's event loop.
+    /// never the main thread or the SSH library's event loop. Output that
+    /// arrives once the connection has ended is dropped.
     pub fn receive(&self, bytes: Vec<u8>) {
-        // Fails only once the connection is gone and nothing reads any more.
         let _ = (&self.socket).write_all(&bytes);
     }
 
@@ -148,7 +148,6 @@ fn pump(mut socket: UnixStream, writer: &dyn ChannelWriter) {
             Err(_) => break,
         }
     }
-    // The SDK sees the connection end, and later output is dropped.
     let _ = socket.shutdown(Shutdown::Both);
     let _ = writer.close();
 }

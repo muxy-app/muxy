@@ -103,7 +103,6 @@ fn a_bridge_of_another_version_is_incompatible_rather_than_a_hang() -> TestResul
     let (reason, message) = remote_error(connect(client, BridgeExit::default()))?;
     assert_eq!(reason, RemoteReason::Incompatible);
     assert!(message.contains("bridge version 2"), "{message}");
-    // The client hung up rather than waiting on the other bridge.
     assert_eq!(remote.read(&mut [0; 64])?, 0);
     Ok(())
 }

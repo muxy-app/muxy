@@ -47,15 +47,15 @@ struct Process {
 impl ChildStream {
     /// Starts `command` with its stdin and stdout joined to the stream. Its
     /// stderr stays as the command set it; take a piped one with
-    /// [`ChildStream::take_stderr`].
+    /// [`ChildStream::take_stderr`]. The command is dropped once started:
+    /// it holds a copy of the child's end, and the stream only sees the child
+    /// finish once every copy of that end is closed.
     pub fn spawn(mut command: Command) -> io::Result<Self> {
         let (socket, child_end) = socket_pair()?;
         command
             .stdin(Stdio::from(OwnedFd::from(child_end.try_clone()?)))
             .stdout(Stdio::from(OwnedFd::from(child_end)));
         let child = command.spawn()?;
-        // The command keeps the child's end open until dropped, and the stream
-        // only sees the child finish once every copy of that end is closed.
         drop(command);
         Ok(Self {
             socket: Some(socket),

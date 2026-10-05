@@ -30,7 +30,9 @@ pub(crate) enum Mobile {
 }
 
 /// Reads the command, and the other computer whose server it uses when it
-/// starts with `--host DESTINATION`.
+/// starts with `--host DESTINATION`. Help, version and build info describe
+/// this computer's Muxy, and a bridge must never reach on to another
+/// computer, so none of them takes `--host`.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Command)> {
     match arguments {
         [flag, destination, rest @ ..] if flag == "--host" => {
@@ -42,8 +44,6 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                 .ok_or_else(|| invalid("--host must be UTF-8"))?
                 .parse()?;
             match (command(rest)?, rest) {
-                // These describe this computer's muxy, and a bridge must never
-                // reach on to another computer.
                 (
                     Command::Help | Command::Version | Command::BuildInfo | Command::Stdio(_),
                     [word, ..],

@@ -461,7 +461,8 @@ pub(crate) enum Update {
 }
 
 /// Runs one server's connection and requests on a thread of its own, so a
-/// slow or unreachable server never holds up another.
+/// slow or unreachable server never holds up another. Work sent while it
+/// connects waits for the connection, then runs in order.
 #[allow(
     clippy::too_many_lines,
     reason = "Keep connection and request routing together"
@@ -480,8 +481,6 @@ pub(crate) fn worker(
             let mut client: Option<Client> = None;
             let mut generation = 0;
             let mut delivery = delivery::Delivery::default();
-            // Work for a generation still connecting is held until its
-            // connection is there, then runs in order.
             let mut connecting = false;
             let mut held = VecDeque::new();
             let mut released = VecDeque::new();
@@ -1078,7 +1077,6 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
 fn stop_server(client: &Client, target: &Target) -> Result<(), ClientError> {
     match target {
         Target::Local(socket) => crate::server::stop_server(client, socket),
-        // The connection ends as the server stops, so that counts as stopped too.
         Target::Ssh(_) => match client.stop_server() {
             Err(ClientError::Disconnected) => Ok(()),
             result => result,

@@ -107,7 +107,6 @@ impl Remote {
             remote_stdout.write_all(b"MUXY-STDIO/1\n")?;
             relay(Box::new(bridge), stdin, remote_stdout)
         });
-        // The app's SSH library passes the output on as it arrives.
         let feeding = Arc::clone(&channel);
         thread::spawn(move || {
             let mut chunk = [0; 4096];
@@ -224,7 +223,6 @@ fn a_phone_uses_a_server_over_ssh_as_it_would_when_paired() -> TestResult {
 
 #[test]
 fn shell_noise_that_arrives_before_connecting_is_skipped() -> TestResult {
-    // More than a socket buffer holds, so the app's deliveries wait for the SDK.
     let noise = "Last login: today from 10.0.0.2\n"
         .repeat(1000)
         .into_bytes();
@@ -252,7 +250,6 @@ fn a_computer_without_muxy_is_named_and_the_channel_closed() -> TestResult {
     );
     fed.closed.recv_timeout(TIMEOUT)?;
 
-    // A channel carries one connection.
     let again = Connection::connect_channel(fed.channel, "dev@box".into(), listener().0)
         .err()
         .ok_or("a used channel connected again")?;
@@ -267,7 +264,6 @@ fn giving_up_releases_a_delivery_that_waits_for_the_sdk() -> TestResult {
     let channel = Arc::clone(&fed.channel);
     let (sender, delivered) = mpsc::channel();
     thread::spawn(move || {
-        // More than the socket buffers hold, while nothing reads yet.
         channel.receive(vec![b'x'; 1024 * 1024]);
         let _ = sender.send(());
     });
@@ -285,7 +281,6 @@ fn a_bridge_of_another_version_is_incompatible() -> TestResult {
         Connection::connect_channel(Arc::clone(&fed.channel), "dev@box".into(), listener().0);
     assert!(matches!(result, Err(MobileError::IncompatibleVersion)));
     fed.closed.recv_timeout(TIMEOUT)?;
-    // The SDK never wrote to a bridge it can't speak to.
     fed.stdin.set_read_timeout(Some(TIMEOUT))?;
     assert_eq!((&fed.stdin).read(&mut [0; 64])?, 0);
     Ok(())

@@ -72,8 +72,6 @@ impl ServerEntry {
     }
 }
 
-// Each write changes one entry of the list as the file holds it now, so
-// entries edited by hand since loading are kept.
 impl Settings {
     pub fn server(&self, id: ServerId) -> Option<&ServerEntry> {
         self.servers.iter().find(|server| server.id == id)
@@ -130,6 +128,9 @@ fn validate(servers: &[ServerEntry]) -> Result<()> {
     Ok(())
 }
 
+/// Changes the list as the file holds it now, so entries edited by hand
+/// since loading are kept. An empty list is left out, so `[[servers]]` can be
+/// added by hand.
 fn edit_servers(
     path: &Path,
     change: impl FnOnce(&mut Vec<ServerEntry>) -> Result<()>,
@@ -144,7 +145,6 @@ fn edit_servers(
         .unwrap_or_default();
     change(&mut servers)?;
     validate(&servers)?;
-    // An empty list is left out, so `[[servers]]` can be added by hand.
     if !servers.is_empty() {
         let value =
             toml::Value::try_from(&servers).map_err(|error| Error::new("servers", error))?;

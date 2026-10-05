@@ -506,7 +506,6 @@ impl AppModel {
                 }
             }
         }
-        // Each project is watched over its server's extension connection.
         let client = |model: &Self, project: ProjectId| {
             model
                 .state

@@ -137,7 +137,6 @@ fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     let project = model.state.current_project();
     let id = project.id;
     let available = project.status() == muxy_app_core::ProjectStatus::Available;
-    // Another computer's folder can't be revealed here; its path can be copied.
     let local = project.server_id.is_local();
     let display = model.project_path_label(project);
     let count = display.chars().count();

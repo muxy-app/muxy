@@ -65,7 +65,6 @@ pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
         }
     }
     names.sort_by_cached_key(|name| String::from_utf8_lossy(&name.0).to_lowercase());
-    // A huge folder lists its first folders, like `Files`, instead of none.
     names.truncate(muxy_protocol::MAX_FILE_ENTRIES);
     let mut bytes = 0;
     names.retain(|name| {

@@ -38,6 +38,7 @@ impl AppModel {
 
     fn replay_server_projects(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if !self.ready(server)
+            || !self.identified(server)
             || self
                 .servers
                 .get(server)
@@ -98,6 +99,9 @@ impl AppModel {
         }
     }
 
+    /// Another computer's catalog is read again once this computer's is
+    /// known, so an entry that reaches this computer never claims its server
+    /// first.
     pub(super) fn receive_catalog(
         &mut self,
         server: ServerId,
@@ -119,8 +123,6 @@ impl AppModel {
         if page.revision < self.state.catalog_revision(server) {
             return;
         }
-        // An entry that reaches this computer must not claim its server before
-        // the local catalog does; it is read again once that is known.
         if !server.is_local() && self.state.server_identity(local).is_none() {
             return;
         }
@@ -141,6 +143,9 @@ impl AppModel {
         if !self.save(cx) {
             self.state = previous;
             return;
+        }
+        if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.catalog.identified = true;
         }
         if server.is_local() && first {
             for remote in self.servers.ids() {
@@ -205,6 +210,8 @@ pub(super) struct Synchronization {
     pub(super) pending: bool,
     pub(super) dirty: u64,
     pub(super) restore: Option<Vec<muxy_protocol::SessionInfo>>,
+    /// This connection's catalog showed the server the app knew.
+    pub(super) identified: bool,
     pub(super) replaying: bool,
     pub(super) cancelling: std::collections::HashSet<OperationId>,
 }

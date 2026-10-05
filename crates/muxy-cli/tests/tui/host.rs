@@ -121,8 +121,6 @@ fn the_tui_reconnects_after_its_bridge_dies_and_the_pane_resumes() -> Result {
         {
             return Ok(true);
         }
-        // Keys typed in the moment before the pane is attached again are
-        // dropped, so type until it answers.
         if typed.is_none_or(|at| at.elapsed() > Duration::from_secs(1)) {
             tui.write(b"printf '\\nRESUMED_%s\\n' AFTER\r")?;
             typed = Some(Instant::now());

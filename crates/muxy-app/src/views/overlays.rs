@@ -50,7 +50,6 @@ impl AppModel {
         self.project_logo_task = None;
         self.git.interaction = self.git.interaction.wrapping_add(1);
         if matches!(self.overlay, Some(Overlay::Password(_))) {
-            // Without the password, Add Project no longer waits for it.
             self.pending_remote_picker = None;
         }
         self.overlay = None;

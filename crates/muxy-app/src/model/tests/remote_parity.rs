@@ -294,8 +294,6 @@ fn links(cx: &mut TestAppContext) -> Result {
             directory,
         )
     });
-    // Looking files up blocks on the server, as it does on the opener's
-    // workers.
     let resolve = |text: &str, _: &mut VisualTestContext| -> Result<Option<Target>> {
         let (files, directory, text) = (files.clone(), directory.clone(), text.to_owned());
         thread::spawn(move || files.resolve(&text, &directory))
@@ -348,7 +346,6 @@ fn links(cx: &mut TestAppContext) -> Result {
         0o444
     );
     std::fs::remove_dir_all(copy.parent().expect("copy folder"))?;
-    // Outside its projects and Home only the path can be copied.
     let outside = Target::File(FileLocation {
         path: "/etc/hosts".into(),
         line: None,
@@ -434,8 +431,6 @@ fn reconnect(cx: &mut TestAppContext) -> Result {
     wait(cx, &view, disconnected)?;
     cx.executor().advance_clock(Duration::from_secs(2));
     wait(cx, &view, failed(muxy_client::RemoteReason::Unreachable))?;
-    // The extension connection may also have tried when the link dropped;
-    // count from here.
     let attempts = machine.attempts();
     machine.mark("offline", false)?;
     cx.executor().advance_clock(Duration::from_secs(3));
@@ -461,7 +456,6 @@ fn reconnect(cx: &mut TestAppContext) -> Result {
         );
     });
     wait_text(cx, &view, "back-42")?;
-    // A refused login stops the retries.
     machine.mark("refuse", true)?;
     machine.drop_connections()?;
     wait(cx, &view, disconnected)?;
