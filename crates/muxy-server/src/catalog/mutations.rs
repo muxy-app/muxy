@@ -1,5 +1,8 @@
-use super::{Catalog, Receipt, ServerError, bad, unknown};
+use super::{Catalog, Receipt, ServerError, State, bad, unknown};
 use muxy_protocol::{MAX_PROJECTS, ProjectId, ProjectIntent, ProjectMutation, SessionId};
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 impl Catalog {
     pub(crate) fn begin_mutation(&self, intent: &ProjectIntent) -> Result<bool, ServerError> {
@@ -27,12 +30,7 @@ impl Catalog {
                         || state.projects.len() == MAX_PROJECTS
                     {
                         Err(bad("project identity already exists or catalog is full"))
-                    } else if !std::path::Path::new({
-                        use std::os::unix::ffi::OsStrExt;
-                        std::ffi::OsStr::from_bytes(&project.directory.0)
-                    })
-                    .is_dir()
-                    {
+                    } else if !Path::new(OsStr::from_bytes(&project.directory.0)).is_dir() {
                         Err(ServerError::new(
                             muxy_protocol::ErrorCode::BadPath,
                             "project folder does not exist",
@@ -76,6 +74,12 @@ impl Catalog {
                         );
                         Ok(())
                     }
+                }
+                ProjectMutation::PruneWorktree(id) => {
+                    if state.can_prune_worktree(*id) {
+                        state.projects.remove(id);
+                    }
+                    Ok(())
                 }
             };
             state.receipts.insert(
@@ -127,5 +131,27 @@ impl Catalog {
             state.deleting.clear();
             Ok(())
         })
+    }
+}
+
+impl State {
+    fn can_prune_worktree(&self, id: ProjectId) -> bool {
+        let Some(project) = self.projects.get(&id) else {
+            return false;
+        };
+        !project.home
+            && project.kind == Some(muxy_protocol::ProjectKind::Worktree)
+            && !self.deleting.contains(&id)
+            && project
+                .parent_id
+                .and_then(|id| self.projects.get(&id))
+                .is_some_and(|parent| Path::new(OsStr::from_bytes(&parent.directory.0)).is_dir())
+            && Path::new(OsStr::from_bytes(&project.directory.0))
+                .try_exists()
+                .is_ok_and(|exists| !exists)
+            && !self
+                .sessions
+                .values()
+                .any(|session| session.info.project == id)
     }
 }

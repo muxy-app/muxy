@@ -363,6 +363,14 @@ impl AppState {
     }
 
     pub fn remove_project(&mut self, id: ProjectId) -> Result<Vec<SessionId>, AppError> {
+        self.remove_project_with_mutation(id, muxy_protocol::ProjectMutation::Delete(id))
+    }
+
+    pub(crate) fn remove_project_with_mutation(
+        &mut self,
+        id: ProjectId,
+        mutation: muxy_protocol::ProjectMutation,
+    ) -> Result<Vec<SessionId>, AppError> {
         let index = self
             .projects
             .iter()
@@ -371,7 +379,7 @@ impl AppState {
         if self.projects[index].home {
             return Err(AppError::InvalidState("Home cannot be removed".into()));
         }
-        self.queue_project(muxy_protocol::ProjectMutation::Delete(id))?;
+        self.queue_project(mutation)?;
         let project = self.projects.remove(index);
         self.retain_workspace_members();
         self.window.selected_tab.remove(&id);

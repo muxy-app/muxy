@@ -59,9 +59,9 @@ impl Operations {
     pub(crate) fn check_mutation(&self, mutation: &ProjectMutation) -> Result<()> {
         let projects = match mutation {
             ProjectMutation::Create(project) => [Some(project.id), project.parent_id],
-            ProjectMutation::Patch { project, .. } | ProjectMutation::Delete(project) => {
-                [Some(*project), None]
-            }
+            ProjectMutation::Patch { project, .. }
+            | ProjectMutation::Delete(project)
+            | ProjectMutation::PruneWorktree(project) => [Some(*project), None],
         };
         let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
         if projects

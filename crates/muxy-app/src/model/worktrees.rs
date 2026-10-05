@@ -20,6 +20,8 @@ pub(crate) struct WorktreeSync {
     queue: VecDeque<ProjectId>,
     /// The project syncing now, with the connection generation it runs on.
     running: Option<(ProjectId, u64)>,
+    candidates: HashSet<ProjectId>,
+    pending_pruning: HashSet<ProjectId>,
     /// Git changed while the running project synced, so it syncs once more.
     again: bool,
     /// New projects keep worktrees hidden unless their repository already has some.
@@ -118,8 +120,32 @@ async fn import(
     let own = resolved(directory);
     Ok(worktrees
         .into_iter()
-        .filter(|worktree| listed(worktree, &own))
+        .filter(|worktree| listed(worktree, &own) || worktree.locked)
         .collect())
+}
+
+pub(super) async fn prune_candidates<F: Future<Output = Result<bool, ClientError>>>(
+    worktrees: &[GitWorktree],
+    candidates: Vec<(ProjectId, PathBuf)>,
+    mut has_sessions: impl FnMut(ProjectId) -> F,
+) -> HashSet<ProjectId> {
+    let mut eligible = HashSet::new();
+    for (project, directory) in candidates {
+        if worktrees.iter().any(|worktree| {
+            worktree.registered == Some(project)
+                || worktree.directory.0 == directory.as_os_str().as_bytes()
+        }) || !directory.try_exists().is_ok_and(|exists| !exists)
+        {
+            continue;
+        }
+        if has_sessions(project)
+            .await
+            .is_ok_and(|has_sessions| !has_sessions)
+        {
+            eligible.insert(project);
+        }
+    }
+    eligible
 }
 
 impl AppModel {
@@ -231,20 +257,54 @@ impl AppModel {
                 return;
             }
             self.git.worktrees.running = Some((root, generation));
+            let candidates: Vec<_> = self
+                .state
+                .projects()
+                .iter()
+                .filter(|project| project.parent_id == Some(root) && project.tabs.is_empty())
+                .map(|project| (project.id, project.directory.clone()))
+                .collect();
+            self.git.worktrees.candidates = candidates.iter().map(|(id, _)| *id).collect();
             let task = cx.background_executor().spawn(async move {
                 match receiver.recv().await {
-                    Ok(Some(client)) => import(&client, root, &directory).await,
+                    Ok(Some(client)) => {
+                        let worktrees = import(&client, root, &directory).await?;
+                        let eligible = prune_candidates(&worktrees, candidates, |project| {
+                            client.project_has_sessions_async(project)
+                        })
+                        .await;
+                        Ok((worktrees, eligible))
+                    }
                     _ => Err(ClientError::Disconnected),
                 }
             });
             cx.spawn(async move |model, cx| {
                 let result = task.await;
                 let _ = model.update(cx, |model, cx| {
+                    let result = result.map(|(worktrees, eligible)| {
+                        if model.git.worktrees.running == Some((root, generation)) {
+                            model
+                                .git
+                                .worktrees
+                                .candidates
+                                .retain(|id| eligible.contains(id));
+                        }
+                        worktrees
+                    });
                     model.worktrees_synced(root, generation, result, cx);
                 });
             })
             .detach();
             return;
+        }
+    }
+
+    pub(super) fn resume_worktree_pruning(&mut self, cx: &mut Context<Self>) {
+        if !self.state.project_intents().is_empty() {
+            return;
+        }
+        for root in std::mem::take(&mut self.git.worktrees.pending_pruning) {
+            self.sync_worktrees(root, cx);
         }
     }
 
@@ -266,12 +326,51 @@ impl AppModel {
         result: Result<Vec<GitWorktree>, ClientError>,
         cx: &mut Context<Self>,
     ) {
-        if self.git.worktrees.running != Some((root, generation)) {
+        if generation != self.generation
+            || !self.session_listing_ready()
+            || self.git.worktrees.running != Some((root, generation))
+        {
             return;
         }
-        self.git.worktrees.running = None;
+        let candidates = std::mem::take(&mut self.git.worktrees.candidates);
         match result {
             Ok(worktrees) => {
+                let registered: HashSet<_> = worktrees
+                    .iter()
+                    .filter_map(|worktree| worktree.registered)
+                    .collect();
+                let directories: HashSet<_> = worktrees
+                    .iter()
+                    .map(|worktree| worktree.directory.0.as_slice())
+                    .collect();
+                let candidates: Vec<_> = self
+                    .state
+                    .projects()
+                    .iter()
+                    .filter(|project| {
+                        candidates.contains(&project.id)
+                            && !registered.contains(&project.id)
+                            && project.parent_id == Some(root)
+                            && project.tabs.is_empty()
+                            && !directories.contains(project.directory.as_os_str().as_bytes())
+                    })
+                    .map(|project| project.id)
+                    .collect();
+                let capacity = self.state.project_intent_capacity();
+                if candidates.len() > capacity {
+                    self.git.worktrees.pending_pruning.insert(root);
+                }
+                if !candidates.is_empty() && capacity > 0 {
+                    self.edit_project(
+                        |state| {
+                            for project in candidates.into_iter().take(capacity) {
+                                state.prune_worktree(project)?;
+                            }
+                            Ok(())
+                        },
+                        cx,
+                    );
+                }
                 if self.git.worktrees.unchecked.remove(&root) && !worktrees.is_empty() {
                     self.appearance.hidden_worktrees.remove(&root);
                     self.save_appearance(cx);
@@ -293,6 +392,7 @@ impl AppModel {
                 );
             }
         }
+        self.git.worktrees.running = None;
         if std::mem::take(&mut self.git.worktrees.again) {
             self.git.worktrees.queue.push_front(root);
         }

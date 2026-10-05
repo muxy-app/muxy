@@ -245,6 +245,8 @@ pub enum ProjectMutation {
     },
     #[n(2)]
     Delete(#[n(0)] ProjectId),
+    #[n(3)]
+    PruneWorktree(#[n(0)] ProjectId),
 }
 
 impl ProjectMutation {
@@ -257,7 +259,7 @@ impl ProjectMutation {
             }
             Self::Create(project) => project.validate(),
             Self::Patch { patch, .. } => patch.validate(),
-            Self::Delete(_) => Ok(()),
+            Self::Delete(_) | Self::PruneWorktree(_) => Ok(()),
         }
     }
 }

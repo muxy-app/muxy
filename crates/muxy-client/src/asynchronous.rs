@@ -3,6 +3,23 @@ use muxy_protocol::{CatalogPage, ErrorCode, MAX_PROJECTS, ProjectId, ReplyBody, 
 use std::time::Duration;
 
 impl Client {
+    pub fn project_has_sessions_async(&self, project: ProjectId) -> Request<bool> {
+        self.request_async(
+            RequestBody::ListProjectSessions {
+                project,
+                after: None,
+                revision: None,
+            },
+            Duration::from_secs(5),
+            |body| match body {
+                ReplyBody::ProjectSessions(page) => {
+                    Ok(!page.sessions.is_empty() || page.next.is_some())
+                }
+                body => Err(ClientError::UnexpectedReply(Box::new(body))),
+            },
+        )
+    }
+
     pub fn git_async(
         &self,
         request: muxy_protocol::GitRequest,
