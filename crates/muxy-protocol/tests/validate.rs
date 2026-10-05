@@ -390,6 +390,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ListFolders", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::Upload(_),
+                ..
+            } => ("Upload", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::RevokeDevice(_),
                 ..
             } => ("RevokeDevice", ChannelKind::Control),
@@ -669,6 +673,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: ReplyBody::Folders(_),
                 ..
             } => ("Folders", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Uploaded(_),
+                ..
+            } => ("Uploaded", ChannelKind::Control),
             Message::Reply { .. } => ("Reply", ChannelKind::Control),
             Message::SessionEnded { .. } => ("SessionEnded", ChannelKind::Control),
             Message::Fatal(_) => ("Fatal", ChannelKind::Control),
@@ -808,6 +816,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "StartPairingWithHosts",
             "ListFolders",
             "Folders",
+            "Upload",
+            "Uploaded",
             "CancelPairing",
             "RevokeDevice",
             "Authenticated",

@@ -76,6 +76,9 @@ pub(crate) enum Command {
     AddProject,
     AddRemoteProject(muxy_app_core::ServerId),
     ManageRemoteDevices,
+    /// The open remote file link's menu: copy the file here and open it.
+    OpenRemoteCopy,
+    CopyRemotePath,
 }
 
 #[derive(Clone, Debug)]
@@ -603,6 +606,7 @@ impl AppModel {
             Command::RevealPath(id) => {
                 if let Some(project) = self.state.project(id)
                     && project.status() == muxy_app_core::ProjectStatus::Available
+                    && project.server_id.is_local()
                 {
                     cx.reveal_path(&project.directory);
                 }
@@ -633,6 +637,8 @@ impl AppModel {
                 self.open_remote_servers(None, window, cx);
                 return;
             }
+            Command::OpenRemoteCopy => self.open_remote_copy(cx),
+            Command::CopyRemotePath => self.copy_remote_path(cx),
         }
         self.focus_active(window, cx);
     }

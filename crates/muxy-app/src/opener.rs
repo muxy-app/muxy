@@ -39,7 +39,7 @@ pub(crate) fn resolve(text: &str, context: &OpenContext) -> Option<Target> {
             return None;
         }
         let home = std::env::var_os("HOME").map(PathBuf::from);
-        Target::local_file(text, &context.directory, home.as_deref(), Path::exists)
+        Target::file(text, &context.directory, home.as_deref(), Path::exists)
     })
 }
 
@@ -149,6 +149,11 @@ fn launch(launch: &Launch) -> io::Result<()> {
         Duration::from_secs(10),
     )
     .map(drop)
+}
+
+/// Opens a file with this computer's default app for its type.
+pub(crate) fn open_with_default_app(path: &Path) -> io::Result<()> {
+    launch(&Launch::system([path.as_os_str().to_owned()]))
 }
 
 /// Shows a path in Finder: a file selected in its folder, or a folder opened.

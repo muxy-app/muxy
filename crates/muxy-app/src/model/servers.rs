@@ -30,6 +30,10 @@ pub(crate) struct Runtime {
     pub(super) install: Option<super::remote_servers::Install>,
     /// How the worker reaches another computer.
     pub(super) target: Option<SshTarget>,
+    /// Connecting again after a drop.
+    pub(super) retry: super::reconnect::Retry,
+    /// Checks of its project folders started, so only the latest applies.
+    pub(super) status_checks: u64,
     /// It logs in with a password, which the app asks for before connecting.
     pub(super) password_login: bool,
     pub(super) catalog: catalog::Synchronization,
@@ -52,6 +56,8 @@ impl Runtime {
             failure: None,
             install: None,
             target: None,
+            retry: super::reconnect::Retry::default(),
+            status_checks: 0,
             password_login: false,
             catalog: catalog::Synchronization::default(),
             references: None,
@@ -348,12 +354,7 @@ impl AppModel {
         {
             return;
         }
-        let needs_password = self
-            .servers
-            .get(server)
-            .is_some_and(|runtime| runtime.password_login)
-            && !self.servers.passwords.has(server);
-        if needs_password {
+        if self.server_needs_password(server) {
             if self.connection(server) == ConnectionState::Disconnected {
                 self.ask_password(server, cx);
             }
@@ -376,6 +377,7 @@ impl AppModel {
         runtime.generation = generation;
         runtime.connection = ConnectionState::Connecting;
         runtime.stopping = false;
+        runtime.retry.connecting();
         runtime.discarding.clear();
         runtime.catalog.cancelling.clear();
         let work = if after_update && server.is_local() {
@@ -439,6 +441,8 @@ impl AppModel {
                 repository.disconnect();
             }
         }
+        // Nothing is known of an offline server's folders, so none fail.
+        self.state.forget_remote_statuses(server);
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
         };

@@ -45,18 +45,20 @@ pub(super) async fn list(
 
 /// Registers every worktree `root` doesn't show yet. A failure only counts if
 /// the worktree is still unregistered afterwards, since another client may
-/// have registered it meanwhile.
+/// have registered it meanwhile. `local` says the folders are on this
+/// computer.
 pub(super) async fn register(
     client: &Client,
     root: ProjectId,
     directory: &ServerPath,
+    local: bool,
     worktrees: &[GitWorktree],
 ) -> Result<(), ClientError> {
-    let own = resolved(directory);
+    let own = resolved(directory, local);
     let mut failures = Vec::new();
     for worktree in worktrees
         .iter()
-        .filter(|worktree| listed(worktree, &own) && worktree.registered.is_none())
+        .filter(|worktree| listed(worktree, &own, local) && worktree.registered.is_none())
     {
         let request = GitRequest {
             project: root,
@@ -89,16 +91,20 @@ pub(super) async fn register(
 
 /// A worktree the project at `own` lists under itself: neither the main
 /// checkout nor the project's own folder.
-pub(super) fn listed(worktree: &GitWorktree, own: &Path) -> bool {
+pub(super) fn listed(worktree: &GitWorktree, own: &Path, local: bool) -> bool {
     !worktree.primary
         && !worktree.bare
         && !worktree.prunable
-        && resolved(&worktree.directory) != own
+        && resolved(&worktree.directory, local) != own
 }
 
-/// A folder the way Git reports it, with symlinks and letter case resolved.
-pub(super) fn resolved(directory: &ServerPath) -> PathBuf {
+/// A folder the way Git reports it, with symlinks and letter case resolved
+/// on this computer. Another computer's folders can't be resolved here.
+pub(super) fn resolved(directory: &ServerPath, local: bool) -> PathBuf {
     let path = Path::new(OsStr::from_bytes(&directory.0));
+    if !local {
+        return path.to_owned();
+    }
     path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
@@ -107,18 +113,19 @@ async fn import(
     client: &Client,
     root: ProjectId,
     directory: &ServerPath,
+    local: bool,
 ) -> Result<Vec<GitWorktree>, ClientError> {
     let worktrees = list(client, root).await?;
-    if let Err(error) = register(client, root, directory, &worktrees).await {
+    if let Err(error) = register(client, root, directory, local, &worktrees).await {
         crate::diagnostics::event(
             "worktrees.register",
             format_args!("project={root} error={error}"),
         );
     }
-    let own = resolved(directory);
+    let own = resolved(directory, local);
     Ok(worktrees
         .into_iter()
-        .filter(|worktree| listed(worktree, &own))
+        .filter(|worktree| listed(worktree, &own, local))
         .collect())
 }
 
@@ -233,6 +240,7 @@ impl AppModel {
                 continue;
             }
             let generation = self.generation(server);
+            let local = server.is_local();
             let (sender, receiver) = async_channel::bounded(1);
             if !self.send(server, Work::ExtensionClient(sender), cx) {
                 waiting.push(root);
@@ -241,7 +249,7 @@ impl AppModel {
             self.git.worktrees.running = Some((root, generation));
             let task = cx.background_executor().spawn(async move {
                 match receiver.recv().await {
-                    Ok(Some(client)) => import(&client, root, &directory).await,
+                    Ok(Some(client)) => import(&client, root, &directory, local).await,
                     _ => Err(ClientError::Disconnected),
                 }
             });

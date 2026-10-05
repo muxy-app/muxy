@@ -20,7 +20,7 @@ use ratatui::layout::Rect;
 
 use crate::input::Input;
 use crate::state::{Discard, Result, Store};
-use crate::target::{self, Target};
+use crate::target::Target;
 
 /// How long the worker waits for a request before checking whether to quit.
 const POLL: Duration = Duration::from_millis(100);
@@ -187,7 +187,7 @@ impl Core {
                 self.message(&format!("Connecting to {}…", self.target.describe()));
                 match self.connect(requests) {
                     Some(Ok(client)) => client,
-                    Some(Err(error)) if !target::recoverable(&error) => {
+                    Some(Err(error)) if !error.recoverable() => {
                         self.fail(error.to_string());
                         break;
                     }

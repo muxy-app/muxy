@@ -619,6 +619,9 @@ impl AppModel {
                 self.disconnect(server, cx);
                 if restart {
                     self.connect_server(server, cx);
+                } else if let Some(runtime) = self.servers.get_mut(server) {
+                    // Stopped by the user: it stays stopped until connected.
+                    runtime.retry.held = true;
                 }
             }
             Err(error) => {

@@ -137,7 +137,9 @@ fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     let project = model.state.current_project();
     let id = project.id;
     let available = project.status() == muxy_app_core::ProjectStatus::Available;
-    let display = super::project_picker::display_path(&project.directory);
+    // Another computer's folder can't be revealed here; its path can be copied.
+    let local = project.server_id.is_local();
+    let display = model.project_path_label(project);
     let count = display.chars().count();
     let display = if count > 40 {
         format!("…{}", display.chars().skip(count - 39).collect::<String>())
@@ -155,24 +157,22 @@ fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
         .h_full()
         .text_color(model.theme.fg_muted)
         .when(available, |path| {
-            path.cursor_pointer()
+            path.when(local, Styled::cursor_pointer)
                 .on_click(cx.listener(move |model, _, _, cx| {
-                    if let Some(project) = model.state.project(id) {
+                    if let Some(project) = model.state.project(id)
+                        && local
+                    {
                         cx.reveal_path(&project.directory);
                     }
                 }))
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
-                        model.open_menu(
-                            vec![
-                                Item::action("Copy Path", Command::CopyPath(id)),
-                                Item::action("Reveal in Finder", Command::RevealPath(id)),
-                            ],
-                            event.position,
-                            window,
-                            cx,
-                        );
+                        let mut items = vec![Item::action("Copy Path", Command::CopyPath(id))];
+                        if local {
+                            items.push(Item::action("Reveal in Finder", Command::RevealPath(id)));
+                        }
+                        model.open_menu(items, event.position, window, cx);
                     }),
                 )
         })
@@ -272,7 +272,7 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
     controls
 }
 
-fn tooltip(
+pub(super) fn tooltip(
     text: String,
     model: &AppModel,
 ) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {

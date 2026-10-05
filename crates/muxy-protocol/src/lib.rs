@@ -86,3 +86,8 @@ pub use files::{
     FilesRequest, MAX_FILE_BYTES, MAX_FILE_CHANGES, MAX_FILE_ENTRIES, MAX_FILE_PATH_BYTES,
     validate_folder_names, validate_folder_path,
 };
+
+mod upload;
+pub use upload::{
+    MAX_UPLOAD_BYTES, MAX_UPLOAD_CHUNK, MAX_UPLOAD_NAME, UploadChunk, validate_uploaded,
+};

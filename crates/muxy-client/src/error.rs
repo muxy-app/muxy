@@ -56,6 +56,28 @@ pub enum RemoteReason {
     Incompatible,
 }
 
+impl RemoteReason {
+    /// Whether connecting again may work without the user's help. The network
+    /// or the other computer can recover, but a refused login, an untrusted
+    /// host key, or a missing or incompatible Muxy can't, and repeated failed
+    /// logins can get this computer blocked.
+    pub fn recoverable(self) -> bool {
+        matches!(self, Self::Unreachable | Self::Timeout | Self::BridgeFailed)
+    }
+}
+
+impl ClientError {
+    /// Whether connecting again may work without the user's help; see
+    /// [`RemoteReason::recoverable`]. Other failures, such as a dropped
+    /// connection, may.
+    pub fn recoverable(&self) -> bool {
+        match self {
+            Self::Remote { reason, .. } => reason.recoverable(),
+            _ => true,
+        }
+    }
+}
+
 impl fmt::Display for ClientError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

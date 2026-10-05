@@ -1003,7 +1003,7 @@ fn a_device_without_muxy_installs_it_over_ssh_and_then_connects(cx: &mut TestApp
     let (mut boot, _, remotes) = boot_with(vec![entry(remote, "box")]);
     let (log, result) = (
         ran.clone(),
-        std::sync::Arc::new(std::sync::Mutex::new(Ok(()))),
+        std::sync::Arc::new(std::sync::Mutex::new(Ok(String::new()))),
     );
     let outcome = result.clone();
     boot.workers = boot.workers.with_run(move |target, command| {
@@ -1030,7 +1030,7 @@ fn a_device_without_muxy_installs_it_over_ssh_and_then_connects(cx: &mut TestApp
                 "Error: Linux requires glibc 2.35 or newer.".into()
             ))
         );
-        *result.lock().expect("result") = Ok(());
+        *result.lock().expect("result") = Ok(String::new());
         model.install_server(remote, "2.0.0-beta-9", cx);
     });
     let worker = remotes.borrow_mut().remove(&remote).expect("worker");

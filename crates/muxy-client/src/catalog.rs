@@ -84,6 +84,48 @@ impl Client {
         }
     }
 
+    /// Sends `bytes` as a file named `name` for `session` to keep on the
+    /// server's computer, in chunks, and returns its absolute path there.
+    /// Servers from before uploads answer `Unsupported`.
+    pub fn upload(
+        &self,
+        session: SessionId,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<muxy_protocol::ServerPath, ClientError> {
+        if u64::try_from(bytes.len())
+            .ok()
+            .is_none_or(|length| length > muxy_protocol::MAX_UPLOAD_BYTES)
+        {
+            return Err(ClientError::Invalid(ErrorCode::BadRequest));
+        }
+        let upload = muxy_protocol::OperationId::new();
+        let mut chunks = bytes.chunks(muxy_protocol::MAX_UPLOAD_CHUNK).peekable();
+        let mut offset = 0;
+        loop {
+            // An empty file is one empty chunk.
+            let chunk = chunks.next().unwrap_or_default();
+            let last = chunks.peek().is_none();
+            let reply = self.request_with_timeout(
+                RequestBody::Upload(muxy_protocol::UploadChunk {
+                    session,
+                    upload,
+                    name: name.into(),
+                    offset,
+                    bytes: chunk.to_vec(),
+                    last,
+                }),
+                std::time::Duration::from_secs(60),
+            )?;
+            offset += chunk.len() as u64;
+            match (reply, last) {
+                (ReplyBody::Uploaded(Some(path)), true) => return Ok(path),
+                (ReplyBody::Uploaded(None), false) => {}
+                (body, _) => return Err(ClientError::UnexpectedReply(Box::new(body))),
+            }
+        }
+    }
+
     pub fn git(
         &self,
         request: muxy_protocol::GitRequest,

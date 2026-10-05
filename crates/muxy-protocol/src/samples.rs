@@ -765,6 +765,23 @@ fn files_samples() -> Vec<Message> {
             body: ReplyBody::Folders(vec![ServerPath(b"code".to_vec())]),
         },
         Message::Request {
+            id: RequestId(10),
+            body: RequestBody::Upload(crate::UploadChunk {
+                session: SessionId::from(NonZeroU64::MIN),
+                upload: crate::OperationId::from_u128(1),
+                name: "screenshot.png".into(),
+                offset: 0,
+                bytes: b"\x89PNG".to_vec(),
+                last: true,
+            }),
+        },
+        Message::Reply {
+            id: RequestId(10),
+            body: ReplyBody::Uploaded(Some(ServerPath(
+                b"/home/dev/.local/state/muxy/uploads/1/screenshot.png".to_vec(),
+            ))),
+        },
+        Message::Request {
             id: RequestId(1),
             body: RequestBody::Files(crate::FilesRequest {
                 project: crate::ProjectId::from_u128(1),

@@ -523,7 +523,7 @@ fn a_remote_command_reports_the_last_line_it_printed_when_it_fails() -> TestResu
     )?;
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
     let host = SshTarget::new("box")?.with_program(program);
-    assert_eq!(run(&host, "echo installed"), Ok(()));
+    assert_eq!(run(&host, "echo installed"), Ok("installed\n".into()));
     assert_eq!(
         run(
             &host,

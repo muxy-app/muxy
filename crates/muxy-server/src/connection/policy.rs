@@ -57,6 +57,7 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
         | RequestBody::ClaimActivity(_)
         | RequestBody::Files(_)
         | RequestBody::ListFolders(_)
+        | RequestBody::Upload(_)
         | RequestBody::WriteInput { .. } => Ok(()),
     }
 }

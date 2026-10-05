@@ -11,6 +11,8 @@ mod mobile;
 mod preferences;
 pub(crate) mod project_layouts;
 mod quick_terminal;
+mod reconnect;
+pub(crate) mod remote_files;
 mod remote_servers;
 pub(crate) use remote_servers::{
     ConnectionTest, DeviceForm, Install, RemoteServer, join_destination, released_version,
@@ -130,6 +132,7 @@ pub(crate) struct AppModel {
     /// Add Project waits for this server to be ready, then opens its picker,
     /// if that happens soon after the user asked.
     pub(crate) pending_remote_picker: Option<(ServerId, std::time::Instant)>,
+    pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
     font_sizes: HashMap<PaneId, f32>,
@@ -390,6 +393,7 @@ impl AppModel {
             }
             self.refresh_git(cx);
             self.refresh_project_statuses(cx);
+            self.reconnect_waiting(cx);
         } else {
             self.cancel_titlebar_drag(cx);
             self.finish_sidebar_resize(cx);
@@ -511,6 +515,7 @@ impl AppModel {
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
             pending_remote_picker: None,
+            remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
             settings_window: None,
             font_sizes: HashMap::new(),
@@ -846,6 +851,9 @@ impl AppModel {
 
     pub(crate) fn refresh_project_statuses(&mut self, cx: &mut Context<Self>) {
         self.state.refresh_project_statuses();
+        for server in self.servers.ids() {
+            self.check_remote_projects(server, cx);
+        }
         self.sync_visible(cx);
         cx.notify();
     }
@@ -1511,6 +1519,10 @@ impl AppModel {
                 cx.notify();
             }
             PaneEvent::OpenLink(target) => model.open_terminal_link(id, target.clone(), cx),
+            PaneEvent::ResolveLink(candidate) => {
+                model.resolve_remote_link(id, candidate.clone(), cx);
+            }
+            PaneEvent::Upload(upload) => model.upload_to_pane(id, upload.clone(), cx),
             PaneEvent::ContextMenu(position) => {
                 if model.is_quick_terminal(id) {
                     model.quick_terminal_menu(*position, cx);
@@ -1853,6 +1865,7 @@ impl AppModel {
         runtime.connection = ConnectionState::Ready;
         runtime.failure = None;
         runtime.install = None;
+        runtime.retry.connected();
         let failure = runtime.error.take();
         let navigation = runtime.activity.navigation.take();
         runtime.activity = activity::ActivityView::default();
@@ -1972,6 +1985,10 @@ impl AppModel {
                 if reason == Some(muxy_client::RemoteReason::AuthenticationFailed) {
                     self.servers.passwords.forget(server);
                 }
+                if reason == Some(muxy_client::RemoteReason::Incompatible) {
+                    self.explain_incompatible(server, cx);
+                }
+                self.schedule_reconnect(server, reason, cx);
                 if self
                     .pending_remote_picker
                     .is_some_and(|(pending, _)| pending == server)
@@ -2379,7 +2396,10 @@ impl AppModel {
             ClientEvent::ServerRestarting if local => self.expect_server_restart(),
             ClientEvent::RemoteAccessChanged { .. } | ClientEvent::ServerRestarting => {}
             ClientEvent::Disconnected if local => self.receive_disconnect(cx),
-            ClientEvent::Disconnected => self.disconnect(server, cx),
+            ClientEvent::Disconnected => {
+                self.disconnect(server, cx);
+                self.schedule_reconnect(server, None, cx);
+            }
             ClientEvent::Metadata { channel, event } => {
                 if let Some(pane) = self.attached_view(server, channel, cx) {
                     pane.update(cx, |pane, cx| pane.metadata(event, cx));
@@ -2522,6 +2542,7 @@ mod tests {
     mod projects;
     mod quick_terminal;
     mod remote_devices;
+    mod remote_parity;
     mod rendering;
     mod scrollback;
     mod server_status;

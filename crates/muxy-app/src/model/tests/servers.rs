@@ -418,17 +418,21 @@ fn remote_terminal(cx: &mut TestAppContext) -> Result {
     Ok(())
 }
 
-/// A server on `socket`, where the fake ssh's relay reaches it.
+/// A server on `socket`, where the fake ssh's relay reaches it. It keeps
+/// uploads in `uploads` beside the socket.
 pub(super) fn serve_remote(socket: &std::path::Path) -> io::Result<()> {
     let listener = std::os::unix::net::UnixListener::bind(socket)?;
     let (events, kept) = std::sync::mpsc::channel();
-    let registry = std::sync::Arc::new(muxy_server::Registry::new(
-        muxy_server::ServerSettings {
-            default_shell: Some(PathBuf::from("/bin/sh")),
-            ..muxy_server::ServerSettings::default()
-        },
-        events,
-    ));
+    let registry = std::sync::Arc::new(
+        muxy_server::Registry::new(
+            muxy_server::ServerSettings {
+                default_shell: Some(PathBuf::from("/bin/sh")),
+                ..muxy_server::ServerSettings::default()
+            },
+            events,
+        )
+        .with_uploads(socket.with_file_name("uploads")),
+    );
     thread::spawn(move || {
         let _kept = kept;
         for stream in listener.incoming() {

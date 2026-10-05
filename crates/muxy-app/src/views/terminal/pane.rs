@@ -24,6 +24,11 @@ use super::{
 pub(crate) enum PaneEvent {
     Focused,
     OpenLink(muxy_app_core::opener::Target),
+    /// A link on another computer, which only its server can look up.
+    ResolveLink(super::links::Candidate),
+    /// Files or an image for a terminal on another computer, which can't
+    /// reach this computer's.
+    Upload(crate::model::remote_files::Upload),
     ContextMenu(gpui::Point<gpui::Pixels>),
     SelectionCopied,
     Viewport(Size),
@@ -1258,9 +1263,20 @@ impl TerminalPane {
         cx.stop_propagation();
     }
 
+    /// Whether another computer's server runs this terminal.
+    pub(crate) fn remote(&self) -> bool {
+        self.attachment
+            .is_some_and(|(server, _)| !server.is_local())
+    }
+
     pub(crate) fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(item) = cx.read_from_clipboard() {
-            if self.server_input
+            if self.remote()
+                && self.state == PaneState::Live
+                && let Some(upload) = crate::model::remote_files::clipboard_upload(&item)
+            {
+                cx.emit(PaneEvent::Upload(upload));
+            } else if self.server_input
                 && let Some(text) = item.text()
             {
                 self.send_clipboard(text.as_bytes(), cx);
@@ -1272,7 +1288,21 @@ impl TerminalPane {
         }
     }
 
+    /// Pastes dropped files' paths; another computer gets the files first.
     pub(crate) fn drop_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        if self.remote() {
+            if self.state == PaneState::Live {
+                cx.emit(PaneEvent::Upload(
+                    crate::model::remote_files::Upload::Files(paths.to_vec()),
+                ));
+            }
+        } else {
+            self.paste_paths(paths, cx);
+        }
+    }
+
+    /// Pastes paths quoted for a shell.
+    pub(crate) fn paste_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid
             && let Some(bytes) = clipboard::paths(
                 paths,
@@ -3395,6 +3425,94 @@ mod tests {
         });
         cx.run_until_parked();
         assert_eq!(*sent.borrow(), b"\x1b[200~'/tmp/a b'\x1b[201~");
+    }
+
+    #[gpui::test]
+    fn another_computers_terminal_gets_files_and_images_sent_and_asks_its_server_about_links(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::model::remote_files::Upload;
+        let (pane, cx) = cx.add_window_view(|_, cx| {
+            TerminalPane::new(
+                Palette::new(true),
+                muxy_app_core::settings::TerminalSettings::default(),
+                cx,
+            )
+        });
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|_, cx| {
+            let events = events.clone();
+            cx.subscribe(&pane, move |_, event, _| {
+                let seen = match event {
+                    PaneEvent::Input(_, bytes) => {
+                        format!("input {}", String::from_utf8_lossy(bytes))
+                    }
+                    PaneEvent::Upload(Upload::Files(paths)) => format!("files {paths:?}"),
+                    PaneEvent::Upload(Upload::Image(bytes, extension)) => {
+                        format!("image {} {extension}", bytes.len())
+                    }
+                    PaneEvent::ResolveLink(candidate) => format!("resolve {}", candidate.text),
+                    _ => return,
+                };
+                events.borrow_mut().push(seen);
+            })
+            .detach();
+        });
+        let remote = ServerId::new();
+        pane.update(cx, |pane, cx| {
+            prepare_mouse(pane);
+            pane.attachment = Some((remote, ChannelId(1)));
+            pane.open_context = Some(muxy_app_core::opener::OpenContext {
+                project: muxy_protocol::ProjectId::new(),
+                pane: muxy_app_core::PaneId::new(),
+                server: remote,
+                directory: "/home/dev".into(),
+                project_directory: "/home/dev".into(),
+            });
+            pane.drop_paths(&["/tmp/shot.png".into()], cx);
+            let image = gpui::Image::from_bytes(gpui::ImageFormat::Png, b"\x89PNG".to_vec());
+            cx.write_to_clipboard(gpui::ClipboardItem::new_image(&image));
+            pane.paste_clipboard(cx);
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string("text".into()));
+            pane.paste_clipboard(cx);
+            pane.hover_link(point(px(10.0), px(5.0)), true, cx);
+            assert!(pane.link_hover.target.is_none(), "its server answers later");
+            pane.metadata(
+                MetadataEvent::Links {
+                    seq: 0,
+                    rows: vec![muxy_protocol::LinkRow {
+                        row: 1,
+                        spans: vec![muxy_protocol::LinkSpan {
+                            start: 0,
+                            end: 6,
+                            uri: "https://example.com".into(),
+                        }],
+                    }],
+                },
+                cx,
+            );
+            pane.hover_link(point(px(10.0), px(25.0)), true, cx);
+            assert_eq!(
+                pane.link_hover.target,
+                Some(muxy_app_core::opener::Target::Url(
+                    "https://example.com".into()
+                )),
+                "web links open here, without asking"
+            );
+            pane.set_state(PaneState::Disconnected, cx);
+            pane.attachment = Some((remote, ChannelId(1)));
+            pane.drop_paths(&["/tmp/ignored".into()], cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            *events.borrow(),
+            [
+                "files [\"/tmp/shot.png\"]",
+                "image 4 png",
+                "input text",
+                "resolve alpha",
+            ]
+        );
     }
 
     #[gpui::test]

@@ -67,6 +67,13 @@ impl AppModel {
             }
             return;
         }
+        // Apps here can't open another computer's files; a copy can be.
+        if let Target::File(file) = &target
+            && !context.server.is_local()
+        {
+            self.remote_link_menu(pane, context.server, file, cx);
+            return;
+        }
         let settings = self.settings.openers.clone();
         let result = crate::opener::submit(move || {
             crate::opener::open(&OpenRequest { target, context }, &settings)

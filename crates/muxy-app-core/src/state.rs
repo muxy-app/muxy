@@ -225,6 +225,32 @@ impl AppState {
         }
     }
 
+    /// Another computer's server says whether the project's folder is there.
+    /// This computer's projects are checked on disk instead.
+    pub fn set_remote_project_status(
+        &mut self,
+        project: ProjectId,
+        status: ProjectStatus,
+    ) -> Result<(), AppError> {
+        let project = self.project_mut(project)?;
+        if project.server_id.is_local() {
+            return Err(AppError::InvalidState(
+                "this computer's projects are checked on disk".into(),
+            ));
+        }
+        project.status = status;
+        Ok(())
+    }
+
+    /// An offline server's projects are available: nothing says otherwise.
+    pub fn forget_remote_statuses(&mut self, server: ServerId) {
+        for project in &mut self.projects {
+            if project.server_id == server && !server.is_local() {
+                project.status = ProjectStatus::Available;
+            }
+        }
+    }
+
     pub fn select_project(&mut self, id: ProjectId) -> Result<(), AppError> {
         self.project_mut(id)?.require_available()?;
         self.window.current_project = id;

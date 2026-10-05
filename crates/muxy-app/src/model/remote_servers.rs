@@ -20,6 +20,8 @@ pub(crate) struct RemoteServer {
     pub(crate) error: Option<String>,
     /// Muxy isn't installed there.
     pub(crate) missing: bool,
+    /// Muxy there can't talk to this app.
+    pub(crate) incompatible: bool,
     pub(crate) install: Option<Install>,
 }
 
@@ -43,6 +45,41 @@ pub(super) fn install_command(version: &str) -> String {
     format!(
         "sh -c 'curl -fsSL {}/v{version}/install-muxy.sh | sh -s -- --version {version}'",
         crate::updater::RELEASES
+    )
+}
+
+/// The command that replaces Muxy on another computer with this release.
+pub(crate) fn update_command(version: &str) -> String {
+    format!(
+        "curl -fsSL {}/v{version}/install-muxy.sh | sh -s -- --version {version} --replace",
+        crate::updater::RELEASES
+    )
+}
+
+/// Prints the version of Muxy installed there, found as the bridge finds it.
+const VERSION_COMMAND: &str = "sh -c 'export PATH=\"$PATH:$HOME/.local/bin\"; exec muxy --version'";
+
+/// Why Muxy on another computer can't talk to this app, and how to fix it.
+/// `there` is the version installed there, when it could be read. When it is
+/// this app's own, the server still running there is an older one.
+pub(crate) fn incompatible_guidance(name: &str, there: Option<&str>) -> String {
+    let here = env!("CARGO_PKG_VERSION");
+    if there == Some(here) {
+        return format!(
+            "Muxy on {name} is {here}, but its running server is another version. Restart it there, which ends its terminals: pkill -x muxy-server"
+        );
+    }
+    let there = there.map_or_else(
+        || format!("Muxy on {name} is another version"),
+        |version| format!("Muxy on {name} is {version}"),
+    );
+    let protocol = muxy_protocol::CURRENT.0;
+    let fix = released_version().map_or_else(
+        || "Install a matching build there by hand, from scripts/build-linux-dev.sh.".to_owned(),
+        |version| format!("Update Muxy on {name}: {}", update_command(version)),
+    );
+    format!(
+        "{there}; this app needs a version that speaks protocol V{protocol}, like {here}. {fix}"
     )
 }
 
@@ -163,6 +200,9 @@ impl AppModel {
                     error: runtime.and_then(|runtime| runtime.error.clone()),
                     missing: runtime.is_some_and(|runtime| {
                         runtime.failure == Some(muxy_client::RemoteReason::NotInstalled)
+                    }),
+                    incompatible: runtime.is_some_and(|runtime| {
+                        runtime.failure == Some(muxy_client::RemoteReason::Incompatible)
                     }),
                     install: runtime.and_then(|runtime| runtime.install.clone()),
                 }
@@ -460,7 +500,7 @@ impl AppModel {
         let command = install_command(version);
         let result = cx
             .background_executor()
-            .spawn(async move { run(&target, &command) });
+            .spawn(async move { run(&target, &command).map(drop) });
         cx.spawn(async move |model, cx| {
             let result = result.await;
             let _ = model.update(cx, |model, cx| {
@@ -481,6 +521,51 @@ impl AppModel {
             });
         })
         .detach();
+    }
+
+    /// Explains a version mismatch on the server's own status, then reads
+    /// the version installed there to name it. The app never updates it.
+    pub(super) fn explain_incompatible(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        let name = self.server_label(server);
+        let Some(runtime) = self.servers.get_mut(server) else {
+            return;
+        };
+        runtime.error = Some(incompatible_guidance(&name, None));
+        let Some(target) = runtime.target.clone() else {
+            return;
+        };
+        let generation = runtime.generation;
+        let run = self.servers.run();
+        let version = cx
+            .background_executor()
+            .spawn(async move { run(&target, VERSION_COMMAND) });
+        cx.spawn(async move |model, cx| {
+            let Ok(printed) = version.await else {
+                return;
+            };
+            let version = printed.trim().trim_start_matches("muxy").trim().to_owned();
+            let _ = model.update(cx, |model, cx| {
+                let Some(runtime) = model.servers.get_mut(server) else {
+                    return;
+                };
+                if runtime.generation == generation
+                    && runtime.failure == Some(muxy_client::RemoteReason::Incompatible)
+                    && !version.is_empty()
+                {
+                    runtime.error = Some(incompatible_guidance(&name, Some(&version)));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Copies the command that updates Muxy on an incompatible server.
+    pub(crate) fn copy_update_command(&mut self, cx: &mut Context<Self>) {
+        if let Some(version) = released_version() {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(update_command(version)));
+            self.show_notice("Copied the update command".into(), cx);
+        }
     }
 
     /// Connects, or connects again: a fresh SSH login and server check.

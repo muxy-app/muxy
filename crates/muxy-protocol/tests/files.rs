@@ -211,3 +211,36 @@ fn folder_listings_need_an_absolute_path_and_return_single_names() {
     let many = vec![path(b"a"); MAX_FILE_ENTRIES + 1];
     assert_eq!(validate_folder_names(&many), Err(ErrorCode::BadRequest));
 }
+
+#[test]
+fn uploads_come_in_bounded_chunks_and_reply_with_an_absolute_path() {
+    use muxy_protocol::{
+        ErrorCode, MAX_UPLOAD_BYTES, MAX_UPLOAD_CHUNK, MAX_UPLOAD_NAME, OperationId, ServerPath,
+        SessionId, UploadChunk, validate_uploaded,
+    };
+    let chunk = |offset: u64, length: usize, name: &str| UploadChunk {
+        session: SessionId::new(1).expect("session"),
+        upload: OperationId::new(),
+        name: name.into(),
+        offset,
+        bytes: vec![0; length],
+        last: false,
+    };
+    assert_eq!(chunk(0, MAX_UPLOAD_CHUNK, "shot.png").validate(), Ok(()));
+    let last = MAX_UPLOAD_BYTES - MAX_UPLOAD_CHUNK as u64;
+    assert_eq!(chunk(last, MAX_UPLOAD_CHUNK, "a").validate(), Ok(()));
+    for bad in [
+        chunk(0, MAX_UPLOAD_CHUNK + 1, "a"),
+        chunk(last + 1, MAX_UPLOAD_CHUNK, "a"),
+        chunk(u64::MAX, 1, "a"),
+        chunk(0, 1, &"a".repeat(MAX_UPLOAD_NAME + 1)),
+    ] {
+        assert_eq!(bad.validate(), Err(ErrorCode::BadRequest));
+    }
+    let path = |bytes: &[u8]| ServerPath(bytes.to_vec());
+    assert_eq!(validate_uploaded(None), Ok(()));
+    assert_eq!(validate_uploaded(Some(&path(b"/srv/u/shot.png"))), Ok(()));
+    for bad in [&b"relative.png"[..], b"/a\0b", b""] {
+        assert_eq!(validate_uploaded(Some(&path(bad))), Err(ErrorCode::BadPath));
+    }
+}

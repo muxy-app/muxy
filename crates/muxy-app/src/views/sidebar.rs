@@ -156,8 +156,8 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .child(div().h(m.title_bar_height()).flex_none())
         .child(header)
         .child(contents)
-        .child(super::remote_servers::section(model, cx))
         .children(tips::footer(model, cx))
+        .child(super::remote_servers::section(model, cx))
         .into_any_element()
 }
 
@@ -197,16 +197,23 @@ impl AppModel {
     /// Where another computer's project is, as `box · ~/code/app`.
     pub(crate) fn remote_location(&self, project: &Project) -> Option<String> {
         let name = self.server_name(project.server_id)?;
+        Some(format!("{name} · {}", self.project_path_label(project)))
+    }
+
+    /// The project's folder, with `~` for its own computer's Home.
+    pub(crate) fn project_path_label(&self, project: &Project) -> String {
+        if project.server_id.is_local() {
+            return super::project_picker::display_path(&project.directory);
+        }
         let directory = project.directory.to_string_lossy();
-        let path = match self.remote_home(project.server_id) {
+        match self.remote_home(project.server_id) {
             Some(home) if project.directory == home => "~".to_owned(),
             Some(home) => project.directory.strip_prefix(home).map_or_else(
                 |_| directory.into_owned(),
                 |relative| format!("~/{}", relative.display()),
             ),
             None => directory.into_owned(),
-        };
-        Some(format!("{name} · {path}"))
+        }
     }
 
     pub(crate) fn cached_sidebar(&self) -> gpui::AnyView {

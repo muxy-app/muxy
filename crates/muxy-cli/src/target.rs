@@ -6,7 +6,7 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use muxy_client::{Client, ClientError, RemoteReason, SshTarget, Start};
+use muxy_client::{Client, ClientError, SshTarget, Start};
 use muxy_protocol::ServerIdentity;
 
 /// How long to wait after each failed attempt in a row to reach another
@@ -101,23 +101,10 @@ impl Target {
     }
 }
 
-/// Whether connecting again may work without the user's help. The network
-/// or the other computer can recover, but a refused login, an untrusted host
-/// key, or a missing or incompatible Muxy can't, and repeated failed logins
-/// can get this computer blocked.
-pub(crate) fn recoverable(error: &ClientError) -> bool {
-    match error {
-        ClientError::Remote { reason, .. } => matches!(
-            reason,
-            RemoteReason::Unreachable | RemoteReason::Timeout | RemoteReason::BridgeFailed
-        ),
-        _ => true,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muxy_client::RemoteReason;
 
     fn ssh() -> io::Result<Target> {
         Ok(Target::Ssh {
@@ -195,7 +182,7 @@ mod tests {
             RemoteReason::Timeout,
             RemoteReason::BridgeFailed,
         ] {
-            assert!(recoverable(&remote(reason)), "{reason:?}");
+            assert!(remote(reason).recoverable(), "{reason:?}");
         }
         for reason in [
             RemoteReason::HostKeyUnknown,
@@ -207,12 +194,10 @@ mod tests {
             RemoteReason::UnexpectedOutput,
             RemoteReason::Incompatible,
         ] {
-            assert!(!recoverable(&remote(reason)), "{reason:?}");
+            assert!(!remote(reason).recoverable(), "{reason:?}");
         }
-        assert!(recoverable(&ClientError::Timeout));
-        assert!(recoverable(&ClientError::Disconnected));
-        assert!(recoverable(&ClientError::Io(
-            io::ErrorKind::ConnectionRefused.into()
-        )));
+        assert!(ClientError::Timeout.recoverable());
+        assert!(ClientError::Disconnected.recoverable());
+        assert!(ClientError::Io(io::ErrorKind::ConnectionRefused.into()).recoverable());
     }
 }

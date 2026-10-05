@@ -110,8 +110,8 @@ impl Target {
 pub(crate) type Probe = Arc<dyn Fn(&SshTarget) -> Result<String, String> + Send + Sync>;
 
 /// Runs a command on another computer over SSH, such as an installer, and
-/// reports why it failed.
-pub(crate) type Run = Arc<dyn Fn(&SshTarget, &str) -> Result<(), String> + Send + Sync>;
+/// returns what it printed, or why it failed.
+pub(crate) type Run = Arc<dyn Fn(&SshTarget, &str) -> Result<String, String> + Send + Sync>;
 
 /// Starts one worker per server.
 pub(crate) struct Workers {
@@ -144,7 +144,7 @@ impl Workers {
     #[cfg(test)]
     pub(crate) fn with_run(
         self,
-        run: impl Fn(&SshTarget, &str) -> Result<(), String> + Send + Sync + 'static,
+        run: impl Fn(&SshTarget, &str) -> Result<String, String> + Send + Sync + 'static,
     ) -> Self {
         Self {
             run: Arc::new(run),
@@ -176,15 +176,15 @@ impl Workers {
     }
 }
 
-/// Runs `remote` there and waits for it. On failure, the last line of its
-/// error output, else of its output, says why.
-fn run(host: &SshTarget, remote: &str) -> Result<(), String> {
+/// Runs `remote` there, waits for it, and returns its output. On failure,
+/// the last line of its error output, else of its output, says why.
+fn run(host: &SshTarget, remote: &str) -> Result<String, String> {
     let output = host
         .command(remote)
         .and_then(|mut command| command.stdin(std::process::Stdio::null()).output())
         .map_err(|error| error.to_string())?;
     if output.status.success() {
-        return Ok(());
+        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
     let last = |bytes: &[u8]| {
         String::from_utf8_lossy(bytes)

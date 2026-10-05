@@ -180,6 +180,7 @@ impl AppModel {
         }
         self.resume_activity_navigation(server, cx);
         self.resume_remote_picker(server, cx);
+        self.check_remote_projects(server, cx);
         cx.notify();
     }
 

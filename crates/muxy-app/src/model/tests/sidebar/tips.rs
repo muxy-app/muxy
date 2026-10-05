@@ -30,7 +30,12 @@ fn expanded_sidebar_card_steps_through_tips_in_both_layouts(cx: &mut TestAppCont
         let sidebar = cx.debug_bounds("workspace-sidebar").expect("sidebar");
         let card = cx.debug_bounds("sidebar-tip").expect("tip card");
         assert!(sidebar.contains(&card.origin) && card.right() <= sidebar.right());
-        assert!(sidebar.bottom() - card.bottom() < px(20.0));
+        // The Remote button stays last, below the tip.
+        let remote = cx.debug_bounds("remote-servers-section").expect("Remote");
+        assert!(card.bottom() <= remote.top() && remote.top() - card.bottom() < px(20.0));
+        assert!(
+            remote.bottom() <= sidebar.bottom() && sidebar.bottom() - remote.bottom() < px(20.0)
+        );
         assert!(cx.debug_bounds("sidebar-tip-button").is_none());
         let start = position(&view, cx);
         click(cx, "next-tip");

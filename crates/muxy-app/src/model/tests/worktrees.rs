@@ -78,8 +78,8 @@ fn listed_worktrees_skip_the_main_checkout_leftovers_and_the_projects_own_folder
     let link = links.path().join("checkout");
     std::os::unix::fs::symlink(checkout.path(), &link).expect("symlink");
     let bytes = |path: &Path| path.as_os_str().as_bytes().to_vec();
-    let own = crate::model::worktrees::resolved(&ServerPath(bytes(&link)));
-    let listed = |worktree: &GitWorktree| crate::model::worktrees::listed(worktree, &own);
+    let own = crate::model::worktrees::resolved(&ServerPath(bytes(&link)), true);
+    let listed = |worktree: &GitWorktree| crate::model::worktrees::listed(worktree, &own, true);
     let reported = checkout.path().canonicalize().expect("resolved checkout");
     let mut prunable = worktree(b"/code/app-gone", false);
     prunable.prunable = true;
@@ -90,6 +90,15 @@ fn listed_worktrees_skip_the_main_checkout_leftovers_and_the_projects_own_folder
     assert!(!listed(&worktree(b"/code/app", true)));
     assert!(!listed(&prunable));
     assert!(listed(&worktree(b"/code/app-feature", false)));
+    // Another computer's folders are compared as its server reports them,
+    // never resolved against this disk.
+    let remote = crate::model::worktrees::resolved(&ServerPath(bytes(&link)), false);
+    assert_eq!(remote, link);
+    assert!(crate::model::worktrees::listed(
+        &worktree(&bytes(&reported), false),
+        &remote,
+        false
+    ));
 }
 
 #[gpui::test]

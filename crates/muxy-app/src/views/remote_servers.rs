@@ -87,14 +87,32 @@ fn dot(color: Hsla, model: &AppModel) -> gpui::Div {
         .bg(color)
 }
 
-/// The bottom of the sidebar: every remote server's state, and the popover.
+/// How many servers are offline, and whether one failed: the footer speaks
+/// up only when something needs a look.
+fn offline(servers: &[RemoteServer]) -> (usize, bool) {
+    let offline: Vec<_> = servers
+        .iter()
+        .filter(|server| server.status == ServerStatus::Disconnected)
+        .collect();
+    let failed = offline.iter().any(|server| server.error.is_some());
+    (offline.len(), failed)
+}
+
+/// The bottom of the sidebar, level with the status bar: the remote servers,
+/// which open their popover above it.
 pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let wide = model.appearance.sidebar_expanded;
     let anchor = model.remote_anchor.clone();
-    let servers = model.remote_servers();
     let open = matches!(model.overlay, Some(Overlay::RemoteServers));
+    let (offline, failed) = offline(&model.remote_servers());
+    let attention = if failed { theme.danger } else { theme.fg_dim };
+    let summary = (offline > 0).then(|| format!("{offline} offline"));
+    let tooltip = summary.as_ref().map_or_else(
+        || "Remote Servers".to_owned(),
+        |summary| format!("Remote Servers · {summary}"),
+    );
     div()
         .id("remote-servers-section")
         .debug_selector(|| "remote-servers-section".into())
@@ -116,12 +134,17 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
                 .size(m.scaled(34.0))
         })
         // A resting background, like the sidebar's other controls, keeps the
-        // label and the status dots together as one button.
-        .rounded(m.radius_md())
+        // label and the chevron together as one button. It sits in the
+        // window's corner, so its corner follows the window's: about 16 pt,
+        // less the 6 pt gap.
+        .rounded(m.radius_xl())
         .bg(if open { theme.hover } else { theme.surface })
+        .text_color(if open { theme.fg } else { theme.fg_muted })
         .cursor_pointer()
         .hover(|style| style.bg(theme.hover).text_color(theme.fg))
-        .text_color(theme.fg_muted)
+        .when(!wide, |row| {
+            row.tooltip(super::status_bar::tooltip(tooltip, model))
+        })
         .button_interaction(cx.listener(|model, _, window, cx| {
             model.toggle_remote_popover(window, cx);
         }))
@@ -135,23 +158,42 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
             .left_0()
             .size_full(),
         )
-        .child(IconGlyph::new(Icon::Network, m.font_body(), theme.fg_muted))
+        .child(IconGlyph::new(
+            Icon::Network,
+            m.font_body(),
+            if !wide && offline > 0 {
+                attention
+            } else {
+                theme.fg_muted
+            },
+        ))
         .when(wide, |row| {
             row.child(
                 div()
                     .flex_1()
                     .min_w(px(0.0))
+                    .truncate()
                     .text_size(m.font_body())
                     .font_weight(FontWeight::MEDIUM)
                     .child("Remote"),
             )
-            .child(
-                div().flex().flex_none().gap(m.spacing2()).children(
-                    servers
-                        .iter()
-                        .map(|server| dot(status_color(server, model), model)),
-                ),
-            )
+            .children(summary.map(|summary| {
+                div()
+                    .debug_selector(|| "remote-servers-offline".into())
+                    .flex_none()
+                    .text_size(m.font_footnote())
+                    .text_color(attention)
+                    .child(summary)
+            }))
+            .child(IconGlyph::new(
+                if open {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronUp
+                },
+                m.font_caption(),
+                theme.fg_dim,
+            ))
         })
         .into_any_element()
 }
@@ -333,6 +375,13 @@ fn server_command(server: &RemoteServer, model: gpui::WeakEntity<AppModel>) -> C
                 handler(|model, id, window, cx| {
                     model.confirm_install_server(id, window.window_handle(), cx);
                 }),
+            ));
+        }
+        if server.incompatible && crate::model::released_version().is_some() {
+            actions.register(Command::new(
+                "copy-update-command",
+                "Copy Update Command",
+                handler(|model, _, _, cx| model.copy_update_command(cx)),
             ));
         }
         actions.register(Command::new(

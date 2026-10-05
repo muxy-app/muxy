@@ -169,6 +169,10 @@ impl TerminalPane {
         let Some(context) = self.link_context() else {
             return;
         };
+        if !context.server.is_local() {
+            cx.emit(super::pane::PaneEvent::ResolveLink(candidate));
+            return;
+        }
         let text = candidate.text.clone();
         let Ok(result) = crate::opener::submit(move || crate::opener::resolve(&text, &context))
         else {
@@ -184,6 +188,20 @@ impl TerminalPane {
                 });
             }
         }));
+    }
+
+    /// Another computer's server looked up a link; it counts if the pointer
+    /// is still on it.
+    pub(crate) fn link_resolved(
+        &mut self,
+        candidate: &Candidate,
+        target: Option<Target>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.link_hover.candidate.as_ref() == Some(candidate) {
+            self.link_hover.target = target;
+            cx.notify();
+        }
     }
 
     pub(crate) fn link_context(&self) -> Option<muxy_app_core::opener::OpenContext> {

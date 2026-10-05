@@ -491,10 +491,11 @@ impl AppModel {
         );
         let operation = call.clone();
         let refresh = super::worktrees::handles(&call.verb);
+        let local = self.project_is_local(call.project);
         let task = cx.background_executor().spawn(async move {
             trace.stage(format_args!("phase=started"));
             let result = if refresh {
-                super::worktrees::call(&client, &operation).await
+                super::worktrees::call(&client, &operation, local).await
             } else {
                 server_call(&client, &operation).await
             };

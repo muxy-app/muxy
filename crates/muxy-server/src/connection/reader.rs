@@ -385,6 +385,7 @@ fn ordered_request(
         RequestBody::ListFolders(directory) => {
             ReplyBody::Folders(crate::files::folders(&directory)?)
         }
+        RequestBody::Upload(chunk) => ReplyBody::Uploaded(registry.upload(&chunk)?),
         RequestBody::Exec(_) | RequestBody::CancelExec(_) => {
             return Err(ServerError::new(
                 ErrorCode::BadRequest,

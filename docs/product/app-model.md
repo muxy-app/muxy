@@ -18,8 +18,13 @@ The **Remote** section at the bottom of the sidebar shows each remote server's
 state. Its popover adds servers (host, user, port, key file, or a password that
 Muxy asks for and keeps only in memory) and manages them. **Add Project →
 Remote** browses that server's folders. When a server lacks Muxy, a released
-app offers to install the same version there. Removing a server only forgets
+app offers to install the same version there; when its version can't talk to
+the app, the section explains how to update it. Removing a server only forgets
 its projects in this app.
+
+Files and images dropped or pasted on a remote terminal, or sent from the
+composer, are copied to that computer and its path is pasted. Clicking a file
+path in a remote terminal offers a read-only copy here, or its path.
 
 Each app keeps its own layout: tabs, splits, workspaces, and project order.
 Projects and terminals are shared. Several `muxy` windows can open the same
@@ -75,6 +80,8 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 | Situation | What you see |
 | --- | --- |
 | The server is offline | Projects stay visible, terminals keep their last screen, and web panes keep working. Edits and closes are replayed on reconnect. |
+| A remote server drops | Its section shows it offline and it reconnects on its own, waiting longer each time, until a login or host key needs you. Its projects never show as failed while offline. |
+| A project's folder is gone | The project shows as failed, also on a remote server. |
 | A terminal ends | Its panes close in every app, including hidden tabs. |
 | You quit or detach | Terminals keep running. |
 | **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
@@ -101,7 +108,9 @@ and stop.
 - Import supported 1.x settings and local projects from the installed app, a
   `.muxy` backup, or `settings.json`. Unsupported options are listed before import.
   Config files open in the system editor. Backups exclude live terminal sessions,
-  paired-device credentials, extension packages, and project files.
+  paired-device credentials, extension packages, and project files. They keep
+  the list of remote servers but not remote projects, which come back from
+  their server.
 
 ## Updates
 
