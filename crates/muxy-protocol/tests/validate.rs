@@ -459,6 +459,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ReadCatalog", ChannelKind::Control),
             Message::Request {
+                body:
+                    RequestBody::MutateProject(muxy_protocol::ProjectIntent {
+                        mutation: muxy_protocol::ProjectMutation::PruneWorktree(_),
+                        ..
+                    }),
+                ..
+            } => ("PruneWorktree", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::MutateProject(_),
                 ..
             } => ("MutateProject", ChannelKind::Control),
@@ -734,6 +742,7 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "SessionClosed",
             "ReadCatalog",
             "MutateProject",
+            "PruneWorktree",
             "ListProjectSessions",
             "CancelCreation",
             "Catalog",

@@ -908,3 +908,32 @@ fn two_clients_observe_project_metadata_deletion_and_explicit_session_membership
 mod activity;
 #[path = "client/titles.rs"]
 mod titles;
+
+#[test]
+fn asynchronous_session_presence_includes_saved_history_without_mutating_projects() -> TestResult {
+    let fixture = Fixture::new()?;
+    let connection = fixture.connect()?;
+    let project = fixture.registry.home_project();
+    let has_sessions = || -> TestResult<bool> {
+        let (send, receive) = mpsc::channel();
+        connection
+            .client
+            .project_has_sessions_async(project)
+            .on_complete(move |result| {
+                let _ = send.send(result);
+            });
+        Ok(receive.recv_timeout(TIMEOUT)??)
+    };
+    let revision = connection.client.catalog()?.revision;
+    for _ in 0..3 {
+        assert!(!has_sessions()?);
+    }
+    assert_eq!(connection.client.catalog()?.revision, revision);
+    let session = fixture.create(&connection.client)?;
+    assert!(has_sessions()?);
+    fixture.registry.end(session.id)?;
+    assert!(has_sessions()?);
+    fixture.registry.discard(session.id)?;
+    assert!(!has_sessions()?);
+    Ok(())
+}

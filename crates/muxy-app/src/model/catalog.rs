@@ -92,6 +92,10 @@ impl AppModel {
         if page.revision < self.state.catalog_revision() {
             return;
         }
+        if page.revision < self.catalog.dirty {
+            self.refresh_catalog(cx);
+            return;
+        }
         let previous = self.state.clone();
         if let Err(error) = self.state.apply_catalog(&page) {
             self.fail(error.to_string(), cx);
@@ -122,6 +126,7 @@ impl AppModel {
             self.select_project(project, cx);
         }
         self.sync_visible(cx);
+        self.resume_worktree_pruning(cx);
         if self.catalog.dirty > page.revision {
             self.refresh_catalog(cx);
         }

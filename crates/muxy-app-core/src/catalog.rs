@@ -64,11 +64,15 @@ impl AppState {
         self.catalog_revision
     }
 
+    pub fn project_intent_capacity(&self) -> usize {
+        1024_usize.saturating_sub(self.project_intents.len())
+    }
+
     pub(crate) fn queue_project(&mut self, mutation: ProjectMutation) -> Result<(), AppError> {
         mutation
             .validate()
             .map_err(|_| AppError::InvalidState("invalid project metadata".into()))?;
-        if self.project_intents.len() >= 1024 {
+        if self.project_intent_capacity() == 0 {
             return Err(AppError::InvalidState(
                 "pending project edits are full; reconnect before editing more projects".into(),
             ));
@@ -93,6 +97,30 @@ impl AppState {
                 "project acknowledgement is out of order".into(),
             ))
         }
+    }
+
+    pub fn prune_worktree(&mut self, id: ProjectId) -> Result<(), AppError> {
+        let Some(project) = self.project(id) else {
+            return Ok(());
+        };
+        if project.kind != Some(crate::ProjectKind::Worktree)
+            || project.parent_id.is_none()
+            || !project.tabs.is_empty()
+            || self
+                .project_intents
+                .iter()
+                .any(|intent| match &intent.mutation {
+                    ProjectMutation::Create(project) => project.id == id,
+                    ProjectMutation::Delete(project) | ProjectMutation::PruneWorktree(project) => {
+                        *project == id
+                    }
+                    ProjectMutation::Patch { .. } => false,
+                })
+        {
+            return Ok(());
+        }
+        self.remove_project_with_mutation(id, ProjectMutation::PruneWorktree(id))
+            .map(|_| ())
     }
 
     pub fn prepare_creation(&mut self, pane: PaneId, directory: &Path) -> ServerPath {
@@ -141,7 +169,7 @@ impl AppState {
                         patch.apply(project);
                     }
                 }
-                ProjectMutation::Delete(project) => {
+                ProjectMutation::Delete(project) | ProjectMutation::PruneWorktree(project) => {
                     descriptors.retain(|id, descriptor| {
                         id != project && descriptor.parent_id != Some(*project)
                     });
