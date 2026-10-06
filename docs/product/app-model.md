@@ -52,6 +52,8 @@ flowchart LR
   never opens a tab by itself.
 - The terminal UI opens one shell in Home the first time, then restores its
   layout.
+- `muxy <folder>` opens the folder in the desktop app, selecting its project or
+  adding one.
 - **Existing Terminals** lists a project's terminals that this app isn't
   showing, and which app owns each one. Opening one adds it to your layout.
 

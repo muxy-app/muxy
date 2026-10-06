@@ -16,6 +16,13 @@ impl AppModel {
             })
     }
 
+    /// Whether this connection has read this computer's projects.
+    pub(crate) fn local_projects_read(&self) -> bool {
+        self.servers
+            .get(ServerId::local())
+            .is_some_and(|runtime| runtime.catalog.identified)
+    }
+
     pub(super) fn refresh_catalog(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if self.ready(server)
             && self
@@ -202,6 +209,7 @@ impl AppModel {
         }
         self.resume_activity_navigation(server, cx);
         self.resume_remote_picker(server, cx);
+        self.resume_folders(server, cx);
         self.check_remote_projects(server, cx);
         cx.notify();
     }

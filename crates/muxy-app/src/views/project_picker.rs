@@ -846,6 +846,63 @@ impl AppModel {
         }
     }
 
+    /// Folders from `muxy <folder>` arrive as file URLs, also while the app
+    /// launches. Each selects its project, adding it first if needed, once
+    /// this connection has read this computer's projects.
+    pub(crate) fn open_folders_from(
+        folders: async_channel::Receiver<Vec<String>>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            while let Ok(urls) = folders.recv().await {
+                if this
+                    .update(cx, |model, cx| {
+                        model
+                            .pending_folders
+                            .extend(urls.iter().filter_map(|url| folder_from_url(url)));
+                        if model.local_projects_read() {
+                            model.resume_folders(ServerId::local(), cx);
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Opens the waiting folders once this computer's projects are known, or
+    /// with the saved ones when its server can't be reached.
+    pub(crate) fn resume_folders(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        if server.is_local() {
+            for folder in std::mem::take(&mut self.pending_folders) {
+                self.open_folder(folder, cx);
+            }
+        }
+    }
+
+    /// Reuses the local project that has `folder` under any spelling, such as
+    /// through a symlink, as `muxy project` selectors do.
+    fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
+        let canonical = folder.canonicalize().ok();
+        let existing = self
+            .state
+            .projects()
+            .iter()
+            .find(|project| {
+                project.server_id.is_local()
+                    && canonical.is_some()
+                    && project.directory.canonicalize().ok() == canonical
+            })
+            .map(|project| project.id);
+        match existing {
+            Some(id) => self.show_project(id, cx),
+            None => self.open_project_path(folder, cx),
+        }
+    }
+
     fn open_project_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if !path.is_dir() {
             self.project_picker_error(
@@ -865,15 +922,19 @@ impl AppModel {
             })
             .map(|project| project.id);
         if let Some(id) = existing {
-            self.refresh_project_statuses(cx);
-            self.join_active_workspace(id, cx);
-            self.select_project(id, cx);
-            self.dismiss_overlay(cx);
+            self.show_project(id, cx);
         } else if self.add_project(path, cx).is_some() {
             self.dismiss_overlay(cx);
         } else if let Some(error) = self.error.clone() {
             self.project_picker_error(error, cx);
         }
+    }
+
+    fn show_project(&mut self, id: muxy_app_core::ProjectId, cx: &mut Context<Self>) {
+        self.refresh_project_statuses(cx);
+        self.join_active_workspace(id, cx);
+        self.select_project(id, cx);
+        self.dismiss_overlay(cx);
     }
 
     fn project_picker_error(&mut self, error: String, cx: &mut Context<Self>) {
@@ -923,6 +984,19 @@ fn current_picker(
 ) -> bool {
     matches!(&model.overlay, Some(Overlay::Projects(current)) if current == picker)
         && picker.read(cx).generation == generation
+}
+
+/// The folder a `file://` URL names, without the trailing slash macOS adds,
+/// so it matches the stored project directory.
+fn folder_from_url(url: &str) -> Option<PathBuf> {
+    match muxy_app_core::opener::Target::file(url, Path::new("/"), None, Path::is_dir)? {
+        muxy_app_core::opener::Target::File(muxy_app_core::opener::FileLocation {
+            path,
+            line: None,
+            ..
+        }) if url.starts_with("file://") => Some(path.components().collect()),
+        _ => None,
+    }
 }
 
 #[cfg(not(test))]

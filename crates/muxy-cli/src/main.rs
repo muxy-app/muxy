@@ -4,6 +4,7 @@ mod args;
 mod input;
 mod manage;
 mod mobile;
+mod open;
 mod render;
 mod state;
 mod target;
@@ -38,6 +39,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Interactive => tui::run(host).map_err(io::Error::other)?,
         Command::Manage(command) => manage::run(*command, host)?,
+        Command::Open(folder) => open::run(&folder)?,
         Command::Mobile(command) => {
             let _lease = muxy_client::local::bundle::acquire_runtime(
                 &muxy_core::executable::current_path()?,

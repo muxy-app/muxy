@@ -1,5 +1,6 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io;
+use std::path::PathBuf;
 
 use muxy_client::{SshTarget, Start};
 use muxy_protocol::MAX_PAIRING_HOSTS;
@@ -18,6 +19,8 @@ pub(crate) enum Command {
     Mobile(Mobile),
     /// Joins stdin and stdout to the server, for clients on other computers.
     Stdio(Start),
+    /// Opens a folder as a project in the desktop app.
+    Open(PathBuf),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -45,7 +48,11 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                 .parse()?;
             match (command(rest)?, rest) {
                 (
-                    Command::Help | Command::Version | Command::BuildInfo | Command::Stdio(_),
+                    Command::Help
+                    | Command::Version
+                    | Command::BuildInfo
+                    | Command::Stdio(_)
+                    | Command::Open(_),
                     [word, ..],
                 ) => Err(invalid(&format!(
                     "--host can't be combined with {}",
@@ -73,10 +80,19 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
         }
         [command, rest @ ..] if command == "mobile" => mobile(rest).map(Command::Mobile),
         [command, rest @ ..] if command == "stdio" => stdio(rest).map(Command::Stdio),
+        [word] if names_folder(word) => Ok(Command::Open(word.into())),
         _ => {
             crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
         }
     }
+}
+
+/// A lone word that is neither a command nor an option; `./project` reaches a
+/// folder named like a command.
+fn names_folder(word: &OsStr) -> bool {
+    !word.is_empty()
+        && !word.as_encoded_bytes().starts_with(b"-")
+        && word.to_str().is_none_or(|word| help::topic(word).is_none())
 }
 
 fn mobile(arguments: &[OsString]) -> io::Result<Mobile> {
@@ -269,6 +285,34 @@ mod tests {
         assert!(
             matches!(help, Command::Manage(invocation) if matches!(invocation.action, Action::Help(_)))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_lone_word_that_names_no_command_opens_that_folder() -> io::Result<()> {
+        use std::os::unix::ffi::OsStringExt;
+        for folder in [".", "..", "/tmp/code", "code", "./project", "~/code"] {
+            assert_eq!(
+                parse_words(&[folder])?,
+                (None, Command::Open(folder.into()))
+            );
+        }
+        let raw = OsString::from_vec(b"/tmp/raw-\xff".to_vec());
+        assert_eq!(
+            parse(std::slice::from_ref(&raw))?,
+            (None, Command::Open(raw.into()))
+        );
+        for command in ["project", "server", "session"] {
+            assert!(parse_words(&[command]).is_err(), "{command}");
+        }
+        for words in [&["mobile"][..], &["stdio"], &[""], &["-x"], &["--json"]] {
+            assert!(
+                !matches!(parse_words(words), Ok((_, Command::Open(_)))),
+                "{words:?}"
+            );
+        }
+        assert!(parse_words(&["code", "other"]).is_err());
+        assert!(parse_words(&["--host", "box", "/tmp/code"]).is_err());
         Ok(())
     }
 
