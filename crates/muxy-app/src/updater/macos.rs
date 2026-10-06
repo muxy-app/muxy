@@ -2,6 +2,8 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use muxy_ui::tr;
+
 use super::{Release, Result, build_number, client, download, latest, replacement};
 
 #[derive(Clone, Debug)]
@@ -20,29 +22,36 @@ pub(crate) struct PreparedUpdate {
 
 impl Installation {
     pub(crate) fn detect() -> Result<Self> {
-        build_number(env!("CARGO_PKG_VERSION"))
-            .ok_or("Automatic updates require an installed release of Muxy Beta")?;
+        build_number(env!("CARGO_PKG_VERSION")).ok_or_else(|| {
+            tr!("Automatic updates require an installed release of Muxy Beta").to_string()
+        })?;
         let executable = muxy_core::executable::current_path()?;
         let bundle = executable
             .parent()
             .and_then(Path::parent)
             .and_then(Path::parent)
             .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
-            .ok_or("Automatic updates require an installed Muxy Beta.app")?
+            .ok_or_else(|| tr!("Automatic updates require an installed Muxy Beta.app").to_string())?
             .to_owned();
         if bundle.starts_with("/Volumes")
             || bundle
                 .components()
                 .any(|part| part.as_os_str() == "AppTranslocation")
         {
-            return Err("Move Muxy Beta.app to Applications and reopen it before updating".into());
+            return Err(
+                tr!("Move Muxy Beta.app to Applications and reopen it before updating")
+                    .to_string()
+                    .into(),
+            );
         }
         let details = Command::new("/usr/bin/codesign")
             .args(["--display", "--verbose=4"])
             .arg(&bundle)
             .output()?;
         if !details.status.success() {
-            return Err("The installed beta has no valid developer signature".into());
+            return Err(tr!("The installed beta has no valid developer signature")
+                .to_string()
+                .into());
         }
         let details = String::from_utf8(details.stderr)?;
         let team = details
@@ -54,7 +63,7 @@ impl Installation {
                         .bytes()
                         .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
             })
-            .ok_or("Automatic updates require a Developer ID signed beta")?
+            .ok_or_else(|| tr!("Automatic updates require a Developer ID signed beta").to_string())?
             .to_owned();
         let installation = Self { bundle, team };
         installation.verify_app(&installation.bundle, env!("CARGO_PKG_VERSION"))?;
@@ -78,7 +87,7 @@ impl Installation {
             .tempdir_in(
                 self.bundle
                     .parent()
-                    .ok_or("Missing application directory")?,
+                    .ok_or_else(|| tr!("Missing application directory").to_string())?,
             )?;
         let download_dir = tempfile::tempdir()?;
         let dmg = download_dir.path().join("update.dmg");
@@ -96,7 +105,9 @@ impl Installation {
             .as_ref()
             .is_some_and(|info| info.version != release.version)
         {
-            return Err("The server version does not match the signed app".into());
+            return Err(tr!("The server version does not match the signed app")
+                .to_string()
+                .into());
         }
         Ok(PreparedUpdate {
             version: release.version,
@@ -115,7 +126,7 @@ impl Installation {
         let record: serde_json::Value = serde_json::from_slice(&bytes)?;
         let version = record["version"]
             .as_str()
-            .ok_or("Invalid pending update")?
+            .ok_or_else(|| tr!("Invalid pending update").to_string())?
             .to_owned();
         if build_number(&version) <= build_number(env!("CARGO_PKG_VERSION")) {
             std::fs::remove_file(path)?;
@@ -124,17 +135,19 @@ impl Installation {
         let staging = PathBuf::from(
             record["staging"]
                 .as_str()
-                .ok_or("Invalid pending update path")?,
+                .ok_or_else(|| tr!("Invalid pending update path").to_string())?,
         );
         if !self.owns_staging(&staging) {
-            return Err("Pending update is outside the installation directory".into());
+            return Err(tr!("Pending update is outside the installation directory")
+                .to_string()
+                .into());
         }
         let candidate = staging.join("Muxy Beta.app");
         self.verify_app(&candidate, &version)?;
         let build =
             crate::server::read_build_info(&candidate.join("Contents/MacOS/muxy-server")).ok();
         if build.as_ref().is_some_and(|build| build.version != version) {
-            return Err("Pending update version mismatch".into());
+            return Err(tr!("Pending update version mismatch").to_string().into());
         }
         Ok(Some((
             PreparedUpdate {
@@ -164,7 +177,7 @@ impl Installation {
         let _bundle_lock = replacement::lock(
             self.bundle
                 .parent()
-                .ok_or("Missing application directory")?,
+                .ok_or_else(|| tr!("Missing application directory").to_string())?,
         )?;
         let client = muxy_client::Client::connect(socket)?;
         self.cleanup_retired(client.server_info())
@@ -174,7 +187,7 @@ impl Installation {
         for entry in std::fs::read_dir(
             self.bundle
                 .parent()
-                .ok_or("Missing application directory")?,
+                .ok_or_else(|| tr!("Missing application directory").to_string())?,
         )? {
             let path = entry?.path();
             if !self.owns_staging(&path) {
@@ -222,14 +235,20 @@ impl Installation {
                 .args(["-extract", key, "raw", "-o", "-"])
                 .arg(&plist))?;
             if actual.trim() != expected {
-                return Err(format!("The signed beta has an unexpected {key}").into());
+                return Err(tr!("The signed beta has an unexpected %@", key)
+                    .to_string()
+                    .into());
             }
         }
         let count = run(Command::new("/usr/bin/plutil")
             .args(["-extract", "CFBundleVersion", "raw", "-o", "-"])
             .arg(&plist))?;
         if count.trim().parse::<u64>().ok() != build_number(version) {
-            return Err("The signed beta build number does not match the update feed".into());
+            return Err(
+                tr!("The signed beta build number does not match the update feed")
+                    .to_string()
+                    .into(),
+            );
         }
         let arch = if cfg!(target_arch = "aarch64") {
             "arm64"
@@ -244,7 +263,11 @@ impl Installation {
         let server = crate::server::read_build_info(&app.join("Contents/MacOS/muxy-server"))?;
         let client = crate::server::read_build_info(&app.join("Contents/MacOS/muxy"))?;
         if client != server || server.version != version {
-            return Err("The bundled client and server do not match the release".into());
+            return Err(
+                tr!("The bundled client and server do not match the release")
+                    .to_string()
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -264,7 +287,7 @@ impl PreparedUpdate {
             self.installation
                 .bundle
                 .parent()
-                .ok_or("Missing application directory")?,
+                .ok_or_else(|| tr!("Missing application directory").to_string())?,
         )?;
         if self.installation.owns_staging(&self.staging)
             && !self.staging.join("retained.json").exists()
@@ -304,7 +327,11 @@ impl PreparedUpdate {
             crate::server::read_build_info(&self.candidate().join("Contents/MacOS/muxy-server"))
                 .ok();
         if build != self.build {
-            return Err("The staged update metadata changed. Check for updates again.".into());
+            return Err(
+                tr!("The staged update metadata changed. Check for updates again.")
+                    .to_string()
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -343,7 +370,7 @@ impl PreparedUpdate {
             self.installation
                 .bundle
                 .parent()
-                .ok_or("Missing application directory")?,
+                .ok_or_else(|| tr!("Missing application directory").to_string())?,
         )?;
         let candidate = self.staging.join("Muxy Beta.app");
         self.validate()?;
@@ -355,10 +382,12 @@ impl PreparedUpdate {
             })
         {
             if backup.exists() {
-                return Err(format!(
-                    "{error}. The previous app is available at {}",
-                    backup.display()
+                return Err(tr!(
+                    "%@. The previous app is available at %@",
+                    error.to_string(),
+                    backup.display().to_string()
                 )
+                .to_string()
                 .into());
             }
             return Err(error);
@@ -429,11 +458,12 @@ impl Drop for MountedImage {
 fn run(command: &mut Command) -> Result<String> {
     let output = command.output()?;
     if !output.status.success() {
-        return Err(format!(
-            "{} failed: {}",
+        return Err(tr!(
+            "%@ failed: %@",
             command.get_program().to_string_lossy(),
             String::from_utf8_lossy(&output.stderr).trim()
         )
+        .to_string()
         .into());
     }
     Ok(String::from_utf8(output.stdout)?)
@@ -496,8 +526,10 @@ mod tests {
 
 fn write_record(path: &Path, value: &serde_json::Value) -> Result<()> {
     use std::io::Write;
-    let mut file =
-        tempfile::NamedTempFile::new_in(path.parent().ok_or("Missing update directory")?)?;
+    let directory = path
+        .parent()
+        .ok_or_else(|| tr!("Missing update directory").to_string())?;
+    let mut file = tempfile::NamedTempFile::new_in(directory)?;
     serde_json::to_writer(file.as_file_mut(), value)?;
     file.flush()?;
     file.as_file().sync_all()?;

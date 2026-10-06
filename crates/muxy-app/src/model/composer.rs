@@ -21,6 +21,7 @@ use muxy_app_core::{
 };
 use muxy_protocol::{ChannelId, Modes};
 use muxy_ui::panel::PanelId;
+use muxy_ui::tr;
 
 use super::AppModel;
 use super::remote_files::Upload;
@@ -274,7 +275,8 @@ impl AppModel {
                     Ok(())
                 });
                 if let Err(error) = result {
-                    model.composer_error(format!("Could not save composer: {error}"), cx);
+                    model
+                        .composer_error(tr!("Could not save composer: %@", &error).to_string(), cx);
                 }
             });
         }));
@@ -322,7 +324,7 @@ impl AppModel {
             files: true,
             directories: true,
             multiple: true,
-            prompt: Some("Attach".into()),
+            prompt: Some(tr!("Attach")),
         });
         cx.spawn(async move |model, cx| {
             let result = result.await;
@@ -346,7 +348,8 @@ impl AppModel {
             view.update(cx, |view, cx| {
                 for path in paths {
                     let Some(path) = path.to_str().filter(|_| path.is_absolute()) else {
-                        view.error = Some("Attachment paths must be absolute UTF-8 paths".into());
+                        view.error =
+                            Some(tr!("Attachment paths must be absolute UTF-8 paths").to_string());
                         continue;
                     };
                     if !view
@@ -385,7 +388,8 @@ impl AppModel {
                     let source = prepare_image_source(bytes).map_err(|error| error.to_string())?;
                     let mut store = store.lock().unwrap_or_else(PoisonError::into_inner);
                     if store.draft_revision(&target) != revision {
-                        return Err("Draft changed while preparing the image. Paste again.".into());
+                        return Err(tr!("Draft changed while preparing the image. Paste again.")
+                            .to_string());
                     }
                     let (_, revision) = store
                         .attach_prepared_image(target.clone(), &source, selection)
@@ -574,15 +578,18 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
             SubmissionSegment::LocalPath(path) => {
                 let path = PathBuf::from(path);
                 if !path.try_exists().map_err(|error| error.to_string())? {
-                    return Err(format!("Attached file is missing: {}", path.display()));
+                    return Err(
+                        tr!("Attached file is missing: %@", path.display().to_string()).to_string(),
+                    );
                 }
-                quoted(std::slice::from_ref(&path)).ok_or("Invalid attachment path")?;
+                quoted(std::slice::from_ref(&path))
+                    .ok_or_else(|| tr!("Invalid attachment path").to_string())?;
                 steps.push(Step::File(path));
             }
             SubmissionSegment::CopiedImage { filename, .. } => {
                 let images = store
                     .image_storage()
-                    .ok_or("Composer image storage is unavailable")?;
+                    .ok_or_else(|| tr!("Composer image storage is unavailable").to_string())?;
                 let png = images
                     .normalize_png(filename)
                     .map_err(|error| error.to_string())?;
@@ -592,7 +599,8 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
                     let path = images
                         .path_for(filename)
                         .map_err(|error| error.to_string())?;
-                    quoted(std::slice::from_ref(&path)).ok_or("Invalid image path")?;
+                    quoted(std::slice::from_ref(&path))
+                        .ok_or_else(|| tr!("Invalid image path").to_string())?;
                     steps.push(Step::File(path));
                 }
             }
@@ -608,7 +616,7 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
         .sum::<usize>()
         > muxy_protocol::MAX_INPUT - 2
     {
-        return Err("Composer text exceeds the 1 MiB submission limit".into());
+        return Err(tr!("Composer text exceeds the 1 MiB submission limit").to_string());
     }
     if plan.image_strategy == ImageSubmissionStrategy::InlinePath {
         store.retain_submitted_images(plan.segments.iter().filter_map(|segment| match segment {
@@ -638,7 +646,7 @@ async fn send_remote(
         .update(cx, |model, cx| {
             let session = model
                 .pane_session(pane)
-                .ok_or("The terminal closed before sending.")?;
+                .ok_or_else(|| tr!("The terminal closed before sending.").to_string())?;
             Ok::<_, String>((model.remote_files(server, cx)?, session))
         })
         .map_err(|error| error.to_string())??;
@@ -646,7 +654,7 @@ async fn send_remote(
         .background_executor()
         .spawn(async move { files.upload(session, upload) })
         .await?;
-    quoted(&paths).ok_or_else(|| "The server kept the file at an invalid path.".into())
+    quoted(&paths).ok_or_else(|| tr!("The server kept the file at an invalid path.").to_string())
 }
 
 impl AppModel {
@@ -693,7 +701,9 @@ impl AppModel {
                 let pane = self.grids.get(&id)?.view.read(cx);
                 Some((session, pane.attachment()?, pane.grid.as_ref()?.modes))
             }) else {
-                return Err("Every target must have a live terminal before sending.".into());
+                return Err(
+                    tr!("Every target must have a live terminal before sending.").to_string(),
+                );
             };
             if sessions.insert((attachment.0, session)) {
                 targets.push((id, attachment, modes));
@@ -749,7 +759,7 @@ impl AppModel {
             }
         };
         if targets.is_empty() {
-            self.composer_error("Open a live terminal before sending.".into(), cx);
+            self.composer_error(tr!("Open a live terminal before sending.").to_string(), cx);
             return;
         }
         let Some((revision, plan)) = self.composer_plan(&key, &view, &targets, enter, cx) else {
@@ -778,12 +788,12 @@ impl AppModel {
                 let mut clipboard = if pastes_images { Some(muxy_ui::pasteboard::Lease::capture()?) } else { None };
                 for (pane, attachment, modes) in &targets {
                     let (server, channel) = *attachment;
-                    let (worker, generation) = workers.get(&server).ok_or("Terminal connection closed before delivery was confirmed")?;
+                    let (worker, generation) = workers.get(&server).ok_or_else(|| tr!("Terminal connection closed before delivery was confirmed").to_string())?;
                     let generation = *generation;
                     let mut payload = vec![0x15];
                     for step in &steps {
                         let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
-                        if !current { return Err("Composer target changed; sending stopped.".into()); }
+                        if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
                         match step {
                             Step::Text(text) => payload.extend(crate::views::terminal::clipboard::paste(text, *modes)),
                             Step::File(path) if !server.is_local() => {
@@ -791,7 +801,7 @@ impl AppModel {
                                 payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));
                             }
                             Step::File(path) => {
-                                let text = quoted(std::slice::from_ref(path)).ok_or("Invalid attachment path")?;
+                                let text = quoted(std::slice::from_ref(path)).ok_or_else(|| tr!("Invalid attachment path").to_string())?;
                                 payload.extend(crate::views::terminal::clipboard::paste(&text, *modes));
                             }
                             Step::Image(png) if !server.is_local() => {
@@ -807,7 +817,7 @@ impl AppModel {
                         }
                     }
                     let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
-                    if !current { return Err("Composer target changed; sending stopped.".into()); }
+                    if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
                     if enter { payload.push(b'\r'); }
                     if !payload.is_empty() { deliver(worker, generation, channel, payload).await?; }
                     completed += 1;
@@ -830,7 +840,7 @@ impl AppModel {
                         }
                     }
                     Ok(()) => {},
-                    Err(error) => model.composer_error(format!("{completed}/{} terminals sent. {error} Draft preserved; check the terminal before retrying.", targets.len()), cx),
+                    Err(error) => model.composer_error(tr!("%lld/%lld terminals sent. %@ Draft preserved; check the terminal before retrying.", completed, targets.len(), &error).to_string(), cx),
                 }
             });
         }));
@@ -857,5 +867,5 @@ pub(super) async fn deliver(
     result
         .recv()
         .await
-        .map_err(|_| "Terminal connection closed before delivery was confirmed".to_owned())?
+        .map_err(|_| tr!("Terminal connection closed before delivery was confirmed").to_string())?
 }

@@ -11,6 +11,7 @@ use muxy_app_core::{
 use muxy_protocol::{AgentProvider, ProgressState, SessionId, TerminalProgress};
 use muxy_ui::components::Tooltip;
 use muxy_ui::spinner::NativeSpinner;
+use muxy_ui::tr;
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
@@ -303,15 +304,15 @@ pub(super) fn status_glyph(
         Status::None => return div().into_any_element(),
         Status::Progress(progress) => {
             let tooltip = match progress.state {
-                ProgressState::Error => "Work reported an error.",
-                ProgressState::Paused => "Work is paused.",
+                ProgressState::Error => tr!("Work reported an error."),
+                ProgressState::Paused => tr!("Work is paused."),
                 ProgressState::Running
                 | ProgressState::Indeterminate
-                | ProgressState::Unrecognized(_) => "Work is in progress.",
+                | ProgressState::Unrecognized(_) => tr!("Work is in progress."),
             };
             (
                 "progress",
-                tooltip.to_owned(),
+                tooltip.to_string(),
                 progress_circle(&id, progress, size, model),
             )
         }
@@ -319,13 +320,13 @@ pub(super) fn status_glyph(
             let blocked = status == Status::Blocked;
             let color = if blocked { theme.warning } else { theme.accent };
             let tooltip = if blocked {
-                "An agent is waiting for your attention."
+                tr!("An agent is waiting for your attention.")
             } else {
-                "Work finished and is ready to review."
+                tr!("Work finished and is ready to review.")
             };
             (
                 if blocked { "blocked" } else { "completion" },
-                tooltip.to_owned(),
+                tooltip.to_string(),
                 div()
                     .size(
                         model
@@ -339,10 +340,11 @@ pub(super) fn status_glyph(
         }
         Status::Unread(count) => (
             "unread",
-            format!(
-                "{count} unread notification{}",
-                if count == 1 { "" } else { "s" }
-            ),
+            if count == 1 {
+                tr!("1 unread notification").to_string()
+            } else {
+                tr!("%lld unread notifications", count).to_string()
+            },
             div()
                 .size(model.metrics.scaled(8.0))
                 .rounded_full()

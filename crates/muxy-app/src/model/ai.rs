@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use gpui::{Context, Task, Window};
 use muxy_protocol::{GitAction, GitPullRequestAction, ProjectId};
 use muxy_ui::dialog::ADDITIONAL_PROMPT_LIMIT;
+use muxy_ui::l10n::translate;
+use muxy_ui::tr;
 
 use super::{AppModel, Work, git::Presence};
 use crate::ai::{Cancellation, Provider};
@@ -84,17 +86,20 @@ impl Runtime {
             .filter(|id| !id.is_empty())
         {
             Some(id) => match crate::ai::provider(id) {
-                None => Err(format!(
-                    "The selected AI provider \"{id}\" is no longer supported. Choose another one in Settings → AI."
-                )),
+                None => Err(tr!(
+                    "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI.",
+                    id
+                )
+                .to_string()),
                 Some(provider) if self.installed.contains(&provider) => Ok(provider),
-                Some(provider) => Err(format!(
-                    "{} CLI is not installed. Choose another provider or install its CLI.",
+                Some(provider) => Err(tr!(
+                    "%@ CLI is not installed. Choose another provider or install its CLI.",
                     provider.name
-                )),
+                )
+                .to_string()),
             },
             None => crate::ai::selected(&self.installed, None).ok_or_else(|| {
-                "Install a supported AI provider CLI or choose one in Settings → AI.".into()
+                tr!("Install a supported AI provider CLI or choose one in Settings → AI.").to_string()
             }),
         }
     }
@@ -170,7 +175,10 @@ impl AppModel {
             value,
         ) {
             Ok(saved) => self.settings.ai = saved,
-            Err(error) => self.fail(format!("Could not save AI settings: {error}"), cx),
+            Err(error) => self.fail(
+                tr!("Could not save AI settings: %@", error.to_string()).to_string(),
+                cx,
+            ),
         }
         self.sync_preferences(cx);
         cx.notify();
@@ -191,30 +199,34 @@ impl AppModel {
         }
         if let Some(running) = self.ai.running_action(project) {
             return Availability::Disabled(if running == action {
-                format!("{} is running", action.settings_title())
+                tr!("%@ is running", &translate(action.settings_title())).to_string()
             } else {
-                "Wait for the current AI action to finish".into()
+                tr!("Wait for the current AI action to finish").to_string()
             });
         }
         if !self.session_listing_ready() {
-            return Availability::Disabled("Connect to the server first".into());
+            return Availability::Disabled(tr!("Connect to the server first").to_string());
         }
         if repository.busy() {
-            return Availability::Disabled("Wait for the current Git action to finish".into());
+            return Availability::Disabled(
+                tr!("Wait for the current Git action to finish").to_string(),
+            );
         }
         let Some(_) = &summary.branch else {
             return Availability::Disabled(match action {
-                Action::Commit => "Switch to a branch before committing and pushing".into(),
+                Action::Commit => {
+                    tr!("Switch to a branch before committing and pushing").to_string()
+                }
                 Action::CreatePullRequest => {
-                    "Switch to a branch before creating a pull request".into()
+                    tr!("Switch to a branch before creating a pull request").to_string()
                 }
             });
         };
         if summary.conflicted > 0 {
-            return Availability::Disabled("Resolve merge conflicts first".into());
+            return Availability::Disabled(tr!("Resolve merge conflicts first").to_string());
         }
         if summary.changed == 0 {
-            return Availability::Disabled("The working tree is clean.".into());
+            return Availability::Disabled(tr!("The working tree is clean.").to_string());
         }
         match self.ai.provider(&self.settings, action) {
             Ok(provider) => Availability::Available(provider),
@@ -237,7 +249,7 @@ impl AppModel {
             Availability::Available(provider) => provider,
             Availability::Disabled(reason) => {
                 self.fail_detail(
-                    format!("Couldn't start {}", action.settings_title()),
+                    tr!("Couldn't start %@", &translate(action.settings_title())).to_string(),
                     &reason,
                     cx,
                 );
@@ -282,7 +294,8 @@ impl AppModel {
                         Ok(Some(prompt)) => model.advance_ai_action(confirmation, &prompt, cx),
                         Ok(None) => {}
                         Err(error) => model.fail_detail(
-                            format!("Couldn't start {}", action.settings_title()),
+                            tr!("Couldn't start %@", &translate(action.settings_title()))
+                                .to_string(),
                             &error,
                             cx,
                         ),
@@ -309,7 +322,7 @@ impl AppModel {
         cx.spawn(async move |this, cx| {
             let result = match receiver.recv().await {
                 Ok(Some(client)) => crate::ai::run(move || operation(client)).await,
-                _ => Err("Connect to the server first".into()),
+                _ => Err(tr!("Connect to the server first").to_string()),
             };
             let _ = this.update(cx, |model, cx| finish(model, result, cx));
         })
@@ -338,7 +351,10 @@ impl AppModel {
                 self.settings.ai = saved;
                 self.dismiss_overlay(cx);
             }
-            Err(error) => self.fail(format!("Could not save project prompt: {error}"), cx),
+            Err(error) => self.fail(
+                tr!("Could not save project prompt: %@", error.to_string()).to_string(),
+                cx,
+            ),
         }
     }
 
@@ -399,10 +415,11 @@ impl AppModel {
                 });
         if !valid {
             self.fail(
-                format!(
-                    "{} is no longer available. Try again.",
-                    action.settings_title()
-                ),
+                tr!(
+                    "%@ is no longer available. Try again.",
+                    &translate(action.settings_title())
+                )
+                .to_string(),
                 cx,
             );
             return;
@@ -463,29 +480,40 @@ impl AppModel {
                 let short = &hash[..hash.len().min(7)];
                 let (title, detail) = match pushed {
                     Some(destination) => (
-                        "Committed and pushed",
+                        tr!("Committed and pushed"),
                         format!("{short} → {}/{}", destination.remote, destination.branch),
                     ),
-                    None => ("Committed locally", format!("{short} on {branch}")),
+                    None => (
+                        tr!("Committed locally"),
+                        tr!("%@ on %@", short, &branch).to_string(),
+                    ),
                 };
-                self.show_toast(title.into(), Some(located(detail)), cx);
+                self.show_toast(title.to_string(), Some(located(detail)), cx);
             }
             Ok(Ok(Outcome::PullRequest(url))) => {
                 #[cfg(target_os = "macos")]
                 if let Some(notifications) = &self.notifications {
                     notifications.deliver(
                         &format!("pull-request:{url}"),
-                        "Pull request created",
+                        &tr!("Pull request created"),
                         &url,
                     );
                 }
-                self.show_toast("Pull request created".into(), Some(located(url)), cx);
+                self.show_toast(
+                    tr!("Pull request created").to_string(),
+                    Some(located(url)),
+                    cx,
+                );
             }
             Ok(Err(failure)) => {
                 self.fail_detail(failure.title, &located(failure.detail), cx);
             }
             Err(error) => self.fail_detail(
-                format!("Couldn't {}", action.settings_title().to_lowercase()),
+                match action {
+                    Action::Commit => tr!("Couldn't commit and push"),
+                    Action::CreatePullRequest => tr!("Couldn't create pull request"),
+                }
+                .to_string(),
                 &located(error),
                 cx,
             ),

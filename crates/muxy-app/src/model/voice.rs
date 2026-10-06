@@ -6,6 +6,7 @@ use gpui::{
 };
 use muxy_app_core::{PaneId, ServerId, composer::DraftId};
 use muxy_protocol::{ChannelId, Modes};
+use muxy_ui::tr;
 
 struct Target {
     project: DraftId,
@@ -51,7 +52,7 @@ impl AppModel {
         });
         let Some(target) = target else {
             self.set_banner_error(Some(
-                "Open a live terminal before starting dictation.".into(),
+                tr!("Open a live terminal before starting dictation.").to_string(),
             ));
             cx.notify();
             return;
@@ -143,7 +144,9 @@ impl AppModel {
                 super::composer::deliver(&worker, target.generation, channel, bytes).await
             {
                 let _ = model.update(cx, |model, cx| {
-                    model.set_banner_error(Some(format!("Dictation delivery failed: {error}")));
+                    model.set_banner_error(Some(
+                        tr!("Dictation delivery failed: %@", &error).to_string(),
+                    ));
                     cx.notify();
                 });
             }

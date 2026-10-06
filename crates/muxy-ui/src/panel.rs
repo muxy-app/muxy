@@ -1,6 +1,7 @@
 use crate::components::{IconGlyph, SymbolGlyph, Tooltip};
 use crate::icon::Icon;
 use crate::theme::{Metrics, Theme};
+use crate::tr;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, CursorStyle, DispatchPhase, ElementId, FocusHandle, FontWeight,
@@ -349,17 +350,17 @@ pub enum PanelControl {
 }
 
 impl PanelControl {
-    fn appearance(self) -> (&'static str, &'static str) {
+    fn appearance(self) -> (SharedString, &'static str) {
         match self {
             Self::Move(PanelPosition::Right) => {
-                ("Move to Bottom", "rectangle.bottomhalf.inset.filled")
+                (tr!("Move to Bottom"), "rectangle.bottomhalf.inset.filled")
             }
             Self::Move(PanelPosition::Bottom) => {
-                ("Move to Right", "rectangle.righthalf.inset.filled")
+                (tr!("Move to Right"), "rectangle.righthalf.inset.filled")
             }
-            Self::Mode(PanelMode::Pinned) => ("Float Panel", "pin.slash"),
-            Self::Mode(PanelMode::Floating) => ("Dock Panel", "pin"),
-            Self::Close => ("Close", "xmark"),
+            Self::Mode(PanelMode::Pinned) => (tr!("Float Panel"), "pin.slash"),
+            Self::Mode(PanelMode::Floating) => (tr!("Dock Panel"), "pin"),
+            Self::Close => (tr!("Close"), "xmark"),
         }
     }
 }

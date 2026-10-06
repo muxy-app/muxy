@@ -1,3 +1,5 @@
+use crate::tr;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessibilityRole {
     Group,
@@ -20,36 +22,36 @@ pub fn bridge_accessibility_model(status: &str, shortcut: &str) -> Vec<Accessibi
         (
             "quick-terminal",
             AccessibilityRole::Group,
-            "Quick Terminal",
+            tr!("Quick Terminal"),
             String::new(),
             false,
         ),
         (
             "quick-terminal-status",
             AccessibilityRole::Status,
-            "Quick Terminal status",
+            tr!("Quick Terminal status"),
             status.to_owned(),
             true,
         ),
         (
             "quick-terminal-shortcut",
             AccessibilityRole::Button,
-            "Quick Terminal shortcut",
+            tr!("Quick Terminal shortcut"),
             shortcut.to_owned(),
             false,
         ),
         (
             "quick-terminal-settings",
             AccessibilityRole::Button,
-            "Open Quick Terminal settings",
-            "Opens Settings".to_owned(),
+            tr!("Open Quick Terminal settings"),
+            tr!("Opens Settings").to_string(),
             false,
         ),
         (
             "quick-terminal-close",
             AccessibilityRole::Button,
-            "Close Quick Terminal",
-            "Hides the panel".to_owned(),
+            tr!("Close Quick Terminal"),
+            tr!("Hides the panel").to_string(),
             false,
         ),
     ];
@@ -61,7 +63,7 @@ pub fn bridge_accessibility_model(status: &str, shortcut: &str) -> Vec<Accessibi
                 AccessibilityNode {
                     identifier,
                     role,
-                    label: label.to_owned(),
+                    label: label.to_string(),
                     value,
                     focus_order,
                     announces_changes,

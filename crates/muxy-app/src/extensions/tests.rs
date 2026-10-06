@@ -261,7 +261,7 @@ fn marketplace_packages_install_and_enable_without_modifying_the_packages() {
     let packages = profile.path().join("extensions");
     let mut names = Vec::new();
     for page in 1.. {
-        let listing = super::marketplace::list("", page).unwrap();
+        let listing = super::marketplace::list("", page, None).unwrap();
         names.extend(
             listing["data"]
                 .as_array()

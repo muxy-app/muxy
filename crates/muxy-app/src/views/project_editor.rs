@@ -7,6 +7,7 @@ use gpui::{
 };
 use muxy_app_core::{ProjectId, ProjectStatus, TabId, WorkspaceId};
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
+use muxy_ui::tr;
 
 use super::overlays::{Overlay, clamp};
 use crate::model::AppModel;
@@ -178,10 +179,10 @@ pub(crate) fn render(
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
             muxy_ui::popover::header(theme, m).child(match editor.target {
-                Target::Tab(_) => "Rename Tab",
-                Target::Project(_) => "Rename Project",
-                Target::Workspace(_) => "Rename Workspace",
-                Target::NewWorkspace(_) => "New Workspace",
+                Target::Tab(_) => tr!("Rename Tab"),
+                Target::Project(_) => tr!("Rename Project"),
+                Target::Workspace(_) => tr!("Rename Workspace"),
+                Target::NewWorkspace(_) => tr!("New Workspace"),
             }),
         )
         .child(
@@ -204,7 +205,7 @@ pub(crate) fn render(
                 .child(muxy_ui::controls::button(
                     muxy_ui::controls::Style { theme, metrics: &m },
                     "project-editor-cancel",
-                    "Cancel",
+                    &tr!("Cancel"),
                     true,
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 ))
@@ -222,9 +223,9 @@ pub(crate) fn render(
                         .text_color(theme.accent_foreground)
                         .text_size(m.font_body())
                         .child(if matches!(editor.target, Target::NewWorkspace(_)) {
-                            "Create"
+                            tr!("Create")
                         } else {
-                            "Save"
+                            tr!("Save")
                         })
                         .on_click(cx.listener(|model, _, _, cx| model.submit_project_editor(cx))),
                 ),

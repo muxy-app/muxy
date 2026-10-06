@@ -11,7 +11,9 @@ use gpui::{
 use muxy_app_core::ProjectId;
 use muxy_ui::{
     components::{ButtonInteraction, SymbolGlyph, Tooltip},
+    l10n::tr_key,
     text_input::{InputEvent, InputStyle, TextInput},
+    tr,
 };
 
 pub(crate) struct Icons {
@@ -32,7 +34,7 @@ impl AppModel {
     ) {
         let input = cx.new(|cx| {
             TextInput::new(InputStyle::compact(&self.theme, &self.metrics), cx)
-                .with_placeholder("Search symbols…")
+                .with_placeholder_key(tr_key!("Search symbols…"))
         });
         input.focus_handle(cx).focus(window);
         self.overlay_subscription =
@@ -111,7 +113,7 @@ pub(crate) fn render(
             }
         }))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(muxy_ui::popover::header(theme, m).child("Icon"))
+        .child(muxy_ui::popover::header(theme, m).child(tr!("Icon")))
         .child(
             muxy_ui::popover::body(m)
                 .flex_1()
@@ -139,7 +141,11 @@ pub(crate) fn render(
                             ),
                         )
                         .when(picker.matches.is_empty(), |grid| {
-                            grid.child(div().text_color(theme.fg_muted).child("No symbols found"))
+                            grid.child(
+                                div()
+                                    .text_color(theme.fg_muted)
+                                    .child(tr!("No symbols found")),
+                            )
                         }),
                 )
                 .children(
@@ -163,7 +169,7 @@ pub(crate) fn render(
                     m.font_caption(),
                     theme.fg_muted,
                 ))
-                .child("Remove Icon"),
+                .child(tr!("Remove Icon")),
         )
         .into_any_element()
 }

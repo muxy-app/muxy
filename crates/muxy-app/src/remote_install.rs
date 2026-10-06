@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use muxy_ui::tr;
+
 #[derive(Clone, Debug)]
 pub(crate) enum Source {
     Release(String),
@@ -44,14 +46,18 @@ impl Source {
 
     pub(crate) fn description(&self, name: &str) -> String {
         match self {
-            Self::Release(version) => format!(
-                "Muxy {version} is downloaded from GitHub and installed in ~/.local/bin on {name}. It needs curl and glibc 2.35 or newer there."
+            Self::Release(version) => tr!(
+                "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there.",
+                version,
+                name
             ),
-            Self::Development(archive) => format!(
-                "The development build at {} is uploaded to {name}. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer.",
-                archive.display()
+            Self::Development(archive) => tr!(
+                "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer.",
+                archive.display().to_string(),
+                name
             ),
         }
+        .to_string()
     }
 }
 

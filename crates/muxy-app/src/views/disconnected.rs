@@ -1,5 +1,6 @@
 use gpui::{Context, ParentElement, Styled, div};
 use muxy_protocol::ExitReason;
+use muxy_ui::tr;
 
 use super::terminal::pane::PaneState;
 use crate::model::AppModel;
@@ -7,17 +8,24 @@ use crate::model::AppModel;
 pub(crate) fn label(state: PaneState) -> Option<String> {
     match state {
         PaneState::Live => None,
-        PaneState::Connecting => Some("Connecting…".into()),
-        PaneState::Disconnected => Some("Disconnected".into()),
+        PaneState::Connecting => Some(tr!("Connecting…").to_string()),
+        PaneState::Disconnected => Some(tr!("Disconnected").to_string()),
         PaneState::Exited {
             unavailable: true, ..
-        } => Some("Session exited · Saved output unavailable".into()),
-        PaneState::Exited { reason, .. } => Some(match reason {
-            Some(ExitReason::Exited(code)) => format!("Session exited · Exit code {code}"),
-            Some(ExitReason::Signaled(signal)) => format!("Session exited · Signal {signal}"),
-            Some(ExitReason::Ended | ExitReason::ServerStopped | ExitReason::Unrecognized(_))
-            | None => "Session exited".into(),
-        }),
+        } => Some(tr!("Session exited · Saved output unavailable").to_string()),
+        PaneState::Exited { reason, .. } => Some(
+            match reason {
+                Some(ExitReason::Exited(code)) => tr!("Session exited · Exit code %lld", code),
+                Some(ExitReason::Signaled(signal)) => {
+                    tr!("Session exited · Signal %lld", signal)
+                }
+                Some(
+                    ExitReason::Ended | ExitReason::ServerStopped | ExitReason::Unrecognized(_),
+                )
+                | None => tr!("Session exited"),
+            }
+            .to_string(),
+        ),
     }
 }
 

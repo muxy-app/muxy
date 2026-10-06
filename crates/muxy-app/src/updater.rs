@@ -5,6 +5,8 @@ mod replacement;
 use std::io::{Read, Write};
 use std::time::Duration;
 
+use muxy_ui::tr;
+
 #[cfg(target_os = "macos")]
 pub(crate) use macos::{Installation, PreparedUpdate};
 
@@ -46,24 +48,30 @@ impl Release {
     fn parse(bytes: &[u8], current: &str, platform: &str, arch: &str) -> Result<Option<Self>> {
         let metadata: serde_json::Value = serde_json::from_slice(bytes)?;
         if metadata["schema"].as_u64() != Some(1) {
-            return Err("Unsupported beta update feed".into());
+            return Err(tr!("Unsupported beta update feed").to_string().into());
         }
         let version = metadata["version"]
             .as_str()
-            .ok_or("Missing update version")?;
-        let next = build_number(version).ok_or("Invalid beta update version")?;
-        let current = build_number(current).ok_or("This is not a released beta")?;
+            .ok_or_else(|| tr!("Missing update version").to_string())?;
+        let next =
+            build_number(version).ok_or_else(|| tr!("Invalid beta update version").to_string())?;
+        let current =
+            build_number(current).ok_or_else(|| tr!("This is not a released beta").to_string())?;
         if next <= current {
             return Ok(None);
         }
         let asset = &metadata["platforms"][platform];
-        let url = asset["url"].as_str().ok_or("No update for this platform")?;
+        let url = asset["url"]
+            .as_str()
+            .ok_or_else(|| tr!("No update for this platform").to_string())?;
         if url != format!("{RELEASES}/v{version}/Muxy-{version}-{arch}.dmg") {
-            return Err("Unexpected beta download location".into());
+            return Err(tr!("Unexpected beta download location").to_string().into());
         }
-        let size = asset["size"].as_u64().ok_or("Missing update size")?;
+        let size = asset["size"]
+            .as_u64()
+            .ok_or_else(|| tr!("Missing update size").to_string())?;
         if size == 0 || size > MAX_DOWNLOAD {
-            return Err("Invalid beta download size".into());
+            return Err(tr!("Invalid beta download size").to_string().into());
         }
         Ok(Some(Self {
             version: version.into(),
@@ -96,7 +104,7 @@ fn latest(
         .take(65_537)
         .read_to_end(&mut bytes)?;
     if bytes.len() > 65_536 {
-        return Err("Beta update feed is too large".into());
+        return Err(tr!("Beta update feed is too large").to_string().into());
     }
     Release::parse(&bytes, env!("CARGO_PKG_VERSION"), platform, arch)
 }
@@ -110,7 +118,11 @@ fn download(
     let mut output = std::fs::File::create(path)?;
     let count = std::io::copy(&mut response.take(release.size + 1), &mut output)?;
     if count != release.size {
-        return Err("The beta download is incomplete or has an unexpected size".into());
+        return Err(
+            tr!("The beta download is incomplete or has an unexpected size")
+                .to_string()
+                .into(),
+        );
     }
     output.flush()?;
     Ok(())

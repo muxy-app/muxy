@@ -11,6 +11,7 @@ use muxy_ui::icon::Icon;
 use muxy_ui::popover;
 use muxy_ui::quick_terminal::panel::{EffectiveAppearance, QuickTerminalConfiguration};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
@@ -122,7 +123,7 @@ impl QuickTerminalView {
 
     #[cfg(not(target_os = "macos"))]
     pub(crate) fn prepare(&mut self, _window: &mut Window) -> Result<(), String> {
-        Err("Quick Terminal panels are unavailable on this platform".to_owned())
+        Err(tr!("Quick Terminal panels are unavailable on this platform").to_string())
     }
 
     fn update_owner(
@@ -367,7 +368,7 @@ impl Render for QuickTerminalView {
                             .text_size(px(12.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(bridge_foreground)
-                            .child("Quick Terminal"),
+                            .child(tr!("Quick Terminal")),
                     )
                     .child(
                         div()
@@ -397,7 +398,13 @@ impl Render for QuickTerminalView {
                             bridge_muted,
                             bridge_foreground,
                         )
-                        .tooltip("Settings", theme.raised(), theme.fg, theme.border, theme.bg)
+                        .tooltip(
+                            tr!("Settings"),
+                            theme.raised(),
+                            theme.fg,
+                            theme.border,
+                            theme.bg,
+                        )
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_settings, BridgeAction::OpenSettings, cx);
                         }),
@@ -411,7 +418,13 @@ impl Render for QuickTerminalView {
                             bridge_muted,
                             bridge_foreground,
                         )
-                        .tooltip("Close", theme.raised(), theme.fg, theme.border, theme.bg)
+                        .tooltip(
+                            tr!("Close"),
+                            theme.raised(),
+                            theme.fg,
+                            theme.border,
+                            theme.bg,
+                        )
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_close, BridgeAction::Close, cx);
                         }),
@@ -488,9 +501,9 @@ fn confirmation_dialog(
 ) -> AnyElement {
     let background = gpui::hsla(0.0, 0.0, 0.08, 0.98);
     let (title, body, approve) = (
-        "Close active terminal?",
-        "A process is still running in this terminal.",
-        "Close",
+        tr!("Close active terminal?"),
+        tr!("A process is still running in this terminal."),
+        tr!("Close"),
     );
     let cancel_owner = owner.clone();
     let confirm_owner = owner.clone();
@@ -538,7 +551,7 @@ fn confirmation_dialog(
                         .gap(px(8.0))
                         .child(confirmation_button(
                             "quick-terminal-confirm-cancel",
-                            "Cancel",
+                            tr!("Cancel"),
                             owner.clone(),
                             false,
                             metrics,
@@ -561,7 +574,7 @@ fn confirmation_dialog(
 
 fn confirmation_button(
     id: &'static str,
-    label: &'static str,
+    label: gpui::SharedString,
     owner: WeakEntity<AppModel>,
     approved: bool,
     metrics: Metrics,
@@ -652,9 +665,14 @@ impl QuickTerminalView {
                 view.focus_terminal(window, cx);
                 cx.notify();
             }));
-        for (index, label) in ["Copy", "Paste", "Select All", "Select Command Output"]
-            .into_iter()
-            .enumerate()
+        for (index, label) in [
+            tr!("Copy"),
+            tr!("Paste"),
+            tr!("Select All"),
+            tr!("Select Command Output"),
+        ]
+        .into_iter()
+        .enumerate()
         {
             menu = menu.child(
                 popover::row(theme, m, ("quick-menu", index), true, highlighted == index)

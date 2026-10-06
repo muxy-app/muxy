@@ -1,5 +1,6 @@
 use gpui::{Context, Entity, FocusHandle, Window};
 use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition, PanelResizeState};
+use muxy_ui::tr;
 use muxy_ui::webview::assets::Source;
 use serde_json::{Value, json};
 
@@ -418,7 +419,10 @@ impl AppModel {
                 panel.placement.mode != PanelMode::Pinned,
                 &self.path.with_file_name("settings.toml"),
             ) {
-                self.fail(format!("Could not save panel pin: {error}"), cx);
+                self.fail(
+                    tr!("Could not save panel pin: %@", error.to_string()).to_string(),
+                    cx,
+                );
                 return;
             }
             panel.placement.mode = panel.placement.mode.toggled();

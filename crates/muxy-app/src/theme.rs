@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use gpui::{Window, WindowAppearance};
 use muxy_app_core::settings::Appearance;
 use muxy_ui::theme::{ColorScheme, Theme};
+use muxy_ui::tr;
 
 use crate::views::terminal::colors::Palette;
 
@@ -40,10 +41,14 @@ impl Catalog {
         if let Err(error) = fs::create_dir_all(directory)
             .and_then(|()| Self::read_directory(directory, &mut entries, &mut errors))
         {
-            errors.push(format!(
-                "Could not load themes from {}: {error}",
-                directory.display()
-            ));
+            errors.push(
+                tr!(
+                    "Could not load themes from %@: %@",
+                    directory.display().to_string(),
+                    error.to_string()
+                )
+                .to_string(),
+            );
         }
         let mut entries: Vec<_> = entries
             .into_iter()
@@ -79,14 +84,19 @@ impl Catalog {
                 Ok(source) => {
                     let scheme = ColorScheme::parse(&source);
                     if scheme.background.is_none() || scheme.foreground.is_none() {
-                        errors.push(format!(
-                            "Theme {name} needs valid background and foreground colors"
-                        ));
+                        errors.push(
+                            tr!(
+                                "Theme %@ needs valid background and foreground colors",
+                                name
+                            )
+                            .to_string(),
+                        );
                         continue;
                     }
                     entries.insert(theme_name(name).to_owned(), scheme);
                 }
-                Err(error) => errors.push(format!("Could not read theme {name}: {error}")),
+                Err(error) => errors
+                    .push(tr!("Could not read theme %@: %@", name, error.to_string()).to_string()),
             }
         }
         Ok(())
@@ -126,18 +136,28 @@ impl Catalog {
             let path = if let Some(rest) = name.strip_prefix("~/") {
                 std::env::var_os("HOME")
                     .map(PathBuf::from)
-                    .ok_or("Cannot resolve theme without a home directory")?
+                    .ok_or_else(|| {
+                        tr!("Cannot resolve theme without a home directory").to_string()
+                    })?
                     .join(rest)
             } else {
                 directory.join(name)
             };
-            let source = fs::read_to_string(&path)
-                .map_err(|error| format!("Could not load terminal theme {name:?}: {error}"))?;
+            let source = fs::read_to_string(&path).map_err(|error| {
+                tr!(
+                    "Could not load terminal theme %@: %@",
+                    format!("{name:?}"),
+                    error.to_string()
+                )
+                .to_string()
+            })?;
             let scheme = ColorScheme::parse(&source);
             if scheme.background.is_none() || scheme.foreground.is_none() {
-                return Err(format!(
-                    "Terminal theme {name:?} needs valid background and foreground colors"
-                ));
+                return Err(tr!(
+                    "Terminal theme %@ needs valid background and foreground colors",
+                    format!("{name:?}")
+                )
+                .to_string());
             }
             Palette::from_scheme(&scheme, dark)
         };
@@ -175,10 +195,11 @@ fn terminal_theme_name(value: &str, dark: bool) -> Result<&str, String> {
             .map(str::trim)
             .find_map(|part| part.strip_prefix(prefix))
             .ok_or_else(|| {
-                format!(
-                    "theme needs a {} entry",
+                tr!(
+                    "theme needs a %@ entry",
                     if dark { "dark" } else { "light" }
                 )
+                .to_string()
             })?
     } else {
         value
@@ -189,7 +210,7 @@ fn terminal_theme_name(value: &str, dark: bool) -> Result<&str, String> {
         .and_then(|name| name.strip_suffix('"'))
         .unwrap_or(name);
     if name.is_empty() || name.contains('"') {
-        return Err("Invalid terminal theme name".into());
+        return Err(tr!("Invalid terminal theme name").to_string());
     }
     Ok(name)
 }

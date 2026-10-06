@@ -1,5 +1,7 @@
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, div};
 use muxy_ui::controls;
+use muxy_ui::l10n::tr_key;
+use muxy_ui::tr;
 
 use super::{Category, SettingsEvent, SettingsView, window::SettingsWindow};
 
@@ -17,20 +19,20 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     for (id, label, actions) in [
         (
             "backup-export",
-            "Export backup",
-            vec![("Export…", Action::Export)],
+            tr_key!("Export backup"),
+            vec![(tr!("Export…"), Action::Export)],
         ),
         (
             "backup-restore",
-            "Restore backup",
-            vec![("Choose file…", Action::Choose)],
+            tr_key!("Restore backup"),
+            vec![(tr!("Choose file…"), Action::Choose)],
         ),
         (
             "backup-legacy",
-            "Import from Muxy 1.x",
+            tr_key!("Import from Muxy 1.x"),
             vec![
-                ("Import installed 1.x", Action::Legacy),
-                ("Choose file…", Action::Choose),
+                (tr!("Import installed 1.x"), Action::Legacy),
+                (tr!("Choose file…"), Action::Choose),
             ],
         ),
     ] {
@@ -44,7 +46,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 controls::button(
                     view.style(),
                     &selector,
-                    label,
+                    &label,
                     !view.backup_busy,
                     cx.listener(move |_, _, _, cx| cx.emit(SettingsEvent::Backup(action))),
                 )
@@ -55,14 +57,14 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             control = control.child(controls::button(
                 view.style(),
                 "backup-confirm",
-                "Restore on next launch",
+                &tr!("Restore on next launch"),
                 !view.backup_busy && view.backup_import.is_some(),
                 cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Backup(Action::Confirm))),
             ));
             control = control.child(controls::button(
                 view.style(),
                 "backup-cancel",
-                "Cancel import",
+                &tr!("Cancel import"),
                 !view.backup_busy,
                 cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Backup(Action::Cancel))),
             ));
@@ -78,7 +80,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             }
         }
     }
-    if view.matches(Category::Backup, "Configuration files") {
+    if view.matches(Category::Backup, tr_key!("Configuration files")) {
         let mut control = div().flex().flex_wrap().gap(view.metrics.spacing2());
         for name in ["settings.toml", "ghostty.conf", "server.toml"] {
             control = control.child(controls::button(
@@ -91,7 +93,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         }
         rows.push(view.row(
             "backup-files",
-            "Configuration files",
+            tr_key!("Configuration files"),
             control.into_any_element(),
         ));
     }
@@ -148,7 +150,7 @@ impl SettingsWindow {
                                     .map_err(|error| error.to_string())
                             })
                             .await?;
-                        Ok(Some("Backup exported.".into()))
+                        Ok(Some(tr!("Backup exported.").to_string()))
                     }
                     .await;
                     let _ = root.update(cx, |root, cx| root.backup_finished(result, cx));
@@ -160,7 +162,7 @@ impl SettingsWindow {
                     files: true,
                     directories: false,
                     multiple: false,
-                    prompt: Some("Choose Muxy backup or 1.x settings.json".into()),
+                    prompt: Some(tr!("Choose Muxy backup or 1.x settings.json")),
                 });
                 cx.spawn(async move |root, cx| {
                     let result = async {
@@ -204,9 +206,9 @@ impl SettingsWindow {
                 cx.spawn(async move |root, cx| {
                     let result = cx.background_executor().spawn(async move {
                         if matches!(action, Action::Cancel) {
-                            crate::backup::cancel_pending(&profile).map(|()| Some("Import cancelled.".into()))
+                            crate::backup::cancel_pending(&profile).map(|()| Some(tr!("Import cancelled.").to_string()))
                         } else if let Some(import) = import {
-                                crate::backup::stage(&profile, &import).map(|()| Some("Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings.".into()))
+                                crate::backup::stage(&profile, &import).map(|()| Some(tr!("Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings.").to_string()))
                         } else { Ok(None) }.map_err(|error| error.to_string())
                     }).await;
                     let _ = root.update(cx, |root, cx| root.backup_finished(result, cx));
@@ -248,7 +250,7 @@ impl SettingsWindow {
 impl SettingsView {
     pub(crate) fn set_backup_pending(&mut self, pending: bool) {
         if pending {
-            self.backup_status = "An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here.".into();
+            self.backup_status = tr!("An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here.").to_string();
         }
     }
 }

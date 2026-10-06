@@ -29,6 +29,8 @@ use objc2_speech::{
     SFSpeechRecognitionTaskHint, SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus,
 };
 
+use crate::tr;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Language {
     pub id: String,
@@ -107,10 +109,10 @@ impl Recorder {
                 .objectForInfoDictionaryKey(&NSString::from_str(key))
                 .is_none()
             {
-                return Err(
+                return Err(tr!(
                     "Open the packaged Muxy app to enable microphone and speech permissions."
-                        .into(),
-                );
+                )
+                .to_string());
             }
         }
         let shared = Arc::new(Shared::default());
@@ -198,15 +200,15 @@ fn authorize(shared: &Shared) -> Result<(), String> {
     });
     unsafe {
         AVCaptureDevice::requestAccessForMediaType_completionHandler(
-            AVMediaTypeAudio.ok_or("Audio capture is unavailable")?,
+            AVMediaTypeAudio.ok_or_else(|| tr!("Audio capture is unavailable").to_string())?,
             &audio,
         );
     }
     if !permission(&receiver, shared)? {
-        return Err("Microphone access is disabled. Enable Muxy in System Settings → Privacy & Security → Microphone.".into());
+        return Err(tr!("Microphone access is disabled. Enable Muxy in System Settings → Privacy & Security → Microphone.").to_string());
     }
     if shared.cancelled.load(Ordering::Acquire) {
-        return Err("Dictation cancelled".into());
+        return Err(tr!("Dictation cancelled").to_string());
     }
     let (sender, receiver) = mpsc::channel();
     let speech = RcBlock::new(move |status: SFSpeechRecognizerAuthorizationStatus| {
@@ -216,7 +218,7 @@ fn authorize(shared: &Shared) -> Result<(), String> {
         SFSpeechRecognizer::requestAuthorization(&speech);
     }
     if !permission(&receiver, shared)? {
-        return Err("Speech recognition access is disabled. Enable Muxy in System Settings → Privacy & Security → Speech Recognition.".into());
+        return Err(tr!("Speech recognition access is disabled. Enable Muxy in System Settings → Privacy & Security → Speech Recognition.").to_string());
     }
     Ok(())
 }
@@ -225,12 +227,16 @@ fn permission(receiver: &mpsc::Receiver<bool>, shared: &Shared) -> Result<bool, 
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         if shared.cancelled.load(Ordering::Acquire) {
-            return Err("Dictation cancelled".into());
+            return Err(tr!("Dictation cancelled").to_string());
         }
         match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(granted) => return Ok(granted),
             Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => {}
-            Err(_) => return Err("Speech permission request did not complete. Try again.".into()),
+            Err(_) => {
+                return Err(
+                    tr!("Speech permission request did not complete. Try again.").to_string(),
+                );
+            }
         }
     }
 }
@@ -324,26 +330,28 @@ fn capture(language: &str, shared: &Arc<Shared>) -> Result<Capture, String> {
             .or_else(|| available.iter().find(|candidate| candidate.preferred))
             .or_else(|| available.iter().find(|candidate| candidate.id.replace('_', "-").eq_ignore_ascii_case("en-US")))
             .or_else(|| available.first())
-            .ok_or("No on-device speech language is installed. Add one in System Settings → Keyboard → Dictation.")?;
+            .ok_or_else(|| tr!("No on-device speech language is installed. Add one in System Settings → Keyboard → Dictation.").to_string())?;
         let locale = NSLocale::initWithLocaleIdentifier(
             NSLocale::alloc(),
             &NSString::from_str(&selected.id),
         );
         let recognizer = SFSpeechRecognizer::initWithLocale(SFSpeechRecognizer::alloc(), &locale)
-            .ok_or("This language is unavailable for speech recognition")?;
+            .ok_or_else(|| {
+            tr!("This language is unavailable for speech recognition").to_string()
+        })?;
         if !recognizer.supportsOnDeviceRecognition() || !recognizer.isAvailable() {
-            return Err("On-device speech recognition is unavailable for this language. Choose another dictation language.".into());
+            return Err(tr!("On-device speech recognition is unavailable for this language. Choose another dictation language.").to_string());
         }
         let device = AVCaptureDevice::defaultDeviceWithMediaType(
-            AVMediaTypeAudio.ok_or("Audio capture is unavailable")?,
+            AVMediaTypeAudio.ok_or_else(|| tr!("Audio capture is unavailable").to_string())?,
         )
-        .ok_or("No microphone is available")?;
+        .ok_or_else(|| tr!("No microphone is available").to_string())?;
         let input = AVCaptureDeviceInput::deviceInputWithDevice_error(&device)
             .map_err(|error| error.to_string())?;
         let session = AVCaptureSession::new();
         let output = AVCaptureAudioDataOutput::new();
         if !session.canAddInput(&input) || !session.canAddOutput(&output) {
-            return Err("Could not configure microphone capture".into());
+            return Err(tr!("Could not configure microphone capture").to_string());
         }
         let request = SFSpeechAudioBufferRecognitionRequest::new();
         request.setShouldReportPartialResults(true);
@@ -418,7 +426,7 @@ fn record(language: &str, shared: &Arc<Shared>) -> Result<(), String> {
         capture.session.startRunning();
     }
     if !unsafe { capture.session.isRunning() } {
-        return Err("The microphone could not start recording".into());
+        return Err(tr!("The microphone could not start recording").to_string());
     }
     let mut last = Instant::now();
     loop {
@@ -427,12 +435,13 @@ fn record(language: &str, shared: &Arc<Shared>) -> Result<(), String> {
             return Ok(());
         }
         if shared.device_changed.load(Ordering::Acquire) {
-            return Err(
-                "The audio input changed. Finish or cancel dictation, then try again.".into(),
-            );
+            return Err(tr!(
+                "The audio input changed. Finish or cancel dictation, then try again."
+            )
+            .to_string());
         }
         if !unsafe { capture.session.isRunning() } {
-            return Err("Microphone recording stopped. Try again.".into());
+            return Err(tr!("Microphone recording stopped. Try again.").to_string());
         }
         let now = Instant::now();
         let mut snapshot = shared
@@ -482,7 +491,7 @@ impl DeviceObserver {
             )
         };
         if status != 0 {
-            return Err("Could not observe microphone availability".into());
+            return Err(tr!("Could not observe microphone availability").to_string());
         }
         Ok(observer)
     }

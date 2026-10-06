@@ -14,7 +14,9 @@ use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::components::{ButtonInteraction, IconGlyph};
 use muxy_ui::controls::{self, Style};
 use muxy_ui::icon::Icon;
+use muxy_ui::l10n::tr_key;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
+use muxy_ui::tr;
 
 use super::command_palette::Handler;
 use super::overlays::Overlay;
@@ -97,13 +99,13 @@ fn status_color(server: &RemoteServer, model: &AppModel) -> Hsla {
     }
 }
 
-fn status_label(server: &RemoteServer) -> &'static str {
+fn status_label(server: &RemoteServer) -> gpui::SharedString {
     if server.needs_password && server.status == ServerStatus::Disconnected {
-        "Password needed"
+        tr!("Password needed")
     } else if server.install == Some(crate::model::Install::Running) {
-        "Installing…"
+        tr!("Installing…")
     } else {
-        server.status.label()
+        muxy_ui::l10n::translate(server.status.label())
     }
 }
 
@@ -136,10 +138,10 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
     let open = matches!(model.overlay, Some(Overlay::RemoteServers));
     let (offline, failed) = offline(&model.remote_servers());
     let attention = if failed { theme.danger } else { theme.fg_dim };
-    let summary = (offline > 0).then(|| format!("{offline} offline"));
+    let summary = (offline > 0).then(|| tr!("%lld offline", offline));
     let tooltip = summary.as_ref().map_or_else(
-        || "Remote Servers".to_owned(),
-        |summary| format!("Remote Servers · {summary}"),
+        || tr!("Remote Servers").to_string(),
+        |summary| format!("{} · {summary}", tr!("Remote Servers")),
     );
     div()
         .id("remote-servers-section")
@@ -199,7 +201,7 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
                     .truncate()
                     .text_size(m.font_body())
                     .font_weight(FontWeight::MEDIUM)
-                    .child("Remote"),
+                    .child(tr!("Remote")),
             )
             .children(summary.map(|summary| {
                 div()
@@ -228,11 +230,13 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
     let theme = &model.theme;
     let id = server.entry.id;
     let error = match &server.install {
-        Some(crate::model::Install::Failed(error)) => Some(format!("Install failed: {error}")),
+        Some(crate::model::Install::Failed(error)) => {
+            Some(tr!("Install failed: %@", error).to_string())
+        }
         _ => server.error.clone(),
     };
     let hint = (server.missing && crate::model::released_version().is_none())
-        .then_some("Install a Linux build there by hand, from scripts/build-linux-dev.sh.");
+        .then(|| tr!("Install a Linux build there by hand, from scripts/build-linux-dev.sh."));
     div()
         .flex()
         .flex_col()
@@ -296,7 +300,7 @@ pub(crate) fn popover(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .iter()
         .map(|server| server_row(server, model, cx))
         .collect();
-    let action = |id: &'static str, icon: Icon, label: &'static str| {
+    let action = |id: &'static str, icon: Icon, label: gpui::SharedString| {
         muxy_ui::popover::row(theme, m, id, true, false)
             .debug_selector(move || id.into())
             .child(IconGlyph::new(icon, m.font_body(), theme.fg_muted))
@@ -312,24 +316,29 @@ pub(crate) fn popover(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         }))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .w(width)
-        .child(muxy_ui::popover::header(theme, m).child("Remote Servers"))
+        .child(muxy_ui::popover::header(theme, m).child(tr!("Remote Servers")))
         .when(servers.is_empty(), |list| {
             list.child(
                 div()
                     .px(m.scaled(muxy_ui::popover::ROW_PADDING))
                     .pb(m.spacing2())
                     .text_color(theme.fg_muted)
-                    .child("No remote servers yet."),
+                    .child(tr!("No remote servers yet.")),
             )
         })
         .children(rows)
         .child(muxy_ui::popover::divider(theme, m))
         .child(
-            action("remote-add-server", Icon::Plus, "Add Server…")
+            action("remote-add-server", Icon::Plus, tr!("Add Server…"))
                 .on_click(cx.listener(|model, _, _, cx| model.open_server_form(None, cx))),
         )
         .child(
-            action("remote-manage-servers", Icon::Settings, "Manage Servers…").on_click(
+            action(
+                "remote-manage-servers",
+                Icon::Settings,
+                tr!("Manage Servers…"),
+            )
+            .on_click(
                 cx.listener(|model, _, window, cx| model.open_remote_servers(None, window, cx)),
             ),
         )
@@ -340,10 +349,12 @@ pub(crate) fn popover(model: &AppModel, window: &Window, cx: &mut Context<AppMod
 pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handler> {
     let _ = model;
     let model = cx.weak_entity();
-    Command::list("remote_servers", "Remote Servers…", move |cx| {
+    Command::list("remote_servers", tr!("Remote Servers…"), move |cx| {
         let mut servers = Registry::default();
         let add: Handler = Rc::new(|model, _, cx| model.open_server_form(None, cx));
-        servers.register(Command::new("remote-add-server", "Add Server…", add));
+        servers.register(
+            Command::new("remote-add-server", tr!("Add Server…"), add).keywords("Add Server"),
+        );
         let Some(model) = model.upgrade() else {
             return servers;
         };
@@ -352,6 +363,7 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
         }
         servers
     })
+    .keywords("Remote Servers")
 }
 
 /// One server's page: what can be done with it now.
@@ -373,48 +385,70 @@ fn server_command(server: &RemoteServer, model: gpui::WeakEntity<AppModel>) -> C
             |action: fn(&mut AppModel, ServerId, &mut Window, &mut Context<AppModel>)| -> Handler {
                 Rc::new(move |model, window, cx| action(model, id, window, cx))
             };
-        actions.register(Command::new(
-            "add-project",
-            "Add Project…",
-            handler(|model, id, _, cx| model.open_remote_project_picker(id, cx)),
-        ));
+        actions.register(
+            Command::new(
+                "add-project",
+                tr!("Add Project…"),
+                handler(|model, id, _, cx| model.open_remote_project_picker(id, cx)),
+            )
+            .keywords("Add Project"),
+        );
         let connected = matches!(
             server.status,
             ServerStatus::Connected | ServerStatus::Connecting
         );
-        actions.register(Command::new(
-            "connect",
-            if connected { "Reconnect" } else { "Connect" },
-            handler(|model, id, _, cx| model.reconnect_remote_server(id, cx)),
-        ));
-        actions.register(Command::new(
-            "edit",
-            "Edit…",
-            handler(|model, id, _, cx| model.open_server_form(Some(id), cx)),
-        ));
+        actions.register(
+            Command::new(
+                "connect",
+                if connected {
+                    tr!("Reconnect")
+                } else {
+                    tr!("Connect")
+                },
+                handler(|model, id, _, cx| model.reconnect_remote_server(id, cx)),
+            )
+            .keywords(if connected { "Reconnect" } else { "Connect" }),
+        );
+        actions.register(
+            Command::new(
+                "edit",
+                tr!("Edit…"),
+                handler(|model, id, _, cx| model.open_server_form(Some(id), cx)),
+            )
+            .keywords("Edit"),
+        );
         if server.missing && crate::model::released_version().is_some() {
-            actions.register(Command::new(
-                "install",
-                "Install Muxy…",
-                handler(|model, id, window, cx| {
-                    model.confirm_install_server(id, window.window_handle(), cx);
-                }),
-            ));
+            actions.register(
+                Command::new(
+                    "install",
+                    tr!("Install Muxy…"),
+                    handler(|model, id, window, cx| {
+                        model.confirm_install_server(id, window.window_handle(), cx);
+                    }),
+                )
+                .keywords("Install Muxy"),
+            );
         }
         if server.incompatible && crate::model::released_version().is_some() {
-            actions.register(Command::new(
-                "copy-update-command",
-                "Copy Update Command",
-                handler(|model, _, _, cx| model.copy_update_command(cx)),
-            ));
+            actions.register(
+                Command::new(
+                    "copy-update-command",
+                    tr!("Copy Update Command"),
+                    handler(|model, _, _, cx| model.copy_update_command(cx)),
+                )
+                .keywords("Copy Update Command"),
+            );
         }
-        actions.register(Command::new(
-            "remove",
-            "Remove…",
-            handler(|model, id, window, cx| {
-                model.confirm_forget_server(id, window.window_handle(), cx);
-            }),
-        ));
+        actions.register(
+            Command::new(
+                "remove",
+                tr!("Remove…"),
+                handler(|model, id, window, cx| {
+                    model.confirm_forget_server(id, window.window_handle(), cx);
+                }),
+            )
+            .keywords("Remove"),
+        );
         actions
     })
     .keywords(server.entry.ssh.clone())
@@ -508,11 +542,16 @@ impl AppModel {
         let name = input(
             self,
             cx,
-            "Shown in the sidebar",
+            tr_key!("Shown in the sidebar"),
             entry.as_ref().map_or("", |entry| &entry.name),
         );
-        let host = input(self, cx, "host, address, or ~/.ssh/config alias", &host);
-        let user = input(self, cx, "optional", &user);
+        let host = input(
+            self,
+            cx,
+            tr_key!("host, address, or ~/.ssh/config alias"),
+            &host,
+        );
+        let user = input(self, cx, tr_key!("optional"), &user);
         let port = input(self, cx, "22", &port);
         let default_identity = automatic_identity
             .then(|| std::env::home_dir().and_then(|home| default_identity(&home)))
@@ -521,7 +560,7 @@ impl AppModel {
         let identity = input(
             self,
             cx,
-            "Use SSH config or agent",
+            tr_key!("Use SSH config or agent"),
             entry
                 .as_ref()
                 .and_then(|entry| entry.identity_file.as_deref())
@@ -531,7 +570,7 @@ impl AppModel {
         let password = cx.new(|cx| {
             TextInput::new(style, cx)
                 .secure()
-                .with_placeholder("Asked when connecting if empty")
+                .with_placeholder_key(tr_key!("Asked when connecting if empty"))
         });
         let subscriptions = [&name, &host, &user, &port, &identity, &password]
             .into_iter()
@@ -747,14 +786,15 @@ impl AppModel {
         let (sender, receiver) = async_channel::bounded(1);
         let directory = std::env::home_dir().unwrap_or_default().join(".ssh");
         let dialog =
-            muxy_ui::dialog::choose_file("Choose a private key", &directory, move |path| {
+            muxy_ui::dialog::choose_file(&tr!("Choose a private key"), &directory, move |path| {
                 let _ = sender.try_send(path);
             });
         let dialog = match dialog {
             Ok(dialog) => dialog,
             Err(error) => {
                 if let Some(Overlay::ServerForm(form)) = &mut self.overlay {
-                    form.error = Some(format!("Could not choose a key file: {error}"));
+                    form.error =
+                        Some(tr!("Could not choose a key file: %@", error.to_string()).to_string());
                 }
                 cx.notify();
                 return;
@@ -857,7 +897,7 @@ fn title(text: &str, model: &AppModel) -> gpui::Div {
 
 fn primary(
     id: &'static str,
-    label: &'static str,
+    label: gpui::SharedString,
     enabled: bool,
     model: &AppModel,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
@@ -893,41 +933,41 @@ fn connection_status(
     probe: Option<&ConnectionTest>,
     finding_identity: bool,
     theme: &muxy_ui::theme::Theme,
-) -> (String, Hsla) {
+) -> (gpui::SharedString, Hsla) {
     match probe {
-        None if finding_identity => ("Finding SSH key…".to_owned(), theme.fg_muted),
+        None if finding_identity => (tr!("Finding SSH key…"), theme.fg_muted),
         None => (
-            "Muxy uses your SSH config, keys, and agent. A password is never saved.".to_owned(),
+            tr!("Muxy uses your SSH config, keys, and agent. A password is never saved."),
             theme.fg_muted,
         ),
-        Some(ConnectionTest::Testing) => ("Testing connection…".to_owned(), theme.fg_muted),
+        Some(ConnectionTest::Testing) => (tr!("Testing connection…"), theme.fg_muted),
         Some(ConnectionTest::UntrustedHost(prompt)) => {
             let details = prompt
                 .split("\nAre you sure you want to continue connecting")
                 .next()
                 .unwrap_or(prompt);
             (
-                format!(
-                    "{details}\n\nVerify this fingerprint with your server administrator before trusting it."
+                tr!(
+                    "%@\n\nVerify this fingerprint with your server administrator before trusting it.",
+                    details
                 ),
                 theme.warning,
             )
         }
         Some(ConnectionTest::Installing) => (
-            "Installing muxy-server, then testing connection…".to_owned(),
+            tr!("Installing muxy-server, then testing connection…"),
             theme.fg_muted,
         ),
-        Some(ConnectionTest::Succeeded(version)) => (
-            format!("Connection succeeded · Muxy {version}"),
-            theme.accent,
-        ),
+        Some(ConnectionTest::Succeeded(version)) => {
+            (tr!("Connection succeeded · Muxy %@", version), theme.accent)
+        }
         Some(ConnectionTest::NotInstalled(_)) => (
-            "SSH connected. Install muxy-server to finish setting up this server.".to_owned(),
+            tr!("SSH connected. Install muxy-server to finish setting up this server."),
             theme.fg_muted,
         ),
-        Some(ConnectionTest::Failed(error)) => (error.clone(), theme.danger),
+        Some(ConnectionTest::Failed(error)) => (error.clone().into(), theme.danger),
         Some(ConnectionTest::InstallFailed(error)) => {
-            (format!("Install failed: {error}"), theme.danger)
+            (tr!("Install failed: %@", error), theme.danger)
         }
     }
 }
@@ -974,15 +1014,19 @@ pub(crate) fn render_form(
             }),
         )
         .child(title(
-            if form.device.is_some() {
-                "Edit Remote Server"
+            &if form.device.is_some() {
+                tr!("Edit Remote Server")
             } else {
-                "Add Remote Server"
+                tr!("Add Remote Server")
             },
             model,
         ))
-        .child(field("Name", text("server-name", &form.name), model))
-        .child(field("SSH host", text("server-host", &form.host), model))
+        .child(field(&tr!("Name"), text("server-name", &form.name), model))
+        .child(field(
+            &tr!("SSH host"),
+            text("server-host", &form.host),
+            model,
+        ))
         .child(login(form, model, cx))
         .child(
             div()
@@ -1006,7 +1050,7 @@ pub(crate) fn render_form(
                     controls::button(
                         style,
                         "server-trust",
-                        "Trust & Test",
+                        &tr!("Trust & Test"),
                         true,
                         cx.listener(|model, _, _, cx| model.trust_server_form(cx)),
                     )
@@ -1030,7 +1074,7 @@ fn install_offer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
             metrics: &model.metrics,
         },
         "server-install",
-        "Install muxy-server & Test Connection",
+        &tr!("Install muxy-server & Test Connection"),
         true,
         cx.listener(|model, _, window, cx| model.confirm_install_server_form(window, cx)),
     )
@@ -1052,14 +1096,16 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
             div()
                 .flex()
                 .gap(m.spacing4())
-                .child(field("User", text("server-user", &form.user), model).flex_1())
-                .child(field("Port", text("server-port", &form.port), model).w(m.scaled(96.0))),
+                .child(field(&tr!("User"), text("server-user", &form.user), model).flex_1())
+                .child(
+                    field(&tr!("Port"), text("server-port", &form.port), model).w(m.scaled(96.0)),
+                ),
         )
         .child(field(
-            if form.automatic_identity {
-                "Identity file (automatic)"
+            &if form.automatic_identity {
+                tr!("Identity file (automatic)")
             } else {
-                "Identity file"
+                tr!("Identity file")
             },
             div()
                 .flex()
@@ -1073,7 +1119,7 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 .child(controls::button(
                     style,
                     "server-identity-browse",
-                    "Browse…",
+                    &tr!("Browse…"),
                     true,
                     cx.listener(|model, _, _, cx| model.choose_server_identity(cx)),
                 ))
@@ -1085,9 +1131,9 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 div()
                     .text_size(m.font_footnote())
                     .text_color(theme.fg_muted)
-                    .child(
-                        "SSH can also try your other keys. Edit or browse to use a specific key.",
-                    ),
+                    .child(tr!(
+                        "SSH can also try your other keys. Edit or browse to use a specific key."
+                    )),
             )
         })
         .child(
@@ -1104,12 +1150,12 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 .child(
                     div()
                         .text_size(m.font_footnote())
-                        .child("Log in with a password"),
+                        .child(tr!("Log in with a password")),
                 ),
         )
         .when(form.password_login, |view| {
             view.child(field(
-                "Password",
+                &tr!("Password"),
                 text("server-password", &form.password),
                 model,
             ))
@@ -1137,7 +1183,7 @@ fn form_actions(
             controls::button(
                 style,
                 "server-test",
-                "Test Connection",
+                &tr!("Test Connection"),
                 testable,
                 cx.listener(|model, _, _, cx| model.test_server_form(cx)),
             )
@@ -1147,13 +1193,13 @@ fn form_actions(
         .child(controls::button(
             style,
             "server-cancel",
-            "Cancel",
+            &tr!("Cancel"),
             true,
             cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
         ))
         .child(primary(
             "server-save",
-            "Save",
+            tr!("Save"),
             savable,
             model,
             cx.listener(|model, _, _, cx| model.submit_server_form(cx)),
@@ -1181,13 +1227,14 @@ pub(crate) fn render_password(
         .and_then(|server| server.error)
         .filter(|_| model.server_failed_login(prompt.server));
     modal(model, window, "server-password")
-        .child(title(&format!("Password for {name}"), model))
+        .child(title(&tr!("Password for %@", &name), model))
         .child(
             div()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_muted)
-                .child(format!(
-                    "{destination} · Muxy keeps it in memory until it quits."
+                .child(tr!(
+                    "%@ · Muxy keeps it in memory until it quits.",
+                    &destination
                 )),
         )
         .child(controls::text_field(
@@ -1211,13 +1258,13 @@ pub(crate) fn render_password(
                 .child(controls::button(
                     style,
                     "server-password-cancel",
-                    "Cancel",
+                    &tr!("Cancel"),
                     true,
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 ))
                 .child(primary(
                     "server-password-connect",
-                    "Connect",
+                    tr!("Connect"),
                     true,
                     model,
                     cx.listener(|model, _, _, cx| model.submit_password(cx)),

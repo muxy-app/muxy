@@ -211,7 +211,10 @@ fn every_main_manifest_field_loads_with_main_defaults() {
             ("nav.html", ""),
             ("modal.html", ""),
             ("icon.svg", "<svg/>"),
-            ("German.bundle/Info.plist", "<plist/>"),
+            (
+                "German.bundle/Info.plist",
+                "<plist><dict><key>CFBundleIdentifier</key><string>de</string></dict></plist>",
+            ),
             (
                 "German.bundle/de.lproj/Localizable.strings",
                 "\"A\" = \"B\";",

@@ -3,6 +3,8 @@ use muxy_app_core::extensions::Action;
 use muxy_app_core::settings::KeyChord;
 use muxy_core::shortcuts::ShortcutSettings;
 use muxy_ui::command_palette::{Command, Registry};
+use muxy_ui::l10n::tr_key;
+use muxy_ui::tr;
 
 use super::AppModel;
 use crate::views::command_palette::Handler;
@@ -128,10 +130,14 @@ impl AppModel {
                     .any(|key| key == chord.as_str())
             })
         }) {
-            return Some(format!(
-                "{chord} is also bound to {}",
-                shortcut.id.replace(['_', '.'], " ")
-            ));
+            return Some(
+                tr!(
+                    "%@ is also bound to %@",
+                    chord.to_string(),
+                    shortcut.id.replace(['_', '.'], " ")
+                )
+                .into(),
+            );
         }
         let (taken, _) = self
             .extension_bindings()
@@ -145,7 +151,15 @@ impl AppModel {
             .enabled(&taken.owner)
             .and_then(|extension| extension.manifest.command(&taken.command))
             .map_or(taken.command.as_str(), |command| command.title.as_str());
-        Some(format!("{chord} is also bound to {}: {title}", taken.owner))
+        Some(
+            tr!(
+                "%@ is also bound to %@: %@",
+                chord.to_string(),
+                &taken.owner,
+                title
+            )
+            .into(),
+        )
     }
 
     pub(in crate::model) fn bind_extension_keys(&self, cx: &mut Context<Self>) {
@@ -212,10 +226,9 @@ impl AppModel {
                     .update(cx, crate::views::settings::SettingsView::show_extensions);
             }
         });
-        registry.register(Command::new(
-            "extensions.manage",
-            "Manage Extensions",
-            manage,
-        ));
+        registry.register(
+            Command::new("extensions.manage", tr!("Manage Extensions"), manage)
+                .keywords(tr_key!("Manage Extensions")),
+        );
     }
 }

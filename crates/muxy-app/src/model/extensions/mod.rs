@@ -27,6 +27,7 @@ use muxy_app_core::extensions::{
     AUDIT_LOG, AuditLog, Grants, Registry, Request, Rule, required_permission,
 };
 use muxy_protocol::ProjectId;
+use muxy_ui::tr;
 use serde_json::{Map, Value, json};
 
 use super::AppModel;
@@ -336,6 +337,7 @@ impl AppModel {
         self.sync_backgrounds(cx);
         self.sync_extension_events(cx);
         self.close_hidden_popover(cx);
+        self.sync_language(cx);
         self.sync_preferences(cx);
         cx.notify();
     }
@@ -466,21 +468,24 @@ impl AppModel {
         cx.spawn(async move |model, cx| {
             for view in checks {
                 let Ok(check) = view.update(cx, Webview::before_close) else {
-                    return Err(
-                        "The extension view could not be closed. Try reloading again.".into(),
-                    );
+                    return Err(tr!(
+                        "The extension view could not be closed. Try reloading again."
+                    )
+                    .into());
                 };
                 if check.recv().await.unwrap_or(true) {
-                    return Err(
+                    return Err(tr!(
                         "The extension kept an open view. Save or close it before reloading."
-                            .into(),
-                    );
+                    )
+                    .into());
                 }
             }
             let task = model
                 .update(cx, |model, cx| {
                     if model.extensions.epoch != epoch {
-                        return Err("Extensions changed while reloading. Try again.".to_owned());
+                        return Err(
+                            tr!("Extensions changed while reloading. Try again.").to_string()
+                        );
                     }
                     model.stop_extensions(cx);
                     Ok(model.refresh_installed_extensions_task(cx))
@@ -580,7 +585,7 @@ impl AppModel {
                     .registry
                     .extensions
                     .get(&owner)
-                    .ok_or("extension is not installed")?;
+                    .ok_or_else(|| tr!("extension is not installed").to_string())?;
                 state.settings.set(extension, &key, value).map(|_| ())
             },
             cx,

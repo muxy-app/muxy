@@ -2,6 +2,8 @@ use super::{Category, Change, PickerKind, SettingsEvent, SettingsView};
 use gpui::{AnyElement, Context};
 use muxy_app_core::composer::submission::ImageSubmissionStrategy;
 use muxy_ui::controls::{self, Choice};
+use muxy_ui::l10n::tr_key;
+use muxy_ui::tr;
 
 pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<AnyElement> {
     let settings = &view.snapshot.settings.composer;
@@ -9,17 +11,17 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     for (id, label, value) in [
         (
             "voice-auto-send",
-            "Send after recording",
+            tr_key!("Send after recording"),
             settings.voice_auto_send,
         ),
         (
             "composer-clear-after",
-            "Clear after sending",
+            tr_key!("Clear after sending"),
             settings.clear_after_sending,
         ),
         (
             "composer-clear-close",
-            "Clear on close",
+            tr_key!("Clear on close"),
             settings.clear_on_close,
         ),
     ] {
@@ -32,23 +34,23 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         }
     }
     for (id, label) in [
-        ("composer-font", "Composer font"),
-        ("composer-line-height", "Composer line height"),
+        ("composer-font", tr_key!("Composer font")),
+        ("composer-line-height", tr_key!("Composer line height")),
     ] {
         if view.matches(Category::Composer, label) {
             rows.push(view.row(id, label, view.field(id)));
         }
     }
-    if view.matches(Category::Composer, "Image submission") {
+    if view.matches(Category::Composer, tr_key!("Image submission")) {
         rows.push(view.row(
             "composer-images",
-            "Image submission",
+            tr_key!("Image submission"),
             controls::segmented(
                 view.style(),
                 "composer-images",
                 &[
-                    Choice::new("clipboard", "Clipboard paste"),
-                    Choice::new("path", "Inline file path"),
+                    Choice::new("clipboard", tr!("Clipboard paste")),
+                    Choice::new("path", tr!("Inline file path")),
                 ],
                 if settings.image_strategy == ImageSubmissionStrategy::Clipboard {
                     "clipboard"
@@ -64,19 +66,16 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             ),
         ));
     }
-    if view.matches(Category::Composer, "Dictation language") {
+    if view.matches(Category::Composer, tr_key!("Dictation language")) {
+        let language = if settings.language.is_empty() {
+            tr!("System language")
+        } else {
+            settings.language.clone().into()
+        };
         rows.push(view.row(
             "composer-language",
-            "Dictation language",
-            view.picker(
-                PickerKind::Language,
-                if settings.language.is_empty() {
-                    "System language"
-                } else {
-                    &settings.language
-                },
-                cx,
-            ),
+            tr_key!("Dictation language"),
+            view.picker(PickerKind::Language, &language, cx),
         ));
     }
     rows

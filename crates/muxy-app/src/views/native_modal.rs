@@ -7,6 +7,7 @@ use muxy_ui::picker::{
     Picker, PickerAction, PickerConfig, PickerEvent, PickerItem, PickerRow, PickerStatus,
 };
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 
 pub(crate) struct NativeModal {
     state: ModalState,
@@ -141,7 +142,7 @@ impl NativeModal {
         } else if !items.is_empty() {
             PickerStatus::Ready
         } else if self.state.loading() {
-            PickerStatus::Loading("Loading…".into())
+            PickerStatus::Loading(tr!("Loading…"))
         } else {
             PickerStatus::Empty(
                 if self.state.query().is_empty() {
@@ -155,17 +156,17 @@ impl NativeModal {
         let options = self.state.search_options();
         let mut actions = if self.state.options.search_toolbar {
             [
-                ("case", "Case", options.case_sensitive),
-                ("word", "Whole word", options.whole_word),
-                ("regex", "Regex", options.regex),
+                ("case", tr!("Case"), options.case_sensitive),
+                ("word", tr!("Whole word"), options.whole_word),
+                ("regex", tr!("Regex"), options.regex),
             ]
             .map(|(id, label, active)| {
                 PickerAction::new(
                     id,
                     if active {
-                        format!("✓ {label}")
+                        format!("✓ {label}").into()
                     } else {
-                        label.into()
+                        label
                     },
                 )
             })
@@ -174,7 +175,10 @@ impl NativeModal {
             Vec::new()
         };
         if self.state.loading() && !items.is_empty() {
-            actions.insert(0, PickerAction::new("loading", "Loading…").disabled(true));
+            actions.insert(
+                0,
+                PickerAction::new("loading", tr!("Loading…")).disabled(true),
+            );
         }
         self.picker.update(cx, |picker, cx| {
             picker.set_items(items, cx);

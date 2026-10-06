@@ -9,6 +9,7 @@ mod process;
 
 use muxy_app_core::opener::{FileLocation, OpenContext, OpenRequest, Registry, Target};
 use muxy_core::worker::WorkerPool;
+use muxy_ui::tr;
 
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic)]
@@ -99,7 +100,7 @@ fn open_with<'a>(
     };
     let handler = registry()
         .resolve(request, preferred, fallback)
-        .ok_or_else(|| io::Error::other("No opener supports this resource"))?
+        .ok_or_else(|| io::Error::other(tr!("No opener supports this resource").to_string()))?
         .handler;
     match (&request.target, handler) {
         (Target::Url(url), Handler::Browser) => launch(&Launch::system([OsString::from(url)])),
@@ -122,7 +123,9 @@ fn open_with<'a>(
             );
             launch(&command).or_else(|_| launch(&finder(&file.path)))
         }
-        _ => Err(io::Error::other("Opener does not support this resource")),
+        _ => Err(io::Error::other(
+            tr!("Opener does not support this resource").to_string(),
+        )),
     }
 }
 

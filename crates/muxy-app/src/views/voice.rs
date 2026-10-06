@@ -6,6 +6,7 @@ use gpui::{
 use muxy_ui::{
     components::{ButtonInteraction, SymbolGlyph},
     theme::{Metrics, Theme},
+    tr,
     voice::{Phase, Recorder, Snapshot},
 };
 
@@ -116,7 +117,7 @@ impl VoicePanel {
         if transcript.is_empty() {
             self.snapshot.phase = Phase::Failed;
             self.snapshot.error =
-                Some("No speech detected. Try again or press Esc to close.".into());
+                Some(tr!("No speech detected. Try again or press Esc to close.").to_string());
             cx.notify();
             return;
         }
@@ -271,16 +272,23 @@ impl VoicePanel {
                 0.55
             });
         for (key, label) in [
-            ("⎋", "Cancel"),
+            ("⎋".into(), tr!("Cancel")),
             (
-                "Space",
+                tr!("Space"),
                 if self.snapshot.phase == Phase::Paused {
-                    "Resume"
+                    tr!("Resume")
                 } else {
-                    "Pause"
+                    tr!("Pause")
                 },
             ),
-            ("⏎", if self.auto_send { "Send" } else { "Insert" }),
+            (
+                "⏎".into(),
+                if self.auto_send {
+                    tr!("Send")
+                } else {
+                    tr!("Insert")
+                },
+            ),
         ] {
             hints = hints.child(
                 div()
@@ -326,7 +334,7 @@ impl Render for VoicePanel {
         let error = self.snapshot.error.as_ref();
         let text = error.cloned().unwrap_or_else(|| {
             if self.snapshot.transcript.is_empty() {
-                "Listening...".into()
+                tr!("Listening...").to_string()
             } else {
                 self.snapshot.transcript.clone()
             }
@@ -407,7 +415,7 @@ impl Render for VoicePanel {
                         .child(outline(m.scaled(100.0), self.theme.border))
                         .text_size(m.font_footnote())
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("Close")
+                        .child(tr!("Close"))
                         .button_interaction(cx.listener(|_, _, _, cx| cx.emit(VoiceEvent::Cancel))),
                 )
             })

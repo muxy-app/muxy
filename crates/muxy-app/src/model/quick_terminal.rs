@@ -14,6 +14,7 @@ use muxy_ui::quick_terminal::{
     platform::{self, SystemMutation},
     shortcut_service::QuickTerminalShortcutService,
 };
+use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting};
 use crate::boot::Work;
@@ -150,18 +151,18 @@ impl AppModel {
             theme: self.theme.clone(),
             metrics: self.metrics,
             status: match self.connection(ServerId::local()) {
-                ConnectionState::Connecting => "Connecting…",
-                ConnectionState::Disconnected => "Disconnected",
-                ConnectionState::Ready => "Ready",
+                ConnectionState::Connecting => tr!("Connecting…"),
+                ConnectionState::Disconnected => tr!("Disconnected"),
+                ConnectionState::Ready => tr!("Ready"),
             }
-            .into(),
+            .to_string(),
             shortcut: self.quick_shortcut_label(),
         }
     }
 
     pub(crate) fn quick_shortcut_label(&self) -> String {
         match self.quick.shortcuts.shortcut() {
-            QuickTerminalShortcut::Unassigned => "Unassigned".into(),
+            QuickTerminalShortcut::Unassigned => tr!("Unassigned").to_string(),
             QuickTerminalShortcut::KeyCombo { key_combo, .. } => key_combo.display(),
         }
     }
@@ -171,11 +172,11 @@ impl AppModel {
         self.quick.shortcuts.error_message().map_or_else(
             || {
                 match self.quick.shortcuts.state() {
-                    ShortcutState::Stopped => "Inactive",
-                    ShortcutState::Unavailable => "Unavailable",
-                    ShortcutState::Registered => "Active system-wide",
+                    ShortcutState::Stopped => tr!("Inactive"),
+                    ShortcutState::Unavailable => tr!("Unavailable"),
+                    ShortcutState::Registered => tr!("Active system-wide"),
                 }
-                .into()
+                .to_string()
             },
             str::to_owned,
         )
@@ -220,7 +221,7 @@ impl AppModel {
             };
             let panel = cx
                 .open_window(options, |window, cx| {
-                    window.set_window_title("Muxy Quick Terminal");
+                    window.set_window_title(&tr!("Muxy Quick Terminal"));
                     let closing_owner = owner.clone();
                     window.on_window_should_close(cx, move |_, cx| {
                         let owner = closing_owner.clone();
@@ -235,14 +236,14 @@ impl AppModel {
             self.quick.panel = Some(panel);
         }
         let Some(panel) = self.quick.panel else {
-            return Err("Quick Terminal panel unavailable".into());
+            return Err(tr!("Quick Terminal panel unavailable").to_string());
         };
         panel
             .update(cx, |view, window, _| view.prepare(window))
             .map_err(|error| error.to_string())??;
         self.state.ensure_quick_terminal();
         if !self.save(cx) {
-            return Err("Could not save Quick Terminal session".into());
+            return Err(tr!("Could not save Quick Terminal session").to_string());
         }
         self.quick.visible = true;
         self.sync_visible(cx);
@@ -479,7 +480,7 @@ impl AppModel {
                 .key_combo()
                 .is_some_and(|quick| quick.conflicts_with(&combo))
         {
-            return Err("Shortcut conflicts with Quick Terminal".into());
+            return Err(tr!("Shortcut conflicts with Quick Terminal").to_string());
         }
         Ok(())
     }

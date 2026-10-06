@@ -17,6 +17,7 @@ use muxy_protocol::{
     ErrorCode, FilesAction, FilesReply, FilesRequest, MAX_UPLOAD_BYTES, ProjectId, ServerPath,
     SessionId,
 };
+use muxy_ui::tr;
 
 use super::AppModel;
 use crate::views::menu::{Command, Item};
@@ -65,13 +66,16 @@ impl RemoteFiles {
     }
 
     fn read_local(&self, path: &Path, name: &str) -> Result<Vec<u8>, String> {
-        let unreadable = |error: io::Error| format!("Could not read {name}: {error}");
+        let unreadable =
+            |error: io::Error| tr!("Could not read %@: %@", name, error.to_string()).to_string();
         let metadata = std::fs::metadata(path).map_err(unreadable)?;
         if metadata.is_dir() {
-            return Err(format!(
-                "{name} is a folder. Only files can be sent to {}.",
-                self.name
-            ));
+            return Err(tr!(
+                "%@ is a folder. Only files can be sent to %@.",
+                name,
+                &self.name
+            )
+            .to_string());
         }
         if metadata.len() > MAX_UPLOAD_BYTES {
             return Err(too_large(name, &self.name));
@@ -86,17 +90,25 @@ impl RemoteFiles {
     fn send(&self, session: SessionId, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
         match self.client.upload(session, name, bytes) {
             Ok(path) => Ok(local_path(&path)),
-            Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported => {
-                Err(format!(
-                    "Muxy on {} can't receive files. Update Muxy there.",
-                    self.name
-                ))
-            }
-            Err(ClientError::Server(error)) => Err(format!(
-                "Could not send {name} to {}: {}",
-                self.name, error.message
-            )),
-            Err(error) => Err(format!("Could not send {name} to {}: {error}", self.name)),
+            Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported => Err(tr!(
+                "Muxy on %@ can't receive files. Update Muxy there.",
+                &self.name
+            )
+            .to_string()),
+            Err(ClientError::Server(error)) => Err(tr!(
+                "Could not send %@ to %@: %@",
+                name,
+                &self.name,
+                &error.message
+            )
+            .to_string()),
+            Err(error) => Err(tr!(
+                "Could not send %@ to %@: %@",
+                name,
+                &self.name,
+                error.to_string()
+            )
+            .to_string()),
         }
     }
 
@@ -171,10 +183,11 @@ impl RemoteFiles {
     /// The file's bytes, up to the files limit.
     pub(crate) fn read(&self, path: &Path) -> Result<Vec<u8>, String> {
         let Some((project, relative)) = self.locate(path) else {
-            return Err(format!(
-                "Muxy can open copies only of files in {}'s projects and Home.",
-                self.name
-            ));
+            return Err(tr!(
+                "Muxy can open copies only of files in %@'s projects and Home.",
+                &self.name
+            )
+            .to_string());
         };
         let request = FilesRequest {
             project,
@@ -182,7 +195,7 @@ impl RemoteFiles {
         };
         match self.client.files(request) {
             Ok(FilesReply::Bytes(file)) => Ok(file.bytes),
-            Ok(_) => Err("The server sent something other than the file.".into()),
+            Ok(_) => Err(tr!("The server sent something other than the file.").to_string()),
             Err(ClientError::Server(error)) => Err(error.message),
             Err(error) => Err(error.to_string()),
         }
@@ -190,7 +203,12 @@ impl RemoteFiles {
 }
 
 fn too_large(name: &str, server: &str) -> String {
-    format!("{name} is larger than 100 MiB, the most Muxy sends to {server}.")
+    tr!(
+        "%@ is larger than 100 MiB, the most Muxy sends to %@.",
+        name,
+        server
+    )
+    .to_string()
 }
 
 fn display_name(path: &Path) -> String {
@@ -314,17 +332,15 @@ impl AppModel {
     ) -> Result<RemoteFiles, String> {
         let name = self.server_label(server);
         if !self.ready(server) || !self.confirmed(server) {
-            return Err(format!("{name} isn't connected."));
+            return Err(tr!("%@ isn't connected.", &name).to_string());
         }
         let Some(client) = self.extensions.client(server) else {
             self.extension_client(server, cx);
-            return Err(format!(
-                "Still connecting to {name}. Try again in a moment."
-            ));
+            return Err(tr!("Still connecting to %@. Try again in a moment.", &name).to_string());
         };
         let home = self
             .remote_home(server)
-            .ok_or_else(|| format!("{name}'s projects haven't loaded yet."))?
+            .ok_or_else(|| tr!("%@'s projects haven't loaded yet.", &name).to_string())?
             .to_path_buf();
         let mut roots: Vec<_> = self
             .state
@@ -496,11 +512,14 @@ impl AppModel {
             .remote_files(server, cx)
             .is_ok_and(|files| files.reaches(&file.path));
         self.remote_links.menu = Some((pane, server, file.path.clone()));
-        let mut copy = Item::action("Open a Copy", Command::OpenRemoteCopy);
+        let mut copy = Item::action(tr!("Open a Copy"), Command::OpenRemoteCopy);
         if !reachable {
             copy = copy.disabled();
         }
-        let items = vec![copy, Item::action("Copy Path", Command::CopyRemotePath)];
+        let items = vec![
+            copy,
+            Item::action(tr!("Copy Path"), Command::CopyRemotePath),
+        ];
         let model = cx.entity().downgrade();
         let window = self.window;
         cx.defer(move |cx| {
@@ -520,7 +539,7 @@ impl AppModel {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                 path.to_string_lossy().into_owned(),
             ));
-            self.show_notice("Copied the path".into(), cx);
+            self.show_notice(tr!("Copied the path").to_string(), cx);
         }
     }
 
@@ -534,7 +553,7 @@ impl AppModel {
         let files = match self.remote_files(server, cx) {
             Ok(files) => files,
             Err(error) => {
-                self.fail(format!("Could not open a copy: {error}"), cx);
+                self.fail(tr!("Could not open a copy: %@", &error).to_string(), cx);
                 return;
             }
         };
@@ -547,7 +566,7 @@ impl AppModel {
         cx.spawn(async move |model, cx| {
             if let Err(error) = opened.await {
                 let _ = model.update(cx, |model, cx| {
-                    model.fail(format!("Could not open a copy: {error}"), cx);
+                    model.fail(tr!("Could not open a copy: %@", &error).to_string(), cx);
                 });
             }
         })

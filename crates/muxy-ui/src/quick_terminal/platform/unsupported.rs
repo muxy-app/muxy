@@ -2,6 +2,7 @@ use crate::quick_terminal::ShortcutRecordingEvent;
 use crate::quick_terminal::shortcut_service::{
     ShortcutBackend, ShortcutBackendFactory, ShortcutState,
 };
+use crate::tr;
 use muxy_core::quick_terminal::QuickTerminalShortcut;
 use std::rc::Rc;
 
@@ -11,7 +12,7 @@ pub struct ShortcutRecorder;
 
 impl ShortcutRecorder {
     pub fn start(_sender: async_channel::Sender<ShortcutRecordingEvent>) -> Result<Self, String> {
-        Err("Quick Terminal shortcut recording is unavailable on this platform".to_owned())
+        Err(tr!("Quick Terminal shortcut recording is unavailable on this platform").to_string())
     }
 }
 

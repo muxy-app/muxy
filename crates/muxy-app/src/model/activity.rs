@@ -4,6 +4,7 @@ use gpui::Context;
 use muxy_app_core::{PaneId, ServerId, TabId};
 use muxy_client::ClientError;
 use muxy_protocol::{ActivitySnapshot, AgentActivity, SessionId};
+use muxy_ui::tr;
 
 use super::{AppModel, Work};
 
@@ -26,6 +27,16 @@ fn notification_id(server: ServerId, id: u64) -> String {
         id.to_string()
     } else {
         format!("{server}:{id}")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn activity_description(kind: muxy_protocol::ActivityKind) -> gpui::SharedString {
+    use muxy_protocol::ActivityKind;
+    match kind {
+        ActivityKind::Attention => tr!("Needs your attention"),
+        ActivityKind::Completed => tr!("Finished working"),
+        ActivityKind::Unrecognized(_) => tr!("Has an update"),
     }
 }
 
@@ -252,7 +263,11 @@ impl AppModel {
                 }
             }
             Err(error) => {
-                self.server_problem(server, format!("Could not read activity: {error}"), cx);
+                self.server_problem(
+                    server,
+                    tr!("Could not read activity: %@", error.to_string()).to_string(),
+                    cx,
+                );
             }
         }
         self.sync_extension_events(cx);
@@ -376,7 +391,10 @@ impl AppModel {
             }
             Err(error) => {
                 activity.ack_failed = true;
-                self.fail(format!("Could not mark activity read: {error}"), cx);
+                self.fail(
+                    tr!("Could not mark activity read: %@", error.to_string()).to_string(),
+                    cx,
+                );
             }
         }
         cx.notify();
@@ -402,7 +420,7 @@ impl AppModel {
                 notifications.deliver(
                     &notification_id(server, event.id),
                     &title,
-                    event.kind.description(),
+                    &activity_description(event.kind),
                 );
             }
         }

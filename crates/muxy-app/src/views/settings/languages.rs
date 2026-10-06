@@ -2,8 +2,10 @@ use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
     Subscription, Task, Window,
 };
+use muxy_core::l10n::searchable;
 use muxy_ui::picker::{Picker, PickerConfig, PickerEvent, PickerItem, PickerRow, PickerStatus};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 use muxy_ui::voice::Language;
 
 pub(crate) enum LanguageEvent {
@@ -36,13 +38,13 @@ impl LanguagePicker {
     ) -> Self {
         let picker = cx.new(|cx| {
             let mut picker = Picker::new(
-                PickerConfig::dropdown("language-browser", "Search languages…"),
+                PickerConfig::dropdown("language-browser", tr!("Search languages…")),
                 theme,
                 metrics,
                 cx,
             );
             picker.set_status(
-                PickerStatus::Loading("Loading on-device languages…".into()),
+                PickerStatus::Loading(tr!("Loading on-device languages…")),
                 cx,
             );
             picker
@@ -97,8 +99,8 @@ impl LanguagePicker {
         };
         let query = query.trim().to_lowercase();
         let mut items = Vec::new();
-        if "system language".contains(&query) {
-            let mut row = PickerRow::new("system-language", "System language");
+        if searchable("System language").contains(&query) {
+            let mut row = PickerRow::new("system-language", tr!("System language"));
             row.current = self.active.is_empty();
             items.push(PickerItem::Row(row));
         }
@@ -112,7 +114,7 @@ impl LanguagePicker {
             }
         }
         let status = if items.is_empty() {
-            PickerStatus::Empty("No matching languages".into())
+            PickerStatus::Empty(tr!("No matching languages"))
         } else {
             PickerStatus::Ready
         };

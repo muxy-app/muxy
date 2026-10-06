@@ -1,6 +1,8 @@
 use gpui::{AnyWindowHandle, AsyncApp, Context};
 use muxy_app_core::{AppState, Project, ProjectId, ProjectStatus, WorkspaceId};
 use muxy_ui::dialog::ConfirmationResponse;
+use muxy_ui::l10n::tr_key;
+use muxy_ui::tr;
 
 use super::menu::{Command, Item, color_items};
 use super::project_editor::Field;
@@ -14,22 +16,24 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
         return removal(project);
     }
     let mut items = vec![
-        Item::action("New Terminal Tab", Command::NewProjectTab(id)),
-        Item::action("Existing Terminals…", Command::ExistingSessions(id)),
-        Item::action("Apply Layout…", Command::ProjectLayouts(id)),
-        Item::action("Rename…", Command::EditProject(id, Field::Name)).separated(),
-        Item::submenu("Icon", icon_items(project)),
+        Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
+        Item::action(tr!("Existing Terminals…"), Command::ExistingSessions(id)),
+        Item::action(tr!("Apply Layout…"), Command::ProjectLayouts(id)),
+        Item::action(tr!("Rename…"), Command::EditProject(id, Field::Name)).separated(),
+        Item::submenu(tr!("Icon"), icon_items(project)),
         Item::submenu(
-            "Color",
+            tr!("Color"),
             color_items(Some(project.color.as_str()), |index| {
                 Command::ProjectColor(id, index)
             }),
         ),
     ];
     if !project.home {
-        items.push(Item::submenu("Workspaces", workspace_items(state, id)));
+        items.push(Item::submenu(tr!("Workspaces"), workspace_items(state, id)));
         if let Some(visible) = worktrees {
-            items.push(Item::submenu("Worktrees", worktree_toggle_items(id, visible)).separated());
+            items.push(
+                Item::submenu(tr!("Worktrees"), worktree_toggle_items(id, visible)).separated(),
+            );
         }
     }
     items.extend(path_items(project));
@@ -39,10 +43,10 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
 
 /// A folder on another computer can't be revealed here, but its path can be copied.
 fn path_items(project: &Project) -> Vec<Item> {
-    let copy = Item::action("Copy Path", Command::CopyPath(project.id));
+    let copy = Item::action(tr!("Copy Path"), Command::CopyPath(project.id));
     if project.server_id.is_local() {
         vec![
-            Item::action("Reveal in Finder", Command::RevealPath(project.id)).separated(),
+            Item::action(tr!("Reveal in Finder"), Command::RevealPath(project.id)).separated(),
             copy,
         ]
     } else {
@@ -55,7 +59,7 @@ fn removal(project: &Project) -> Vec<Item> {
         Vec::new()
     } else {
         vec![Item::action(
-            "Remove Project…",
+            tr!("Remove Project…"),
             Command::RemoveProject(project.id),
         )]
     }
@@ -64,20 +68,23 @@ fn removal(project: &Project) -> Vec<Item> {
 fn icon_items(project: &Project) -> Vec<Item> {
     let id = project.id;
     let mut items = vec![
-        Item::action("Choose Icon…", Command::EditProject(id, Field::Icon)),
-        Item::action("Set Logo…", Command::ProjectLogo(id)),
+        Item::action(tr!("Choose Icon…"), Command::EditProject(id, Field::Icon)),
+        Item::action(tr!("Set Logo…"), Command::ProjectLogo(id)),
     ];
     if project.logo.is_some() {
-        items.push(Item::action("Remove Logo", Command::RemoveProjectLogo(id)));
+        items.push(Item::action(
+            tr!("Remove Logo"),
+            Command::RemoveProjectLogo(id),
+        ));
     }
     items
 }
 
 fn worktree_toggle_items(id: ProjectId, visible: bool) -> Vec<Item> {
     let mut items =
-        vec![Item::action("Show Worktrees", Command::Worktrees(id)).checked_if(visible)];
+        vec![Item::action(tr!("Show Worktrees"), Command::Worktrees(id)).checked_if(visible)];
     if visible {
-        items.push(Item::action("New Worktree…", Command::NewWorktree(id)).separated());
+        items.push(Item::action(tr!("New Worktree…"), Command::NewWorktree(id)).separated());
     }
     items
 }
@@ -94,7 +101,7 @@ pub(crate) fn workspace_items(state: &AppState, project: ProjectId) -> Vec<Item>
             .checked_if(workspace.projects.contains(&project))
         })
         .collect();
-    let create = Item::action("New Workspace…", Command::NewWorkspace(Some(project)));
+    let create = Item::action(tr!("New Workspace…"), Command::NewWorkspace(Some(project)));
     items.push(if items.is_empty() {
         create
     } else {
@@ -110,21 +117,32 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
         return removal(project);
     }
     let mut items = vec![
-        Item::action("New Terminal Tab", Command::NewProjectTab(id)),
-        Item::action("Existing Terminals…", Command::ExistingSessions(id)),
-        Item::action("Apply Layout…", Command::ProjectLayouts(id)),
+        Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
+        Item::action(tr!("Existing Terminals…"), Command::ExistingSessions(id)),
+        Item::action(tr!("Apply Layout…"), Command::ProjectLayouts(id)),
     ];
     if !primary {
         items.push(
-            Item::action("Rename Worktree…", Command::EditProject(id, Field::Name)).separated(),
+            Item::action(
+                tr!("Rename Worktree…"),
+                Command::EditProject(id, Field::Name),
+            )
+            .separated(),
         );
     }
     items.extend(path_items(project));
     if !primary {
         items.push(
-            Item::action("Remove Worktree and Files…", Command::RemoveWorktree(id)).separated(),
+            Item::action(
+                tr!("Remove Worktree and Files…"),
+                Command::RemoveWorktree(id),
+            )
+            .separated(),
         );
-        items.push(Item::action("Remove Project…", Command::RemoveProject(id)));
+        items.push(Item::action(
+            tr!("Remove Project…"),
+            Command::RemoveProject(id),
+        ));
     }
     items
 }
@@ -156,14 +174,15 @@ impl AppModel {
         let Some(record) = self.state.project(project).filter(|project| !project.home) else {
             return;
         };
-        let message = format!(
-            "Remove “{}” from every client? All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded. The folder and its files will stay on disk.",
-            record.name
-        );
+        let message = tr!(
+            "Remove “%@” from every client? All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded. The folder and its files will stay on disk.",
+            &record.name
+        )
+        .to_string();
         self.confirm(
-            "Remove Project?",
+            tr_key!("Remove Project?"),
             message,
-            "Remove",
+            tr_key!("Remove"),
             cx,
             move |model, cx| {
                 model.remove_project_confirmed(project, cx);
@@ -179,14 +198,15 @@ impl AppModel {
         let Some(record) = self.state.workspace(workspace) else {
             return;
         };
-        let message = format!(
-            "Delete “{}”? Its projects will not be removed.",
-            record.name
-        );
+        let message = tr!(
+            "Delete “%@”? Its projects will not be removed.",
+            &record.name
+        )
+        .to_string();
         self.confirm(
-            "Delete Workspace?",
+            tr_key!("Delete Workspace?"),
             message,
-            "Delete",
+            tr_key!("Delete"),
             cx,
             move |model, cx| {
                 model.edit_workspaces(|state| state.delete_workspace(workspace), cx);
@@ -194,6 +214,8 @@ impl AppModel {
         );
     }
 
+    /// `title` and `action` are English keys, shown translated; `message` is
+    /// shown as is.
     pub(crate) fn confirm(
         &mut self,
         title: &'static str,
@@ -216,7 +238,10 @@ impl AppModel {
                     Ok(ConfirmationResponse::Confirmed { .. }) => confirmed(model, cx),
                     Ok(ConfirmationResponse::Cancelled) => {}
                     Err(error) => {
-                        model.fail(format!("Could not show confirmation: {error}"), cx);
+                        model.fail(
+                            tr!("Could not show confirmation: %@", error).to_string(),
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -236,9 +261,16 @@ async fn prompt(
     let (sender, receiver) = async_channel::bounded(1);
     let _dialog = window
         .update(cx, |_, window, _| {
-            muxy_ui::dialog::confirm(window, title, &message, action, None, move |response| {
-                let _ = sender.try_send(response);
-            })
+            muxy_ui::dialog::confirm(
+                window,
+                &muxy_ui::l10n::translate(title),
+                &message,
+                &muxy_ui::l10n::translate(action),
+                None,
+                move |response| {
+                    let _ = sender.try_send(response);
+                },
+            )
         })
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())?;

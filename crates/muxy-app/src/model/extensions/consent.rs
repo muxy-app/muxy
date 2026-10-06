@@ -3,9 +3,11 @@
 
 use std::time::{Duration, SystemTime};
 
-use gpui::{Context, Window};
+use gpui::{Context, SharedString, Window};
 use muxy_app_core::extensions::{AuditEntry, Choice, Consent, Gate, Request, Rule, timestamp};
 use muxy_ui::dialog::ConsentResponse;
+use muxy_ui::l10n::{tr_key, translate};
+use muxy_ui::tr;
 use serde_json::{Value, json};
 
 use super::{AppModel, Call};
@@ -14,6 +16,9 @@ const PROMPT_TIMEOUT: Duration = Duration::from_secs(60);
 const PROMPTS_PER_EXTENSION: usize = 5;
 const MAX_TEXT: usize = 2000;
 const MAX_WAITING: usize = 64;
+/// Buttons a dialog gets when the extension names none. They are shown in the
+/// app language but reported to the extension in English.
+const DEFAULT_BUTTONS: [&str; 2] = [tr_key!("OK"), tr_key!("Cancel")];
 
 pub(super) enum Waiting {
     Consent {
@@ -101,6 +106,38 @@ fn choice(response: ConsentResponse) -> Choice {
 
 fn clamp(text: &str) -> String {
     text.chars().take(MAX_TEXT).collect()
+}
+
+/// The prompt's opening sentence, whole per gate so a translation can place
+/// the extension's name anywhere.
+fn purpose(gate: Gate, owner: &str) -> SharedString {
+    match gate {
+        Gate::Exec => tr!("%@ wants to run a shell command.", owner),
+        Gate::PanesSend => tr!("%@ wants to type into a terminal.", owner),
+        Gate::PanesSendKeys => tr!("%@ wants to press keys in a terminal.", owner),
+        Gate::PanesReadScreen => tr!("%@ wants to read terminal output.", owner),
+        Gate::TabsOpenForeign => tr!("%@ wants to open another extension's tab.", owner),
+        Gate::TabsRunCommand => tr!("%@ wants to open a terminal that runs a command.", owner),
+        Gate::GitWrite => tr!("%@ wants to modify the git repository.", owner),
+        Gate::FilesWrite => tr!("%@ wants to modify workspace files.", owner),
+        Gate::HttpFetch => tr!("%@ wants to make a network request.", owner),
+        Gate::ProjectsDelete => tr!("%@ wants to delete a project.", owner),
+    }
+}
+
+fn block_label(gate: Gate) -> SharedString {
+    match gate {
+        Gate::Exec => tr!("Block all shell commands from this extension"),
+        Gate::PanesSend => tr!("Block all terminal input from this extension"),
+        Gate::PanesSendKeys => tr!("Block all terminal keystrokes from this extension"),
+        Gate::PanesReadScreen => tr!("Block all terminal output reads from this extension"),
+        Gate::TabsOpenForeign => tr!("Block all foreign tab opens from this extension"),
+        Gate::TabsRunCommand => tr!("Block all auto-run terminal commands from this extension"),
+        Gate::GitWrite => tr!("Block all git changes from this extension"),
+        Gate::FilesWrite => tr!("Block all file changes from this extension"),
+        Gate::HttpFetch => tr!("Block all network requests from this extension"),
+        Gate::ProjectsDelete => tr!("Block all project deletions from this extension"),
+    }
 }
 
 impl AppModel {
@@ -270,24 +307,26 @@ impl AppModel {
             }
             Consent::Ask => (),
         }
+        let details = request
+            .details
+            .iter()
+            .map(|line| clamp(line))
+            .collect::<Vec<_>>()
+            .join("\n");
         let message = format!(
-            "{} {}.\n\n{}\n\n\u{201c}Remember\u{201d} saves the rule: {}",
-            call.owner,
-            request.gate.purpose(),
-            request
-                .details
-                .iter()
-                .map(|line| clamp(line))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            request.scope()
+            "{}\n\n{details}\n\n{}",
+            purpose(request.gate, &call.owner),
+            tr!(
+                "\u{201c}Remember\u{201d} saves the rule: %@",
+                request.scope()
+            )
         );
         let (sender, receiver) = async_channel::bounded(1);
         let sheet = muxy_ui::dialog::consent(
             window,
-            &format!("Allow {}?", call.owner),
+            &tr!("Allow %@?", &call.owner),
             &message,
-            &format!("Block all {} from this extension", request.gate.kind()),
+            &block_label(request.gate),
             move |response| {
                 let _ = sender.try_send(response);
             },
@@ -524,9 +563,9 @@ fn dialog_options(verb: &str, args: &Value) -> Result<muxy_ui::dialog::DialogOpt
             if title.is_empty() && args["message"].as_str().unwrap_or("").is_empty() {
                 return Err("alert requires title or message".into());
             }
-            let mut buttons = vec!["OK".to_owned()];
+            let mut buttons = vec![tr!("OK").into()];
             if !message.is_empty() {
-                buttons.push("Copy".into());
+                buttons.push(tr!("Copy").into());
             }
             (buttons, None, None, None)
         }
@@ -534,8 +573,8 @@ fn dialog_options(verb: &str, args: &Value) -> Result<muxy_ui::dialog::DialogOpt
             if title.is_empty() && message.is_empty() {
                 return Err("prompt requires title or message".into());
             }
-            let confirm = text("confirm").unwrap_or_else(|| "OK".into());
-            let cancel = text("cancel").unwrap_or_else(|| "Cancel".into());
+            let confirm = text("confirm").unwrap_or_else(|| tr!("OK").into());
+            let cancel = text("cancel").unwrap_or_else(|| tr!("Cancel").into());
             (
                 vec![confirm, cancel.clone()],
                 None,
@@ -550,19 +589,15 @@ fn dialog_options(verb: &str, args: &Value) -> Result<muxy_ui::dialog::DialogOpt
             if title.is_empty() && message.is_empty() {
                 return Err("dialog requires title or message".into());
             }
-            let mut buttons: Vec<String> = args["buttons"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(clamp)
-                .filter(|label| !label.is_empty())
-                .collect();
-            if buttons.is_empty() {
-                buttons = vec!["OK".into(), "Cancel".into()];
+            let mut buttons = extension_buttons(args);
+            let defaults = buttons.is_empty();
+            if defaults {
+                buttons = Vec::from(DEFAULT_BUTTONS.map(|label| translate(label).into()));
             }
             buttons.truncate(3);
-            let default = text("default");
+            let label =
+                |field: &str| text(field).map(|label| if defaults { shown(label) } else { label });
+            let default = label("default");
             if let Some(index) = default
                 .as_ref()
                 .and_then(|label| buttons.iter().position(|button| button == label))
@@ -570,7 +605,7 @@ fn dialog_options(verb: &str, args: &Value) -> Result<muxy_ui::dialog::DialogOpt
                 let label = buttons.remove(index);
                 buttons.insert(0, label);
             }
-            (buttons, None, text("cancel"), None)
+            (buttons, None, label("cancel"), None)
         }
     };
     Ok(muxy_ui::dialog::DialogOptions {
@@ -588,21 +623,60 @@ fn dialog_options(verb: &str, args: &Value) -> Result<muxy_ui::dialog::DialogOpt
     })
 }
 
+fn extension_buttons(args: &Value) -> Vec<String> {
+    args["buttons"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(clamp)
+        .filter(|label| !label.is_empty())
+        .collect()
+}
+
+/// A default button's English label, as the dialog shows it.
+fn shown(label: String) -> String {
+    DEFAULT_BUTTONS
+        .into_iter()
+        .find(|key| *key == label)
+        .map_or(label, |key| translate(key).into())
+}
+
+/// A default button's shown label, as the extension expects it.
+fn reported(label: String) -> String {
+    DEFAULT_BUTTONS
+        .into_iter()
+        .find(|key| translate(key).as_ref() == label.as_str())
+        .map_or(label, str::to_owned)
+}
+
 fn dialog_result(verb: &str, args: &Value, value: Option<String>, cx: &mut gpui::App) -> Value {
     match verb {
         "dialog.alert" => {
-            if value.as_deref() == Some("Copy") {
+            if value.as_deref() == Some(tr!("Copy").as_ref()) {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                     args["message"].as_str().unwrap_or("").to_owned(),
                 ));
             }
             Value::Null
         }
-        "dialog.confirm" if value.is_some() && value.as_deref() == args["cancel"].as_str() => {
-            Value::Null
-        }
         "dialog.prompt" => json!(value.map(|text| clamp(&text))),
-        _ => json!(value),
+        "dialog.pickFolder" => json!(value),
+        _ => {
+            let value = if extension_buttons(args).is_empty() {
+                value.map(reported)
+            } else {
+                value
+            };
+            if verb == "dialog.confirm"
+                && value.is_some()
+                && value.as_deref() == args["cancel"].as_str()
+            {
+                Value::Null
+            } else {
+                json!(value)
+            }
+        }
     }
 }
 

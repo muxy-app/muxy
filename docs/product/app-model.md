@@ -98,6 +98,10 @@ and stop.
   `~/.config/ghostty/themes` work too.
 - Every keyboard shortcut can be changed. Normal keystrokes in a terminal always
   go to the terminal.
+- **Settings → Appearance → App language** picks the interface language. English
+  is built in; other languages come from language-pack extensions, the same ones
+  made for `main`. Untranslated text stays English, and while the chosen pack is
+  unavailable Muxy shows English.
 - Server settings, such as the shell and history size, apply to the selected
   server. Stopping or restarting it asks first.
 - **Settings → Mobile** turns phone access on, shows a pairing code, and lists

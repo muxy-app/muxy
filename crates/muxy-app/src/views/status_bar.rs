@@ -7,6 +7,7 @@ use muxy_app_core::extensions::Side;
 use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph, Tooltip};
 use muxy_ui::icon::Icon;
 use muxy_ui::popover::PopoverAnchor;
+use muxy_ui::tr;
 
 use super::git::Kind;
 use super::menu::{Command, Item};
@@ -86,7 +87,7 @@ fn update_control(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyEle
     } else {
         theme.accent
     };
-    let label = details.map_or_else(|| "Updates".into(), |details| details.label);
+    let label = details.map_or_else(|| tr!("Updates").to_string(), |details| details.label);
     let anchor = model.update_anchor();
     Some(
         div()
@@ -167,9 +168,12 @@ fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
-                        let mut items = vec![Item::action("Copy Path", Command::CopyPath(id))];
+                        let mut items = vec![Item::action(tr!("Copy Path"), Command::CopyPath(id))];
                         if local {
-                            items.push(Item::action("Reveal in Finder", Command::RevealPath(id)));
+                            items.push(Item::action(
+                                tr!("Reveal in Finder"),
+                                Command::RevealPath(id),
+                            ));
                         }
                         model.open_menu(items, event.position, window, cx);
                     }),
@@ -211,14 +215,14 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
         && !model.ai.running(project);
     let branch = summary.branch.clone().unwrap_or_else(|| {
         summary.head.as_ref().map_or_else(
-            || "Unborn HEAD".into(),
-            |h| format!("Detached {}", &h[..h.len().min(8)]),
+            || tr!("Unborn HEAD").to_string(),
+            |h| tr!("Detached %@", &h[..h.len().min(8)]).to_string(),
         )
     });
     let changes = match summary.changed {
-        0 => "Clean".into(),
-        1 => "1 Change".into(),
-        count => format!("{count} Changes"),
+        0 => tr!("Clean").to_string(),
+        1 => tr!("1 Change").to_string(),
+        count => tr!("%lld Changes", count).to_string(),
     };
     let color = if summary.conflicted > 0 {
         model.theme.danger
@@ -372,7 +376,7 @@ fn ai_action_chip(
                         div()
                             .text_size(m.font_footnote())
                             .font_weight(FontWeight::MEDIUM)
-                            .child(label),
+                            .child(muxy_ui::l10n::translate(label)),
                     ),
             )
             .child(
@@ -425,11 +429,11 @@ fn pull_request_chip(
         model.theme.fg_muted
     };
     let checks_label = if checks.failing > 0 {
-        Some(format!("{} failing", checks.failing))
+        Some(tr!("%lld failing", checks.failing))
     } else if checks.pending > 0 {
-        Some(format!("{} running", checks.pending))
+        Some(tr!("%lld running", checks.pending))
     } else if checks.passing > 0 {
-        Some(format!("{} passed", checks.passing))
+        Some(tr!("%lld passed", checks.passing))
     } else {
         None
     };
@@ -467,7 +471,7 @@ fn pull_request_chip(
             div()
                 .text_size(model.metrics.font_footnote())
                 .font_weight(FontWeight::MEDIUM)
-                .child(format!("PR #{number}")),
+                .child(tr!("PR #%lld", number)),
         )
         .children(checks_label.map(|label| {
             div()
@@ -490,7 +494,7 @@ fn pull_request_unavailable(model: &AppModel, cx: &mut Context<AppModel>) -> Any
         .cursor_pointer()
         .hover(|style| style.text_color(model.theme.fg))
         .tooltip(tooltip(
-            "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.".into(),
+            tr!("Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.").to_string(),
             model,
         ))
         .button_interaction(

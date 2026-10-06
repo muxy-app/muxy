@@ -10,6 +10,7 @@ use muxy_protocol::{
     GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectId, ReplyBody, ServerPath,
     WorktreeAction, WorktreeIntent,
 };
+use muxy_ui::tr;
 
 use super::{AppModel, Work};
 
@@ -202,9 +203,11 @@ impl AppModel {
         match settings.save_worktrees(&self.path.with_file_name("settings.toml")) {
             Ok(()) => self.settings.worktrees = settings.worktrees,
             Err(error) => self.fail(
-                format!(
-                    "Worktree created, but its location preference could not be saved: {error}"
-                ),
+                tr!(
+                    "Worktree created, but its location preference could not be saved: %@",
+                    error.to_string()
+                )
+                .to_string(),
                 cx,
             ),
         }

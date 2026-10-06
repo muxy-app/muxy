@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::path::{Component, Path};
 
 use muxy_app_core::backup::Result;
+use muxy_ui::tr;
 use serde_json::Value;
 
 use super::{Files, MAX_BYTES, MAX_FILE_BYTES, ROOTS};
@@ -28,21 +29,38 @@ fn allowed(name: &str, roots: &[&str]) -> bool {
         })
 }
 
+/// What a 1.x backup may contain.
+const LEGACY_ROOTS: &[&str] = &[
+    "settings.json",
+    "projects.json",
+    "workspaces.json",
+    "project-groups.json",
+    "keybindings.json",
+    "command-shortcuts.json",
+    "ghostty.conf",
+    "worktrees",
+    "logos",
+];
+
+/// A backup error in the app language.
+fn failure(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    message.into()
+}
+
 pub(super) fn read_file(path: &Path) -> Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
-        return Err(format!(
-            "{} must be a regular file no larger than 16 MiB",
-            path.display()
-        )
-        .into());
+        return Err(failure(&tr!(
+            "%@ must be a regular file no larger than 16 MiB",
+            path.display().to_string()
+        )));
     }
     let mut bytes = Vec::new();
     File::open(path)?
         .take(MAX_FILE_BYTES + 1)
         .read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
-        return Err("Configuration file exceeds 16 MiB".into());
+        return Err(failure(&tr!("Configuration file exceeds 16 MiB")));
     }
     Ok(bytes)
 }
@@ -62,7 +80,7 @@ pub(super) fn collect(directory: &Path, roots: &[&str]) -> Result<Files> {
     while let Some(path) = pending.pop() {
         count += 1;
         if count > MAX_FILES {
-            return Err("Configuration contains too many files".into());
+            return Err(failure(&tr!("Configuration contains too many files")));
         }
         let metadata = fs::symlink_metadata(&path)?;
         if metadata.is_dir() {
@@ -74,15 +92,15 @@ pub(super) fn collect(directory: &Path, roots: &[&str]) -> Result<Files> {
         let name = path
             .strip_prefix(directory)?
             .to_str()
-            .ok_or("Configuration filenames must be UTF-8")?
+            .ok_or_else(|| failure(&tr!("Configuration filenames must be UTF-8")))?
             .to_owned();
         if !allowed(&name, roots) {
-            return Err("Invalid configuration path".into());
+            return Err(failure(&tr!("Invalid configuration path")));
         }
         let bytes = read_file(&path)?;
         size += bytes.len() as u64;
         if size > MAX_BYTES {
-            return Err("Configuration exceeds 64 MiB".into());
+            return Err(failure(&tr!("Configuration exceeds 64 MiB")));
         }
         files.insert(name, bytes);
     }
@@ -111,7 +129,7 @@ pub(super) fn write(destination: &Path, files: &Files, complete: bool) -> Result
     for (name, bytes) in files {
         size += bytes.len() as u64;
         if !allowed(name, ROOTS) || bytes.len() as u64 > MAX_FILE_BYTES || size > MAX_BYTES {
-            return Err("Invalid or oversized backup content".into());
+            return Err(failure(&tr!("Invalid or oversized backup content")));
         }
         archive.start_file(name, options)?;
         archive.write_all(bytes)?;
@@ -125,16 +143,16 @@ pub(super) fn write(destination: &Path, files: &Files, complete: bool) -> Result
 pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
     let file = File::open(source)?;
     if file.metadata()?.len() > MAX_BYTES {
-        return Err("Backup exceeds 64 MiB".into());
+        return Err(failure(&tr!("Backup exceeds 64 MiB")));
     }
     let mut archive = zip::ZipArchive::new(file)?;
     if archive.len() > MAX_FILES {
-        return Err("Backup contains too many entries".into());
+        return Err(failure(&tr!("Backup contains too many entries")));
     }
     let manifest: Value = {
         let file = archive.by_name("manifest.json")?;
         if file.size() > 1024 * 1024 {
-            return Err("Backup manifest is too large".into());
+            return Err(failure(&tr!("Backup manifest is too large")));
         }
         let mut bytes = Vec::new();
         file.take(1024 * 1024 + 1).read_to_end(&mut bytes)?;
@@ -143,24 +161,14 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
     let legacy = match manifest["schemaVersion"].as_u64() {
         Some(1) => true,
         Some(2) if manifest["format"].as_str() == Some("muxy.configuration") => false,
-        _ => return Err("This backup format is not supported by this version of Muxy".into()),
+        _ => {
+            return Err(failure(&tr!(
+                "This backup format is not supported by this version of Muxy"
+            )));
+        }
     };
     let names: Vec<String> = serde_json::from_value(manifest["files"].clone())?;
-    let roots = if legacy {
-        &[
-            "settings.json",
-            "projects.json",
-            "workspaces.json",
-            "project-groups.json",
-            "keybindings.json",
-            "command-shortcuts.json",
-            "ghostty.conf",
-            "worktrees",
-            "logos",
-        ][..]
-    } else {
-        ROOTS
-    };
+    let roots = if legacy { LEGACY_ROOTS } else { ROOTS };
     let mut files = Files::new();
     let mut seen = HashSet::new();
     let mut size = 0;
@@ -173,7 +181,9 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
                 .unix_mode()
                 .is_some_and(|mode| mode & 0o170_000 == 0o120_000)
         {
-            return Err("Backup contains an unsafe or duplicate entry".into());
+            return Err(failure(&tr!(
+                "Backup contains an unsafe or duplicate entry"
+            )));
         }
         if entry.is_dir() || name == "manifest.json" || name.starts_with("__MACOSX/") {
             continue;
@@ -189,10 +199,10 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
             if legacy {
                 continue;
             }
-            return Err(format!("Unexpected backup entry: {name}").into());
+            return Err(failure(&tr!("Unexpected backup entry: %@", &name)));
         }
         if entry.size() > MAX_FILE_BYTES || size + entry.size() > MAX_BYTES {
-            return Err("Backup contents exceed the size limit".into());
+            return Err(failure(&tr!("Backup contents exceed the size limit")));
         }
         let mut bytes = Vec::new();
         (&mut entry)
@@ -200,13 +210,13 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
             .read_to_end(&mut bytes)?;
         size += bytes.len() as u64;
         if bytes.len() as u64 > MAX_FILE_BYTES || size > MAX_BYTES {
-            return Err("Backup contents exceed the size limit".into());
+            return Err(failure(&tr!("Backup contents exceed the size limit")));
         }
         files.insert(name, bytes);
     }
     for name in names {
         if !safe_name(&name) {
-            return Err("Invalid manifest path".into());
+            return Err(failure(&tr!("Invalid manifest path")));
         }
         if allowed(&name, roots)
             && !seen.contains(&name)
@@ -214,7 +224,7 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
                 .keys()
                 .any(|file| file.starts_with(&format!("{name}/")))
         {
-            return Err(format!("Backup is missing {name}").into());
+            return Err(failure(&tr!("Backup is missing %@", &name)));
         }
     }
     Ok((
@@ -228,7 +238,7 @@ pub(super) fn materialize(directory: &Path, files: &Files) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     for (name, bytes) in files {
         if !allowed(name, ROOTS) {
-            return Err("Invalid restore path".into());
+            return Err(failure(&tr!("Invalid restore path")));
         }
         let path = directory.join(name);
         if let Some(parent) = path.parent() {

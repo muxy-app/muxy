@@ -4,6 +4,7 @@ use gpui::{
 };
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
+use muxy_ui::tr;
 
 use crate::model::AppModel;
 
@@ -90,7 +91,7 @@ pub(crate) fn navigation(
                         theme.fg,
                     )
                     .tooltip(
-                        "Toggle Sidebar",
+                        tr!("Toggle Sidebar"),
                         theme.raised(),
                         theme.fg,
                         theme.border,

@@ -1,10 +1,11 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
+    SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
 };
 use muxy_ui::components::ButtonInteraction;
 use muxy_ui::controls::{self, Choice, Style};
+use muxy_ui::tr;
 
 use super::{AppModel, Form, Repository};
 
@@ -42,20 +43,20 @@ pub(crate) fn render(
                 .text_size(m.font_headline())
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(if form.worktree {
-                    "New Worktree"
+                    tr!("New Worktree")
                 } else {
-                    "New Branch"
+                    tr!("New Branch")
                 }),
         );
     if form.worktree {
         view = view.child(field(
-            "Name",
+            &tr!("Name"),
             controls::text_field(style, "git-name", &form.name, None),
             model,
         ));
         let mut choices = [
-            Choice::new("new", "Create new branch"),
-            Choice::new("existing", "Use existing branch"),
+            Choice::new("new", tr!("Create new branch")),
+            Choice::new("existing", tr!("Use existing branch")),
         ];
         for choice in &mut choices {
             choice.enabled = !busy;
@@ -65,7 +66,7 @@ pub(crate) fn render(
             "worktree-branch-mode",
             &choices,
             if form.existing { "existing" } else { "new" },
-            cx.listener(|model, value: &gpui::SharedString, _, cx| {
+            cx.listener(|model, value: &SharedString, _, cx| {
                 model.set_worktree_branch_mode(value.as_ref() == "existing", cx);
             }),
         ));
@@ -74,7 +75,7 @@ pub(crate) fn render(
         view = view.child(branch_picker(form, false, model, cx));
     } else {
         view = view.child(field(
-            "Branch name",
+            &tr!("Branch name"),
             controls::text_field(style, "git-branch", &form.branch, None),
             model,
         ));
@@ -104,7 +105,7 @@ pub(crate) fn render(
             div()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_muted)
-                .child("Connect to the server to create."),
+                .child(tr!("Connect to the server to create.")),
         );
     }
     view.child(
@@ -117,7 +118,7 @@ pub(crate) fn render(
                 controls::button(
                     style,
                     "git-cancel",
-                    "Cancel",
+                    &tr!("Cancel"),
                     !busy,
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )
@@ -147,7 +148,11 @@ pub(crate) fn render(
                                 cx.listener(|model, _, _, cx| model.submit_git_form(cx)),
                             )
                     })
-                    .child(if busy { "Creating…" } else { "Create" }),
+                    .child(if busy {
+                        tr!("Creating…")
+                    } else {
+                        tr!("Create")
+                    }),
             ),
     )
     .into_any_element()
@@ -187,12 +192,12 @@ fn branch_picker(
     } else {
         form.existing_branch.read(cx).text()
     };
-    let label = if loading {
-        "Loading branches…"
+    let placeholder = if loading {
+        Some(tr!("Loading branches…"))
     } else if value.is_empty() {
-        "Choose a branch…"
+        Some(tr!("Choose a branch…"))
     } else {
-        value
+        None
     };
     let control = controls::picker_trigger(
         Style {
@@ -200,12 +205,17 @@ fn branch_picker(
             metrics: &m,
         },
         if base { "git-base" } else { "git-existing" },
-        label,
+        placeholder.as_ref().map_or(value, SharedString::as_str),
         None,
         form.chooser.is_some(),
         cx.listener(move |model, _, _, cx| model.choose_worktree_branch(base, cx)),
     );
-    let mut field = field(if base { "Base branch" } else { "Branch" }, control, model).relative();
+    let label = if base {
+        tr!("Base branch")
+    } else {
+        tr!("Branch")
+    };
+    let mut field = field(&label, control, model).relative();
     if let Some(chooser) = &form.chooser {
         field = field.child(
             deferred(

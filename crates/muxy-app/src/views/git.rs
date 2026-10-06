@@ -14,11 +14,13 @@ use gpui::{AppContext, Context, Entity, Focusable, Window};
 use muxy_protocol::{
     GitAction, OperationId, ProjectId, ServerPath, WorktreeAction, WorktreeIntent,
 };
+use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::picker::{
     Picker, PickerAction, PickerConfig, PickerEvent, PickerItem, PickerRow, PickerSelectionStyle,
     PickerStatus,
 };
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
+use muxy_ui::tr;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
@@ -32,10 +34,10 @@ impl Kind {
             Self::Changes => GitAction::Changes,
         }
     }
-    fn title(self) -> &'static str {
+    fn search_placeholder(self) -> &'static str {
         match self {
-            Self::Branches => "Branches",
-            Self::Changes => "Changes",
+            Self::Branches => tr_key!("Search branches…"),
+            Self::Changes => tr_key!("Search changes…"),
         }
     }
 }
@@ -92,10 +94,7 @@ impl AppModel {
             Picker::new(
                 PickerConfig {
                     width: Some(width),
-                    ..PickerConfig::popover(
-                        "git-picker",
-                        format!("Search {}…", kind.title().to_lowercase()),
-                    )
+                    ..PickerConfig::popover("git-picker", translate(kind.search_placeholder()))
                 },
                 self.theme.clone(),
                 self.metrics,
@@ -145,10 +144,10 @@ impl AppModel {
                     for branch in &repository.branches {
                         let mut row = PickerRow::new(branch.name.clone(), branch.name.clone());
                         row.current = branch.current;
-                        row.trailing = branch.checked_out.then(|| "Checked out".into());
+                        row.trailing = branch.checked_out.then(|| tr!("Checked out"));
                         if !branch.checked_out {
                             row.actions.push(
-                                PickerAction::new("delete", "Delete")
+                                PickerAction::new("delete", tr!("Delete"))
                                     .destructive(true)
                                     .disabled(busy),
                             );
@@ -165,35 +164,32 @@ impl AppModel {
                         );
                         row.selected = picker.selected.contains(&file.path);
                         row.selection_style = PickerSelectionStyle::Highlight;
-                        row.detail = Some(
-                            if file.conflicted() {
-                                "Conflict"
-                            } else if file.untracked() {
-                                "Untracked"
-                            } else if file.staged() && file.unstaged() {
-                                "Staged and unstaged"
-                            } else if file.staged() {
-                                "Staged"
-                            } else {
-                                "Unstaged"
-                            }
-                            .into(),
-                        );
+                        row.detail = Some(if file.conflicted() {
+                            tr!("Conflict")
+                        } else if file.untracked() {
+                            tr!("Untracked")
+                        } else if file.staged() && file.unstaged() {
+                            tr!("Staged and unstaged")
+                        } else if file.staged() {
+                            tr!("Staged")
+                        } else {
+                            tr!("Unstaged")
+                        });
                         row.trailing = file
                             .added
                             .zip(file.removed)
                             .map(|(a, d)| format!("+{a} −{d}").into());
                         if file.unstaged() || file.untracked() {
                             row.actions
-                                .push(PickerAction::new("stage", "Stage").disabled(busy));
+                                .push(PickerAction::new("stage", tr!("Stage")).disabled(busy));
                         }
                         if file.staged() {
                             row.actions
-                                .push(PickerAction::new("unstage", "Unstage").disabled(busy));
+                                .push(PickerAction::new("unstage", tr!("Unstage")).disabled(busy));
                         }
                         if !file.conflicted() && (file.unstaged() || file.untracked()) {
                             row.actions.push(
-                                PickerAction::new("discard", "Discard")
+                                PickerAction::new("discard", tr!("Discard"))
                                     .destructive(true)
                                     .disabled(busy),
                             );
@@ -205,10 +201,10 @@ impl AppModel {
             }
         }
         let items = picker_items(items, &query, picker.kind == Kind::Changes);
-        let mut actions = vec![PickerAction::new("refresh", "Refresh").disabled(busy)];
+        let mut actions = vec![PickerAction::new("refresh", tr!("Refresh")).disabled(busy)];
         match picker.kind {
             Kind::Branches => {
-                actions.push(PickerAction::new("create", "New Branch…").disabled(busy));
+                actions.push(PickerAction::new("create", tr!("New Branch…")).disabled(busy));
             }
             Kind::Changes => {
                 let selected = !picker.selected.is_empty();
@@ -216,9 +212,9 @@ impl AppModel {
                     PickerAction::new(
                         "stage",
                         if selected {
-                            "Stage Selected"
+                            tr!("Stage Selected")
                         } else {
-                            "Stage All"
+                            tr!("Stage All")
                         },
                     )
                     .disabled(busy),
@@ -227,9 +223,9 @@ impl AppModel {
                     PickerAction::new(
                         "unstage",
                         if selected {
-                            "Unstage Selected"
+                            tr!("Unstage Selected")
                         } else {
-                            "Unstage All"
+                            tr!("Unstage All")
                         },
                     )
                     .disabled(busy),
@@ -237,15 +233,15 @@ impl AppModel {
             }
         }
         let status = if !self.session_listing_ready() {
-            PickerStatus::Error("Reconnect to use Git".into())
+            PickerStatus::Error(tr!("Reconnect to use Git"))
         } else if let Some(error) = repository.and_then(|r| r.load_error(&picker.kind.action())) {
             PickerStatus::Error(error.clone().into())
         } else if repository.is_none_or(|r| !r.has_loaded(&picker.kind.action()))
             && items.is_empty()
         {
-            PickerStatus::Loading("Loading…".into())
+            PickerStatus::Loading(tr!("Loading…"))
         } else if items.is_empty() {
-            PickerStatus::Empty("No matches".into())
+            PickerStatus::Empty(tr!("No matches"))
         } else {
             PickerStatus::Ready
         };
@@ -304,8 +300,8 @@ impl AppModel {
             }
         };
         match &operation {
-            GitAction::DeleteBranch(branch) => self.confirm_git_action(project, operation.clone(), format!("Permanently delete branch “{branch}”? Unmerged commits may become unreachable."), cx),
-            GitAction::Discard(paths) => self.confirm_git_action(project, operation.clone(), format!("Discard changes to “{}”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)), cx),
+            GitAction::DeleteBranch(branch) => self.confirm_git_action(project, operation.clone(), tr!("Permanently delete branch “%@”? Unmerged commits may become unreachable.", branch).into(), cx),
+            GitAction::Discard(paths) => self.confirm_git_action(project, operation.clone(), tr!("Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)).into(), cx),
             _ => self.git_request(project, operation, cx),
         }
     }
@@ -371,10 +367,13 @@ impl AppModel {
             let dialog = window.update(cx, |_, window, _| {
                 muxy_ui::dialog::confirm(
                     window,
-                    "Confirm Git Operation",
+                    &tr!("Confirm Git Operation"),
                     &message,
-                    "Confirm",
-                    has_hooks.then_some("Run the teardown commands shown above"),
+                    &tr!("Confirm"),
+                    has_hooks
+                        .then(|| tr!("Run the teardown commands shown above"))
+                        .as_ref()
+                        .map(gpui::SharedString::as_str),
                     move |answer| {
                         let _ = send.try_send(answer);
                     },
@@ -550,7 +549,7 @@ impl AppModel {
             Picker::new(
                 PickerConfig {
                     width: Some(450.0),
-                    ..PickerConfig::popover("worktree-branch", "Search branches…")
+                    ..PickerConfig::popover("worktree-branch", tr!("Search branches…"))
                 },
                 self.theme.clone(),
                 self.metrics,
@@ -684,17 +683,17 @@ impl AppModel {
             Ok(std::path::PathBuf::new())
         };
         let error = if branch.is_empty() {
-            Some("Enter a branch name.")
+            Some(tr!("Enter a branch name.").into())
         } else if form.worktree && form.name.read(cx).text().trim().is_empty() {
-            Some("Enter a worktree name.")
+            Some(tr!("Enter a worktree name.").into())
         } else if let Err(error) = &directory {
-            Some(error.as_str())
+            Some(error.clone())
         } else {
             None
         };
         if let Some(error) = error {
             if let Some(Overlay::GitForm(form)) = &mut self.overlay {
-                form.error = Some(error.into());
+                form.error = Some(error);
             }
             cx.notify();
             return;

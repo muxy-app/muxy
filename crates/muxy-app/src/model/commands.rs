@@ -1,6 +1,7 @@
 use gpui::Context;
 use muxy_app_core::settings::KeyChord;
 use muxy_ui::command_palette::{Command, Registry};
+use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, ProjectStatus, Quitting};
 use crate::views::command_palette::Handler;
@@ -36,7 +37,14 @@ impl AppModel {
                 command.shortcut_id() != id
                     && self.settings.keymap.binding(&command.shortcut_id()) == Some(chord)
             })
-            .map(|command| format!("{chord} is also bound to command: {}", command.name))
+            .map(|command| {
+                tr!(
+                    "%@ is also bound to command: %@",
+                    chord.to_string(),
+                    &command.name
+                )
+                .to_string()
+            })
     }
 
     fn can_run_custom_command(&self) -> bool {

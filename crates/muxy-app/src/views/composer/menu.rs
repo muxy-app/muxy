@@ -2,6 +2,7 @@ use super::Composer;
 use gpui::Context;
 use muxy_app_core::settings::ComposerPresentation;
 use muxy_ui::native_menu::Item;
+use muxy_ui::tr;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Command {
@@ -22,42 +23,42 @@ impl Composer {
             items.push((
                 Item::new(
                     if self.voice_snapshot.phase == muxy_ui::voice::Phase::Paused {
-                        "Resume Dictation"
+                        tr!("Resume Dictation")
                     } else {
-                        "Pause Dictation"
+                        tr!("Pause Dictation")
                     },
                 ),
                 Command::Pause,
             ));
-            items.push((Item::new("Cancel Dictation"), Command::CancelVoice));
+            items.push((Item::new(tr!("Cancel Dictation")), Command::CancelVoice));
         }
         let mut broadcast = Item::new(if self.settings.broadcast {
-            "Send to Active Pane"
+            tr!("Send to Active Pane")
         } else {
-            "Send to All Split Panes"
+            tr!("Send to All Split Panes")
         });
         broadcast.separator = !items.is_empty();
         items.push((broadcast, Command::Broadcast));
-        let mut insert = Item::new("Send Without Enter");
+        let mut insert = Item::new(tr!("Send Without Enter"));
         insert.enabled = !self.recording() && !self.sending;
         items.push((insert, Command::Insert));
-        let mut clear_after = Item::new("Clear After Sending");
+        let mut clear_after = Item::new(tr!("Clear After Sending"));
         clear_after.separator = true;
         clear_after.checked = self.settings.clear_after_sending;
         items.push((clear_after, Command::ClearAfter));
-        let mut clear_close = Item::new("Clear on Close");
+        let mut clear_close = Item::new(tr!("Clear on Close"));
         clear_close.checked = self.settings.clear_on_close;
         items.push((clear_close, Command::ClearClose));
         let floating = self.settings.presentation == ComposerPresentation::Floating;
         let mut presentation = Item::new(if floating {
-            "Use Composer Panel"
+            tr!("Use Composer Panel")
         } else {
-            "Use Floating Composer"
+            tr!("Use Floating Composer")
         });
         presentation.separator = true;
         items.push((presentation, Command::Presentation));
         if floating {
-            items.push((Item::new("Reset Composer Size"), Command::ResetSize));
+            items.push((Item::new(tr!("Reset Composer Size")), Command::ResetSize));
         }
         items
     }

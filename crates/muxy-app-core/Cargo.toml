@@ -25,6 +25,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 rustix = { version = "1.1.4", features = ["fs"] }
 regex = "1"
 qrcodegen = "1.8"
+roxmltree = "0.20"
+icu_plurals = "2.3"
+icu_locale_core = "2.3"
+# Plural rules live in the shared app language, which other threads read.
+icu_provider = { version = "2.3", features = ["sync"] }
 
 [dev-dependencies]
 tempfile = "3"

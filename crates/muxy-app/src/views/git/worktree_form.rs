@@ -8,6 +8,7 @@ use muxy_protocol::{
 };
 use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::text_input::TextInput;
+use muxy_ui::tr;
 
 use super::{AppModel, Form, Overlay, form::field};
 
@@ -45,16 +46,16 @@ impl AppModel {
         let location = form.location(cx);
         if form.location_mode != "default" && location.is_default() {
             return Err(if form.location_mode == "template" {
-                "Path template is required."
+                tr!("Path template is required.")
             } else {
-                "Folder is required."
+                tr!("Folder is required.")
             }
             .into());
         }
         let project = self
             .state
             .project(form.project)
-            .ok_or("Project is unavailable")?;
+            .ok_or_else(|| tr!("Project is unavailable").to_string())?;
         self.settings
             .worktrees
             .directory(
@@ -122,20 +123,27 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let mut message = if expected.dirty {
-            "Remove worktree and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted."
-        } else { "Remove worktree and delete its files? Local processes running from this worktree will stop." }.to_owned();
+            tr!("Remove worktree and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted.")
+        } else {
+            tr!("Remove worktree and delete its files? Local processes running from this worktree will stop.")
+        }
+        .to_string();
         let hooks = match hooks {
             Ok(hooks) => {
                 if !hooks.is_empty() {
-                    message.push_str("\n\nOptional teardown commands (review before enabling):\n");
+                    let _ = write!(
+                        message,
+                        "\n\n{}\n",
+                        tr!("Optional teardown commands (review before enabling):")
+                    );
                     for hook in &hooks {
                         let _ = write!(
                             message,
                             "\n[{}] {}",
                             if hook.project {
-                                "Project"
+                                tr!("Project")
                             } else {
-                                "Per-machine"
+                                tr!("Per-machine")
                             },
                             hook.command
                         );
@@ -146,7 +154,11 @@ impl AppModel {
             Err(error) => {
                 let _ = write!(
                     message,
-                    "\n\nTeardown hooks could not be loaded: {error}\nContinuing will remove without hooks."
+                    "\n\n{}",
+                    tr!(
+                        "Teardown hooks could not be loaded: %@\nContinuing will remove without hooks.",
+                        error
+                    )
                 );
                 None
             }
@@ -169,7 +181,7 @@ impl AppModel {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Choose Folder".into()),
+            prompt: Some(tr!("Choose Folder")),
         });
         cx.spawn(async move |model, cx| {
             let result = result.await;
@@ -213,9 +225,9 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
                 style,
                 "worktree-location",
                 &[
-                    Choice::new("default", "Default"),
-                    Choice::new("template", "Template"),
-                    Choice::new("folder", "Folder"),
+                    Choice::new("default", tr!("Default")),
+                    Choice::new("template", tr!("Template")),
+                    Choice::new("folder", tr!("Folder")),
                 ],
                 form.location_mode,
                 cx.listener(|model, value: &gpui::SharedString, _, cx| {
@@ -251,7 +263,7 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
                     content.child(controls::button(
                         style,
                         "worktree-choose-folder",
-                        "Choose Folder…",
+                        &tr!("Choose Folder…"),
                         true,
                         cx.listener(|model, _, _, cx| model.choose_worktree_folder(cx)),
                     ))
@@ -260,9 +272,9 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
         _ => {
             let default = &model.settings.worktrees.default_location;
             let description = if !default.path_template.is_empty() {
-                format!("Global template: {}", default.path_template)
+                tr!("Global template: %@", &default.path_template)
             } else if !default.parent_path.is_empty() {
-                format!("Global folder: {}", default.parent_path)
+                tr!("Global folder: %@", &default.parent_path)
             } else {
                 DEFAULT_WORKTREE_FOLDER.into()
             };
@@ -277,9 +289,22 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
         Ok(path) => (path.to_string_lossy().into_owned(), model.theme.fg_muted),
         Err(error) => (error, model.theme.danger),
     };
-    content = content.child(div().text_size(model.metrics.font_caption()).text_color(color).child(preview))
-        .child(div().text_size(model.metrics.font_caption()).text_color(model.theme.fg_muted).child("Templates must include {branch}. Relative paths start from the project folder."));
-    field("Location", content.into_any_element(), model).into_any_element()
+    content = content
+        .child(
+            div()
+                .text_size(model.metrics.font_caption())
+                .text_color(color)
+                .child(preview),
+        )
+        .child(
+            div()
+                .text_size(model.metrics.font_caption())
+                .text_color(model.theme.fg_muted)
+                .child(tr!(
+                    "Templates must include {branch}. Relative paths start from the project folder."
+                )),
+        );
+    field(&tr!("Location"), content.into_any_element(), model).into_any_element()
 }
 
 pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -293,23 +318,24 @@ pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -
         .gap(model.metrics.spacing3())
         .text_size(model.metrics.font_caption());
     if let Some(error) = &form.hooks_error {
-        content = content.child(div().text_color(model.theme.danger).child(format!(
-            "Setup hooks unavailable: {error}. You can create without hooks."
+        content = content.child(div().text_color(model.theme.danger).child(tr!(
+            "Setup hooks unavailable: %@. You can create without hooks.",
+            error
         )));
     } else if let Some(hooks) = &form.hooks {
         if hooks.is_empty() {
-            content = content.child("Optional setup commands: add setup to .muxy/worktree.json in the project or $XDG_CONFIG_HOME/muxy/worktree.json (defaults to ~/.config/muxy/worktree.json).");
+            content = content.child(tr!("Optional setup commands: add setup to .muxy/worktree.json in the project or $XDG_CONFIG_HOME/muxy/worktree.json (defaults to ~/.config/muxy/worktree.json)."));
         } else {
-            content = content.child(
-                "Commands run in the new worktree. Review project commands before enabling them.",
-            );
+            content = content.child(tr!(
+                "Commands run in the new worktree. Review project commands before enabling them."
+            ));
             for hook in hooks {
                 content = content.child(format!(
                     "[{}] {}",
                     if hook.project {
-                        "Project"
+                        tr!("Project")
                     } else {
-                        "Per-machine"
+                        tr!("Per-machine")
                     },
                     hook.command
                 ));
@@ -329,11 +355,11 @@ pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -
                             cx.notify();
                         }),
                     ))
-                    .child("Run these commands after creating the worktree"),
+                    .child(tr!("Run these commands after creating the worktree")),
             );
         }
     } else {
-        content = content.child("Loading setup commands…");
+        content = content.child(tr!("Loading setup commands…"));
     }
-    field("Setup commands", content.into_any_element(), model).into_any_element()
+    field(&tr!("Setup commands"), content.into_any_element(), model).into_any_element()
 }

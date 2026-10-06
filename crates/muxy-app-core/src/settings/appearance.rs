@@ -61,6 +61,8 @@ pub struct Appearance {
     pub sidebar_project_order: ProjectOrder,
     /// The extension whose sidebar replaces the built-in one; empty for built-in.
     pub extension_sidebar: String,
+    /// The app language as `<extension>:<localization>`; empty for English.
+    pub language: String,
 }
 
 impl Default for Appearance {
@@ -85,6 +87,7 @@ impl Default for Appearance {
             sidebar_focus: false,
             sidebar_project_order: ProjectOrder::default(),
             extension_sidebar: String::new(),
+            language: String::new(),
         }
     }
 }

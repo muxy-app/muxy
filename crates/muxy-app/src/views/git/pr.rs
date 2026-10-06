@@ -1,12 +1,14 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ClickEvent, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Styled, Window, div, px, relative,
+    ParentElement, SharedString, Styled, Window, div, px, relative,
 };
 use muxy_protocol::{GitAction, GitMergeMethod, GitPullRequest, GitPullRequestAction, ProjectId};
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
 use muxy_ui::controls::Style;
+use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::views::overlays::Overlay;
@@ -27,11 +29,11 @@ fn can_merge(pr: &GitPullRequest) -> bool {
         )
 }
 
-fn merge_action_label(method: GitMergeMethod) -> &'static str {
+fn merge_action_label(method: GitMergeMethod) -> SharedString {
     match method {
-        GitMergeMethod::Merge => "Merge Commit",
-        GitMergeMethod::Squash => "Squash and Merge",
-        GitMergeMethod::Rebase => "Rebase and Merge",
+        GitMergeMethod::Merge => tr!("Merge Commit"),
+        GitMergeMethod::Squash => tr!("Squash and Merge"),
+        GitMergeMethod::Rebase => tr!("Rebase and Merge"),
     }
 }
 
@@ -144,34 +146,37 @@ impl AppModel {
         }
         let (title, message, label) = match &action {
             GitPullRequestAction::Merge { method, .. } if can_merge(pr) => (
-                "Merge pull request?",
-                format!(
-                    "Apply {} to pull request #{number} ({}) at its reviewed commit {}? Afterwards Muxy switches this repository to {} and fast-forwards it, unless another worktree has it checked out.",
-                    merge_action_label(*method),
-                    pr.title,
+                tr!("Merge pull request?"),
+                tr!(
+                    "Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy switches this repository to %@ and fast-forwards it, unless another worktree has it checked out.",
+                    &merge_action_label(*method),
+                    number,
+                    &pr.title,
                     &pr.head_oid[..pr.head_oid.len().min(7)],
-                    pr.base_branch
+                    &pr.base_branch
                 ),
                 merge_action_label(*method),
             ),
             GitPullRequestAction::Close { .. } if pr.state == "OPEN" => (
-                "Close pull request?",
-                format!(
-                    "Close pull request #{number} ({}) without merging?",
-                    pr.title
+                tr!("Close pull request?"),
+                tr!(
+                    "Close pull request #%lld (%@) without merging?",
+                    number,
+                    &pr.title
                 ),
-                "Close",
+                tr!("Close"),
             ),
             GitPullRequestAction::UpdateBranch { .. }
                 if pr.state == "OPEN" && pr.merge_state == "BEHIND" && !pr.cross_repository =>
             {
                 (
-                    "Update pull request branch?",
-                    format!(
-                        "Merge {} into {} and push the updated branch?",
-                        pr.base_branch, pr.head_branch
+                    tr!("Update pull request branch?"),
+                    tr!(
+                        "Merge %@ into %@ and push the updated branch?",
+                        &pr.base_branch,
+                        &pr.head_branch
                     ),
-                    "Update",
+                    tr!("Update"),
                 )
             }
             _ => return,
@@ -182,7 +187,7 @@ impl AppModel {
         self.close_prompt = Some(cx.spawn(async move |this, cx| {
             let (send, receive) = async_channel::bounded(1);
             let dialog = window.update(cx, |_, window, _| {
-                muxy_ui::dialog::confirm(window, title, &message, label, None, move |answer| {
+                muxy_ui::dialog::confirm(window, &title, &message, &label, None, move |answer| {
                     let _ = send.try_send(answer);
                 })
             });
@@ -209,8 +214,8 @@ impl AppModel {
                     });
                 if model.git.interaction != context || !fresh {
                     model.fail_detail(
-                        "Pull request changed".into(),
-                        "It changed after you confirmed. Refresh and try again.",
+                        tr!("Pull request changed").into(),
+                        &tr!("It changed after you confirmed. Refresh and try again."),
                         cx,
                     );
                     return;
@@ -296,9 +301,17 @@ fn action_button(
 }
 
 const MERGE_METHODS: [(GitMergeMethod, &str, &str); 3] = [
-    (GitMergeMethod::Squash, "pr-method-squash", "Squash"),
-    (GitMergeMethod::Merge, "pr-method-merge", "Merge"),
-    (GitMergeMethod::Rebase, "pr-method-rebase", "Rebase"),
+    (
+        GitMergeMethod::Squash,
+        "pr-method-squash",
+        tr_key!("Squash"),
+    ),
+    (GitMergeMethod::Merge, "pr-method-merge", tr_key!("Merge")),
+    (
+        GitMergeMethod::Rebase,
+        "pr-method-rebase",
+        tr_key!("Rebase"),
+    ),
 ];
 
 fn merge_selector(
@@ -357,26 +370,26 @@ fn merge_selector(
                             model.set_pull_request_merge_method(project, method, cx);
                         }))
                 })
-                .child(label),
+                .child(translate(label)),
         );
     }
     selector.into_any_element()
 }
 
-fn merge_status(pr: &GitPullRequest, theme: &Theme) -> Option<(&'static str, Hsla)> {
+fn merge_status(pr: &GitPullRequest, theme: &Theme) -> Option<(SharedString, Hsla)> {
     if pr.draft {
-        return Some(("Draft", theme.fg_muted));
+        return Some((tr!("Draft"), theme.fg_muted));
     }
     match pr.merge_state.as_str() {
-        "DIRTY" => Some(("Conflicts", theme.danger)),
-        "BEHIND" => Some(("Behind base", theme.danger)),
-        "BLOCKED" => Some(("Blocked", theme.danger)),
-        "DRAFT" => Some(("Draft", theme.fg_muted)),
-        "UNSTABLE" if pr.checks.failing > 0 => Some(("Checks failing", theme.warning)),
-        "UNSTABLE" if pr.checks.pending > 0 => Some(("Checks running", theme.warning)),
-        "CLEAN" | "HAS_HOOKS" | "UNSTABLE" => Some(("Ready", theme.diff_add)),
-        _ if pr.mergeable == Some(true) => Some(("Ready", theme.diff_add)),
-        _ if pr.mergeable == Some(false) => Some(("Conflicts", theme.danger)),
+        "DIRTY" => Some((tr!("Conflicts"), theme.danger)),
+        "BEHIND" => Some((tr!("Behind base"), theme.danger)),
+        "BLOCKED" => Some((tr!("Blocked"), theme.danger)),
+        "DRAFT" => Some((tr!("Draft"), theme.fg_muted)),
+        "UNSTABLE" if pr.checks.failing > 0 => Some((tr!("Checks failing"), theme.warning)),
+        "UNSTABLE" if pr.checks.pending > 0 => Some((tr!("Checks running"), theme.warning)),
+        "CLEAN" | "HAS_HOOKS" | "UNSTABLE" => Some((tr!("Ready"), theme.diff_add)),
+        _ if pr.mergeable == Some(true) => Some((tr!("Ready"), theme.diff_add)),
+        _ if pr.mergeable == Some(false) => Some((tr!("Conflicts"), theme.danger)),
         _ => None,
     }
 }
@@ -384,11 +397,14 @@ fn merge_status(pr: &GitPullRequest, theme: &Theme) -> Option<(&'static str, Hsl
 fn checks_status(pr: &GitPullRequest, theme: &Theme) -> Option<(String, Hsla)> {
     let checks = &pr.checks;
     if checks.failing > 0 {
-        Some((format!("{} failing", checks.failing), theme.danger))
+        Some((tr!("%lld failing", checks.failing).into(), theme.danger))
     } else if checks.pending > 0 {
-        Some((format!("{} running", checks.pending), theme.warning))
+        Some((tr!("%lld running", checks.pending).into(), theme.warning))
     } else if checks.passing > 0 {
-        Some((format!("{0}/{0} passing", checks.passing), theme.diff_add))
+        Some((
+            tr!("%lld/%lld passing", checks.passing, checks.passing).into(),
+            theme.diff_add,
+        ))
     } else {
         None
     }
@@ -403,12 +419,14 @@ fn header(
 ) -> AnyElement {
     let Style { theme, metrics: m } = style;
     let (symbol, state, state_color) = match (pr.state.as_str(), pr.draft) {
-        ("OPEN", true) => ("pencil.circle", "Draft · Open", theme.fg_muted),
-        ("OPEN", false) if pr.checks.failing > 0 => ("xmark.octagon.fill", "Open", theme.danger),
-        ("OPEN", false) if pr.checks.pending > 0 => ("clock", "Open", theme.warning),
-        ("OPEN", false) => ("arrow.triangle.pull", "Open", theme.diff_add),
-        ("MERGED", _) => ("checkmark.circle.fill", "Merged", theme.accent),
-        _ => ("xmark.circle", "Closed", theme.danger),
+        ("OPEN", true) => ("pencil.circle", tr!("Draft · Open"), theme.fg_muted),
+        ("OPEN", false) if pr.checks.failing > 0 => {
+            ("xmark.octagon.fill", tr!("Open"), theme.danger)
+        }
+        ("OPEN", false) if pr.checks.pending > 0 => ("clock", tr!("Open"), theme.warning),
+        ("OPEN", false) => ("arrow.triangle.pull", tr!("Open"), theme.diff_add),
+        ("MERGED", _) => ("checkmark.circle.fill", tr!("Merged"), theme.accent),
+        _ => ("xmark.circle", tr!("Closed"), theme.danger),
     };
     div()
         .flex()
@@ -427,7 +445,7 @@ fn header(
                     div()
                         .truncate()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(format!("Pull Request #{}", pr.number)),
+                        .child(tr!("Pull Request #%lld", pr.number)),
                 )
                 .child(
                     div()
@@ -473,22 +491,22 @@ fn details(pr: &GitPullRequest, has_local_changes: bool, style: Style<'_>) -> An
         .child(detail_row(
             *m,
             theme,
-            "Base",
+            &tr!("Base"),
             pr.base_branch.clone(),
             theme.fg,
         ));
     if let Some((label, color)) = merge_status(pr, theme) {
-        details = details.child(detail_row(*m, theme, "Merge", label.into(), color));
+        details = details.child(detail_row(*m, theme, &tr!("Merge"), label.into(), color));
     }
     if let Some((label, color)) = checks_status(pr, theme) {
-        details = details.child(detail_row(*m, theme, "Checks", label, color));
+        details = details.child(detail_row(*m, theme, &tr!("Checks"), label, color));
     }
     if has_local_changes {
         details = details.child(detail_row(
             *m,
             theme,
-            "Local",
-            "Uncommitted changes".into(),
+            &tr!("Local"),
+            tr!("Uncommitted changes").into(),
             theme.warning,
         ));
     }
@@ -514,7 +532,7 @@ pub(crate) fn render_pr(
     let Some(pr) = pr else {
         return muxy_ui::popover::surface(theme, m)
             .w(m.scaled(280.0))
-            .child(muxy_ui::popover::body(m).child("Pull request changed. Reopen its status."))
+            .child(muxy_ui::popover::body(m).child(tr!("Pull request changed. Reopen its status.")))
             .into_any_element();
     };
     let project = popover.project;
@@ -537,7 +555,7 @@ pub(crate) fn render_pr(
             style,
             "pr-open",
             "arrow.up.right.square",
-            "Open on GitHub".into(),
+            tr!("Open on GitHub").into(),
             ActionTone::Regular,
             true,
             cx.listener(move |model, _, _, cx| model.open_pull_request_url(project, cx)),
@@ -552,7 +570,7 @@ pub(crate) fn render_pr(
                             style,
                             "pr-update-branch",
                             "arrow.down.circle",
-                            format!("Update from {}", pr.base_branch),
+                            tr!("Update from %@", &pr.base_branch).into(),
                             ActionTone::Regular,
                             !busy && !has_local_changes,
                             cx.listener(move |model, _, _, cx| {
@@ -593,7 +611,7 @@ pub(crate) fn render_pr(
                     style,
                     "pr-close",
                     "xmark.circle",
-                    "Close PR".into(),
+                    tr!("Close PR").into(),
                     ActionTone::Danger,
                     !busy,
                     cx.listener(move |model, _, _, cx| {

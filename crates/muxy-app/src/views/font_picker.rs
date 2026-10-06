@@ -4,6 +4,7 @@ use gpui::{
 };
 use muxy_ui::picker::{Picker, PickerConfig, PickerEvent, PickerItem, PickerRow, PickerStatus};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 
 pub(crate) enum FontEvent {
     Selected(String),
@@ -38,7 +39,7 @@ impl FontPicker {
         names.dedup();
         let picker = cx.new(|cx| {
             Picker::new(
-                PickerConfig::dropdown("font-browser", "Search fonts…"),
+                PickerConfig::dropdown("font-browser", tr!("Search fonts…")),
                 theme,
                 metrics,
                 cx,
@@ -88,7 +89,7 @@ impl FontPicker {
             })
             .collect();
         let status = if items.is_empty() {
-            PickerStatus::Empty("No fonts found".into())
+            PickerStatus::Empty(tr!("No fonts found"))
         } else {
             PickerStatus::Ready
         };

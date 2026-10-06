@@ -2,7 +2,7 @@ use super::{Category, Change, SettingsEvent, SettingsView};
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, Keystroke, ParentElement, Styled, div, px,
 };
-use muxy_ui::controls;
+use muxy_ui::{controls, tr};
 
 pub(super) fn matching(pane: &SettingsView) -> Vec<usize> {
     pane.shortcut_names
@@ -35,12 +35,12 @@ pub(super) fn extension_row(
     let shortcut = &pane.snapshot.extension_shortcuts[index];
     let id = shortcut.id.clone();
     let label = if pane.recording.as_deref() == Some(id.as_str()) {
-        "Press a shortcut…"
+        tr!("Press a shortcut…")
     } else {
-        shortcut
-            .chord
-            .as_ref()
-            .map_or("Not assigned", muxy_app_core::settings::KeyChord::as_str)
+        shortcut.chord.as_ref().map_or_else(
+            || tr!("Not assigned"),
+            |chord| chord.as_str().to_owned().into(),
+        )
     };
     let focus = &pane.results.extension_focus[&id];
     let (record, reset, unassign) = (id.clone(), id.clone(), id.clone());
@@ -52,7 +52,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &id,
-                label,
+                &label,
                 true,
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(&record, window, cx);
@@ -64,7 +64,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                "Reset",
+                &tr!("Reset"),
                 true,
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
@@ -77,7 +77,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                "Unassign",
+                &tr!("Unassign"),
                 true,
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
@@ -86,7 +86,13 @@ pub(super) fn extension_row(
             )
             .track_focus(&focus[2]),
         );
-    pane.row(&id, &shortcut.title, control.into_any_element())
+    pane.text_row(
+        &id,
+        &shortcut.title,
+        None,
+        control.into_any_element(),
+        pane.compact,
+    )
 }
 
 pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsView>) -> AnyElement {
@@ -94,9 +100,12 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
     let recording = pane.recording.as_deref() == Some(id);
     let chord = pane.snapshot.settings.keymap.binding(id);
     let label = if recording {
-        "Press a shortcut…"
+        tr!("Press a shortcut…")
     } else {
-        chord.map_or("Not assigned", muxy_app_core::settings::KeyChord::as_str)
+        chord.map_or_else(
+            || tr!("Not assigned"),
+            |chord| chord.as_str().to_owned().into(),
+        )
     };
     let control = div()
         .flex()
@@ -106,7 +115,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 id,
-                label,
+                &label,
                 true,
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(id, window, cx);
@@ -118,7 +127,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                "Reset",
+                &tr!("Reset"),
                 true,
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;

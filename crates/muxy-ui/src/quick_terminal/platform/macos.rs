@@ -8,6 +8,7 @@ use crate::quick_terminal::shortcut_service::{
 };
 use crate::quick_terminal::view::{AccessibilityNode, AccessibilityRole};
 use crate::quick_terminal::{ShortcutCapture, ShortcutRecordingEvent};
+use crate::tr;
 use block2::RcBlock;
 use gpui::{Window, px, size};
 use muxy_core::quick_terminal::QuickTerminalShortcut;
@@ -186,14 +187,14 @@ impl ShortcutRecorder {
             }
             let Some(key) = resolve_key(virtual_key_code) else {
                 let _ = sender.try_send(ShortcutRecordingEvent::Rejected(
-                    "Unsupported physical key".to_owned(),
+                    tr!("Unsupported physical key").to_string(),
                 ));
                 return std::ptr::null_mut();
             };
             let combo = KeyCombo::new(&key, modifiers);
             if !combo.is_supported_shortcut() {
                 let _ = sender.try_send(ShortcutRecordingEvent::Rejected(
-                    "Use Command, Control, or Option with a supported key".to_owned(),
+                    tr!("Use Command, Control, or Option with a supported key").to_string(),
                 ));
                 return std::ptr::null_mut();
             }
@@ -206,7 +207,7 @@ impl ShortcutRecorder {
         let monitor = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
         }
-        .ok_or_else(|| "failed to install Quick Terminal shortcut recorder".to_owned())?;
+        .ok_or_else(|| tr!("failed to install Quick Terminal shortcut recorder").to_string())?;
         Ok(Self {
             monitor: Some(monitor),
         })
@@ -424,9 +425,9 @@ impl PanelAdapter {
             main_window,
             main_screen,
         )
-        .ok_or_else(|| "no display is available for Quick Terminal".to_owned())?;
+        .ok_or_else(|| tr!("no display is available for Quick Terminal").to_string())?;
         if selected_index >= screens.len() {
-            return Err("selected Quick Terminal display disappeared".to_owned());
+            return Err(tr!("selected Quick Terminal display disappeared").to_string());
         }
         let selected = screens.objectAtIndex(selected_index);
         let insets = selected.safeAreaInsets();
@@ -841,7 +842,7 @@ impl ShortcutBackend for CarbonHotKeyBackend {
             )
         };
         if status != 0 {
-            return Err(format!("failed to install Carbon event handler ({status})"));
+            return Err(tr!("failed to install Carbon event handler (%lld)", status).to_string());
         }
         let hot_key_id = EventHotKeyId {
             signature: CARBON_SIGNATURE,
@@ -860,7 +861,7 @@ impl ShortcutBackend for CarbonHotKeyBackend {
         };
         if status != 0 {
             unsafe { remove_event_handler(event_handler) };
-            return Err(format!("failed to register Carbon hotkey ({status})"));
+            return Err(tr!("failed to register Carbon hotkey (%lld)", status).to_string());
         }
         self.event_handler = event_handler;
         self.hot_key = hot_key;

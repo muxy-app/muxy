@@ -3,6 +3,7 @@ use gpui::{
 };
 use muxy_ui::components::IconButton;
 use muxy_ui::icon::Icon;
+use muxy_ui::tr;
 
 use crate::model::AppModel;
 
@@ -27,7 +28,7 @@ pub(super) fn button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
                 theme.fg,
             )
             .tooltip(
-                "Apply Layout",
+                tr!("Apply Layout"),
                 theme.raised(),
                 theme.fg,
                 theme.border,

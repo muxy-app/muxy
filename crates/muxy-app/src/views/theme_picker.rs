@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use gpui::Context;
 use muxy_ui::command_palette::{Command, Registry};
+use muxy_ui::tr;
 
 use super::command_palette::Handler;
 use super::settings::Change;
@@ -13,7 +14,7 @@ pub(crate) fn command(model: &AppModel, dark: bool, cx: &Context<AppModel>) -> C
     let mut entries = model.themes.entries.clone();
     entries.sort_by_cached_key(|entry| (entry.name.to_lowercase(), entry.name.clone()));
     let model = cx.weak_entity();
-    Command::list(PAGE_ID, "Change Theme…", move |cx| {
+    Command::list(PAGE_ID, tr!("Change Theme…"), move |cx| {
         let mut themes = Registry::default();
         let Some(model) = model.upgrade() else {
             return themes;
@@ -38,4 +39,5 @@ pub(crate) fn command(model: &AppModel, dark: bool, cx: &Context<AppModel>) -> C
         }
         themes
     })
+    .keywords("Change Theme")
 }

@@ -22,6 +22,7 @@ use objc2_foundation::{
 use super::parent_window;
 use crate::controls::Style;
 use crate::theme::Metrics;
+use crate::tr;
 
 pub const ADDITIONAL_PROMPT_LIMIT: usize = 2000;
 
@@ -227,13 +228,14 @@ impl PromptTarget {
             width,
             main_thread,
         );
+        let (add, cancel) = (tr!("Add Prompt"), tr!("Cancel"));
         let buttons = [
-            button("Add Prompt", "", sel!(addPrompt:), *metrics, main_thread),
-            button("Cancel", "\u{1b}", sel!(cancel:), *metrics, main_thread),
+            button(&add, "", sel!(addPrompt:), *metrics, main_thread),
+            button(&cancel, "\u{1b}", sel!(cancel:), *metrics, main_thread),
             button(confirm_label, "\r", sel!(confirm:), *metrics, main_thread),
         ];
         let label = label(
-            "Additional Prompt",
+            &tr!("Additional Prompt"),
             &NSFont::systemFontOfSize_weight(points(metrics.font_footnote()), unsafe {
                 NSFontWeightMedium
             }),
@@ -244,7 +246,7 @@ impl PromptTarget {
         let count = prompt_count(style, main_thread);
         let count_size = count.frame().size;
         let helper = self::label(
-            "Appended after the configured prompt for this action only.",
+            &tr!("Appended after the configured prompt for this action only."),
             &NSFont::systemFontOfSize(points(metrics.font_caption())),
             theme.fg_muted,
             width,
@@ -589,10 +591,10 @@ fn prompt_input(
     input.setEditable(true);
     input.setSelectable(true);
     input.setAllowsUndo(true);
-    input.setAccessibilityLabel(Some(&NSString::from_str("Additional prompt")));
-    input.setToolTip(Some(&NSString::from_str(
-        "Option-Return inserts a new line.",
-    )));
+    input.setAccessibilityLabel(Some(&NSString::from_str(&tr!("Additional prompt"))));
+    input.setToolTip(Some(&NSString::from_str(&tr!(
+        "Option-Return inserts a new line."
+    ))));
     input.setTextColor(Some(&color(theme.fg)));
     input.setDrawsBackground(false);
     input.setFont(Some(&NSFont::systemFontOfSize(points(

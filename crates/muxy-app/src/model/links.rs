@@ -5,6 +5,8 @@ use muxy_app_core::{
     opener::{OpenContext, OpenRequest, Target},
 };
 
+use muxy_ui::tr;
+
 use super::AppModel;
 use crate::views::{
     menu::{Command, Item},
@@ -63,7 +65,7 @@ impl AppModel {
                 data,
             };
             if let Err(error) = self.open_webview_tab(descriptor, opener.singleton, cx) {
-                self.fail(format!("Could not open file: {error}"), cx);
+                self.fail(tr!("Could not open file: %@", &error).to_string(), cx);
             }
             return;
         }
@@ -82,12 +84,18 @@ impl AppModel {
                 .spawn(async move |model, cx| {
                     if let Ok(Err(error)) = result.recv().await {
                         let _ = model.update(cx, |model, cx| {
-                            model.fail(format!("Could not open link: {error}"), cx);
+                            model.fail(
+                                tr!("Could not open link: %@", error.to_string()).to_string(),
+                                cx,
+                            );
                         });
                     }
                 })
                 .detach(),
-            Err(error) => self.fail(format!("Could not open link: {error}"), cx),
+            Err(error) => self.fail(
+                tr!("Could not open link: %@", error.to_string()).to_string(),
+                cx,
+            ),
         }
     }
 
@@ -143,41 +151,42 @@ impl AppModel {
             return;
         };
         let pane = pane.view.read(cx);
-        let mut copy = Item::action("Copy", Command::TerminalCopy(id));
+        let mut copy = Item::action(tr!("Copy"), Command::TerminalCopy(id));
         if pane.selection.is_none() {
             copy = copy.disabled();
         }
-        let mut paste = Item::action("Paste", Command::TerminalPaste(id));
+        let mut paste = Item::action(tr!("Paste"), Command::TerminalPaste(id));
         if pane.state != PaneState::Live {
             paste = paste.disabled();
         }
-        let mut all = Item::action("Select All", Command::TerminalSelectAll(id));
+        let mut all = Item::action(tr!("Select All"), Command::TerminalSelectAll(id));
         if pane.displayed_grid().is_none() {
             all = all.disabled();
         }
         let mut output = Item::action(
-            "Select Command Output",
+            tr!("Select Command Output"),
             Command::TerminalSelectCommandOutput(id),
         );
         if pane.state != PaneState::Live {
             output = output.disabled();
         }
-        let mut detach = Item::action("Detach Terminal", Command::DetachTerminal(id));
+        let mut detach = Item::action(tr!("Detach Terminal"), Command::DetachTerminal(id));
         if !self.can_detach_terminal(id) {
             detach = detach.disabled();
         }
         let mut split_right =
-            Item::action("Split Right", Command::SplitPane(id, Direction::Right)).separated();
-        let mut split_down = Item::action("Split Down", Command::SplitPane(id, Direction::Down));
+            Item::action(tr!("Split Right"), Command::SplitPane(id, Direction::Right)).separated();
+        let mut split_down =
+            Item::action(tr!("Split Down"), Command::SplitPane(id, Direction::Down));
         let mut zoom = Item::action(
             if tab.zoomed == Some(id) {
-                "Restore Pane"
+                tr!("Restore Pane")
             } else {
-                "Maximize Pane"
+                tr!("Maximize Pane")
             },
             Command::ToggleZoomPane(id),
         );
-        let mut close = Item::action("Close Pane", Command::ClosePane(id));
+        let mut close = Item::action(tr!("Close Pane"), Command::ClosePane(id));
         if project.status() == ProjectStatus::Missing {
             split_right = split_right.disabled();
             split_down = split_down.disabled();

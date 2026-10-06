@@ -13,6 +13,8 @@ use muxy_protocol::{
     SearchSource, SessionId, SessionInfo, Size, TerminalColors,
 };
 
+use muxy_ui::tr;
+
 use crate::server::{ServerUpdate, UpdateMode, prepare_update};
 use crate::views::terminal::find::SearchRequest;
 use crate::views::terminal::scroll::HistoryRequest;
@@ -98,9 +100,10 @@ impl Target {
     fn socket(&self) -> Result<&std::path::Path, ClientError> {
         match self {
             Self::Local(socket) => Ok(socket),
-            Self::Ssh(_) => {
-                Err(std::io::Error::other("Updates apply only to this computer's server").into())
-            }
+            Self::Ssh(_) => Err(std::io::Error::other(
+                tr!("Updates apply only to this computer's server").to_string(),
+            )
+            .into()),
         }
     }
 }
@@ -220,10 +223,12 @@ fn run(
         Some(path) => std::fs::File::open(path)
             .map(std::process::Stdio::from)
             .map_err(|error| {
-                format!(
-                    "Cannot read the development build at {}: {error}. Run scripts/build-linux-dev.sh in this checkout, then retry installation.",
-                    path.display()
+                tr!(
+                    "Cannot read the development build at %@: %@. Run scripts/build-linux-dev.sh in this checkout, then retry installation.",
+                    path.display().to_string(),
+                    error.to_string()
                 )
+                .to_string()
             })?,
         None => std::process::Stdio::null(),
     };
@@ -243,7 +248,14 @@ fn run(
     };
     Err(last(&output.stderr)
         .or_else(|| last(&output.stdout))
-        .unwrap_or_else(|| format!("{host} exited with {}", output.status)))
+        .unwrap_or_else(|| {
+            tr!(
+                "%@ exited with %@",
+                host.to_string(),
+                output.status.to_string()
+            )
+            .to_string()
+        }))
 }
 
 /// Connects once, starting the server if needed, as a worker would. It

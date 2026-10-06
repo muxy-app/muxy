@@ -4,7 +4,8 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, list, px,
 };
 use muxy_ui::components::ButtonInteraction;
-use muxy_ui::{controls, navigation};
+use muxy_ui::l10n::{tr_key, translate};
+use muxy_ui::{controls, navigation, tr};
 
 use super::{Category, SettingsEvent, SettingsView};
 use crate::views::titlebar;
@@ -12,17 +13,39 @@ use crate::views::titlebar;
 impl Category {
     fn sections(self) -> &'static [&'static str] {
         match self {
-            Self::QuickTerminal => &["General", "Shortcut", "Size", "Appearance"],
-            Self::Composer => &["Behavior", "Text", "Voice"],
-            Self::Ai => &["Commit and Push", "Create Pull Request"],
-            Self::General => &["Closing terminals", "Files", "Window size", "Worktrees"],
-            Self::Appearance => &["Themes", "Interface"],
-            Self::Keyboard => &["Shortcuts"],
-            Self::Terminal => &["Text", "Behavior", "Configuration"],
-            Self::Server => &["Connection", "Sessions", "Server control"],
-            Self::Mobile => &["Access", "Pairing", "Devices"],
+            Self::QuickTerminal => &[
+                tr_key!("General"),
+                tr_key!("Shortcut"),
+                tr_key!("Size"),
+                tr_key!("Appearance"),
+            ],
+            Self::Composer => &[tr_key!("Behavior"), tr_key!("Text"), tr_key!("Voice")],
+            Self::Ai => &[tr_key!("Commit and Push"), tr_key!("Create Pull Request")],
+            Self::General => &[
+                tr_key!("Closing terminals"),
+                tr_key!("Files"),
+                tr_key!("Window size"),
+                tr_key!("Worktrees"),
+            ],
+            Self::Appearance => &[tr_key!("Language"), tr_key!("Themes"), tr_key!("Interface")],
+            Self::Keyboard => &[tr_key!("Shortcuts")],
+            Self::Terminal => &[
+                tr_key!("Text"),
+                tr_key!("Behavior"),
+                tr_key!("Configuration"),
+            ],
+            Self::Server => &[
+                tr_key!("Connection"),
+                tr_key!("Sessions"),
+                tr_key!("Server control"),
+            ],
+            Self::Mobile => &[tr_key!("Access"), tr_key!("Pairing"), tr_key!("Devices")],
             Self::Extensions | Self::Commands => &[],
-            Self::Backup => &["Backup & Restore", "Migration", "Configuration"],
+            Self::Backup => &[
+                tr_key!("Backup & Restore"),
+                tr_key!("Migration"),
+                tr_key!("Configuration"),
+            ],
         }
     }
 }
@@ -100,7 +123,7 @@ impl SettingsView {
                     row.track_focus(&self.navbar_focus)
                 })
                 .child(self.disclosure(category, cx))
-                .child(category.label()),
+                .child(translate(category.label())),
             );
             if expanded && !self.compact {
                 for &section in category.sections() {
@@ -114,7 +137,7 @@ impl SettingsView {
                             }),
                         )
                         .debug_selector(move || format!("settings-subcategory-{section}"))
-                        .child(section),
+                        .child(translate(section)),
                     );
                 }
             }
@@ -182,8 +205,8 @@ impl SettingsView {
                                 .px(px(8.0))
                                 .text_size(px(11.0))
                                 .text_color(self.theme.fg_dim)
-                                .child(format!(
-                                    "{}  Focus navbar",
+                                .child(tr!(
+                                    "%@  Focus navbar",
                                     self.snapshot
                                         .settings
                                         .keymap
@@ -215,9 +238,9 @@ impl SettingsView {
                     .bg(self.theme.accent_soft)
                     .child(
                         if matches!(self.category, Category::Server | Category::Mobile) {
-                            "Current device"
+                            tr!("Current device")
                         } else {
-                            "User"
+                            tr!("User")
                         },
                     ),
             )
@@ -240,7 +263,7 @@ impl SettingsView {
                         .button_interaction(cx.listener(move |_, _, _, cx| {
                             cx.emit(SettingsEvent::OpenConfiguration(file));
                         }))
-                        .child(format!("Edit in {file}")),
+                        .child(tr!("Edit in %@", file)),
                 )
             })
             .into_any_element()

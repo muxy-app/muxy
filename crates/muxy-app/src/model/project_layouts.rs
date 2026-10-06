@@ -5,9 +5,11 @@ use gpui::{AppContext, Context, Entity, Focusable, Window};
 use muxy_app_core::project_layouts::{Config, Descriptor};
 use muxy_app_core::{PaneId, ProjectId, ProjectStatus, ServerId, TabId};
 use muxy_ui::icon::Icon;
+use muxy_ui::l10n::tr_key;
 use muxy_ui::picker::{
     Picker, PickerConfig, PickerEvent, PickerItem, PickerLeading, PickerRow, PickerStatus,
 };
+use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting};
 use crate::boot::Work;
@@ -84,7 +86,7 @@ impl AppModel {
                 request,
                 entries: Vec::new(),
                 pending: sent,
-                error: (!sent).then(|| "Reconnect to load project layouts".into()),
+                error: (!sent).then(|| tr!("Reconnect to load project layouts").to_string()),
             },
         );
         request
@@ -114,7 +116,7 @@ impl AppModel {
         let request = self.request_project_layouts(project, cx);
         let picker = cx.new(|cx| {
             Picker::new(
-                PickerConfig::new("project-layouts", "Filter layouts…"),
+                PickerConfig::new("project-layouts", tr!("Filter layouts…")),
                 self.theme.clone(),
                 self.metrics,
                 cx,
@@ -192,13 +194,13 @@ impl AppModel {
             })
             .collect();
         let status = if overlay.loading {
-            PickerStatus::Loading("Loading layout…".into())
+            PickerStatus::Loading(tr!("Loading layout…"))
         } else if listing.pending {
-            PickerStatus::Loading("Loading layouts…".into())
+            PickerStatus::Loading(tr!("Loading layouts…"))
         } else if let Some(error) = &listing.error {
-            PickerStatus::Error(format!("Could not load .muxy/layouts: {error}").into())
+            PickerStatus::Error(tr!("Could not load .muxy/layouts: %@", error))
         } else if items.is_empty() {
-            PickerStatus::Empty("No layouts found in .muxy/layouts".into())
+            PickerStatus::Empty(tr!("No layouts found in .muxy/layouts"))
         } else {
             PickerStatus::Ready
         };
@@ -268,7 +270,7 @@ impl AppModel {
             Ok(config) => config,
             Err(error) => {
                 self.fail(
-                    format!("Could not load layout “{}”: {error}", layout.name),
+                    tr!("Could not load layout “%@”: %@", &layout.name, &error).to_string(),
                     cx,
                 );
                 self.update_layout_picker(cx);
@@ -283,14 +285,16 @@ impl AppModel {
             .iter()
             .flat_map(|tab| tab.panes.iter().map(|pane| (tab.id, pane.id)))
             .collect();
-        let message = format!(
-            "Apply “{}” to “{}”? This replaces all of this project's tabs, including pinned tabs, and runs the layout's commands. Terminals no longer shown by any app will end. Only apply layouts you trust.",
-            layout.name, target.name
-        );
+        let message = tr!(
+            "Apply “%@” to “%@”? This replaces all of this project's tabs, including pinned tabs, and runs the layout's commands. Terminals no longer shown by any app will end. Only apply layouts you trust.",
+            &layout.name,
+            &target.name
+        )
+        .to_string();
         self.confirm(
-            "Apply Layout?",
+            tr_key!("Apply Layout?"),
             message,
-            "Apply Layout",
+            tr_key!("Apply Layout"),
             cx,
             move |model, cx| {
                 model.apply_project_layout(project, &directory, &panes, &config, cx);
@@ -320,8 +324,8 @@ impl AppModel {
                 .eq(panes.iter().copied())
         {
             self.fail(
-                "The project's tabs changed. Choose the layout again to confirm replacement."
-                    .into(),
+                tr!("The project's tabs changed. Choose the layout again to confirm replacement.")
+                    .to_string(),
                 cx,
             );
             return;

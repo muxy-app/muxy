@@ -162,6 +162,7 @@ fn collapsed_sidebar_style_control_saves_without_expanding_the_sidebar(cx: &mut 
     use muxy_app_core::settings::{Settings, SidebarCollapsedStyle};
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = settings_window(boot, cx);
+    cx.simulate_resize(size(px(1200.0), px(1000.0)));
     click_preference(cx, "settings-category-Appearance");
     for (choice, style, width) in [
         ("hidden", SidebarCollapsedStyle::Hidden, 0.0),
