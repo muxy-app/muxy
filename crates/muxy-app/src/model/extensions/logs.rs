@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{SyncSender, sync_channel};
 
 use muxy_app_core::extensions::{AuditEntry, AuditLog};
+use muxy_ui::tr;
 
 const TAIL: usize = 200;
 const MAX_FILE: u64 = 5 * 1024 * 1024;
@@ -21,6 +22,7 @@ enum Job {
     Append(PathBuf, String),
     Tail(PathBuf, async_channel::Sender<Vec<String>>),
     Audit(AuditLog, AuditEntry),
+    Flush(async_channel::Sender<()>),
 }
 
 pub(crate) struct Logs {
@@ -46,6 +48,9 @@ impl Logs {
                         }
                         Job::Audit(log, entry) => {
                             let _ = log.append(&entry);
+                        }
+                        Job::Flush(reply) => {
+                            let _ = reply.try_send(());
                         }
                     }
                 }
@@ -82,6 +87,18 @@ impl Logs {
         if let Some(writer) = &self.writer {
             let _ = writer.try_send(Job::Audit(log.clone(), entry));
         }
+    }
+
+    pub(super) fn flush(&self) -> Result<async_channel::Receiver<()>, String> {
+        let writer = self
+            .writer
+            .as_ref()
+            .ok_or_else(|| tr!("Extension log writer is unavailable.").to_string())?;
+        let (reply, done) = async_channel::bounded(1);
+        writer
+            .try_send(Job::Flush(reply))
+            .map_err(|error| error.to_string())?;
+        Ok(done)
     }
 
     /// Reads an extension's earlier lines from its file, once per session.
@@ -167,6 +184,30 @@ fn trim(path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flushing_finishes_pending_writes_before_the_package_moves() {
+        let directory = tempfile::tempdir().expect("directory");
+        let package = directory.path().join("package");
+        let mut logs = Logs::new();
+        for index in 0..200 {
+            logs.append("reader", Some(&package), format!("line {index}"));
+        }
+        logs.flush()
+            .expect("flush queued")
+            .recv_blocking()
+            .expect("flushed");
+        std::fs::rename(&package, directory.path().join("backup")).expect("move package");
+        logs.flush()
+            .expect("flush queued")
+            .recv_blocking()
+            .expect("flushed");
+        assert!(!package.exists());
+        let saved = std::fs::read_to_string(directory.path().join("backup/logs/output.log"))
+            .expect("saved log");
+        assert_eq!(saved.lines().count(), 200);
+        assert!(saved.ends_with("line 199\n"));
+    }
 
     #[test]
     fn oversized_logs_keep_whole_recent_lines() {

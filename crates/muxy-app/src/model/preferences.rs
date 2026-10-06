@@ -47,6 +47,7 @@ impl AppModel {
         {
             return;
         }
+        self.retain_extension_updates(cx);
         self.settings_window = None;
         let snapshot = self.preferences_snapshot();
         self.refresh_theme(cx);
@@ -55,14 +56,17 @@ impl AppModel {
         )
         .unwrap_or_default();
         let model = cx.weak_entity();
-        let extensions = cx.new(|cx| {
-            crate::views::settings::extensions::ExtensionsView::new(
-                model,
-                self.theme.clone(),
-                muxy_ui::theme::Metrics::new(1.15),
-                cx,
-            )
+        let extensions = self.pending_extension_updates.take().unwrap_or_else(|| {
+            cx.new(|cx| {
+                crate::views::settings::extensions::ExtensionsView::new(
+                    model,
+                    self.theme.clone(),
+                    muxy_ui::theme::Metrics::new(1.15),
+                    cx,
+                )
+            })
         });
+        extensions.update(cx, |view, cx| view.sync_theme(self.theme.clone(), cx));
         let view = cx.new(|cx| {
             let mut view = SettingsView::new(
                 snapshot,
@@ -70,7 +74,7 @@ impl AppModel {
                 muxy_ui::theme::Metrics::new(1.15),
                 cx,
             );
-            view.extensions = Some(extensions);
+            view.extensions = Some(extensions.clone());
             view.set_backup_pending(self.path.with_file_name("pending-import.muxy").exists());
             view.set_included_keys(&included_keys);
             view
@@ -108,18 +112,33 @@ impl AppModel {
                 self.read_server_settings(cx);
                 self.read_remote_access(cx);
             }
-            Err(error) => self.fail(
-                tr!("Could not open Settings: %@", error.to_string()).to_string(),
-                cx,
-            ),
+            Err(error) => {
+                if extensions.read(cx).updating_all() {
+                    self.pending_extension_updates = Some(extensions);
+                }
+                self.fail(
+                    tr!("Could not open Settings: %@", error.to_string()).to_string(),
+                    cx,
+                );
+            }
         }
     }
 
     pub(crate) fn settings_closed(&mut self, cx: &mut Context<Self>) {
         self.flush_preferences(cx);
         self.withdraw_pairing(cx);
+        self.retain_extension_updates(cx);
         self.settings_window = None;
         cx.notify();
+    }
+
+    fn retain_extension_updates(&mut self, cx: &Context<Self>) {
+        if let Some(settings) = &self.settings_window
+            && let Some(extensions) = &settings.view.read(cx).extensions
+            && extensions.read(cx).updating_all()
+        {
+            self.pending_extension_updates = Some(extensions.clone());
+        }
     }
 
     fn preferences_snapshot(&self) -> Snapshot {

@@ -21,6 +21,7 @@ use muxy_ui::tr;
 mod configuration;
 #[cfg(test)]
 mod tests;
+mod updates;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -31,6 +32,8 @@ enum Tab {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Mutation {
     Install,
+    Update,
+    UpdateAll,
     Enable,
     Disable,
     Remove,
@@ -44,6 +47,8 @@ impl Mutation {
     fn button(self) -> &'static str {
         match self {
             Self::Install => "extension-install",
+            Self::Update => "extension-update",
+            Self::UpdateAll => "extension-update-all",
             Self::Enable | Self::Disable => "extension-enable",
             Self::Remove => "extension-remove",
             Self::LoadUnpacked => "extension-load",
@@ -57,6 +62,7 @@ impl Mutation {
     fn label(self, idle: &str) -> &'static str {
         match self {
             Self::Install => tr_key!("Installing…"),
+            Self::Update | Self::UpdateAll => tr_key!("Updating…"),
             Self::Enable => tr_key!("Enabling…"),
             Self::Disable => tr_key!("Disabling…"),
             Self::Remove if idle == "Unload folder" => tr_key!("Unloading…"),
@@ -93,6 +99,7 @@ pub(crate) struct ExtensionsView {
     mutation: Option<Mutation>,
     completed: Option<Mutation>,
     error: Option<String>,
+    update_all_status: Option<String>,
     selected: Option<Value>,
     folder: Option<muxy_ui::dialog::FolderPicker>,
     /// Text fields for string and number extension settings, by extension and key.
@@ -142,6 +149,7 @@ impl ExtensionsView {
             mutation: None,
             completed: None,
             error: None,
+            update_all_status: None,
             selected: None,
             folder: None,
             setting_inputs: std::collections::HashMap::new(),
@@ -222,7 +230,7 @@ impl ExtensionsView {
         self.loading = Some(Loading::Details(name.clone()));
         self.error = None;
         cx.spawn(async move |view, cx| {
-            let result = crate::extensions::io::run(move || marketplace::detail(&name)).await;
+            let result = crate::extensions::io::network(move || marketplace::detail(&name)).await;
             let _ = view.update(cx, |view, cx| {
                 if view.revision != revision {
                     return;
@@ -305,20 +313,49 @@ impl ExtensionsView {
             return;
         };
         let directory = model.read(cx).extensions.registry.directory();
-        self.mutation = Some(Mutation::Install);
+        let registry = &model.read(cx).extensions.registry;
+        if registry.is_unpacked(&name) {
+            return;
+        }
+        let installed = registry.extensions.get(&name).cloned();
+        self.mutation = Some(if installed.is_some() {
+            Mutation::Update
+        } else {
+            Mutation::Install
+        });
         self.error = None;
         cx.spawn(async move |view, cx| {
             let installed_name = name.clone();
-            let result = crate::extensions::io::run(move || {
-                let stage = marketplace::download(&details, &directory)?;
-                marketplace::install(&stage, &directory, &name)
+            let download_directory = directory.clone();
+            let result = crate::extensions::io::network(move || {
+                marketplace::download(&details, &download_directory)
             })
             .await;
             let result = match result {
-                Ok(()) => match model.update(cx, AppModel::refresh_installed_extensions_task) {
-                    Ok(task) => task.await,
-                    Err(error) => Err(error.to_string()),
-                },
+                Ok(stage) => {
+                    if let Some(installed) = installed {
+                        match model
+                            .update(cx, |model, cx| model.update_extension(installed, stage, cx))
+                        {
+                            Ok(task) => task.await,
+                            Err(error) => Err(error.to_string()),
+                        }
+                    } else {
+                        let result = crate::extensions::io::run(move || {
+                            marketplace::install(&stage, &directory, &name)
+                        })
+                        .await;
+                        match result {
+                            Ok(()) => match model
+                                .update(cx, AppModel::refresh_installed_extensions_task)
+                            {
+                                Ok(task) => task.await,
+                                Err(error) => Err(error.to_string()),
+                            },
+                            Err(error) => Err(error),
+                        }
+                    }
+                }
                 Err(error) => Err(error),
             };
             let _ = view.update(cx, |view, cx| {
@@ -329,6 +366,7 @@ impl ExtensionsView {
     }
 
     fn finish_install(&mut self, name: &str, result: Result<(), String>, cx: &mut Context<Self>) {
+        let updated = self.mutation == Some(Mutation::Update);
         self.mutation = None;
         match result {
             Ok(()) => {
@@ -346,6 +384,7 @@ impl ExtensionsView {
                     self.query.clear();
                     self.search.update(cx, |search, cx| search.set_text("", cx));
                     self.selected = Some(details);
+                    self.completed = updated.then_some(Mutation::Update);
                     self.error = None;
                 } else {
                     self.error = Some(
@@ -540,6 +579,7 @@ impl ExtensionsView {
             _ => {}
         }
         match &self.loading {
+            Some(Loading::Details(_)) if id == "extension-check-update" => tr_key!("Checking…"),
             Some(Loading::More) if id == "extension-more" => tr_key!("Loading…"),
             Some(Loading::Details(name)) if id.strip_prefix("details-") == Some(name) => {
                 tr_key!("Loading…")
@@ -568,6 +608,7 @@ impl ExtensionsView {
             cx.listener(move |view, _, window, cx| {
                 if view.mutation.is_none() && view.loading.is_none() {
                     view.completed = None;
+                    view.update_all_status = None;
                     action(view, window, cx);
                     cx.notify();
                 }
@@ -648,6 +689,9 @@ impl Render for ExtensionsView {
                             .when_some(self.error.as_ref(), |body, error| {
                                 body.child(form::note(self.style(), error, true))
                             })
+                            .when_some(self.update_all_status.as_ref(), |body, status| {
+                                body.child(form::note(self.style(), status, false))
+                            })
                             .children(
                                 errors
                                     .iter()
@@ -691,6 +735,7 @@ impl ExtensionsView {
         self.error = None;
         self.completed = None;
         self.revision += 1;
+        self.update_all_status = None;
         self.loading = None;
         if tab == Tab::Marketplace {
             self.fetch(true, cx);
@@ -809,10 +854,28 @@ impl ExtensionsView {
                 |view, _, cx| view.reload(cx),
                 cx,
             ))
+            .when(
+                self.model.upgrade().is_some_and(|model| {
+                    let registry = &model.read(cx).extensions.registry;
+                    registry
+                        .extensions
+                        .keys()
+                        .any(|name| !registry.is_unpacked(name))
+                }),
+                |actions| {
+                    actions.child(self.button(
+                        "extension-update-all",
+                        tr_key!("Update all"),
+                        |view, _, cx| view.update_all(cx),
+                        cx,
+                    ))
+                },
+            )
     }
 
     fn card(&self) -> gpui::Div {
         div()
+            .flex_none()
             .min_w_0()
             .w_full()
             .rounded(self.metrics.radius_lg())
@@ -1003,6 +1066,9 @@ impl ExtensionsView {
         let local = installed
             .iter()
             .find(|(extension, _, _)| extension.name == name);
+        let updates = local
+            .filter(|(_, _, unpacked)| !unpacked)
+            .map(|(extension, _, _)| self.update_section(extension, details, cx));
         let details = local.map_or_else(
             || details.clone(),
             |(extension, _, _)| installed_details(extension),
@@ -1014,6 +1080,7 @@ impl ExtensionsView {
             .gap(self.metrics.spacing7())
             .min_w_0()
             .child(hero)
+            .children(updates)
             .child(self.section(
                 &tr!("Requested permissions"),
                 self.permissions_body(&details),
@@ -1076,9 +1143,10 @@ impl ExtensionsView {
         local: Option<&(Extension, bool, bool)>,
         cx: &Context<Self>,
     ) -> gpui::Div {
-        let mut heading = div()
+        let heading = div()
             .flex()
-            .flex_wrap()
+            .flex_1()
+            .min_w_0()
             .items_center()
             .gap(self.metrics.spacing4())
             .child(
@@ -1086,19 +1154,24 @@ impl ExtensionsView {
                     .text_size(self.metrics.font_display())
                     .font_weight(FontWeight::SEMIBOLD)
                     .min_w_0()
-                    .max_w_full()
                     .truncate()
                     .child(name.to_owned()),
             )
             .when_some(details["version"].as_str(), |heading, version| {
                 heading.child(
                     div()
+                        .flex_none()
                         .text_color(self.theme.fg_muted)
                         .child(format!("v{version}")),
                 )
             });
+        let mut badges = div()
+            .flex()
+            .flex_none()
+            .flex_wrap()
+            .gap(self.metrics.spacing4());
         if let Some((_, enabled, unpacked)) = local {
-            heading = heading.child(self.badge(
+            badges = badges.child(self.badge(
                 if *enabled {
                     tr!("Enabled")
                 } else {
@@ -1107,7 +1180,7 @@ impl ExtensionsView {
                 *enabled,
             ));
             if *unpacked {
-                heading = heading.child(self.badge(tr!("Unpacked"), false));
+                badges = badges.child(self.badge(tr!("Unpacked"), false));
             }
         }
         let action = if let Some((_, enabled, _)) = local {
@@ -1139,13 +1212,14 @@ impl ExtensionsView {
             .child(
                 div()
                     .flex()
-                    .flex_wrap()
+                    .flex_none()
                     .items_center()
                     .justify_between()
                     .gap(self.metrics.spacing6())
                     .child(
                         div()
                             .flex()
+                            .flex_1()
                             .items_center()
                             .min_w_0()
                             .gap(self.metrics.spacing6())
@@ -1158,6 +1232,7 @@ impl ExtensionsView {
                     )
                     .child(action),
             )
+            .when(local.is_some(), |hero| hero.child(badges))
             .child(
                 div()
                     .text_color(self.theme.fg_muted)
@@ -1168,6 +1243,65 @@ impl ExtensionsView {
                     "Review the permissions below, then enable this extension to use it."
                 )))
             })
+    }
+
+    fn update_section(
+        &self,
+        extension: &Extension,
+        details: &Value,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        let available = available_update(extension, details);
+        let owner = extension.name.clone();
+        let actions = div()
+            .flex()
+            .flex_wrap()
+            .gap(self.metrics.spacing4())
+            .child(self.button(
+                "extension-check-update",
+                tr_key!("Check for updates"),
+                move |view, _, cx| view.details(owner.clone(), cx),
+                cx,
+            ))
+            .when(available.is_some(), |actions| {
+                actions.child(self.button(
+                    "extension-update",
+                    tr_key!("Update"),
+                    |view, _, cx| view.install(cx),
+                    cx,
+                ))
+            });
+        let message = if let Some(version) = available {
+            tr!("Version %@ is available.", version)
+        } else if self.completed == Some(Mutation::Update) {
+            tr!("Extension updated.")
+        } else if details["current_version"].is_string() {
+            tr!("This extension is up to date.")
+        } else {
+            tr!("Check the marketplace for a newer version.")
+        };
+        let mut content = div()
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing4())
+            .text_color(self.theme.fg_muted)
+            .child(message);
+        if available.is_some() {
+            let added: Vec<_> = details["permissions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|permission| !extension.manifest.permissions.contains(*permission))
+                .collect();
+            if !added.is_empty() {
+                content = content.child(tr!(
+                    "New permissions: %@. After updating, review the permissions and enable the extension again.",
+                    added.join(", ")
+                ));
+            }
+        }
+        self.section_with_actions(&tr!("Updates"), actions, content)
     }
 
     fn permissions_body(&self, details: &Value) -> gpui::Div {
@@ -1254,6 +1388,7 @@ impl ExtensionsView {
         let details = installed_details(extension);
         let mut title = div()
             .flex()
+            .flex_none()
             .flex_wrap()
             .items_center()
             .gap(self.metrics.spacing4())
@@ -1303,6 +1438,7 @@ impl ExtensionsView {
                     view.selected = Some(details.clone());
                     view.error = None;
                     view.completed = None;
+                    view.update_all_status = None;
                     cx.notify();
                 }
             }))
@@ -1432,4 +1568,11 @@ fn installed_details(extension: &Extension) -> Value {
         "description": extension.manifest.description,
         "permissions": extension.manifest.permissions,
     })
+}
+
+fn available_update<'a>(extension: &Extension, details: &'a Value) -> Option<&'a str> {
+    let version = details["current_version"].as_str()?;
+    (details["name"].as_str() == Some(extension.name.as_str())
+        && marketplace::is_update(&extension.version, version))
+    .then_some(version)
 }

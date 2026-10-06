@@ -8,6 +8,7 @@
 "%@ (unavailable)" = "%@ (unavailable)";
 "%@ CLI is not installed" = "%@ CLI is not installed";
 "%@ CLI is not installed. Choose another provider or install its CLI." = "%@ CLI is not installed. Choose another provider or install its CLI.";
+"%@ Could not restore the extension's enabled state: %@" = "%@ Could not restore the extension's enabled state: %@";
 "%@ already exists; move it before installing Muxy." = "%@ already exists; move it before installing Muxy.";
 "%@ and %@, but %@" = "%@ and %@, but %@";
 "%@ did not respond within five minutes" = "%@ did not respond within five minutes";
@@ -101,6 +102,7 @@
 "Additional prompt" = "Additional prompt";
 "Agents Focused" = "Agents Focused";
 "All Projects" = "All Projects";
+"All extensions are up to date." = "All extensions are up to date.";
 "All running terminal sessions on %@ will end. Saved terminal output and settings will remain." = "All running terminal sessions on %@ will end. Saved terminal output and settings will remain.";
 "All running terminal sessions on this device will end. Saved terminal output and settings will remain." = "All running terminal sessions on this device will end. Saved terminal output and settings will remain.";
 "All split panes" = "All split panes";
@@ -201,9 +203,13 @@
 "Change Theme…" = "Change Theme…";
 "Changes apply immediately. Press Return or leave a field to save text." = "Changes apply immediately. Press Return or leave a field to save text.";
 "Check for Updates…" = "Check for Updates…";
+"Check for updates" = "Check for updates";
+"Check the marketplace for a newer version." = "Check the marketplace for a newer version.";
 "Checked out" = "Checked out";
 "Checking folder…" = "Checking folder…";
+"Checking for extension updates…" = "Checking for extension updates…";
 "Checking for updates…" = "Checking for updates…";
+"Checking…" = "Checking…";
 "Checks" = "Checks";
 "Checks failing" = "Checks failing";
 "Checks running" = "Checks running";
@@ -390,6 +396,8 @@
 "Could not show the file: %@" = "Could not show the file: %@";
 "Could not stop server: %@" = "Could not stop server: %@";
 "Could not take the password: %@" = "Could not take the password: %@";
+"Could not update the extension (%@) or restore it (%@). The previous version is saved at %@" = "Could not update the extension (%@) or restore it (%@). The previous version is saved at %@";
+"Could not update the extension; the previous version was restored: %@" = "Could not update the extension; the previous version was restored: %@";
 "Could not update the server: %@" = "Could not update the server: %@";
 "Could not verify that this branch has no pull request" = "Could not verify that this branch has no pull request";
 "Could not write clipboard data" = "Could not write clipboard data";
@@ -496,6 +504,8 @@
 "Export backup" = "Export backup";
 "Export…" = "Export…";
 "Extension %@ is not loaded" = "Extension %@ is not loaded";
+"Extension log writer is unavailable." = "Extension log writer is unavailable.";
+"Extension updated." = "Extension updated.";
 "Extensions" = "Extensions";
 "Extensions changed while reloading. Try again." = "Extensions changed while reloading. Try again.";
 "File" = "File";
@@ -714,6 +724,7 @@
 "New Worktree" = "New Worktree";
 "New Worktree…" = "New Worktree…";
 "New pane directory" = "New pane directory";
+"New permissions: %@. After updating, review the permissions and enable the extension again." = "New permissions: %@. After updating, review the permissions and enable the extension again.";
 "Next Project" = "Next Project";
 "Next Prompt" = "Next Prompt";
 "Next Tab" = "Next Tab";
@@ -915,6 +926,7 @@
 "Reveal log" = "Reveal log";
 "Reveal worktrees when selecting a project in Project Focused." = "Reveal worktrees when selecting a project in Project Focused.";
 "Review app update…" = "Review app update…";
+"Review permissions and enable when ready: %@." = "Review permissions and enable when ready: %@.";
 "Review the permissions below, then enable this extension to use it." = "Review the permissions below, then enable this extension to use it.";
 "Revoke" = "Revoke";
 "Revoke %@?" = "Revoke %@?";
@@ -1069,9 +1081,11 @@
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
 "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer." = "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer.";
 "The device disconnects now and must be paired again to reconnect." = "The device disconnects now and must be paired again to reconnect.";
+"The extension changed. Check for updates and try again." = "The extension changed. Check for updates and try again.";
 "The extension kept an open view. Save or close it before continuing." = "The extension kept an open view. Save or close it before continuing.";
 "The extension kept an open view. Save or close it before reloading." = "The extension kept an open view. Save or close it before reloading.";
 "The extension view could not be closed. Try reloading again." = "The extension view could not be closed. Try reloading again.";
+"The extension was updated but could not be enabled: %@" = "The extension was updated but could not be enabled: %@";
 "The folder operation was cancelled." = "The folder operation was cancelled.";
 "The image is empty." = "The image is empty.";
 "The installed app changed. Reopen Muxy to update the server." = "The installed app changed. Reopen Muxy to update the server.";
@@ -1113,6 +1127,7 @@
 "This Mac" = "This Mac";
 "This backup format is not supported by this version of Muxy" = "This backup format is not supported by this version of Muxy";
 "This branch already has a pull request" = "This branch already has a pull request";
+"This extension is up to date." = "This extension is up to date.";
 "This is not a released beta" = "This is not a released beta";
 "This language is unavailable for speech recognition" = "This language is unavailable for speech recognition";
 "This path is a file. Choose a folder for the project." = "This path is a file. Choose a folder for the project.";
@@ -1170,6 +1185,7 @@
 "Update Muxy on %@: %@" = "Update Muxy on %@: %@";
 "Update Muxy to see this status" = "Update Muxy to see this status";
 "Update When Sessions End" = "Update When Sessions End";
+"Update all" = "Update all";
 "Update and End All Sessions?" = "Update and End All Sessions?";
 "Update and End Sessions" = "Update and End Sessions";
 "Update and End Sessions…" = "Update and End Sessions…";
@@ -1177,10 +1193,14 @@
 "Update and restart app…" = "Update and restart app…";
 "Update from %@" = "Update from %@";
 "Update pull request branch?" = "Update pull request branch?";
+"Updated %@ extensions." = "Updated %@ extensions.";
+"Updated 1 extension." = "Updated 1 extension.";
 "Updated branch for PR #%lld" = "Updated branch for PR #%lld";
 "Updates" = "Updates";
 "Updates apply only to this computer's server" = "Updates apply only to this computer's server";
+"Updating %@ (%@ of %@)…" = "Updating %@ (%@ of %@)…";
 "Updating app…" = "Updating app…";
+"Updating…" = "Updating…";
 "Use Command, Control, or Option with a supported key" = "Use Command, Control, or Option with a supported key";
 "Use Composer Panel" = "Use Composer Panel";
 "Use Floating Composer" = "Use Floating Composer";
@@ -1195,6 +1215,7 @@
 "Use existing branch" = "Use existing branch";
 "Use the filter at the top of the expanded sidebar to show one workspace or Focus Current Project. Right-click a project → Workspaces to add it to one." = "Use the filter at the top of the expanded sidebar to show one workspace or Focus Current Project. Right-click a project → Workspaces to add it to one.";
 "User" = "User";
+"Version %@ is available." = "Version %@ is available.";
 "Vibrancy of the glass background." = "Vibrancy of the glass background.";
 "View" = "View";
 "Violet" = "Violet";

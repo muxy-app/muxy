@@ -11,6 +11,7 @@ mod scripts;
 mod surfaces;
 #[cfg(test)]
 mod tests;
+mod updates;
 mod workspace;
 mod worktrees;
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
@@ -5,6 +6,9 @@ use std::time::Duration;
 use muxy_app_core::extensions::Extension;
 use muxy_ui::tr;
 use serde_json::Value;
+
+mod version;
+pub(crate) use version::is_update;
 
 const BASE: &str = "https://muxy.app";
 const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
@@ -76,6 +80,36 @@ pub(crate) fn detail(name: &str) -> Result<Value> {
         .filter(|v| v.is_object())
         .cloned()
         .ok_or_else(|| tr!("invalid marketplace details").into())
+}
+
+pub(crate) fn versions(names: &[String]) -> Result<BTreeMap<String, String>> {
+    let client = client()?;
+    versions_with(names, |batch| {
+        let response = client
+            .post(format!("{BASE}/api/extensions/versions"))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .body(serde_json::json!({"names":batch}).to_string())
+            .send()
+            .map_err(|error| error.to_string())?;
+        serde_json::from_slice(&bytes(response, 2 * 1024 * 1024)?)
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn versions_with(
+    names: &[String],
+    mut request: impl FnMut(&[String]) -> Result<BTreeMap<String, Option<String>>>,
+) -> Result<BTreeMap<String, String>> {
+    let mut versions = BTreeMap::new();
+    for batch in names.chunks(100) {
+        versions.extend(
+            request(batch)?
+                .into_iter()
+                .filter_map(|(name, version)| version.map(|version| (name, version))),
+        );
+    }
+    Ok(versions)
 }
 
 /// Download and validate into a sibling staging directory; callers decide when to activate it.
@@ -236,6 +270,66 @@ pub(crate) fn install(stage: &tempfile::TempDir, directory: &Path, name: &str) -
     std::fs::rename(package, destination).map_err(|error| error.to_string())
 }
 
+pub(crate) fn update(
+    stage: &tempfile::TempDir,
+    directory: &Path,
+    expected: &Extension,
+) -> Result<()> {
+    let package = stage.path().join("package");
+    let next = Extension::load(&package)?;
+    let destination = directory.join(&expected.name);
+    let current = Extension::load(&destination)?;
+    if next.name != expected.name
+        || current.name != expected.name
+        || current.version != expected.version
+        || !is_update(&current.version, &next.version)
+    {
+        return Err(tr!("The extension changed. Check for updates and try again.").into());
+    }
+    let log = current.directory.join("logs/output.log");
+    if log.is_file() {
+        let logs = next.directory.join("logs");
+        std::fs::create_dir_all(&logs).map_err(|error| error.to_string())?;
+        std::fs::copy(log, logs.join("output.log")).map_err(|error| error.to_string())?;
+    }
+    let backup = tempfile::Builder::new()
+        .prefix(".update-")
+        .tempdir_in(directory)
+        .map_err(|error| error.to_string())?;
+    replace(&destination, &package, backup)
+}
+
+fn replace(current: &Path, next: &Path, backup: tempfile::TempDir) -> Result<()> {
+    replace_with(current, next, backup, |from, to| std::fs::rename(from, to))
+}
+
+fn replace_with(
+    current: &Path,
+    next: &Path,
+    backup: tempfile::TempDir,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> Result<()> {
+    let previous = backup.path().join("package");
+    rename(current, &previous).map_err(|error| error.to_string())?;
+    if let Err(error) = rename(next, current) {
+        if let Err(rollback) = rename(&previous, current) {
+            let saved = backup.keep().join("package");
+            return Err(tr!(
+                "Could not update the extension (%@) or restore it (%@). The previous version is saved at %@",
+                error.to_string(),
+                rollback.to_string(),
+                saved.display().to_string()
+            ).into());
+        }
+        return Err(tr!(
+            "Could not update the extension; the previous version was restored: %@",
+            error.to_string()
+        )
+        .into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -244,6 +338,41 @@ mod tests {
         reason = "Tests fail immediately on fixture errors"
     )]
     use super::*;
+
+    #[test]
+    fn version_checks_batch_installed_names_and_skip_unpublished_extensions() {
+        let names: Vec<_> = (0..205).map(|index| format!("extension-{index}")).collect();
+        let mut batches = Vec::new();
+        let versions = versions_with(&names, |batch| {
+            batches.push(batch.to_vec());
+            Ok(batch
+                .iter()
+                .map(|name| {
+                    (
+                        name.clone(),
+                        (name != "extension-5").then(|| "1.1.0".into()),
+                    )
+                })
+                .collect())
+        })
+        .unwrap();
+        assert_eq!(
+            batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            [100, 100, 5]
+        );
+        assert_eq!(batches.concat(), names);
+        assert_eq!(versions.len(), 204);
+        assert!(!versions.contains_key("extension-5"));
+        assert!(
+            versions_with(&[], |_| panic!("empty list must not make a request"))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            versions_with(&names, |_| Err("Offline".into())),
+            Err("Offline".into())
+        );
+    }
 
     fn archive(path: &str, mode: Option<u32>) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -275,5 +404,110 @@ mod tests {
             std::fs::read(root.path().join("panel/index.html")).unwrap(),
             b"hello"
         );
+    }
+
+    fn package(root: &Path, name: &str, version: &str) -> Extension {
+        std::fs::create_dir_all(root).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            serde_json::json!({
+                "name": name, "version": version, "muxy": {}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        Extension::load(root).unwrap()
+    }
+
+    #[test]
+    fn updates_replace_code_and_preserve_logs_across_resource_layout_changes() {
+        let root = tempfile::tempdir().unwrap();
+        let installed = package(&root.path().join("reader/dist"), "reader", "1.0.0");
+        std::fs::write(installed.directory.join("old.js"), "old code").unwrap();
+        std::fs::create_dir(installed.directory.join("logs")).unwrap();
+        std::fs::write(
+            installed.directory.join("logs/output.log"),
+            "earlier output",
+        )
+        .unwrap();
+        let stage = tempfile::tempdir_in(root.path()).unwrap();
+        let next = package(&stage.path().join("package"), "reader", "1.1.0");
+        std::fs::write(next.directory.join("new.js"), "new code").unwrap();
+
+        update(&stage, root.path(), &installed).unwrap();
+
+        let installed = Extension::load(&root.path().join("reader")).unwrap();
+        assert_eq!(installed.version, "1.1.0");
+        assert_eq!(
+            std::fs::read_to_string(installed.directory.join("new.js")).unwrap(),
+            "new code"
+        );
+        assert_eq!(
+            std::fs::read_to_string(installed.directory.join("logs/output.log")).unwrap(),
+            "earlier output"
+        );
+        assert!(!installed.directory.join("dist").exists());
+    }
+
+    #[test]
+    fn updates_reject_wrong_identity_older_versions_and_stale_installs() {
+        let root = tempfile::tempdir().unwrap();
+        let installed = package(&root.path().join("reader"), "reader", "1.1.0");
+        for (name, version) in [("other", "2.0.0"), ("reader", "1.0.0"), ("reader", "1.1.0")] {
+            let stage = tempfile::tempdir_in(root.path()).unwrap();
+            package(&stage.path().join("package"), name, version);
+            assert!(update(&stage, root.path(), &installed).is_err());
+            assert_eq!(
+                Extension::load(&root.path().join("reader"))
+                    .unwrap()
+                    .version,
+                "1.1.0"
+            );
+        }
+        let stage = tempfile::tempdir_in(root.path()).unwrap();
+        package(&stage.path().join("package"), "reader", "2.0.0");
+        package(&root.path().join("reader"), "reader", "1.2.0");
+        assert!(update(&stage, root.path(), &installed).is_err());
+        assert_eq!(
+            Extension::load(&root.path().join("reader"))
+                .unwrap()
+                .version,
+            "1.2.0"
+        );
+    }
+
+    #[test]
+    fn failed_replacement_restores_the_installed_extension() {
+        let root = tempfile::tempdir().unwrap();
+        let current = root.path().join("reader");
+        package(&current, "reader", "1.0.0");
+        let backup = tempfile::tempdir_in(root.path()).unwrap();
+        assert!(replace(&current, &root.path().join("missing"), backup).is_err());
+        assert_eq!(Extension::load(&current).unwrap().version, "1.0.0");
+    }
+
+    #[test]
+    fn failed_rollback_keeps_the_backup_and_reports_its_location() {
+        let root = tempfile::tempdir().unwrap();
+        let current = root.path().join("reader");
+        package(&current, "reader", "1.0.0");
+        let backup = tempfile::tempdir_in(root.path()).unwrap();
+        let saved = backup.path().join("package");
+        let mut calls = 0;
+        let result = replace_with(
+            &current,
+            &root.path().join("missing"),
+            backup,
+            |from, to| {
+                calls += 1;
+                if calls == 1 {
+                    std::fs::rename(from, to)
+                } else {
+                    Err(std::io::Error::other("test failure"))
+                }
+            },
+        );
+        assert!(result.unwrap_err().contains(&saved.display().to_string()));
+        assert_eq!(Extension::load(&saved).unwrap().version, "1.0.0");
     }
 }
