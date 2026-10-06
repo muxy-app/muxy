@@ -179,6 +179,171 @@ fn placeholder_rules_match_mains_documentation() {
 }
 
 #[test]
+fn oversized_format_fields_prevent_a_pack_from_loading() {
+    let root = tempfile::tempdir().unwrap();
+    let provider = Provider {
+        extension: "pack".into(),
+        id: "de".into(),
+        language: "de".into(),
+        title: "Deutsch".into(),
+        bundle: root.path().join("German.bundle"),
+    };
+    for translation in [
+        "%18446744073709551615lld",
+        "%18446744073709551616lld",
+        "%1025lld",
+        "%.18446744073709551615lld",
+        "%.18446744073709551616lld",
+        "%.1025lld",
+    ] {
+        write(
+            &provider.bundle,
+            &[
+                ("Info.plist", INFO),
+                (
+                    "de.lproj/Localizable.strings",
+                    &format!("\"Tab %lld\" = \"Tab {translation}\";"),
+                ),
+            ],
+        );
+        assert!(load(&provider).unwrap_err().contains("Tab %lld"));
+        let plural = STRINGSDICT.replace("%lld изменения", translation);
+        assert_eq!(
+            catalog::incompatible_key(&dictionary(plural.as_bytes()).unwrap()),
+            Some("%lld changes")
+        );
+    }
+}
+
+#[test]
+fn binary_bundles_load_strings_and_plural_rules_like_xml_bundles() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle = root.path().join("Russian.bundle");
+    fs::create_dir_all(bundle.join("ru.lproj")).unwrap();
+    fs::write(
+        bundle.join("Info.plist"),
+        include_bytes!("fixtures/Info.plist"),
+    )
+    .unwrap();
+    fs::write(
+        bundle.join("ru.lproj/Localizable.strings"),
+        include_bytes!("fixtures/Localizable.strings"),
+    )
+    .unwrap();
+    fs::write(
+        bundle.join("ru.lproj/Localizable.stringsdict"),
+        include_bytes!("fixtures/Localizable.stringsdict"),
+    )
+    .unwrap();
+    assert_eq!(validate_bundle(&bundle, "ru"), Ok(()));
+    let language = load(&Provider {
+        extension: "pack".into(),
+        id: "ru".into(),
+        language: "ru".into(),
+        title: "Русский".into(),
+        bundle: bundle.clone(),
+    })
+    .unwrap();
+    assert_eq!(language.translate("Settings"), "Настройки");
+    assert_eq!(language.translate("Emoji"), "😀");
+    assert_eq!(
+        language.translate("ASCII"),
+        "A sufficiently long ASCII value"
+    );
+    assert_eq!(language.format("%lld changes", &[1.into()]), "1 изменение");
+    assert_eq!(language.format("%lld changes", &[3.into()]), "3 изменения");
+    assert_eq!(language.format("%lld changes", &[5.into()]), "5 изменений");
+    assert_eq!(
+        dictionary(include_bytes!("fixtures/Localizable.stringsdict")).unwrap(),
+        dictionary(STRINGSDICT.as_bytes()).unwrap()
+    );
+
+    fs::write(
+        bundle.join("Info.plist"),
+        binary(&[b"\xd1\x01\x02", b"\x5f\x10\x12CFBundleExecutable", b"\x51x"]),
+    )
+    .unwrap();
+    assert!(
+        validate_bundle(&bundle, "ru")
+            .unwrap_err()
+            .contains("executable")
+    );
+}
+
+fn binary(objects: &[&[u8]]) -> Vec<u8> {
+    let mut bytes = b"bplist00".to_vec();
+    let mut offsets = Vec::new();
+    for object in objects {
+        offsets.push(u64::try_from(bytes.len()).unwrap());
+        bytes.extend_from_slice(object);
+    }
+    let table_start = u64::try_from(bytes.len()).unwrap();
+    for offset in offsets {
+        bytes.extend_from_slice(&offset.to_be_bytes());
+    }
+    bytes.extend_from_slice(&[0, 0, 0, 0, 0, 0, 8, 1]);
+    bytes.extend_from_slice(&u64::try_from(objects.len()).unwrap().to_be_bytes());
+    bytes.extend_from_slice(&0_u64.to_be_bytes());
+    bytes.extend_from_slice(&table_start.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn binary_catalogs_reject_malformed_and_expanding_objects() {
+    let valid = include_bytes!("fixtures/Localizable.stringsdict");
+    for length in 1..valid.len() {
+        assert!(
+            dictionary(&valid[..length]).is_err(),
+            "accepted truncation at {length}"
+        );
+    }
+    for objects in [
+        vec![&b"\xd1\x01\xff"[..], b"\x51k"],
+        vec![&b"\xd1\x01\x00"[..], b"\x51k"],
+        vec![
+            &b"\xd1\x01\x02"[..],
+            b"\x51k",
+            b"\x6f\x13\xff\xff\xff\xff\xff\xff\xff\xff",
+        ],
+        vec![&b"\xd1\x01\x02"[..], b"\x51k", b"\x61\xd8\x00"],
+        vec![&b"\xd1\x01\x02"[..], b"\x08", b"\x51v"],
+    ] {
+        assert!(dictionary(&binary(&objects)).is_err());
+    }
+    let mut invalid_offset = binary(&[b"\xd0"]);
+    invalid_offset[9..17].copy_from_slice(&u64::MAX.to_be_bytes());
+    assert!(dictionary(&invalid_offset).is_err());
+    let mut invalid_count = binary(&[b"\xd0"]);
+    let length = invalid_count.len();
+    invalid_count[length - 24..length - 16].copy_from_slice(&u64::MAX.to_be_bytes());
+    assert!(dictionary(&invalid_count).is_err());
+
+    let mut nested = Vec::new();
+    for index in 0..17_u8 {
+        nested.push(vec![0xd1, 18, index + 1]);
+    }
+    nested.push(vec![0xd0]);
+    nested.push(b"\x51k".to_vec());
+    let objects: Vec<&[u8]> = nested.iter().map(Vec::as_slice).collect();
+    assert!(
+        dictionary(&binary(&objects))
+            .unwrap_err()
+            .contains("deeply")
+    );
+
+    let mut references = vec![0xdf, 0x10, 32];
+    references.extend_from_slice(&[1; 32]);
+    references.extend_from_slice(&[2; 32]);
+    let mut large_string = vec![0x5f, 0x12, 0, 0x10, 0, 0];
+    large_string.extend(std::iter::repeat_n(b'x', 1024 * 1024));
+    assert!(
+        dictionary(&binary(&[&references, b"\x51k", &large_string]))
+            .unwrap_err()
+            .contains("expands")
+    );
+}
+
+#[test]
 fn plural_variants_keep_their_arguments_types() {
     let bad = STRINGSDICT.replace(
         "<string>%lld изменения</string>\n            <key>many",

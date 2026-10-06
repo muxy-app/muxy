@@ -457,14 +457,14 @@ fn server_command(server: &RemoteServer, model: gpui::WeakEntity<AppModel>) -> C
 fn input(
     model: &AppModel,
     cx: &mut Context<AppModel>,
-    placeholder: &str,
+    placeholder: &'static str,
     text: &str,
 ) -> Entity<TextInput> {
     let style = InputStyle::field(&model.theme, &model.metrics);
-    let (placeholder, text) = (placeholder.to_owned(), text.to_owned());
+    let text = text.to_owned();
     cx.new(|cx| {
         TextInput::new(style, cx)
-            .with_placeholder(placeholder)
+            .with_placeholder_key(placeholder)
             .with_text(text)
     })
 }

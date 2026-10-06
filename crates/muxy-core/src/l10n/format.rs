@@ -3,6 +3,8 @@
 
 use std::borrow::Cow;
 
+const MAX_FIELD_SIZE: usize = 1024;
+
 /// The argument type a placeholder reads. Length modifiers that read the same
 /// type, such as `%ld` and `%lld`, share a kind.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,7 +112,17 @@ fn specifier(format: &str, start: usize) -> Option<(Token<'_>, usize)> {
             return None;
         }
         let end = digits(index);
-        Some((format[index..end].parse().ok(), end))
+        let value = if end == index {
+            None
+        } else {
+            Some(
+                format[index..end]
+                    .parse()
+                    .ok()
+                    .filter(|value| *value <= MAX_FIELD_SIZE)?,
+            )
+        };
+        Some((value, end))
     };
     let (width, after_width) = field(index)?;
     index = after_width;

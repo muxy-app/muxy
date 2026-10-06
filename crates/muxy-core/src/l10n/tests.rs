@@ -102,6 +102,29 @@ fn english_formats_like_printf() {
 }
 
 #[test]
+fn excessive_format_fields_are_rejected_and_render_in_english() {
+    for translation in [
+        "Tab %18446744073709551615lld",
+        "Tab %18446744073709551616lld",
+        "Tab %1025lld",
+        "Tab %.18446744073709551615lld",
+        "Tab %.18446744073709551616lld",
+        "Tab %.1025lld",
+    ] {
+        assert!(tokens(translation).is_none(), "accepted {translation}");
+        let pack = language(&[("Tab %lld", translation)], &[]);
+        assert_eq!(pack.format("Tab %lld", &[1.into()]), "Tab 1");
+    }
+    for invalid in ["%.1025u", "%.1025f", "%1025@"] {
+        assert!(tokens(invalid).is_none(), "accepted {invalid}");
+    }
+    let english = language(&[], &[]);
+    assert_eq!(english.format("%1024d", &[1.into()]).len(), 1024);
+    assert_eq!(english.format("%.1024d", &[1.into()]).len(), 1024);
+    assert_eq!(english.format("%.f", &[1.25.into()]), "1");
+}
+
+#[test]
 fn translations_reorder_and_drop_arguments() {
     let german = language(
         &[

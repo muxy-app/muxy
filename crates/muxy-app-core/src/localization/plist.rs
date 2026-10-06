@@ -1,5 +1,4 @@
-//! The property lists language packs use: old-style `.strings` files and XML
-//! `.stringsdict` and `Info.plist` files, in UTF-8 or UTF-16.
+mod binary;
 
 use std::collections::BTreeMap;
 
@@ -18,7 +17,10 @@ pub(super) enum Value {
 /// Reads a property list whose root is a dictionary, as a `.strings` file's is.
 pub(super) fn dictionary(bytes: &[u8]) -> Result<BTreeMap<String, Value>, String> {
     if bytes.starts_with(b"bplist") {
-        return Err("binary property lists are not supported".into());
+        return match binary::parse(bytes)? {
+            Value::Dictionary(entries) => Ok(entries),
+            _ => Err("the property list is not a dictionary".into()),
+        };
     }
     let text = decode(bytes)?;
     let text = text.trim_start_matches('\u{feff}');

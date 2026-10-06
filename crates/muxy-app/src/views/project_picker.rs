@@ -81,7 +81,7 @@ impl ProjectPicker {
             session,
             search,
             None,
-            tr_key!("Search folders or enter a path…").into(),
+            tr!("Search folders or enter a path…").to_string(),
             theme,
             metrics,
             cx,
