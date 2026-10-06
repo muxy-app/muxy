@@ -601,7 +601,7 @@ impl Composer {
         if self.settings.presentation == ComposerPresentation::Floating {
             let progress = self.visibility.sample(window);
             let scale = 0.98 + progress * 0.02;
-            let dimensions = self.animated_size(window);
+            let dimensions = self.animated_size(window, cx);
             let dimensions = size(dimensions.width * scale, dimensions.height * scale);
             let metrics = self.metrics;
             self.metrics = muxy_ui::theme::Metrics::new(f32::from(metrics.scaled(1.0)) * scale);
@@ -673,14 +673,15 @@ impl Composer {
             .into_any_element()
     }
 
-    fn animated_size(&mut self, window: &Window) -> Size<Pixels> {
+    fn animated_size(&mut self, window: &Window, cx: &Context<Self>) -> Size<Pixels> {
+        let now = cx.background_executor().now();
         let target = self.floating_size(window.viewport_size());
         if self.floating_dimensions != Some(target) {
             if let Some(start) = self.floating_dimensions {
-                self.size_motion = self.floating_resize.is_none().then(|| SizeMotion {
+                self.size_motion = self.floating_resize.is_none().then_some(SizeMotion {
                     start,
                     target,
-                    began: std::time::Instant::now(),
+                    began: now,
                 });
             }
             self.floating_dimensions = Some(target);
@@ -688,7 +689,7 @@ impl Composer {
         let Some(motion) = &self.size_motion else {
             return target;
         };
-        let progress = (motion.began.elapsed().as_secs_f32() / 0.14).min(1.0);
+        let progress = (now.duration_since(motion.began).as_secs_f32() / 0.14).min(1.0);
         if progress >= 1.0 {
             self.size_motion = None;
             return target;

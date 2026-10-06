@@ -24,7 +24,9 @@ impl FakeRemote {
     }
 
     /// Runs `script` in the fake ssh before the remote command, to print
-    /// noise, change PATH, or fail the way ssh does.
+    /// noise, change PATH, or fail the way ssh does. The fake ssh then
+    /// becomes the remote command, so its `$$` is the bridge's pid even where
+    /// /bin/sh is dash, which forks a lone `-c` command instead of becoming it.
     pub(super) fn with_script(script: &str) -> Result<Self> {
         let directory = tempfile::Builder::new()
             .prefix("muxy-ssh-")
@@ -41,7 +43,7 @@ impl FakeRemote {
              unset MUXY_SERVER_BIN MUXY_PANE_ID XDG_STATE_HOME\n\
              {script}\n\
              for last; do :; done\n\
-             exec /bin/sh -c \"$last\"\n",
+             exec /bin/sh -c \"exec $last\"\n",
             home = quote(&remote.home()),
             profile = quote(remote.profile()),
             bin = quote(

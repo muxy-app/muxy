@@ -262,6 +262,17 @@ impl Connection {
             }
         }
     }
+
+    /// Disconnects and waits for the server to let go of the connection. A
+    /// write the server had in flight may fail on the closed socket first.
+    fn disconnect(&self) -> TestResult {
+        self.client.disconnect();
+        match self.finished.recv_timeout(TIMEOUT)? {
+            Ok(()) => Ok(()),
+            Err(WireError::Io(error)) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
 }
 
 #[test]
@@ -804,8 +815,7 @@ fn explicit_disconnect_closes_all_clones_without_ending_sessions() -> TestResult
     let connection = fixture.connect()?;
     let clone = connection.client.clone();
     let session = fixture.create(&clone)?;
-    connection.client.disconnect();
-    connection.finished.recv_timeout(TIMEOUT)??;
+    connection.disconnect()?;
     assert_eq!(
         connection.events.recv_timeout(TIMEOUT)?,
         ClientEvent::Disconnected

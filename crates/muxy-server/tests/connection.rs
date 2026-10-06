@@ -1149,7 +1149,13 @@ fn clients_from_before_v2_are_told_to_update_in_their_own_framing() -> TestResul
     // A pre-V2 hello: version-1 header, then postcard (versions, compatibility).
     socket.write_all(&[10, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 20])?;
     let mut reply = Vec::new();
-    socket.read_to_end(&mut reply)?;
+    // The server closes without reading the hello's payload, which Linux
+    // reports as a reset after the reply.
+    if let Err(error) = socket.read_to_end(&mut reply)
+        && error.kind() != io::ErrorKind::ConnectionReset
+    {
+        return Err(error.into());
+    }
     assert_eq!(reply, muxy_protocol::wire::legacy_version_unsupported());
     serving.join().map_err(|_| "server thread panicked")??;
     Ok(())

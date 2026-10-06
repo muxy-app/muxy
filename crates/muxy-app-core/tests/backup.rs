@@ -65,7 +65,11 @@ fn shortcuts_and_commands_migrate_without_running_commands() {
             .unwrap();
     assert_eq!(
         settings.keymap.binding("new_tab").unwrap().as_str(),
-        "cmd-n"
+        if cfg!(target_os = "macos") {
+            "cmd-n"
+        } else {
+            "ctrl-n"
+        }
     );
     assert_eq!(settings.commands[0].command, "cargo build");
     assert!(

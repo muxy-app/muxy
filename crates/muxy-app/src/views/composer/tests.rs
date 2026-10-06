@@ -47,6 +47,9 @@ fn editor_fills_available_space_in_every_composer_mode(cx: &mut TestAppContext) 
                 for dimensions in [size(px(600.0), px(400.0)), size(px(900.0), px(700.0))] {
                     cx.simulate_resize(dimensions);
                     cx.run_until_parked();
+                    cx.executor().advance_clock(TRANSITION);
+                    cx.update(|window, _| window.refresh());
+                    cx.run_until_parked();
                     let editor = cx.debug_bounds("composer-editor").expect("editor");
                     assert!(editor.size.width > px(250.0));
                     assert!(

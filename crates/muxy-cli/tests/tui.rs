@@ -615,6 +615,12 @@ fn duplicate_tabs_close_independently_and_the_final_tab_ends_the_session() -> Re
     tui.write(b"\x02w")?;
     tui.output("No other terminals in this project")?;
     tui.write(b"\x1b")?;
+    tui.wait(|tui| {
+        Ok(!tui
+            .text()?
+            .iter()
+            .any(|row| row.contains("Existing terminals")))
+    })?;
     assert_eq!(client.list_sessions()?, original);
     tui.write(b"\x02x")?;
     tui.wait(|tui| Ok(tui.tabs()?.len() == 1))?;

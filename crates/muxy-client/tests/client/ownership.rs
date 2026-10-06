@@ -103,14 +103,11 @@ fn shared_layout_instances_are_distinct_and_disconnect_promotes_the_next_client(
         .sync_layout_references(Some(layout), 1, vec![session.id])?;
     desktop.client.sync_session_references(vec![session.id])?;
     assert_eq!(listing(&observer, &session)?.owner, Some(first_id));
-    first.client.disconnect();
-    first.finished.recv_timeout(TIMEOUT)??;
+    first.disconnect()?;
     assert_eq!(listing(&observer, &session)?.owner, Some(second_id));
-    second.client.disconnect();
-    second.finished.recv_timeout(TIMEOUT)??;
+    second.disconnect()?;
     assert_eq!(listing(&observer, &session)?.owner, Some(desktop_id));
-    desktop.client.disconnect();
-    desktop.finished.recv_timeout(TIMEOUT)??;
+    desktop.disconnect()?;
     assert_eq!(listing(&observer, &session)?.owner, None);
     assert!(!fixture.registry.list().is_empty());
     Ok(())
@@ -147,8 +144,7 @@ fn shared_layout_updates_do_not_attach_instances_that_have_not_opened_the_sessio
     );
     desktop.client.sync_session_references(vec![])?;
     assert_eq!(listing(&second, &session)?.owner, Some(first_id));
-    first.client.disconnect();
-    first.finished.recv_timeout(TIMEOUT)??;
+    first.disconnect()?;
     assert_eq!(listing(&second, &session)?.owner, None);
     second
         .client

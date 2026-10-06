@@ -405,12 +405,17 @@ fn unknown_devices_and_wrong_tokens_are_indistinguishable() -> TestResult {
 fn large_frames_before_authentication_are_rejected() -> TestResult {
     let fixture = Fixture::new();
     let mut phone = fixture.connect(true)?;
-    // The server stops reading at the header, so the rest of the write may fail.
+    // The server stops reading at the header, so the rest of the write may
+    // fail, and Linux reports the close as a reset.
     let _ = phone
         .encoder
         .send(CONTROL, &Message::Input(vec![0; 64 * 1024]));
     assert!(matches!(phone.receive()?, (CONTROL, Message::Fatal(_))));
-    phone.closed()
+    match phone.incoming.recv_timeout(TIMEOUT)? {
+        Err(WireError::Closed) => Ok(()),
+        Err(WireError::Io(error)) if error.kind() == std::io::ErrorKind::ConnectionReset => Ok(()),
+        other => Err(format!("expected the connection to close, got {other:?}").into()),
+    }
 }
 
 #[test]
