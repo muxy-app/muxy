@@ -298,3 +298,30 @@ fn toast_body_is_bounded_and_clears_for_a_title_only_notice(cx: &mut TestAppCont
         assert!(model.notice_toast.as_ref().expect("toast").body.is_none());
     });
 }
+
+#[gpui::test]
+fn problem_toast_grows_to_show_its_wrapped_message(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(400.0)));
+    let mut heights = Vec::new();
+    for message in [
+        "Server stopped",
+        "This app and the running server can't talk to each other. Restarting the server will end active terminal sessions.",
+    ] {
+        view.update(cx, |model, cx| {
+            model.set_configuration_error(None);
+            model.fail(message.into(), cx);
+        });
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(crate::model::banners::TOAST_TRANSITION);
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let toast = cx.debug_bounds("workspace-toast").expect("toast");
+        let text = cx.debug_bounds("workspace-toast-message").expect("message");
+        assert!(toast.bottom() >= text.bottom(), "{message}");
+        heights.push(text.size.height);
+    }
+    assert!(heights[1] > heights[0]);
+}

@@ -51,10 +51,8 @@ pub fn toast(
         .border_color(if problem { color } else { theme.border })
         .child(SymbolGlyph::new(symbol, m.font_body(), color))
         .child(
+            // Block layout sets the width before wrapping; a flex column measures text unwrapped.
             div()
-                .flex()
-                .flex_col()
-                .gap(m.spacing1())
                 .min_w(px(0.0))
                 .max_w(m.scaled(if problem { 420.0 } else { 360.0 }))
                 .child(
@@ -77,6 +75,7 @@ pub fn toast(
                         div()
                             .id("workspace-toast-body")
                             .debug_selector(|| "workspace-toast-body".into())
+                            .mt(m.spacing1())
                             .text_size(m.font_footnote())
                             .text_color(theme.fg_muted)
                             .map(|text| {

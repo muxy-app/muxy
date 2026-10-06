@@ -94,7 +94,8 @@ and stop.
 - Settings is one window, separate from projects. It works while offline, and
   changes apply immediately.
 - App preferences live in `settings.toml`, terminal preferences in
-  `ghostty.conf`, and custom themes in `themes/`.
+  `ghostty.conf`, and custom themes in `themes/`. Themes in
+  `~/.config/ghostty/themes` work too.
 - Every keyboard shortcut can be changed. Normal keystrokes in a terminal always
   go to the terminal.
 - Server settings, such as the shell and history size, apply to the selected

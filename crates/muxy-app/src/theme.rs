@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gpui::{Window, WindowAppearance};
 use muxy_app_core::settings::Appearance;
@@ -22,11 +22,24 @@ pub(crate) struct Catalog {
 
 impl Catalog {
     pub(crate) fn load(directory: &Path) -> Self {
+        let ghostty =
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/ghostty/themes"));
+        Self::load_with_ghostty(directory, ghostty.as_deref())
+    }
+
+    /// Themes in Muxy's directory replace Ghostty's, which replace the bundled ones.
+    fn load_with_ghostty(directory: &Path, ghostty: Option<&Path>) -> Self {
         let mut entries: BTreeMap<_, _> = muxy_ui::assets::Assets::themes()
             .map(|(name, source)| (name.to_owned(), ColorScheme::parse(source)))
             .collect();
+        if let Some(ghostty) = ghostty {
+            let mut ignored = Vec::new();
+            Self::read_directory(ghostty, &mut entries, &mut ignored).ok();
+        }
         let mut errors = Vec::new();
-        if let Err(error) = Self::read_directory(directory, &mut entries, &mut errors) {
+        if let Err(error) = fs::create_dir_all(directory)
+            .and_then(|()| Self::read_directory(directory, &mut entries, &mut errors))
+        {
             errors.push(format!(
                 "Could not load themes from {}: {error}",
                 directory.display()
@@ -51,7 +64,6 @@ impl Catalog {
         entries: &mut BTreeMap<String, ColorScheme>,
         errors: &mut Vec<String>,
     ) -> std::io::Result<()> {
-        fs::create_dir_all(directory)?;
         let mut paths = fs::read_dir(directory)?
             .map(|entry| entry.map(|entry| entry.path()))
             .collect::<std::io::Result<Vec<_>>>()?;
@@ -72,11 +84,7 @@ impl Catalog {
                         ));
                         continue;
                     }
-                    let name = name
-                        .strip_suffix(".conf")
-                        .or_else(|| name.strip_suffix(".theme"))
-                        .unwrap_or(name);
-                    entries.insert(name.to_owned(), scheme);
+                    entries.insert(theme_name(name).to_owned(), scheme);
                 }
                 Err(error) => errors.push(format!("Could not read theme {name}: {error}")),
             }
@@ -91,10 +99,14 @@ impl Catalog {
             &appearance.light_theme
         };
         let fallback = if dark { "Muxy" } else { "Muxy Light" };
-        self.entries
-            .iter()
-            .find(|entry| &entry.name == name)
-            .or_else(|| self.entries.iter().find(|entry| entry.name == fallback))
+        self.find(name).or_else(|| self.find(fallback))
+    }
+
+    /// Accepts a theme's file name as Ghostty does, such as `theme = Dracula.conf`.
+    fn find(&self, name: &str) -> Option<&Entry> {
+        [name, theme_name(name)]
+            .into_iter()
+            .find_map(|name| self.entries.iter().find(|entry| entry.name == name))
     }
 
     pub(crate) fn terminal_palette(
@@ -108,12 +120,12 @@ impl Catalog {
             return Ok(fallback.with_options(options));
         };
         let name = terminal_theme_name(value, dark)?;
-        let palette = if let Some(entry) = self.entries.iter().find(|entry| entry.name == name) {
+        let palette = if let Some(entry) = self.find(name) {
             Palette::from_scheme(&entry.scheme, dark)
         } else {
             let path = if let Some(rest) = name.strip_prefix("~/") {
                 std::env::var_os("HOME")
-                    .map(std::path::PathBuf::from)
+                    .map(PathBuf::from)
                     .ok_or("Cannot resolve theme without a home directory")?
                     .join(rest)
             } else {
@@ -146,6 +158,12 @@ impl Catalog {
             Palette::from_scheme(&scheme, dark),
         )
     }
+}
+
+fn theme_name(file: &str) -> &str {
+    file.strip_suffix(".conf")
+        .or_else(|| file.strip_suffix(".theme"))
+        .unwrap_or(file)
 }
 
 fn terminal_theme_name(value: &str, dark: bool) -> Result<&str, String> {
@@ -229,7 +247,8 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let directory = std::env::temp_dir().join(format!("muxy-themes-{}", std::process::id()));
         fs::create_dir_all(&directory)?;
-        let original = Catalog::load(&directory);
+        let load = |directory: &Path| Catalog::load_with_ghostty(directory, None);
+        let original = load(&directory);
         assert!(original.errors.is_empty());
         assert_eq!(original.entries.len(), 490);
         assert!(original.entries.iter().all(|entry| entry.scheme.background.is_some() && entry.scheme.foreground.is_some()));
@@ -243,7 +262,7 @@ mod tests {
         )?;
         fs::write(directory.join("Broken"), "background = invalid\n")?;
         fs::create_dir_all(directory.join("Subdirectory"))?;
-        let catalog = Catalog::load(&directory);
+        let catalog = load(&directory);
         assert_eq!(catalog.errors.len(), 1);
         assert_eq!(catalog.entries.len(), original.entries.len() + 1);
         let appearance = Appearance {
@@ -260,21 +279,56 @@ mod tests {
             "background = 345678\nforeground = abcdef\n",
         )?;
         assert_eq!(
-            Catalog::load(&directory)
-                .resolve(&appearance, true)
-                .1
-                .background,
+            load(&directory).resolve(&appearance, true).1.background,
             0x34_56_78
         );
         fs::remove_file(directory.join("Custom.conf"))?;
         assert_eq!(
-            Catalog::load(&directory)
-                .resolve(&appearance, true)
-                .1
-                .background,
+            load(&directory).resolve(&appearance, true).1.background,
             0x23_45_67
         );
         fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn ghostty_themes_load_between_bundled_and_muxy_themes_without_duplicates()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let muxy = tempfile::tempdir()?;
+        let ghostty = tempfile::tempdir()?;
+        let bundled = Catalog::load_with_ghostty(muxy.path(), None).entries.len();
+        let theme = |background: &str| format!("background = {background}\nforeground = abcdef\n");
+        fs::write(ghostty.path().join("Muxy Neon"), theme("123456"))?;
+        fs::write(ghostty.path().join("Shared"), theme("111111"))?;
+        fs::write(muxy.path().join("Shared.conf"), theme("222222"))?;
+        fs::write(ghostty.path().join("Muxy"), theme("333333"))?;
+        fs::write(ghostty.path().join("Catppuccin.conf"), theme("444444"))?;
+        fs::write(ghostty.path().join("Notes"), "not a theme")?;
+        let catalog = Catalog::load_with_ghostty(muxy.path(), Some(ghostty.path()));
+        assert!(catalog.errors.is_empty(), "{:?}", catalog.errors);
+        assert_eq!(catalog.entries.len(), bundled + 3);
+        for (name, background) in [
+            ("Muxy Neon", 0x12_34_56),
+            ("Shared", 0x22_22_22),
+            ("Muxy", 0x33_33_33),
+            ("Catppuccin.conf", 0x44_44_44),
+            ("Shared.conf", 0x22_22_22),
+        ] {
+            let options = muxy_app_core::settings::TerminalOptions {
+                theme: Some(name.into()),
+                ..Default::default()
+            };
+            let palette =
+                catalog.terminal_palette(&Palette::new(true), &options, true, muxy.path())?;
+            assert_eq!(palette.background, background, "{name}");
+        }
+        let missing = ghostty.path().join("missing");
+        assert!(
+            Catalog::load_with_ghostty(muxy.path(), Some(&missing))
+                .errors
+                .is_empty()
+        );
+        assert!(!missing.exists());
         Ok(())
     }
 }
