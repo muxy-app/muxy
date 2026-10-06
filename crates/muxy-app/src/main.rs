@@ -107,7 +107,6 @@ fn main() -> ExitCode {
     #[cfg(target_os = "macos")]
     muxy_ui::native_scroll::use_overlay_scrollers();
     let application = Application::new().with_assets(muxy_ui::assets::Assets);
-    // Folders opened at launch arrive before the window exists.
     let (folders, opened_folders) = async_channel::unbounded();
     application.on_open_urls(move |urls| {
         let _ = folders.try_send(urls);

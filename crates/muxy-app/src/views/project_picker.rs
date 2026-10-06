@@ -846,9 +846,6 @@ impl AppModel {
         }
     }
 
-    /// Folders from `muxy <folder>` arrive as file URLs, also while the app
-    /// launches. Each selects its project, adding it first if needed, once
-    /// this connection has read this computer's projects.
     pub(crate) fn open_folders_from(
         folders: async_channel::Receiver<Vec<String>>,
         cx: &mut Context<Self>,
@@ -860,7 +857,7 @@ impl AppModel {
                         model
                             .pending_folders
                             .extend(urls.iter().filter_map(|url| folder_from_url(url)));
-                        if model.local_projects_read() {
+                        if model.can_open_local_folders() {
                             model.resume_folders(ServerId::local(), cx);
                         }
                     })
@@ -873,8 +870,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Opens the waiting folders once this computer's projects are known, or
-    /// with the saved ones when its server can't be reached.
     pub(crate) fn resume_folders(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if server.is_local() {
             for folder in std::mem::take(&mut self.pending_folders) {
@@ -883,8 +878,6 @@ impl AppModel {
         }
     }
 
-    /// Reuses the local project that has `folder` under any spelling, such as
-    /// through a symlink, as `muxy project` selectors do.
     fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
         let canonical = folder.canonicalize().ok();
         let existing = self
@@ -986,17 +979,13 @@ fn current_picker(
         && picker.read(cx).generation == generation
 }
 
-/// The folder a `file://` URL names, without the trailing slash macOS adds,
-/// so it matches the stored project directory.
 fn folder_from_url(url: &str) -> Option<PathBuf> {
-    match muxy_app_core::opener::Target::file(url, Path::new("/"), None, Path::is_dir)? {
-        muxy_app_core::opener::Target::File(muxy_app_core::opener::FileLocation {
-            path,
-            line: None,
-            ..
-        }) if url.starts_with("file://") => Some(path.components().collect()),
-        _ => None,
+    let url = reqwest::Url::parse(url).ok()?;
+    if url.scheme() != "file" || url.query().is_some() || url.fragment().is_some() {
+        return None;
     }
+    let path = url.to_file_path().ok()?;
+    path.is_dir().then(|| path.components().collect())
 }
 
 #[cfg(not(test))]
@@ -1115,6 +1104,32 @@ pub(crate) fn display_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use gpui::TestAppContext;
+
+    #[test]
+    fn folder_urls_only_accept_existing_local_directories() {
+        let root = tempfile::tempdir().expect("temporary folder");
+        let folder = root.path().join("Project #1? %");
+        std::fs::create_dir(&folder).expect("mkdir");
+        let url = reqwest::Url::from_directory_path(&folder).expect("file URL");
+        assert_eq!(folder_from_url(url.as_str()), Some(folder.clone()));
+        let localhost = url.as_str().replacen("file:///", "file://localhost/", 1);
+        assert_eq!(folder_from_url(&localhost), Some(folder.clone()));
+        let file = root.path().join("notes.txt");
+        std::fs::write(&file, "").expect("file");
+        for invalid in [
+            folder.to_string_lossy().into_owned(),
+            format!("https://localhost{}", url.path()),
+            format!("file://elsewhere{}", url.path()),
+            format!("{url}?line=1"),
+            format!("{url}#fragment"),
+            reqwest::Url::from_file_path(file).expect("file URL").into(),
+            reqwest::Url::from_directory_path(root.path().join("Missing"))
+                .expect("file URL")
+                .into(),
+        ] {
+            assert!(folder_from_url(&invalid).is_none(), "{invalid}");
+        }
+    }
 
     #[gpui::test]
     fn remote_navigation_reloads_and_never_completes_stale_rows(cx: &mut TestAppContext) {

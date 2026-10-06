@@ -1,6 +1,3 @@
-//! `muxy <folder>`: opens the folder as a project in the desktop app, which
-//! adds it or selects the project that already has it.
-
 use std::io;
 use std::path::Path;
 
@@ -21,8 +18,6 @@ pub(crate) fn run(word: &Path) -> io::Result<()> {
     open(&folder)
 }
 
-/// Hands the folder to the app that ships this executable, so both are the
-/// same version, or to the installed one when this executable stands alone.
 #[cfg(target_os = "macos")]
 fn open(folder: &Path) -> io::Result<()> {
     use std::process::{Command, Stdio};

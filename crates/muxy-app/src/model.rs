@@ -135,8 +135,6 @@ pub(crate) struct AppModel {
     /// Add Project waits for this server to be ready, then opens its picker,
     /// if that happens soon after the user asked.
     pub(crate) pending_remote_picker: Option<(ServerId, std::time::Instant)>,
-    /// Folders from `muxy <folder>` wait for this computer's projects, so
-    /// one added elsewhere while the app was closed isn't added twice.
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,

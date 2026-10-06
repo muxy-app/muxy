@@ -19,7 +19,6 @@ pub(crate) enum Command {
     Mobile(Mobile),
     /// Joins stdin and stdout to the server, for clients on other computers.
     Stdio(Start),
-    /// Opens a folder as a project in the desktop app.
     Open(PathBuf),
 }
 
@@ -87,8 +86,6 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
     }
 }
 
-/// A lone word that is neither a command nor an option; `./project` reaches a
-/// folder named like a command.
 fn names_folder(word: &OsStr) -> bool {
     !word.is_empty()
         && !word.as_encoded_bytes().starts_with(b"-")

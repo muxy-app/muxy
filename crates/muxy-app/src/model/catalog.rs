@@ -1,4 +1,4 @@
-use super::{AppModel, Work};
+use super::{AppModel, ConnectionState, Work};
 use gpui::Context;
 use muxy_app_core::{AppError, ServerId};
 use muxy_client::ClientError;
@@ -16,11 +16,10 @@ impl AppModel {
             })
     }
 
-    /// Whether this connection has read this computer's projects.
-    pub(crate) fn local_projects_read(&self) -> bool {
-        self.servers
-            .get(ServerId::local())
-            .is_some_and(|runtime| runtime.catalog.identified)
+    pub(crate) fn can_open_local_folders(&self) -> bool {
+        self.servers.get(ServerId::local()).is_some_and(|runtime| {
+            runtime.catalog.identified || runtime.connection == ConnectionState::Disconnected
+        })
     }
 
     pub(super) fn refresh_catalog(&mut self, server: ServerId, cx: &mut Context<Self>) {
