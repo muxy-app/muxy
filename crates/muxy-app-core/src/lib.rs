@@ -10,6 +10,7 @@ pub mod extensions;
 mod home;
 mod ids;
 mod layout;
+pub mod localization;
 pub mod modal;
 pub mod opener;
 mod pane;

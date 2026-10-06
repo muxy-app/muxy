@@ -3,6 +3,8 @@ use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
 use objc2_foundation::{NSArray, NSData, NSString, NSURL};
 use std::{marker::PhantomData, path::PathBuf, rc::Rc};
 
+use crate::tr;
+
 type Snapshot = Vec<Vec<(String, Vec<u8>)>>;
 
 #[derive(Debug)]
@@ -39,7 +41,7 @@ pub fn read_content() -> Result<Content, String> {
     ] {
         if let Some(data) = board.dataForType(&NSString::from_str(identifier)) {
             if data.len() > 25 * 1024 * 1024 {
-                return Err("Copied image is larger than 25 MiB".into());
+                return Err(tr!("Copied image is larger than 25 MiB").to_string());
             }
             return Ok(Content::Image(data.to_vec()));
         }
@@ -71,13 +73,13 @@ impl Lease {
                 for identifier in &item.types() {
                     let data = item
                         .dataForType(&identifier)
-                        .ok_or("Could not preserve the clipboard")?;
+                        .ok_or_else(|| tr!("Could not preserve the clipboard").to_string())?;
                     total += data.len();
                     if total > 64 * 1024 * 1024 {
-                        return Err(
+                        return Err(tr!(
                             "Clipboard is too large to preserve. Use inline image paths instead."
-                                .into(),
-                        );
+                        )
+                        .to_string());
                     }
                     representations.push((identifier.to_string(), data.to_vec()));
                 }
@@ -85,7 +87,7 @@ impl Lease {
             }
         }
         if board.changeCount() != count {
-            return Err("Clipboard changed during capture. Try again.".into());
+            return Err(tr!("Clipboard changed during capture. Try again.").to_string());
         }
         Ok(Self {
             board,
@@ -98,7 +100,7 @@ impl Lease {
     pub fn write_png(&mut self, png: Vec<u8>) -> Result<(), String> {
         let board = &self.board;
         if board.changeCount() != self.count {
-            return Err("Clipboard changed during submission; sending stopped.".into());
+            return Err(tr!("Clipboard changed during submission; sending stopped.").to_string());
         }
         let result = write(board, &vec![vec![("public.png".into(), png)]]);
         self.count = board.changeCount();
@@ -121,7 +123,7 @@ fn write(board: &NSPasteboard, snapshot: &Snapshot) -> Result<(), String> {
         let item = NSPasteboardItem::new();
         for (identifier, bytes) in representations {
             if !item.setData_forType(&NSData::with_bytes(bytes), &NSString::from_str(identifier)) {
-                return Err("Could not write clipboard data".into());
+                return Err(tr!("Could not write clipboard data").to_string());
             }
         }
         items.push(item);
@@ -134,7 +136,7 @@ fn write(board: &NSPasteboard, snapshot: &Snapshot) -> Result<(), String> {
     let written: bool = unsafe { msg_send![board, writeObjects: &*items] };
     written
         .then_some(())
-        .ok_or_else(|| "Could not replace clipboard contents".into())
+        .ok_or_else(|| tr!("Could not replace clipboard contents").to_string())
 }
 
 #[cfg(test)]

@@ -11,6 +11,8 @@ use objc2_app_kit::{
 };
 use objc2_foundation::NSString;
 
+use crate::tr;
+
 #[allow(
     unsafe_code,
     reason = "AppKit text delegates and target/action use Objective-C FFI."
@@ -83,13 +85,13 @@ pub fn consent(
     alert.setInformativeText(&NSString::from_str(message));
     alert.setAlertStyle(NSAlertStyle::Warning);
     for (label, key) in [
-        ("Allow & Remember", "\r"),
-        ("Allow", ""),
-        ("Cancel", "\u{1b}"),
-        ("Deny & Remember", ""),
+        (tr!("Allow & Remember"), "\r"),
+        (tr!("Allow"), ""),
+        (tr!("Cancel"), "\u{1b}"),
+        (tr!("Deny & Remember"), ""),
     ] {
         alert
-            .addButtonWithTitle(&NSString::from_str(label))
+            .addButtonWithTitle(&NSString::from_str(&label))
             .setKeyEquivalent(&NSString::from_str(key));
     }
     alert.setShowsSuppressionButton(true);
@@ -147,12 +149,13 @@ pub fn confirm(
     suppression_label: Option<&str>,
     on_complete: impl FnOnce(ConfirmationResponse) + 'static,
 ) -> io::Result<Confirmation> {
+    let cancel = tr!("Cancel");
     two_button_alert(
         window,
         NSAlertStyle::Warning,
         title,
         message,
-        [confirm_label, "Cancel"],
+        [confirm_label, &cancel],
         suppression_label,
         move |response, dont_ask_again| on_complete(classify(response, dont_ask_again)),
     )

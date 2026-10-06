@@ -1,6 +1,7 @@
 use gpui::{AnyWindowHandle, AsyncApp};
 use muxy_protocol::ProjectId;
 use muxy_ui::controls::Style;
+use muxy_ui::tr;
 
 use crate::ai::Provider;
 use crate::repository_actions::Action;
@@ -17,23 +18,26 @@ pub(crate) struct AiConfirmation {
 impl AiConfirmation {
     fn title(&self) -> String {
         match self.action {
-            Action::Commit => format!("Commit and push to \"{}\"?", self.branch),
+            Action::Commit => tr!("Commit and push to \"%@\"?", &self.branch).into(),
             Action::CreatePullRequest => {
-                format!("Create a pull request from \"{}\"?", self.branch)
+                tr!("Create a pull request from \"%@\"?", &self.branch).into()
             }
         }
     }
 
     fn message(&self) -> String {
         match self.action {
-            Action::Commit => format!(
-                "Muxy will stage all changes, ask {} for a commit message, then commit and push to \"{}\".",
-                self.provider.name, self.branch
-            ),
-            Action::CreatePullRequest => format!(
-                "Muxy will stage all changes, ask {} for a branch name, title, and summary, then create the branch, commit, push, and open the pull request on GitHub.",
+            Action::Commit => tr!(
+                "Muxy will stage all changes, ask %@ for a commit message, then commit and push to \"%@\".",
+                self.provider.name,
+                &self.branch
+            )
+            .into(),
+            Action::CreatePullRequest => tr!(
+                "Muxy will stage all changes, ask %@ for a branch name, title, and summary, then create the branch, commit, push, and open the pull request on GitHub.",
                 self.provider.name
-            ),
+            )
+            .into(),
         }
     }
 
@@ -51,7 +55,7 @@ impl AiConfirmation {
                     window,
                     &self.title(),
                     &self.message(),
-                    self.action.settings_title(),
+                    &muxy_ui::l10n::translate(self.action.settings_title()),
                     style,
                     move |response| {
                         let _ = sender.try_send(response);

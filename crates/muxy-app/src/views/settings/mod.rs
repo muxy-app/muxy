@@ -28,10 +28,13 @@ use gpui::{
     div, px,
 };
 use muxy_app_core::settings::{Settings, TerminalSettings};
+use muxy_core::l10n::{searchable, translate};
+use muxy_core::tr_key;
 use muxy_ui::controls::{self, Style};
 use muxy_ui::form;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 
 pub(crate) fn register_commands(
     registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
@@ -42,7 +45,7 @@ pub(crate) fn register_commands(
     registry.register(action(
         model,
         ShortcutId::OpenSettings,
-        "Open Settings",
+        tr_key!("Open Settings"),
         super::workspace::OpenSettings,
     ));
 }
@@ -79,20 +82,21 @@ impl Category {
         Self::Backup,
     ];
 
+    /// The English name; also the key of its translation.
     fn label(self) -> &'static str {
         match self {
-            Self::General => "General",
-            Self::Ai => "AI",
-            Self::Composer => "Composer",
-            Self::QuickTerminal => "Quick Terminal",
-            Self::Appearance => "Appearance",
-            Self::Terminal => "Terminal",
-            Self::Keyboard => "Keyboard",
-            Self::Commands => "Commands",
-            Self::Server => "Server",
-            Self::Mobile => "Mobile",
-            Self::Extensions => "Extensions",
-            Self::Backup => "Backup & Restore",
+            Self::General => tr_key!("General"),
+            Self::Ai => tr_key!("AI"),
+            Self::Composer => tr_key!("Composer"),
+            Self::QuickTerminal => tr_key!("Quick Terminal"),
+            Self::Appearance => tr_key!("Appearance"),
+            Self::Terminal => tr_key!("Terminal"),
+            Self::Keyboard => tr_key!("Keyboard"),
+            Self::Commands => tr_key!("Commands"),
+            Self::Server => tr_key!("Server"),
+            Self::Mobile => tr_key!("Mobile"),
+            Self::Extensions => tr_key!("Extensions"),
+            Self::Backup => tr_key!("Backup & Restore"),
         }
     }
 }
@@ -106,6 +110,8 @@ pub(crate) enum Change {
     SidebarVibrancy(bool),
     /// The extension whose sidebar replaces the built-in one; empty for built-in.
     ExtensionSidebar(String),
+    /// The app language as `<extension>:<localization>`; empty for English.
+    Language(String),
     Worktrees(&'static str, bool),
     SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
     StatusBar(bool),
@@ -160,6 +166,8 @@ pub(crate) struct Snapshot {
     pub(crate) sidebars: Vec<(String, String)>,
     /// Enabled extensions' file openers, as `(setting value, label)`.
     pub(crate) file_openers: Vec<(String, String)>,
+    /// Languages enabled extensions provide, as `(selection, label)`.
+    pub(crate) languages: Vec<(String, String)>,
     pub(crate) extension_shortcuts: Vec<crate::model::extensions::ExtensionShortcut>,
 }
 
@@ -220,7 +228,7 @@ impl SettingsView {
     ) -> Self {
         let search = cx.new(|cx| {
             TextInput::new(InputStyle::field(&theme, &metrics), cx)
-                .with_placeholder("Search settings…")
+                .with_placeholder_key(tr_key!("Search settings…"))
         });
         let search_subscription = cx.subscribe(&search, |pane: &mut Self, _, event, cx| {
             if matches!(event, InputEvent::Changed) {
@@ -257,7 +265,7 @@ impl SettingsView {
             scrollbar: muxy_ui::scrollbar::ListScrollbar::default(),
             shortcut_names: muxy_core::shortcuts::ALL
                 .iter()
-                .map(|shortcut| shortcut.id.replace(['_', '.'], " "))
+                .map(muxy_core::shortcuts::Shortcut::label)
                 .collect(),
             category: Category::General,
             section: None,
@@ -280,6 +288,7 @@ impl SettingsView {
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
                 PickerKind::ExtensionSidebar,
                 PickerKind::FileOpener,
+                PickerKind::AppLanguage,
             ]
             .into_iter()
             .map(|kind| (kind, PickerAnchor::default()))
@@ -526,8 +535,11 @@ impl SettingsView {
     pub(crate) fn set_included_keys(&mut self, keys: &HashSet<String>) {
         self.results.dirty = true;
         self.notes.clear();
+        let note = tr!(
+            "A config-file include supplies this setting. Edit the included file to change its value."
+        );
         for key in keys {
-            self.notes.insert(key.clone(), "A config-file include supplies this setting. Edit the included file to change its value.".into());
+            self.notes.insert(key.clone(), note.to_string());
         }
     }
 
@@ -556,6 +568,14 @@ impl SettingsView {
         }
     }
 
+    /// Shows Extensions → Browse limited to language packs.
+    fn browse_languages(&mut self, cx: &mut Context<Self>) {
+        self.show_extensions(cx);
+        if let Some(extensions) = &self.extensions {
+            extensions.update(cx, extensions::ExtensionsView::browse_languages);
+        }
+    }
+
     pub(crate) fn show_extensions(&mut self, cx: &mut Context<Self>) {
         self.category = Category::Extensions;
         self.query.clear();
@@ -573,21 +593,19 @@ impl SettingsView {
                     .section
                     .is_none_or(|section| setting.is_none_or(|setting| setting.section == section))
         } else {
-            let text = setting
-                .map_or_else(
-                    || format!("{} {label}", category.label()),
-                    |setting| {
-                        format!(
-                            "{} {} {} {} {}",
-                            category.label(),
-                            setting.section,
-                            setting.id,
-                            label,
-                            setting.description
-                        )
-                    },
-                )
-                .to_lowercase();
+            let text = setting.map_or_else(
+                || format!("{} {}", searchable(category.label()), searchable(label)),
+                |setting| {
+                    format!(
+                        "{} {} {} {} {}",
+                        searchable(category.label()),
+                        searchable(setting.section),
+                        setting.id,
+                        searchable(label),
+                        searchable(setting.description)
+                    )
+                },
+            );
             self.query
                 .split_whitespace()
                 .all(|word| text.contains(word))
@@ -619,6 +637,8 @@ impl SettingsView {
         }
     }
 
+    /// A setting row. `label` is the English key it is listed and searched
+    /// by; an explicit `description` is already translated.
     fn row(&self, id: &str, label: &str, control: AnyElement) -> AnyElement {
         self.row_with(id, label, control, self.compact)
     }
@@ -635,8 +655,21 @@ impl SettingsView {
         control: AnyElement,
         stacked: bool,
     ) -> AnyElement {
+        self.text_row(id, &translate(label), description, control, stacked)
+    }
+
+    /// A row whose label is shown as given, such as a custom command's name.
+    fn text_row(
+        &self,
+        id: &str,
+        label: &str,
+        description: Option<&str>,
+        control: AnyElement,
+        stacked: bool,
+    ) -> AnyElement {
         let setting = catalog::setting(id);
-        let description = description.or_else(|| setting.map(|setting| setting.description));
+        let catalog_description = setting.map(|setting| translate(setting.description));
+        let description = description.or(catalog_description.as_deref());
         let section = setting
             .filter(|setting| {
                 !catalog::SETTINGS

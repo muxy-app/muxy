@@ -11,6 +11,7 @@ use crate::boot::Work;
 use crate::server::{ServerUpdate, UpdateMode};
 use crate::updater::{Installation, PreparedUpdate, Release};
 use muxy_app_core::ServerId;
+use muxy_ui::tr;
 
 pub(crate) use status::UpdateAction;
 use std::io::Write;
@@ -75,8 +76,10 @@ impl Updater {
 impl AppModel {
     pub(super) fn start_update_checks(&mut self, cx: &mut Context<Self>) {
         if crate::updater::build_number(env!("CARGO_PKG_VERSION")).is_none() {
-            self.updates.unavailable =
-                Some("Automatic updates are available in installed releases of Muxy Beta".into());
+            self.updates.unavailable = Some(
+                tr!("Automatic updates are available in installed releases of Muxy Beta")
+                    .to_string(),
+            );
             return;
         }
         let record = self.path.with_file_name("pending-update.json");
@@ -92,7 +95,7 @@ impl AppModel {
                     match pending {
                         Ok(Some((update, scheduled))) => { model.updates.ready = Some(update); model.updates.scheduled = scheduled; }
                         Ok(None) => {},
-                        Err(error) => model.fail(format!("Could not restore the pending update: {error}. Check for updates to retry."), cx),
+                        Err(error) => model.fail(tr!("Could not restore the pending update: %@. Check for updates to retry.", error.to_string()).to_string(), cx),
                     }
                     model.updates.installation = Some(installation);
                     if let Some(server) = model.updates.server.clone() { model.receive_server_info(server, cx); }
@@ -140,7 +143,8 @@ impl AppModel {
     pub(super) fn update_connect_failed(&mut self) {
         if self.updates.replacing() {
             self.updates.phase = ServerUpdatePhase::Failed;
-            self.updates.server_error = Some("Could not reconnect to the updated server.".into());
+            self.updates.server_error =
+                Some(tr!("Could not reconnect to the updated server.").to_string());
         }
     }
 
@@ -163,7 +167,8 @@ impl AppModel {
             Ok(()) => self.updates.phase = ServerUpdatePhase::Reconnecting,
             Err(error) => {
                 self.updates.phase = ServerUpdatePhase::Failed;
-                let message = format!("Could not restart the server: {error}");
+                let message =
+                    tr!("Could not restart the server: %@", error.to_string()).to_string();
                 self.updates.server_error = Some(message.clone());
                 self.fail(message, cx);
             }
@@ -194,8 +199,8 @@ impl AppModel {
         }
         self.updates.server.as_ref().map(|server| {
             if self.server_update_pending() {
-                format!("Server {} · Update {} pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions.", server.build.version, env!("CARGO_PKG_VERSION"))
-            } else { format!("Server {}", server.build.version) }
+                tr!("Server %@ · Update %@ pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions.", &server.build.version, env!("CARGO_PKG_VERSION")).to_string()
+            } else { tr!("Server %@", &server.build.version).to_string() }
         })
     }
 
@@ -296,7 +301,7 @@ impl AppModel {
             }
             Err(error) => {
                 self.updates.phase = ServerUpdatePhase::Failed;
-                let message = format!("Could not update the server: {error}");
+                let message = tr!("Could not update the server: %@", error.to_string()).to_string();
                 self.updates.server_error = Some(message.clone());
                 self.fail(message, cx);
                 self.ensure_visible(cx);
@@ -318,10 +323,9 @@ impl AppModel {
         let Some(installation) = self.updates.installation.clone() else {
             if manual {
                 self.update_message(
-                    self.updates
-                        .unavailable
-                        .as_deref()
-                        .unwrap_or("The updater is starting. Try again shortly."),
+                    &self.updates.unavailable.clone().unwrap_or_else(|| {
+                        tr!("The updater is starting. Try again shortly.").to_string()
+                    }),
                     cx,
                 );
             }
@@ -410,13 +414,16 @@ impl AppModel {
                     if self.updates.ready.is_some() {
                         self.confirm_update(cx);
                     } else {
-                        self.update_message("You’re running the latest Muxy 2.x beta.", cx);
+                        self.update_message(&tr!("You’re running the latest Muxy 2.x beta."), cx);
                     }
                 }
             }
             Err(error) => {
-                let message =
-                    format!("Could not check for or download the latest app update: {error}");
+                let message = tr!(
+                    "Could not check for or download the latest app update: %@",
+                    error.to_string()
+                )
+                .to_string();
                 self.updates.app_error = Some(message.clone());
                 if manual {
                     self.update_message(&message, cx);
@@ -444,9 +451,9 @@ impl AppModel {
         let _ = self.window.update(cx, |_, window, cx| {
             let response = window.prompt(
                 gpui::PromptLevel::Info,
-                "Muxy Beta Updates",
+                &tr!("Muxy Beta Updates"),
                 Some(message),
-                &["OK"],
+                &[tr!("OK").as_ref()],
                 cx,
             );
             cx.spawn(async move |_| {
@@ -531,7 +538,10 @@ impl AppModel {
                 self.reconcile_server_update(cx);
                 cx.notify();
             }
-            Err(error) => self.fail(format!("Could not save the update schedule: {error}"), cx),
+            Err(error) => self.fail(
+                tr!("Could not save the update schedule: %@", error.to_string()).to_string(),
+                cx,
+            ),
         }
     }
 
@@ -546,7 +556,7 @@ impl AppModel {
             return;
         }
         if !self.ready(ServerId::local()) {
-            self.fail("Connect to the server before installing so Muxy can check whether sessions can be preserved".into(), cx);
+            self.fail(tr!("Connect to the server before installing so Muxy can check whether sessions can be preserved").to_string(), cx);
             return;
         }
         if self.updates.server.is_none() {
@@ -605,7 +615,9 @@ impl AppModel {
             }
             Err(error) => {
                 self.quitting = Quitting::Idle;
-                self.updates.app_error = Some(format!("Could not prepare the app update: {error}"));
+                self.updates.app_error = Some(
+                    tr!("Could not prepare the app update: %@", error.to_string()).to_string(),
+                );
                 if matches!(&error, muxy_client::ClientError::Io(error) if error.kind() == std::io::ErrorKind::InvalidData)
                 {
                     self.updates.ready = None;
@@ -613,7 +625,11 @@ impl AppModel {
                     let _ = std::fs::remove_file(self.path.with_file_name("pending-update.json"));
                 }
                 self.fail(
-                    format!("Could not prepare the update: {error}. Check for updates to retry."),
+                    tr!(
+                        "Could not prepare the update: %@. Check for updates to retry.",
+                        error.to_string()
+                    )
+                    .to_string(),
                     cx,
                 );
                 return;
@@ -640,10 +656,14 @@ impl AppModel {
                 }
                 Err(error) => {
                     model.quitting = Quitting::Idle;
-                    model.updates.app_error =
-                        Some(format!("Could not install the app update: {error}"));
+                    model.updates.app_error = Some(
+                        tr!("Could not install the app update: %@", error.to_string()).to_string(),
+                    );
                     model.connect(cx);
-                    model.fail(format!("Could not install the beta: {error}"), cx);
+                    model.fail(
+                        tr!("Could not install the beta: %@", error.to_string()).to_string(),
+                        cx,
+                    );
                 }
             });
         }));

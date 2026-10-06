@@ -4,6 +4,7 @@ use gpui::{
 };
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
+use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::tips::{TIPS, TipPlacement};
@@ -53,7 +54,7 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                                 theme.fg,
                             )
                             .tooltip(
-                                "Show Muxy Tip",
+                                tr!("Show Muxy Tip"),
                                 theme.raised(),
                                 theme.fg,
                                 theme.border,
@@ -115,7 +116,7 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .text_size(m.font_caption())
                 .font_weight(FontWeight::BOLD)
                 .text_color(theme.accent)
-                .child("MUXY TIP"),
+                .child(tr!("MUXY TIP")),
         )
         .child(
             div().debug_selector(|| "hide-tips".into()).child(
@@ -128,7 +129,7 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                     theme.fg,
                 )
                 .tooltip(
-                    "Hide Tips",
+                    tr!("Hide Tips"),
                     theme.raised(),
                     theme.fg,
                     theme.border,
@@ -147,7 +148,7 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .flex_1()
                 .text_size(m.font_caption())
                 .text_color(theme.fg_dim)
-                .child(format!("{} of {}", model.tips.position(), TIPS.len())),
+                .child(tr!("%lld of %lld", model.tips.position(), TIPS.len())),
         )
         .child(step_button(false, model, cx))
         .child(step_button(true, model, cx));

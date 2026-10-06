@@ -5,7 +5,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt, symlink};
 use std::path::{Path, PathBuf};
 
 use crate::model::AppModel;
-use gpui::Context;
+use gpui::{Context, SharedString};
+use muxy_ui::tr;
 
 impl AppModel {
     pub(crate) fn install_command_line(&mut self, cx: &mut Context<Self>) {
@@ -14,7 +15,13 @@ impl AppModel {
             let result = cx.background_executor().spawn(async { install() }).await;
             let response = window.update(cx, |_, window, cx| {
                 let (title, message) = installation_message(result);
-                window.prompt(gpui::PromptLevel::Info, title, Some(&message), &["OK"], cx)
+                window.prompt(
+                    gpui::PromptLevel::Info,
+                    &title,
+                    Some(&message),
+                    &[tr!("OK").as_ref()],
+                    cx,
+                )
             });
             if let Ok(answer) = response {
                 let _ = answer.await;
@@ -24,23 +31,28 @@ impl AppModel {
     }
 }
 
-fn installation_message(result: io::Result<PathBuf>) -> (&'static str, String) {
+fn installation_message(result: io::Result<PathBuf>) -> (SharedString, String) {
     match result {
         Ok(path) => {
             let on_path = std::env::var_os("PATH").is_some_and(|value| {
                 std::env::split_paths(&value).any(|entry| Some(entry.as_path()) == path.parent())
             });
             let guidance = if on_path {
-                "Run muxy --help in your terminal."
+                tr!("Run muxy --help in your terminal.")
             } else {
-                "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\""
+                tr!(
+                    "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\""
+                )
             };
             (
-                "Command Line Tool Installed",
-                format!("Installed {}.\n\n{guidance}", path.display()),
+                tr!("Command Line Tool Installed"),
+                tr!("Installed %@.\n\n%@", path.display().to_string(), &guidance).to_string(),
             )
         }
-        Err(error) => ("Could Not Install Command Line Tool", error.to_string()),
+        Err(error) => (
+            tr!("Could Not Install Command Line Tool"),
+            error.to_string(),
+        ),
     }
 }
 
@@ -50,12 +62,15 @@ fn install() -> io::Result<PathBuf> {
     for executable in [&target, &target.with_file_name("muxy-server")] {
         if crate::server::read_build_info(executable)? != muxy_protocol::BuildInfo::current() {
             return Err(io::Error::other(
-                "The installed app changed. Reopen it before installing the command line tool.",
+                tr!(
+                    "The installed app changed. Reopen it before installing the command line tool."
+                )
+                .to_string(),
             ));
         }
     }
-    let home =
-        std::env::home_dir().ok_or_else(|| io::Error::other("Home directory unavailable"))?;
+    let home = std::env::home_dir()
+        .ok_or_else(|| io::Error::other(tr!("Home directory unavailable").to_string()))?;
     let destination = home.join(".local/bin/muxy");
     install_link(&target, &destination)?;
     Ok(destination)
@@ -69,7 +84,8 @@ fn bundled_target(executable: &Path) -> io::Result<PathBuf> {
         .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
         .ok_or_else(|| {
             io::Error::other(
-                "Install and open Muxy Beta.app before installing its command line tool.",
+                tr!("Install and open Muxy Beta.app before installing its command line tool.")
+                    .to_string(),
             )
         })?;
     if executable.file_name().is_none_or(|name| name != "muxy-app")
@@ -90,7 +106,10 @@ fn bundled_target(executable: &Path) -> io::Result<PathBuf> {
             .is_some_and(|name| name == "previous.app")
     {
         return Err(io::Error::other(
-            "Move Muxy Beta.app to Applications and reopen it before installing its command line tool.",
+            tr!(
+                "Move Muxy Beta.app to Applications and reopen it before installing its command line tool."
+            )
+            .to_string(),
         ));
     }
     Ok(bundle.join("Contents/MacOS/muxy"))
@@ -98,11 +117,13 @@ fn bundled_target(executable: &Path) -> io::Result<PathBuf> {
 
 fn install_link(target: &Path, destination: &Path) -> io::Result<()> {
     if !target.is_absolute() || !target.is_file() {
-        return Err(io::Error::other("Bundled muxy executable is missing"));
+        return Err(io::Error::other(
+            tr!("Bundled muxy executable is missing").to_string(),
+        ));
     }
     let parent = destination
         .parent()
-        .ok_or_else(|| io::Error::other("Missing installation directory"))?;
+        .ok_or_else(|| io::Error::other(tr!("Missing installation directory").to_string()))?;
     fs::create_dir_all(parent)?;
     let _lock = muxy_client::local::try_lock(&parent.join(".muxy-cli-install.lock"))?;
     let receipt = parent.join(".muxy-cli-link.json");
@@ -119,18 +140,24 @@ fn install_link(target: &Path, destination: &Path) -> io::Result<()> {
                     .iter()
                     .any(|value| value == previous.as_os_str().as_bytes())
             {
-                return Err(io::Error::other(format!(
-                    "{} is an unrelated link; move it before installing Muxy.",
-                    destination.display()
-                )));
+                return Err(io::Error::other(
+                    tr!(
+                        "%@ is an unrelated link; move it before installing Muxy.",
+                        destination.display().to_string()
+                    )
+                    .to_string(),
+                ));
             }
             Some((metadata.dev(), metadata.ino(), previous))
         }
         Ok(_) => {
-            return Err(io::Error::other(format!(
-                "{} already exists; move it before installing Muxy.",
-                destination.display()
-            )));
+            return Err(io::Error::other(
+                tr!(
+                    "%@ already exists; move it before installing Muxy.",
+                    destination.display().to_string()
+                )
+                .to_string(),
+            ));
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => return Err(error),
@@ -161,7 +188,7 @@ fn install_link(target: &Path, destination: &Path) -> io::Result<()> {
     };
     if !unchanged {
         return Err(io::Error::other(
-            "The command path changed during installation; try again.",
+            tr!("The command path changed during installation; try again.").to_string(),
         ));
     }
     fs::rename(&record, receipt)?;

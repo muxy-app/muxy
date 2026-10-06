@@ -5,10 +5,12 @@ use muxy_protocol::{
     FilesAction, FilesReply, FilesRequest, GitAction, GitChangesPreview, GitPullRequestAction,
     GitPushDestination, GitRawDiff, GitReply, GitRequest, GitStatus, ProjectId, ServerPath,
 };
+use muxy_ui::l10n::{tr_key, translate};
+use muxy_ui::tr;
 use serde_json::{Value, json};
 
 const DIFF_LINES: u32 = 800;
-const CHANGED: &str = "The branch changed. Try again.";
+const CHANGED: &str = tr_key!("The branch changed. Try again.");
 const TEMPLATES: [&str; 5] = [
     ".github/pull_request_template.md",
     ".github/PULL_REQUEST_TEMPLATE.md",
@@ -47,22 +49,22 @@ impl Action {
 
     pub(crate) fn title(self) -> &'static str {
         match self {
-            Self::Commit => "Commit",
-            Self::CreatePullRequest => "Create PR",
+            Self::Commit => tr_key!("Commit"),
+            Self::CreatePullRequest => tr_key!("Create PR"),
         }
     }
 
     pub(crate) fn running_title(self) -> &'static str {
         match self {
-            Self::Commit => "Committing",
-            Self::CreatePullRequest => "Creating PR",
+            Self::Commit => tr_key!("Committing"),
+            Self::CreatePullRequest => tr_key!("Creating PR"),
         }
     }
 
     pub(crate) fn settings_title(self) -> &'static str {
         match self {
-            Self::Commit => "Commit and Push",
-            Self::CreatePullRequest => "Create Pull Request",
+            Self::Commit => tr_key!("Commit and Push"),
+            Self::CreatePullRequest => tr_key!("Create Pull Request"),
         }
     }
 
@@ -183,7 +185,7 @@ impl Git for Client {
 fn status(git: &impl Git, project: ProjectId) -> Result<GitStatus, String> {
     match git.call(project, GitAction::Status { local: true })? {
         GitReply::Status(status) => Ok(*status),
-        _ => Err("Unexpected Git status reply".into()),
+        _ => Err(tr!("Unexpected Git status reply").into()),
     }
 }
 
@@ -197,22 +199,24 @@ pub(crate) fn prepare(
 ) -> Result<Plan, String> {
     let status = status(git, project)?;
     if status.summary.branch.as_deref() != Some(branch) || status.summary.head.as_deref() != head {
-        return Err(CHANGED.into());
+        return Err(translate(CHANGED).into());
     }
     if status.summary.conflicted > 0 {
-        return Err("Resolve merge conflicts first".into());
+        return Err(tr!("Resolve merge conflicts first").into());
     }
     if action == Action::CreatePullRequest {
         match git.call(project, GitAction::PullRequest(GitPullRequestAction::Info))? {
             GitReply::PullRequest(None) => (),
             GitReply::PullRequest(Some(_)) => {
-                return Err("This branch already has a pull request".into());
+                return Err(tr!("This branch already has a pull request").into());
             }
-            _ => return Err("Could not verify that this branch has no pull request".into()),
+            _ => {
+                return Err(tr!("Could not verify that this branch has no pull request").into());
+            }
         }
     }
     if status.summary.changed == 0 {
-        return Err("The working tree is clean".into());
+        return Err(tr!("The working tree is clean").into());
     }
     git.call(project, GitAction::Stage(vec![]))?;
     let GitReply::ChangesPreview(preview) = git.call(
@@ -222,23 +226,23 @@ pub(crate) fn prepare(
         },
     )?
     else {
-        return Err("Unexpected changes preview reply".into());
+        return Err(tr!("Unexpected changes preview reply").into());
     };
     let preview = *preview;
     if preview.branch.as_deref() != Some(branch) || preview.head.as_deref() != head {
-        return Err(CHANGED.into());
+        return Err(translate(CHANGED).into());
     }
     let changes = !preview.files.is_empty();
     let mode = match action {
         Action::Commit if changes => Mode::Commit,
-        Action::Commit => return Err("The working tree is clean".into()),
+        Action::Commit => return Err(tr!("The working tree is clean").into()),
         Action::CreatePullRequest if changes => Mode::NewBranch,
         Action::CreatePullRequest => {
-            return Err("There are no changes to include in a pull request".into());
+            return Err(tr!("There are no changes to include in a pull request").into());
         }
     };
     if mode != Mode::Commit && preview.destination.is_none() {
-        return Err("Add a GitHub remote named origin to open a pull request".into());
+        return Err(tr!("Add a GitHub remote named origin to open a pull request").into());
     }
     let GitReply::Log(commits) = git.call(
         project,
@@ -248,7 +252,7 @@ pub(crate) fn prepare(
         },
     )?
     else {
-        return Err("Unexpected Git log reply".into());
+        return Err(tr!("Unexpected Git log reply").into());
     };
     let mut plan = Plan {
         project,
@@ -273,7 +277,7 @@ pub(crate) fn prepare(
 fn add_pull_request_context(git: &impl Git, plan: &mut Plan) -> Result<(), String> {
     let GitReply::RemoteBranches(remote) = git.call(plan.project, GitAction::RemoteBranches)?
     else {
-        return Err("Unexpected remote branches reply".into());
+        return Err(tr!("Unexpected remote branches reply").into());
     };
     plan.remote_branches = remote;
     if let Some(base) = plan.default_branch.clone() {
@@ -293,7 +297,7 @@ fn add_pull_request_context(git: &impl Git, plan: &mut Plan) -> Result<(), Strin
                 .as_ref()
                 .is_some_and(|diff| diff.diff.trim().is_empty())
         {
-            return Err(format!("{} has no changes compared to {base}", plan.branch));
+            return Err(tr!("%@ has no changes compared to %@", &plan.branch, base).into());
         }
     }
     plan.template = TEMPLATES
@@ -422,10 +426,10 @@ fn parse_metadata(output: &str) -> Result<Value, String> {
             _ => (),
         }
     }
-    Err(
+    Err(tr!(
         "The AI provider returned an invalid response. Update the prompt or try another provider."
-            .into(),
     )
+    .into())
 }
 
 fn text_field<'a>(metadata: &'a Value, name: &str) -> &'a str {
@@ -442,7 +446,7 @@ pub(crate) fn parse_draft(plan: &Plan, output: &str) -> Result<Draft, String> {
         Action::Commit => {
             let message = text_field(&metadata, "message");
             if message.is_empty() {
-                return Err("The AI provider returned an empty commit message".into());
+                return Err(tr!("The AI provider returned an empty commit message").into());
             }
             Ok(Draft::Commit {
                 message: message.to_owned(),
@@ -451,7 +455,7 @@ pub(crate) fn parse_draft(plan: &Plan, output: &str) -> Result<Draft, String> {
         Action::CreatePullRequest => {
             let title = text_field(&metadata, "title");
             if title.is_empty() {
-                return Err("The AI provider returned an empty pull request title".into());
+                return Err(tr!("The AI provider returned an empty pull request title").into());
             }
             let branch = match plan.mode {
                 Mode::NewBranch => text_field(&metadata, "newBranchName").to_owned(),
@@ -488,7 +492,7 @@ pub(crate) fn validate(plan: &Plan, draft: &Draft) -> Result<(), String> {
                 || message.chars().count() > 10_000
                 || message.contains('\0')
             {
-                return Err("Enter a commit message of up to 10,000 characters".into());
+                return Err(tr!("Enter a commit message of up to 10,000 characters").into());
             }
         }
         Draft::PullRequest {
@@ -498,10 +502,10 @@ pub(crate) fn validate(plan: &Plan, draft: &Draft) -> Result<(), String> {
             target,
         } => {
             if title.trim().is_empty() || title.chars().count() > 256 {
-                return Err("Enter a title of up to 256 characters".into());
+                return Err(tr!("Enter a title of up to 256 characters").into());
             }
             if summary.trim().is_empty() || summary.chars().count() > 10_000 {
-                return Err("Enter a summary of up to 10,000 characters".into());
+                return Err(tr!("Enter a summary of up to 10,000 characters").into());
             }
             if plan.mode == Mode::NewBranch
                 && (!valid_branch(branch)
@@ -509,10 +513,10 @@ pub(crate) fn validate(plan: &Plan, draft: &Draft) -> Result<(), String> {
                     || plan.local_branches.contains(branch)
                     || plan.remote_branches.contains(branch))
             {
-                return Err("Choose a new branch name that isn't used yet".into());
+                return Err(tr!("Choose a new branch name that isn't used yet").into());
             }
             if target == branch || !plan.remote_branches.contains(target) {
-                return Err("Choose a target branch that exists on the remote".into());
+                return Err(tr!("Choose a target branch that exists on the remote").into());
             }
         }
     }
@@ -532,8 +536,8 @@ fn steps(done: &[String], failed: &str) -> String {
             }
             failed
         }
-        [only] => format!("{only}, but {failed}"),
-        [rest @ .., last] => format!("{} and {last}, but {failed}", rest.join(", ")),
+        [only] => tr!("%@, but %@", only, failed).into(),
+        [rest @ .., last] => tr!("%@ and %@, but %@", rest.join(", "), last, failed).into(),
     }
 }
 
@@ -547,7 +551,7 @@ fn commit(git: &impl Git, plan: &Plan, message: &str) -> Result<String, String> 
         },
     )? {
         GitReply::Commit(hash) => Ok(hash),
-        _ => Err("Unexpected Git commit reply".into()),
+        _ => Err(tr!("Unexpected Git commit reply").into()),
     }
 }
 
@@ -568,11 +572,18 @@ fn publish(
 }
 
 /// Applies validated metadata, reporting completed steps if one fails.
+#[allow(
+    clippy::too_many_lines,
+    reason = "Each confirmed step reports what already happened if it fails"
+)]
 pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcome, Failure> {
     let not_committed = |error: String| {
         Failure::new(
-            "No commit was created",
-            format!("{error}\n\nChanges were staged before generating AI metadata."),
+            tr!("No commit was created"),
+            tr!(
+                "%@\n\nChanges were staged before generating AI metadata.",
+                error
+            ),
         )
     };
     validate(plan, draft).map_err(not_committed)?;
@@ -580,21 +591,24 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
     if current.summary.branch.as_deref() != Some(&plan.branch)
         || current.summary.head != plan.preview.head
     {
-        return Err(not_committed(CHANGED.into()));
+        return Err(not_committed(translate(CHANGED).into()));
     }
     match draft {
         Draft::Commit { message } => {
             let hash = commit(git, plan, message)
-                .map_err(|error| Failure::new("Couldn't commit", error))?;
+                .map_err(|error| Failure::new(tr!("Couldn't commit"), error))?;
             let destination = plan.destination(&plan.branch);
             publish(git, plan, &plan.branch, &destination).map_err(|error| {
                 Failure::new(
-                    format!(
-                        "Committed {} on {}, but couldn't push",
+                    tr!(
+                        "Committed %@ on %@, but couldn't push",
                         short(&hash),
-                        plan.branch
+                        &plan.branch
                     ),
-                    format!("{error}. The commit is saved locally; push it when you're ready."),
+                    tr!(
+                        "%@. The commit is saved locally; push it when you're ready.",
+                        error
+                    ),
                 )
             })?;
             Ok(Outcome::Committed {
@@ -612,29 +626,34 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
             let mut done = Vec::new();
             if plan.mode == Mode::NewBranch {
                 git.call(plan.project, GitAction::CreateBranch(branch.clone()))
-                    .map_err(|error| Failure::new(format!("Couldn't create {branch}"), error))?;
-                done.push(format!("Created branch {branch}"));
+                    .map_err(|error| Failure::new(tr!("Couldn't create %@", branch), error))?;
+                done.push(tr!("Created branch %@", branch).into());
             }
             if plan.has_changes() {
                 let hash = commit(git, plan, title).map_err(|error| {
                     Failure::new(
-                        steps(&done, "couldn't commit"),
-                        format!("{error}. Your changes are still uncommitted on {branch}."),
+                        steps(&done, &tr!("couldn't commit")),
+                        tr!(
+                            "%@. Your changes are still uncommitted on %@.",
+                            error,
+                            branch
+                        ),
                     )
                 })?;
-                done.push(format!("committed {}", short(&hash)));
+                done.push(tr!("committed %@", short(&hash)).into());
             }
             let destination = plan.destination(branch);
             publish(git, plan, branch, &destination).map_err(|error| {
                 Failure::new(
-                    steps(&done, "couldn't push"),
-                    format!("{error}. The commit is saved on {branch}; push it and open the pull request manually."),
+                    steps(&done, &tr!("couldn't push")),
+                    tr!(
+                        "%@. The commit is saved on %@; push it and open the pull request manually.",
+                        error,
+                        branch
+                    ),
                 )
             })?;
-            done.push(format!(
-                "pushed {}/{}",
-                destination.remote, destination.branch
-            ));
+            done.push(tr!("pushed %@/%@", &destination.remote, &destination.branch).into());
             match git.call(
                 plan.project,
                 GitAction::PullRequest(GitPullRequestAction::Create {
@@ -646,13 +665,15 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
             ) {
                 Ok(GitReply::PullRequest(Some(pr))) => Ok(Outcome::PullRequest(pr.url)),
                 Ok(_) => Err(Failure::new(
-                    steps(&done, "couldn't confirm the pull request"),
-                    "Refresh the pull request status before trying again.",
+                    steps(&done, &tr!("couldn't confirm the pull request")),
+                    tr!("Refresh the pull request status before trying again."),
                 )),
                 Err(error) => Err(Failure::new(
-                    steps(&done, "couldn't open the pull request"),
-                    format!(
-                        "{error}. Open the pull request from the published branch {branch} on GitHub."
+                    steps(&done, &tr!("couldn't open the pull request")),
+                    tr!(
+                        "%@. Open the pull request from the published branch %@ on GitHub.",
+                        error,
+                        branch
                     ),
                 )),
             }

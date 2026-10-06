@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use muxy_ui::tr;
+
 use super::Result;
 
 pub(super) fn lock(directory: &Path) -> Result<std::fs::File> {
@@ -15,9 +17,12 @@ pub(super) fn replace_and_restart(
     replace(current, next, backup)?;
     if let Err(error) = restart() {
         replace(current, backup, next)?;
-        return Err(
-            format!("Could not restart Muxy Beta; the previous app was restored: {error}").into(),
-        );
+        return Err(tr!(
+            "Could not restart Muxy Beta; the previous app was restored: %@",
+            error.to_string()
+        )
+        .to_string()
+        .into());
     }
     Ok(())
 }
@@ -35,11 +40,21 @@ fn replace_with(
     rename(current, backup)?;
     if let Err(error) = rename(next, current) {
         if let Err(rollback) = rename(backup, current) {
-            return Err(format!("Could not install update ({error}) or restore the previous app ({rollback}). The previous app is at {}", backup.display()).into());
+            return Err(tr!(
+                "Could not install update (%@) or restore the previous app (%@). The previous app is at %@",
+                error.to_string(),
+                rollback.to_string(),
+                backup.display().to_string()
+            )
+            .to_string()
+            .into());
         }
-        return Err(
-            format!("Could not install update; the previous app was restored: {error}").into(),
-        );
+        return Err(tr!(
+            "Could not install update; the previous app was restored: %@",
+            error.to_string()
+        )
+        .to_string()
+        .into());
     }
     Ok(())
 }

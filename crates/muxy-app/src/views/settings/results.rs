@@ -3,6 +3,8 @@ use gpui::{
     AnyElement, Context, FocusHandle, InteractiveElement, IntoElement, ListAlignment, ListState,
     ParentElement, Pixels, Styled, Window, div, px,
 };
+use muxy_ui::l10n::tr_key;
+use muxy_ui::tr;
 use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 pub(super) struct Results {
@@ -188,7 +190,10 @@ impl SettingsView {
             } else if category == Category::Commands {
                 let commands = super::commands::matching(self);
                 if !commands.is_empty()
-                    || self.matches(category, "Custom commands shell terminal shortcuts")
+                    || self.matches(
+                        category,
+                        tr_key!("Custom commands shell terminal shortcuts"),
+                    )
                 {
                     items.push(Item::CommandsHeading);
                     items.extend(commands.into_iter().map(Item::CustomCommand));
@@ -292,13 +297,13 @@ impl SettingsView {
             Category::Extensions => {
                 if self.matches(
                     Category::Extensions,
-                    "Manage extensions marketplace installed unpacked",
+                    tr_key!("Manage extensions marketplace installed unpacked"),
                 ) {
                     vec![
                         muxy_ui::controls::button(
                             self.style(),
                             "manage-extensions",
-                            "Manage Extensions",
+                            &tr!("Manage Extensions"),
                             true,
                             cx.listener(|view, _, _, cx| view.show_extensions(cx)),
                         )
@@ -321,12 +326,12 @@ impl SettingsView {
                 metrics.spacing9()
             })
             .text_size(metrics.font_display())
-            .child(category.label())
+            .child(muxy_ui::l10n::translate(category.label()))
             .into_any_element()
     }
 
     pub(super) fn subsection_heading(&self, section: &'static str) -> AnyElement {
-        muxy_ui::form::section_heading(self.layout_style(), section)
+        muxy_ui::form::section_heading(self.layout_style(), &muxy_ui::l10n::translate(section))
             .debug_selector(move || format!("settings-heading-{section}"))
             .into_any_element()
     }
@@ -357,8 +362,8 @@ impl SettingsView {
                 .w_full()
                 .debug_selector(|| "settings-section-Keyboard".into())
                 .child(self.section_heading(Category::Keyboard, index == 0))
-                .child(self.subsection_heading("Shortcuts"))
-                .child(self.note("Click a shortcut to record it. Escape cancels. Conflicts in the same context must be resolved first.", false))
+                .child(self.subsection_heading(tr_key!("Shortcuts")))
+                .child(self.note(&tr!("Click a shortcut to record it. Escape cancels. Conflicts in the same context must be resolved first."), false))
                 .into_any_element(),
             Item::Shortcut(index) => {
                 #[cfg(test)]
@@ -375,13 +380,13 @@ impl SettingsView {
             Item::Empty => div()
                 .w_full()
                 .debug_selector(|| "settings-empty".into())
-                .child(self.note("No settings found. Try another search.", false))
+                .child(self.note(&tr!("No settings found. Try another search."), false))
                 .into_any_element(),
             Item::Footer => self.note(
-                    if self.category == Category::Commands {
-                        "Use Save to keep command edits. Shortcut changes apply immediately."
+                    &if self.category == Category::Commands {
+                        tr!("Use Save to keep command edits. Shortcut changes apply immediately.")
                     } else {
-                        "Changes apply immediately. Press Return or leave a field to save text."
+                        tr!("Changes apply immediately. Press Return or leave a field to save text.")
                     },
                     false,
                 )

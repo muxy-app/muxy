@@ -8,7 +8,9 @@ use gpui::{
 use muxy_app_core::settings::{ComposerPosition, ComposerPresentation};
 use muxy_ui::{
     components::{ButtonInteraction, SymbolGlyph},
+    l10n::{tr_key, translate},
     panel::{PanelAction, PanelChrome, PanelControl, PanelFrame, PanelStyle},
+    tr,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -103,7 +105,7 @@ impl Composer {
             .tooltip(move |_, cx| {
                 cx.new(|_| {
                     muxy_ui::components::Tooltip::new(
-                        label,
+                        translate(label),
                         theme.raised(),
                         theme.fg,
                         theme.border,
@@ -123,7 +125,7 @@ impl Composer {
     fn header(&self, cx: &Context<Self>) -> AnyElement {
         let placement = self.placement();
         PanelChrome::new(
-            "Rich Input",
+            tr!("Rich Input"),
             Some(
                 SymbolGlyph::new(
                     "keyboard",
@@ -146,7 +148,7 @@ impl Composer {
         .with_trailing_action(
             self.panel_action(
                 "composer-broadcast",
-                "Broadcast to Split Panes",
+                tr_key!("Broadcast to Split Panes"),
                 if self.settings.broadcast {
                     "dot.radiowaves.left.and.right"
                 } else {
@@ -163,7 +165,7 @@ impl Composer {
         )
         .with_trailing_action(self.panel_action(
             "composer-floating",
-            "Use Floating Composer",
+            tr_key!("Use Floating Composer"),
             "rectangle.on.rectangle",
             5,
             |view, cx| {
@@ -222,7 +224,7 @@ impl Composer {
         let view = cx.weak_entity();
         PanelAction::symbol(
             id,
-            label,
+            translate(label),
             symbol,
             self.header_focus[index].clone(),
             move |_, cx| {
@@ -260,7 +262,7 @@ impl Composer {
                     .flex_none()
                     .text_size(m.font_caption())
                     .text_color(self.theme.fg_dim)
-                    .child("· active pane"),
+                    .child(tr!("· active pane")),
             )
             .child(div().flex_1())
             .child(self.glyph_button(
@@ -271,9 +273,9 @@ impl Composer {
                     "arrow.up.left.and.arrow.down.right"
                 },
                 if self.settings.expanded {
-                    "Collapse Composer"
+                    tr_key!("Collapse Composer")
                 } else {
-                    "Expand Composer"
+                    tr_key!("Expand Composer")
                 },
                 Control::Metadata,
                 |view, _, cx| {
@@ -285,7 +287,7 @@ impl Composer {
             .child(self.glyph_button(
                 "composer-close",
                 "xmark",
-                "Close Composer",
+                tr_key!("Close Composer"),
                 Control::Metadata,
                 |_, _, cx| cx.emit(ComposerEvent::Close),
                 cx,
@@ -318,7 +320,7 @@ impl Composer {
                 .child(self.glyph_button(
                     "composer-dismiss-error",
                     "xmark",
-                    "Dismiss Dictation Error",
+                    tr_key!("Dismiss Dictation Error"),
                     Control::Dismiss,
                     |view, _, cx| {
                         view.error = None;
@@ -350,11 +352,11 @@ impl Composer {
             );
         }
         let transcript = if snapshot.phase == muxy_ui::voice::Phase::Starting {
-            "Preparing on-device dictation…"
+            tr!("Preparing on-device dictation…")
         } else if snapshot.transcript.is_empty() {
-            "Listening…"
+            tr!("Listening…")
         } else {
-            &snapshot.transcript
+            snapshot.transcript.clone().into()
         };
         let elapsed = snapshot.elapsed.as_secs();
         row.child(
@@ -368,17 +370,18 @@ impl Composer {
                 } else {
                     self.theme.diff_remove
                 })
-                .child(if paused { "PAUSED" } else { "● LIVE" }),
+                .child(if paused {
+                    tr!("PAUSED")
+                } else {
+                    tr!("● LIVE")
+                }),
         )
         .child(bars)
         .child(
             div()
                 .min_w_0()
                 .flex_1()
-                .child(muxy_ui::transcript::Transcript::new(
-                    transcript.to_owned(),
-                    1,
-                )),
+                .child(muxy_ui::transcript::Transcript::new(transcript, 1)),
         )
         .child(
             div()
@@ -457,7 +460,7 @@ impl Composer {
             .child(self.glyph_button(
                 "composer-attach",
                 "plus",
-                "Attach File",
+                tr_key!("Attach File"),
                 Control::Toolbar,
                 |_, _, cx| cx.emit(ComposerEvent::Attach),
                 cx,
@@ -466,9 +469,9 @@ impl Composer {
                 "composer-voice",
                 if recording { "stop.fill" } else { "mic" },
                 if recording {
-                    "Finish Dictation"
+                    tr_key!("Finish Dictation")
                 } else {
-                    "Start Dictation"
+                    tr_key!("Start Dictation")
                 },
                 if self.recording() {
                     Control::Recording
@@ -481,7 +484,7 @@ impl Composer {
             .child(self.glyph_button(
                 "composer-more",
                 "ellipsis",
-                "More Composer Actions",
+                tr_key!("More Composer Actions"),
                 Control::Toolbar,
                 |_, _, cx| cx.emit(ComposerEvent::Menu),
                 cx,
@@ -493,9 +496,9 @@ impl Composer {
                     .text_size(m.font_xs())
                     .text_color(self.theme.fg_dim)
                     .child(if self.settings.broadcast {
-                        "All split panes"
+                        tr!("All split panes")
                     } else {
-                        "Active pane"
+                        tr!("Active pane")
                     }),
             )
             .child(div().flex_1().min_w(m.spacing4()))

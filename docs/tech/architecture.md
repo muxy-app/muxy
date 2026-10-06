@@ -63,7 +63,7 @@ flowchart TB
 | `muxy-protocol` | Messages, encoding, screen types, and transports. |
 | `muxy-server` | The server: projects, sessions, history, Git, files, and mobile access. |
 | `muxy-terminal` | Wraps the Ghostty terminal and the PTY. |
-| `muxy-core` | Shared basics, such as folders, locks, and the shortcut catalog. |
+| `muxy-core` | Shared basics, such as folders, locks, the shortcut catalog, and the app language. |
 
 ## Typing a key
 
@@ -141,6 +141,8 @@ flowchart LR
 - File, Git, and process work goes through the server. Extension web requests
   run in the app and can't reach the local machine or private networks.
 - Marketplace packages are verified before they are installed.
+- Language packs are resource-only bundles. The app reads their catalogs, checks
+  that each translation keeps its key's placeholders, and runs nothing from them.
 
 ## AI activity
 

@@ -3,6 +3,8 @@ use muxy_core::quick_terminal::{ConflictCandidate, QuickTerminalShortcut};
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::tr;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShortcutState {
     Stopped,
@@ -351,12 +353,15 @@ impl Drop for QuickTerminalShortcutService {
 impl std::fmt::Display for ShortcutServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidShortcut => f.write_str("Invalid Quick Terminal shortcut"),
-            Self::Conflict(label) => write!(f, "Quick Terminal shortcut conflicts with {label}"),
-            Self::Backend(error) => f.write_str(error),
-            Self::Persistence(error) => {
-                write!(f, "Could not save Quick Terminal shortcut: {error}")
+            Self::InvalidShortcut => f.write_str(&tr!("Invalid Quick Terminal shortcut")),
+            Self::Conflict(label) => {
+                f.write_str(&tr!("Quick Terminal shortcut conflicts with %@", label))
             }
+            Self::Backend(error) => f.write_str(error),
+            Self::Persistence(error) => f.write_str(&tr!(
+                "Could not save Quick Terminal shortcut: %@",
+                error.to_string()
+            )),
         }
     }
 }

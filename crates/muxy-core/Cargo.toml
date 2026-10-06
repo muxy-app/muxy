@@ -9,6 +9,10 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[features]
+# Gives each test thread its own app language.
+test-support = []
+
 [lints]
 workspace = true
 

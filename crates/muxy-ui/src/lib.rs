@@ -14,6 +14,7 @@ pub mod form;
 pub mod icon;
 #[cfg(target_os = "macos")]
 pub mod keyboard;
+pub mod l10n;
 pub mod motion;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]

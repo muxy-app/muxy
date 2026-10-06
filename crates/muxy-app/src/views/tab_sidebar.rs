@@ -6,6 +6,7 @@ use gpui::{
 use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::AppLayout};
 use muxy_ui::components::{IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
+use muxy_ui::tr;
 
 use super::{tab_activity, tab_strip, titlebar};
 use crate::model::AppModel;
@@ -187,7 +188,7 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
                     theme.fg_muted,
                 )),
         )
-        .child("Add Project")
+        .child(tr!("Add Project"))
         .into_any_element()
 }
 
@@ -326,9 +327,9 @@ fn project_disclosure(
             )
             .tooltip(
                 if expanded {
-                    "Collapse Project"
+                    tr!("Collapse Project")
                 } else {
-                    "Expand Project"
+                    tr!("Expand Project")
                 },
                 theme.raised(),
                 theme.fg,
@@ -425,13 +426,12 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                     )
                     .tooltip(
                         if model.appearance.sidebar_focus {
-                            let listed = model.state.active_workspace().map_or_else(
-                                || "All Projects".to_owned(),
-                                |workspace| format!("“{}”", workspace.name),
-                            );
-                            format!("Show {listed}")
+                            model.state.active_workspace().map_or_else(
+                                || tr!("Show All Projects"),
+                                |workspace| tr!("Show “%@”", &workspace.name),
+                            )
                         } else {
-                            "Focus Project".to_owned()
+                            tr!("Focus Project")
                         },
                         theme.raised(),
                         theme.fg,
@@ -468,7 +468,7 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                             theme.fg,
                         )
                         .tooltip(
-                            "New Terminal Tab",
+                            tr!("New Terminal Tab"),
                             theme.raised(),
                             theme.fg,
                             theme.border,
@@ -667,7 +667,7 @@ pub(super) fn titlebar(
                             theme.fg,
                         )
                         .tooltip(
-                            "New Terminal Tab",
+                            tr!("New Terminal Tab"),
                             theme.raised(),
                             theme.fg,
                             theme.border,

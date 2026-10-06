@@ -2,6 +2,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use muxy_core::tr_key;
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -87,19 +88,20 @@ pub enum ProjectStatus {
     Missing,
 }
 
+/// Names are English keys, translated where shown.
 pub const PROJECT_COLORS: [(&str, &str); 12] = [
-    ("Red", "#e5484d"),
-    ("Orange", "#f76b15"),
-    ("Amber", "#f5a623"),
-    ("Yellow", "#ebcb00"),
-    ("Lime", "#9bcd1e"),
-    ("Green", "#30a46c"),
-    ("Teal", "#12a594"),
-    ("Cyan", "#05a2c2"),
-    ("Blue", "#3e63dd"),
-    ("Indigo", "#5b5bd6"),
-    ("Violet", "#8e4ec6"),
-    ("Pink", "#d6409f"),
+    (tr_key!("Red"), "#e5484d"),
+    (tr_key!("Orange"), "#f76b15"),
+    (tr_key!("Amber"), "#f5a623"),
+    (tr_key!("Yellow"), "#ebcb00"),
+    (tr_key!("Lime"), "#9bcd1e"),
+    (tr_key!("Green"), "#30a46c"),
+    (tr_key!("Teal"), "#12a594"),
+    (tr_key!("Cyan"), "#05a2c2"),
+    (tr_key!("Blue"), "#3e63dd"),
+    (tr_key!("Indigo"), "#5b5bd6"),
+    (tr_key!("Violet"), "#8e4ec6"),
+    (tr_key!("Pink"), "#d6409f"),
 ];
 
 impl Project {

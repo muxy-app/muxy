@@ -10,8 +10,10 @@ use muxy_client::{ClientError, RunGrid};
 use muxy_protocol::{ErrorCode, HistoryCursor, SearchMatch, SearchPage};
 use muxy_ui::components::IconButton;
 use muxy_ui::icon::Icon;
+use muxy_ui::l10n::tr_key;
 use muxy_ui::text_input::{InputEvent, InputStyle, SEARCH_CONTEXT, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 
 use super::pane::{PaneEvent, PaneState, TerminalPane};
 
@@ -66,7 +68,7 @@ impl Results {
             return None;
         }
         if self.query.len() > 256 {
-            self.error = Some("Query is too long".into());
+            self.error = Some(tr!("Query is too long").into());
             return None;
         }
         Some(self.request(HistoryCursor(0)))
@@ -107,7 +109,7 @@ impl Results {
     fn stale(&mut self) -> Option<SearchRequest> {
         self.clear();
         if self.restarted {
-            self.error = Some("Output changed; search again".into());
+            self.error = Some(tr!("Output changed; search again").into());
             return None;
         }
         self.restarted = true;
@@ -132,14 +134,15 @@ impl Results {
             return error.clone();
         }
         if self.loading_history {
-            return "Loading…".into();
+            return tr!("Loading…").into();
         }
-        format!(
-            "{} of {}{}",
-            self.current.map_or(0, |index| index + 1),
-            self.matches.len(),
-            if self.pending.is_some() { "…" } else { "" }
-        )
+        let current = self.current.map_or(0, |index| index + 1);
+        let total = self.matches.len();
+        if self.pending.is_some() {
+            tr!("%lld of %lld…", current, total).into()
+        } else {
+            tr!("%lld of %lld", current, total).into()
+        }
     }
 
     pub(crate) fn highlights(&self, grid: &RunGrid, index: usize) -> Vec<(SearchMatch, bool)> {
@@ -213,7 +216,7 @@ impl TerminalPane {
         }
         let input = cx.new(|cx| {
             TextInput::new(InputStyle::compact(theme, &metrics), cx)
-                .with_placeholder("Find in terminal…")
+                .with_placeholder_key(tr_key!("Find in terminal…"))
                 .with_key_context(SEARCH_CONTEXT)
         });
         let subscription = cx.subscribe(&input, |pane, input, event, cx| match event {
@@ -405,7 +408,7 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
     let find = pane.find.as_ref()?;
     let theme = &find.theme;
     let metrics = find.metrics;
-    let button = |id: &'static str, icon, tooltip: &'static str| {
+    let button = |id: &'static str, icon, tooltip: gpui::SharedString| {
         IconButton::new(
             id,
             icon,
@@ -453,11 +456,11 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     .child(find.results.counter()),
             )
             .child(
-                button("find-previous", Icon::ChevronLeft, "Previous match")
+                button("find-previous", Icon::ChevronLeft, tr!("Previous match"))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(true, cx))),
             )
             .child(
-                button("find-next", Icon::ChevronRight, "Next match")
+                button("find-next", Icon::ChevronRight, tr!("Next match"))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(false, cx))),
             )
             .child(
@@ -481,7 +484,7 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     .child("Aa"),
             )
             .child(
-                button("find-close", Icon::X, "Close search")
+                button("find-close", Icon::X, tr!("Close search"))
                     .on_click(cx.listener(|pane, _, _, cx| pane.close_find(cx))),
             )
             .into_any_element(),

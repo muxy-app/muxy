@@ -3,6 +3,7 @@ use muxy_app_core::extensions::{Action, Extension};
 use muxy_app_core::modal::{ModalItem, ModalOptions, ModalToken};
 use muxy_protocol::ProjectId;
 use muxy_ui::javascript::{Event, Script};
+use muxy_ui::tr;
 use serde_json::{Value, json};
 use std::io::Read;
 
@@ -46,7 +47,7 @@ pub(super) fn read_source(extension: &Extension, path: &str) -> Result<String, S
         .read_to_string(&mut source)
         .map_err(|error| error.to_string())?;
     if source.len() > 8 * 1024 * 1024 {
-        return Err("extension script is too large".into());
+        return Err(tr!("extension script is too large").into());
     }
     Ok(source)
 }
@@ -143,7 +144,9 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if self.extensions.scripts.len() + self.extensions.loading_scripts >= 16 {
-            return Err("too many active extension scripts; reload extensions to stop them".into());
+            return Err(
+                tr!("too many active extension scripts; reload extensions to stop them").into(),
+            );
         }
         let extension = extension.clone();
         let path = path.to_owned();
@@ -365,9 +368,9 @@ impl AppModel {
                 .collect::<String>()
         };
         let options = ModalOptions {
-            placeholder: value("placeholder", "Search…"),
-            empty_label: value("emptyLabel", "No items"),
-            no_match_label: value("noMatchLabel", "No matches"),
+            placeholder: value("placeholder", &tr!("Search…")),
+            empty_label: value("emptyLabel", &tr!("No items")),
+            no_match_label: value("noMatchLabel", &tr!("No matches")),
             search_toolbar: call.args["searchToolbar"].as_bool().unwrap_or(false),
             dynamic: call.args["dynamic"].as_bool().unwrap_or(false),
         };

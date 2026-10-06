@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use muxy_app_core::backup::Result;
+use muxy_ui::tr;
 
 use super::{PENDING, PreparedImport, ROOTS, archive, validate_effective};
 
@@ -27,9 +28,13 @@ pub(crate) fn apply_pending(profile: &Path) -> Result<Option<String>> {
     }
     if let Err(error) = restore(profile, &pending) {
         recover(profile)?;
-        return Ok(Some(format!(
-            "Could not restore backup: {error}. Your previous configuration was kept. Cancel or replace the pending import in Settings → Backup & Restore, or reopen Muxy to retry."
-        )));
+        return Ok(Some(
+            tr!(
+                "Could not restore backup: %@. Your previous configuration was kept. Cancel or replace the pending import in Settings → Backup & Restore, or reopen Muxy to retry.",
+                error.to_string()
+            )
+            .to_string(),
+        ));
     }
     Ok(None)
 }
@@ -37,7 +42,9 @@ pub(crate) fn apply_pending(profile: &Path) -> Result<Option<String>> {
 fn restore(profile: &Path, pending: &Path) -> Result<()> {
     let (mut files, legacy, complete) = archive::read(pending)?;
     if legacy {
-        return Err("Pending import must use the current backup format".into());
+        return Err(tr!("Pending import must use the current backup format")
+            .to_string()
+            .into());
     }
     validate_effective(profile, &files, complete)?;
     if let Some(bytes) = files.get("desktop-state.json") {
@@ -112,12 +119,12 @@ fn recover(profile: &Path) -> Result<()> {
     let recovery: std::path::PathBuf = serde_json::from_slice(&archive::read_file(&marker)?)?;
     let backups = fs::canonicalize(profile.join("Backups"))?;
     if fs::canonicalize(&recovery)?.parent() != Some(backups.as_path()) {
-        return Err("Invalid recovery directory".into());
+        return Err(tr!("Invalid recovery directory").to_string().into());
     }
     let roots: Vec<String> =
         serde_json::from_slice(&archive::read_file(&recovery.join("roots.json"))?)?;
     if roots.iter().any(|root| !ROOTS.contains(&root.as_str())) {
-        return Err("Invalid recovery entry".into());
+        return Err(tr!("Invalid recovery entry").to_string().into());
     }
     let names: Vec<_> = roots.iter().map(String::as_str).collect();
     let original = archive::collect(&recovery, &names)?;

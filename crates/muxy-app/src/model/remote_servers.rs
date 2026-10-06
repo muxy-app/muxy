@@ -6,6 +6,7 @@ use gpui::{AnyWindowHandle, Context};
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::ServerEntry;
 use muxy_client::SshTarget;
+use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting, ServerStatus};
 
@@ -62,22 +63,30 @@ const VERSION_COMMAND: &str = "sh -c 'export PATH=\"$PATH:$HOME/.local/bin\"; ex
 pub(crate) fn incompatible_guidance(name: &str, there: Option<&str>) -> String {
     let here = env!("CARGO_PKG_VERSION");
     if there == Some(here) {
-        return format!(
-            "Muxy on {name} is {here}, but its running server is another version. Restart it there, which ends its terminals: pkill -x muxy-server"
-        );
+        return tr!(
+            "Muxy on %@ is %@, but its running server is another version. Restart it there, which ends its terminals: pkill -x muxy-server",
+            name,
+            here
+        )
+        .to_string();
     }
     let there = there.map_or_else(
-        || format!("Muxy on {name} is another version"),
-        |version| format!("Muxy on {name} is {version}"),
+        || tr!("Muxy on %@ is another version", name),
+        |version| tr!("Muxy on %@ is %@", name, version),
     );
     let protocol = muxy_protocol::CURRENT.0;
     let fix = released_version().map_or_else(
-        || "Install a matching build there by hand, from scripts/build-linux-dev.sh.".to_owned(),
-        |version| format!("Update Muxy on {name}: {}", update_command(version)),
+        || tr!("Install a matching build there by hand, from scripts/build-linux-dev.sh."),
+        |version| tr!("Update Muxy on %@: %@", name, update_command(version)),
     );
-    format!(
-        "{there}; this app needs a version that speaks protocol V{protocol}, like {here}. {fix}"
+    tr!(
+        "%@; this app needs a version that speaks protocol V%lld, like %@. %@",
+        &there,
+        protocol,
+        here,
+        &fix
     )
+    .to_string()
 }
 
 /// What the server form submits.
@@ -121,15 +130,17 @@ impl DeviceForm {
 pub(crate) fn join_destination(host: &str, user: &str, port: &str) -> Result<String, String> {
     let (host, user, port) = (host.trim(), user.trim(), port.trim());
     let invalid =
-        || "Enter an SSH host: a ~/.ssh/config alias, a host name, or an address".to_owned();
+        || tr!("Enter an SSH host: a ~/.ssh/config alias, a host name, or an address").to_string();
     let destination = if user.is_empty() && port.is_empty() {
         host.to_owned()
     } else {
         if host.contains('@') || host.starts_with("ssh://") {
-            return Err("Put the user and port either in the host or in their own fields".into());
+            return Err(
+                tr!("Put the user and port either in the host or in their own fields").to_string(),
+            );
         }
         if user.contains('@') || user.contains(':') {
-            return Err("Enter a user name without @ or :".into());
+            return Err(tr!("Enter a user name without @ or :").to_string());
         }
         let login = if user.is_empty() {
             host.to_owned()
@@ -143,7 +154,7 @@ pub(crate) fn join_destination(host: &str, user: &str, port: &str) -> Result<Str
                 .parse()
                 .ok()
                 .filter(|port| *port > 0)
-                .ok_or("Use a port from 1 to 65535")?;
+                .ok_or_else(|| tr!("Use a port from 1 to 65535").to_string())?;
             let login = if host.contains(':') && !host.starts_with('[') {
                 login.replacen(host, &format!("[{host}]"), 1)
             } else {
@@ -230,10 +241,10 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<ServerId, String> {
         if self.quitting != Quitting::Idle {
-            return Err("Muxy is quitting".into());
+            return Err(tr!("Muxy is quitting").to_string());
         }
         if id.is_some_and(|id| self.settings.server(id).is_none()) {
-            return Err("This remote server is no longer listed".into());
+            return Err(tr!("This remote server is no longer listed").to_string());
         }
         let entry = form.entry(id)?;
         let server = entry.id;
@@ -442,7 +453,7 @@ impl AppModel {
             } else {
                 Some(form.password.clone())
             }
-            .ok_or("Enter the password to test logging in with it.")?;
+            .ok_or_else(|| tr!("Enter the password to test logging in with it.").to_string())?;
             (
                 Some(password),
                 Some(target.login().map_err(|error| error.to_string())?),
@@ -495,7 +506,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if self.quitting != Quitting::Idle {
-            return Err("Muxy is quitting".into());
+            return Err(tr!("Muxy is quitting").to_string());
         }
         let path = self.path.with_file_name("settings.toml");
         self.settings
@@ -625,7 +636,7 @@ impl AppModel {
     pub(crate) fn copy_update_command(&mut self, cx: &mut Context<Self>) {
         if let Some(version) = released_version() {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(update_command(version)));
-            self.show_notice("Copied the update command".into(), cx);
+            self.show_notice(tr!("Copied the update command").to_string(), cx);
         }
     }
 
@@ -653,7 +664,8 @@ impl AppModel {
             Ok(()) => self.connect_remote_server(server, cx),
             Err(error) => {
                 if let Some(runtime) = self.servers.get_mut(server) {
-                    runtime.error = Some(format!("Could not take the password: {error}"));
+                    runtime.error =
+                        Some(tr!("Could not take the password: %@", error.to_string()).to_string());
                 }
                 self.sync_preferences(cx);
                 cx.notify();

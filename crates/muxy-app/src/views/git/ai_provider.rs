@@ -7,8 +7,10 @@ use gpui::{
 use muxy_protocol::ProjectId;
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
 use muxy_ui::controls::{self, Style};
+use muxy_ui::l10n::translate;
 use muxy_ui::popover;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
+use muxy_ui::tr;
 
 use crate::ai::{PROVIDERS, Provider};
 use crate::model::AppModel;
@@ -183,10 +185,7 @@ fn provider_row(
         || {
             (
                 "",
-                selected.map_or_else(
-                    || "Auto".into(),
-                    |provider| format!("Auto · {}", provider.name),
-                ),
+                selected.map_or_else(|| tr!("Auto"), |provider| tr!("Auto · %@", provider.name)),
             )
         },
         |provider| {
@@ -195,7 +194,7 @@ fn provider_row(
                 if model.ai.installed.contains(&provider) {
                     provider.name.into()
                 } else {
-                    format!("{} · Not installed", provider.name)
+                    tr!("%@ · Not installed", provider.name)
                 },
             )
         },
@@ -284,7 +283,7 @@ pub(crate) fn render_provider_menu(
                     .child(
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Create PR Prompt"),
+                            .child(tr!("Create PR Prompt")),
                     )
                     .child(
                         div()
@@ -303,7 +302,9 @@ pub(crate) fn render_provider_menu(
                 div()
                     .text_size(m.font_caption())
                     .text_color(theme.fg_muted)
-                    .child("This prompt overrides Settings → AI only for this project."),
+                    .child(tr!(
+                        "This prompt overrides Settings → AI only for this project."
+                    )),
             )
             .child(
                 popover::footer(theme, m)
@@ -311,7 +312,7 @@ pub(crate) fn render_provider_menu(
                         controls::button(
                             style,
                             "ai-project-prompt-reset",
-                            "Use Global Prompt",
+                            &tr!("Use Global Prompt"),
                             overridden,
                             cx.listener(|model, _, _, cx| model.save_project_pr_prompt(true, cx)),
                         )
@@ -321,7 +322,7 @@ pub(crate) fn render_provider_menu(
                     .child(controls::button(
                         style,
                         "ai-project-prompt-cancel",
-                        "Cancel",
+                        &tr!("Cancel"),
                         true,
                         cx.listener(|model, _, window, cx| {
                             model.cancel_project_pr_prompt(window, cx);
@@ -330,14 +331,14 @@ pub(crate) fn render_provider_menu(
                     .child(controls::button(
                         style,
                         "ai-project-prompt-save",
-                        "Save",
+                        &tr!("Save"),
                         !input.read(cx).text().trim().is_empty(),
                         cx.listener(|model, _, _, cx| model.save_project_pr_prompt(false, cx)),
                     )),
             );
     } else {
         view = view
-            .child(popover::header(theme, m).child(menu.action.settings_title()))
+            .child(popover::header(theme, m).child(translate(menu.action.settings_title())))
             .child(provider_row(0, None, menu, model, cx))
             .child(popover::divider(theme, m));
         for (index, provider) in PROVIDERS.iter().enumerate() {
@@ -364,7 +365,7 @@ pub(crate) fn render_provider_menu(
                         .flex()
                         .flex_col()
                         .gap(m.spacing1())
-                        .child("Edit Project Prompt…")
+                        .child(tr!("Edit Project Prompt…"))
                         .child(
                             div()
                                 .text_size(m.font_caption())

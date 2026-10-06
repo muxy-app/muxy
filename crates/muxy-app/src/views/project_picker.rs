@@ -10,11 +10,13 @@ use gpui::{
 };
 use muxy_app_core::ServerId;
 use muxy_ui::icon::Icon;
+use muxy_ui::l10n::tr_key;
 use muxy_ui::picker::{
     Picker, PickerAction, PickerConfig, PickerEvent as ListEvent, PickerItem, PickerLeading,
     PickerRow, PickerStatus,
 };
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
@@ -79,7 +81,7 @@ impl ProjectPicker {
             session,
             search,
             None,
-            "Search folders or enter a path…".into(),
+            tr!("Search folders or enter a path…").to_string(),
             theme,
             metrics,
             cx,
@@ -101,7 +103,7 @@ impl ProjectPicker {
         cx: &mut Context<Self>,
     ) -> Self {
         let session = Session::remote(&folders.home, project_paths);
-        let placeholder = format!("Enter a path on {}…", folders.name);
+        let placeholder = tr!("Enter a path on %@…", &folders.name).to_string();
         Self::build(
             session,
             SearchService::new(),
@@ -325,7 +327,7 @@ impl ProjectPicker {
                         let mut row = PickerRow::new(
                             format!("path-{index}"),
                             if item.is_parent() {
-                                "Parent Directory".to_owned()
+                                tr!("Parent Directory").to_string()
                             } else {
                                 item.name().to_owned()
                             },
@@ -342,19 +344,19 @@ impl ProjectPicker {
         };
         let unreadable = match (&self.remote, &self.listing_error) {
             (Some(_), Some(error)) => error.clone(),
-            _ => "Could not read this folder".to_owned(),
+            _ => tr!("Could not read this folder").to_string(),
         };
         if !loading && self.session.shows_unavailable_state() && !items.is_empty() {
             let label = if matches!(self.session.load_state, LoadState::Failed) {
                 unreadable.clone()
             } else if self.session.input_mode() == InputMode::Path {
                 if self.session.path_state().leaf_filter.is_empty() {
-                    "Folder is empty".to_owned()
+                    tr!("Folder is empty").to_string()
                 } else {
-                    "No matching folders".to_owned()
+                    tr!("No matching folders").to_string()
                 }
             } else {
-                "No matching folders".to_owned()
+                tr!("No matching folders").to_string()
             };
             let mut row = PickerRow::new("path-unavailable", label);
             row.disabled = true;
@@ -363,7 +365,7 @@ impl ProjectPicker {
         let status = match self.session.load_state {
             LoadState::Loading {
                 shows_message: true,
-            } => PickerStatus::Loading("Loading folders…".into()),
+            } => PickerStatus::Loading(tr!("Loading folders…")),
             LoadState::Loading {
                 shows_message: false,
             } => PickerStatus::Loading("".into()),
@@ -373,7 +375,7 @@ impl ProjectPicker {
                 PickerStatus::Ready
             }
             LoadState::Loaded if self.session.shows_unavailable_state() => {
-                PickerStatus::Empty("No matching folders".into())
+                PickerStatus::Empty(tr!("No matching folders"))
             }
             LoadState::Loaded => PickerStatus::Ready,
         };
@@ -404,18 +406,18 @@ impl ProjectPicker {
             .confirmation_path()
             .is_some_and(|path| self.missing_remote_folder(&path).is_some())
         {
-            "Create & Add Project"
+            tr_key!("Create & Add Project")
         } else {
             self.session.top_right_action_title()
         };
         let mut actions = vec![
-            PickerAction::new("confirm-path", title)
+            PickerAction::new("confirm-path", muxy_ui::l10n::translate(title))
                 .icon(PickerLeading::Icon(Icon::Plus))
                 .disabled(self.session.confirmation_path().is_none()),
         ];
         if self.remote.is_none() {
-            actions.push(PickerAction::new("finder", "Finder…"));
-            actions.push(PickerAction::new("location", "Search Location…"));
+            actions.push(PickerAction::new("finder", tr!("Finder…")));
+            actions.push(PickerAction::new("location", tr!("Search Location…")));
         }
         actions
     }
@@ -497,7 +499,7 @@ impl ProjectPicker {
             return None;
         }
         let parent = self.session.path_service.abbreviated_display_path(&parent);
-        Some(format!("There is no folder named {name} in {parent}"))
+        Some(tr!("There is no folder named %@ in %@", name, &parent).to_string())
     }
 
     fn choose_finder(&self, cx: &mut Context<Self>) {
@@ -697,7 +699,7 @@ impl AppModel {
         let job = self.extensions.reserve_job();
         let window = self.window;
         picker.read(cx).picker.clone().update(cx, |picker, cx| {
-            picker.set_status(PickerStatus::Loading("Checking folder…".into()), cx);
+            picker.set_status(PickerStatus::Loading(tr!("Checking folder…")), cx);
         });
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let mut result = cx
@@ -712,10 +714,12 @@ impl AppModel {
                     .unwrap_or(false)
             };
             if current(cx) && allow_create && result == Ok(Some(TypedPathState::Missing)) {
-                let message = format!(
-                    "Muxy will create \"{path}\" on {} and add it as a project.",
-                    folders.name
-                );
+                let message = tr!(
+                    "Muxy will create \"%@\" on %@ and add it as a project.",
+                    &path,
+                    &folders.name
+                )
+                .to_string();
                 result = match create_prompt(window, message, cx).await {
                     Ok(true) if current(cx) => {
                         let creating_path = path.clone();
@@ -741,11 +745,11 @@ impl AppModel {
                         model.open_remote_project_path(server, &path, cx);
                     }
                     Ok(Some(TypedPathState::Missing)) => model.project_picker_error(
-                        "Choose an existing folder, or use Create & Add Project.".into(),
+                        tr!("Choose an existing folder, or use Create & Add Project.").to_string(),
                         cx,
                     ),
                     Ok(Some(TypedPathState::NotDirectory)) => model.project_picker_error(
-                        "This path is a file. Choose a folder for the project.".into(),
+                        tr!("This path is a file. Choose a folder for the project.").to_string(),
                         cx,
                     ),
                     Ok(None) => picker.update(cx, |picker, cx| picker.sync_picker(cx)),
@@ -773,11 +777,11 @@ impl AppModel {
             .server_home(server)
             .is_some_and(|home| Some(home.id) == existing)
         {
-            let name = self.server_name(server).unwrap_or("the server").to_owned();
-            self.project_picker_error(
-                format!("Choose a folder inside the home folder on {name}."),
-                cx,
-            );
+            let message = match self.server_name(server) {
+                Some(name) => tr!("Choose a folder inside the home folder on %@.", name),
+                None => tr!("Choose a folder inside the home folder on the server."),
+            };
+            self.project_picker_error(message.to_string(), cx);
         } else if let Some(id) = existing {
             self.join_active_workspace(id, cx);
             self.select_project(id, cx);
@@ -804,10 +808,11 @@ impl AppModel {
         let path = PathBuf::from(path_service::standardize(path));
         if !path.exists() && create_if_missing {
             let window = self.window;
-            let message = format!(
-                "Muxy will create \"{}\" and add it as a project.",
-                path.display()
-            );
+            let message = tr!(
+                "Muxy will create \"%@\" and add it as a project.",
+                path.display().to_string()
+            )
+            .to_string();
             self.close_prompt = Some(cx.spawn(async move |model, cx| {
                 let response = create_prompt(window, message, cx).await;
                 if response.as_ref().is_ok_and(|confirmed| *confirmed) {
@@ -821,7 +826,7 @@ impl AppModel {
                         match result {
                             Ok(()) => model.open_project_path(path, cx),
                             Err(error) => model.project_picker_error(
-                                format!("Could not create folder: {error}"),
+                                tr!("Could not create folder: %@", error.to_string()).to_string(),
                                 cx,
                             ),
                         }
@@ -844,7 +849,7 @@ impl AppModel {
     fn open_project_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if !path.is_dir() {
             self.project_picker_error(
-                "Choose an existing folder, or use Create & Add Project.".into(),
+                tr!("Choose an existing folder, or use Create & Add Project.").to_string(),
                 cx,
             );
             return;
@@ -931,9 +936,9 @@ async fn create_prompt(
         .update(cx, |_, window, _| {
             muxy_ui::dialog::confirm(
                 window,
-                "Create Project Folder?",
+                &tr!("Create Project Folder?"),
                 &message,
-                "Create & Add",
+                &tr!("Create & Add"),
                 None,
                 move |response| {
                     let _ = sender.try_send(response);
@@ -979,10 +984,10 @@ async fn folder_prompt(
     let _dialog = window
         .update(cx, |_, _, _| {
             muxy_ui::dialog::choose_folder(
-                if search_location {
-                    "Select where Muxy searches for project folders"
+                &if search_location {
+                    tr!("Select where Muxy searches for project folders")
                 } else {
-                    "Select a project folder"
+                    tr!("Select a project folder")
                 },
                 &directory,
                 move |path| {

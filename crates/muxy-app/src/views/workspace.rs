@@ -9,6 +9,8 @@ use muxy_app_core::Direction;
 use muxy_app_core::settings::Keymap;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
+use muxy_ui::l10n::tr_key;
+use muxy_ui::tr;
 
 use super::{menu, overlays, sidebar, status_bar, tab_strip, titlebar};
 use crate::model::AppModel;
@@ -383,46 +385,79 @@ pub(crate) fn register_commands(
         action(
             model,
             ShortcutId::ToggleComposer,
-            "Toggle Composer",
+            tr_key!("Toggle Composer"),
             ToggleComposer,
         ),
         action(
             model,
             ShortcutId::ToggleVoiceRecording,
-            "Toggle Voice Recording",
+            tr_key!("Toggle Voice Recording"),
             ToggleVoiceRecording,
         ),
-        action(model, ShortcutId::NewTab, "New Tab", NewTab).disabled(missing),
-        action(model, ShortcutId::NewHomeTab, "New Home Tab", NewHomeTab),
-        action(model, ShortcutId::CloseTab, "Close Tab", CloseTab)
+        action(model, ShortcutId::NewTab, tr_key!("New Tab"), NewTab).disabled(missing),
+        action(
+            model,
+            ShortcutId::NewHomeTab,
+            tr_key!("New Home Tab"),
+            NewHomeTab,
+        ),
+        action(model, ShortcutId::CloseTab, tr_key!("Close Tab"), CloseTab)
             .disabled(model.active_tab().is_none()),
-        action(model, ShortcutId::SplitRight, "Split Right", SplitRight).disabled(no_pane),
-        action(model, ShortcutId::SplitDown, "Split Down", SplitDown).disabled(no_pane),
-        action(model, ShortcutId::ClosePane, "Close Pane", ClosePane).disabled(no_pane),
+        action(
+            model,
+            ShortcutId::SplitRight,
+            tr_key!("Split Right"),
+            SplitRight,
+        )
+        .disabled(no_pane),
+        action(
+            model,
+            ShortcutId::SplitDown,
+            tr_key!("Split Down"),
+            SplitDown,
+        )
+        .disabled(no_pane),
+        action(
+            model,
+            ShortcutId::ClosePane,
+            tr_key!("Close Pane"),
+            ClosePane,
+        )
+        .disabled(no_pane),
         action(
             model,
             ShortcutId::ToggleZoomPane,
-            "Toggle Pane Zoom",
+            tr_key!("Toggle Pane Zoom"),
             ToggleZoomPane,
         )
         .disabled(no_pane),
-        action(model, ShortcutId::NextProject, "Next Project", NextProject)
-            .disabled(model.navigation_projects().len() < 2),
+        action(
+            model,
+            ShortcutId::NextProject,
+            tr_key!("Next Project"),
+            NextProject,
+        )
+        .disabled(model.navigation_projects().len() < 2),
         action(
             model,
             ShortcutId::PreviousProject,
-            "Previous Project",
+            tr_key!("Previous Project"),
             PreviousProject,
         )
         .disabled(model.navigation_projects().len() < 2),
-        action(model, ShortcutId::NextTab, "Next Tab", NextTab)
-            .disabled(model.navigation_tabs().len() < 2),
-        action(model, ShortcutId::PreviousTab, "Previous Tab", PreviousTab)
+        action(model, ShortcutId::NextTab, tr_key!("Next Tab"), NextTab)
             .disabled(model.navigation_tabs().len() < 2),
         action(
             model,
+            ShortcutId::PreviousTab,
+            tr_key!("Previous Tab"),
+            PreviousTab,
+        )
+        .disabled(model.navigation_tabs().len() < 2),
+        action(
+            model,
             ShortcutId::ToggleSidebar,
-            "Toggle Sidebar",
+            tr_key!("Toggle Sidebar"),
             ToggleSidebar,
         ),
     ] {
@@ -643,7 +678,7 @@ fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::AnyElement {
             div()
                 .text_size(m.font_headline())
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(if missing { "Project folder is missing".to_owned() } else { format!("No tabs in {}", model.state.current_project().name) }),
+                .child(if missing { tr!("Project folder is missing") } else { tr!("No tabs in %@", &model.state.current_project().name) }),
         )
         .child(
             div()
@@ -651,7 +686,7 @@ fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::AnyElement {
                 .text_center()
                 .text_size(m.font_body())
                 .text_color(theme.fg_muted)
-                .child(if missing { "This project’s folder could not be found. Remove the project from the sidebar to clear its tabs." } else { "Open a new terminal tab to start working in this project." }),
+                .child(if missing { tr!("This project’s folder could not be found. Remove the project from the sidebar to clear its tabs.") } else { tr!("Open a new terminal tab to start working in this project.") }),
         )
         .when(!missing, |view| view.child(
             div()
@@ -668,7 +703,7 @@ fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::AnyElement {
                 .cursor_pointer()
                 .hover(|style| style.opacity(0.85))
                 .on_click(cx.listener(|model, _, _, cx| model.new_tab(cx)))
-                .child("New Tab")
+                .child(tr!("New Tab"))
                 .when_some(model.settings.keymap.chord(ShortcutId::NewTab), |element, chord| element.child(
                     div()
                         .text_size(m.font_footnote())

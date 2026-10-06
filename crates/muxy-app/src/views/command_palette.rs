@@ -9,6 +9,8 @@ use crate::model::AppModel;
 
 pub(crate) type Handler = Rc<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
 
+/// A palette command for a shortcut action. `title` is an English key, shown
+/// translated and still found by its English words.
 pub(crate) fn action(
     model: &AppModel,
     id: ShortcutId,
@@ -18,7 +20,7 @@ pub(crate) fn action(
     let handler: Handler = Rc::new(move |_, window, cx| {
         window.dispatch_action(action.boxed_clone(), cx);
     });
-    let command = Command::new(id.name(), title, handler);
+    let command = Command::new(id.name(), muxy_ui::l10n::translate(title), handler).keywords(title);
     match model.settings.keymap.chord(id) {
         Some(chord) => command.shortcut(
             gpui::Keystroke::parse(chord.as_str())

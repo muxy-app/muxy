@@ -2,6 +2,7 @@ use std::path::Path;
 
 use muxy_app_core::backup::{ImportReport, Result};
 use muxy_protocol::RemoteAccessSettings;
+use muxy_ui::tr;
 use serde_json::{Map, Value};
 
 use super::{Files, archive};
@@ -14,10 +15,14 @@ pub(super) fn parse(source: &[u8]) -> Result<RemoteAccessSettings> {
         .keys()
         .any(|key| !matches!(key.as_str(), "enabled" | "port"))
     {
-        return Err("Mobile settings may contain only enabled and port".into());
+        return Err(tr!("Mobile settings may contain only enabled and port")
+            .to_string()
+            .into());
     }
     let settings: RemoteAccessSettings = serde_json::from_value(Value::Object(value))?;
-    settings.validate().map_err(|_| "Invalid Mobile port")?;
+    settings
+        .validate()
+        .map_err(|_| tr!("Invalid Mobile port").to_string())?;
     Ok(settings)
 }
 

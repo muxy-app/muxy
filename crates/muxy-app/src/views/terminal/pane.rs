@@ -12,6 +12,7 @@ use muxy_protocol::{
     ChannelId, ExitReason, ForegroundProcess, HistoryPage, InputModes, MetadataEvent, MouseAction,
     MouseEvent, SavedScreen, ScreenFrame, ScrollDirection, ServerPath, Size,
 };
+use muxy_ui::tr;
 
 use super::{
     clipboard,
@@ -460,7 +461,7 @@ impl TerminalPane {
         if failed {
             if let Some(find) = &mut self.find {
                 find.results.loading_history = false;
-                find.results.error = Some("Could not load match".into());
+                find.results.error = Some(tr!("Could not load match").into());
             }
         } else if self
             .find

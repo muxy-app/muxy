@@ -74,6 +74,7 @@ use gpui::{
 };
 
 use model::AppModel;
+use muxy_ui::tr;
 use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight, FocusPaneUp,
@@ -144,7 +145,7 @@ fn main() -> ExitCode {
                 // Empty titlebar space explicitly starts native movement, not tab presses.
                 is_movable: !cfg!(target_os = "macos"),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Muxy Beta".into()),
+                    title: Some(APP_NAME.into()),
                     appears_transparent: true,
                     traffic_light_position: Some(point(px(9.0), px(9.0))),
                 }),
@@ -192,107 +193,113 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
     Bounds::centered(None, size(px(width), px(height)), cx)
 }
 
+const APP_NAME: &str = "Muxy Beta";
+
 #[allow(clippy::too_many_lines, reason = "One native menu registration list")]
 fn menus() -> Vec<Menu> {
     use muxy_ui::text_input;
     let mut window_items = vec![
-        MenuItem::action("Minimize", Minimize),
-        MenuItem::action("Zoom", Zoom),
+        MenuItem::action(tr!("Minimize"), Minimize),
+        MenuItem::action(tr!("Zoom"), Zoom),
         MenuItem::separator(),
-        MenuItem::action("Split Right", SplitRight),
-        MenuItem::action("Split Down", SplitDown),
-        MenuItem::action("Focus Pane Left", FocusPaneLeft),
-        MenuItem::action("Focus Pane Right", FocusPaneRight),
-        MenuItem::action("Focus Pane Up", FocusPaneUp),
-        MenuItem::action("Focus Pane Down", FocusPaneDown),
-        MenuItem::action("Toggle Pane Zoom", ToggleZoomPane),
-        MenuItem::action("Close Pane", ClosePane),
-        MenuItem::action("Close Tab", CloseTab),
+        MenuItem::action(tr!("Split Right"), SplitRight),
+        MenuItem::action(tr!("Split Down"), SplitDown),
+        MenuItem::action(tr!("Focus Pane Left"), FocusPaneLeft),
+        MenuItem::action(tr!("Focus Pane Right"), FocusPaneRight),
+        MenuItem::action(tr!("Focus Pane Up"), FocusPaneUp),
+        MenuItem::action(tr!("Focus Pane Down"), FocusPaneDown),
+        MenuItem::action(tr!("Toggle Pane Zoom"), ToggleZoomPane),
+        MenuItem::action(tr!("Close Pane"), ClosePane),
+        MenuItem::action(tr!("Close Tab"), CloseTab),
         MenuItem::separator(),
-        MenuItem::action("Next Tab", NextTab),
-        MenuItem::action("Previous Tab", PreviousTab),
+        MenuItem::action(tr!("Next Tab"), NextTab),
+        MenuItem::action(tr!("Previous Tab"), PreviousTab),
         MenuItem::separator(),
-        MenuItem::action("Previous Project", PreviousProject),
-        MenuItem::action("Next Project", NextProject),
+        MenuItem::action(tr!("Previous Project"), PreviousProject),
+        MenuItem::action(tr!("Next Project"), NextProject),
         MenuItem::separator(),
     ];
     window_items.extend(
-        (0..9).map(|index| MenuItem::action(format!("Tab {}", index + 1), SelectTab { index })),
+        (0..9).map(|index| MenuItem::action(tr!("Tab %lld", index + 1), SelectTab { index })),
     );
     window_items.push(MenuItem::separator());
-    window_items.extend(
-        (0..9).map(|index| {
-            MenuItem::action(format!("Project {}", index + 1), SelectProject { index })
-        }),
-    );
+    window_items
+        .extend((0..9).map(|index| {
+            MenuItem::action(tr!("Project %lld", index + 1), SelectProject { index })
+        }));
     vec![
         Menu {
-            name: "Muxy Beta".into(),
+            name: APP_NAME.into(),
             items: vec![
-                MenuItem::action("Settings…", OpenSettings),
-                MenuItem::action("Open Configuration…", OpenConfiguration),
+                MenuItem::action(tr!("Settings…"), OpenSettings),
+                MenuItem::action(tr!("Open Configuration…"), OpenConfiguration),
                 MenuItem::action(
-                    "Reload Configuration",
+                    tr!("Reload Configuration"),
                     views::workspace::ReloadConfiguration,
                 ),
-                MenuItem::action("Check for Updates…", CheckForUpdates),
-                MenuItem::action("Install Command Line Tool…", InstallCommandLineTool),
+                MenuItem::action(tr!("Check for Updates…"), CheckForUpdates),
+                MenuItem::action(tr!("Install Command Line Tool…"), InstallCommandLineTool),
                 MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::os_submenu(tr!("Services"), SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action("Hide Muxy Beta", HideApp),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
+                MenuItem::action(tr!("Hide %@", APP_NAME), HideApp),
+                MenuItem::action(tr!("Hide Others"), HideOthers),
+                MenuItem::action(tr!("Show All"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit Muxy Beta", Quit),
-                MenuItem::action("End All Sessions and Quit", EndAllSessionsAndQuit),
+                MenuItem::action(tr!("Quit %@", APP_NAME), Quit),
+                MenuItem::action(tr!("End All Sessions and Quit"), EndAllSessionsAndQuit),
             ],
         },
         Menu {
-            name: "Edit".into(),
+            name: tr!("Edit"),
             items: vec![
-                MenuItem::os_action("Cut", text_input::Cut, OsAction::Cut),
-                MenuItem::os_action("Copy", text_input::Copy, OsAction::Copy),
-                MenuItem::os_action("Paste", text_input::Paste, OsAction::Paste),
-                MenuItem::os_action("Select All", text_input::SelectAll, OsAction::SelectAll),
+                MenuItem::os_action(tr!("Cut"), text_input::Cut, OsAction::Cut),
+                MenuItem::os_action(tr!("Copy"), text_input::Copy, OsAction::Copy),
+                MenuItem::os_action(tr!("Paste"), text_input::Paste, OsAction::Paste),
+                MenuItem::os_action(
+                    tr!("Select All"),
+                    text_input::SelectAll,
+                    OsAction::SelectAll,
+                ),
                 MenuItem::separator(),
-                MenuItem::action("Find…", Find),
-                MenuItem::action("Find Next", FindNext),
-                MenuItem::action("Find Previous", FindPrevious),
+                MenuItem::action(tr!("Find…"), Find),
+                MenuItem::action(tr!("Find Next"), FindNext),
+                MenuItem::action(tr!("Find Previous"), FindPrevious),
                 MenuItem::separator(),
-                MenuItem::action("Previous Prompt", PreviousPrompt),
-                MenuItem::action("Next Prompt", NextPrompt),
-                MenuItem::action("Select Command Output", SelectCommandOutput),
+                MenuItem::action(tr!("Previous Prompt"), PreviousPrompt),
+                MenuItem::action(tr!("Next Prompt"), NextPrompt),
+                MenuItem::action(tr!("Select Command Output"), SelectCommandOutput),
             ],
         },
         Menu {
-            name: "File".into(),
+            name: tr!("File"),
             items: vec![
-                MenuItem::action("New Tab", NewTab),
-                MenuItem::action("New Home Tab", NewHomeTab),
-                MenuItem::action("Open Project…", AddProject),
+                MenuItem::action(tr!("New Tab"), NewTab),
+                MenuItem::action(tr!("New Home Tab"), NewHomeTab),
+                MenuItem::action(tr!("Open Project…"), AddProject),
                 MenuItem::separator(),
-                MenuItem::action("Close Tab", CloseTab),
+                MenuItem::action(tr!("Close Tab"), CloseTab),
             ],
         },
         Menu {
-            name: "View".into(),
+            name: tr!("View"),
             items: vec![
-                MenuItem::action("Command Palette…", ToggleCommandPalette),
+                MenuItem::action(tr!("Command Palette…"), ToggleCommandPalette),
                 MenuItem::separator(),
-                MenuItem::action("Toggle Composer", ToggleComposer),
-                MenuItem::action("Toggle Voice Recording", ToggleVoiceRecording),
+                MenuItem::action(tr!("Toggle Composer"), ToggleComposer),
+                MenuItem::action(tr!("Toggle Voice Recording"), ToggleVoiceRecording),
                 MenuItem::separator(),
-                MenuItem::action("Toggle Sidebar", ToggleSidebar),
-                MenuItem::action("Toggle Full Screen", ToggleFullScreen),
+                MenuItem::action(tr!("Toggle Sidebar"), ToggleSidebar),
+                MenuItem::action(tr!("Toggle Full Screen"), ToggleFullScreen),
                 MenuItem::separator(),
-                MenuItem::action("Theme Picker", ToggleThemePicker),
+                MenuItem::action(tr!("Theme Picker"), ToggleThemePicker),
                 MenuItem::separator(),
-                MenuItem::action("Increase Font Size", IncreaseFontSize),
-                MenuItem::action("Decrease Font Size", DecreaseFontSize),
+                MenuItem::action(tr!("Increase Font Size"), IncreaseFontSize),
+                MenuItem::action(tr!("Decrease Font Size"), DecreaseFontSize),
             ],
         },
         Menu {
+            // GPUI hands macOS the window list only for a menu named "Window".
             name: "Window".into(),
             items: window_items,
         },

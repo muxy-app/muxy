@@ -15,6 +15,7 @@ use crate::model::AppModel;
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::Theme;
+use muxy_ui::tr;
 
 pub(crate) fn tab_strip(
     model: &AppModel,
@@ -62,7 +63,7 @@ pub(crate) fn tab_strip(
         cells = cells.child(tab_cell(tab, index, width, model, cx));
     }
     let mut cells = drag::measure_tabs(cells, targets.clone(), model);
-    let tooltip = "New Tab (⌘T)";
+    let tooltip = tr!("New Tab (⌘T)");
     let new_button = div()
         .debug_selector(|| "new-tab-button".into())
         .flex()
@@ -127,9 +128,9 @@ pub(super) fn existing_terminals_button(
     let theme = &model.theme;
     let project = model.state.current_project().id;
     let tooltip = if count == 1 {
-        "1 Existing Terminal".to_owned()
+        tr!("1 Existing Terminal").to_string()
     } else {
-        format!("{count} Existing Terminals")
+        tr!("%lld Existing Terminals", count).to_string()
     };
     let tooltip = model
         .settings
@@ -169,8 +170,8 @@ pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> A
         .keymap
         .chord(ShortcutId::OpenSettings)
         .map_or_else(
-            || "Settings".to_owned(),
-            |chord| format!("Settings ({chord})"),
+            || tr!("Settings").to_string(),
+            |chord| format!("{} ({chord})", tr!("Settings")),
         );
     div()
         .debug_selector(|| "settings-button".into())
@@ -205,15 +206,15 @@ pub(super) fn zoom_control(
 ) -> AnyElement {
     let theme = &model.theme;
     let label = if zoomed {
-        "Restore Pane"
+        tr!("Restore Pane")
     } else {
-        "Maximize Pane"
+        tr!("Maximize Pane")
     };
     let tooltip = model
         .settings
         .keymap
         .chord(ShortcutId::ToggleZoomPane)
-        .map_or_else(|| label.to_owned(), |chord| format!("{label} ({chord})"));
+        .map_or_else(|| label.to_string(), |chord| format!("{label} ({chord})"));
     div()
         .debug_selector(move || {
             if zoomed {

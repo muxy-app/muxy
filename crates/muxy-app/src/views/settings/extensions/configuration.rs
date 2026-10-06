@@ -6,7 +6,9 @@ use gpui::{AppContext, Context, IntoElement, ParentElement, Styled, div};
 use muxy_app_core::extensions::{Extension, SettingKind};
 use muxy_ui::{
     controls, form,
+    l10n::tr_key,
     text_input::{InputEvent, InputStyle, TextInput},
+    tr,
 };
 use serde_json::{Map, Value};
 
@@ -137,7 +139,7 @@ impl ExtensionsView {
                 false,
             ));
         }
-        Some(self.section("Settings", rows))
+        Some(self.section(&tr!("Settings"), rows))
     }
 
     /// Recent `[log]`, `[warn]`, `[err]`, and `[muxy]` lines, newest last.
@@ -151,10 +153,10 @@ impl ExtensionsView {
         let file = crate::model::extensions::log_file(&extension.directory);
         let shown = file.clone();
         self.section_with_actions(
-            "Logs",
+            &tr!("Logs"),
             self.button(
                 "extension-reveal-log",
-                "Reveal log",
+                tr_key!("Reveal log"),
                 move |view, _, cx| view.reveal(shown.clone(), cx),
                 cx,
             ),
@@ -168,10 +170,15 @@ impl ExtensionsView {
                             .flex()
                             .items_center()
                             .gap(self.metrics.spacing4())
-                            .child("Background script")
-                            .child(
-                                self.badge(if running { "Running" } else { "Stopped" }, running),
-                            ),
+                            .child(tr!("Background script"))
+                            .child(self.badge(
+                                if running {
+                                    tr!("Running")
+                                } else {
+                                    tr!("Stopped")
+                                },
+                                running,
+                            )),
                     )
                 })
                 .child(
@@ -187,9 +194,9 @@ impl ExtensionsView {
                                 .map(|line| div().child(line.clone()).into_any_element()),
                         )
                         .when(lines.is_empty(), |logs| {
-                            logs.child(format!(
-                                "No output yet. Logs are also written to {}.",
-                                file.display()
+                            logs.child(tr!(
+                                "No output yet. Logs are also written to %@.",
+                                file.display().to_string()
                             ))
                         }),
                 ),

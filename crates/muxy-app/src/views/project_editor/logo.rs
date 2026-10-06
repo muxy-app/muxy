@@ -7,6 +7,7 @@ use gpui::{
 use image::ImageDecoder;
 use muxy_app_core::{ProjectId, ProjectStatus};
 use muxy_ui::components::ButtonInteraction;
+use muxy_ui::tr;
 use std::{
     collections::HashMap,
     io::{Cursor, Read},
@@ -129,7 +130,7 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
     if bytes.len() as u64 > MAX_FILE {
-        return Err("Choose an image smaller than 20 MB.".into());
+        return Err(tr!("Choose an image smaller than 20 MB.").to_string());
     }
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -140,14 +141,15 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
     limits.max_alloc = Some(64 * 1024 * 1024);
     reader.limits(limits);
     let mut decoder = reader.into_decoder().map_err(|_| {
-        "Choose a PNG, JPEG, GIF, or WebP image up to 8192 pixels and 64 MB decoded.".to_owned()
+        tr!("Choose a PNG, JPEG, GIF, or WebP image up to 8192 pixels and 64 MB decoded.")
+            .to_string()
     })?;
     let orientation = decoder.orientation().map_err(|error| error.to_string())?;
     let mut image =
         image::DynamicImage::from_decoder(decoder).map_err(|error| error.to_string())?;
     image.apply_orientation(orientation);
     if image.width() == 0 || image.height() == 0 {
-        return Err("The image is empty.".into());
+        return Err(tr!("The image is empty.").to_string());
     }
     Ok(image.thumbnail(1024, 1024).to_rgba8())
 }
@@ -215,7 +217,7 @@ impl AppModel {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Choose Logo".into()),
+            prompt: Some(tr!("Choose Logo")),
         });
         self.project_logo_task = Some(cx.spawn(async move |model, cx| {
             let path = match result.await {
@@ -223,7 +225,10 @@ impl AppModel {
                 Ok(Ok(None)) => None,
                 result => {
                     let _ = model.update(cx, |model, cx| {
-                        model.fail(format!("Could not choose logo: {result:?}"), cx);
+                        model.fail(
+                            tr!("Could not choose logo: %@", format!("{result:?}")).to_string(),
+                            cx,
+                        );
                     });
                     None
                 }
@@ -254,7 +259,9 @@ impl AppModel {
                         let _ = model.window.update(cx, |_, window, _| focus.focus(window));
                         cx.notify();
                     }
-                    Err(error) => model.fail(format!("Could not load logo: {error}"), cx),
+                    Err(error) => {
+                        model.fail(tr!("Could not load logo: %@", error).to_string(), cx);
+                    }
                 }
             });
         }));
@@ -391,7 +398,11 @@ pub(crate) fn render(
                     }
                 }))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(div().font_weight(FontWeight::SEMIBOLD).child("Crop Logo"))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(tr!("Crop Logo")),
+                )
                 .child(
                     div()
                         .flex()
@@ -417,7 +428,7 @@ pub(crate) fn render(
                                 .min_w(px(0.0))
                                 .text_size(m.font_caption())
                                 .text_color(theme.fg_muted)
-                                .child("Drag to reposition, scroll to zoom"),
+                                .child(tr!("Drag to reposition, scroll to zoom")),
                         )
                         .child(muxy_ui::controls::button(
                             style,
@@ -520,7 +531,7 @@ fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
             muxy_ui::controls::button(
                 style,
                 "logo-cancel",
-                "Cancel",
+                &tr!("Cancel"),
                 true,
                 cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
             )
@@ -549,7 +560,7 @@ fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElemen
         .cursor_pointer()
         .hover(|style| style.opacity(0.85))
         .button_interaction(cx.listener(|model, _, _, cx| model.apply_project_logo(cx)))
-        .child("Apply")
+        .child(tr!("Apply"))
 }
 
 #[cfg(test)]

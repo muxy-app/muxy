@@ -1,6 +1,7 @@
 use muxy_app_core::project_layouts::{Config, DIRECTORY, Descriptor, discover};
 use muxy_client::Client;
 use muxy_protocol::{FilesAction, FilesReply, FilesRequest, ProjectId, ServerPath};
+use muxy_ui::tr;
 
 pub(super) fn list(client: &Client, project: ProjectId) -> Result<Vec<Descriptor>, String> {
     match client
@@ -11,7 +12,7 @@ pub(super) fn list(client: &Client, project: ProjectId) -> Result<Vec<Descriptor
         .map_err(|error| error.to_string())?
     {
         FilesReply::Entries(entries) => Ok(discover(entries)),
-        _ => Err("Unexpected layout directory response".into()),
+        _ => Err(tr!("Unexpected layout directory response").to_string()),
     }
 }
 
@@ -28,6 +29,6 @@ pub(super) fn load(
         .map_err(|error| error.to_string())?
     {
         FilesReply::Content(file) => Config::parse(&file.content),
-        _ => Err("Unexpected layout file response".into()),
+        _ => Err(tr!("Unexpected layout file response").to_string()),
     }
 }

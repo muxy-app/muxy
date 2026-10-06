@@ -11,6 +11,13 @@ pub struct Shortcut {
     pub key_contexts: &'static [&'static [Option<&'static str>]],
 }
 
+impl Shortcut {
+    /// The name Settings shows, also the key of its translation.
+    pub fn label(&self) -> String {
+        self.id.replace(['_', '.'], " ")
+    }
+}
+
 pub trait ShortcutSettings {
     fn keys(&self, id: &str, context: Option<&str>) -> Vec<String>;
 }

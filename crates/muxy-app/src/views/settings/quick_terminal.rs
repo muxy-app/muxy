@@ -5,17 +5,19 @@ use gpui::{
 };
 use muxy_core::quick_terminal::QuickTerminalShortcut;
 use muxy_ui::controls;
+use muxy_ui::l10n::tr_key;
+use muxy_ui::tr;
 
 #[allow(clippy::too_many_lines, reason = "Declarative settings layout")]
 pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<AnyElement> {
     let settings = &view.snapshot.settings.quick_terminal;
     let mut rows = Vec::new();
-    if view.matches(Category::QuickTerminal, "Enable Quick Terminal") {
+    if view.matches(Category::QuickTerminal, tr_key!("Enable Quick Terminal")) {
         let mut next = settings.clone();
         next.enabled = !next.enabled;
         rows.push(view.row(
             "quick-enabled",
-            "Enable Quick Terminal",
+            tr_key!("Enable Quick Terminal"),
             view.toggle(
                 "quick-enabled",
                 settings.enabled,
@@ -24,10 +26,10 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             ),
         ));
         if !settings.enabled {
-            rows.push(view.note("The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved.", false).into_any_element());
+            rows.push(view.note(&tr!("The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved."), false).into_any_element());
         }
     }
-    if view.matches(Category::QuickTerminal, "Open Quick Terminal") {
+    if view.matches(Category::QuickTerminal, tr_key!("Open Quick Terminal")) {
         let mut buttons = div().flex().flex_wrap().gap(px(8.0));
         let mut unassigned = settings.clone();
         unassigned.shortcut = QuickTerminalShortcut::Unassigned;
@@ -35,7 +37,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::button(
                 view.style(),
                 "quick-unassigned",
-                "No Shortcut",
+                &tr!("No Shortcut"),
                 true,
                 cx.listener(move |_: &mut SettingsView, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::QuickTerminal(
@@ -53,10 +55,10 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::button(
                 view.style(),
                 "quick-record",
-                if view.quick_recording.is_some() {
-                    "Cancel Recording"
+                &if view.quick_recording.is_some() {
+                    tr!("Cancel Recording")
                 } else {
-                    "Record Shortcut…"
+                    tr!("Record Shortcut…")
                 },
                 true,
                 cx.listener(|view, _, window, cx| view.record_quick_shortcut(window, cx)),
@@ -64,11 +66,11 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             .debug_selector(|| "settings-quick-record".to_owned()),
         );
         let status = if !settings.enabled {
-            "Disabled".into()
+            tr!("Disabled")
         } else if settings.shortcut == QuickTerminalShortcut::Unassigned {
-            "No shortcut assigned".into()
+            tr!("No shortcut assigned")
         } else {
-            view.snapshot.quick_shortcut_status.clone()
+            view.snapshot.quick_shortcut_status.clone().into()
         };
         let label = settings
             .shortcut
@@ -77,7 +79,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         rows.push(
             view.row(
                 "quick-shortcut",
-                "Open Quick Terminal",
+                tr_key!("Open Quick Terminal"),
                 div()
                     .flex()
                     .flex_col()
@@ -89,27 +91,27 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             ),
         );
     }
-    if view.matches(Category::QuickTerminal, "Terminal size") {
+    if view.matches(Category::QuickTerminal, tr_key!("Terminal size")) {
         let mut next = settings.clone();
         next.width = 720;
         next.height = 430;
         rows.push(
             view.row(
                 "quick-size",
-                "Terminal size",
+                tr_key!("Terminal size"),
                 div()
                     .flex()
                     .items_center()
                     .flex_wrap()
                     .gap(px(8.0))
-                    .child("Width")
+                    .child(tr!("Width"))
                     .child(view.field("quick-width"))
-                    .child("Height")
+                    .child(tr!("Height"))
                     .child(view.field("quick-height"))
                     .child(controls::button(
                         view.style(),
                         "quick-size-reset",
-                        "Reset",
+                        &tr!("Reset"),
                         true,
                         cx.listener(move |_: &mut SettingsView, _, _, cx| {
                             cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
@@ -122,11 +124,16 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     for (id, label, value, max) in [
         (
             "quick-transparency",
-            "Terminal transparency",
+            tr_key!("Terminal transparency"),
             settings.transparency,
             55.0,
         ),
-        ("quick-blur", "Background vibrancy", settings.blur, 100.0),
+        (
+            "quick-blur",
+            tr_key!("Background vibrancy"),
+            settings.blur,
+            100.0,
+        ),
     ] {
         if view.matches(Category::QuickTerminal, label) {
             let slider = controls::slider(
@@ -144,7 +151,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 .items_center()
                 .gap(px(8.0))
                 .child(slider)
-                .child(format!("{value}%"));
+                .child(tr!("%lld%%", value));
             if id == "quick-blur" {
                 let mut next = settings.clone();
                 next.transparency = 18;
@@ -152,7 +159,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 control = control.child(controls::button(
                     view.style(),
                     "quick-appearance-reset",
-                    "Reset",
+                    &tr!("Reset"),
                     true,
                     cx.listener(move |_: &mut SettingsView, _, _, cx| {
                         cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));

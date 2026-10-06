@@ -4,6 +4,7 @@ use gpui::{
 };
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::CellHeight;
+use muxy_ui::tr;
 
 use super::{AppModel, Quitting};
 use crate::boot::Work;
@@ -85,7 +86,7 @@ impl AppModel {
             window_min_size: Some(size(px(740.0), px(480.0))),
             is_movable: !cfg!(target_os = "macos"),
             titlebar: Some(TitlebarOptions {
-                title: Some("Muxy Settings".into()),
+                title: Some(tr!("Muxy Settings")),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(14.0), px(16.0))),
             }),
@@ -107,7 +108,10 @@ impl AppModel {
                 self.read_server_settings(cx);
                 self.read_remote_access(cx);
             }
-            Err(error) => self.fail(format!("Could not open Settings: {error}"), cx),
+            Err(error) => self.fail(
+                tr!("Could not open Settings: %@", error.to_string()).to_string(),
+                cx,
+            ),
         }
     }
 
@@ -144,6 +148,7 @@ impl AppModel {
                 .collect(),
             sidebars: self.extension_sidebars(),
             file_openers: self.extension_file_openers(),
+            languages: self.app_languages(),
             extension_shortcuts: self.extension_shortcuts(),
         }
     }
@@ -177,7 +182,7 @@ impl AppModel {
         self.flush_preferences(cx);
         if self.server_preferences.busy || self.server_preferences.control_busy {
             self.fail(
-                "Wait for the server settings operation to finish before quitting".into(),
+                tr!("Wait for the server settings operation to finish before quitting").to_string(),
                 cx,
             );
             return false;
@@ -240,7 +245,7 @@ impl AppModel {
             let error = result.err().map(|error| error.to_string());
             self.preference_result(&id, error.as_deref(), cx);
             if theme_change && let Some(error) = error {
-                self.fail(format!("Could not save theme: {error}"), cx);
+                self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
             }
         }
         self.sync_preferences(cx);
@@ -316,12 +321,16 @@ impl AppModel {
                 settings.appearance.extension_sidebar = owner;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::Language(selection) => {
+                settings.appearance.language = selection;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::Field("sidebar-vibrancy-level", value) => {
                 let level: u8 = value
                     .parse()
-                    .map_err(|_| "Enter a whole number from 0 to 100")?;
+                    .map_err(|_| tr!("Enter a whole number from 0 to 100").to_string())?;
                 if level > 100 {
-                    return Err("Enter a whole number from 0 to 100".into());
+                    return Err(tr!("Enter a whole number from 0 to 100").to_string().into());
                 }
                 settings.appearance.sidebar_vibrancy_level = level;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
@@ -412,11 +421,12 @@ impl AppModel {
             Change::Field(id @ ("font-family" | "font-size" | "adjust-cell-height"), value) => {
                 self.save_terminal_preference(id, &value, cx)?;
             }
-            _ => return Err("Unknown app setting".into()),
+            _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
         let theme_changed = theme_changed
             || self.appearance.dark_theme != settings.appearance.dark_theme
             || self.appearance.light_theme != settings.appearance.light_theme;
+        let language_changed = self.appearance.language != settings.appearance.language;
         self.appearance = settings.appearance.clone();
         self.settings = settings;
         self.invalidate_webview_shortcuts();
@@ -425,6 +435,9 @@ impl AppModel {
         }
         if theme_changed {
             self.refresh_theme(cx);
+        }
+        if language_changed {
+            self.sync_language(cx);
         }
         for pane in self.grids.values() {
             pane.view.update(cx, |pane, cx| {
@@ -451,7 +464,7 @@ impl AppModel {
                             muxy_app_core::composer::submission::ImageSubmissionStrategy::InlinePath
                         }
                     }
-                    _ => return Err("Unknown composer preference".into()),
+                    _ => return Err(tr!("Unknown composer preference").to_string().into()),
                 }
                 settings.save_composer(&path)?;
             }
@@ -466,7 +479,7 @@ impl AppModel {
                 }
                 settings.save_composer(&path)?;
             }
-            _ => return Err("Unknown composer preference".into()),
+            _ => return Err(tr!("Unknown composer preference").to_string().into()),
         }
         self.settings.composer = settings.composer;
         self.composer.preferences_dirty = false;
@@ -492,7 +505,7 @@ impl AppModel {
             "font-family" => requested.font_families = vec![value.into()],
             "font-size" => requested.font_size = value.parse()?,
             "adjust-cell-height" => requested.cell_height = value.parse::<CellHeight>()?,
-            _ => return Err("Unknown terminal setting".into()),
+            _ => return Err(tr!("Unknown terminal setting").to_string().into()),
         }
         self.settings.validate_command_shortcuts(&requested)?;
         let effective = requested.save(&self.path.with_file_name("ghostty.conf"))?;
@@ -541,13 +554,15 @@ impl AppModel {
 
     fn write_server_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
         if !self.ready(ServerId::local()) || self.server_preferences.control_busy {
-            return Err("Connect to the server before editing its settings".into());
+            return Err(tr!("Connect to the server before editing its settings")
+                .to_string()
+                .into());
         }
         let mut settings = self
             .server_preferences
             .document
             .clone()
-            .ok_or("Load server settings first")?;
+            .ok_or_else(|| tr!("Load server settings first").to_string())?;
         let id = change_id(&change).to_owned();
         match change {
             Change::ShellIntegration(value) => settings.shell_integration = value,
@@ -559,18 +574,19 @@ impl AppModel {
                 settings.history_budget_bytes = value
                     .parse::<u64>()?
                     .checked_mul(1024 * 1024)
-                    .ok_or("History budget is too large")?;
+                    .ok_or_else(|| tr!("History budget is too large").to_string())?;
             }
-            _ => return Err("Unknown server setting".into()),
+            _ => return Err(tr!("Unknown server setting").to_string().into()),
         }
-        settings.validate().map_err(
-            |_| "Use an absolute shell path and a history budget between 0 and 65536 MiB",
-        )?;
+        settings.validate().map_err(|_| {
+            tr!("Use an absolute shell path and a history budget between 0 and 65536 MiB")
+                .to_string()
+        })?;
         self.server_preferences.busy =
             self.send(ServerId::local(), Work::WriteServerSettings(settings), cx);
         self.server_preferences.row = id;
         if !self.server_preferences.busy {
-            return Err("Could not send server settings".into());
+            return Err(tr!("Could not send server settings").to_string().into());
         }
         Ok(())
     }
@@ -624,8 +640,8 @@ impl AppModel {
                 }
             }
             Err(error) => {
-                let message =
-                    self.server_message(server, &format!("Could not stop server: {error}"));
+                let message = self
+                    .server_message(server, &tr!("Could not stop server: %@", error.to_string()));
                 if server.is_local() {
                     self.preference_result("server", Some(&message), cx);
                 }
@@ -693,6 +709,7 @@ fn change_id(change: &Change) -> &str {
         Change::Sidebar(_) => "sidebar",
         Change::SidebarVibrancy(_) => "sidebar-vibrancy",
         Change::ExtensionSidebar(_) => "extension-sidebar",
+        Change::Language(_) => "app-language",
         Change::Worktrees(key, _) => key,
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
         Change::StatusBar(_) => "status-bar",

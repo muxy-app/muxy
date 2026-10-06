@@ -4,7 +4,7 @@ use gpui::{
     div, px,
 };
 use muxy_app_core::settings::CustomCommand;
-use muxy_ui::{controls, form};
+use muxy_ui::{controls, form, tr};
 
 use super::{Category, Change, SettingsEvent, SettingsView};
 
@@ -29,16 +29,16 @@ pub(super) fn heading(pane: &SettingsView, cx: &mut Context<SettingsView>) -> An
         .flex()
         .flex_col()
         .gap(px(8.0))
-        .child(pane.note("Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette.", false))
+        .child(pane.note(&tr!("Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette."), false))
         .child(div().flex().child(controls::button(
             pane.style(),
             "add-command",
-            "Add Command",
+            &tr!("Add Command"),
             pane.command_editor.is_none(),
             cx.listener(|pane, _, window, cx| pane.edit_command(None, window, cx)),
         ).debug_selector(|| "settings-add-command".into())))
         .when(pane.snapshot.settings.commands.is_empty() && pane.command_editor.is_none(), |body| {
-            body.child(pane.note("No custom commands yet.", false))
+            body.child(pane.note(&tr!("No custom commands yet."), false))
         })
         .when(pane.command_editor.is_some(), |body| body.child(editor(pane, cx)))
         .when_some(pane.errors.get("commands"), |body, error| body.child(pane.note(error, true)))
@@ -51,15 +51,15 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
         .flex_col()
         .child(form::row(
             pane.layout_style(),
-            "Name",
+            &tr!("Name"),
             None,
             pane.field("command-name"),
             pane.compact,
         ))
         .child(form::row(
             pane.layout_style(),
-            "Command",
-            Some("A single-line shell command, such as cargo test or npm run dev."),
+            &tr!("Command"),
+            Some(tr!("A single-line shell command, such as cargo test or npm run dev.").as_str()),
             pane.field("command-text"),
             pane.compact,
         ))
@@ -71,7 +71,7 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
                     controls::button(
                         pane.style(),
                         "save-command",
-                        "Save",
+                        &tr!("Save"),
                         true,
                         cx.listener(|pane, _, _, cx| pane.save_command(cx)),
                     )
@@ -81,7 +81,7 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
                     controls::button(
                         pane.style(),
                         "cancel-command",
-                        "Cancel",
+                        &tr!("Cancel"),
                         true,
                         cx.listener(|pane, _, _, cx| pane.cancel_command(cx)),
                     )
@@ -96,9 +96,12 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
     let id = command.shortcut_id();
     let chord = pane.snapshot.settings.keymap.binding(&id);
     let label = if pane.recording.as_deref() == Some(id.as_str()) {
-        "Press a shortcut…"
+        tr!("Press a shortcut…")
     } else {
-        chord.map_or("Record shortcut", muxy_app_core::settings::KeyChord::as_str)
+        chord.map_or_else(
+            || tr!("Record shortcut"),
+            |chord| chord.as_str().to_owned().into(),
+        )
     };
     let focus = &pane.results.command_focus[&id];
     let enabled = pane.command_editor.is_none();
@@ -116,7 +119,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &id,
-                label,
+                &label,
                 enabled,
                 cx.listener(move |pane, _, window, cx| pane.begin_recording(&record, window, cx)),
             )
@@ -130,7 +133,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                "Unassign",
+                &tr!("Unassign"),
                 enabled && chord.is_some(),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
@@ -146,7 +149,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("edit-{id}"),
-                "Edit",
+                &tr!("Edit"),
                 enabled,
                 cx.listener(move |pane, _, window, cx| {
                     pane.edit_command(Some(edit.clone()), window, cx);
@@ -162,7 +165,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("delete-{id}"),
-                "Delete",
+                &tr!("Delete"),
                 enabled,
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
@@ -175,7 +178,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
                 move || format!("settings-delete-{id}")
             }),
         );
-    pane.row_with_description(
+    pane.text_row(
         &id,
         &command.name,
         Some(&command.command),

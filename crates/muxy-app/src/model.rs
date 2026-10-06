@@ -6,6 +6,7 @@ mod composer;
 mod diagnostics;
 pub(crate) mod extensions;
 pub(crate) mod git;
+mod language;
 mod links;
 mod mobile;
 mod preferences;
@@ -47,6 +48,7 @@ use crate::views::overlays::Overlay;
 use crate::views::terminal::colors::Palette;
 use crate::views::terminal::pane::{PaneEvent, PaneState, TerminalPane};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 
 pub(crate) struct PaneView {
     pub(crate) view: Entity<TerminalPane>,
@@ -168,6 +170,7 @@ pub(crate) struct AppModel {
     pub(crate) notice_toast: Option<banners::Toast>,
     problem_task: Option<Task<()>>,
     notice_task: Option<Task<()>>,
+    language_task: Option<Task<()>>,
     path: PathBuf,
     bounds_save: Option<Task<()>>,
     webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
@@ -298,9 +301,9 @@ impl AppModel {
                 self.refresh_theme(cx);
             }
             Err(error) => {
-                self.set_configuration_error(Some(format!(
-                    "Could not reload configuration: {error}"
-                )));
+                self.set_configuration_error(Some(
+                    tr!("Could not reload configuration: %@", error.to_string()).to_string(),
+                ));
                 cx.notify();
             }
         }
@@ -322,7 +325,10 @@ impl AppModel {
             .settings
             .set_project_search_root(root, &self.path.with_file_name("settings.toml"))
         {
-            self.fail(format!("Could not save search location: {error}"), cx);
+            self.fail(
+                tr!("Could not save search location: %@", error.to_string()).to_string(),
+                cx,
+            );
         }
     }
 
@@ -343,7 +349,10 @@ impl AppModel {
             Err(error) => {
                 self.appearance = self.settings.appearance.clone();
                 self.refresh_theme(cx);
-                self.fail(format!("Could not save appearance: {error}"), cx);
+                self.fail(
+                    tr!("Could not save appearance: %@", error.to_string()).to_string(),
+                    cx,
+                );
             }
         }
         self.sync_preferences(cx);
@@ -548,6 +557,7 @@ impl AppModel {
             notice_toast: None,
             problem_task: None,
             notice_task: None,
+            language_task: None,
             path: boot.state_path,
             bounds_save: None,
             webview_shortcuts: None,
@@ -1142,7 +1152,11 @@ impl AppModel {
                     )
                 {
                     self.fail(
-                        format!("Could not save close confirmation preference: {error}"),
+                        tr!(
+                            "Could not save close confirmation preference: %@",
+                            error.to_string()
+                        )
+                        .to_string(),
                         cx,
                     );
                 }
@@ -1156,7 +1170,10 @@ impl AppModel {
             }
             Err(error) => {
                 self.close_request = None;
-                self.fail(format!("Could not show close confirmation: {error}"), cx);
+                self.fail(
+                    tr!("Could not show close confirmation: %@", &error).to_string(),
+                    cx,
+                );
             }
         }
         cx.notify();
@@ -1254,7 +1271,7 @@ impl AppModel {
         let local = ServerId::local();
         if !self.ready(local) {
             self.fail(
-                "Connect to the server before ending all sessions".into(),
+                tr!("Connect to the server before ending all sessions").to_string(),
                 cx,
             );
             return;
@@ -1368,7 +1385,10 @@ impl AppModel {
         match store::save(&self.path, &self.state) {
             Ok(()) => true,
             Err(error) => {
-                self.fail(format!("Could not save tabs: {error}"), cx);
+                self.fail(
+                    tr!("Could not save tabs: %@", error.to_string()).to_string(),
+                    cx,
+                );
                 false
             }
         }
@@ -1532,7 +1552,9 @@ impl AppModel {
                     model.terminal_menu(id, *position, cx);
                 }
             }
-            PaneEvent::SelectionCopied => model.show_notice("Copied to clipboard".into(), cx),
+            PaneEvent::SelectionCopied => {
+                model.show_notice(tr!("Copied to clipboard").to_string(), cx);
+            }
             PaneEvent::Bell => cx.notify(),
             PaneEvent::Focused => {
                 if !model.is_quick_terminal(id) {
@@ -2029,7 +2051,7 @@ impl AppModel {
                 self.disconnect(server, cx);
                 self.server_problem(
                     server,
-                    format!("Could not register open terminals: {error}"),
+                    tr!("Could not register open terminals: %@", error.to_string()).to_string(),
                     cx,
                 );
             }
@@ -2222,7 +2244,10 @@ impl AppModel {
             Err(error) if missing_session(&error) => self.advance_close(cx),
             Err(error) => {
                 self.close_request = None;
-                self.fail(format!("Could not check the running process: {error}"), cx);
+                self.fail(
+                    tr!("Could not check the running process: %@", error.to_string()).to_string(),
+                    cx,
+                );
             }
         }
     }
@@ -2260,7 +2285,11 @@ impl AppModel {
                     });
                     if !matches!(&error, muxy_client::ClientError::Server(reply) if reply.code == muxy_protocol::ErrorCode::SavedContentUnavailable)
                     {
-                        self.fail(format!("Could not restore terminal output: {error}"), cx);
+                        self.fail(
+                            tr!("Could not restore terminal output: %@", error.to_string())
+                                .to_string(),
+                            cx,
+                        );
                     }
                 }
             }
@@ -2480,7 +2509,10 @@ impl AppModel {
     ) {
         self.quitting = Quitting::Idle;
         if let Err(error) = result {
-            self.fail(format!("Could not end all sessions: {error}"), cx);
+            self.fail(
+                tr!("Could not end all sessions: %@", error.to_string()).to_string(),
+                cx,
+            );
             self.ensure_visible(cx);
             return;
         }
@@ -2488,7 +2520,10 @@ impl AppModel {
         let previous = self.state.clone();
         if let Err(error) = self.state.clear_terminal_panes(local) {
             self.state = previous;
-            self.fail(format!("Could not clear terminal panes: {error}"), cx);
+            self.fail(
+                tr!("Could not clear terminal panes: %@", error.to_string()).to_string(),
+                cx,
+            );
             return;
         }
         for session in self.state.pending_discards(local).to_vec() {
@@ -2532,6 +2567,7 @@ mod tests {
     mod detach;
     mod find;
     mod git;
+    mod language;
     mod layout_drag;
     mod links;
     mod mouse;

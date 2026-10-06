@@ -10,11 +10,13 @@ use muxy_app_core::{
     settings::{ComposerPosition, ComposerSettings},
 };
 use muxy_ui::{
+    l10n::tr_key,
     panel::{
         PanelMode, PanelPlacement, PanelPosition, PanelResizeState, PanelSizeBounds, PanelSizing,
     },
     text_input::{InputEvent, InputStyle, TextInput},
     theme::{Metrics, Theme},
+    tr,
 };
 
 actions!(composer, [Submit, Insert, Close, ToggleVoice]);
@@ -76,7 +78,7 @@ impl Composer {
             TextInput::new(InputStyle::field(&theme, &metrics), cx)
                 .multiline()
                 .with_text(draft.text.clone())
-                .with_placeholder("Type or speak…")
+                .with_placeholder_key(tr_key!("Type or speak…"))
                 .with_placeholder_font(".SystemUIFont")
                 .with_paste_delegate(move |_, cx| {
                     let content = muxy_ui::pasteboard::read_content();
@@ -261,7 +263,7 @@ impl Composer {
             }
             let text = recorder.finish();
             if text.is_empty() {
-                self.error = Some("No speech detected. Try dictation again.".into());
+                self.error = Some(tr!("No speech detected. Try dictation again.").into());
             } else {
                 self.input
                     .update(cx, |input, cx| input.insert_at_selection(&text, cx));

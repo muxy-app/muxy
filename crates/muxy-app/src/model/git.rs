@@ -5,6 +5,7 @@ use muxy_protocol::{
     GitAction, GitBaseSwitch, GitBranch, GitFile, GitPullRequest, GitPullRequestAction, GitReply,
     GitRequest, GitSummary, ProjectId,
 };
+use muxy_ui::tr;
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
@@ -141,7 +142,10 @@ impl AppModel {
             return;
         }
         if read_slot(&action).is_none() && self.ai.running(project) {
-            self.fail("Wait for the AI repository action to finish".into(), cx);
+            self.fail(
+                tr!("Wait for the AI repository action to finish").to_string(),
+                cx,
+            );
             return;
         }
         if action == GitAction::Watch && self.git.current != Some(project) {
@@ -161,7 +165,7 @@ impl AppModel {
                 self.update_git_picker(cx);
                 cx.notify();
             } else {
-                self.fail("A Git action is already pending".into(), cx);
+                self.fail(tr!("A Git action is already pending").to_string(), cx);
             }
             return;
         }
@@ -396,21 +400,21 @@ impl AppModel {
                         match &request.action {
                             GitAction::PullRequest(GitPullRequestAction::Merge {
                                 number, ..
-                            }) if follow_up.is_none() => Some(format!("Merged PR #{number}")),
+                            }) if follow_up.is_none() => Some(tr!("Merged PR #%lld", *number)),
                             GitAction::PullRequest(GitPullRequestAction::Close { number }) => {
-                                Some(format!("Closed PR #{number}"))
+                                Some(tr!("Closed PR #%lld", *number))
                             }
                             GitAction::PullRequest(GitPullRequestAction::UpdateBranch {
                                 number,
                                 ..
-                            }) => Some(format!("Updated branch for PR #{number}")),
+                            }) => Some(tr!("Updated branch for PR #%lld", *number)),
                             _ => None,
                         }
                     } else {
                         None
                     };
                 if let Some(notice) = notice {
-                    self.show_notice(notice, cx);
+                    self.show_notice(notice.to_string(), cx);
                 }
                 if context_matches && matches!(self.overlay, Some(Overlay::GitForm(_))) {
                     self.dismiss_overlay(cx);
@@ -443,13 +447,18 @@ impl AppModel {
                 {
                     let detail = match result {
                         GitBaseSwitch::Updated => {
-                            format!("Switched to {base} and brought it up to date.")
+                            tr!("Switched to %@ and brought it up to date.", &base)
                         }
-                        GitBaseSwitch::CheckedOutElsewhere(_) => format!(
-                            "{base} is checked out in another worktree, so this one stays on its branch."
+                        GitBaseSwitch::CheckedOutElsewhere(_) => tr!(
+                            "%@ is checked out in another worktree, so this one stays on its branch.",
+                            &base
                         ),
                     };
-                    self.show_toast(format!("Merged PR #{number} into {base}"), Some(detail), cx);
+                    self.show_toast(
+                        tr!("Merged PR #%lld into %@", number, &base).to_string(),
+                        Some(detail.to_string()),
+                        cx,
+                    );
                 }
                 self.queue_git_refresh(
                     request.project,
@@ -497,19 +506,20 @@ impl AppModel {
                     let failed = match &request.action {
                         GitAction::SwitchToBase(base) => {
                             repository.post_merge.take().map(|(number, _)| {
-                                format!("Merged PR #{number}, but couldn't update {base}")
+                                tr!("Merged PR #%lld, but couldn't update %@", number, base)
+                                    .to_string()
                             })
                         }
                         GitAction::PullRequest(GitPullRequestAction::Merge { number, .. }) => {
-                            Some(format!("Couldn't merge PR #{number}"))
+                            Some(tr!("Couldn't merge PR #%lld", *number).to_string())
                         }
                         GitAction::PullRequest(GitPullRequestAction::Close { number }) => {
-                            Some(format!("Couldn't close PR #{number}"))
+                            Some(tr!("Couldn't close PR #%lld", *number).to_string())
                         }
                         GitAction::PullRequest(GitPullRequestAction::UpdateBranch {
                             number,
                             ..
-                        }) => Some(format!("Couldn't update PR #{number}")),
+                        }) => Some(tr!("Couldn't update PR #%lld", *number).to_string()),
                         _ => None,
                     };
                     repository.error = Some(failed.clone().unwrap_or_else(|| error.to_string()));
@@ -537,7 +547,11 @@ impl AppModel {
             }
         }
         if let Some(message) = setup_error {
-            self.fail_detail("Worktree created, but setup failed".into(), &message, cx);
+            self.fail_detail(
+                tr!("Worktree created, but setup failed").to_string(),
+                &message,
+                cx,
+            );
         }
         self.dispatch_git_refresh(request.project, cx);
         self.update_git_picker(cx);

@@ -9,6 +9,7 @@ use muxy_app_core::settings::ServerEntry;
 use muxy_app_core::{PaneId, Project, ServerId};
 use muxy_client::SshTarget;
 use muxy_protocol::{ChannelId, SessionId, SessionProgress};
+use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting, activity, catalog};
 use crate::boot::{Target, Work, Worker, Workers};
@@ -407,7 +408,7 @@ impl AppModel {
         if !sent {
             self.disconnect(server, cx);
             if server.is_local() {
-                self.fail("The server connection worker stopped".into(), cx);
+                self.fail(tr!("The server connection worker stopped").to_string(), cx);
             }
         }
     }
@@ -482,10 +483,12 @@ impl AppModel {
             self.quick.closing = None;
             self.refresh_quick_terminal(cx);
             if self.server_preferences.busy || !self.server_preferences.pending.is_empty() {
-                let message = "Disconnected before settings were confirmed. Reconnect and reload before retrying.";
-                self.preference_result("server", Some(message), cx);
+                let message = tr!(
+                    "Disconnected before settings were confirmed. Reconnect and reload before retrying."
+                );
+                self.preference_result("server", Some(&message), cx);
                 for id in self.pending_server_fields() {
-                    self.preference_result(&id, Some(message), cx);
+                    self.preference_result(&id, Some(&message), cx);
                 }
             }
             self.server_preferences.busy = false;
@@ -503,7 +506,7 @@ impl AppModel {
     pub(super) fn send(&mut self, server: ServerId, work: Work, cx: &mut Context<Self>) -> bool {
         let Some(runtime) = self.servers.get(server) else {
             if server.is_local() {
-                self.fail("Server disconnected".into(), cx);
+                self.fail(tr!("Server disconnected").to_string(), cx);
             }
             return false;
         };
@@ -528,7 +531,7 @@ impl AppModel {
         }
         if runtime.connection != ConnectionState::Ready && !matches!(work, Work::Flush) {
             if server.is_local() {
-                self.fail("Server disconnected".into(), cx);
+                self.fail(tr!("Server disconnected").to_string(), cx);
             }
             return false;
         }
@@ -538,7 +541,11 @@ impl AppModel {
             .is_some_and(|worker| worker.send((runtime.generation, work)).is_ok());
         if !sent {
             self.disconnect(server, cx);
-            self.server_problem(server, "The server connection worker stopped".into(), cx);
+            self.server_problem(
+                server,
+                tr!("The server connection worker stopped").to_string(),
+                cx,
+            );
         }
         sent
     }

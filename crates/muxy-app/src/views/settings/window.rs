@@ -1,11 +1,13 @@
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription,
-    WeakEntity, Window, div,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, WeakEntity, Window, div,
 };
 
 use muxy_ui::command_palette::{CommandPalette, CommandPaletteEvent};
+use muxy_ui::l10n::translate;
 use muxy_ui::picker::{Picker, PickerConfig, PickerEvent, PickerItem, PickerRow};
+use muxy_ui::tr;
 
 use super::languages::{LanguageEvent, LanguagePicker};
 use super::{Change, PickerRequest, SettingsEvent, SettingsView, pickers};
@@ -233,6 +235,7 @@ impl SettingsWindow {
             }
             super::PickerKind::ExtensionSidebar => self.open_sidebar_picker(request, window, cx),
             super::PickerKind::FileOpener => self.open_file_opener_picker(request, window, cx),
+            super::PickerKind::AppLanguage => self.open_app_language_picker(request, window, cx),
         }
         cx.notify();
     }
@@ -249,13 +252,13 @@ impl SettingsWindow {
         let (theme, metrics) = (view.theme.clone(), view.metrics);
         let picker = cx.new(|cx| {
             Picker::new(
-                PickerConfig::popover("extension-sidebar", "Search sidebars…"),
+                PickerConfig::popover("extension-sidebar", tr!("Search sidebars…")),
                 theme,
                 metrics,
                 cx,
             )
         });
-        let items = std::iter::once(PickerItem::Row(PickerRow::new("", "Built-in")))
+        let items = std::iter::once(PickerItem::Row(PickerRow::new("", tr!("Built-in"))))
             .chain(
                 sidebars
                     .into_iter()
@@ -297,7 +300,7 @@ impl SettingsWindow {
         let current = view.snapshot.settings.openers.file.clone();
         let mut openers: Vec<(String, String)> = super::appearance::FILE_OPENERS
             .iter()
-            .map(|(id, label)| ((*id).to_owned(), (*label).to_owned()))
+            .map(|&(id, label)| (id.to_owned(), translate(label).to_string()))
             .chain(view.snapshot.file_openers.iter().cloned())
             .collect();
         let unavailable = !openers.iter().any(|(id, _)| *id == current);
@@ -308,7 +311,7 @@ impl SettingsWindow {
         let (theme, metrics) = (view.theme.clone(), view.metrics);
         let picker = cx.new(|cx| {
             Picker::new(
-                PickerConfig::popover("file-opener", "Search openers…"),
+                PickerConfig::popover("file-opener", tr!("Search openers…")),
                 theme,
                 metrics,
                 cx,
@@ -330,6 +333,64 @@ impl SettingsWindow {
                     let opener = selection.id.to_string();
                     let _ = root.model.update(cx, |model, cx| {
                         model.change_preference(Change::FileOpener(opener), cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
+    }
+
+    /// Chooses English or a language an enabled extension provides. A chosen
+    /// language that is no longer available stays listed, disabled.
+    fn open_app_language_picker(
+        &mut self,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let current = view.snapshot.settings.appearance.language.clone();
+        let mut languages = vec![(String::new(), tr!("English").to_string())];
+        languages.extend(view.snapshot.languages.iter().cloned());
+        let unavailable = !languages.iter().any(|(id, _)| *id == current);
+        if unavailable {
+            let label = super::appearance::language_label(&view.snapshot, &current);
+            languages.push((current.clone(), label));
+        }
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("app-language", tr!("Search languages…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = languages
+            .into_iter()
+            .map(|(id, label)| {
+                let disabled = unavailable && id == current;
+                let mut row = PickerRow::new(id.clone(), label);
+                row.current = id == current;
+                PickerItem::Row(row).disabled(disabled)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let language = selection.id.to_string();
+                    let _ = root.model.update(cx, |model, cx| {
+                        model.change_preference(Change::Language(language), cx);
                     });
                     root.dismiss_overlay(window, cx);
                 }
@@ -387,18 +448,18 @@ impl SettingsWindow {
         let (theme, metrics) = (view.theme.clone(), view.metrics);
         let picker = cx.new(|cx| {
             Picker::new(
-                PickerConfig::popover("ai-provider", "Search providers…"),
+                PickerConfig::popover("ai-provider", tr!("Search providers…")),
                 theme,
                 metrics,
                 cx,
             )
         });
-        let items = std::iter::once(PickerItem::Row(PickerRow::new("", "Auto")))
+        let items = std::iter::once(PickerItem::Row(PickerRow::new("", tr!("Auto"))))
             .chain(crate::ai::PROVIDERS.iter().map(|provider| {
                 let title = if installed.contains(&provider.id) {
-                    provider.name.to_owned()
+                    SharedString::from(provider.name)
                 } else {
-                    format!("{} · Not installed", provider.name)
+                    tr!("%@ · Not installed", provider.name)
                 };
                 PickerItem::Row(PickerRow::new(provider.id, title))
             }))
@@ -523,9 +584,9 @@ impl SettingsWindow {
                     if status.success() {
                         Ok(())
                     } else {
-                        Err(std::io::Error::other(format!(
-                            "System editor exited with {status}"
-                        )))
+                        Err(std::io::Error::other(
+                            tr!("System editor exited with %@", status.to_string()).to_string(),
+                        ))
                     }
                 })
                 .await;
@@ -535,7 +596,10 @@ impl SettingsWindow {
                         "configuration",
                         result
                             .err()
-                            .map(|error| format!("Could not open {filename}: {error}"))
+                            .map(|error| {
+                                tr!("Could not open %@: %@", filename, error.to_string())
+                                    .to_string()
+                            })
                             .as_deref(),
                         cx,
                     );

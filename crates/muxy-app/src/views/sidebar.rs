@@ -26,7 +26,9 @@ use super::{
 };
 use muxy_ui::components::{IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
+use muxy_ui::l10n::tr_key;
 use muxy_ui::theme::{contrasting_foreground, parse_hex};
+use muxy_ui::tr;
 
 use crate::model::AppModel;
 
@@ -42,15 +44,13 @@ pub(crate) fn register_commands(
     registry.register(action(
         model,
         ShortcutId::AddProject,
-        "Open Project…",
+        tr_key!("Open Project…"),
         super::workspace::AddProject,
     ));
     let has_workspaces = !model.state.workspaces().is_empty();
     let model = cx.weak_entity();
-    registry.register(Command::list(
-        "switch_project",
-        "Switch Project…",
-        move |cx| {
+    registry.register(
+        Command::list("switch_project", tr!("Switch Project…"), move |cx| {
             let mut projects = Registry::default();
             let Some(model) = model.upgrade() else {
                 return projects;
@@ -84,22 +84,21 @@ pub(crate) fn register_commands(
                 );
             }
             projects
-        },
-    ));
+        })
+        .keywords("Switch Project"),
+    );
     if !has_workspaces {
         return;
     }
     let model = cx.weak_entity();
-    registry.register(Command::list(
-        "switch_workspace",
-        "Switch Workspace…",
-        move |cx| {
+    registry.register(
+        Command::list("switch_workspace", tr!("Switch Workspace…"), move |cx| {
             let mut workspaces = Registry::default();
             let Some(model) = model.upgrade() else {
                 return workspaces;
             };
             let model = model.read(cx);
-            let all = std::iter::once((None, "All Projects".to_owned()));
+            let all = std::iter::once((None, tr!("All Projects").to_string()));
             let named = model
                 .state
                 .workspaces()
@@ -108,11 +107,17 @@ pub(crate) fn register_commands(
             for (id, title) in all.chain(named) {
                 let handler: Handler = Rc::new(move |model, _, cx| model.select_workspace(id, cx));
                 let key = id.map_or_else(|| "all".to_owned(), |id| id.to_string());
-                workspaces.register(Command::new(key, title, handler));
+                let command = Command::new(key, title, handler);
+                workspaces.register(if id.is_none() {
+                    command.keywords("All Projects")
+                } else {
+                    command
+                });
             }
             workspaces
-        },
-    ));
+        })
+        .keywords("Switch Workspace"),
+    );
 }
 
 pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
@@ -180,13 +185,14 @@ impl AppModel {
             .iter()
             .map(|entry| Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id)))
             .chain(std::iter::once(
-                Item::action("Manage Remote Servers…", Command::ManageRemoteDevices).separated(),
+                Item::action(tr!("Manage Remote Servers…"), Command::ManageRemoteDevices)
+                    .separated(),
             ))
             .collect();
         self.open_menu(
             vec![
-                Item::action("Local", Command::AddProject),
-                Item::submenu("Remote", devices),
+                Item::action(tr!("Local"), Command::AddProject),
+                Item::submenu(tr!("Remote"), devices),
             ],
             position,
             window,
@@ -258,10 +264,10 @@ impl AppModel {
 
     pub(crate) fn sidebar_filter_label(&self) -> SharedString {
         if self.appearance.sidebar_focus {
-            return "Focused Project".into();
+            return tr!("Focused Project");
         }
         self.state.active_workspace().map_or_else(
-            || "All Projects".into(),
+            || tr!("All Projects"),
             |workspace| workspace.name.clone().into(),
         )
     }
@@ -381,13 +387,13 @@ fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                     model.open_menu(
                         vec![
                             Item::action(
-                                "Manual Order",
+                                tr!("Manual Order"),
                                 Command::SortProjects(ProjectOrder::Manual),
                             )
                             .checked_if(
                                 model.appearance.sidebar_project_order == ProjectOrder::Manual,
                             ),
-                            Item::action("Name", Command::SortProjects(ProjectOrder::Name))
+                            Item::action(tr!("Name"), Command::SortProjects(ProjectOrder::Name))
                                 .checked_if(
                                     model.appearance.sidebar_project_order == ProjectOrder::Name,
                                 ),
@@ -411,7 +417,7 @@ fn filter_items(model: &AppModel) -> Vec<Item> {
     let focused = model.appearance.sidebar_focus;
     let active = model.state.active_workspace().map(|workspace| workspace.id);
     let mut items = vec![
-        Item::action("All Projects", Command::SelectWorkspace(None))
+        Item::action(tr!("All Projects"), Command::SelectWorkspace(None))
             .checked_if(!focused && active.is_none()),
     ];
     items.extend(model.state.workspaces().iter().map(|workspace| {
@@ -422,18 +428,18 @@ fn filter_items(model: &AppModel) -> Vec<Item> {
         .checked_if(!focused && active == Some(workspace.id))
     }));
     items.push(
-        Item::action("Focus Current Project", Command::FocusProject(true))
+        Item::action(tr!("Focus Current Project"), Command::FocusProject(true))
             .checked_if(focused)
             .separated(),
     );
-    items.push(Item::action("New Workspace…", Command::NewWorkspace(None)).separated());
+    items.push(Item::action(tr!("New Workspace…"), Command::NewWorkspace(None)).separated());
     if let Some(id) = active {
         items.push(Item::action(
-            "Rename Workspace…",
+            tr!("Rename Workspace…"),
             Command::RenameWorkspace(id),
         ));
         items.push(Item::action(
-            "Delete Workspace…",
+            tr!("Delete Workspace…"),
             Command::DeleteWorkspace(id),
         ));
     }
@@ -462,14 +468,17 @@ fn layout_selector(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
             model.open_menu(
                 vec![
                     Item::action(
-                        "Project Focused",
+                        tr!("Project Focused"),
                         Command::Layout(AppLayout::ProjectFocused),
                     )
                     .checked_if(model.appearance.layout == AppLayout::ProjectFocused),
-                    Item::action("Tab Focused", Command::Layout(AppLayout::TabFocused))
+                    Item::action(tr!("Tab Focused"), Command::Layout(AppLayout::TabFocused))
                         .checked_if(model.appearance.layout == AppLayout::TabFocused),
-                    Item::action("Agents Focused", Command::Layout(AppLayout::AgentsFocused))
-                        .checked_if(model.appearance.layout == AppLayout::AgentsFocused),
+                    Item::action(
+                        tr!("Agents Focused"),
+                        Command::Layout(AppLayout::AgentsFocused),
+                    )
+                    .checked_if(model.appearance.layout == AppLayout::AgentsFocused),
                 ],
                 event.position(),
                 window,
@@ -699,9 +708,10 @@ fn project_row(
                     )
                     .when(has_worktrees, |label| {
                         let selected = model.state.project(model.preferred_worktree(id));
+                        let primary = tr!("primary");
                         let worktree = selected
                             .filter(|p| p.parent_id.is_some())
-                            .map_or("primary", |p| p.name.as_str());
+                            .map_or(primary.as_ref(), |p| p.name.as_str());
                         label.child(
                             div()
                                 .debug_selector(move || format!("project-worktree-label-{id}"))
@@ -781,7 +791,7 @@ pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyEl
     let id = project.id;
     let m = model.metrics;
     let theme = model.theme.clone();
-    let tooltip = format!("Remote project on {name}");
+    let tooltip = tr!("Remote project on %@", name);
     Some(
         div()
             .id(SharedString::from(format!("project-remote-{id}")))
@@ -853,7 +863,7 @@ pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -
                     .text_size(m.font_body())
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.fg_muted)
-                    .child("Add Project"),
+                    .child(tr!("Add Project")),
             )
         })
         .into_any_element()

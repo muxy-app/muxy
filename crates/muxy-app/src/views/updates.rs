@@ -3,7 +3,9 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 use muxy_ui::controls::{self, Style};
+use muxy_ui::l10n::tr_key;
 use muxy_ui::popover;
+use muxy_ui::tr;
 
 use crate::model::{AppModel, UpdateAction};
 
@@ -40,18 +42,18 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
         .child(
             popover::header(theme, m)
                 .justify_between()
-                .child("Muxy updates")
+                .child(tr!("Muxy updates"))
                 .child(controls::button(
                     Style { theme, metrics: &m },
                     "close-updates",
-                    "Close",
+                    &tr!("Close"),
                     true,
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )),
         );
     let mut content = popover::body(m)
-        .child(version_row("App", app, model))
-        .child(version_row("Server", server, model));
+        .child(version_row(tr!("App"), app, model))
+        .child(version_row(tr!("Server"), server, model));
     let mut actions = Vec::new();
     if let Some(details) = details {
         content = content
@@ -72,7 +74,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
         content = content.child(
             div()
                 .text_color(theme.fg_muted)
-                .child("No pending updates."),
+                .child(tr!("No pending updates.")),
         );
     }
     if separate_server_action {
@@ -82,7 +84,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
                 div()
                     .text_size(m.font_footnote())
                     .text_color(theme.fg_muted)
-                    .child("The installed app includes a server update. Restarting the server ends all terminal sessions."),
+                    .child(tr!("The installed app includes a server update. Restarting the server ends all terminal sessions.")),
             );
         let (action, label) = model.server_update_action();
         actions.push(action_button(action, label, model, cx));
@@ -90,7 +92,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
     if model.update_scheduled() {
         actions.push(action_button(
             UpdateAction::CancelSchedule,
-            "Cancel scheduled update",
+            tr_key!("Cancel scheduled update"),
             model,
             cx,
         ));
@@ -120,7 +122,7 @@ fn action_button(
             metrics: &model.metrics,
         },
         id,
-        label,
+        &muxy_ui::l10n::translate(label),
         model.update_action_enabled(action),
         cx.listener(move |model, _, _, cx| model.perform_update_action(action, cx)),
     )
@@ -128,7 +130,7 @@ fn action_button(
     .into_any_element()
 }
 
-fn version_row(label: &'static str, version: String, model: &AppModel) -> impl IntoElement {
+fn version_row(label: gpui::SharedString, version: String, model: &AppModel) -> impl IntoElement {
     let m = model.metrics;
     div()
         .flex()

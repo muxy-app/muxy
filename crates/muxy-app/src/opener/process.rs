@@ -2,6 +2,8 @@ use std::io;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use muxy_ui::tr;
+
 pub(super) fn run(command: &mut Command, timeout: Duration) -> io::Result<Child> {
     let mut child = command.stdin(Stdio::null()).stderr(Stdio::null()).spawn()?;
     let deadline = Instant::now() + timeout;
@@ -9,7 +11,9 @@ pub(super) fn run(command: &mut Command, timeout: Duration) -> io::Result<Child>
         let result = match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(child),
             Ok(Some(status)) => {
-                return Err(io::Error::other(format!("Opener exited with {status}")));
+                return Err(io::Error::other(
+                    tr!("Opener exited with %@", status.to_string()).to_string(),
+                ));
             }
             Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(
@@ -18,7 +22,9 @@ pub(super) fn run(command: &mut Command, timeout: Duration) -> io::Result<Child>
                 );
                 continue;
             }
-            Ok(None) => io::Error::new(io::ErrorKind::TimedOut, "Opener timed out"),
+            Ok(None) => {
+                io::Error::new(io::ErrorKind::TimedOut, tr!("Opener timed out").to_string())
+            }
             Err(error) => error,
         };
         let _ = child.kill();

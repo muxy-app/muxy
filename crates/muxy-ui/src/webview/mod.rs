@@ -32,6 +32,7 @@ use objc2_web_kit::{
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
+use crate::tr;
 use assets::Source;
 
 type Reply = RcBlock<dyn Fn(*mut AnyObject, *mut NSString)>;
@@ -221,10 +222,9 @@ define_class!(
         #[unsafe(method(webViewWebContentProcessDidTerminate:))]
         fn terminated(&self, _: &WKWebView) {
             self.ivars().cancel_replies();
-            let _ = self
-                .ivars()
-                .sender
-                .try_send(Event::Failed("Web content process terminated".into()));
+            let _ = self.ivars().sender.try_send(Event::Failed(
+                tr!("Web content process terminated").to_string(),
+            ));
         }
     }
 

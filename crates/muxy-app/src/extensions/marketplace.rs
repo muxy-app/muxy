@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use muxy_app_core::extensions::Extension;
+use muxy_ui::tr;
 use serde_json::Value;
 
 const BASE: &str = "https://muxy.app";
@@ -25,7 +26,7 @@ fn bytes(response: reqwest::blocking::Response, limit: u64) -> Result<Vec<u8>> {
         .error_for_status()
         .map_err(|error| error.to_string())?;
     if response.content_length().is_some_and(|size| size > limit) {
-        return Err("marketplace response is too large".into());
+        return Err(tr!("marketplace response is too large").into());
     }
     let mut bytes = Vec::new();
     response
@@ -33,20 +34,25 @@ fn bytes(response: reqwest::blocking::Response, limit: u64) -> Result<Vec<u8>> {
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
     if bytes.len() as u64 > limit {
-        return Err("marketplace response is too large".into());
+        return Err(tr!("marketplace response is too large").into());
     }
     Ok(bytes)
 }
 
-pub(crate) fn list(search: &str, page: u32) -> Result<Value> {
+/// One page of published extensions, optionally limited to a marketplace
+/// category such as `localization`.
+pub(crate) fn list(search: &str, page: u32, category: Option<&str>) -> Result<Value> {
+    let page = page.to_string();
+    let mut query = vec![
+        ("search", search),
+        ("sort", "all"),
+        ("per_page", "24"),
+        ("page", &page),
+    ];
+    query.extend(category.map(|category| ("category", category)));
     let response = client()?
         .get(format!("{BASE}/api/extensions"))
-        .query(&[
-            ("search", search),
-            ("sort", "all"),
-            ("per_page", "24"),
-            ("page", &page.to_string()),
-        ])
+        .query(&query)
         .send()
         .map_err(|error| error.to_string())?;
     serde_json::from_slice(&bytes(response, 2 * 1024 * 1024)?).map_err(|error| error.to_string())
@@ -56,7 +62,7 @@ pub(crate) fn detail(name: &str) -> Result<Value> {
     let mut url = reqwest::Url::parse(&format!("{BASE}/api/extensions/"))
         .map_err(|error| error.to_string())?;
     url.path_segments_mut()
-        .map_err(|()| "invalid marketplace URL")?
+        .map_err(|()| tr!("invalid marketplace URL").to_string())?
         .pop_if_empty()
         .push(name);
     let response = client()?
@@ -69,7 +75,7 @@ pub(crate) fn detail(name: &str) -> Result<Value> {
         .get("data")
         .filter(|v| v.is_object())
         .cloned()
-        .ok_or_else(|| "invalid marketplace details".into())
+        .ok_or_else(|| tr!("invalid marketplace details").into())
 }
 
 /// Download and validate into a sibling staging directory; callers decide when to activate it.
@@ -77,7 +83,7 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
     let url = reqwest::Url::parse(
         details["download_url"]
             .as_str()
-            .ok_or("missing archive URL")?,
+            .ok_or_else(|| tr!("missing archive URL").to_string())?,
     )
     .map_err(|error| error.to_string())?;
     if url.scheme() != "https"
@@ -86,16 +92,16 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
         || !url.username().is_empty()
         || url.password().is_some()
     {
-        return Err("untrusted marketplace download URL".into());
+        return Err(tr!("untrusted marketplace download URL").into());
     }
     let size = details["size"]
         .as_u64()
         .filter(|size| *size > 0 && *size <= MAX_ARCHIVE)
-        .ok_or("invalid archive size")?;
+        .ok_or_else(|| tr!("invalid archive size").to_string())?;
     let expected = details["sha256"]
         .as_str()
         .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
-        .ok_or("invalid archive checksum")?;
+        .ok_or_else(|| tr!("invalid archive checksum").to_string())?;
     let data = bytes(
         client()?
             .get(url)
@@ -104,7 +110,7 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
         size,
     )?;
     if data.len() as u64 != size {
-        return Err("archive size does not match the marketplace".into());
+        return Err(tr!("archive size does not match the marketplace").into());
     }
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let stage = tempfile::Builder::new()
@@ -124,7 +130,7 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
             .next()
             .is_none_or(|hash| !hash.eq_ignore_ascii_case(expected))
     {
-        return Err("archive checksum does not match the marketplace".into());
+        return Err(tr!("archive checksum does not match the marketplace").into());
     }
     let extracted = stage.path().join("package");
     extract(&data, &extracted)?;
@@ -136,7 +142,7 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
             .filter(|path| path.is_dir() && path.join("package.json").is_file())
             .collect();
         if roots.len() != 1 {
-            return Err("archive must contain one extension package".into());
+            return Err(tr!("archive must contain one extension package").into());
         }
         let nested = stage.path().join("nested");
         std::fs::rename(&roots[0], &nested).map_err(|e| e.to_string())?;
@@ -147,13 +153,13 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
     if Some(extension.name.as_str()) != details["name"].as_str()
         || Some(extension.version.as_str()) != details["current_version"].as_str()
     {
-        return Err("archive identity does not match the marketplace".into());
+        return Err(tr!("archive identity does not match the marketplace").into());
     }
     let permissions: std::collections::BTreeSet<String> =
         serde_json::from_value(details["permissions"].clone())
             .map_err(|error| error.to_string())?;
     if extension.manifest.permissions != permissions {
-        return Err("archive permissions do not match the marketplace".into());
+        return Err(tr!("archive permissions do not match the marketplace").into());
     }
     Ok(stage)
 }
@@ -162,7 +168,7 @@ fn extract(data: &[u8], directory: &Path) -> Result<()> {
     let mut archive =
         zip::ZipArchive::new(std::io::Cursor::new(data)).map_err(|error| error.to_string())?;
     if archive.len() > 40000 {
-        return Err("too many files in extension archive".into());
+        return Err(tr!("too many files in extension archive").into());
     }
     let mut total = 0_u64;
     for index in 0..archive.len() {
@@ -171,31 +177,33 @@ fn extract(data: &[u8], directory: &Path) -> Result<()> {
             || entry.name().contains('\\')
             || entry.name().contains(':')
         {
-            return Err("unsafe path in extension archive".into());
+            return Err(tr!("unsafe path in extension archive").into());
         }
         if entry.is_symlink() {
-            return Err("extension archives cannot contain symbolic links".into());
+            return Err(tr!("extension archives cannot contain symbolic links").into());
         }
         let relative = entry
             .enclosed_name()
-            .ok_or("unsafe path in extension archive")?;
+            .ok_or_else(|| tr!("unsafe path in extension archive").to_string())?;
         if relative
             .components()
             .any(|part| !matches!(part, std::path::Component::Normal(_)))
         {
-            return Err("unsafe path in extension archive".into());
+            return Err(tr!("unsafe path in extension archive").into());
         }
         let path = directory.join(relative);
         total = total
             .checked_add(entry.size())
             .filter(|total| *total <= MAX_EXPANDED)
-            .ok_or("extension archive expands beyond its limit")?;
+            .ok_or_else(|| tr!("extension archive expands beyond its limit").to_string())?;
         if entry.is_dir() {
             std::fs::create_dir_all(path).map_err(|error| error.to_string())?;
             continue;
         }
-        std::fs::create_dir_all(path.parent().ok_or("invalid archive path")?)
-            .map_err(|error| error.to_string())?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| tr!("invalid archive path").to_string())?;
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -205,7 +213,7 @@ fn extract(data: &[u8], directory: &Path) -> Result<()> {
         let copied = std::io::copy(&mut entry.by_ref().take(size + 1), &mut file)
             .map_err(|error| error.to_string())?;
         if copied != size {
-            return Err("archive entry size mismatch".into());
+            return Err(tr!("archive entry size mismatch").into());
         }
         file.flush().map_err(|error| error.to_string())?;
     }
@@ -216,13 +224,14 @@ pub(crate) fn install(stage: &tempfile::TempDir, directory: &Path, name: &str) -
     let package = stage.path().join("package");
     let extension = Extension::load(&package)?;
     if extension.name != name {
-        return Err("extension identity changed during installation".into());
+        return Err(tr!("extension identity changed during installation").into());
     }
     let destination = directory.join(name);
     if destination.exists() {
-        return Err(
-            "extension is already installed; uninstall it before installing this version".into(),
-        );
+        return Err(tr!(
+            "extension is already installed; uninstall it before installing this version"
+        )
+        .into());
     }
     std::fs::rename(package, destination).map_err(|error| error.to_string())
 }

@@ -21,6 +21,7 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
         "muxy.richInput.clearAfterSending": true,
         "muxy.ai.repositoryActions.createPullRequest.prompt": "My instructions",
         "muxy.recording.autoSend": true,
+        "muxy.localization": "language-packs:ko",
         "muxy.browser.homePage": "https://example.com",
         "mobile.approvedDevices": [{"token":"never-copy"}]
     });
@@ -37,6 +38,7 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
         muxy_app_core::settings::AppLayout::AgentsFocused
     );
     assert!(settings.composer.pinned);
+    assert_eq!(settings.appearance.language, "language-packs:ko");
     assert_eq!(settings.ai.prompts["create_pr"], "My instructions");
     assert_eq!(report.skipped.len(), 3);
     let source = backup::settings_source(&settings).unwrap();

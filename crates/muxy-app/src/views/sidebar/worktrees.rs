@@ -7,6 +7,7 @@ use muxy_app_core::{Project, ProjectId, ProjectStatus};
 use muxy_ui::{
     components::{IconButton, IconGlyph},
     icon::Icon,
+    tr,
 };
 
 use crate::model::AppModel;
@@ -123,9 +124,9 @@ pub(super) fn disclosure(
             )
             .tooltip(
                 if expanded {
-                    "Collapse Worktrees"
+                    tr!("Collapse Worktrees")
                 } else {
-                    "Expand Worktrees"
+                    tr!("Expand Worktrees")
                 },
                 theme.raised(),
                 theme.fg,
@@ -249,7 +250,7 @@ fn row(
                             .bg(theme.surface)
                             .text_size(m.font_micro())
                             .font_weight(FontWeight::BOLD)
-                            .child("PRIMARY"),
+                            .child(tr!("PRIMARY")),
                     )
                 }),
         )
@@ -292,6 +293,6 @@ pub(crate) fn new_worktree(
                         .hover_in_group(group, theme.accent),
                 ),
         )
-        .child("New Worktree")
+        .child(tr!("New Worktree"))
         .into_any_element()
 }

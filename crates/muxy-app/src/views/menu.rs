@@ -159,7 +159,8 @@ pub(crate) fn color_items(current: Option<&str>, command: impl Fn(usize) -> Comm
         .iter()
         .enumerate()
         .map(|(index, (name, hex))| {
-            let item = Item::action(*name, command(index)).checked_if(current == Some(*hex));
+            let item = Item::action(muxy_ui::l10n::translate(name), command(index))
+                .checked_if(current == Some(*hex));
             match muxy_ui::theme::parse_hex(hex) {
                 Some(color) => item.swatch(color.into()),
                 None => item,

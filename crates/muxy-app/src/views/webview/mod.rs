@@ -12,6 +12,7 @@ use gpui::{
 };
 use muxy_app_core::webview::{ACKNOWLEDGEMENT_TIMEOUT, CloseRequests};
 use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::tr;
 use muxy_ui::webview::{Event, NativeWebview, assets::Source};
 use serde_json::{Value, json};
 
@@ -534,13 +535,13 @@ pub(crate) fn placeholder(
         .child(
             div()
                 .text_size(metrics.font_headline())
-                .child(format!("Extension {owner} is not loaded")),
+                .child(tr!("Extension %@ is not loaded", owner)),
         )
         .child(
             div()
                 .text_color(theme.fg_muted)
                 .text_size(metrics.font_body())
-                .child(format!("Tab type: {kind}")),
+                .child(tr!("Tab type: %@", kind)),
         )
         .into_any_element()
 }

@@ -3,6 +3,7 @@ use gpui::Context;
 use muxy_app_core::{AppError, ServerId};
 use muxy_client::ClientError;
 use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation};
+use muxy_ui::tr;
 
 impl AppModel {
     fn created_project(&self, server: ServerId, operation: OperationId) -> Option<ProjectId> {
@@ -73,7 +74,10 @@ impl AppModel {
                 self.fail(self.server_message(server, &error.message), cx);
             }
             Err(error) => {
-                self.fail(format!("Project edit is pending: {error}"), cx);
+                self.fail(
+                    tr!("Project edit is pending: %@", error.to_string()).to_string(),
+                    cx,
+                );
                 return;
             }
         }
@@ -116,7 +120,11 @@ impl AppModel {
         let page = match result {
             Ok(page) => page,
             Err(error) => {
-                self.server_problem(server, format!("Could not refresh projects: {error}"), cx);
+                self.server_problem(
+                    server,
+                    tr!("Could not refresh projects: %@", error.to_string()).to_string(),
+                    cx,
+                );
                 return;
             }
         };
@@ -235,7 +243,10 @@ impl AppModel {
                     self.state = previous;
                 }
             }
-            Err(error) => self.fail(format!("Closed pane cleanup is pending: {error}"), cx),
+            Err(error) => self.fail(
+                tr!("Closed pane cleanup is pending: %@", error.to_string()).to_string(),
+                cx,
+            ),
         }
     }
     pub(super) fn receive_discarded(
@@ -258,7 +269,11 @@ impl AppModel {
             }
             Err(ClientError::Disconnected) => self.disconnect(server, cx),
             Err(error) => self.fail(
-                format!("Tab closed; server cleanup is pending: {error}"),
+                tr!(
+                    "Tab closed; server cleanup is pending: %@",
+                    error.to_string()
+                )
+                .to_string(),
                 cx,
             ),
         }
@@ -309,7 +324,10 @@ impl AppModel {
             return;
         }
         if session.info.project != project {
-            self.fail("Session belongs to a different project".into(), cx);
+            self.fail(
+                tr!("Session belongs to a different project").to_string(),
+                cx,
+            );
             return;
         }
         if !matches!(

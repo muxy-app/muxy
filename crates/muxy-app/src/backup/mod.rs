@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use muxy_app_core::backup::{ImportReport, Result};
 use muxy_app_core::settings::{Settings, TerminalSettings};
+use muxy_ui::tr;
 
 pub(crate) use mobile::apply_mobile_settings;
 pub(crate) use transaction::{apply_pending, cancel_pending, stage};
@@ -38,10 +39,11 @@ pub(crate) struct PreparedImport {
 }
 
 pub(crate) fn legacy_directory() -> Result<PathBuf> {
-    let home = std::env::home_dir().ok_or("Home directory is unavailable")?;
+    let home =
+        std::env::home_dir().ok_or_else(|| tr!("Home directory is unavailable").to_string())?;
     let path = home.join("Library/Application Support/Muxy");
     if !path.is_dir() {
-        return Err("No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.".into());
+        return Err(tr!("No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.").to_string().into());
     }
     Ok(path)
 }
@@ -122,27 +124,32 @@ pub(crate) fn prepare(profile: &Path, source: &Path) -> Result<PreparedImport> {
     let count = projects
         .as_ref()
         .map_or(0, |state| state.projects().len().saturating_sub(1));
-    let mut summary = format!(
-        "Restore settings and {count} saved projects with their layouts on the next launch. Existing projects are kept; matching projects receive the saved layouts. A recovery copy is saved in the profile’s Backups folder. Restart the server from Settings to apply restored server settings."
-    );
+    let mut summary = tr!(
+        "Restore settings and %lld saved projects with their layouts on the next launch. Existing projects are kept; matching projects receive the saved layouts. A recovery copy is saved in the profile’s Backups folder. Restart the server from Settings to apply restored server settings.",
+        count
+    )
+    .to_string();
     if legacy {
         write!(
             summary,
-            "\n\nImported {} supported 1.x items.",
-            report.imported
+            "\n\n{}",
+            tr!("Imported %lld supported 1.x items.", report.imported)
         )?;
         if !report.skipped.is_empty() {
             write!(
                 summary,
-                " Skipped {} unsupported or invalid items:\n{}",
-                report.skipped.len(),
-                report
-                    .skipped
-                    .iter()
-                    .take(15)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                " {}",
+                tr!(
+                    "Skipped %lld unsupported or invalid items:\n%@",
+                    report.skipped.len(),
+                    report
+                        .skipped
+                        .iter()
+                        .take(15)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
             )?;
         }
     }
@@ -196,9 +203,11 @@ fn migrate(profile: &Path, legacy: &Files) -> Result<(Files, ImportReport)> {
         );
     }
     if report.imported == 0 {
-        return Err(
-            "The selected 1.x configuration contains no supported settings or projects.".into(),
-        );
+        return Err(tr!(
+            "The selected 1.x configuration contains no supported settings or projects."
+        )
+        .to_string()
+        .into());
     }
     files.insert(
         "settings.toml".into(),
@@ -209,7 +218,9 @@ fn migrate(profile: &Path, legacy: &Files) -> Result<(Files, ImportReport)> {
 
 fn validate(files: &Files) -> Result<()> {
     if !files.contains_key("settings.toml") {
-        return Err("The backup does not contain settings.toml".into());
+        return Err(tr!("The backup does not contain settings.toml")
+            .to_string()
+            .into());
     }
     let directory = tempfile::tempdir()?;
     archive::materialize(directory.path(), files)?;
@@ -220,9 +231,11 @@ fn validate(files: &Files) -> Result<()> {
                 .is_some_and(|key| key.trim() == "config-file")
         })
     {
-        return Err(
-            "Backups must contain resolved Ghostty settings, without config-file references".into(),
-        );
+        return Err(tr!(
+            "Backups must contain resolved Ghostty settings, without config-file references"
+        )
+        .to_string()
+        .into());
     }
     muxy_app_core::backup::validate_configuration(directory.path())?;
     if let Some(state) = files.get("desktop-state.json") {
@@ -242,7 +255,7 @@ fn validate(files: &Files) -> Result<()> {
                     let _: BTreeMap<String, PathBuf> = serde_json::from_value(value)?;
                 }
                 _ if !value.is_object() => {
-                    return Err(format!("{name} must contain an object").into());
+                    return Err(tr!("%@ must contain an object", name).to_string().into());
                 }
                 _ => (),
             }

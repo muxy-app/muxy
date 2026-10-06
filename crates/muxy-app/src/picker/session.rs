@@ -1,3 +1,5 @@
+use muxy_ui::l10n::tr_key;
+
 use super::navigator::Navigator;
 use super::path_service::{DirectoryItem, PathService, PathState, TypedPathState};
 use crate::picker::search::{SearchResult, Snapshot};
@@ -162,15 +164,15 @@ impl Session {
 
     pub(crate) fn top_right_action_title(&self) -> &'static str {
         if self.is_existing_project() {
-            return "Open Project";
+            return tr_key!("Open Project");
         }
         if self.input_mode() == InputMode::FolderSearch {
-            return "Add Project";
+            return tr_key!("Add Project");
         }
         if self.typed_path_state() == TypedPathState::Missing {
-            "Create & Add Project"
+            tr_key!("Create & Add Project")
         } else {
-            "Add Project"
+            tr_key!("Add Project")
         }
     }
 

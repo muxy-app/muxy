@@ -4,6 +4,7 @@ use gpui::{
 };
 use muxy_ui::components::{ButtonInteraction, IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
+use muxy_ui::tr;
 
 use crate::model::{AppModel, banners::Toast};
 
@@ -66,7 +67,7 @@ fn problem(
         .tooltip(move |_, cx| {
             cx.new(|_| {
                 Tooltip::new(
-                    "Dismiss",
+                    tr!("Dismiss"),
                     tooltip_theme.raised(),
                     tooltip_theme.fg,
                     tooltip_theme.border,

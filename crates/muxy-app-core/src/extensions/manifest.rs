@@ -5,7 +5,6 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 const MAX_ICON_BYTES: u64 = 256 * 1024;
-const MAX_CATALOG_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Every permission an extension can declare. Unknown names fail the load, as on main.
 pub const PERMISSIONS: [&str; 25] = [
@@ -525,27 +524,6 @@ fn unique<'a>(kind: &str, ids: impl IntoIterator<Item = &'a str>) -> Result<(), 
     distinct(kind, ids)
 }
 
-/// A regular file inside `directory`, read up to main's 4 MiB catalog limit;
-/// empty when it does not exist.
-fn bounded_text(directory: &Path, name: &str) -> Result<String, String> {
-    use std::io::Read;
-    let Ok(path) = directory.join(name).canonicalize() else {
-        return Ok(String::new());
-    };
-    let too_large = || format!("'{name}' must be a file of at most 4 MiB inside its bundle");
-    if !path.starts_with(directory) || !path.is_file() {
-        return Err(too_large());
-    }
-    let mut text = String::new();
-    std::fs::File::open(&path)
-        .and_then(|file| file.take(MAX_CATALOG_BYTES + 1).read_to_string(&mut text))
-        .map_err(|error| error.to_string())?;
-    if text.len() as u64 > MAX_CATALOG_BYTES {
-        return Err(too_large());
-    }
-    Ok(text)
-}
-
 /// main decodes optional manifest fields with `decodeIfPresent`, so `null`
 /// means "not set". Free-form JSON (`defaultData`, `data`, `defaultValue`)
 /// is kept as written.
@@ -610,7 +588,7 @@ impl Extension {
         load().map_err(|error| format!("{}: {error}", package.display()))
     }
 
-    fn located(&self, relative: &str) -> Result<PathBuf, String> {
+    pub(crate) fn located(&self, relative: &str) -> Result<PathBuf, String> {
         let path = Path::new(relative);
         if relative.is_empty()
             || path
@@ -859,31 +837,10 @@ impl Extension {
             let bundle = self
                 .located(&localization.bundle)
                 .ok()
-                .filter(|path| path.is_dir())
+                .filter(|path| path.is_dir() && localization.bundle.ends_with(".bundle"))
                 .ok_or_else(|| format!("localization '{id}' bundle was not found"))?;
-            if bounded_text(&bundle, "Info.plist")?.contains("CFBundleExecutable") {
-                return Err(format!(
-                    "localization '{id}' bundle must not contain executable code"
-                ));
-            }
-            let catalogs: Vec<_> = ["Localizable.strings", "Localizable.stringsdict"]
-                .iter()
-                .map(|name| {
-                    bundle
-                        .join(format!("{}.lproj", localization.language))
-                        .join(name)
-                })
-                .filter(|path| path.is_file())
-                .collect();
-            if catalogs.is_empty()
-                || catalogs.iter().any(|path| {
-                    !std::fs::metadata(path).is_ok_and(|m| m.len() <= MAX_CATALOG_BYTES)
-                })
-            {
-                return Err(format!(
-                    "localization '{id}' needs a Localizable catalog of at most 4 MiB"
-                ));
-            }
+            crate::localization::validate_bundle(&bundle, &localization.language)
+                .map_err(|error| format!("localization '{id}' {error}"))?;
         }
         Ok(())
     }
