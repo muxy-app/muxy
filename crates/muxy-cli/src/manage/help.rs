@@ -3,6 +3,7 @@ pub(crate) const ROOT: &str = "Muxy - terminal client and server management
 Usage: muxy [--host DESTINATION] [COMMAND]
 
   (no command)  Open the terminal UI; Ctrl-B ? shows help
+  <folder>      Open a folder as a project in the desktop app
   server        Start, inspect or stop the server
   project       List, add, edit or delete server projects
   session       Create terminals, send input, read output and end sessions
@@ -25,6 +26,7 @@ MUXY_DIR selects the local profile, which also keeps the terminal UI layouts
 for other computers. No desktop app is required. Tabs, panes and workspaces
 belong to UI clients.
 Project selectors accept an exact ID, unique name or directory path.
+Use ./NAME to open a folder named like a command.
 Use -- before literal arguments that start with a dash.";
 
 pub(crate) const MOBILE: &str = "Usage: muxy mobile [action]

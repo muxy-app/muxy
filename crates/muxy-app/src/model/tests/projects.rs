@@ -752,6 +752,197 @@ fn command_o_opens_the_picker_and_existing_paths_select_the_project(cx: &mut Tes
 }
 
 #[gpui::test]
+fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestAppContext) {
+    let root = std::env::temp_dir().join(format!("muxy-cli-folder-{}", ProjectId::new()));
+    std::fs::create_dir_all(root.join("Alpha")).expect("mkdir");
+    std::fs::create_dir_all(root.join("Beta Gamma")).expect("mkdir");
+    std::fs::write(root.join("notes.txt"), "").expect("file");
+    let mut state = AppState::bootstrap().expect("state");
+    let alpha = state
+        .add_project(ServerId::local(), root.join("Alpha"))
+        .expect("project");
+    state.select_project(state.home().id).expect("home");
+    let (boot, _requests) = stub_boot(state);
+    let (folders, opened) = async_channel::unbounded();
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
+    let url = |name: &str| format!("file://{}/{name}/", root.display()).replace(' ', "%20");
+    folders.try_send(vec![url("Alpha")]).expect("send");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert_eq!(model.state.current_project().id, model.state.home().id);
+        acknowledge_catalog(model, cx);
+        assert_eq!(model.state.current_project().id, alpha);
+        assert_eq!(model.state.projects().len(), 2);
+    });
+    folders
+        .try_send(vec![
+            format!("file://{}/notes.txt", root.display()),
+            format!("file://{}/Missing/", root.display()),
+            "https://example.com/".into(),
+            url("Beta Gamma"),
+        ])
+        .expect("send");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            model.state.current_project().directory,
+            root.join("Beta Gamma")
+        );
+        assert_eq!(model.state.projects().len(), 3);
+        assert!(model.error.is_none());
+    });
+    std::os::unix::fs::symlink(root.join("Alpha"), root.join("Alias")).expect("symlink");
+    for name in ["Alias", "Beta Gamma"] {
+        folders.try_send(vec![url(name)]).expect("send");
+        cx.run_until_parked();
+    }
+    folders.try_send(vec![url("Alias")]).expect("send");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().id, alpha);
+        assert_eq!(model.state.projects().len(), 3);
+    });
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[gpui::test]
+fn folders_opened_at_launch_find_projects_added_while_the_app_was_closed(cx: &mut TestAppContext) {
+    let root = std::env::temp_dir().join(format!("muxy-cli-launch-{}", ProjectId::new()));
+    std::fs::create_dir_all(root.join("Shared")).expect("mkdir");
+    let mut elsewhere = AppState::bootstrap().expect("state");
+    let shared = elsewhere
+        .add_project(ServerId::local(), root.join("Shared"))
+        .expect("project");
+    let added_elsewhere = elsewhere.project(shared).expect("project").descriptor();
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (folders, opened) = async_channel::unbounded();
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
+    folders
+        .try_send(vec![format!("file://{}/Shared/", root.display())])
+        .expect("send");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert_eq!(model.state.projects().len(), 1);
+        let mut projects: Vec<_> = model
+            .state
+            .projects()
+            .iter()
+            .map(muxy_app_core::Project::descriptor)
+            .collect();
+        projects.push(added_elsewhere);
+        let page = muxy_protocol::CatalogPage {
+            server: muxy_protocol::ServerIdentity::from_u128(1),
+            home: model.state.home().id,
+            revision: model.state.catalog_revision(ServerId::local()) + 1,
+            projects,
+            next: None,
+            legacy_home: None,
+        };
+        model.receive_catalog(ServerId::local(), Ok(page), cx);
+        assert_eq!(model.state.current_project().id, shared);
+        assert_eq!(model.state.projects().len(), 2);
+        assert!(model.state.project_intents(ServerId::local()).is_empty());
+    });
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[gpui::test]
+fn folders_open_with_saved_projects_when_the_server_is_unreachable(cx: &mut TestAppContext) {
+    let root = std::env::temp_dir().join(format!("muxy-cli-offline-{}", ProjectId::new()));
+    std::fs::create_dir_all(&root).expect("mkdir");
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (folders, opened) = async_channel::unbounded();
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
+    folders
+        .try_send(vec![format!("file://{}/", root.display())])
+        .expect("send");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert_eq!(model.state.projects().len(), 1);
+        let generation = model.servers.local.generation;
+        model.receive(
+            local(generation, Update::ConnectFailed("offline".into(), None)),
+            cx,
+        );
+        assert_eq!(model.state.current_project().directory, root);
+        assert_eq!(model.state.project_intents(ServerId::local()).len(), 1);
+    });
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[gpui::test]
+fn folders_arriving_after_connection_failure_open_with_saved_projects(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("temporary folder");
+    let existing = root.path().join("Existing");
+    let new = root.path().join("New");
+    for folder in [&existing, &new] {
+        std::fs::create_dir(folder).expect("mkdir");
+    }
+    let mut state = AppState::bootstrap().expect("state");
+    state
+        .add_project(ServerId::local(), existing.clone())
+        .expect("saved project");
+    state.select_project(state.home().id).expect("home");
+    let (boot, requests) = stub_boot(state);
+    let (folders, opened) = async_channel::unbounded();
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        AppModel::open_folders_from(opened, cx);
+        let generation = model.servers.local.generation;
+        model.receive(
+            local(generation, Update::ConnectFailed("offline".into(), None)),
+            cx,
+        );
+        assert!(!model.servers.local.catalog.identified);
+    });
+    requests.try_iter().for_each(drop);
+    for folder in [&existing, &new] {
+        let url = reqwest::Url::from_directory_path(folder).expect("file URL");
+        folders.try_send(vec![url.into()]).expect("send");
+        cx.run_until_parked();
+        view.read_with(cx, |model, _| {
+            assert_eq!(&model.state.current_project().directory, folder);
+            assert!(model.pending_folders.is_empty());
+        });
+    }
+    view.read_with(cx, |model, _| assert_eq!(model.state.projects().len(), 3));
+    assert!(
+        !requests
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Connect))
+    );
+}
+
+#[gpui::test]
+fn folders_with_long_percent_encoded_urls_open_as_projects(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("temporary folder");
+    let folder = root
+        .path()
+        .join("项".repeat(80))
+        .join("目".repeat(80))
+        .join("录".repeat(80));
+    std::fs::create_dir_all(&folder).expect("mkdir");
+    let url = reqwest::Url::from_directory_path(&folder).expect("file URL");
+    assert!(url.as_str().len() > 2048);
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (folders, opened) = async_channel::unbounded();
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
+    folders.try_send(vec![url.into()]).expect("send");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert_eq!(model.state.projects().len(), 1);
+        acknowledge_catalog(model, cx);
+        assert_eq!(model.state.current_project().directory, folder);
+        assert_eq!(model.state.projects().len(), 2);
+        assert!(model.error.is_none());
+    });
+}
+
+#[gpui::test]
 fn creating_a_project_folder_requires_the_explicit_create_confirmation(cx: &mut TestAppContext) {
     let root = std::env::temp_dir().join(format!("muxy-create-project-{}", ProjectId::new()));
     std::fs::create_dir_all(&root).expect("root");

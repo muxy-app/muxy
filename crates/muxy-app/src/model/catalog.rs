@@ -1,4 +1,4 @@
-use super::{AppModel, Work};
+use super::{AppModel, ConnectionState, Work};
 use gpui::Context;
 use muxy_app_core::{AppError, ServerId};
 use muxy_client::ClientError;
@@ -14,6 +14,12 @@ impl AppModel {
                 ProjectMutation::Create(record) if intent.operation == operation => Some(record.id),
                 _ => None,
             })
+    }
+
+    pub(crate) fn can_open_local_folders(&self) -> bool {
+        self.servers.get(ServerId::local()).is_some_and(|runtime| {
+            runtime.catalog.identified || runtime.connection == ConnectionState::Disconnected
+        })
     }
 
     pub(super) fn refresh_catalog(&mut self, server: ServerId, cx: &mut Context<Self>) {
@@ -202,6 +208,7 @@ impl AppModel {
         }
         self.resume_activity_navigation(server, cx);
         self.resume_remote_picker(server, cx);
+        self.resume_folders(server, cx);
         self.check_remote_projects(server, cx);
         cx.notify();
     }

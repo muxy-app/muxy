@@ -106,71 +106,75 @@ fn main() -> ExitCode {
     };
     #[cfg(target_os = "macos")]
     muxy_ui::native_scroll::use_overlay_scrollers();
-    Application::new()
-        .with_assets(muxy_ui::assets::Assets)
-        .run(move |cx: &mut App| {
-            if let Some(profile) = profile {
-                profile.finish_on_quit(cx);
-            }
-            bind_keys(&boot.settings.keymap, cx);
-            let config_path = boot.state_path.with_file_name("ghostty.conf");
-            cx.on_action(move |_: &OpenConfiguration, _| {
-                if let Err(error) = std::process::Command::new("/usr/bin/open")
-                    .args(["-a", "TextEdit"])
-                    .arg(&config_path)
-                    .status()
-                    .and_then(|status| {
-                        if status.success() {
-                            Ok(())
-                        } else {
-                            Err(io::Error::other(format!("TextEdit exited with {status}")))
-                        }
-                    })
-                {
-                    let _ = writeln!(
-                        io::stderr(),
-                        "muxy-app: could not open configuration: {error}"
-                    );
-                }
-            });
-            cx.on_action(|_: &HideApp, cx| cx.hide());
-            cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
-            cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-            cx.set_menus(menus());
-            let bounds = restored_bounds(&boot, cx);
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(640.0), px(400.0))),
-                window_background: WindowBackgroundAppearance::Transparent,
-                // Empty titlebar space explicitly starts native movement, not tab presses.
-                is_movable: !cfg!(target_os = "macos"),
-                titlebar: Some(TitlebarOptions {
-                    title: Some(APP_NAME.into()),
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(px(9.0), px(9.0))),
-                }),
-                ..WindowOptions::default()
-            };
-            if let Err(error) = cx.open_window(options, |window, cx| {
-                let model = cx.new(|cx| AppModel::new(boot, window, cx));
-                let configuration = model.downgrade();
-                cx.on_action(move |_: &views::workspace::ReloadConfiguration, cx| {
-                    let _ = configuration.update(cx, AppModel::reload_configuration);
-                });
-                let weak = model.downgrade();
-                window.on_window_should_close(cx, move |_, cx| {
-                    if weak.update(cx, AppModel::quit).is_err() {
-                        cx.quit();
+    let application = Application::new().with_assets(muxy_ui::assets::Assets);
+    let (folders, opened_folders) = async_channel::unbounded();
+    application.on_open_urls(move |urls| {
+        let _ = folders.try_send(urls);
+    });
+    application.run(move |cx: &mut App| {
+        if let Some(profile) = profile {
+            profile.finish_on_quit(cx);
+        }
+        bind_keys(&boot.settings.keymap, cx);
+        let config_path = boot.state_path.with_file_name("ghostty.conf");
+        cx.on_action(move |_: &OpenConfiguration, _| {
+            if let Err(error) = std::process::Command::new("/usr/bin/open")
+                .args(["-a", "TextEdit"])
+                .arg(&config_path)
+                .status()
+                .and_then(|status| {
+                    if status.success() {
+                        Ok(())
+                    } else {
+                        Err(io::Error::other(format!("TextEdit exited with {status}")))
                     }
-                    false
-                });
-                model
-            }) {
-                let _ = writeln!(io::stderr(), "muxy-app: could not open window: {error}");
-                cx.quit();
+                })
+            {
+                let _ = writeln!(
+                    io::stderr(),
+                    "muxy-app: could not open configuration: {error}"
+                );
             }
-            cx.activate(true);
         });
+        cx.on_action(|_: &HideApp, cx| cx.hide());
+        cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+        cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+        cx.set_menus(menus());
+        let bounds = restored_bounds(&boot, cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_min_size: Some(size(px(640.0), px(400.0))),
+            window_background: WindowBackgroundAppearance::Transparent,
+            // Empty titlebar space explicitly starts native movement, not tab presses.
+            is_movable: !cfg!(target_os = "macos"),
+            titlebar: Some(TitlebarOptions {
+                title: Some(APP_NAME.into()),
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(9.0), px(9.0))),
+            }),
+            ..WindowOptions::default()
+        };
+        if let Err(error) = cx.open_window(options, |window, cx| {
+            let model = cx.new(|cx| AppModel::new(boot, window, cx));
+            model.update(cx, |_, cx| AppModel::open_folders_from(opened_folders, cx));
+            let configuration = model.downgrade();
+            cx.on_action(move |_: &views::workspace::ReloadConfiguration, cx| {
+                let _ = configuration.update(cx, AppModel::reload_configuration);
+            });
+            let weak = model.downgrade();
+            window.on_window_should_close(cx, move |_, cx| {
+                if weak.update(cx, AppModel::quit).is_err() {
+                    cx.quit();
+                }
+                false
+            });
+            model
+        }) {
+            let _ = writeln!(io::stderr(), "muxy-app: could not open window: {error}");
+            cx.quit();
+        }
+        cx.activate(true);
+    });
     ExitCode::SUCCESS
 }
 

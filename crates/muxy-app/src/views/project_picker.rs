@@ -846,6 +846,56 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn open_folders_from(
+        folders: async_channel::Receiver<Vec<String>>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            while let Ok(urls) = folders.recv().await {
+                if this
+                    .update(cx, |model, cx| {
+                        model
+                            .pending_folders
+                            .extend(urls.iter().filter_map(|url| folder_from_url(url)));
+                        if model.can_open_local_folders() {
+                            model.resume_folders(ServerId::local(), cx);
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn resume_folders(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        if server.is_local() {
+            for folder in std::mem::take(&mut self.pending_folders) {
+                self.open_folder(folder, cx);
+            }
+        }
+    }
+
+    fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
+        let canonical = folder.canonicalize().ok();
+        let existing = self
+            .state
+            .projects()
+            .iter()
+            .find(|project| {
+                project.server_id.is_local()
+                    && canonical.is_some()
+                    && project.directory.canonicalize().ok() == canonical
+            })
+            .map(|project| project.id);
+        match existing {
+            Some(id) => self.show_project(id, cx),
+            None => self.open_project_path(folder, cx),
+        }
+    }
+
     fn open_project_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if !path.is_dir() {
             self.project_picker_error(
@@ -865,15 +915,19 @@ impl AppModel {
             })
             .map(|project| project.id);
         if let Some(id) = existing {
-            self.refresh_project_statuses(cx);
-            self.join_active_workspace(id, cx);
-            self.select_project(id, cx);
-            self.dismiss_overlay(cx);
+            self.show_project(id, cx);
         } else if self.add_project(path, cx).is_some() {
             self.dismiss_overlay(cx);
         } else if let Some(error) = self.error.clone() {
             self.project_picker_error(error, cx);
         }
+    }
+
+    fn show_project(&mut self, id: muxy_app_core::ProjectId, cx: &mut Context<Self>) {
+        self.refresh_project_statuses(cx);
+        self.join_active_workspace(id, cx);
+        self.select_project(id, cx);
+        self.dismiss_overlay(cx);
     }
 
     fn project_picker_error(&mut self, error: String, cx: &mut Context<Self>) {
@@ -923,6 +977,15 @@ fn current_picker(
 ) -> bool {
     matches!(&model.overlay, Some(Overlay::Projects(current)) if current == picker)
         && picker.read(cx).generation == generation
+}
+
+fn folder_from_url(url: &str) -> Option<PathBuf> {
+    let url = reqwest::Url::parse(url).ok()?;
+    if url.scheme() != "file" || url.query().is_some() || url.fragment().is_some() {
+        return None;
+    }
+    let path = url.to_file_path().ok()?;
+    path.is_dir().then(|| path.components().collect())
 }
 
 #[cfg(not(test))]
@@ -1041,6 +1104,32 @@ pub(crate) fn display_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use gpui::TestAppContext;
+
+    #[test]
+    fn folder_urls_only_accept_existing_local_directories() {
+        let root = tempfile::tempdir().expect("temporary folder");
+        let folder = root.path().join("Project #1? %");
+        std::fs::create_dir(&folder).expect("mkdir");
+        let url = reqwest::Url::from_directory_path(&folder).expect("file URL");
+        assert_eq!(folder_from_url(url.as_str()), Some(folder.clone()));
+        let localhost = url.as_str().replacen("file:///", "file://localhost/", 1);
+        assert_eq!(folder_from_url(&localhost), Some(folder.clone()));
+        let file = root.path().join("notes.txt");
+        std::fs::write(&file, "").expect("file");
+        for invalid in [
+            folder.to_string_lossy().into_owned(),
+            format!("https://localhost{}", url.path()),
+            format!("file://elsewhere{}", url.path()),
+            format!("{url}?line=1"),
+            format!("{url}#fragment"),
+            reqwest::Url::from_file_path(file).expect("file URL").into(),
+            reqwest::Url::from_directory_path(root.path().join("Missing"))
+                .expect("file URL")
+                .into(),
+        ] {
+            assert!(folder_from_url(&invalid).is_none(), "{invalid}");
+        }
+    }
 
     #[gpui::test]
     fn remote_navigation_reloads_and_never_completes_stale_rows(cx: &mut TestAppContext) {
