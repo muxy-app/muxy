@@ -119,13 +119,11 @@ pub(crate) async fn prompt_server(
 pub(crate) async fn prompt_install_server(
     window: AnyWindowHandle,
     name: &str,
-    version: &str,
+    source: &crate::remote_install::Source,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
-    let title = format!("Install Muxy on {name}?");
-    let message = format!(
-        "Muxy {version} is downloaded from GitHub and installed in ~/.local/bin on {name}. It needs curl and glibc 2.35 or newer there."
-    );
+    let title = format!("Install muxy-server on {name}?");
+    let message = source.description(name);
     server_prompt(window, &title, "Install", &message, cx).await
 }
 

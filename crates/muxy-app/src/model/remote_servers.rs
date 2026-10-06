@@ -42,10 +42,7 @@ pub(crate) fn released_version() -> Option<&'static str> {
 /// Runs this release's installer there, which downloads it from GitHub,
 /// checks it, and puts `muxy` and `muxy-server` in `~/.local/bin`.
 pub(super) fn install_command(version: &str) -> String {
-    format!(
-        "sh -c 'curl -fsSL {}/v{version}/install-muxy.sh | sh -s -- --version {version}'",
-        crate::updater::RELEASES
-    )
+    crate::remote_install::Source::Release(version.into()).command()
 }
 
 /// The command that replaces Muxy on another computer with this release.
@@ -84,7 +81,7 @@ pub(crate) fn incompatible_guidance(name: &str, there: Option<&str>) -> String {
 }
 
 /// What the server form submits.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DeviceForm {
     pub(crate) name: String,
     /// A host or `~/.ssh/config` alias, or a whole destination when the user
@@ -181,6 +178,10 @@ pub(crate) fn split_destination(destination: &str) -> (String, String, String) {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ConnectionTest {
     Testing,
+    UntrustedHost(String),
+    Installing,
+    NotInstalled(String),
+    InstallFailed(String),
     /// It connected; this is the server's Muxy version.
     Succeeded(String),
     Failed(String),
@@ -315,6 +316,49 @@ impl AppModel {
         form: &DeviceForm,
         cx: &mut Context<Self>,
     ) {
+        self.run_server_probe(id, form, None, None, cx);
+    }
+
+    pub(crate) fn trust_test_server(
+        &mut self,
+        id: Option<ServerId>,
+        form: &DeviceForm,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(destination) = join_destination(&form.host, &form.user, &form.port) else {
+            return;
+        };
+        let Some(ConnectionTest::UntrustedHost(prompt)) = self.server_probe(&destination) else {
+            return;
+        };
+        self.run_server_probe(id, form, None, Some(prompt.clone()), cx);
+    }
+
+    pub(crate) fn clear_server_probe(&mut self) {
+        self.server_probe = None;
+        self.server_probe_generation = self.server_probe_generation.wrapping_add(1);
+    }
+
+    pub(crate) fn install_test_server(
+        &mut self,
+        id: Option<ServerId>,
+        form: &DeviceForm,
+        source: crate::remote_install::Source,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_server_probe(id, form, Some(source), None, cx);
+    }
+
+    fn run_server_probe(
+        &mut self,
+        id: Option<ServerId>,
+        form: &DeviceForm,
+        install: Option<crate::remote_install::Source>,
+        trusted_host: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.clear_server_probe();
+        let generation = self.server_probe_generation;
         let entry = match form.entry(id) {
             Ok(entry) => entry,
             Err(error) => {
@@ -326,7 +370,7 @@ impl AppModel {
             }
         };
         let destination = entry.ssh.clone();
-        let target = match self.test_target(id, &entry, form) {
+        let target = match self.test_target(id, &entry, form, trusted_host) {
             Ok(target) => target,
             Err(error) => {
                 self.server_probe = Some((destination, ConnectionTest::Failed(error)));
@@ -336,26 +380,41 @@ impl AppModel {
         };
         let (target, once) = target;
         let answers = self.servers.passwords.shared();
-        self.server_probe = Some((destination.clone(), ConnectionTest::Testing));
+        let pending = if install.is_some() {
+            ConnectionTest::Installing
+        } else {
+            ConnectionTest::Testing
+        };
+        self.server_probe = Some((destination.clone(), pending.clone()));
         self.sync_preferences(cx);
         let probe = self.servers.probe();
+        let run = self.servers.run();
         let result = cx.background_executor().spawn(async move {
-            let result = probe(&target);
-            if let Some(token) = once {
-                crate::askpass::Passwords::forget_once(&answers, &token);
+            let installed = install.map_or(Ok(()), |source| {
+                run(&target, &source.command(), source.archive()).map(drop)
+            });
+            let result = match installed {
+                Err(error) => ConnectionTest::InstallFailed(error),
+                Ok(()) => match probe(&target) {
+                    Ok(version) => ConnectionTest::Succeeded(version),
+                    Err(crate::boot::ProbeFailure::NotInstalled(error)) => {
+                        ConnectionTest::NotInstalled(error)
+                    }
+                    Err(crate::boot::ProbeFailure::Other(error)) => ConnectionTest::Failed(error),
+                },
+            };
+            if let Some(prompt) = crate::askpass::Passwords::finish_test(&answers, &once) {
+                return ConnectionTest::UntrustedHost(prompt);
             }
             result
         });
         cx.spawn(async move |model, cx| {
             let result = result.await;
             let _ = model.update(cx, |model, cx| {
-                if model.server_probe(&destination) == Some(&ConnectionTest::Testing) {
-                    let probe = match result {
-                        Ok(version) => ConnectionTest::Succeeded(version),
-                        Err(error) => ConnectionTest::Failed(error),
-                    };
-                    model.server_probe = Some((destination, probe));
+                if model.server_probe_generation == generation {
+                    model.server_probe = Some((destination, result));
                     model.sync_preferences(cx);
+                    cx.notify();
                 }
             });
         })
@@ -369,33 +428,34 @@ impl AppModel {
         id: Option<ServerId>,
         entry: &ServerEntry,
         form: &DeviceForm,
-    ) -> Result<(SshTarget, Option<String>), String> {
-        let mut target = SshTarget::new(&entry.ssh).map_err(|error| error.to_string())?;
+        trusted_host: Option<String>,
+    ) -> Result<(SshTarget, String), String> {
+        let mut target = SshTarget::new(&entry.ssh)
+            .map_err(|error| error.to_string())?
+            .with_host_key_prompt();
         if let Some(identity) = &entry.identity_file {
             target = target.with_identity(identity);
         }
-        if !form.password_login {
-            return Ok((target, None));
-        }
-        let saved = id.filter(|id| self.servers.passwords.has(*id));
-        if form.password.is_empty() && saved.is_none() {
-            return Err("Enter the password to test logging in with it.".into());
-        }
-        let login = target.login().map_err(|error| error.to_string())?;
-        if let Some(id) = saved.filter(|_| form.password.is_empty()) {
-            let askpass = self
-                .servers
-                .passwords
-                .askpass(id, login)
-                .map_err(|error| error.to_string())?;
-            return Ok((target.with_askpass(askpass), None));
-        }
+        let (password, login) = if form.password_login {
+            let password = if form.password.is_empty() {
+                id.and_then(|id| self.servers.passwords.password(id))
+            } else {
+                Some(form.password.clone())
+            }
+            .ok_or("Enter the password to test logging in with it.")?;
+            (
+                Some(password),
+                Some(target.login().map_err(|error| error.to_string())?),
+            )
+        } else {
+            (None, None)
+        };
         let (token, askpass) = self
             .servers
             .passwords
-            .once(form.password.clone(), login)
+            .for_test(password, login, trusted_host)
             .map_err(|error| error.to_string())?;
-        Ok((target.with_askpass(askpass), Some(token)))
+        Ok((target.with_askpass(askpass), token))
     }
 
     pub(crate) fn confirm_forget_server(
@@ -463,8 +523,9 @@ impl AppModel {
             return;
         }
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
+            let source = crate::remote_install::Source::Release(version.into());
             let response =
-                crate::views::confirm::prompt_install_server(window, &name, version, cx).await;
+                crate::views::confirm::prompt_install_server(window, &name, &source, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.close_prompt = None;
                 match response {
@@ -500,7 +561,7 @@ impl AppModel {
         let command = install_command(version);
         let result = cx
             .background_executor()
-            .spawn(async move { run(&target, &command).map(drop) });
+            .spawn(async move { run(&target, &command, None).map(drop) });
         cx.spawn(async move |model, cx| {
             let result = result.await;
             let _ = model.update(cx, |model, cx| {
@@ -538,7 +599,7 @@ impl AppModel {
         let run = self.servers.run();
         let version = cx
             .background_executor()
-            .spawn(async move { run(&target, VERSION_COMMAND) });
+            .spawn(async move { run(&target, VERSION_COMMAND, None) });
         cx.spawn(async move |model, cx| {
             let Ok(printed) = version.await else {
                 return;

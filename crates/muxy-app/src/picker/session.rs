@@ -103,11 +103,25 @@ impl Session {
     }
 
     pub(crate) fn path_state(&self) -> PathState {
-        self.path_service.state(&self.input)
+        if !self.remote {
+            return self.path_service.state(&self.input);
+        }
+        let input = self.input.trim();
+        let mut display = if input.starts_with('/') || input == "~" || input.starts_with("~/") {
+            input.to_owned()
+        } else {
+            format!("~/{input}")
+        };
+        if matches!(input, "." | "..") {
+            display.push('/');
+        }
+        let mut state = self.path_service.state(&display);
+        state.input.clone_from(&self.input);
+        state
     }
 
     pub(crate) fn highlighted_item(&self) -> Option<&DirectoryItem> {
-        if self.input_mode() != InputMode::Path {
+        if self.input_mode() != InputMode::Path || self.load_state.is_loading() {
             return None;
         }
         self.rows.get(self.highlighted_index?)
@@ -183,6 +197,9 @@ impl Session {
 
     pub(crate) fn set_input(&mut self, input: impl Into<String>) {
         self.input = input.into();
+        self.rows.clear();
+        self.search_results.clear();
+        self.highlighted_index = None;
         self.load_state = LoadState::Loading {
             shows_message: false,
         };
@@ -290,6 +307,40 @@ fn initial_highlight(rows: &[DirectoryItem]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_paths_resolve_against_the_remote_home() {
+        let mut session = Session::remote("/home/remote", vec![]);
+        for (input, expected) in [
+            ("", "/home/remote"),
+            ("~", "/home/remote"),
+            ("~/", "/home/remote"),
+            ("~/code/../api", "/home/remote/api"),
+            ("code/api", "/home/remote/code/api"),
+            ("./code", "/home/remote/code"),
+            ("../other", "/home/other"),
+            (".", "/home/remote"),
+            ("..", "/home"),
+            ("/srv/api", "/srv/api"),
+        ] {
+            session.set_input(input);
+            assert_eq!(
+                session.confirmation_path().as_deref(),
+                Some(expected),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn changed_paths_cannot_complete_rows_from_the_previous_directory() {
+        let mut session = Session::remote("/home/remote", vec![]);
+        session.apply_directory_snapshot(vec![DirectoryItem::Directory("code".into())], false);
+        session.complete_highlighted();
+        session.complete_highlighted();
+        assert_eq!(session.input, "~/code/");
+        assert!(session.ghost_text().is_empty());
+    }
 
     fn session(input: &str) -> Session {
         let mut session = Session::new("/Users/alice/Projects", vec!["/tmp/known".to_owned()]);

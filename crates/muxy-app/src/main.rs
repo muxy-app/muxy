@@ -10,6 +10,7 @@ mod navigation;
 mod opener;
 mod picker;
 mod profiler;
+mod remote_install;
 mod repository_actions;
 mod server;
 mod theme;

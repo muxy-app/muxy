@@ -107,11 +107,30 @@ impl Target {
 
 /// Checks that another computer's server answers over SSH, and reports its
 /// version or why it doesn't.
-pub(crate) type Probe = Arc<dyn Fn(&SshTarget) -> Result<String, String> + Send + Sync>;
+pub(crate) type Probe = Arc<dyn Fn(&SshTarget) -> Result<String, ProbeFailure> + Send + Sync>;
+
+#[derive(Debug)]
+pub(crate) enum ProbeFailure {
+    NotInstalled(String),
+    Other(String),
+}
+
+impl From<String> for ProbeFailure {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
+}
+
+impl From<&str> for ProbeFailure {
+    fn from(message: &str) -> Self {
+        Self::Other(message.into())
+    }
+}
 
 /// Runs a command on another computer over SSH, such as an installer, and
 /// returns what it printed, or why it failed.
-pub(crate) type Run = Arc<dyn Fn(&SshTarget, &str) -> Result<String, String> + Send + Sync>;
+pub(crate) type Run =
+    Arc<dyn Fn(&SshTarget, &str, Option<&std::path::Path>) -> Result<String, String> + Send + Sync>;
 
 /// Starts one worker per server.
 pub(crate) struct Workers {
@@ -137,7 +156,7 @@ impl Workers {
         Self {
             start: Box::new(start),
             probe: Arc::new(|_| Err("SSH is unavailable in tests".into())),
-            run: Arc::new(|_, _| Err("SSH is unavailable in tests".into())),
+            run: Arc::new(|_, _, _| Err("SSH is unavailable in tests".into())),
         }
     }
 
@@ -145,6 +164,20 @@ impl Workers {
     pub(crate) fn with_run(
         self,
         run: impl Fn(&SshTarget, &str) -> Result<String, String> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            run: Arc::new(move |target, command, _| run(target, command)),
+            ..self
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_run_input(
+        self,
+        run: impl Fn(&SshTarget, &str, Option<&std::path::Path>) -> Result<String, String>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         Self {
             run: Arc::new(run),
@@ -155,7 +188,7 @@ impl Workers {
     #[cfg(test)]
     pub(crate) fn with_probe(
         self,
-        probe: impl Fn(&SshTarget) -> Result<String, String> + Send + Sync + 'static,
+        probe: impl Fn(&SshTarget) -> Result<String, ProbeFailure> + Send + Sync + 'static,
     ) -> Self {
         Self {
             probe: Arc::new(probe),
@@ -178,10 +211,25 @@ impl Workers {
 
 /// Runs `remote` there, waits for it, and returns its output. On failure,
 /// the last line of its error output, else of its output, says why.
-fn run(host: &SshTarget, remote: &str) -> Result<String, String> {
+fn run(
+    host: &SshTarget,
+    remote: &str,
+    archive: Option<&std::path::Path>,
+) -> Result<String, String> {
+    let input = match archive {
+        Some(path) => std::fs::File::open(path)
+            .map(std::process::Stdio::from)
+            .map_err(|error| {
+                format!(
+                    "Cannot read the development build at {}: {error}. Run scripts/build-linux-dev.sh in this checkout, then retry installation.",
+                    path.display()
+                )
+            })?,
+        None => std::process::Stdio::null(),
+    };
     let output = host
         .command(remote)
-        .and_then(|mut command| command.stdin(std::process::Stdio::null()).output())
+        .and_then(|mut command| command.stdin(input).output())
         .map_err(|error| error.to_string())?;
     if output.status.success() {
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
@@ -200,9 +248,17 @@ fn run(host: &SshTarget, remote: &str) -> Result<String, String> {
 
 /// Connects once, starting the server if needed, as a worker would. It
 /// blocks for as long as SSH takes, so it runs off the UI thread.
-pub(crate) fn probe(host: &SshTarget) -> Result<String, String> {
-    let client = Client::connect_ssh(host, Start::IfNeeded)
-        .map_err(|error| explain(&Target::Ssh(host.clone()), &error))?;
+pub(crate) fn probe(host: &SshTarget) -> Result<String, ProbeFailure> {
+    let client = Client::connect_ssh(host, Start::IfNeeded).map_err(|error| {
+        let message = explain(&Target::Ssh(host.clone()), &error);
+        match error {
+            ClientError::Remote {
+                reason: muxy_client::RemoteReason::NotInstalled,
+                ..
+            } => ProbeFailure::NotInstalled(message),
+            _ => ProbeFailure::Other(message),
+        }
+    })?;
     let version = client.server_info().build.version.clone();
     client.disconnect();
     Ok(version)

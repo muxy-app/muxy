@@ -43,6 +43,7 @@ pub struct SshTarget {
     program: Option<PathBuf>,
     identity: Option<PathBuf>,
     askpass: Option<Askpass>,
+    host_key_prompt: bool,
 }
 
 /// A program that answers ssh's prompts, such as for a saved password. ssh
@@ -76,6 +77,7 @@ impl SshTarget {
             program: None,
             identity: None,
             askpass: None,
+            host_key_prompt: false,
         })
     }
 
@@ -91,6 +93,12 @@ impl SshTarget {
     #[must_use]
     pub fn with_askpass(mut self, askpass: Askpass) -> Self {
         self.askpass = Some(askpass);
+        self
+    }
+
+    #[must_use]
+    pub fn with_host_key_prompt(mut self) -> Self {
+        self.host_key_prompt = true;
         self
     }
 
@@ -114,6 +122,17 @@ impl SshTarget {
     /// password prompt that names another login, such as a jump host's, is
     /// not for this destination.
     pub fn login(&self) -> io::Result<String> {
+        login_from(&self.config()?).ok_or_else(|| {
+            io::Error::other(format!("no SSH user or host for {}", self.destination))
+        })
+    }
+
+    pub fn default_identity(&self) -> io::Result<Option<PathBuf>> {
+        let config = self.config()?;
+        Ok(std::env::home_dir().and_then(|home| identity_from(&config, &home)))
+    }
+
+    fn config(&self) -> io::Result<String> {
         let program = program(self.program.as_deref(), std::env::var_os("MUXY_SSH"))?;
         let output = Command::new(program)
             .args(["-G", "--", &self.destination])
@@ -126,9 +145,7 @@ impl SshTarget {
                 self.destination
             )));
         }
-        login_from(&String::from_utf8_lossy(&output.stdout)).ok_or_else(|| {
-            io::Error::other(format!("no SSH user or host for {}", self.destination))
-        })
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     /// Runs `remote` there through the same ssh and login as the bridge,
@@ -157,6 +174,15 @@ impl SshTarget {
         };
         for option in prompts.iter().chain(&OPTIONS) {
             arguments.extend(["-o".into(), (*option).into()]);
+        }
+        if self.host_key_prompt {
+            for option in [
+                "StrictHostKeyChecking=ask",
+                "FingerprintHash=sha256",
+                "ControlPath=none",
+            ] {
+                arguments.extend(["-o".into(), option.into()]);
+            }
         }
         if let Some(identity) = &self.identity {
             arguments.extend([
@@ -215,6 +241,23 @@ fn login_from(config: &str) -> Option<String> {
     let user = value("user")?;
     let host = value("hostkeyalias").or_else(|| value("hostname"))?;
     Some(format!("{user}@{host}"))
+}
+
+fn identity_from(config: &str, home: &Path) -> Option<PathBuf> {
+    config.lines().find_map(|line| {
+        let value = line.strip_prefix("identityfile ")?.trim();
+        let path = if let Some(relative) = value
+            .strip_prefix("~/")
+            .or_else(|| value.strip_prefix("%d/"))
+        {
+            home.join(relative)
+        } else if value.contains('%') || value.starts_with('~') || value == "none" {
+            return None;
+        } else {
+            PathBuf::from(value)
+        };
+        path.is_file().then_some(path)
+    })
 }
 
 /// The program set on the target, else `MUXY_SSH`, else ssh from `PATH`.
@@ -343,6 +386,74 @@ impl ErrorTail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_key_prompts_keep_verification_and_disable_shared_connections() -> io::Result<()> {
+        let target = SshTarget::new("ssh://dev@box:2222")?.with_host_key_prompt();
+        let args = target.arguments(Start::IfNeeded);
+        for option in [
+            "StrictHostKeyChecking=ask",
+            "FingerprintHash=sha256",
+            "ControlPath=none",
+        ] {
+            assert!(args.windows(2).any(|args| args == ["-o", option]));
+        }
+        assert!(
+            !args.iter().any(|arg| arg == "StrictHostKeyChecking=no"
+                || arg == "StrictHostKeyChecking=accept-new")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn identity_detection_uses_existing_configured_keys_in_order() -> io::Result<()> {
+        let home = tempfile::tempdir()?;
+        let ssh = home.path().join(".ssh");
+        std::fs::create_dir(&ssh)?;
+        std::fs::write(ssh.join("id_ed25519"), "fixture")?;
+        std::fs::write(ssh.join("custom key"), "fixture")?;
+        let config = "identityfile ~/.ssh/missing\nidentityfile %d/.ssh/custom key\nidentityfile ~/.ssh/id_ed25519\n";
+        assert_eq!(
+            identity_from(config, home.path()),
+            Some(ssh.join("custom key"))
+        );
+        assert_eq!(identity_from("identityfile none\n", home.path()), None);
+        assert_eq!(identity_from("identityfile ~/.ssh\n", home.path()), None);
+        assert_eq!(identity_from("identityfile %h/key\n", home.path()), None);
+        assert_eq!(
+            identity_from(
+                &format!("identityfile {}\n", ssh.join("id_ed25519").display()),
+                home.path()
+            ),
+            Some(ssh.join("id_ed25519"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn identity_detection_resolves_the_full_destination_without_connecting() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir()?;
+        let key = directory.path().join("custom-key");
+        std::fs::write(&key, "fixture")?;
+        std::fs::write(
+            directory.path().join("config"),
+            format!("identityfile {}\n", key.display()),
+        )?;
+        let program = directory.path().join("ssh");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\ncat \"$(dirname \"$0\")/config\"\n",
+        )?;
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))?;
+        let target = SshTarget::new("ssh://dev@box:2222")?.with_program(program);
+        assert_eq!(target.default_identity()?, Some(key));
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("args"))?,
+            "-G\n--\nssh://dev@box:2222\n"
+        );
+        Ok(())
+    }
 
     #[test]
     fn a_missing_ssh_names_the_program_and_the_host() -> io::Result<()> {

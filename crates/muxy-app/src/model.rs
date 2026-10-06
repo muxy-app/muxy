@@ -127,6 +127,7 @@ pub(crate) struct AppModel {
     mobile: mobile::MobileAccess,
     /// The last Test Connection in Settings, with the destination it tried.
     server_probe: Option<(String, ConnectionTest)>,
+    server_probe_generation: u64,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
     /// Add Project waits for this server to be ready, then opens its picker,
@@ -512,6 +513,7 @@ impl AppModel {
             server_preferences: preferences::ServerPreferences::default(),
             mobile: mobile::MobileAccess::default(),
             server_probe: None,
+            server_probe_generation: 0,
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
             pending_remote_picker: None,

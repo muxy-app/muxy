@@ -6,8 +6,9 @@ export LC_ALL
 
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "Install $1 and retry."; }
-usage() { echo 'Usage: install-muxy.sh --version 2.0.0-beta-N [--install-dir PATH] [--replace]'; }
+usage() { echo 'Usage: install-muxy.sh (--version 2.0.0-beta-N | --dev-archive < archive.tar.gz) [--install-dir PATH] [--replace]'; }
 VERSION=
+DEV_ARCHIVE=false
 DEST=${HOME:?HOME is required}/.local/bin
 REPLACE=false
 while [ "$#" -gt 0 ]; do
@@ -17,16 +18,27 @@ while [ "$#" -gt 0 ]; do
             case "$1" in --version) VERSION=$2 ;; --install-dir) DEST=$2 ;; esac
             shift 2 ;;
         --replace) REPLACE=true; shift ;;
+        --dev-archive) DEV_ARCHIVE=true; shift ;;
         --help) usage; exit 0 ;;
         *) usage >&2; fail "Unknown argument: $1" ;;
     esac
 done
-case "$VERSION" in
-    2.0.0-beta-*) COUNT=${VERSION#2.0.0-beta-} ;;
-    *) fail 'Specify an exact version with --version 2.0.0-beta-N.' ;;
-esac
-case "$COUNT" in ''|0*|*[!0-9]*) fail 'Invalid beta version.' ;; esac
-for TOOL in uname curl mktemp mkdir rmdir rm mv cp ln readlink chmod cat awk sort cmp sed; do need "$TOOL"; done
+if [ "$DEV_ARCHIVE" = true ]; then
+    [ -z "$VERSION" ] || fail 'Use --dev-archive without --version.'
+    VERSION=dev
+    FILES='muxy muxy-server'
+    FILE_COUNT=2
+else
+    case "$VERSION" in
+        2.0.0-beta-*) COUNT=${VERSION#2.0.0-beta-} ;;
+        *) fail 'Specify an exact version with --version 2.0.0-beta-N.' ;;
+    esac
+    case "$COUNT" in ''|0*|*[!0-9]*) fail 'Invalid beta version.' ;; esac
+    FILES='muxy muxy-server LICENSE'
+    FILE_COUNT=3
+    need curl
+fi
+for TOOL in uname mktemp mkdir rmdir rm mv cp ln readlink chmod cat awk sort cmp sed; do need "$TOOL"; done
 case "$(uname -s)" in
     Darwin) PLATFORM=macos; EXT=zip; need unzip; MOVE_FLAG=-h ;;
     Linux)
@@ -44,7 +56,9 @@ case "$(uname -m)" in
     arm64|aarch64) ARCH=arm64 ;;
     *) fail 'Supported architectures: x86_64 and ARM64.' ;;
 esac
-if command -v sha256sum >/dev/null 2>&1; then
+if [ "$DEV_ARCHIVE" = true ]; then
+    [ "$PLATFORM-$ARCH" = linux-x86_64 ] || fail 'This development archive requires x86_64 Linux.'
+elif command -v sha256sum >/dev/null 2>&1; then
     hash() { sha256sum "$1"; }
 elif command -v shasum >/dev/null 2>&1; then
     hash() { shasum -a 256 "$1"; }
@@ -90,16 +104,20 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$BASE/$ARCHIVE" -o "$TEMP/$ARCHIVE"
-curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$BASE/SHA256SUMS" -o "$TEMP/SHA256SUMS"
-EXPECTED=$(awk -v name="$ARCHIVE" '
-    $2 == name && length($1) == 64 && $1 !~ /[^0-9a-f]/ { value=$1; count++ }
-    END { if (count != 1) exit 1; print value }' "$TEMP/SHA256SUMS") || fail 'Missing or ambiguous archive checksum.'
-ACTUAL=$(hash "$TEMP/$ARCHIVE")
-[ "${ACTUAL%% *}" = "$EXPECTED" ] || fail 'Archive SHA-256 mismatch.'
+if [ "$DEV_ARCHIVE" = true ]; then
+    cat > "$TEMP/$ARCHIVE"
+else
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$BASE/$ARCHIVE" -o "$TEMP/$ARCHIVE"
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$BASE/SHA256SUMS" -o "$TEMP/SHA256SUMS"
+    EXPECTED=$(awk -v name="$ARCHIVE" '
+        $2 == name && length($1) == 64 && $1 !~ /[^0-9a-f]/ { value=$1; count++ }
+        END { if (count != 1) exit 1; print value }' "$TEMP/SHA256SUMS") || fail 'Missing or ambiguous archive checksum.'
+    ACTUAL=$(hash "$TEMP/$ARCHIVE")
+    [ "${ACTUAL%% *}" = "$EXPECTED" ] || fail 'Archive SHA-256 mismatch.'
+fi
 
 # Validate names and types before reading individual members into regular files.
-printf 'LICENSE\nmuxy\nmuxy-server\n' > "$TEMP/expected"
+printf '%s\n' $FILES | sort > "$TEMP/expected"
 if [ "$EXT" = zip ]; then
     unzip -Z -1 "$TEMP/$ARCHIVE" > "$TEMP/members"
     unzip -Z -l "$TEMP/$ARCHIVE" > "$TEMP/types"
@@ -108,8 +126,8 @@ if [ "$EXT" = zip ]; then
 else
     tar -tzf "$TEMP/$ARCHIVE" > "$TEMP/members"
     tar -tvzf "$TEMP/$ARCHIVE" > "$TEMP/types"
-    awk '{ if (substr($0,1,1) != "-") exit 1; count++ }
-        END { if (count != 3) exit 1 }' "$TEMP/types" || fail 'Archive must contain three regular files.'
+    awk -v wanted="$FILE_COUNT" '{ if (substr($0,1,1) != "-") exit 1; count++ }
+        END { if (count != wanted) exit 1 }' "$TEMP/types" || fail "Archive must contain $FILE_COUNT regular files."
 fi
 sort "$TEMP/members" > "$TEMP/sorted"
 cmp -s "$TEMP/expected" "$TEMP/sorted" || fail 'Unexpected archive members.'
@@ -126,7 +144,7 @@ fi
 LOCK=$MANAGED/install.lock
 STAGE=$(mktemp -d "$MANAGED/.stage.XXXXXX")
 mkdir "$STAGE/pair"
-for BINARY in muxy muxy-server LICENSE; do
+for BINARY in $FILES; do
     if [ "$EXT" = zip ]; then
         unzip -p "$TEMP/$ARCHIVE" "$BINARY" > "$STAGE/pair/$BINARY"
     else
@@ -135,10 +153,14 @@ for BINARY in muxy muxy-server LICENSE; do
     [ -s "$STAGE/pair/$BINARY" ] || fail "Empty archive member: $BINARY"
 done
 chmod 755 "$STAGE/pair/muxy" "$STAGE/pair/muxy-server"
-chmod 644 "$STAGE/pair/LICENSE"
+[ "$DEV_ARCHIVE" = true ] || chmod 644 "$STAGE/pair/LICENSE"
 
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 replacement() {
+    if [ "$DEV_ARCHIVE" = true ]; then
+        printf 'To replace an existing development build, use install-muxy.sh --dev-archive --replace with the archive on stdin.\n' >&2
+        return
+    fi
     printf 'To replace the installed commands, run:\n  curl -fsSL %s/install-muxy.sh | sh -s -- --version %s --install-dir ' "$BASE" "$VERSION" >&2
     quote "$DEST" >&2
     printf ' --replace\n' >&2
@@ -162,7 +184,7 @@ if [ ! -L "$DEST/muxy" ] && [ ! -L "$DEST/muxy-server" ] &&
 fi
 [ ! -e "$MANAGED/current" ] || [ -L "$MANAGED/current" ] || fail "$MANAGED/current must be a symlink."
 GENERATION=$(mktemp -d "$MANAGED/pair-$VERSION.XXXXXX")
-mv "$STAGE/pair/muxy" "$STAGE/pair/muxy-server" "$STAGE/pair/LICENSE" "$GENERATION/"
+for BINARY in $FILES; do mv "$STAGE/pair/$BINARY" "$GENERATION/"; done
 ln -s "${GENERATION##*/}" "$STAGE/current"
 
 # Preserve a usable previous pair while converting ordinary files or bundle

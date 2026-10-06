@@ -238,6 +238,64 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('Install sha256sum or shasum', result.stderr)
         self.assertFalse(self.dest.exists())
 
+    def dev_archive(self, members=None, kind=None):
+        self.env.update(TEST_OS='Linux', TEST_ARCH='x86_64')
+        self.pair = {'muxy': b'dev-client', 'muxy-server': b'dev-server'}
+        self.archive(self.pair if members is None else members, kind)
+
+    def install_dev(self, *extra):
+        return subprocess.run(
+            ['/bin/sh', str(ROOT / 'scripts/install-muxy.sh'), '--dev-archive',
+             '--install-dir', str(self.dest), *extra], env=self.env,
+            input=self.asset.read_bytes(), capture_output=True)
+
+    def test_development_archive_installs_pair_from_stdin_without_download_tools(self):
+        self.dev_archive()
+        for tool in ('curl', 'shasum', 'sha256sum'):
+            (self.tools / tool).unlink(missing_ok=True)
+        result = self.install_dev()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_pair()
+        self.assertFalse((self.root / 'curl.log').exists())
+        self.assertFalse(list(self.root.glob('muxy-install.*')))
+
+    def test_development_archive_refuses_existing_installation(self):
+        self.dev_archive()
+        self.dest.mkdir()
+        (self.dest / 'muxy').write_bytes(b'existing')
+        self.assertNotEqual(self.install_dev().returncode, 0)
+        self.assertEqual((self.dest / 'muxy').read_bytes(), b'existing')
+        self.assertFalse((self.dest / 'muxy-server').exists())
+
+    def test_development_archive_rejects_wrong_platform_before_install(self):
+        self.dev_archive()
+        for values in ({'TEST_ARCH': 'arm64'}, {'TEST_OS': 'Darwin'},
+                       {'TEST_GLIBC': 'glibc 2.34'}):
+            before = self.env.copy()
+            self.env.update(values)
+            self.assertNotEqual(self.install_dev().returncode, 0)
+            self.assertFalse(self.dest.exists())
+            self.env = before
+
+    def test_development_archive_rejects_unsafe_or_incomplete_pairs(self):
+        for members, kind in (({'../escape': b'bad', 'muxy-server': b'server'}, None),
+                              ({'muxy': b'only-one'}, None),
+                              ({'muxy': b'', 'muxy-server': b'server'}, None),
+                              (None, 'symlink'), (None, 'hardlink'), (None, 'fifo')):
+            with self.subTest(members=members, kind=kind):
+                self.dev_archive(members, kind)
+                self.assertNotEqual(self.install_dev().returncode, 0)
+                self.assertFalse((self.dest / 'muxy').exists())
+                self.assertFalse((self.dest / 'muxy-server').exists())
+
+    def test_development_archive_activation_failure_rolls_back(self):
+        self.dev_archive()
+        self.env['ACTIVATE_FAIL'] = '1'
+        self.assertNotEqual(self.install_dev().returncode, 0)
+        self.assertFalse((self.dest / 'muxy').is_symlink())
+        self.assertFalse((self.dest / 'muxy-server').is_symlink())
+        self.assertFalse(list((self.dest / '.muxy').glob('pair-*')))
+
 
 if __name__ == '__main__':
     unittest.main()

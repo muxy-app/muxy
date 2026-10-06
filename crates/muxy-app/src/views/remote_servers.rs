@@ -29,6 +29,8 @@ pub(crate) struct ServerForm {
     user: Entity<TextInput>,
     port: Entity<TextInput>,
     identity: Entity<TextInput>,
+    automatic_identity: bool,
+    identity_task: Option<gpui::Task<()>>,
     password: Entity<TextInput>,
     password_login: bool,
     error: Option<String>,
@@ -36,6 +38,28 @@ pub(crate) struct ServerForm {
 }
 
 impl ServerForm {
+    fn advance_focus(&self, backwards: bool, window: &mut Window, cx: &gpui::App) {
+        let inputs = [
+            &self.name,
+            &self.host,
+            &self.user,
+            &self.port,
+            &self.identity,
+            &self.password,
+        ];
+        let inputs = &inputs[..if self.password_login { 6 } else { 5 }];
+        let current = inputs
+            .iter()
+            .position(|input| input.focus_handle(cx).is_focused(window));
+        let next = match current {
+            Some(index) if backwards => (index + inputs.len() - 1) % inputs.len(),
+            Some(index) => (index + 1) % inputs.len(),
+            None if backwards => inputs.len() - 1,
+            None => 0,
+        };
+        inputs[next].focus_handle(cx).focus(window);
+    }
+
     fn submitted(&self, cx: &gpui::App) -> DeviceForm {
         let text = |input: &Entity<TextInput>| input.read(cx).text().to_owned();
         DeviceForm {
@@ -43,7 +67,11 @@ impl ServerForm {
             host: text(&self.host),
             user: text(&self.user),
             port: text(&self.port),
-            identity_file: text(&self.identity),
+            identity_file: if self.automatic_identity {
+                String::new()
+            } else {
+                text(&self.identity)
+            },
             password_login: self.password_login,
             password: text(&self.password),
         }
@@ -407,6 +435,20 @@ fn input(
     })
 }
 
+fn default_identity(home: &std::path::Path) -> Option<String> {
+    [
+        "id_ed25519",
+        "id_ed25519_sk",
+        "id_ecdsa",
+        "id_ecdsa_sk",
+        "id_rsa",
+    ]
+    .into_iter()
+    .map(|name| home.join(".ssh").join(name))
+    .find(|path| path.is_file())
+    .map(|path| path.to_string_lossy().into_owned())
+}
+
 impl AppModel {
     /// Focuses `focus` once the current update is done, from wherever the
     /// overlay was opened, even outside the window.
@@ -454,7 +496,11 @@ impl AppModel {
     }
 
     pub(crate) fn open_server_form(&mut self, device: Option<ServerId>, cx: &mut Context<Self>) {
+        self.clear_server_probe();
         let entry = device.and_then(|id| self.settings.server(id).cloned());
+        let automatic_identity = entry
+            .as_ref()
+            .is_none_or(|entry| entry.identity_file.is_none());
         let (host, user, port) = entry
             .as_ref()
             .map(|entry| crate::model::split_destination(&entry.ssh))
@@ -468,14 +514,18 @@ impl AppModel {
         let host = input(self, cx, "host, address, or ~/.ssh/config alias", &host);
         let user = input(self, cx, "optional", &user);
         let port = input(self, cx, "22", &port);
+        let default_identity = automatic_identity
+            .then(|| std::env::home_dir().and_then(|home| default_identity(&home)))
+            .flatten()
+            .unwrap_or_default();
         let identity = input(
             self,
             cx,
-            "~/.ssh/id_ed25519",
+            "Use SSH config or agent",
             entry
                 .as_ref()
                 .and_then(|entry| entry.identity_file.as_deref())
-                .unwrap_or(""),
+                .unwrap_or(&default_identity),
         );
         let style = InputStyle::field(&self.theme, &self.metrics);
         let password = cx.new(|cx| {
@@ -486,10 +536,23 @@ impl AppModel {
         let subscriptions = [&name, &host, &user, &port, &identity, &password]
             .into_iter()
             .map(|input| {
-                cx.subscribe(input, |model, _, event, cx| match event {
+                cx.subscribe(input, |model, input, event, cx| match event {
                     InputEvent::Submitted => model.submit_server_form(cx),
                     InputEvent::Cancelled => model.dismiss_overlay(cx),
-                    InputEvent::Changed => cx.notify(),
+                    InputEvent::Changed => {
+                        model.clear_server_probe();
+                        if let Some(Overlay::ServerForm(form)) = &mut model.overlay {
+                            form.error = None;
+                            if input == form.identity {
+                                form.automatic_identity = false;
+                                form.identity_task = None;
+                            }
+                            if input == form.host || input == form.user || input == form.port {
+                                model.autofill_server_identity(cx);
+                            }
+                        }
+                        cx.notify();
+                    }
                 })
             })
             .collect();
@@ -502,11 +565,73 @@ impl AppModel {
             user,
             port,
             identity,
+            automatic_identity,
+            identity_task: None,
             password,
             password_login: entry.as_ref().is_some_and(|entry| entry.password_login),
             error: None,
             _subscriptions: subscriptions,
         })));
+        self.autofill_server_identity(cx);
+        cx.notify();
+    }
+
+    fn autofill_server_identity(&mut self, cx: &mut Context<Self>) {
+        let Some(Overlay::ServerForm(form)) = &mut self.overlay else {
+            return;
+        };
+        if !form.automatic_identity {
+            return;
+        }
+        form.identity_task = None;
+        let submitted = form.submitted(cx);
+        let Ok(destination) =
+            crate::model::join_destination(&submitted.host, &submitted.user, &submitted.port)
+        else {
+            return;
+        };
+        let Ok(target) = muxy_client::SshTarget::new(&destination) else {
+            return;
+        };
+        let identity = form.identity.clone();
+        form.identity_task = Some(cx.spawn(async move |model, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(250))
+                .await;
+            let path = cx
+                .background_executor()
+                .spawn(async move { target.default_identity().ok().flatten() })
+                .await;
+            let _ = model.update(cx, |model, cx| {
+                model.apply_server_identity(&identity, path.as_deref(), cx);
+            });
+        }));
+    }
+
+    fn apply_server_identity(
+        &mut self,
+        identity: &Entity<TextInput>,
+        path: Option<&std::path::Path>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Overlay::ServerForm(form)) = &mut self.overlay else {
+            return;
+        };
+        if !form.automatic_identity || form.identity != *identity {
+            return;
+        }
+        form.identity_task = None;
+        let text = path
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if form.identity.read(cx).text() == text {
+            cx.notify();
+            return;
+        }
+        form.identity
+            .update(cx, |input, cx| input.set_text(text, cx));
+        form.error = None;
+        self.clear_server_probe();
         cx.notify();
     }
 
@@ -514,7 +639,13 @@ impl AppModel {
         let Some(Overlay::ServerForm(form)) = &self.overlay else {
             return;
         };
+        if form.identity_task.is_some() {
+            return;
+        }
         let (device, submitted) = (form.device, form.submitted(cx));
+        if self.server_form_installing(&submitted) {
+            return;
+        }
         match self.save_remote_server(device, &submitted, cx) {
             Ok(_) if matches!(self.overlay, Some(Overlay::ServerForm(_))) => {
                 self.dismiss_overlay(cx);
@@ -531,17 +662,84 @@ impl AppModel {
 
     fn test_server_form(&mut self, cx: &mut Context<Self>) {
         if let Some(Overlay::ServerForm(form)) = &self.overlay {
+            if form.identity_task.is_some() {
+                return;
+            }
             let (device, submitted) = (form.device, form.submitted(cx));
+            if self.server_form_installing(&submitted) {
+                return;
+            }
             self.test_remote_server(device, &submitted, cx);
             cx.notify();
         }
     }
 
+    fn trust_server_form(&mut self, cx: &mut Context<Self>) {
+        if let Some(Overlay::ServerForm(form)) = &self.overlay {
+            let (device, submitted) = (form.device, form.submitted(cx));
+            self.trust_test_server(device, &submitted, cx);
+            cx.notify();
+        }
+    }
+
     fn toggle_password_login(&mut self, cx: &mut Context<Self>) {
+        self.clear_server_probe();
         if let Some(Overlay::ServerForm(form)) = &mut self.overlay {
             form.password_login = !form.password_login;
             cx.notify();
         }
+    }
+
+    fn server_form_installing(&self, form: &DeviceForm) -> bool {
+        crate::model::join_destination(&form.host, &form.user, &form.port)
+            .ok()
+            .is_some_and(|destination| {
+                self.server_probe(&destination) == Some(&ConnectionTest::Installing)
+            })
+    }
+
+    fn confirm_install_server_form(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let Some(Overlay::ServerForm(form)) = &self.overlay else {
+            return;
+        };
+        if !self.accepts_prompts() {
+            return;
+        }
+        let (device, submitted, host) = (form.device, form.submitted(cx), form.host.clone());
+        let Ok(destination) =
+            crate::model::join_destination(&submitted.host, &submitted.user, &submitted.port)
+        else {
+            return;
+        };
+        if !matches!(
+            self.server_probe(&destination),
+            Some(ConnectionTest::NotInstalled(_) | ConnectionTest::InstallFailed(_))
+        ) {
+            return;
+        }
+        let window = window.window_handle();
+        let source = crate::remote_install::Source::current();
+        self.close_prompt = Some(cx.spawn(async move |model, cx| {
+            let response =
+                super::confirm::prompt_install_server(window, &destination, &source, cx).await;
+            let _ = model.update(cx, |model, cx| {
+                model.close_prompt = None;
+                let current = matches!(&model.overlay, Some(Overlay::ServerForm(form))
+                    if form.host == host && form.submitted(cx) == submitted);
+                if current {
+                    match response {
+                        Ok(true) => model.install_test_server(device, &submitted, source, cx),
+                        Ok(false) => {}
+                        Err(error) => {
+                            if let Some(Overlay::ServerForm(form)) = &mut model.overlay {
+                                form.error = Some(error);
+                            }
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        }));
     }
 
     /// A file panel at `~/.ssh` that shows hidden files, for a key file.
@@ -566,14 +764,26 @@ impl AppModel {
             let path = receiver.recv().await.ok().flatten();
             drop(dialog);
             let _ = model.update(cx, |model, cx| {
-                if let (Some(path), Some(Overlay::ServerForm(form))) = (path, &model.overlay) {
-                    let path = path.to_string_lossy().into_owned();
-                    form.identity
-                        .update(cx, |input, cx| input.set_text(path, cx));
+                if let Some(path) = path {
+                    model.set_server_identity(&path, cx);
                 }
             });
         })
         .detach();
+    }
+
+    pub(crate) fn set_server_identity(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        let Some(Overlay::ServerForm(form)) = &mut self.overlay else {
+            return;
+        };
+        form.automatic_identity = false;
+        form.identity_task = None;
+        form.identity.update(cx, |input, cx| {
+            input.set_text(path.to_string_lossy().into_owned(), cx);
+        });
+        form.error = None;
+        self.clear_server_probe();
+        cx.notify();
     }
 
     /// Asks for `server`'s password; connecting goes on once it is typed.
@@ -679,6 +889,49 @@ fn primary(
         .into_any_element()
 }
 
+fn connection_status(
+    probe: Option<&ConnectionTest>,
+    finding_identity: bool,
+    theme: &muxy_ui::theme::Theme,
+) -> (String, Hsla) {
+    match probe {
+        None if finding_identity => ("Finding SSH key…".to_owned(), theme.fg_muted),
+        None => (
+            "Muxy uses your SSH config, keys, and agent. A password is never saved.".to_owned(),
+            theme.fg_muted,
+        ),
+        Some(ConnectionTest::Testing) => ("Testing connection…".to_owned(), theme.fg_muted),
+        Some(ConnectionTest::UntrustedHost(prompt)) => {
+            let details = prompt
+                .split("\nAre you sure you want to continue connecting")
+                .next()
+                .unwrap_or(prompt);
+            (
+                format!(
+                    "{details}\n\nVerify this fingerprint with your server administrator before trusting it."
+                ),
+                theme.warning,
+            )
+        }
+        Some(ConnectionTest::Installing) => (
+            "Installing muxy-server, then testing connection…".to_owned(),
+            theme.fg_muted,
+        ),
+        Some(ConnectionTest::Succeeded(version)) => (
+            format!("Connection succeeded · Muxy {version}"),
+            theme.accent,
+        ),
+        Some(ConnectionTest::NotInstalled(_)) => (
+            "SSH connected. Install muxy-server to finish setting up this server.".to_owned(),
+            theme.fg_muted,
+        ),
+        Some(ConnectionTest::Failed(error)) => (error.clone(), theme.danger),
+        Some(ConnectionTest::InstallFailed(error)) => {
+            (format!("Install failed: {error}"), theme.danger)
+        }
+    }
+}
+
 pub(crate) fn render_form(
     form: &ServerForm,
     model: &AppModel,
@@ -693,22 +946,33 @@ pub(crate) fn render_form(
         crate::model::join_destination(&submitted.host, &submitted.user, &submitted.port)
             .unwrap_or_else(|_| submitted.host.trim().to_owned());
     let probe = model.server_probe(&destination);
-    let testing = probe == Some(&ConnectionTest::Testing);
+    let installing = probe == Some(&ConnectionTest::Installing);
+    let testing = installing || probe == Some(&ConnectionTest::Testing);
+    let installable = matches!(
+        probe,
+        Some(ConnectionTest::NotInstalled(_) | ConnectionTest::InstallFailed(_))
+    );
     let has_host = !submitted.host.trim().is_empty();
-    let (status, color) = match probe {
-        None => (
-            "Muxy uses your SSH config, keys, and agent. A password is never saved.".to_owned(),
-            theme.fg_muted,
-        ),
-        Some(ConnectionTest::Testing) => ("Testing connection…".to_owned(), theme.fg_muted),
-        Some(ConnectionTest::Succeeded(version)) => (
-            format!("Connection succeeded · Muxy {version}"),
-            theme.accent,
-        ),
-        Some(ConnectionTest::Failed(error)) => (error.clone(), theme.danger),
-    };
+    let (status, color) = connection_status(probe, form.identity_task.is_some(), theme);
     let text = |id: &str, input: &Entity<TextInput>| controls::text_field(style, id, input, None);
     modal(model, window, "server-form")
+        .on_key_down(
+            cx.listener(|model, event: &gpui::KeyDownEvent, window, cx| {
+                let modifiers = event.keystroke.modifiers;
+                if event.keystroke.key == "tab"
+                    && !modifiers.control
+                    && !modifiers.alt
+                    && !modifiers.platform
+                    && !modifiers.function
+                {
+                    if let Some(Overlay::ServerForm(form)) = &model.overlay {
+                        form.advance_focus(modifiers.shift, window, cx);
+                    }
+                    window.prevent_default();
+                    cx.stop_propagation();
+                }
+            }),
+        )
         .child(title(
             if form.device.is_some() {
                 "Edit Remote Server"
@@ -734,8 +998,44 @@ pub(crate) fn render_form(
                 .text_color(theme.danger)
                 .child(error)
         }))
-        .child(form_actions(has_host && !testing, has_host, model, cx))
+        .when(installable, |form| form.child(install_offer(model, cx)))
+        .when(
+            matches!(probe, Some(ConnectionTest::UntrustedHost(_))),
+            |form| {
+                form.child(
+                    controls::button(
+                        style,
+                        "server-trust",
+                        "Trust & Test",
+                        true,
+                        cx.listener(|model, _, _, cx| model.trust_server_form(cx)),
+                    )
+                    .debug_selector(|| "server-trust".into()),
+                )
+            },
+        )
+        .child(form_actions(
+            has_host && !testing && form.identity_task.is_none(),
+            has_host && !installing && form.identity_task.is_none(),
+            model,
+            cx,
+        ))
         .into_any_element()
+}
+
+fn install_offer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    controls::button(
+        Style {
+            theme: &model.theme,
+            metrics: &model.metrics,
+        },
+        "server-install",
+        "Install muxy-server & Test Connection",
+        true,
+        cx.listener(|model, _, window, cx| model.confirm_install_server_form(window, cx)),
+    )
+    .debug_selector(|| "server-install".into())
+    .into_any_element()
 }
 
 /// User, port, key file, and password login.
@@ -756,7 +1056,11 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 .child(field("Port", text("server-port", &form.port), model).w(m.scaled(96.0))),
         )
         .child(field(
-            "Identity file",
+            if form.automatic_identity {
+                "Identity file (automatic)"
+            } else {
+                "Identity file"
+            },
             div()
                 .flex()
                 .gap(m.spacing3())
@@ -776,6 +1080,16 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 .into_any_element(),
             model,
         ))
+        .when(form.automatic_identity, |fields| {
+            fields.child(
+                div()
+                    .text_size(m.font_footnote())
+                    .text_color(theme.fg_muted)
+                    .child(
+                        "SSH can also try your other keys. Edit or browse to use a specific key.",
+                    ),
+            )
+        })
         .child(
             div()
                 .flex()
@@ -910,4 +1224,62 @@ pub(crate) fn render_password(
                 )),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    fn automatic_identity_keeps_ssh_fallbacks_until_the_user_selects_a_key(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let style = InputStyle::field(
+            &muxy_ui::theme::Theme::from_scheme(&muxy_ui::theme::ColorScheme::default()),
+            &muxy_ui::theme::Metrics::new(1.0),
+        );
+        let mut field =
+            |text: &str| cx.new(|cx| TextInput::new(style, cx).with_text(text.to_owned()));
+        let mut form = ServerForm {
+            device: None,
+            name: field("Build"),
+            host: field("box"),
+            user: field(""),
+            port: field(""),
+            identity: field("/tmp/detected-key"),
+            automatic_identity: true,
+            identity_task: None,
+            password: field(""),
+            password_login: false,
+            error: None,
+            _subscriptions: Vec::new(),
+        };
+        let automatic = cx.update(|cx| form.submitted(cx));
+        assert!(
+            automatic.identity_file.is_empty(),
+            "keep SSH config, default keys, and agent identities"
+        );
+        form.automatic_identity = false;
+        let explicit = cx.update(|cx| form.submitted(cx));
+        assert_eq!(explicit.identity_file, "/tmp/detected-key");
+    }
+
+    #[test]
+    fn default_identity_prefers_an_existing_ed25519_key() -> std::io::Result<()> {
+        let home = tempfile::tempdir()?;
+        let ssh = home.path().join(".ssh");
+        std::fs::create_dir(&ssh)?;
+        assert_eq!(default_identity(home.path()), None);
+        std::fs::write(ssh.join("id_rsa"), "fixture")?;
+        assert_eq!(
+            default_identity(home.path()),
+            Some(ssh.join("id_rsa").to_string_lossy().into_owned())
+        );
+        std::fs::write(ssh.join("id_ed25519"), "fixture")?;
+        assert_eq!(
+            default_identity(home.path()),
+            Some(ssh.join("id_ed25519").to_string_lossy().into_owned())
+        );
+        Ok(())
+    }
 }

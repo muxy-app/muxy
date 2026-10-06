@@ -70,6 +70,11 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub(crate) fn reserve_job(&mut self) -> u64 {
+        self.next += 1;
+        self.next
+    }
+
     pub(crate) fn new(profile: &Path) -> Self {
         Self {
             registry: Registry::empty(profile),

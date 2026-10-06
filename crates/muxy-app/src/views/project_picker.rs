@@ -1,6 +1,6 @@
 use super::overlays::Overlay;
 use crate::model::AppModel;
-use crate::picker::path_service::{self, DirectoryItem};
+use crate::picker::path_service::{self, DirectoryItem, TypedPathState};
 use crate::picker::remote::RemoteFolders;
 use crate::picker::search::{SearchService, Snapshot};
 use crate::picker::session::{InputMode, LoadState, Session};
@@ -93,8 +93,6 @@ impl ProjectPicker {
         picker
     }
 
-    /// Browses another computer from its Home. There is no folder search,
-    /// Finder, or folder creation there.
     pub(crate) fn remote(
         folders: RemoteFolders,
         project_paths: Vec<String>,
@@ -104,7 +102,7 @@ impl ProjectPicker {
     ) -> Self {
         let session = Session::remote(&folders.home, project_paths);
         let placeholder = format!("Enter a path on {}…", folders.name);
-        let mut picker = Self::build(
+        Self::build(
             session,
             SearchService::new(),
             Some(folders),
@@ -112,11 +110,7 @@ impl ProjectPicker {
             theme,
             metrics,
             cx,
-        );
-        picker.session.set_input("~/");
-        picker.apply_input(cx);
-        picker.reload(cx);
-        picker
+        )
     }
 
     fn build(
@@ -185,11 +179,15 @@ impl ProjectPicker {
             directory_cache_order: Vec::new(),
             _subscriptions: vec![subscription],
         };
+        project_picker.picker.update(cx, |picker, cx| {
+            picker.set_query(project_picker.session.input.clone(), cx);
+        });
         project_picker.reload(cx);
         project_picker
     }
 
     fn reload(&mut self, cx: &mut Context<Self>) {
+        self.listing_error = None;
         self.generation = self.generation.wrapping_add(1);
         let generation = self.generation;
         let mode = self.session.input_mode();
@@ -350,7 +348,11 @@ impl ProjectPicker {
             let label = if matches!(self.session.load_state, LoadState::Failed) {
                 unreadable.clone()
             } else if self.session.input_mode() == InputMode::Path {
-                "Folder is empty".to_owned()
+                if self.session.path_state().leaf_filter.is_empty() {
+                    "Folder is empty".to_owned()
+                } else {
+                    "No matching folders".to_owned()
+                }
             } else {
                 "No matching folders".to_owned()
             };
@@ -397,8 +399,17 @@ impl ProjectPicker {
 
     /// Another computer has no Finder or search location.
     fn footer_actions(&self) -> Vec<PickerAction> {
+        let title = if self
+            .session
+            .confirmation_path()
+            .is_some_and(|path| self.missing_remote_folder(&path).is_some())
+        {
+            "Create & Add Project"
+        } else {
+            self.session.top_right_action_title()
+        };
         let mut actions = vec![
-            PickerAction::new("confirm-path", self.session.top_right_action_title())
+            PickerAction::new("confirm-path", title)
                 .icon(PickerLeading::Icon(Icon::Plus))
                 .disabled(self.session.confirmation_path().is_none()),
         ];
@@ -447,9 +458,8 @@ impl ProjectPicker {
     fn apply_input(&mut self, cx: &mut Context<Self>) {
         let text = self.session.input.clone();
         self.picker
-            .read(cx)
-            .input()
-            .update(cx, |input, cx| input.set_text(text, cx));
+            .update(cx, |picker, cx| picker.set_query(text, cx));
+        self.reload(cx);
     }
 
     fn go_back(&mut self, cx: &mut Context<Self>) {
@@ -466,15 +476,10 @@ impl ProjectPicker {
         let Some(path) = self.session.confirmation_path() else {
             return;
         };
-        if let Some(missing) = self.missing_remote_folder(&path) {
-            self.picker.update(cx, |picker, cx| {
-                picker.set_status(PickerStatus::Error(missing.into()), cx);
-            });
-            return;
-        }
         let create_if_missing = allow_create
             && self.session.input_mode() == InputMode::Path
-            && self.session.typed_path_state() == path_service::TypedPathState::Missing;
+            && (self.remote.is_some()
+                || self.session.typed_path_state() == TypedPathState::Missing);
         cx.emit(PickerEvent::Confirm {
             path,
             create_if_missing,
@@ -641,9 +646,18 @@ impl AppModel {
         self.focus_later(picker.focus_handle(cx), cx);
         self.overlay_subscription =
             Some(
-                cx.subscribe(&picker, move |model, _, event, cx| match event {
-                    PickerEvent::Confirm { path, .. } if !server.is_local() => {
-                        model.open_remote_project_path(server, path, cx);
+                cx.subscribe(&picker, move |model, picker, event, cx| match event {
+                    PickerEvent::Confirm {
+                        path,
+                        create_if_missing,
+                    } if !server.is_local() => {
+                        model.confirm_remote_project_path(
+                            server,
+                            picker,
+                            path,
+                            *create_if_missing,
+                            cx,
+                        );
                     }
                     PickerEvent::Confirm {
                         path,
@@ -660,6 +674,86 @@ impl AppModel {
             );
         self.overlay = Some(Overlay::Projects(picker));
         cx.notify();
+    }
+
+    fn confirm_remote_project_path(
+        &mut self,
+        server: ServerId,
+        picker: Entity<ProjectPicker>,
+        path: &str,
+        allow_create: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.close_prompt.is_some() {
+            return;
+        }
+        let Some(folders) = picker.read(cx).remote.clone() else {
+            return;
+        };
+        let generation = picker.read(cx).generation;
+        let path = path.to_owned();
+        let checked_path = path.clone();
+        let checking = folders.clone();
+        let job = self.extensions.reserve_job();
+        let window = self.window;
+        picker.read(cx).picker.clone().update(cx, |picker, cx| {
+            picker.set_status(PickerStatus::Loading("Checking folder…".into()), cx);
+        });
+        self.close_prompt = Some(cx.spawn(async move |model, cx| {
+            let mut result = cx
+                .background_executor()
+                .spawn(async move { checking.check(&checked_path, job).map(Some) })
+                .await;
+            let current = |cx: &gpui::AsyncApp| {
+                model
+                    .read_with(cx, |model, cx| {
+                        current_picker(model, &picker, generation, cx)
+                    })
+                    .unwrap_or(false)
+            };
+            if current(cx) && allow_create && result == Ok(Some(TypedPathState::Missing)) {
+                let message = format!(
+                    "Muxy will create \"{path}\" on {} and add it as a project.",
+                    folders.name
+                );
+                result = match create_prompt(window, message, cx).await {
+                    Ok(true) if current(cx) => {
+                        let creating_path = path.clone();
+                        cx.background_executor()
+                            .spawn(async move {
+                                folders
+                                    .create(&creating_path, job)
+                                    .map(|()| Some(TypedPathState::Directory))
+                            })
+                            .await
+                    }
+                    Ok(_) => Ok(None),
+                    Err(error) => Err(error),
+                };
+            }
+            let _ = model.update(cx, |model, cx| {
+                model.close_prompt = None;
+                if !current_picker(model, &picker, generation, cx) {
+                    return;
+                }
+                match result {
+                    Ok(Some(TypedPathState::Directory)) => {
+                        model.open_remote_project_path(server, &path, cx);
+                    }
+                    Ok(Some(TypedPathState::Missing)) => model.project_picker_error(
+                        "Choose an existing folder, or use Create & Add Project.".into(),
+                        cx,
+                    ),
+                    Ok(Some(TypedPathState::NotDirectory)) => model.project_picker_error(
+                        "This path is a file. Choose a folder for the project.".into(),
+                        cx,
+                    ),
+                    Ok(None) => picker.update(cx, |picker, cx| picker.sync_picker(cx)),
+                    Err(error) => model.project_picker_error(error, cx),
+                }
+                cx.notify();
+            });
+        }));
     }
 
     /// Adds a folder on another computer; its server checks that it exists.
@@ -816,6 +910,16 @@ impl AppModel {
     }
 }
 
+fn current_picker(
+    model: &AppModel,
+    picker: &Entity<ProjectPicker>,
+    generation: usize,
+    cx: &App,
+) -> bool {
+    matches!(&model.overlay, Some(Overlay::Projects(current)) if current == picker)
+        && picker.read(cx).generation == generation
+}
+
 #[cfg(not(test))]
 async fn create_prompt(
     window: gpui::AnyWindowHandle,
@@ -932,6 +1036,92 @@ pub(crate) fn display_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use gpui::TestAppContext;
+
+    #[gpui::test]
+    fn remote_navigation_reloads_and_never_completes_stale_rows(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            cx.bind_keys(muxy_ui::text_input::key_bindings());
+            cx.bind_keys(muxy_ui::picker::key_bindings());
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            let folders = RemoteFolders::new(
+                "box".into(),
+                "/home/remote",
+                |path| {
+                    Ok(match path {
+                        "/home/remote" => vec![DirectoryItem::Directory("code".into())],
+                        "/home/remote/code" => vec![DirectoryItem::Directory("api".into())],
+                        "/home/remote/code/api" => Vec::new(),
+                        _ => return Err(format!("Unexpected listing: {path}")),
+                    })
+                },
+                |_, _| Ok(TypedPathState::Directory),
+                |_, _| unreachable!(),
+            );
+            let picker = ProjectPicker::remote(
+                folders,
+                vec![],
+                Theme::from_scheme(&muxy_ui::theme::ColorScheme::default()),
+                Metrics::new(1.0),
+                cx,
+            );
+            picker.focus_handle(cx).focus(window);
+            picker
+        });
+        let settle = |cx: &mut gpui::VisualTestContext| {
+            cx.run_until_parked();
+            cx.executor().advance_clock(Duration::from_millis(125));
+            cx.run_until_parked();
+        };
+        settle(cx);
+        view.read_with(cx, |picker, cx| {
+            assert!(picker.session.input.is_empty());
+            assert!(picker.picker.read(cx).query().is_empty());
+            assert_eq!(picker.session.path_state().directory_path, "/home/remote");
+        });
+        cx.simulate_input("~/");
+        settle(cx);
+        cx.simulate_keystrokes("tab tab");
+        view.read_with(cx, |picker, cx| {
+            assert_eq!(picker.session.input, "~/code/");
+            assert_eq!(picker.picker.read(cx).query(), "~/code/");
+            assert!(picker.session.rows.is_empty());
+            assert!(picker.session.ghost_text().is_empty());
+        });
+        settle(cx);
+        view.read_with(cx, |picker, _| {
+            assert_eq!(picker.session.ghost_text(), "api/");
+        });
+        cx.simulate_keystrokes("tab");
+        settle(cx);
+        view.read_with(cx, |picker, _| {
+            assert_eq!(picker.session.input, "~/code/api/");
+            assert_eq!(picker.session.rows, [DirectoryItem::Parent]);
+        });
+        cx.simulate_keystrokes("tab");
+        settle(cx);
+        view.read_with(cx, |picker, _| assert_eq!(picker.session.input, "~/code/"));
+        cx.simulate_keystrokes("alt-backspace");
+        settle(cx);
+        view.read_with(cx, |picker, _| assert_eq!(picker.session.input, "~/"));
+        for input in ["~", "~/", "/home/remote/"] {
+            cx.simulate_keystrokes("cmd-a");
+            cx.simulate_input(input);
+            settle(cx);
+            view.read_with(cx, |picker, _| {
+                assert_eq!(picker.session.path_state().directory_path, "/home/remote");
+                assert_eq!(picker.session.rows[1].name(), "code");
+            });
+        }
+        cx.simulate_keystrokes("cmd-a");
+        cx.simulate_input("code/a");
+        settle(cx);
+        cx.simulate_keystrokes("tab");
+        settle(cx);
+        view.read_with(cx, |picker, _| {
+            assert_eq!(picker.session.input, "~/code/api/");
+        });
+    }
 
     #[gpui::test]
     fn path_rows_complete_and_navigate_with_the_legacy_keys(cx: &mut TestAppContext) {

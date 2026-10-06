@@ -1784,7 +1784,7 @@ impl Element for TextElement {
             }
         }
 
-        let ghost_line = (!ghost.is_empty() && !multiline).then(|| {
+        let ghost_line = (!shows_placeholder && !ghost.is_empty() && !multiline).then(|| {
             let run = TextRun {
                 len: ghost.len(),
                 font: text_style.font(),
@@ -2274,6 +2274,42 @@ mod gpui_regression_tests {
             });
         });
         cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn placeholder_and_completion_never_paint_together(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "");
+        let placeholder = "Enter a path on hobby…";
+        for (text, ghost, expected_text, expected_ghost) in [
+            ("", "~/local/", placeholder, None),
+            ("~/", "local/", "~/", Some("local/")),
+            ("", "~/local/", placeholder, None),
+        ] {
+            cx.update(|window, cx| {
+                input.update(cx, |input, cx| {
+                    input.set_placeholder(placeholder);
+                    input.set_text(text, cx);
+                    input.set_ghost(ghost, cx);
+                });
+                let mut element = TextElement {
+                    input: input.clone(),
+                };
+                let state = element.prepaint(
+                    None,
+                    None,
+                    Bounds::new(point(px(0.0), px(0.0)), size(px(500.0), px(30.0))),
+                    &mut (),
+                    window,
+                    cx,
+                );
+                assert_eq!(state.layout.lines.len(), 1);
+                assert_eq!(state.layout.lines[0].text.as_ref(), expected_text);
+                assert_eq!(
+                    state.ghost.as_ref().map(|line| line.text.as_ref()),
+                    expected_ghost
+                );
+            });
+        }
     }
 
     #[gpui::test]

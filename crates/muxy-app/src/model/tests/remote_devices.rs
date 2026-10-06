@@ -7,6 +7,23 @@ use crate::views::project_picker::ProjectPicker;
 use crate::views::settings::SettingsEvent;
 use muxy_app_core::settings::{ServerEntry, Settings};
 
+mod forms;
+mod picker;
+
+fn remote_folders(
+    name: String,
+    home: &str,
+    list: impl Fn(&str) -> std::result::Result<Vec<DirectoryItem>, String> + Send + Sync + 'static,
+) -> RemoteFolders {
+    RemoteFolders::new(
+        name,
+        home,
+        list,
+        |_, _| Ok(crate::picker::path_service::TypedPathState::Directory),
+        |_, _| Err("Folder creation is unavailable in this test".into()),
+    )
+}
+
 /// A stub boot listing `servers`, both in settings and in its settings.toml.
 fn boot_with(servers: Vec<ServerEntry>) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>, Remotes) {
     let (boot, local, remotes) = remote_boot(AppState::bootstrap().expect("state"), servers);
@@ -167,6 +184,9 @@ fn the_remote_section_adds_servers_and_manages_them_from_its_popover(cx: &mut Te
         assert!(matches!(model.overlay, Some(Overlay::ServerForm(_))));
     });
     cx.simulate_input("other");
+    view.update(cx, |model, cx| {
+        model.set_server_identity(std::path::Path::new("/tmp/key"), cx);
+    });
     cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     let added = view.read_with(cx, |model, _| {
@@ -245,6 +265,7 @@ fn manage_servers_lists_each_server_with_its_actions(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn test_connection_reports_the_server_version_or_the_failure(cx: &mut TestAppContext) {
+    let (_directory, socket) = short_socket();
     let (mut boot, _, _) = boot_with(vec![]);
     boot.workers = boot.workers.with_probe(|host| {
         if host.destination() == "dev@box" {
@@ -255,6 +276,7 @@ fn test_connection_reports_the_server_version_or_the_failure(cx: &mut TestAppCon
     });
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
+        model.servers.passwords.set_socket(socket);
         model.test_remote_server(None, &form("", " dev@box "), cx);
         assert_eq!(
             model.server_probe("dev@box"),
@@ -417,7 +439,7 @@ fn remote_add_project_browses_the_remote_home_and_adds_typed_paths_there(cx: &mu
     let listed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let open = |cx: &mut VisualTestContext| {
         let listed = listed.clone();
-        let folders = RemoteFolders::new("box".into(), "/home/dev/Home", move |path| {
+        let folders = remote_folders("box".into(), "/home/dev/Home", move |path| {
             listed.lock().expect("listed").push(path.to_owned());
             match path {
                 "/home/dev/Home" => Ok(vec![DirectoryItem::Directory("code".into())]),
@@ -622,6 +644,7 @@ fn remote_add_project(cx: &mut TestAppContext) -> Result {
         folders.list("/does/not/exist").err().as_deref(),
         Some("folder does not exist")
     );
+    picker::check_folder_operations(&folders, directory.path())?;
     assert!(
         view.read_with(cx, |model, _| matches!(
             model.overlay,
@@ -1137,7 +1160,7 @@ fn a_waiting_add_project_is_dropped_once_the_user_moves_on(cx: &mut TestAppConte
 fn the_remote_home_itself_is_not_added_as_a_project(cx: &mut TestAppContext) {
     let (view, cx, remote, _) = connected_remote(cx);
     let before = view.read_with(cx, |model, _| model.state.current_project().id);
-    let folders = RemoteFolders::new("box".into(), "/home/dev/Home", |_| Ok(Vec::new()));
+    let folders = remote_folders("box".into(), "/home/dev/Home", |_| Ok(Vec::new()));
     view.update(cx, |model, cx| {
         let picker = cx.new(|cx| {
             ProjectPicker::remote(folders, vec![], model.theme.clone(), model.metrics, cx)
@@ -1266,13 +1289,19 @@ fn a_hidden_remote_home_is_never_the_project_shown(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_remote_picker_refuses_a_folder_its_listing_shows_is_missing(cx: &mut TestAppContext) {
+fn a_missing_remote_folder_requires_creation_confirmation(cx: &mut TestAppContext) {
     let (view, cx, remote, _remotes) = connected_remote(cx);
     let before = view.read_with(cx, |model, _| model.state.projects().len());
-    let folders = RemoteFolders::new("box".into(), "/home/dev/Home", |path| match path {
-        "/home/dev/Home" => Ok(vec![DirectoryItem::Directory("code".into())]),
-        _ => Ok(Vec::new()),
-    });
+    let folders = RemoteFolders::new(
+        "box".into(),
+        "/home/dev/Home",
+        |path| match path {
+            "/home/dev/Home" => Ok(vec![DirectoryItem::Directory("code".into())]),
+            _ => Ok(Vec::new()),
+        },
+        |_, _| Ok(crate::picker::path_service::TypedPathState::Missing),
+        |_, _| Err("Creation must be confirmed first".into()),
+    );
     view.update(cx, |model, cx| {
         let picker = cx.new(|cx| {
             ProjectPicker::remote(folders, vec![], model.theme.clone(), model.metrics, cx)
@@ -1283,6 +1312,9 @@ fn the_remote_picker_refuses_a_folder_its_listing_shows_is_missing(cx: &mut Test
     cx.simulate_input("nope");
     settle(cx);
     cx.simulate_keystrokes("alt-enter");
+    settle(cx);
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Cancel");
     settle(cx);
     view.read_with(cx, |model, _| {
         assert!(matches!(model.overlay, Some(Overlay::Projects(_))));

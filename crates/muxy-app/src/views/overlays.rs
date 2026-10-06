@@ -48,6 +48,9 @@ impl AppModel {
             return;
         }
         self.project_logo_task = None;
+        if matches!(self.overlay, Some(Overlay::ServerForm(_))) {
+            self.clear_server_probe();
+        }
         self.git.interaction = self.git.interaction.wrapping_add(1);
         if matches!(self.overlay, Some(Overlay::Password(_))) {
             self.pending_remote_picker = None;

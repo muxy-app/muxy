@@ -10,6 +10,26 @@ use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, SUPPORTED};
 
 type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
+#[test]
+fn remote_commands_stream_the_archive_and_report_missing_builds() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir()?;
+    let program = directory.path().join("ssh");
+    fs::write(&program, "#!/bin/sh\nexec /bin/cat\n")?;
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+    let target = SshTarget::new("box")?.with_program(program);
+    let archive = directory.path().join("archive with ' spaces.tar.gz");
+    let payload = "archive\0bytes\n";
+    fs::write(&archive, payload)?;
+    assert_eq!(run(&target, "install", Some(&archive)), Ok(payload.into()));
+    assert_eq!(run(&target, "no upload", None), Ok(String::new()));
+    fs::remove_file(&archive)?;
+    let error = run(&target, "install", Some(&archive)).expect_err("missing archive");
+    assert!(error.contains("scripts/build-linux-dev.sh"));
+    Ok(())
+}
+
 /// An `ssh` for tests that plays the other computer: it prints the bridge's
 /// ready line and relays to `socket` with macOS's `nc`.
 pub(crate) fn fake_ssh(
@@ -523,16 +543,17 @@ fn a_remote_command_reports_the_last_line_it_printed_when_it_fails() -> TestResu
     )?;
     fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
     let host = SshTarget::new("box")?.with_program(program);
-    assert_eq!(run(&host, "echo installed"), Ok("installed\n".into()));
+    assert_eq!(run(&host, "echo installed", None), Ok("installed\n".into()));
     assert_eq!(
         run(
             &host,
-            "echo Downloading; echo 'Error: Install curl and retry.' >&2; exit 1"
+            "echo Downloading; echo 'Error: Install curl and retry.' >&2; exit 1",
+            None
         ),
         Err("Error: Install curl and retry.".into())
     );
     assert_eq!(
-        run(&host, "exit 3"),
+        run(&host, "exit 3", None),
         Err("box exited with exit status: 3".into())
     );
     Ok(())

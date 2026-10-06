@@ -293,7 +293,6 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 })
                 .child(project.name.clone()),
         )
-        .children(super::sidebar::remote_marker(project, model))
         .child(project_accessory(project, group, model, cx))
         .into_any_element()
 }
@@ -363,6 +362,7 @@ fn project_accessory(
         .flex_none()
         .items_center()
         .h(m.control_small())
+        .gap(m.spacing3())
         .child(
             div()
                 .absolute()
@@ -376,6 +376,7 @@ fn project_accessory(
                 .group_hover(group, |style| style.opacity(1.0))
                 .child(project_controls(project, model, cx)),
         )
+        .children(super::sidebar::remote_marker(project, model))
         .when(project.parent_id.is_some() && !has_activity, |row| {
             row.child(IconGlyph::new(
                 Icon::GitBranch,

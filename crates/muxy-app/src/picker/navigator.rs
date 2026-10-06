@@ -10,6 +10,9 @@ impl<'a> Navigator<'a> {
     }
 
     pub(crate) fn completed_path(&self, highlighted_row: &str) -> String {
+        if highlighted_row == PARENT_ROW {
+            return self.path_state.parent_display_path.clone();
+        }
         format!(
             "{}{highlighted_row}/",
             self.path_state.completion_display_prefix
