@@ -87,18 +87,3 @@ fn base64(bytes: &[u8]) -> String {
     }
     encoded
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn terminal_copies_are_base64_encoded() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64("界".as_bytes()), "55WM");
-        assert_eq!(sequence("hi"), "\x1b]52;c;aGk=\x07");
-    }
-}

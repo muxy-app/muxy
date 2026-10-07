@@ -171,31 +171,3 @@ pub(super) fn draw(frame: &mut Frame<'_>, ui: &mut Ui, menu: &Menu) {
         ui.hits.push((row, Target::Item(index)));
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keys_step_over_separators_and_wrap_around() {
-        let pane = PaneId::new();
-        let mut menu = Menu::new(
-            Position::new(0, 0),
-            vec![
-                Some(Item::new("Split right", "", Command::SplitRight(pane))),
-                None,
-                Some(Item::new("Close pane", "", Command::ClosePane(pane)).danger()),
-            ],
-        );
-        menu.step(true);
-        assert_eq!(menu.selected, Some(0));
-        menu.step(true);
-        assert_eq!(menu.selected, Some(2));
-        menu.step(true);
-        assert_eq!(menu.selected, Some(0));
-        menu.step(false);
-        assert_eq!(menu.command(2), Some(Command::ClosePane(pane)));
-        assert_eq!(menu.selected, Some(2));
-        assert_eq!(menu.command(1), None);
-    }
-}

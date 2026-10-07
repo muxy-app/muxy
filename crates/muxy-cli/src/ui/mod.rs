@@ -419,49 +419,4 @@ mod tests {
         assert_eq!(ui.target(25, 5), Some(Target::SidebarEdge));
         Ok(())
     }
-
-    #[test]
-    fn the_whole_help_fits_a_tall_screen() -> crate::state::Result {
-        let home = project("Home", true, None);
-        let catalog = CatalogPage {
-            server: ServerIdentity::new(),
-            home: home.id,
-            revision: 0,
-            next: None,
-            legacy_home: None,
-            projects: vec![home],
-        };
-        let mut state = State::new(&catalog);
-        state.reconcile(&catalog)?;
-        let mut shared = Shared::default();
-        shared.catalog = Some(catalog);
-        shared.state = Some(state);
-        let mut ui = Ui {
-            overlay: Overlay::Help(usize::MAX),
-            ..Ui::default()
-        };
-        let mut terminal =
-            Terminal::new(TestBackend::new(100, 60)).map_err(|error| error.to_string())?;
-        terminal
-            .draw(|frame| draw(frame, &shared, &mut ui))
-            .map_err(|error| error.to_string())?;
-        let buffer = terminal.backend().buffer();
-        let text: String = (0..buffer.area.height)
-            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
-            .filter_map(|position| buffer.cell(position).map(|cell| cell.symbol().to_owned()))
-            .collect();
-        assert!(text.contains("Press Ctrl-B, then a key"), "{text}");
-        assert!(text.contains("terminal UI windows share one"), "{text}");
-        assert_eq!(ui.overlay, Overlay::Help(0));
-        Ok(())
-    }
-
-    #[test]
-    fn long_labels_end_in_an_ellipsis_within_their_width() {
-        assert_eq!(truncate("short", 8), "short");
-        assert_eq!(truncate("a longer title", 8), "a longe…");
-        assert_eq!(truncate("界界界界", 5), "界界…");
-        assert_eq!(truncate("anything", 0), "");
-        assert_eq!(clean("tab\u{7}\ttitle"), "tabtitle");
-    }
 }

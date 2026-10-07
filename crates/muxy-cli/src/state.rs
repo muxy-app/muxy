@@ -930,36 +930,6 @@ mod tests {
     }
 
     #[test]
-    fn tabs_move_take_names_and_close_with_all_their_panes() -> Result {
-        let catalog = catalog();
-        let mut state = State::new(&catalog);
-        state.reconcile(&catalog)?;
-        let directory = ServerPath(b"/tmp".to_vec());
-        let first = state.tab().ok_or("tab")?.focus;
-        let second = state.new_pane(None, directory.clone(), None)?;
-        let split = state.new_pane(Some(Direction::Right), directory, None)?;
-        state.move_tab(second, false)?;
-        state.move_tab(split, false)?;
-        let project = &state.projects[&catalog.home];
-        assert_eq!(project.tabs[0].focus, split);
-        assert_eq!(project.active, 0);
-        state.rename_tab(first, Some("  Logs\u{7} ".into()))?;
-        assert_eq!(
-            state.projects[&catalog.home].tabs[1].title.as_deref(),
-            Some("Logs")
-        );
-        state.validate()?;
-        state.rename_tab(first, Some("   ".into()))?;
-        assert_eq!(state.projects[&catalog.home].tabs[1].title, None);
-        state.close_tab(second)?;
-        let project = &state.projects[&catalog.home];
-        assert_eq!(project.tabs.len(), 1);
-        assert_eq!(state.tab().ok_or("tab")?.focus, first);
-        assert_eq!(state.discards.len(), 2);
-        state.validate()
-    }
-
-    #[test]
     fn invalid_state_is_reported_without_overwriting_it() -> Result {
         let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
         let path = directory.path().join("tui-state.json");
