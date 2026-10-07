@@ -536,18 +536,22 @@ fn default_directory_does_not_touch_other_channels() -> TestResult {
     } else {
         "Library/Application Support"
     });
-    let (development, beta) = if linux {
-        ("muxy-dev", "muxy-beta")
+    let [development, beta, stable] = if linux {
+        ["muxy-dev", "muxy-beta", "muxy"]
     } else {
-        ("Muxy Dev", "Muxy Beta")
+        ["Muxy Dev", "Muxy Beta", "Muxy 2"]
     };
-    let development_build = cfg!(debug_assertions) || env!("CARGO_PKG_VERSION") == "2.0.0-beta-0";
-    let (current, other) = if development_build {
-        (development, beta)
-    } else {
-        (beta, development)
+    let release = muxy_core::release::Version::current().filter(|_| !cfg!(debug_assertions));
+    let current = match release.map(muxy_core::release::Version::channel) {
+        None => development,
+        Some(muxy_core::release::Channel::Beta) => beta,
+        Some(muxy_core::release::Channel::Stable) => stable,
     };
-    for name in ["Muxy", "Muxy Alpha", other] {
+    let others: Vec<&str> = ["Muxy", "Muxy Alpha", development, beta, stable]
+        .into_iter()
+        .filter(|name| *name != current)
+        .collect();
+    for name in &others {
         let directory = support.join(name);
         fs::create_dir_all(&directory)?;
         fs::write(directory.join("server.toml"), "settings must not be read")?;
@@ -566,7 +570,7 @@ fn default_directory_does_not_touch_other_channels() -> TestResult {
     assert_eq!(client.request(RequestBody::Ping)?, ReplyBody::Pong);
     assert!(directory.join("server.toml").exists());
     assert!(directory.join("server.log").exists());
-    for name in ["Muxy", "Muxy Alpha", other] {
+    for name in &others {
         let directory = support.join(name);
         assert_eq!(
             fs::read_to_string(directory.join("server.toml"))?,

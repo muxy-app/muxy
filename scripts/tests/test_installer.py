@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = '2.0.0-beta-1234'
+VERSION = '2.0.0-beta.1234'
 FAKE = r'''
 import json, os, shutil, subprocess, sys
 from pathlib import Path
@@ -67,12 +67,12 @@ class InstallerTests(unittest.TestCase):
         self.pair = {'muxy': b'client-v1', 'muxy-server': b'server-v1', 'LICENSE': b'license'}
         self.archive()
 
-    def archive(self, members=None, kind=None):
+    def archive(self, members=None, kind=None, version=VERSION):
         members = self.pair if members is None else members
         platform = 'macos' if self.env['TEST_OS'] == 'Darwin' else 'linux'
         arch = 'arm64' if self.env['TEST_ARCH'] in ('arm64', 'aarch64') else 'x86_64'
         extension = 'zip' if platform == 'macos' else 'tar.gz'
-        self.asset = self.fixtures / f'muxy-{VERSION}-{platform}-{arch}.{extension}'
+        self.asset = self.fixtures / f'muxy-{version}-{platform}-{arch}.{extension}'
         if extension == 'zip':
             with zipfile.ZipFile(self.asset, 'w') as archive:
                 for name, data in members.items():
@@ -95,8 +95,8 @@ class InstallerTests(unittest.TestCase):
         (self.fixtures / 'SHA256SUMS').write_text(
             hashlib.sha256(self.asset.read_bytes()).hexdigest() + '  ' + self.asset.name + '\n')
 
-    def install(self, *extra):
-        return subprocess.run(['/bin/sh', str(ROOT / 'scripts/install-muxy.sh'), '--version', VERSION,
+    def install(self, *extra, version=VERSION):
+        return subprocess.run(['/bin/sh', str(ROOT / 'scripts/install-muxy.sh'), '--version', version,
                                '--install-dir', str(self.dest), *extra], env=self.env,
                               capture_output=True, text=True)
 
@@ -105,6 +105,23 @@ class InstallerTests(unittest.TestCase):
             path = self.dest / name if name != 'LICENSE' else self.dest / '.muxy/current/LICENSE'
             self.assertEqual(path.read_bytes(), data)
         self.assertEqual((self.dest / 'muxy').resolve().parent, (self.dest / 'muxy-server').resolve().parent)
+
+    def test_stable_releases_install_from_their_tag(self):
+        self.archive(version='2.0.0')
+        result = self.install(version='2.0.0')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_pair()
+        urls = (self.root / 'curl.log').read_text().splitlines()[-2:]
+        self.assertEqual(urls, [f'https://github.com/muxy-app/muxy/releases/download/v2.0.0/{name}'
+                               for name in (self.asset.name, 'SHA256SUMS')])
+
+    def test_only_exact_release_versions_are_downloaded(self):
+        for version in ('2.0.0-beta-1234', '2.0-beta.1234', '2.0.0.0-beta.1234', '2.0.0-beta.0',
+                        '2.0.0-beta.01', '2.0.0-beta.1234/../x', '2.0.0-beta.1-beta.2',
+                        '2.0', '2.0.0.0', '2.0.0-rc.1', 'v2.0.0', '2.0.0/../x'):
+            with self.subTest(version=version):
+                self.assertNotEqual(self.install(version=version).returncode, 0)
+                self.assertFalse((self.root / 'curl.log').exists())
 
     def test_all_platform_aliases_install_only_exact_selected_asset(self):
         for system in ('Darwin', 'Linux'):

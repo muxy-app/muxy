@@ -11,6 +11,7 @@ use crate::boot::Work;
 use crate::server::{ServerUpdate, UpdateMode};
 use crate::updater::{Installation, PreparedUpdate, Release};
 use muxy_app_core::ServerId;
+use muxy_core::release::{Channel, Version};
 use muxy_ui::tr;
 
 pub(crate) use status::UpdateAction;
@@ -75,10 +76,13 @@ impl Updater {
 
 impl AppModel {
     pub(super) fn start_update_checks(&mut self, cx: &mut Context<Self>) {
-        if crate::updater::build_number(env!("CARGO_PKG_VERSION")).is_none() {
+        if Version::current().is_none() {
             self.updates.unavailable = Some(
-                tr!("Automatic updates are available in installed releases of Muxy Beta")
-                    .to_string(),
+                tr!(
+                    "Automatic updates are available in installed releases of %@",
+                    Channel::current().app_name()
+                )
+                .to_string(),
             );
             return;
         }
@@ -414,7 +418,13 @@ impl AppModel {
                     if self.updates.ready.is_some() {
                         self.confirm_update(cx);
                     } else {
-                        self.update_message(&tr!("You’re running the latest Muxy 2.x beta."), cx);
+                        self.update_message(
+                            &tr!(
+                                "You’re running the latest version of %@.",
+                                Channel::current().app_name()
+                            ),
+                            cx,
+                        );
                     }
                 }
             }
@@ -451,7 +461,7 @@ impl AppModel {
         let _ = self.window.update(cx, |_, window, cx| {
             let response = window.prompt(
                 gpui::PromptLevel::Info,
-                &tr!("Muxy Beta Updates"),
+                &tr!("%@ Updates", Channel::current().app_name()),
                 Some(message),
                 &[tr!("OK").as_ref()],
                 cx,
@@ -661,7 +671,7 @@ impl AppModel {
                     );
                     model.connect(cx);
                     model.fail(
-                        tr!("Could not install the beta: %@", error.to_string()).to_string(),
+                        tr!("Could not install the update: %@", error.to_string()).to_string(),
                         cx,
                     );
                 }

@@ -10,8 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
-VERSION = "2.0.0-beta-1234"
-MOBILE_SDK = [f"muxy-mobile-{VERSION}-ios.zip", f"muxy-mobile-{VERSION}-android.zip", f"muxy-mobile-{VERSION}.json"]
+BETA_VERSION = (ROOT / "BETA_VERSION").read_text().strip()
+VERSION = f"{BETA_VERSION}-beta.1234"
+STABLE = "2.0.0"
 
 FAKE_TOOL = r'''
 import json, os, sys
@@ -54,7 +55,9 @@ elif name == "gh":
         state = os.environ.get("CHANNEL_STATE" if channel else "RELEASE_STATE", "missing")
         if state == "missing":
             sys.exit(1)
-        print(json.dumps({"isDraft": state == "draft", "isPrerelease": state != "stable",
+        # A "stable" state is a release of the other kind than the tag asks for.
+        prerelease = state != "stable" if channel else ("-beta." in args[2]) != (state == "stable")
+        print(json.dumps({"isDraft": state == "draft", "isPrerelease": prerelease,
                           "assets": [{"name": "update.json"}] if os.environ.get("CHANNEL_VERSION") else [],
                           "targetCommitish": os.environ["GITHUB_SHA"]}))
     elif args[:2] == ["release", "download"]:
@@ -109,19 +112,25 @@ class ReleaseScriptTests(unittest.TestCase):
             "TOOL_LOG": str(self.log),
             "GITHUB_REPOSITORY": "example/muxy",
             "GITHUB_SHA": SHA,
-            "GITHUB_REF": "refs/heads/2.x",
+            "GITHUB_REF": "refs/heads/main",
             "APPLE_ID": "test@example.invalid",
             "APPLE_APP_SPECIFIC_PASSWORD": "test-password",
             "APPLE_TEAM_ID": "test-team",
             "NOTARY_KEYCHAIN_PROFILE": "",
         }
+        self.artifacts(VERSION, self.directory)
+
+    def artifacts(self, version, directory):
+        directory.mkdir(exist_ok=True)
         for arch in ("arm64", "x86_64"):
-            (self.directory / f"Muxy-{VERSION}-{arch}.dmg").write_bytes(arch.encode())
+            (directory / f"Muxy-{version}-{arch}.dmg").write_bytes(arch.encode())
             for system, extension in (("macos", "zip"), ("linux", "tar.gz")):
-                (self.directory / f"muxy-{VERSION}-{system}-{arch}.{extension}").write_bytes(b"archive")
-        for name in MOBILE_SDK:
-            (self.directory / name).write_bytes(name.encode())
-        (self.directory / "install-muxy.sh").write_bytes((ROOT / "scripts/install-muxy.sh").read_bytes())
+                (directory / f"muxy-{version}-{system}-{arch}.{extension}").write_bytes(b"archive")
+            if "-" not in version:
+                (directory / f"appcast-{arch}.xml").write_bytes(f"<rss>{arch}</rss>".encode())
+        for name in (f"muxy-mobile-{version}-ios.zip", f"muxy-mobile-{version}-android.zip", f"muxy-mobile-{version}.json"):
+            (directory / name).write_bytes(name.encode())
+        (directory / "install-muxy.sh").write_bytes((ROOT / "scripts/install-muxy.sh").read_bytes())
 
     def run_script(self, script, *args):
         return subprocess.run(
@@ -140,7 +149,68 @@ class ReleaseScriptTests(unittest.TestCase):
                 if call[1] == "release" and call[2] != "download" and call[3] == f"v{VERSION}"]
 
     def publish(self):
-        return self.run_script("publish-beta.sh", VERSION, self.directory)
+        return self.run_script("publish-release.sh", VERSION, self.directory)
+
+    def publish_stable(self, **env):
+        self.env.update({"BETA_TAG": f"v{VERSION}", "TAG_SHA": SHA, **env})
+        self.stable = self.directory / "stable"
+        self.artifacts(STABLE, self.stable)
+        return self.run_script("publish-release.sh", STABLE, self.stable)
+
+    def stable_release_calls(self):
+        return [call for call in self.calls("gh")
+                if call[1] == "release" and call[2] != "download" and call[3] == f"v{STABLE}"]
+
+    def test_stable_release_becomes_the_latest_release_with_the_1x_update_feed(self):
+        result = self.publish_stable()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.stable_release_calls()
+        self.assertEqual([call[2] for call in calls], ["view", "create", "upload", "view", "edit"])
+        self.assertNotIn("--prerelease", calls[1])
+        self.assertIn("--latest=false", calls[1])
+        self.assertIn("--latest", calls[4])
+        self.assertIn("--prerelease=false", calls[4])
+        for asset in ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast.xml", "update.json",
+                      f"Muxy-{STABLE}-x86_64.dmg", "SHA256SUMS"):
+            self.assertIn(asset, calls[2])
+        self.assertEqual((self.stable / "appcast.xml").read_text(), "<rss>arm64</rss>")
+        self.assertEqual(json.loads((self.stable / "update.json").read_text())["version"], STABLE)
+        self.assertFalse(any("beta-2.x" in call for call in self.calls("gh")))
+        notes = (self.stable / "release-notes.md").read_text()
+        self.assertIn("brew install muxy-app/tap/muxy-cli", notes)
+        self.assertIn(f"promoted from v{VERSION}", notes)
+        describe = next(call for call in self.calls("git") if "describe" in call)
+        self.assertIn("--exclude", describe)
+
+    def test_stable_release_needs_intel_and_the_1x_update_feed(self):
+        for missing in (f"Muxy-{STABLE}-x86_64.dmg", "appcast-x86_64.xml", "appcast-arm64.xml"):
+            with self.subTest(missing=missing):
+                self.log.unlink(missing_ok=True)
+                self.stable = self.directory / "stable"
+                self.artifacts(STABLE, self.stable)
+                (self.stable / missing).unlink()
+                (self.stable / "appcast.xml").unlink(missing_ok=True)
+                self.env.update(BETA_TAG=f"v{VERSION}", TAG_SHA=SHA)
+                result = self.run_script("publish-release.sh", STABLE, self.stable)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.calls("gh"), [])
+
+    def test_draft_stable_release_is_completed_but_not_published(self):
+        result = self.publish_stable(DRAFT="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[2] for call in self.stable_release_calls()], ["view", "create", "upload", "view"])
+
+    def test_stable_release_is_built_from_the_promoted_beta(self):
+        result = self.publish_stable(TAG_SHA="b" * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls("gh"), [])
+        self.env.pop("BETA_TAG")
+        self.assertNotEqual(self.run_script("publish-release.sh", STABLE, self.stable).returncode, 0)
+
+    def test_published_stable_release_is_left_unchanged(self):
+        result = self.publish_stable(RELEASE_STATE="published")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[2] for call in self.stable_release_calls()], ["view"])
 
     def test_published_rerun_does_not_replace_assets(self):
         self.env.update(RELEASE_STATE="published", TAG_SHA=SHA)
@@ -164,16 +234,24 @@ class ReleaseScriptTests(unittest.TestCase):
                 self.assertIn("--latest=false", call)
 
     def test_older_finishing_build_does_not_roll_back_the_feed(self):
-        self.env.update(CHANNEL_STATE="published", CHANNEL_VERSION="2.0.0-beta-1235")
+        self.env.update(CHANNEL_STATE="published", CHANNEL_VERSION=f"{BETA_VERSION}-beta.1235")
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any(call[2:4] == ["upload", "beta-2.x"] for call in self.calls("gh")))
 
     def test_newer_build_replaces_existing_feed(self):
-        self.env.update(CHANNEL_STATE="published", CHANNEL_VERSION="2.0.0-beta-999")
-        result = self.publish()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(any(call[2:4] == ["upload", "beta-2.x"] for call in self.calls("gh")))
+        for previous in (f"{BETA_VERSION}-beta.999", "2.0.0-beta-1235"):
+            with self.subTest(previous=previous):
+                self.log.unlink(missing_ok=True)
+                self.env.update(CHANNEL_STATE="published", CHANNEL_VERSION=previous)
+                result = self.publish()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(any(call[2:4] == ["upload", "beta-2.x"] for call in self.calls("gh")))
+
+    def test_only_main_publishes(self):
+        self.env["GITHUB_REF"] = "refs/heads/feature"
+        self.assertNotEqual(self.publish().returncode, 0)
+        self.assertEqual(self.calls("gh"), [])
 
     def test_published_rerun_resumes_feed_promotion_from_published_metadata(self):
         self.env.update(RELEASE_STATE="published", TAG_SHA=SHA)
@@ -246,6 +324,15 @@ class ReleaseScriptTests(unittest.TestCase):
         notes = (self.directory / "release-notes.md").read_text()
         self.assertIn(f"curl -fsSL https://github.com/example/muxy/releases/download/v{VERSION}/install-muxy.sh | sh -s -- --version {VERSION}", notes)
         self.assertNotIn("releases/latest", notes)
+
+    def test_first_beta_after_dash_numbering_tells_testers_to_reinstall(self):
+        for previous, told in (("v2.0.0-beta-1110", True), (f"v{BETA_VERSION}-beta.1200", False)):
+            with self.subTest(previous=previous):
+                self.env["PREVIOUS_TAG"] = previous
+                self.assertEqual(self.publish().returncode, 0)
+                notes = (self.directory / "release-notes.md").read_text()
+                self.assertEqual(notes.startswith("Betas numbered `2.0.0-beta-N`"), told)
+                self.assertIn(f"Generated changes since {previous}", notes)
 
     def test_tag_collision_prevents_release(self):
         self.env["TAG_SHA"] = "b" * 40

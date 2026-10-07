@@ -4,11 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ARCH=""
 VERSION=""
+BUILD_NUMBER=""
 SIGN_IDENTITY="-"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --arch|--version|--sign-identity)
+        --arch|--version|--build-number|--sign-identity)
             if [[ $# -lt 2 || -z "$2" ]]; then
                 echo "Error: $1 requires a value" >&2
                 exit 1
@@ -16,12 +17,13 @@ while [[ $# -gt 0 ]]; do
             case "$1" in
                 --arch) ARCH="$2" ;;
                 --version) VERSION="$2" ;;
+                --build-number) BUILD_NUMBER="$2" ;;
                 --sign-identity) SIGN_IDENTITY="$2" ;;
             esac
             shift 2
             ;;
         *)
-            echo "Usage: $0 --arch <arm64|x86_64> --version <2.0.0-beta-N> [--sign-identity <identity>]" >&2
+            echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z-beta.N | X.Y.Z --build-number N> [--sign-identity <identity>]" >&2
             exit 1
             ;;
     esac
@@ -32,7 +34,11 @@ case "$ARCH" in
     x86_64) TARGET="x86_64-apple-darwin" ;;
     *) echo "Error: arch must be arm64 or x86_64" >&2; exit 1 ;;
 esac
-python3 "$ROOT/scripts/beta_release.py" check-version "$VERSION"
+case "$(python3 "$ROOT/scripts/release.py" channel "$VERSION")" in
+    beta) ICON_SOURCE="$ROOT/packaging/macos/AppIconBeta.png" ;;
+    stable) ICON_SOURCE="$ROOT/packaging/macos/AppIcon.png" ;;
+esac
+APP_NAME="$(python3 "$ROOT/scripts/release.py" app-name "$VERSION")"
 if [[ "$(uname -s)" != Darwin ]]; then
     echo "Error: packaging requires macOS and Xcode" >&2
     exit 1
@@ -45,7 +51,7 @@ export CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
 MUXY_ZIG="$(command -v zig)"
 export MUXY_ZIG
 export PATH="$ROOT/scripts/zig:$PATH"
-OUTPUT_DIR="$CARGO_TARGET_DIR/beta/$VERSION/$ARCH"
+OUTPUT_DIR="$CARGO_TARGET_DIR/packages/$VERSION/$ARCH"
 if [[ -e "$OUTPUT_DIR" ]]; then
     echo "Error: output already exists: $OUTPUT_DIR" >&2
     exit 1
@@ -60,7 +66,7 @@ BIN_DIR="$CARGO_TARGET_DIR/$TARGET/release"
 mkdir -p "$(dirname "$OUTPUT_DIR")"
 STAGING="$(mktemp -d "$(dirname "$OUTPUT_DIR")/.${ARCH}.XXXXXX")"
 trap 'rm -rf "$STAGING"' EXIT
-APP="$STAGING/dmg/Muxy Beta.app"
+APP="$STAGING/dmg/$APP_NAME.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$STAGING/symbols" "$STAGING/artifacts"
 
 for BINARY in muxy-app muxy muxy-server; do
@@ -82,13 +88,12 @@ for BINARY in muxy-app muxy muxy-server; do
     strip -Sx "$EXECUTABLE"
 done
 
-python3 "$ROOT/scripts/beta_release.py" plist "$VERSION" "$APP/Contents/Info.plist"
+python3 "$ROOT/scripts/release.py" plist "$VERSION" "$APP/Contents/Info.plist" ${BUILD_NUMBER:+--build "$BUILD_NUMBER"}
 plutil -lint "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 cat "$ROOT/LICENSE" "$ROOT/crates/muxy-server/src/detection/THIRD_PARTY.md" \
     "$ROOT/crates/muxy-server/src/detection/LICENSE-herdr" > "$APP/Contents/Resources/LICENSE"
 
-ICON_SOURCE="$ROOT/packaging/macos/AppIconBeta.png"
 ICONSET="$STAGING/AppIcon.iconset"
 mkdir -p "$ICONSET"
 for SIZE in 16 32 128 256 512; do
@@ -117,7 +122,7 @@ done
 codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT/packaging/macos/Muxy.entitlements" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 for BINARY in muxy muxy-server; do
-    python3 "$ROOT/scripts/beta_release.py" check-build "$VERSION" "$APP/Contents/MacOS/$BINARY"
+    python3 "$ROOT/scripts/release.py" check-build "$VERSION" "$APP/Contents/MacOS/$BINARY"
 done
 
 # Copy the sealed executables without stripping or signing them again.
@@ -128,7 +133,7 @@ CLI_ARCHIVE="$STAGING/artifacts/muxy-${VERSION}-macos-${ARCH}.zip"
 
 ln -s /Applications "$STAGING/dmg/Applications"
 DMG="$STAGING/artifacts/Muxy-${VERSION}-${ARCH}.dmg"
-hdiutil create -volname "Muxy Beta" -srcfolder "$STAGING/dmg" -format UDZO -fs HFS+ "$DMG"
+hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING/dmg" -format UDZO -fs HFS+ "$DMG"
 codesign "${SIGN_ARGS[@]}" "$DMG"
 codesign --verify --strict --verbose=2 "$DMG"
 ditto -c -k --sequesterRsrc --keepParent "$STAGING/symbols" \

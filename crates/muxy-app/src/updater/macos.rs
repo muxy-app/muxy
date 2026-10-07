@@ -2,9 +2,10 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use muxy_core::release::{self, Channel};
 use muxy_ui::tr;
 
-use super::{Release, Result, build_number, client, download, latest, replacement};
+use super::{Release, Result, client, download, latest, replacement};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Installation {
@@ -22,8 +23,13 @@ pub(crate) struct PreparedUpdate {
 
 impl Installation {
     pub(crate) fn detect() -> Result<Self> {
-        build_number(env!("CARGO_PKG_VERSION")).ok_or_else(|| {
-            tr!("Automatic updates require an installed release of Muxy Beta").to_string()
+        let app_name = Channel::current().app_name();
+        release::Version::current().ok_or_else(|| {
+            tr!(
+                "Automatic updates require an installed release of %@",
+                app_name
+            )
+            .to_string()
         })?;
         let executable = muxy_core::executable::current_path()?;
         let bundle = executable
@@ -31,25 +37,28 @@ impl Installation {
             .and_then(Path::parent)
             .and_then(Path::parent)
             .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
-            .ok_or_else(|| tr!("Automatic updates require an installed Muxy Beta.app").to_string())?
+            .ok_or_else(|| {
+                tr!("Automatic updates require an installed %@.app", app_name).to_string()
+            })?
             .to_owned();
         if bundle.starts_with("/Volumes")
             || bundle
                 .components()
                 .any(|part| part.as_os_str() == "AppTranslocation")
         {
-            return Err(
-                tr!("Move Muxy Beta.app to Applications and reopen it before updating")
-                    .to_string()
-                    .into(),
-            );
+            return Err(tr!(
+                "Move %@.app to Applications and reopen it before updating",
+                app_name
+            )
+            .to_string()
+            .into());
         }
         let details = Command::new("/usr/bin/codesign")
             .args(["--display", "--verbose=4"])
             .arg(&bundle)
             .output()?;
         if !details.status.success() {
-            return Err(tr!("The installed beta has no valid developer signature")
+            return Err(tr!("The installed app has no valid developer signature")
                 .to_string()
                 .into());
         }
@@ -63,7 +72,7 @@ impl Installation {
                         .bytes()
                         .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
             })
-            .ok_or_else(|| tr!("Automatic updates require a Developer ID signed beta").to_string())?
+            .ok_or_else(|| tr!("Automatic updates require a Developer ID signed app").to_string())?
             .to_owned();
         let installation = Self { bundle, team };
         installation.verify_app(&installation.bundle, env!("CARGO_PKG_VERSION"))?;
@@ -94,9 +103,9 @@ impl Installation {
         download(&client, &release, &dmg)?;
         self.verify_signature(&dmg, false)?;
         let mount = MountedImage::attach(&dmg, download_dir.path())?;
-        let source = mount.path.join("Muxy Beta.app");
+        let source = mount.path.join(bundle_name());
         self.verify_app(&source, &release.version)?;
-        let candidate = staging.path().join("Muxy Beta.app");
+        let candidate = staging.path().join(bundle_name());
         run(Command::new("/usr/bin/ditto").arg(&source).arg(&candidate))?;
         self.verify_app(&candidate, &release.version)?;
         let build =
@@ -128,7 +137,7 @@ impl Installation {
             .as_str()
             .ok_or_else(|| tr!("Invalid pending update").to_string())?
             .to_owned();
-        if build_number(&version) <= build_number(env!("CARGO_PKG_VERSION")) {
+        if !release::is_newer(&version, env!("CARGO_PKG_VERSION")) {
             std::fs::remove_file(path)?;
             return Ok(None);
         }
@@ -142,7 +151,7 @@ impl Installation {
                 .to_string()
                 .into());
         }
-        let candidate = staging.join("Muxy Beta.app");
+        let candidate = staging.join(bundle_name());
         self.verify_app(&candidate, &version)?;
         let build =
             crate::server::read_build_info(&candidate.join("Contents/MacOS/muxy-server")).ok();
@@ -218,7 +227,9 @@ impl Installation {
             self.team
         );
         if app {
-            requirement.push_str(" and identifier \"com.muxy-beta.app\"");
+            requirement.push_str(" and identifier \"");
+            requirement.push_str(Channel::current().bundle_identifier());
+            requirement.push('"');
         }
         verify_code(path, &requirement)
     }
@@ -227,7 +238,7 @@ impl Installation {
         self.verify_signature(app, true)?;
         let plist = app.join("Contents/Info.plist");
         for (key, expected) in [
-            ("CFBundleIdentifier", "com.muxy-beta.app"),
+            ("CFBundleIdentifier", Channel::current().bundle_identifier()),
             ("CFBundleExecutable", "muxy-app"),
             ("MuxyVersion", version),
         ] {
@@ -235,20 +246,22 @@ impl Installation {
                 .args(["-extract", key, "raw", "-o", "-"])
                 .arg(&plist))?;
             if actual.trim() != expected {
-                return Err(tr!("The signed beta has an unexpected %@", key)
+                return Err(tr!("The signed app has an unexpected %@", key)
                     .to_string()
                     .into());
             }
         }
-        let count = run(Command::new("/usr/bin/plutil")
-            .args(["-extract", "CFBundleVersion", "raw", "-o", "-"])
-            .arg(&plist))?;
-        if count.trim().parse::<u64>().ok() != build_number(version) {
-            return Err(
-                tr!("The signed beta build number does not match the update feed")
-                    .to_string()
-                    .into(),
-            );
+        if let Some(release::Version::Beta { build }) = release::Version::parse(version) {
+            let count = run(Command::new("/usr/bin/plutil")
+                .args(["-extract", "CFBundleVersion", "raw", "-o", "-"])
+                .arg(&plist))?;
+            if count.trim().parse::<u64>().ok() != Some(build) {
+                return Err(
+                    tr!("The signed beta build number does not match the update feed")
+                        .to_string()
+                        .into(),
+                );
+            }
         }
         let arch = if cfg!(target_arch = "aarch64") {
             "arm64"
@@ -302,7 +315,7 @@ impl PreparedUpdate {
     pub(crate) fn fixture() -> Result<Self> {
         let staging = tempfile::tempdir()?;
         Ok(Self {
-            version: "2.0.0-beta-1234".into(),
+            version: "2.0.0-beta.1234".into(),
             installation: Installation {
                 bundle: staging.path().join("installed.app"),
                 team: "TESTTEAM00".into(),
@@ -337,7 +350,7 @@ impl PreparedUpdate {
     }
 
     fn candidate(&self) -> PathBuf {
-        self.staging.join("Muxy Beta.app")
+        self.staging.join(bundle_name())
     }
 
     pub(crate) fn persist(&self, path: &Path, scheduled: bool) -> Result<()> {
@@ -372,7 +385,7 @@ impl PreparedUpdate {
                 .parent()
                 .ok_or_else(|| tr!("Missing application directory").to_string())?,
         )?;
-        let candidate = self.staging.join("Muxy Beta.app");
+        let candidate = self.candidate();
         self.validate()?;
         let backup = self.staging.join("previous.app");
         self.retain_bundle(server)?;
@@ -401,6 +414,10 @@ impl PreparedUpdate {
         }
         Ok(())
     }
+}
+
+fn bundle_name() -> String {
+    format!("{}.app", Channel::current().app_name())
 }
 
 fn restart(bundle: &Path) -> Result<()> {
@@ -550,7 +567,7 @@ mod retirement_tests {
         let staging = root.path().join(".muxy-beta-update-superseded");
         std::fs::create_dir(&staging)?;
         let update = PreparedUpdate {
-            version: "2.0.0-beta-10".into(),
+            version: "2.0.0-beta.10".into(),
             installation: Installation {
                 bundle: root.path().join("Muxy Beta.app"),
                 team: "TESTTEAM00".into(),

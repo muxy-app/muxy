@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = '2.0.0-beta-1234'
+VERSION = '2.0.0-beta.1234'
 FAKE = r'''
 import json, os, shutil, sys
 from pathlib import Path
@@ -37,14 +37,14 @@ class LinuxReleaseTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='linux package ')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for relative in ('scripts/build-cli-linux.sh', 'scripts/beta_release.py',
+        for relative in ('scripts/build-cli-linux.sh', 'scripts/release.py',
                          'scripts/audit-linux.py', 'scripts/zig/zig', 'crates/muxy-protocol/src/build.rs',
                          'crates/muxy-protocol/src/version.rs', 'LICENSE', 'crates/muxy-server/src/detection/THIRD_PARTY.md', 'crates/muxy-server/src/detection/LICENSE-herdr'):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, path)
         sys.path.insert(0, str(ROOT / 'scripts'))
-        from beta_release import build_metadata
+        from release import build_metadata
         build = build_metadata(ROOT)
         self.pair = {}
         for name in ('muxy', 'muxy-server'):
@@ -72,7 +72,7 @@ class LinuxReleaseTests(unittest.TestCase):
             with self.subTest(arch=arch):
                 result = self.build(arch)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                output = self.root / f'target/beta/{VERSION}/linux-{arch}'
+                output = self.root / f'target/packages/{VERSION}/linux-{arch}'
                 with tarfile.open(output / f'muxy-{VERSION}-linux-{arch}.tar.gz') as archive:
                     self.assertEqual(archive.getnames(), ['muxy', 'muxy-server', 'LICENSE'])
                     self.assertIn(b'Apache License', archive.extractfile('LICENSE').read())
@@ -89,7 +89,7 @@ class LinuxReleaseTests(unittest.TestCase):
                 self.assertEqual([line for line in self.log.read_text()[len(before):].splitlines() if 'cargo' in line], [])
 
     def test_bad_floor_or_dependency_leaves_no_published_output(self):
-        output = self.root / f'target/beta/{VERSION}/linux-arm64'
+        output = self.root / f'target/packages/{VERSION}/linux-arm64'
         for override in ({'TEST_GLIBC': 'glibc 2.39'}, {'TEST_LIBRARY': 'libghostty-vt.so'}):
             result = self.build(**override)
             self.assertNotEqual(result.returncode, 0)

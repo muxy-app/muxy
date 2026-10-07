@@ -148,7 +148,7 @@ fn main() -> ExitCode {
             // Empty titlebar space explicitly starts native movement, not tab presses.
             is_movable: !cfg!(target_os = "macos"),
             titlebar: Some(TitlebarOptions {
-                title: Some(APP_NAME.into()),
+                title: Some(app_name().into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(9.0), px(9.0))),
             }),
@@ -197,7 +197,9 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
     Bounds::centered(None, size(px(width), px(height)), cx)
 }
 
-const APP_NAME: &str = "Muxy Beta";
+fn app_name() -> &'static str {
+    muxy_core::release::Channel::current().app_name()
+}
 
 #[allow(clippy::too_many_lines, reason = "One native menu registration list")]
 fn menus() -> Vec<Menu> {
@@ -233,7 +235,7 @@ fn menus() -> Vec<Menu> {
         }));
     vec![
         Menu {
-            name: APP_NAME.into(),
+            name: app_name().into(),
             items: vec![
                 MenuItem::action(tr!("Settings…"), OpenSettings),
                 MenuItem::action(tr!("Open Configuration…"), OpenConfiguration),
@@ -246,11 +248,11 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::os_submenu(tr!("Services"), SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Hide %@", APP_NAME), HideApp),
+                MenuItem::action(tr!("Hide %@", app_name()), HideApp),
                 MenuItem::action(tr!("Hide Others"), HideOthers),
                 MenuItem::action(tr!("Show All"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Quit %@", APP_NAME), Quit),
+                MenuItem::action(tr!("Quit %@", app_name()), Quit),
                 MenuItem::action(tr!("End All Sessions and Quit"), EndAllSessionsAndQuit),
             ],
         },

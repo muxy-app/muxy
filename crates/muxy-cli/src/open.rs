@@ -21,10 +21,11 @@ pub(crate) fn run(word: &Path) -> io::Result<()> {
 #[cfg(target_os = "macos")]
 fn open(folder: &Path) -> io::Result<()> {
     use std::process::{Command, Stdio};
+    let channel = muxy_core::release::Channel::current();
     let mut open = Command::new("/usr/bin/open");
     match containing_app(&muxy_core::executable::current_path()?) {
         Some(app) => open.arg("-a").arg(app),
-        None => open.args(["-b", "com.muxy-beta.app"]),
+        None => open.args(["-b", channel.bundle_identifier()]),
     };
     let status = open
         .arg(folder)
@@ -35,9 +36,10 @@ fn open(folder: &Path) -> io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(io::Error::other(
-            "could not open the Muxy desktop app; install Muxy Beta.app",
-        ))
+        Err(io::Error::other(format!(
+            "could not open the Muxy desktop app; install {}.app",
+            channel.app_name()
+        )))
     }
 }
 

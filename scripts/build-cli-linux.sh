@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <arm64|x86_64> <2.0.0-beta-N>" >&2
+    echo "Usage: $0 <arm64|x86_64> <X.Y.Z | X.Y.Z-beta.N>" >&2
     exit 1
 fi
 ARCH="$1"
@@ -13,7 +13,7 @@ case "$ARCH" in
     x86_64) TARGET=x86_64-unknown-linux-gnu; MACHINE=x86_64 ;;
     *) echo "Error: unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
-python3 "$ROOT/scripts/beta_release.py" check-version "$VERSION"
+python3 "$ROOT/scripts/release.py" check-version "$VERSION"
 if [[ "$(uname -s)" != Linux || "$(uname -m)" != "$MACHINE" || "$(getconf GNU_LIBC_VERSION)" != 'glibc 2.35' ]]; then
     echo "Error: build on native $ARCH Linux with glibc 2.35" >&2
     exit 1
@@ -22,7 +22,7 @@ export CARGO_TARGET_DIR="$ROOT/target"
 export LIBGHOSTTY_VT_SYS_OPTIMIZE=ReleaseFast
 export MUXY_ZIG="$(command -v zig)"
 export PATH="$ROOT/scripts/zig:$PATH"
-OUTPUT="$CARGO_TARGET_DIR/beta/$VERSION/linux-$ARCH"
+OUTPUT="$CARGO_TARGET_DIR/packages/$VERSION/linux-$ARCH"
 if [[ -e "$OUTPUT" ]]; then
     echo "Error: output already exists: $OUTPUT" >&2
     exit 1
@@ -41,7 +41,7 @@ for BINARY in muxy muxy-server; do
     strip --strip-debug "$STAGING/cli/$BINARY"
     python3 scripts/audit-linux.py "$STAGING/cli/$BINARY" --target "$TARGET" > "$STAGING/artifacts/$BINARY-audit.txt"
     cat "$STAGING/artifacts/$BINARY-audit.txt"
-    python3 scripts/beta_release.py check-build "$VERSION" "$STAGING/cli/$BINARY"
+    python3 scripts/release.py check-build "$VERSION" "$STAGING/cli/$BINARY"
 done
 cat LICENSE crates/muxy-server/src/detection/THIRD_PARTY.md \
     crates/muxy-server/src/detection/LICENSE-herdr > "$STAGING/cli/LICENSE"

@@ -10,6 +10,7 @@ pub mod dirs;
 pub mod executable;
 pub mod file_lock;
 pub mod l10n;
+pub mod release;
 pub mod shortcuts;
 pub mod worker;
 

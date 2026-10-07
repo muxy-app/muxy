@@ -16,9 +16,9 @@ fn newer_release_replaces_downloaded_update_and_preserves_schedule(cx: &mut Test
         model.updates.mode = Some(UpdateMode::EndSessions);
         model.updates.download = AppUpdatePhase::Checking;
         let release = model
-            .receive_update_release(Ok(Some(Release::fixture("2.0.0-beta-1236"))), cx)
+            .receive_update_release(Ok(Some(Release::fixture("2.0.0-beta.1236"))), cx)
             .expect("newer release");
-        assert_eq!(release.version, "2.0.0-beta-1236");
+        assert_eq!(release.version, "2.0.0-beta.1236");
         assert!(model.updates.download == AppUpdatePhase::Downloading);
         model.begin_update(cx);
         assert!(model.quitting == Quitting::Idle);
@@ -40,13 +40,13 @@ fn newer_release_replaces_downloaded_update_and_preserves_schedule(cx: &mut Test
         assert!(model.updates.mode.is_none());
         assert_eq!(
             model.updates.ready.as_ref().expect("update").version,
-            "2.0.0-beta-1236"
+            "2.0.0-beta.1236"
         );
         let record: serde_json::Value = serde_json::from_slice(
             &std::fs::read(model.path.with_file_name("pending-update.json")).expect("record"),
         )
         .expect("json");
-        assert_eq!(record["version"], "2.0.0-beta-1236");
+        assert_eq!(record["version"], "2.0.0-beta.1236");
         assert_eq!(record["scheduled"], true);
     });
     assert!(

@@ -9,6 +9,7 @@
 "%@ CLI is not installed" = "%@ CLI is not installed";
 "%@ CLI is not installed. Choose another provider or install its CLI." = "%@ CLI is not installed. Choose another provider or install its CLI.";
 "%@ Could not restore the extension's enabled state: %@" = "%@ Could not restore the extension's enabled state: %@";
+"%@ Updates" = "%@ Updates";
 "%@ already exists; move it before installing Muxy." = "%@ already exists; move it before installing Muxy.";
 "%@ and %@, but %@" = "%@ and %@, but %@";
 "%@ did not respond within five minutes" = "%@ did not respond within five minutes";
@@ -142,10 +143,10 @@
 "Auto" = "Auto";
 "Auto · %@" = "Auto · %@";
 "Auto · None installed" = "Auto · None installed";
-"Automatic updates are available in installed releases of Muxy Beta" = "Automatic updates are available in installed releases of Muxy Beta";
-"Automatic updates require a Developer ID signed beta" = "Automatic updates require a Developer ID signed beta";
-"Automatic updates require an installed Muxy Beta.app" = "Automatic updates require an installed Muxy Beta.app";
-"Automatic updates require an installed release of Muxy Beta" = "Automatic updates require an installed release of Muxy Beta";
+"Automatic updates are available in installed releases of %@" = "Automatic updates are available in installed releases of %@";
+"Automatic updates require a Developer ID signed app" = "Automatic updates require a Developer ID signed app";
+"Automatic updates require an installed %@.app" = "Automatic updates require an installed %@.app";
+"Automatic updates require an installed release of %@" = "Automatic updates require an installed release of %@";
 "Background script" = "Background script";
 "Background vibrancy" = "Background vibrancy";
 "Backup & Restore" = "Backup & Restore";
@@ -161,7 +162,6 @@
 "Base branch" = "Base branch";
 "Behavior" = "Behavior";
 "Behind base" = "Behind base";
-"Beta update feed is too large" = "Beta update feed is too large";
 "Block all auto-run terminal commands from this extension" = "Block all auto-run terminal commands from this extension";
 "Block all file changes from this extension" = "Block all file changes from this extension";
 "Block all foreign tab opens from this extension" = "Block all foreign tab opens from this extension";
@@ -343,7 +343,7 @@
 "Could not create folder: %@" = "Could not create folder: %@";
 "Could not end all sessions: %@" = "Could not end all sessions: %@";
 "Could not install the app update: %@" = "Could not install the app update: %@";
-"Could not install the beta: %@" = "Could not install the beta: %@";
+"Could not install the update: %@" = "Could not install the update: %@";
 "Could not install update (%@) or restore the previous app (%@). The previous app is at %@" = "Could not install update (%@) or restore the previous app (%@). The previous app is at %@";
 "Could not install update; the previous app was restored: %@" = "Could not install update; the previous app was restored: %@";
 "Could not load .muxy/layouts: %@" = "Could not load .muxy/layouts: %@";
@@ -371,7 +371,7 @@
 "Could not register open terminals: %@" = "Could not register open terminals: %@";
 "Could not reload configuration: %@" = "Could not reload configuration: %@";
 "Could not replace clipboard contents" = "Could not replace clipboard contents";
-"Could not restart Muxy Beta; the previous app was restored: %@" = "Could not restart Muxy Beta; the previous app was restored: %@";
+"Could not restart %@; the previous app was restored: %@" = "Could not restart %@; the previous app was restored: %@";
 "Could not restart the server: %@" = "Could not restart the server: %@";
 "Could not restore backup: %@. Your previous configuration was kept. Cancel or replace the pending import in Settings → Backup & Restore, or reopen Muxy to retry." = "Could not restore backup: %@. Your previous configuration was kept. Cancel or replace the pending import in Settings → Backup & Restore, or reopen Muxy to retry.";
 "Could not restore terminal output: %@" = "Could not restore terminal output: %@";
@@ -582,7 +582,7 @@
 "Install a Linux build there by hand, from scripts/build-linux-dev.sh." = "Install a Linux build there by hand, from scripts/build-linux-dev.sh.";
 "Install a matching build there by hand, from scripts/build-linux-dev.sh." = "Install a matching build there by hand, from scripts/build-linux-dev.sh.";
 "Install a supported AI provider CLI or choose one in Settings → AI." = "Install a supported AI provider CLI or choose one in Settings → AI.";
-"Install and open Muxy Beta.app before installing its command line tool." = "Install and open Muxy Beta.app before installing its command line tool.";
+"Install and open %@.app before installing its command line tool." = "Install and open %@.app before installing its command line tool.";
 "Install failed: %@" = "Install failed: %@";
 "Install muxy-server & Test Connection" = "Install muxy-server & Test Connection";
 "Install muxy-server on %@?" = "Install muxy-server on %@?";
@@ -595,8 +595,6 @@
 "Invalid Mobile port" = "Invalid Mobile port";
 "Invalid Quick Terminal shortcut" = "Invalid Quick Terminal shortcut";
 "Invalid attachment path" = "Invalid attachment path";
-"Invalid beta download size" = "Invalid beta download size";
-"Invalid beta update version" = "Invalid beta update version";
 "Invalid configuration path" = "Invalid configuration path";
 "Invalid image path" = "Invalid image path";
 "Invalid manifest path" = "Invalid manifest path";
@@ -608,6 +606,8 @@
 "Invalid recovery entry" = "Invalid recovery entry";
 "Invalid restore path" = "Invalid restore path";
 "Invalid terminal theme name" = "Invalid terminal theme name";
+"Invalid update download size" = "Invalid update download size";
+"Invalid update version" = "Invalid update version";
 "It changed after you confirmed. Refresh and try again." = "It changed after you confirmed. Refresh and try again.";
 "Items" = "Items";
 "Its projects and layouts leave this app; nothing on the server changes." = "Its projects and layouts leave this app; nothing on the server changes.";
@@ -679,14 +679,13 @@
 "Mobile settings may contain only enabled and port" = "Mobile settings may contain only enabled and port";
 "More Composer Actions" = "More Composer Actions";
 "More languages" = "More languages";
-"Move Muxy Beta.app to Applications and reopen it before installing its command line tool." = "Move Muxy Beta.app to Applications and reopen it before installing its command line tool.";
-"Move Muxy Beta.app to Applications and reopen it before updating" = "Move Muxy Beta.app to Applications and reopen it before updating";
+"Move %@.app to Applications and reopen it before installing its command line tool." = "Move %@.app to Applications and reopen it before installing its command line tool.";
+"Move %@.app to Applications and reopen it before updating" = "Move %@.app to Applications and reopen it before updating";
 "Move to Bottom" = "Move to Bottom";
 "Move to Right" = "Move to Right";
 "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there." = "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there.";
 "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain." = "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain.";
 "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions." = "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions.";
-"Muxy Beta Updates" = "Muxy Beta Updates";
 "Muxy Quick Terminal" = "Muxy Quick Terminal";
 "Muxy Settings" = "Muxy Settings";
 "Muxy Update" = "Muxy Update";
@@ -1073,7 +1072,6 @@
 "The app is updated. The server will update when all terminal sessions end, or you can restart it now. Restarting ends all sessions, including idle and detached sessions." = "The app is updated. The server will update when all terminal sessions end, or you can restart it now. Restarting ends all sessions, including idle and detached sessions.";
 "The audio input changed. Finish or cancel dictation, then try again." = "The audio input changed. Finish or cancel dictation, then try again.";
 "The backup does not contain settings.toml" = "The backup does not contain settings.toml";
-"The beta download is incomplete or has an unexpected size" = "The beta download is incomplete or has an unexpected size";
 "The branch changed. Try again." = "The branch changed. Try again.";
 "The bundled client and server do not match the release" = "The bundled client and server do not match the release";
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
@@ -1088,8 +1086,8 @@
 "The image is empty." = "The image is empty.";
 "The installed app changed. Reopen Muxy to update the server." = "The installed app changed. Reopen Muxy to update the server.";
 "The installed app changed. Reopen it before installing the command line tool." = "The installed app changed. Reopen it before installing the command line tool.";
+"The installed app has no valid developer signature" = "The installed app has no valid developer signature";
 "The installed app includes a server update. Restarting the server ends all terminal sessions." = "The installed app includes a server update. Restarting the server ends all terminal sessions.";
-"The installed beta has no valid developer signature" = "The installed beta has no valid developer signature";
 "The installed extension could not be loaded. Reload extensions to try again." = "The installed extension could not be loaded. Reload extensions to try again.";
 "The microphone could not start recording" = "The microphone could not start recording";
 "The pairing code is too long to show." = "The pairing code is too long to show.";
@@ -1108,11 +1106,12 @@
 "The server took too long to check or create the folder." = "The server took too long to check or create the folder.";
 "The server update could not finish." = "The server update could not finish.";
 "The server version does not match the signed app" = "The server version does not match the signed app";
+"The signed app has an unexpected %@" = "The signed app has an unexpected %@";
 "The signed beta build number does not match the update feed" = "The signed beta build number does not match the update feed";
-"The signed beta has an unexpected %@" = "The signed beta has an unexpected %@";
 "The staged update metadata changed. Check for updates again." = "The staged update metadata changed. Check for updates again.";
 "The terminal closed before sending." = "The terminal closed before sending.";
 "The typeface used to render text in every terminal pane." = "The typeface used to render text in every terminal pane.";
+"The update download is incomplete or has an unexpected size" = "The update download is incomplete or has an unexpected size";
 "The updater is starting. Try again shortly." = "The updater is starting. Try again shortly.";
 "The working tree is clean" = "The working tree is clean";
 "The working tree is clean." = "The working tree is clean.";
@@ -1126,7 +1125,7 @@
 "This backup format is not supported by this version of Muxy" = "This backup format is not supported by this version of Muxy";
 "This branch already has a pull request" = "This branch already has a pull request";
 "This extension is up to date." = "This extension is up to date.";
-"This is not a released beta" = "This is not a released beta";
+"This is not a released version" = "This is not a released version";
 "This language is unavailable for speech recognition" = "This language is unavailable for speech recognition";
 "This path is a file. Choose a folder for the project." = "This path is a file. Choose a folder for the project.";
 "This project’s folder could not be found. Remove the project from the sidebar to clear its tabs." = "This project’s folder could not be found. Remove the project from the sidebar to clear its tabs.";
@@ -1155,11 +1154,11 @@
 "Unexpected Git log reply" = "Unexpected Git log reply";
 "Unexpected Git status reply" = "Unexpected Git status reply";
 "Unexpected backup entry: %@" = "Unexpected backup entry: %@";
-"Unexpected beta download location" = "Unexpected beta download location";
 "Unexpected changes preview reply" = "Unexpected changes preview reply";
 "Unexpected layout directory response" = "Unexpected layout directory response";
 "Unexpected layout file response" = "Unexpected layout file response";
 "Unexpected remote branches reply" = "Unexpected remote branches reply";
+"Unexpected update download location" = "Unexpected update download location";
 "Uninstall" = "Uninstall";
 "Uninstalling…" = "Uninstalling…";
 "Unknown app setting" = "Unknown app setting";
@@ -1176,8 +1175,8 @@
 "Unstage Selected" = "Unstage Selected";
 "Unstaged" = "Unstaged";
 "Unsupported Ghostty options in ghostty.conf are ignored." = "Unsupported Ghostty options in ghostty.conf are ignored.";
-"Unsupported beta update feed" = "Unsupported beta update feed";
 "Unsupported physical key" = "Unsupported physical key";
+"Unsupported update feed" = "Unsupported update feed";
 "Untracked" = "Untracked";
 "Update" = "Update";
 "Update Muxy on %@: %@" = "Update Muxy on %@: %@";
@@ -1189,6 +1188,7 @@
 "Update and End Sessions…" = "Update and End Sessions…";
 "Update and Restart App" = "Update and Restart App";
 "Update and restart app…" = "Update and restart app…";
+"Update feed is too large" = "Update feed is too large";
 "Update from %@" = "Update from %@";
 "Update pull request branch?" = "Update pull request branch?";
 "Updated %@ extensions." = "Updated %@ extensions.";
@@ -1243,7 +1243,7 @@
 "Worktrees go in <folder>/<project>/<name>. Leave both location settings empty to use ~/.muxy/worktrees." = "Worktrees go in <folder>/<project>/<name>. Leave both location settings empty to use ~/.muxy/worktrees.";
 "Yellow" = "Yellow";
 "You can show tips again in Settings → Appearance → Interface by turning on Show tips." = "You can show tips again in Settings → Appearance → Interface by turning on Show tips.";
-"You’re running the latest Muxy 2.x beta." = "You’re running the latest Muxy 2.x beta.";
+"You’re running the latest version of %@." = "You’re running the latest version of %@.";
 "Zoom" = "Zoom";
 "add project" = "add project";
 "allow" = "allow";
