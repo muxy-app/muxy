@@ -15,10 +15,6 @@ const MAPPINGS: &[(&str, &[&str])] = &[
         &["appearance", "auto_expand_worktrees"],
     ),
     (
-        "muxy.worktrees.orderByMRU",
-        &["appearance", "worktree_order_by_mru"],
-    ),
-    (
         "muxy.worktrees.showUnreadIndicator",
         &["appearance", "worktree_show_unread"],
     ),

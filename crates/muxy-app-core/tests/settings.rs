@@ -17,6 +17,21 @@ use muxy_app_core::settings::{
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[test]
+fn retired_worktree_sorting_preference_is_ignored() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[appearance]\nworktree_order_by_mru = true\ndark_theme = 'Dracula'\n",
+    )?;
+    let appearance = Settings::load(&path)?.appearance;
+    assert_eq!(appearance.dark_theme, "Dracula");
+    assert!(!toml::to_string(&appearance)?.contains("worktree_order_by_mru"));
+    appearance.save(&path)?;
+    assert_eq!(Settings::load(&path)?.appearance, appearance);
+    Ok(())
+}
+
+#[test]
 fn sidebar_vibrancy_defaults_and_changes_preserve_other_preferences() -> Result {
     let fixture = Fixture::new()?;
     let path = fixture.write("settings.toml", "[appearance]\ndark_theme = 'Dracula'\n")?;

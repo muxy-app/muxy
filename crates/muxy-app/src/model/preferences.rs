@@ -318,7 +318,6 @@ impl AppModel {
             Change::Worktrees(key, value) => {
                 match key {
                     "auto-expand-worktrees" => settings.appearance.auto_expand_worktrees = value,
-                    "worktree-order" => settings.appearance.worktree_order_by_mru = value,
                     "worktree-unread" => settings.appearance.worktree_show_unread = value,
                     _ => return Ok(()),
                 }

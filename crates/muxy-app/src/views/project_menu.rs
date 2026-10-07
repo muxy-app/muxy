@@ -114,7 +114,7 @@ pub(crate) fn workspace_items(state: &AppState, project: ProjectId) -> Vec<Item>
 pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
     let id = project.id;
     if project.status() != ProjectStatus::Available {
-        return removal(project);
+        return Vec::new();
     }
     let mut items = vec![
         Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
@@ -139,10 +139,6 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
             )
             .separated(),
         );
-        items.push(Item::action(
-            tr!("Remove Project…"),
-            Command::RemoveProject(id),
-        ));
     }
     items
 }
