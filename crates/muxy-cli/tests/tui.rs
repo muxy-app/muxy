@@ -326,6 +326,10 @@ fn shell_identity_is_replaced_and_the_hosting_session_cannot_attach_to_itself() 
     nested.output("Hosting terminal excluded")?;
     nested.write(b"\x02x")?;
     nested.output("Cannot close the terminal hosting this TUI")?;
+    let tab = nested.locate(" 1 ")?;
+    nested.menu((tab.0 + 1, tab.1), "Close tab")?;
+    nested.output("Cannot close the tab hosting this TUI")?;
+    assert!(nested.find("Close tab?")?.is_none());
     assert_eq!(client.list_sessions()?.len(), 1);
     nested.write(b"\x02c")?;
     nested.ready()?;
@@ -456,7 +460,7 @@ fn wide_text_clipping_and_repainting_do_not_overwrite_the_neighboring_pane() -> 
     tui.write("printf '\\033[2J\\033[H界e\u{301}👩‍💻END\\n'\r".as_bytes())?;
     // The command line wraps in the narrow pane, so wait for its output at
     // the pane's first cell rather than for any row showing END.
-    tui.wait(|tui| Ok(tui.cells()?[2][27] == "界"))?;
+    tui.wait(|tui| Ok(tui.cells()?[2][27..30].concat() == "界e\u{301}"))?;
     let rows = tui.cells()?;
     assert_eq!(rows[2][27], "界");
     assert_eq!(rows[2][28], "");

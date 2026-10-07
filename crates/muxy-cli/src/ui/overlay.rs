@@ -94,8 +94,10 @@ pub(crate) fn project_choices<'a>(catalog: &'a CatalogPage, filter: &str) -> Vec
         .collect()
 }
 
+/// Lines of help text: the intro, each group's title, keys, and blank line,
+/// then the notes.
 pub(crate) fn help_lines() -> usize {
-    HELP.iter().map(|(_, keys)| keys.len() + 2).sum::<usize>() + NOTES.len()
+    1 + HELP.iter().map(|(_, keys)| keys.len() + 2).sum::<usize>() + NOTES.len()
 }
 
 pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, ui: &mut Ui) {
@@ -346,6 +348,8 @@ fn help(frame: &mut Frame<'_>, ui: &mut Ui, scroll: usize) {
     );
     let body = Rect::new(inner.x, inner.y, inner.width, inner.height - 1);
     let first = scroll.min(text.len().saturating_sub(usize::from(body.height)));
+    // Keep the offset to what is shown, so scrolling back responds at once.
+    ui.overlay = Overlay::Help(first);
     frame.render_widget(
         Paragraph::new(text.into_iter().skip(first).collect::<Vec<_>>()),
         body,

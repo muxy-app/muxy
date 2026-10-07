@@ -537,6 +537,14 @@ impl Core {
         self.input.flush()?;
         let tab = self.store_mut()?.state.tab().ok_or("No tab to close")?;
         let focus = tab.focus;
+        let host = hosting_session(catalog.server);
+        if tab
+            .panes
+            .values()
+            .any(|pane| pane.session.is_some() && pane.session == host)
+        {
+            return Err("Cannot close the tab hosting this TUI".into());
+        }
         let panes: Vec<_> = tab.panes.keys().copied().collect();
         if self.ends_running_program(client, &panes)? {
             lock(&self.shared).confirm = Some(Closing::Tab(focus));

@@ -1,6 +1,8 @@
 //! The order projects are listed in: Home first, then each project followed
 //! by its worktrees.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use muxy_protocol::{CatalogPage, ProjectDescriptor, ProjectId, ServerPath};
 
 #[derive(Clone, Copy, Debug)]
@@ -12,19 +14,21 @@ pub(crate) struct Entry<'a> {
 }
 
 pub(crate) fn tree(catalog: &CatalogPage) -> Vec<Entry<'_>> {
-    let parent = |project: &ProjectDescriptor| {
-        project.parent_id.filter(|id| {
-            catalog
-                .projects
-                .iter()
-                .any(|other| other.id == *id && other.parent_id.is_none())
-        })
-    };
-    let mut roots: Vec<_> = catalog
+    let tops: BTreeSet<ProjectId> = catalog
         .projects
         .iter()
-        .filter(|project| parent(project).is_none())
+        .filter(|project| project.parent_id.is_none())
+        .map(|project| project.id)
         .collect();
+    // A worktree whose parent is gone is listed on its own.
+    let mut roots = Vec::new();
+    let mut children: BTreeMap<ProjectId, Vec<&ProjectDescriptor>> = BTreeMap::new();
+    for project in &catalog.projects {
+        match project.parent_id.filter(|parent| tops.contains(parent)) {
+            Some(parent) => children.entry(parent).or_default().push(project),
+            None => roots.push(project),
+        }
+    }
     roots.sort_by_key(|project| !project.home);
     let mut entries = Vec::with_capacity(catalog.projects.len());
     for root in roots {
@@ -33,11 +37,7 @@ pub(crate) fn tree(catalog: &CatalogPage) -> Vec<Entry<'_>> {
             worktree: false,
             last: false,
         });
-        let children: Vec<_> = catalog
-            .projects
-            .iter()
-            .filter(|project| parent(project) == Some(root.id))
-            .collect();
+        let children = children.remove(&root.id).unwrap_or_default();
         let count = children.len();
         entries.extend(
             children

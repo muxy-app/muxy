@@ -397,6 +397,7 @@ mod tests {
             " 1 app ",
             " 2 app ● ",
             "● local server",
+            "Ctrl-B ? help",
         ] {
             assert!(text.contains(expected), "{expected:?} missing from\n{text}");
         }
@@ -416,6 +417,42 @@ mod tests {
                 .map(|catalog| Target::Project(catalog.projects[1].id))
         );
         assert_eq!(ui.target(25, 5), Some(Target::SidebarEdge));
+        Ok(())
+    }
+
+    #[test]
+    fn the_whole_help_fits_a_tall_screen() -> crate::state::Result {
+        let home = project("Home", true, None);
+        let catalog = CatalogPage {
+            server: ServerIdentity::new(),
+            home: home.id,
+            revision: 0,
+            next: None,
+            legacy_home: None,
+            projects: vec![home],
+        };
+        let mut state = State::new(&catalog);
+        state.reconcile(&catalog)?;
+        let mut shared = Shared::default();
+        shared.catalog = Some(catalog);
+        shared.state = Some(state);
+        let mut ui = Ui {
+            overlay: Overlay::Help(usize::MAX),
+            ..Ui::default()
+        };
+        let mut terminal =
+            Terminal::new(TestBackend::new(100, 60)).map_err(|error| error.to_string())?;
+        terminal
+            .draw(|frame| draw(frame, &shared, &mut ui))
+            .map_err(|error| error.to_string())?;
+        let buffer = terminal.backend().buffer();
+        let text: String = (0..buffer.area.height)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .filter_map(|position| buffer.cell(position).map(|cell| cell.symbol().to_owned()))
+            .collect();
+        assert!(text.contains("Press Ctrl-B, then a key"), "{text}");
+        assert!(text.contains("terminal UI windows share one"), "{text}");
+        assert_eq!(ui.overlay, Overlay::Help(0));
         Ok(())
     }
 

@@ -14,6 +14,8 @@ use crate::worker::Shared;
 
 const TITLE_WIDTH: usize = 24;
 const NEW_TAB: &str = " + ";
+/// The width of the "Ctrl-B ? help " hint.
+const HINT_WIDTH: u16 = 14;
 
 pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, state: &State, ui: &mut Ui, area: Rect) {
     if area.height == 0 || area.width == 0 {
@@ -82,6 +84,17 @@ pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, state: &State, ui: &m
             Rect::new(right - width, area.y, width, 1),
         );
         right = (right - width).saturating_sub(1).max(left);
+    } else if right - left >= needed + HINT_WIDTH + 2 {
+        let hint = Rect::new(right - HINT_WIDTH, area.y, HINT_WIDTH, 1);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("Ctrl-B ?", theme::muted().patch(theme::strong())),
+                Span::styled(" help ", theme::muted()),
+            ])),
+            hint,
+        );
+        ui.hits.push((hint, Target::Help));
+        right = hint.x.saturating_sub(1);
     }
     strip(
         frame,
