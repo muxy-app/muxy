@@ -169,7 +169,7 @@ impl Pointer {
             Some(Target::HideSidebar) if left => ui.sidebar_shown = false,
             Some(Target::ShowSidebar) if left => ui.sidebar_shown = true,
             Some(Target::Help) if left => ui.overlay = Overlay::Help(0),
-            Some(Target::Tab(pane)) if left => return focus(worker, pane),
+            Some(Target::Tab(pane)) if left => return select_tab(worker, pane),
             Some(Target::NewTab) if left => return worker.send(Action::New(None)),
             Some(Target::Existing) if left => {
                 ui.overlay = Overlay::Sessions(0);
@@ -521,6 +521,19 @@ fn choose(index: usize, worker: &Worker, ui: &mut Ui) -> Result {
         Some(command) => super::menu::run(command, worker, ui),
         None => Ok(()),
     }
+}
+
+/// Shows the tab holding `pane`, even if it already looks current: a tab
+/// opened a moment before may not be on screen yet, and the click comes after.
+fn select_tab(worker: &Worker, pane: PaneId) -> Result {
+    let Some(project) = lock(&worker.shared)
+        .state
+        .as_ref()
+        .map(|state| state.active)
+    else {
+        return Ok(());
+    };
+    worker.send(Action::SelectPane(project, pane))
 }
 
 pub(super) fn focus(worker: &Worker, pane: PaneId) -> Result {

@@ -135,7 +135,10 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
             Event::Mouse(event) => pointer.handle(event, worker, &mut ui),
             Event::FocusGained => host_focus(worker, true),
             Event::FocusLost => host_focus(worker, false),
-            Event::Resize(_, _) | Event::Key(_) => Ok(()),
+            // The terminal may have cut or moved what was drawn, even if it
+            // is back to the size last drawn, so draw everything again.
+            Event::Resize(_, _) => host.terminal.clear().map_err(|error| error.to_string()),
+            Event::Key(_) => Ok(()),
         };
         if let Err(error) = result {
             lock(&worker.shared).say(error);

@@ -461,7 +461,8 @@ fn history_reads_refresh_a_coherent_boundary_and_merge_all_older_pages() -> Test
     connection.quiet(&mut attachment)?;
     connection.client.send_input(
         attachment.channel,
-        b"stty -echo; PS1=''; printf '\\033[2J\\033[H\\033[3J'; seq 1 5000; printf HISTORY_READY\n",
+        // The shell's own job-control warnings would land in the history.
+        b"exec 2>/dev/null; stty -echo; PS1=''; printf '\\033[2J\\033[H\\033[3J'; seq 1 5000; printf HISTORY_READY\n",
     )?;
     let deadline = Instant::now() + TIMEOUT;
     let page = loop {
