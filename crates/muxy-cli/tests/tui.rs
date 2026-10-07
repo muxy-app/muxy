@@ -63,10 +63,13 @@ fn external_exit_removes_hidden_tabs_and_preserves_the_live_split() -> Result {
     )
     .ok_or("session ID")?;
     client.end_session(session)?;
+    // Keys follow the drawn layout, which can lag the saved state; wait for one pane on screen.
     tui.wait(|tui| {
-        Ok(tui.active_tab()?["panes"]
-            .as_object()
-            .is_some_and(|panes| panes.len() == 1))
+        let drawn_panes: usize = tui.text()?.iter().map(|row| row.matches('┌').count()).sum();
+        Ok(drawn_panes == 1
+            && tui.active_tab()?["panes"]
+                .as_object()
+                .is_some_and(|panes| panes.len() == 1))
     })?;
     assert_eq!(tui.active_tab()?["focus"], active);
     tui.write(b"printf '\nSURVIVING_SPLIT\n'\r")?;

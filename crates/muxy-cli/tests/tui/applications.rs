@@ -129,7 +129,12 @@ fn server_restart_closes_dead_tabs_without_creating_another_shell() -> Result {
                     .is_ok_and(|sessions| sessions.is_empty())
         }))
     })?;
-    tui.wait(|tui| Ok(tui.tabs()?.is_empty()))?;
+    tui.wait(|tui| {
+        let closes_pending = fixture.state()?["close_operations"]
+            .as_object()
+            .is_some_and(|operations| !operations.is_empty());
+        Ok(tui.tabs()?.is_empty() && !closes_pending)
+    })?;
     tui.detach()?;
     let saved = fixture.state()?;
     let mut restored = Tui::start(&fixture, &[])?;
