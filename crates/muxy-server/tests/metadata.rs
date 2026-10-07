@@ -212,16 +212,22 @@ fn background_work_alone_keeps_shell_foreground_metadata() -> TestResult {
     for shell in ["/bin/sh", "/bin/zsh"] {
         let fixture = Fixture::with_shell(shell)?;
         let (events, _, _) = fixture.attach(1)?;
-        fixture.input(b"sleep 2 &\ncd /tmp\n")?;
+        fixture.input(b"sleep 5 &\ncd /tmp\n")?;
         metadata(
             &events,
             |event| matches!(event, MetadataEvent::Directory(path) if path.0.ends_with(b"/tmp")),
         )?;
-        let (_, _, process) = fixture.attach(2)?;
-        assert!(
-            process.as_ref().is_some_and(|process| process.is_shell),
-            "{shell}: {process:?}"
-        );
+        // A shell hook, such as zoxide's on `cd`, can briefly run in the
+        // foreground; the background job, which outlives this wait, never may.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        for id in 2.. {
+            let (_, _, process) = fixture.attach(id)?;
+            if process.as_ref().is_some_and(|process| process.is_shell) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{shell}: {process:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
     Ok(())
 }
