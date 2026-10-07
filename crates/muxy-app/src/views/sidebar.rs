@@ -313,12 +313,6 @@ impl AppModel {
                 } else {
                     Vec::new()
                 };
-                let children = children.into_iter().filter(move |child| {
-                    self.appearance.layout == AppLayout::AgentsFocused
-                        || !child.tabs.is_empty()
-                        || child.id == active.id
-                        || child.status() == ProjectStatus::Missing
-                });
                 std::iter::once(parent).chain(children)
             })
             .collect()

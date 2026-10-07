@@ -152,11 +152,6 @@ pub(super) fn rows(
             appearance.auto_expand_worktrees,
         ),
         (
-            "worktree-order",
-            tr_key!("Order worktrees by recent use"),
-            appearance.worktree_order_by_mru,
-        ),
-        (
             "worktree-unread",
             tr_key!("Show unread worktree indicators"),
             appearance.worktree_show_unread,

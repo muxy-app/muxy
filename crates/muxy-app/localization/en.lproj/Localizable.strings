@@ -622,7 +622,6 @@
 "Light theme" = "Light theme";
 "Lime" = "Lime";
 "Line spacing from 1.1 to 2.0." = "Line spacing from 1.1 to 2.0.";
-"List recently selected worktrees first, after the primary worktree." = "List recently selected worktrees first, after the primary worktree.";
 "Listening on port %lld" = "Listening on port %lld";
 "Listening..." = "Listening...";
 "Listening…" = "Listening…";
@@ -793,7 +792,6 @@
 "Optional setup commands: add setup to .muxy/worktree.json in the project or $XDG_CONFIG_HOME/muxy/worktree.json (defaults to ~/.config/muxy/worktree.json)." = "Optional setup commands: add setup to .muxy/worktree.json in the project or $XDG_CONFIG_HOME/muxy/worktree.json (defaults to ~/.config/muxy/worktree.json).";
 "Optional teardown commands (review before enabling):" = "Optional teardown commands (review before enabling):";
 "Orange" = "Orange";
-"Order worktrees by recent use" = "Order worktrees by recent use";
 "Output changed; search again" = "Output changed; search again";
 "Owner: %@" = "Owner: %@";
 "PAUSED" = "PAUSED";

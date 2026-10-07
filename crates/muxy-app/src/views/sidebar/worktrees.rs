@@ -49,22 +49,11 @@ impl AppModel {
     }
 
     pub(crate) fn worktree_children(&self, parent: ProjectId) -> Vec<&Project> {
-        let mut children: Vec<_> = self
-            .state
+        self.state
             .projects()
             .iter()
             .filter(|project| project.parent_id == Some(parent))
-            .collect();
-        if self.appearance.worktree_order_by_mru {
-            children.sort_by_cached_key(|project| {
-                self.appearance
-                    .worktree_recent
-                    .iter()
-                    .position(|id| *id == project.id)
-                    .unwrap_or(usize::MAX)
-            });
-        }
-        children
+            .collect()
     }
 
     pub(crate) fn preferred_worktree(&self, parent: ProjectId) -> ProjectId {

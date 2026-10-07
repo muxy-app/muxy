@@ -324,13 +324,6 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
-        id: "worktree-order",
-        label: tr_key!("Order worktrees by recent use"),
-        description: tr_key!("List recently selected worktrees first, after the primary worktree."),
-        category: Category::Appearance,
-        section: tr_key!("Interface"),
-    },
-    Setting {
         id: "worktree-unread",
         label: tr_key!("Show unread worktree indicators"),
         description: tr_key!("Show unread completion counts beside worktrees."),
