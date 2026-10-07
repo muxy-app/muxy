@@ -531,7 +531,8 @@ mod tests {
     #[test]
     fn output_is_bounded_while_both_pipes_are_drained() {
         let root = TestDirectory::new();
-        let request = request("head -c 5000000 /dev/zero; head -c 5000000 /dev/zero >&2");
+        let mut request = request("head -c 5000000 /dev/zero; head -c 5000000 /dev/zero >&2");
+        request.timeout_ms = 30_000;
         let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
         assert_eq!(result.stdout.len(), MAX_EXEC_OUTPUT);
         assert_eq!(result.stderr.len(), MAX_EXEC_OUTPUT);
