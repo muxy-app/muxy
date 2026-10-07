@@ -16,26 +16,30 @@ Issues and PRs opened by AI or containing AI-generated text will be closed witho
 
 ## Getting Started
 
+Read [docs/product](docs/product/README.md) and [docs/tech](docs/tech/README.md) first. They describe how Muxy works and how it is built.
+
 ### Prerequisites
 
-- macOS 14+
-- Swift 6.0+
-- [SwiftLint](https://github.com/realm/SwiftLint) and [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) (`brew install swiftlint swiftformat`)
+- macOS 14+ for the desktop app, or Linux for the CLI and server
+- [Rust](https://rustup.rs) (`rustup` installs the version pinned in `rust-toolchain.toml`)
+- [Zig](https://ziglang.org) 0.15.2, used to build the Ghostty terminal library
 
 ### Setup
 
 ```bash
 git clone https://github.com/muxy-app/muxy.git
 cd muxy
-scripts/setup.sh          # downloads GhosttyKit.xcframework
-swift build               # verify everything compiles
+cargo build --workspace   # verify everything compiles
 ```
 
 ### Running
 
 ```bash
-swift run Muxy
+cargo run -p muxy-app     # desktop app (macOS)
+cargo run -p muxy-cli     # muxy terminal UI
 ```
+
+Build the whole workspace first, so `muxy-server` sits next to the binary you run. Development builds keep their data in a separate `Muxy Dev` profile.
 
 ## Development Workflow
 
@@ -44,7 +48,9 @@ swift run Muxy
 3. Run checks before committing:
 
 ```bash
-scripts/checks.sh --fix   # auto-fix formatting and linting, then build and test
+cargo fmt --all
+cargo xcheck              # clippy with warnings as errors
+cargo xtest               # all tests
 ```
 
 4. Commit your changes, push your branch, and open a pull request yourself
@@ -59,21 +65,14 @@ scripts/checks.sh --fix   # auto-fix formatting and linting, then build and test
 
 ## Checks
 
-All PRs must pass the full check suite. Run it with a single command:
+All PRs must pass the same checks CI runs:
 
 ```bash
-scripts/checks.sh          # formatting → linting → build tests → test
-scripts/checks.sh --fix    # auto-fix formatting and linting, then build and test
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 ```
-
-The script runs the following steps in order, stopping on the first failure:
-
-1. **Formatting** — `swiftformat --lint .` (or `swiftformat .` with `--fix`)
-2. **Linting** — `swiftlint lint --strict --quiet` (or `--fix` first with `--fix`)
-3. **Build tests** — `swift build --build-tests --quiet`
-4. **Test** — `swift test --quiet`
-
-Tool versions are pinned in `.tool-versions` and the script validates them on startup. If your local versions don't match, it will tell you exactly what's expected.
 
 ## Pull Request Guidelines
 
@@ -85,8 +84,7 @@ Tool versions are pinned in `.tool-versions` and the script validates them on st
 
 ## Reporting Issues
 
-- Use the [Bug Report](.github/ISSUE_TEMPLATE/bug_report.yml) template for bugs
-- Use the [Feature Request](.github/ISSUE_TEMPLATE/feature_request.yml) template for ideas
+- Report bugs and ideas on [GitHub Issues](https://github.com/muxy-app/muxy/issues)
 - Search existing issues before creating a new one
 
 ## License

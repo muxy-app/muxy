@@ -11,7 +11,8 @@ Supported platforms, and lessons that shape the code.
 | Mobile SDK | iOS and Android |
 
 Not yet supported: Windows, and musl or Alpine Linux. Linux builds must be
-built and run natively on both architectures to count as supported.
+built and run natively on both architectures to count as supported. Beta
+releases currently ship macOS builds for Apple Silicon only.
 
 On Linux hosts that end a user's processes at logout, run
 `loginctl enable-linger` so the server keeps running after an SSH session ends.

@@ -119,14 +119,14 @@ fn main() -> ExitCode {
         let config_path = boot.state_path.with_file_name("ghostty.conf");
         cx.on_action(move |_: &OpenConfiguration, _| {
             if let Err(error) = std::process::Command::new("/usr/bin/open")
-                .args(["-a", "TextEdit"])
+                .arg("-t")
                 .arg(&config_path)
                 .status()
                 .and_then(|status| {
                     if status.success() {
                         Ok(())
                     } else {
-                        Err(io::Error::other(format!("TextEdit exited with {status}")))
+                        Err(io::Error::other(format!("open exited with {status}")))
                     }
                 })
             {

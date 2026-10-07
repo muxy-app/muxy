@@ -46,7 +46,7 @@ such as a cloud server behind NAT, puts that name first with
   its connection at once.
 - A connection that hasn't signed in gets nothing else from the server.
 - Paired phones can't manage mobile access, change server settings, stop the
-  server, or run extension commands.
+  server, or run programs outside a terminal (`exec`).
 - Over SSH, the phone logs in as the user and can do what that login can. Host
   keys and credentials stay in the app's SSH client.
 

@@ -88,8 +88,8 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 | You quit or detach | Terminals keep running. |
 | **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
 
-The status bar always shows the current project's server, with connect, restart,
-and stop.
+The status bar shows the current project's server, with connect, restart, and
+stop.
 
 ## Settings
 
@@ -98,14 +98,17 @@ and stop.
 - App preferences live in `settings.toml`, terminal preferences in
   `ghostty.conf`, and custom themes in `themes/`. Themes in
   `~/.config/ghostty/themes` work too.
-- Every keyboard shortcut can be changed. Normal keystrokes in a terminal always
-  go to the terminal.
+- Every app shortcut can be changed in Settings → Keyboard. Terminal key
+  bindings come from `keybind` in `ghostty.conf`, and the Quick Terminal
+  shortcut has its own setting. Normal keystrokes in a terminal always go to
+  the terminal.
 - **Settings → Appearance → App language** picks the interface language. English
   is built in; other languages come from language-pack extensions, the same ones
-  made for `main`. Untranslated text stays English, and while the chosen pack is
+  made for Muxy 1.x. Untranslated text stays English, and while the chosen pack is
   unavailable Muxy shows English.
-- Server settings, such as the shell and history size, apply to the selected
-  server. Stopping or restarting it asks first.
+- Server settings, such as the shell and history size, apply to this
+  computer's server. `muxy --host` changes another computer's. Stopping or
+  restarting it asks first.
 - **Settings → Mobile** turns phone access on, shows a pairing code, and lists
   paired phones. `muxy mobile` does the same without the desktop app.
 - **Settings → Backup & Restore** exports settings, themes, extension preferences,
@@ -139,13 +142,13 @@ ends.
 - **Composer.** Write a draft, with files, images, or dictation, and send it to
   the active terminal or to every visible split. Each project keeps its own
   draft, and a failed send keeps it.
-- **Web views.** Web pages as tabs, docked panels, popovers, or dialogs. They
-  stay alive while hidden. Extension panels belong to a project: switching
+- **Web views.** Extension pages as tabs, docked panels, popovers, or dialogs.
+  They stay alive while hidden. Extension panels belong to a project: switching
   projects closes them, and switching back reopens them.
 - **Extensions.** Add tabs, panels, a sidebar, toolbar and status bar items,
   shortcuts, and background scripts. They are managed in Settings → Extensions,
   declare their permissions, and ask before sensitive actions. Extensions made
-  for Muxy on `main` work unchanged.
+  for Muxy 1.x work unchanged.
 - **Git and AI.** For Git projects, the footer shows the branch and changes,
   commits and pushes with an AI-written message, and creates or manages pull
   requests. It uses an AI command-line tool you already have, chosen in
@@ -158,8 +161,8 @@ ends.
 The server recognizes AI coding agents running in terminals and whether each
 one is working, waiting for you, or done.
 
-- Panes show their agent's state. Tabs and projects sum up their panes, and
-  "waiting for you" comes first.
+- Tabs, worktrees, and projects show the state of their agents, and "waiting
+  for you" comes first.
 - The desktop app notifies you about agents in the background. Looking at the
   terminal clears the alert in every app.
 - Detached terminals show no alerts, and no notification history is kept.

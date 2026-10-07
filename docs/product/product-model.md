@@ -89,7 +89,7 @@ Deleting always asks first and explains what will end.
 | You delete | What happens |
 | --- | --- |
 | A project | It disappears from every app and its terminals end. Files stay on disk. |
-| A worktree project | The same, and you choose whether to remove the worktree folder too. |
+| A worktree project | The same, and its worktree folder is removed too. |
 | A project with worktrees | Its worktree projects are deleted too. Their folders stay on disk. |
 | Home | Not allowed. |
 
