@@ -103,8 +103,15 @@ curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install-
 
 The installer uses \`~/.local/bin\`. Use \`--install-dir PATH\` to choose another directory and \`--replace\` to replace existing commands, including a desktop bundle link. It does not modify shell profiles or restart servers. Run \`muxy\` to open the TUI; Ctrl-B then D detaches."
     if [[ "$CHANNEL" == beta ]]; then
+        PREVIOUS="$(git -C "$ROOT" describe --tags --match "v${VERSION%%.*}.*-beta*" --abbrev=0 "$SOURCE^" 2>/dev/null || true)"
+        UPGRADE=""
+        if [[ "$PREVIOUS" == v2.0.0-beta-* ]]; then
+            UPGRADE="Betas numbered \`2.0.0-beta-N\` can't update to this numbering on their own: install this release over them once, and later betas update automatically.
+
+"
+        fi
         cat > release-notes.md <<EOF
-Experimental Rust/GPUI beta from the \`main\` branch. Not intended for production use.
+${UPGRADE}Experimental Rust/GPUI beta from the \`main\` branch. Not intended for production use.
 
 - macOS 14 or newer on $MACOS_ARCHITECTURES.
 - Drag \`Muxy Beta.app\` to Applications. The app bundles the matching \`muxy\` CLI/TUI and \`muxy-server\`. Use **Install Command Line Tool** to expose the bundled CLI on PATH.
@@ -119,7 +126,6 @@ $INSTALL_CLI
 Source: https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE
 
 EOF
-        PREVIOUS="$(git -C "$ROOT" describe --tags --match "v${VERSION%%.*}.*-beta*" --abbrev=0 "$SOURCE^" 2>/dev/null || true)"
     else
         cat > release-notes.md <<EOF
 - macOS 14 or newer on $MACOS_ARCHITECTURES.

@@ -325,6 +325,15 @@ class ReleaseScriptTests(unittest.TestCase):
         self.assertIn(f"curl -fsSL https://github.com/example/muxy/releases/download/v{VERSION}/install-muxy.sh | sh -s -- --version {VERSION}", notes)
         self.assertNotIn("releases/latest", notes)
 
+    def test_first_beta_after_dash_numbering_tells_testers_to_reinstall(self):
+        for previous, told in (("v2.0.0-beta-1110", True), (f"v{BETA_VERSION}-beta.1200", False)):
+            with self.subTest(previous=previous):
+                self.env["PREVIOUS_TAG"] = previous
+                self.assertEqual(self.publish().returncode, 0)
+                notes = (self.directory / "release-notes.md").read_text()
+                self.assertEqual(notes.startswith("Betas numbered `2.0.0-beta-N`"), told)
+                self.assertIn(f"Generated changes since {previous}", notes)
+
     def test_tag_collision_prevents_release(self):
         self.env["TAG_SHA"] = "b" * 40
         result = self.publish()

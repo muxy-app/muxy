@@ -58,10 +58,6 @@ jobs:
         run: |
           python3 scripts/release.py promote "$BETA_TAG" "$VERSION" "$NEXT" >> "$GITHUB_OUTPUT"
           SOURCE="$(git rev-parse --verify "refs/tags/$BETA_TAG^{commit}")"
-          if ! git merge-base --is-ancestor "$SOURCE" HEAD; then
-            echo "Error: $BETA_TAG is not on main" >&2
-            exit 1
-          fi
           if [[ "$(gh release view "$BETA_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '.isPrerelease and (.isDraft | not)')" != true ]]; then
             echo "Error: $BETA_TAG is not a published beta release" >&2
             exit 1

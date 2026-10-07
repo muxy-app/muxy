@@ -12,6 +12,8 @@ BETA_PATTERN = re.compile(r"([0-9]+\.[0-9]+\.[0-9]+)-beta\.([1-9][0-9]*)")
 STABLE_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 # Each channel installs as its own app. Stable replaces Muxy 1.x, which shares its identity.
 APPS = {"beta": ("Muxy Beta", "com.muxy-beta.app"), "stable": ("Muxy", "com.muxy.app")}
+# Muxy 1.x's Sparkle only installs an update that keeps 1.x's EdDSA public key.
+SPARKLE_PUBLIC_KEY = "X5YPWvD11Qthw+41DPZQRK8aOYBlPjjfeWW2k3510cY="
 
 
 def build_metadata(root=ROOT):
@@ -66,8 +68,14 @@ def promotion(root, beta_tag, version, next_beta_version):
     build = build_number(beta_tag[1:])
     if git(root, "rev-parse", "--is-shallow-repository") != "false":
         raise ValueError("promotion requires a full checkout (fetch-depth: 0)")
-    if git(root, "rev-list", "--count", f"refs/tags/{beta_tag}") != build:
-        raise ValueError(f"{beta_tag} was not built from this repository's history")
+    try:
+        commit = git(root, "rev-parse", "--verify", "--quiet", f"refs/tags/{beta_tag}^{{commit}}")
+    except subprocess.CalledProcessError:
+        raise ValueError(f"{beta_tag} does not exist") from None
+    if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", commit, "origin/main"]).returncode:
+        raise ValueError(f"{beta_tag} is not on main")
+    if git(root, "rev-list", "--count", commit) != build:
+        raise ValueError(f"{beta_tag} does not match its commit count")
     return build
 
 
@@ -121,6 +129,7 @@ def bundle_info(version, build):
         raise ValueError("build number must be a positive commit count")
     if channel(version) == "beta" and build != build_number(version):
         raise ValueError("a beta's build number is its commit count")
+    sparkle = {"SUPublicEDKey": SPARKLE_PUBLIC_KEY} if channel(version) == "stable" else {}
     return {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleDisplayName": name,
@@ -141,6 +150,7 @@ def bundle_info(version, build):
         "NSPrincipalClass": "NSApplication",
         "NSMicrophoneUsageDescription": "Muxy uses your microphone to dictate text into Composer.",
         "NSSpeechRecognitionUsageDescription": "Muxy transcribes your dictation on this device and inserts it into Composer.",
+        **sparkle,
     }
 
 

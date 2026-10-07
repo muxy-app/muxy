@@ -116,8 +116,8 @@ class BuildReleaseTests(unittest.TestCase):
         app = self.root / "target/packages" / STABLE / "arm64/Muxy.app"
         info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
         self.assertEqual(
-            [info[key] for key in ("CFBundleName", "CFBundleIdentifier", "CFBundleVersion", "MuxyVersion")],
-            ["Muxy", "com.muxy.app", "1234", STABLE],
+            [info[key] for key in ("CFBundleName", "CFBundleIdentifier", "CFBundleVersion", "MuxyVersion", "SUPublicEDKey")],
+            ["Muxy", "com.muxy.app", "1234", STABLE, "X5YPWvD11Qthw+41DPZQRK8aOYBlPjjfeWW2k3510cY="],
         )
         self.assertTrue(any(call[-1].endswith("Muxy-2.0.0-arm64.dmg") and "Muxy" in call
                             for call in self.calls("hdiutil")))

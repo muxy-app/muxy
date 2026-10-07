@@ -1,5 +1,7 @@
 import importlib.util
+import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,35 +52,58 @@ class BetaVersionTests(unittest.TestCase):
         keys = ("CFBundleName", "CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion")
         info = release.bundle_info("2.1.0-beta.1234", "1234")
         self.assertEqual([info[key] for key in keys], ["Muxy Beta", "com.muxy-beta.app", "2.1.0", "1234"])
+        self.assertNotIn("SUPublicEDKey", info)
         info = release.bundle_info("2.1.0", "1234")
         self.assertEqual([info[key] for key in keys], ["Muxy", "com.muxy.app", "2.1.0", "1234"])
+        self.assertEqual(info["SUPublicEDKey"], "X5YPWvD11Qthw+41DPZQRK8aOYBlPjjfeWW2k3510cY=")
         for version, build in (("2.1.0-beta.1234", "1235"), ("2.1.0", "0"), ("2.1.0", "x")):
             with self.subTest(version=version, build=build), self.assertRaises(ValueError):
                 release.bundle_info(version, build)
 
 
 class PromotionTests(unittest.TestCase):
-    def promote(self, tag="v2.0.0-beta.1234", version="2.0.0", next_beta="2.1.0", count="1234"):
-        output = {("rev-parse", "--is-shallow-repository"): "false",
-                  ("rev-list", "--count", f"refs/tags/{tag}"): count}
-        with patch.object(release, "git", side_effect=lambda _, *args: output[args]):
-            return release.promotion(ROOT, tag, version, next_beta)
+    """A repository whose main has three commits and a side branch from the second."""
 
-    def test_a_stable_release_keeps_the_build_number_of_its_beta(self):
-        self.assertEqual(self.promote(), "1234")
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                    "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+                    "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
+        self.git("init", "-q", "-b", "main")
+        for message in ("one", "two", "three"):
+            self.git("commit", "-q", "--allow-empty", "-m", message)
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("tag", "-a", "v2.0.0-beta.3", "-m", "beta")
+        self.git("tag", "-a", "v2.0.0-beta.4", "-m", "wrong count")
+        self.git("switch", "-q", "-c", "fork", "HEAD~1")
+        self.git("commit", "-q", "--allow-empty", "-m", "fork")
+        self.git("tag", "-a", "v2.1.0-beta.3", "-m", "not on main")
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", str(self.root), *args], env=self.env, check=True)
+
+    def promote(self, tag="v2.0.0-beta.3", version="2.0.0", next_beta="2.1.0"):
+        return release.promotion(self.root, tag, version, next_beta)
+
+    def test_a_stable_release_keeps_the_build_number_of_its_annotated_beta_tag(self):
+        self.assertEqual(self.promote(), "3")
 
     def test_promotion_rejects_inputs_that_cannot_be_released(self):
-        for inputs in (
-            {"tag": "2.0.0-beta.1234"},
-            {"tag": "v2.0.0-beta-1234"},
-            {"tag": "v2.0.0"},
-            {"version": "2.0.0-beta.1234"},
-            {"next_beta": "2.1"},
-            {"next_beta": "2.0.0"},
-            {"next_beta": "1.9.0"},
-            {"count": "1233"},
+        for inputs, reason in (
+            ({"tag": "2.0.0-beta.3"}, "vX.Y.Z-beta.N"),
+            ({"tag": "v2.0.0-beta-3"}, "beta version"),
+            ({"tag": "v2.0.0"}, "beta version"),
+            ({"tag": "v2.0.0-beta.5"}, "does not exist"),
+            ({"tag": "v2.1.0-beta.3"}, "not on main"),
+            ({"tag": "v2.0.0-beta.4"}, "commit count"),
+            ({"version": "2.0.0-beta.3"}, "must be X.Y.Z"),
+            ({"next_beta": "2.1"}, "must be X.Y.Z"),
+            ({"next_beta": "2.0.0"}, "newer"),
+            ({"next_beta": "1.9.0"}, "newer"),
         ):
-            with self.subTest(**inputs), self.assertRaises(ValueError):
+            with self.subTest(**inputs), self.assertRaisesRegex(ValueError, reason):
                 self.promote(**inputs)
 
 
