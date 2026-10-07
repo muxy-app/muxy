@@ -8,6 +8,10 @@ use crate::{
 };
 
 impl Message {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Keep the protocol fixture inventory in one place"
+    )]
     pub fn samples() -> Vec<Self> {
         let session = SessionId::from(NonZeroU64::MIN);
         let channel = ChannelId(1);
@@ -109,6 +113,7 @@ impl Message {
         terminal_metadata_samples(&mut samples);
         samples.extend(activity_samples(session));
         samples.extend(remote_samples());
+        samples.push(sandbox_sample(size));
         samples
     }
 }
@@ -343,6 +348,7 @@ fn terminal_input_samples() -> [Message; 4] {
 
 fn settings_samples() -> Vec<Message> {
     let settings = crate::ServerSettingsDoc {
+        sandbox: None,
         default_shell: Some(ServerPath(b"/bin/bash".to_vec())),
         history_budget_bytes: 16 * 1024 * 1024,
         shell_integration: true,
@@ -439,6 +445,10 @@ fn changed_samples() -> [Message; 2] {
         .map(|(topic, revision)| Message::Changed { topic, revision })
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the catalog wire samples together"
+)]
 fn project_samples() -> Vec<Message> {
     use crate::{
         CatalogPage, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
@@ -518,6 +528,7 @@ fn project_samples() -> Vec<Message> {
                 revision: 1,
                 sessions: vec![ProjectSession {
                     info: SessionInfo {
+                        sandbox: None,
                         id: SessionId::from(NonZeroU64::MIN),
                         project: project.id,
                         directory: project.directory,
@@ -894,4 +905,20 @@ fn exec_samples() -> Vec<Message> {
             body: ReplyBody::ExecCancelled,
         },
     ]
+}
+
+fn sandbox_sample(size: Size) -> Message {
+    Message::Request {
+        id: RequestId(500),
+        body: RequestBody::CreateSandboxedSession {
+            project: crate::ProjectId::from_u128(1),
+            operation: crate::OperationId::from_u128(500),
+            directory: ServerPath(b"/workspace".to_vec()),
+            size,
+            sandbox: crate::SandboxSpec {
+                workspace: ServerPath(b"/workspace".to_vec()),
+                policy: crate::SandboxPolicy::default(),
+            },
+        },
+    }
 }

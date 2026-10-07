@@ -257,6 +257,7 @@ fn reservation_survives_restart_before_pty_start() -> TestResult {
     let registry = profile.open()?;
     let operation = OperationId::new();
     let info = SessionInfo {
+        sandbox: None,
         id: registry.reserve_start()?,
         project: registry.home_project(),
         directory: ServerPath(b"/tmp".to_vec()),

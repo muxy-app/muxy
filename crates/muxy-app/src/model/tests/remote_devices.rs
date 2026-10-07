@@ -359,6 +359,7 @@ fn settings_server_control_stays_on_this_computer_while_a_remote_project_is_open
         let api = ProjectId::new();
         connect_remote(model, remote, vec![], &[(api, "api")], cx);
         let loaded = muxy_protocol::ServerSettingsDoc {
+            sandbox: None,
             default_shell: None,
             history_budget_bytes: 0,
             shell_integration: true,

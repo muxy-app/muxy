@@ -921,6 +921,7 @@ mod tests {
         let size = Size { cols: 20, rows: 3 };
         let cwd = std::env::temp_dir();
         let mut pty = Pty::spawn(SpawnRequest {
+            clear_env: false,
             program: "/bin/sh".into(),
             args: vec!["-c".into(), "exit 0".into()],
             cwd: cwd.clone(),
@@ -932,6 +933,7 @@ mod tests {
         Ok(Owner {
             graphics: muxy_protocol::Graphics::default(),
             info: SessionInfo {
+                sandbox: None,
                 project: muxy_protocol::ProjectId::from_u128(1),
                 id: SessionId::from(NonZeroU64::MIN),
                 directory: directory.clone(),

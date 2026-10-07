@@ -16,10 +16,19 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             list_projects(client, project.as_deref(), all, output, paths)
         }
         Session::Create {
+            sandbox,
             project,
             directory,
             size,
-        } => create(client, &project, directory.as_deref(), size, output, paths),
+        } => create(
+            client,
+            &project,
+            directory.as_deref(),
+            size,
+            output,
+            paths,
+            sandbox,
+        ),
         Session::End(session) => {
             client.end_session(session)?;
             output.ok()
@@ -104,21 +113,35 @@ fn create(
     size: Size,
     output: &Output,
     paths: Paths,
+    sandbox: bool,
 ) -> Result {
     let project = projects::resolve(client, project, paths)?;
     let directory = directory.map_or_else(
         || Ok(local_path(&project.directory)),
         |path| paths.directory(path),
     )?;
-    let session = client.create_project_session(
-        project.id,
-        muxy_protocol::OperationId::new(),
-        &directory,
-        size,
-    )?;
+    let operation = muxy_protocol::OperationId::new();
+    let session = if sandbox {
+        let settings = client
+            .read_server_settings()?
+            .sandbox
+            .ok_or("Configure sandbox settings first")?;
+        client.create_sandboxed_session(
+            project.id,
+            operation,
+            &directory,
+            size,
+            muxy_protocol::SandboxSpec {
+                workspace: project.directory.clone(),
+                policy: settings.policy,
+            },
+        )?
+    } else {
+        client.create_project_session(project.id, operation, &directory, size)?
+    };
     output.record(
         &json!({"id":session.id.get().to_string(), "project_id":session.project,
-        "directory":path_text(&session.directory), "directory_bytes":session.directory.0}),
+        "directory":path_text(&session.directory), "directory_bytes":session.directory.0, "sandbox": session.sandbox}),
         &["id"],
     )
 }
@@ -152,7 +175,7 @@ fn list_projects(
 fn record(session: &ProjectSession) -> Value {
     json!({"id":session.info.id.get().to_string(), "project_id":session.info.project,
         "directory":path_text(&session.info.directory), "directory_bytes":session.info.directory.0,
-        "status":session.status, "attached":session.owner.is_some(), "owner":session.owner})
+        "sandbox":session.info.sandbox, "status":session.status, "attached":session.owner.is_some(), "owner":session.owner})
 }
 
 fn list(client: &Client, project: ProjectId) -> Result<Vec<ProjectSession>> {

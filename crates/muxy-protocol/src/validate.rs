@@ -180,6 +180,16 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_path(directory)?;
             validate_size(*size)
         }
+        RequestBody::CreateSandboxedSession {
+            directory,
+            size,
+            sandbox,
+            ..
+        } => {
+            validate_path(directory)?;
+            validate_size(*size)?;
+            sandbox.validate()
+        }
         RequestBody::Attach { size, .. } | RequestBody::Resize { size, .. } => validate_size(*size),
         RequestBody::HistoryPage {
             channel, max_rows, ..

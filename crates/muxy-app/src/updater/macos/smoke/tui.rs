@@ -14,6 +14,7 @@ pub(super) struct Tui {
 impl Tui {
     pub(super) fn start(binary: &Path, profile: &Path) -> Result<Self> {
         let pty = Pty::spawn(SpawnRequest {
+            clear_env: false,
             program: binary.to_owned(),
             args: Vec::new(),
             cwd: profile.to_owned(),

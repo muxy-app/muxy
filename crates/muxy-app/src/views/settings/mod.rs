@@ -314,6 +314,11 @@ impl SettingsView {
             "adjust-cell-height",
             "default-shell",
             "history-budget",
+            "sandbox-executable",
+            "sandbox-network",
+            "sandbox-domains",
+            "sandbox-tools",
+            "sandbox-environment",
             "mobile-port",
         ]
         .into_iter()
@@ -373,6 +378,10 @@ impl SettingsView {
         cx.notify();
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Synchronize the settings field inventory together"
+    )]
     fn sync_fields(&self, cx: &mut Context<Self>) {
         let settings = &self.snapshot.settings;
         let terminal = &self.snapshot.terminal;
@@ -385,6 +394,10 @@ impl SettingsView {
         let budget = server.map_or_else(String::new, |server| {
             (server.history_budget_bytes / (1024 * 1024)).to_string()
         });
+        let sandbox = server
+            .and_then(|server| server.sandbox.as_ref())
+            .cloned()
+            .unwrap_or_default();
         let mobile_port = self
             .snapshot
             .mobile
@@ -416,6 +429,35 @@ impl SettingsView {
             ("adjust-cell-height", terminal.cell_height.to_string()),
             ("default-shell", shell),
             ("history-budget", budget),
+            (
+                "sandbox-executable",
+                sandbox
+                    .executable
+                    .as_ref()
+                    .map(|p| String::from_utf8_lossy(&p.0).into_owned())
+                    .unwrap_or_default(),
+            ),
+            (
+                "sandbox-network",
+                match sandbox.policy.network {
+                    muxy_protocol::SandboxNetwork::Blocked => "blocked",
+                    muxy_protocol::SandboxNetwork::Domains => "domains",
+                    _ => "unrestricted",
+                }
+                .into(),
+            ),
+            ("sandbox-domains", sandbox.policy.domains.join(", ")),
+            (
+                "sandbox-tools",
+                sandbox
+                    .policy
+                    .read_paths
+                    .iter()
+                    .map(|p| String::from_utf8_lossy(&p.0))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ),
+            ("sandbox-environment", sandbox.policy.environment.join(", ")),
             ("mobile-port", mobile_port),
         ]
         .into_iter()

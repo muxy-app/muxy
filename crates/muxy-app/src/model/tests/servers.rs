@@ -138,6 +138,7 @@ fn attach_local_and_remote(
     for (server, pane) in [(ServerId::local(), local_pane), (remote, remote_pane)] {
         model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
         let attached = Update::Attached {
+            sandbox: None,
             pane,
             session,
             attachment: attachment(),
@@ -245,6 +246,7 @@ fn show_local_and_remote(
     cx.simulate_resize(size(px(1000.0), px(600.0)));
     let scene = view.update(cx, |model, cx| {
         let sessions = vec![SessionInfo {
+            sandbox: None,
             project: local_home,
             id: session,
             directory: ServerPath(b"/tmp".to_vec()),

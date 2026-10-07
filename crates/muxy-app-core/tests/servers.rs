@@ -401,6 +401,7 @@ fn restoring_and_ending_all_stay_on_one_server() -> TestResult {
     state.set_pane_session(remote_pane, Some(one))?;
     let fresh = state.split_pane(remote_pane, muxy_app_core::Direction::Down)?;
     let live = SessionInfo {
+        sandbox: None,
         id: one,
         project: home,
         directory: ServerPath(b"/".into()),

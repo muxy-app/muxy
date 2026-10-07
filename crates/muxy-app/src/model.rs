@@ -891,6 +891,67 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn new_sandboxed_tab(
+        &mut self,
+        network: Option<muxy_protocol::SandboxNetwork>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.quitting != Quitting::Idle {
+            return;
+        }
+        let project = self.state.current_project();
+        if !project.server_id.is_local() || project.home {
+            self.fail(
+                tr!("Choose a local project folder for a sandboxed terminal").to_string(),
+                cx,
+            );
+            return;
+        }
+        let Some(settings) = self
+            .server_preferences
+            .document
+            .as_ref()
+            .and_then(|settings| settings.sandbox.as_ref())
+        else {
+            self.fail(
+                tr!("Configure Sandboxed terminals in Server settings first").to_string(),
+                cx,
+            );
+            return;
+        };
+        let mut spec = muxy_protocol::SandboxSpec {
+            workspace: muxy_protocol::ServerPath(
+                project.directory.as_os_str().as_encoded_bytes().to_vec(),
+            ),
+            policy: settings.policy.clone(),
+        };
+        if let Some(network) = network {
+            spec.policy.network = network;
+        }
+        if spec.validate().is_err() {
+            self.fail(
+                tr!("Configure valid sandbox paths and approved domains in Server settings first")
+                    .to_string(),
+                cx,
+            );
+            return;
+        }
+        let project_id = project.id;
+        match self.state.open_terminal_tab(project_id) {
+            Ok(_) => {
+                if let Some(pane) = self.active_pane() {
+                    let _ = self.state.set_sandbox(pane, Some(spec));
+                }
+                self.changed(cx);
+                let server = ServerId::local();
+                if self.connection(server) == ConnectionState::Disconnected {
+                    self.connect_server(server, cx);
+                }
+            }
+            Err(error) => self.fail(error.to_string(), cx),
+        }
+    }
+
     pub(crate) fn select_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
         if self.active_tab() == Some(tab) {
             return;
@@ -1648,6 +1709,7 @@ impl AppModel {
         if server.is_local() {
             self.restore_quick_terminal(sessions, cx);
         }
+        self.state.sync_sandboxes(server, sessions);
         let plan = restore::plan(&self.state, server, sessions);
         let active = self.active_pane();
         for (pane, _) in plan.close {
@@ -1775,6 +1837,7 @@ impl AppModel {
         self.send(
             server,
             Work::Attach {
+                sandbox: self.state.sandbox(pane).cloned(),
                 pane,
                 project: project_id,
                 session: self.pane_session(pane),
@@ -2028,11 +2091,15 @@ impl AppModel {
                 }
             }
             Update::Attached {
+                sandbox,
                 pane,
                 session,
                 attachment,
                 created,
             } => {
+                if self.state.pane_server(pane) == Some(server) {
+                    let _ = self.state.set_sandbox(pane, sandbox);
+                }
                 self.receive_attached(server, pane, session, attachment, created, cx);
             }
             Update::AttachFailed {
@@ -2794,6 +2861,7 @@ mod tests {
                     ServerId::local(),
                     1,
                     Update::Attached {
+                        sandbox: None,
                         pane,
                         session,
                         attachment: attachment(),
@@ -2853,6 +2921,7 @@ mod tests {
                     ServerId::local(),
                     1,
                     Update::Connected(vec![SessionInfo {
+                        sandbox: None,
                         project: ProjectId::from_u128(1),
                         id: session,
                         directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
@@ -2972,6 +3041,7 @@ mod tests {
                     ServerId::local(),
                     1,
                     Update::Connected(vec![SessionInfo {
+                        sandbox: None,
                         project: ProjectId::from_u128(1),
                         id: session,
                         directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
@@ -2985,6 +3055,7 @@ mod tests {
                     ServerId::local(),
                     1,
                     Update::Attached {
+                        sandbox: None,
                         pane,
                         session,
                         attachment: attachment(),
@@ -3058,6 +3129,7 @@ mod tests {
                     ServerId::local(),
                     1,
                     Update::Attached {
+                        sandbox: None,
                         pane,
                         session: SessionId::new(42).expect("session"),
                         attachment,
@@ -3159,6 +3231,7 @@ mod tests {
                         is_shell: true,
                     });
                     let attached = Update::Attached {
+                        sandbox: None,
                         pane,
                         session,
                         attachment,
@@ -3169,6 +3242,7 @@ mod tests {
                     model.connect(cx);
                 }
                 let connected = Update::Connected(vec![SessionInfo {
+                    sandbox: None,
                     project: ProjectId::from_u128(1),
                     id: session,
                     directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
@@ -3334,6 +3408,7 @@ mod tests {
             model.apply_restore(
                 ServerId::local(),
                 &[SessionInfo {
+                    sandbox: None,
                     project: home,
                     id: session,
                     directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
@@ -3460,6 +3535,7 @@ mod tests {
                     ServerId::local(),
                     2,
                     Update::Connected(vec![SessionInfo {
+                        sandbox: None,
                         project: ProjectId::from_u128(1),
                         id: session,
                         directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
@@ -3474,6 +3550,7 @@ mod tests {
                     ServerId::local(),
                     2,
                     Update::Attached {
+                        sandbox: None,
                         pane,
                         session,
                         attachment: attachment(),
@@ -3547,6 +3624,7 @@ mod tests {
                     ServerId::local(),
                     1,
                     Update::Attached {
+                        sandbox: None,
                         pane,
                         session,
                         attachment: attachment(),

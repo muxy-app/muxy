@@ -350,6 +350,14 @@ impl AppModel {
                 .window()
                 .active_pane
                 .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))?;
+            self.state.set_sandbox(
+                pane,
+                session
+                    .info
+                    .sandbox
+                    .as_ref()
+                    .map(|sandbox| sandbox.spec.clone()),
+            )?;
             self.state.set_pane_session(pane, Some(session.info.id))?;
             Ok(pane)
         });

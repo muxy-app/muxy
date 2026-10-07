@@ -25,6 +25,7 @@ pub(crate) fn spawn_shell(
     directory: &Path,
     size: PtySize,
     identity: (muxy_protocol::ServerIdentity, muxy_protocol::SessionId),
+    sandbox: Option<&muxy_protocol::SandboxInfo>,
 ) -> Result<Pty, ServerError> {
     if !directory.is_dir() {
         return Err(ServerError::new(
@@ -33,6 +34,7 @@ pub(crate) fn spawn_shell(
         ));
     }
     let mut request = SpawnRequest {
+        clear_env: false,
         program: resolve_shell(settings),
         args: vec![OsString::from(LOGIN_FLAG)],
         cwd: directory.to_path_buf(),
@@ -44,6 +46,9 @@ pub(crate) fn spawn_shell(
         OsString::from("SHELL"),
         request.program.clone().into_os_string(),
     ));
+    if let Some(sandbox) = sandbox {
+        return crate::sandbox::spawn(request, settings, sandbox);
+    }
     if let Some(integration) = integration {
         integration.configure(&mut request, settings.shell_integration);
     }

@@ -132,6 +132,7 @@ impl<'a> Tui<'a> {
         ];
         args.extend(arguments.iter().map(Into::into));
         let pty = Pty::spawn(SpawnRequest {
+            clear_env: false,
             program: "/bin/sh".into(),
             args,
             cwd: fixture.directory.path().to_owned(),

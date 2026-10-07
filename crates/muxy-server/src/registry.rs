@@ -390,12 +390,15 @@ impl Registry {
         self
     }
 
-    pub fn write_settings(&self, settings: ServerSettings) -> Result<(), ServerError> {
+    pub fn write_settings(&self, mut settings: ServerSettings) -> Result<(), ServerError> {
         settings.validate()?;
         let _write = self
             .settings_write
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        if settings.sandbox.is_none() {
+            settings.sandbox = self.settings().sandbox;
+        }
         (self.persist.0)(&settings).map_err(|error| {
             ServerError::new(
                 ErrorCode::BadRequest,
@@ -452,15 +455,36 @@ impl Registry {
         colors: Option<TerminalColors>,
         requester: Option<&crate::connection::Outbox>,
     ) -> Result<SessionInfo, ServerError> {
+        self.create_with_sandbox(project, operation, directory, size, colors, requester, None)
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::too_many_lines,
+        reason = "Session creation carries the existing request and its enforced sandbox policy"
+    )]
+    pub(crate) fn create_with_sandbox(
+        &self,
+        project: muxy_protocol::ProjectId,
+        operation: muxy_protocol::OperationId,
+        directory: &Path,
+        size: Size,
+        colors: Option<TerminalColors>,
+        requester: Option<&crate::connection::Outbox>,
+        sandbox: Option<muxy_protocol::SandboxSpec>,
+    ) -> Result<SessionInfo, ServerError> {
+        let sandbox = sandbox.map(crate::sandbox::info).transpose()?;
         let _operation = self.session_operation();
         let directory_bytes = session_directory(directory)?;
         self.git
             .operations
             .check_session(Path::new(std::ffi::OsStr::from_bytes(&directory_bytes.0)))?;
-        if let Some(info) = self
-            .catalog
-            .creation(operation, project, &directory_bytes)?
-        {
+        if let Some(info) = self.catalog.creation(
+            operation,
+            project,
+            &directory_bytes,
+            sandbox.as_ref().map(|info| &info.spec),
+        )? {
             self.attach_creator(info.id, requester);
             return Ok(info);
         }
@@ -472,6 +496,7 @@ impl Registry {
         })?;
         let id = self.reserve_start()?;
         let info = SessionInfo {
+            sandbox,
             id,
             project,
             directory: directory_bytes,
@@ -494,6 +519,7 @@ impl Registry {
             directory,
             size.into(),
             (self.catalog.identity(), id),
+            info.sandbox.as_ref(),
         )
         .and_then(|pty| {
             session::start(

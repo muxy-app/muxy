@@ -3,6 +3,7 @@ use muxy_protocol::{ErrorCode, ServerPath, ServerSettingsDoc};
 #[test]
 fn server_configuration_has_bounded_budget_and_lossless_absolute_shell_paths() {
     let mut settings = ServerSettingsDoc {
+        sandbox: None,
         default_shell: None,
         history_budget_bytes: 0,
         shell_integration: true,

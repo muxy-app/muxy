@@ -12,6 +12,9 @@ the apps.
 
 ## Sessions
 
+Local macOS sessions can start as [sandboxed terminals](./sandbox.md), with a
+workspace boundary, approved tools and a fixed network policy.
+
 A session is one terminal. It belongs to the project it was created in; its
 current folder never changes that.
 

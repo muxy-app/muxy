@@ -650,6 +650,7 @@ fn settings_persist_and_protocol_stop_gracefully_ends_sessions_before_restart() 
     let mut client = Client::new(&fixture.socket())?;
     let session = client.create(&fixture.directory)?;
     let settings = muxy_protocol::ServerSettingsDoc {
+        sandbox: None,
         default_shell: Some(ServerPath(b"/bin/bash".to_vec())),
         history_budget_bytes: 8 * 1024 * 1024,
         shell_integration: false,

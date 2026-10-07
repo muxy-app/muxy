@@ -192,6 +192,7 @@ impl State {
                 id,
                 Membership {
                     info: SessionInfo {
+                        sandbox: None,
                         id,
                         project,
                         directory,

@@ -23,6 +23,7 @@ pub(super) fn permit(device: bool, body: &RequestBody) -> Result<(), ServerError
         | RequestBody::StopServer
         | RequestBody::StopServerIfIdle
         | RequestBody::WriteServerSettings(_)
+        | RequestBody::CreateSandboxedSession { .. }
         | RequestBody::Exec(_)
         | RequestBody::CancelExec(_)
         | RequestBody::IdentifyClient(ClientKind::Desktop | ClientKind::Tui | ClientKind::Cli) => {

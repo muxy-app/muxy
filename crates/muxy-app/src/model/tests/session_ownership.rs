@@ -4,6 +4,7 @@ use muxy_protocol::{ProjectSession, ProjectSessions, SessionStatus};
 fn session(project: ProjectId, id: u64) -> ProjectSession {
     ProjectSession {
         info: SessionInfo {
+            sandbox: None,
             id: SessionId::new(id).expect("session"),
             project,
             directory: muxy_protocol::ServerPath(b"/tmp/muxy".to_vec()),

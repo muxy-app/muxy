@@ -56,6 +56,7 @@ mod tests {
                 .reserve(
                     OperationId::new(),
                     &SessionInfo {
+                        sandbox: None,
                         id,
                         project: catalog.home(),
                         directory: ServerPath(b"/tmp".to_vec()),

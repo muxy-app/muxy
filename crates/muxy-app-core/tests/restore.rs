@@ -58,6 +58,7 @@ fn mixed_restore_identifies_dead_panes_without_mutating_selection() -> TestResul
         &state,
         ServerId::local(),
         &[SessionInfo {
+            sandbox: None,
             project: state.home().id,
             id: live,
             directory: ServerPath(b"/tmp".to_vec()),
@@ -81,6 +82,7 @@ fn mixed_restore_identifies_dead_panes_without_mutating_selection() -> TestResul
 fn empty_restore_does_not_create_a_tab_or_adopt_an_unreferenced_session() -> TestResult {
     let state = AppState::bootstrap()?;
     let live = SessionInfo {
+        sandbox: None,
         project: state.home().id,
         id: SessionId::new(1).ok_or("zero ID")?,
         directory: ServerPath(b"/tmp".to_vec()),
@@ -112,6 +114,7 @@ fn restore_covers_hidden_projects_without_creating_tabs_for_empty_projects() -> 
         &loaded,
         ServerId::local(),
         &[SessionInfo {
+            sandbox: None,
             project: loaded.projects()[1].id,
             id: live,
             directory: ServerPath(b"/tmp".to_vec()),

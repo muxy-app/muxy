@@ -129,6 +129,7 @@ fn restore_accounts_for_each_leaf_even_when_zoomed() -> Result {
         &state,
         ServerId::local(),
         &[SessionInfo {
+            sandbox: None,
             project: state.home().id,
             id: live,
             directory: ServerPath(b"/tmp".to_vec()),

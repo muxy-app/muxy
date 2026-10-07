@@ -17,6 +17,7 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
     }
     let mut items = vec![
         Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
+        sandbox_item(project),
         Item::action(tr!("Existing Terminals…"), Command::ExistingSessions(id)),
         Item::action(tr!("Apply Layout…"), Command::ProjectLayouts(id)),
         Item::action(tr!("Rename…"), Command::EditProject(id, Field::Name)).separated(),
@@ -118,6 +119,7 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
     }
     let mut items = vec![
         Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
+        sandbox_item(project),
         Item::action(tr!("Existing Terminals…"), Command::ExistingSessions(id)),
         Item::action(tr!("Apply Layout…"), Command::ProjectLayouts(id)),
     ];
@@ -303,4 +305,30 @@ async fn prompt(
     } else {
         ConfirmationResponse::Cancelled
     })
+}
+
+fn sandbox_item(project: &Project) -> Item {
+    let id = project.id;
+    let item = Item::submenu(
+        tr!("New Sandboxed Terminal"),
+        vec![
+            Item::action(
+                tr!("Use Sandbox Settings"),
+                Command::NewSandboxedTab(id, None),
+            ),
+            Item::action(
+                tr!("Network Blocked"),
+                Command::NewSandboxedTab(id, Some(muxy_protocol::SandboxNetwork::Blocked)),
+            ),
+            Item::action(
+                tr!("Approved Domains"),
+                Command::NewSandboxedTab(id, Some(muxy_protocol::SandboxNetwork::Domains)),
+            ),
+        ],
+    );
+    if project.home || !project.server_id.is_local() {
+        item.disabled()
+    } else {
+        item
+    }
 }

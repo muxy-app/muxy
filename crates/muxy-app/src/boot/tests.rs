@@ -251,6 +251,7 @@ fn attachment_update(channel: ChannelId) -> Result<Update, Box<dyn Error + Send 
         })
         .ok_or("missing attachment sample")?;
     Ok(Update::Attached {
+        sandbox: None,
         pane: PaneId::new(),
         session: SessionId::from(std::num::NonZeroU64::MIN),
         attachment: Attachment {

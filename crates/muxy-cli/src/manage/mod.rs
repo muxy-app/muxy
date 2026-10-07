@@ -170,6 +170,45 @@ fn set_setting(client: &Client, key: &str, value: &str) -> Result {
         }
         "history-budget-bytes" => settings.history_budget_bytes = value.parse()?,
         "shell-integration" => settings.shell_integration = value.parse()?,
+        key @ ("sandbox-executable"
+        | "sandbox-network"
+        | "sandbox-domains"
+        | "sandbox-tools"
+        | "sandbox-environment") => {
+            let sandbox = settings.sandbox.get_or_insert_with(Default::default);
+            let values = |separator| {
+                value
+                    .split(separator)
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            };
+            match key {
+                "sandbox-executable" => sandbox.executable = Some(server_path(Path::new(value))),
+                "sandbox-network" => {
+                    sandbox.policy.network =
+                        match value {
+                            "blocked" => muxy_protocol::SandboxNetwork::Blocked,
+                            "domains" => muxy_protocol::SandboxNetwork::Domains,
+                            "unrestricted" => return Err(
+                                "Unrestricted networking is unavailable with this sandbox backend"
+                                    .into(),
+                            ),
+                            _ => return Err("Use blocked or domains".into()),
+                        }
+                }
+                "sandbox-domains" => sandbox.policy.domains = values(','),
+                "sandbox-tools" => {
+                    sandbox.policy.read_paths = values(';')
+                        .iter()
+                        .map(|p| server_path(Path::new(p)))
+                        .collect();
+                }
+                "sandbox-environment" => sandbox.policy.environment = values(','),
+                _ => unreachable!(),
+            }
+        }
         _ => return Err("unknown server setting; run muxy settings --help".into()),
     }
     settings
@@ -185,6 +224,7 @@ fn settings(client: &Client) -> Result {
         "default_shell": settings.default_shell.as_ref().map(path_text),
         "history_budget_bytes": settings.history_budget_bytes,
         "shell_integration": settings.shell_integration,
+        "sandbox": settings.sandbox,
     }))
 }
 

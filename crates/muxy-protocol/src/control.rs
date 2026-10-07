@@ -175,6 +175,19 @@ pub enum RequestBody {
     /// A piece of a file to keep on the server's computer for a session.
     #[n(43)]
     Upload(#[n(0)] crate::UploadChunk),
+    #[n(44)]
+    CreateSandboxedSession {
+        #[n(0)]
+        project: crate::ProjectId,
+        #[n(1)]
+        operation: crate::OperationId,
+        #[n(2)]
+        directory: ServerPath,
+        #[n(3)]
+        size: Size,
+        #[n(4)]
+        sandbox: crate::SandboxSpec,
+    },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -328,10 +341,16 @@ pub struct ServerSettingsDoc {
     pub history_budget_bytes: u64,
     #[n(2)]
     pub shell_integration: bool,
+    #[serde(default)]
+    #[n(3)]
+    pub sandbox: Option<crate::SandboxSettings>,
 }
 
 impl ServerSettingsDoc {
     pub fn validate(&self) -> Result<(), ErrorCode> {
+        if let Some(sandbox) = &self.sandbox {
+            sandbox.validate()?;
+        }
         if self.history_budget_bytes > 64 * 1024 * 1024 * 1024 {
             return Err(ErrorCode::BadRequest);
         }

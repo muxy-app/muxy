@@ -419,6 +419,21 @@ fn ordered_request(
             ReplyBody::RemoteAccess(registry.revoke_device(device)?)
         }
         RequestBody::ListSessions => ReplyBody::Sessions(registry.list()),
+        RequestBody::CreateSandboxedSession {
+            project,
+            operation,
+            directory,
+            size,
+            sandbox,
+        } => ReplyBody::SessionCreated(registry.create_with_sandbox(
+            project,
+            operation,
+            Path::new(OsStr::from_bytes(&directory.0)),
+            size,
+            outbox.colors(),
+            Some(outbox),
+            Some(sandbox),
+        )?),
         RequestBody::CreateSession {
             project,
             operation,

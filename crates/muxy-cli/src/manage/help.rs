@@ -54,7 +54,7 @@ Add creates a distinct project even when its directory is already registered.
 Text list columns: id, name, directory (tab-separated).";
 pub(crate) const SESSION: &str = "Usage: muxy session <action> [--json]
   list [--project PROJECT] [--all]  Live sessions; --all includes saved/ended ones
-  create <project> [--directory PATH] [--cols N] [--rows N]
+  create <project> [--sandbox] [--directory PATH] [--cols N] [--rows N]
   send <id> <text>                 Send literal text without pressing Return
   send-keys <id> <key>             Enter, Tab, Escape, Backspace, Ctrl+C/D/Z
   read-screen <id> [--lines N] [--saved]
@@ -80,7 +80,11 @@ pub(crate) const WORKTREE: &str = "Usage: muxy worktree <action> [--json]
 Create defaults to a new branch from HEAD. Register adds an existing Git worktree.
 Remove deletes the worktree directory and its project, ending its terminals.
 The server checks the removal snapshot before deleting. List returns JSON.";
-const SETTINGS: &str = "Usage: muxy settings get [--json]
+const SETTINGS: &str = "Sandbox settings: sandbox-executable, sandbox-network (blocked or domains),
+sandbox-domains (comma separated), sandbox-tools (semicolon separated),
+sandbox-environment (comma separated names).
+
+Usage: muxy settings get [--json]
        muxy settings set <key> <value> [--json]
 Keys: default-shell (absolute path or 'default'), history-budget-bytes (integer),
       shell-integration (true/false). Get returns JSON; paths are UTF-8 strings.";

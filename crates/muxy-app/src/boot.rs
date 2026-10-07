@@ -316,6 +316,7 @@ pub(crate) enum Work {
         replace: bool,
     },
     Attach {
+        sandbox: Option<muxy_protocol::SandboxSpec>,
         pane: PaneId,
         project: muxy_protocol::ProjectId,
         session: Option<SessionId>,
@@ -466,6 +467,7 @@ pub(crate) enum Update {
     /// Why connecting failed, and for another computer, the kind of failure.
     ConnectFailed(String, Option<muxy_client::RemoteReason>),
     Attached {
+        sandbox: Option<muxy_protocol::SandboxSpec>,
         pane: PaneId,
         session: SessionId,
         attachment: Attachment,
@@ -1024,13 +1026,16 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return Some(search(client, pane, source, request));
         }
         Work::Attach {
+            sandbox,
             pane,
             project,
             session,
             directory,
             size,
         } => {
-            return Some(attach(client, pane, project, session, &directory, size));
+            return Some(attach(
+                client, pane, project, session, &directory, size, sandbox,
+            ));
         }
         Work::ReadSaved { pane, session } => {
             return Some(Update::Saved {
@@ -1201,27 +1206,36 @@ fn attach(
     existing: Option<SessionId>,
     directory: &std::path::Path,
     size: Size,
+    sandbox: Option<muxy_protocol::SandboxSpec>,
 ) -> Update {
-    let session = match existing.map_or_else(
-        || {
-            client
-                .create_project_session(project, pane.creation_token(), directory, size)
-                .map(|info| info.id)
-        },
-        Ok,
-    ) {
-        Ok(session) => session,
-        Err(error) => {
-            return Update::AttachFailed {
-                pane,
-                session: None,
-                created: false,
-                error,
-            };
+    let (session, sandbox) = if let Some(session) = existing {
+        (session, sandbox)
+    } else {
+        let result = match sandbox {
+            Some(sandbox) => client.create_sandboxed_session(
+                project,
+                pane.creation_token(),
+                directory,
+                size,
+                sandbox,
+            ),
+            None => client.create_project_session(project, pane.creation_token(), directory, size),
+        };
+        match result {
+            Ok(info) => (info.id, info.sandbox.map(|sandbox| sandbox.spec)),
+            Err(error) => {
+                return Update::AttachFailed {
+                    pane,
+                    session: None,
+                    created: false,
+                    error,
+                };
+            }
         }
     };
     match client.attach(session, size) {
         Ok(attachment) => Update::Attached {
+            sandbox,
             pane,
             session,
             attachment,

@@ -142,6 +142,7 @@ fn option_word_motion_edits_the_line_in_clean_zsh_and_bash()
         ),
     ] {
         let mut pty = Pty::spawn(SpawnRequest {
+            clear_env: false,
             program: shell.into(),
             args: args.into_iter().map(Into::into).collect(),
             cwd: std::env::temp_dir(),

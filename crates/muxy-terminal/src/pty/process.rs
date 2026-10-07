@@ -40,6 +40,7 @@ impl From<PtySize> for portable_pty::PtySize {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SpawnRequest {
+    pub clear_env: bool,
     pub program: PathBuf,
     pub args: Vec<OsString>,
     pub cwd: PathBuf,
@@ -68,6 +69,13 @@ pub struct Pty {
     child: Child,
     child_pid: u32,
     master_fd: RawFd,
+    monitor: Option<Box<dyn ProcessMonitor>>,
+}
+
+pub trait ProcessMonitor: Send {
+    fn shell_pid(&self) -> u32;
+    fn foreground_pid(&self) -> Option<u32>;
+    fn terminate(&mut self);
 }
 
 impl Pty {
@@ -80,6 +88,9 @@ impl Pty {
             .ok_or_else(|| PtyError::wrap(PtyStep::Open, "master side has no file descriptor"))?;
 
         let mut command = CommandBuilder::new(request.program);
+        if request.clear_env {
+            command.env_clear();
+        }
         command.args(request.args);
         command.cwd(request.cwd);
         for (key, value) in request.env {
@@ -104,6 +115,7 @@ impl Pty {
             child: *child,
             child_pid,
             master_fd,
+            monitor: None,
         })
     }
 
@@ -147,7 +159,20 @@ impl Pty {
     }
 
     pub fn kill(&mut self) -> Result<(), PtyError> {
+        if let Some(monitor) = &mut self.monitor {
+            monitor.terminate();
+        }
         ChildKiller::kill(&mut self.child).map_err(|error| PtyError::new(PtyStep::Kill, error))
+    }
+
+    pub fn set_monitor(&mut self, monitor: Box<dyn ProcessMonitor>) {
+        self.monitor = Some(monitor);
+    }
+
+    pub fn shell_pid(&self) -> u32 {
+        self.monitor
+            .as_ref()
+            .map_or(self.child_pid, |monitor| monitor.shell_pid())
     }
 
     pub fn child_pid(&self) -> u32 {
@@ -155,6 +180,9 @@ impl Pty {
     }
 
     pub fn foreground_pid(&self) -> Option<u32> {
+        if let Some(monitor) = &self.monitor {
+            return monitor.foreground_pid();
+        }
         self.master
             .process_group_leader()
             .and_then(|pid| u32::try_from(pid).ok())
@@ -162,6 +190,14 @@ impl Pty {
 
     pub fn master_fd(&self) -> RawFd {
         self.master_fd
+    }
+}
+
+impl Drop for Pty {
+    fn drop(&mut self) {
+        if let Some(monitor) = &mut self.monitor {
+            monitor.terminate();
+        }
     }
 }
 

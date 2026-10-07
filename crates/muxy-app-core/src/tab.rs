@@ -146,6 +146,7 @@ impl Tab {
 
     pub(crate) fn with_content(content: PaneContent, title: &str) -> Self {
         let pane = Pane {
+            sandbox: None,
             id: PaneId::new(),
             title: title.into(),
             content,

@@ -23,6 +23,7 @@ impl Catalog {
         operation: OperationId,
         project: ProjectId,
         directory: &muxy_protocol::ServerPath,
+        sandbox: Option<&muxy_protocol::SandboxSpec>,
     ) -> Result<Option<SessionInfo>, ServerError> {
         let (cancelled, creation) = {
             let state = self.lock();
@@ -40,7 +41,10 @@ impl Catalog {
         let Some(creation) = creation else {
             return Ok(None);
         };
-        if creation.info.project != project || creation.info.directory != *directory {
+        if creation.info.project != project
+            || creation.info.directory != *directory
+            || creation.info.sandbox.as_ref().map(|info| &info.spec) != sandbox
+        {
             return Err(bad(
                 "session operation token reused with different arguments",
             ));
@@ -232,5 +236,47 @@ impl Catalog {
             sessions,
             next,
         })
+    }
+}
+
+#[cfg(test)]
+mod sandbox_tests {
+    use super::*;
+
+    #[test]
+    fn a_creation_token_cannot_change_its_sandbox() -> Result<(), Box<dyn std::error::Error>> {
+        let catalog = Catalog::memory();
+        let operation = OperationId::new();
+        let spec = muxy_protocol::SandboxSpec {
+            workspace: muxy_protocol::ServerPath(b"/workspace".to_vec()),
+            policy: muxy_protocol::SandboxPolicy::default(),
+        };
+        let info = SessionInfo {
+            id: SessionId::new(10).ok_or("session ID")?,
+            project: catalog.home(),
+            directory: spec.workspace.clone(),
+            sandbox: Some(muxy_protocol::SandboxInfo {
+                spec: spec.clone(),
+                backend_version: "0.79.0".into(),
+            }),
+        };
+        catalog.reserve(operation, &info)?;
+        assert_eq!(
+            catalog.creation(operation, info.project, &info.directory, Some(&spec))?,
+            Some(info.clone())
+        );
+        assert!(
+            catalog
+                .creation(operation, info.project, &info.directory, None)
+                .is_err()
+        );
+        let mut changed = spec;
+        changed.policy.environment.push("EXAMPLE_API_KEY".into());
+        assert!(
+            catalog
+                .creation(operation, info.project, &info.directory, Some(&changed))
+                .is_err()
+        );
+        Ok(())
     }
 }

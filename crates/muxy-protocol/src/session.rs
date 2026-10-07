@@ -51,6 +51,9 @@ pub struct SessionInfo {
     pub id: SessionId,
     #[n(2)]
     pub directory: ServerPath,
+    #[serde(default)]
+    #[n(3)]
+    pub sandbox: Option<crate::SandboxInfo>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

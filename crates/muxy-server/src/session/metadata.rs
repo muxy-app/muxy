@@ -42,7 +42,7 @@ impl Metadata {
         if self.next_agent <= std::time::Instant::now() || self.agent_group != group {
             self.next_agent = std::time::Instant::now() + std::time::Duration::from_millis(500);
             self.agent_group = group;
-            let session_shell = group == Some(pty.child_pid())
+            let session_shell = group == Some(pty.shell_pid())
                 && member.as_ref().is_some_and(|(_, name)| {
                     matches!(
                         name.trim_start_matches('-'),
@@ -60,7 +60,7 @@ impl Metadata {
                 name: member
                     .as_ref()
                     .map_or_else(String::new, |(_, name)| name.clone()),
-                is_shell: group == pty.child_pid(),
+                is_shell: group == pty.shell_pid(),
             };
             if self.process.as_ref() != Some(&process) {
                 events.push(MetadataEvent::ForegroundProcess {

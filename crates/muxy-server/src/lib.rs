@@ -8,6 +8,7 @@ pub mod connection;
 mod error;
 mod exec;
 mod registry;
+mod sandbox;
 mod search;
 mod session;
 mod settings;

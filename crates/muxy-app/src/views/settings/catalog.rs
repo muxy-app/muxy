@@ -438,6 +438,49 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Sessions"),
     },
     Setting {
+        id: "sandbox-executable",
+        label: tr_key!("Sandbox: nono executable"),
+        description: tr_key!(
+            "Absolute path to the supported nono executable. Sandboxed terminals are experimental."
+        ),
+        category: Category::Server,
+        section: tr_key!("Sandboxed terminals"),
+    },
+    Setting {
+        id: "sandbox-network",
+        label: tr_key!("Sandbox network: blocked or domains"),
+        description: tr_key!(
+            "Choose blocked networking or an approved domain list. Changes apply to new terminals."
+        ),
+        category: Category::Server,
+        section: tr_key!("Sandboxed terminals"),
+    },
+    Setting {
+        id: "sandbox-domains",
+        label: tr_key!("Sandbox approved domains (comma separated)"),
+        description: tr_key!("Exact hostnames the terminal may reach through its network proxy."),
+        category: Category::Server,
+        section: tr_key!("Sandboxed terminals"),
+    },
+    Setting {
+        id: "sandbox-tools",
+        label: tr_key!("Sandbox read-only tool paths (semicolon separated)"),
+        description: tr_key!(
+            "Approve specific tool installations and runtime files outside the workspace."
+        ),
+        category: Category::Server,
+        section: tr_key!("Sandboxed terminals"),
+    },
+    Setting {
+        id: "sandbox-environment",
+        label: tr_key!("Sandbox approved environment names (comma separated)"),
+        description: tr_key!(
+            "Explicitly forward selected variables from the server. Values are not saved in settings."
+        ),
+        category: Category::Server,
+        section: tr_key!("Sandboxed terminals"),
+    },
+    Setting {
         id: "Stop Server",
         label: tr_key!("Stop Server"),
         description: tr_key!(

@@ -29,9 +29,14 @@ pub const SUPPORTED: &[Version] = &[CURRENT];
 pub struct Feature(#[n(0)] pub u16);
 
 impl Feature {
+    pub const SANDBOXED_TERMINALS: Self = Self(2);
     /// Server-side key encoding, paste framing, focus reports and ordered screen clearing.
     pub const TERMINAL_INPUT: Self = Self(1);
 }
 
 /// Features this build's server supports.
-pub const FEATURES: &[Feature] = &[Feature::TERMINAL_INPUT];
+pub const FEATURES: &[Feature] = if cfg!(target_os = "macos") {
+    &[Feature::TERMINAL_INPUT, Feature::SANDBOXED_TERMINALS]
+} else {
+    &[Feature::TERMINAL_INPUT]
+};

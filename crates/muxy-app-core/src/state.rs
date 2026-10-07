@@ -172,6 +172,7 @@ impl AppState {
     pub fn ensure_quick_terminal(&mut self) -> PaneId {
         self.quick_terminal
             .get_or_insert_with(|| Pane {
+                sandbox: None,
                 id: PaneId::new(),
                 title: "Quick Terminal".into(),
                 content: PaneContent::Terminal { session: None },
@@ -657,9 +658,56 @@ impl AppState {
         Ok(())
     }
 
+    pub fn sync_sandboxes(&mut self, server: ServerId, sessions: &[muxy_protocol::SessionInfo]) {
+        for project in self
+            .projects
+            .iter_mut()
+            .filter(|project| project.server_id == server)
+        {
+            for pane in project.tabs.iter_mut().flat_map(|tab| &mut tab.panes) {
+                if let PaneContent::Terminal { session: Some(id) } = pane.content
+                    && let Some(info) = sessions
+                        .iter()
+                        .find(|info| info.id == id && info.project == project.id)
+                {
+                    pane.sandbox = info.sandbox.as_ref().map(|sandbox| sandbox.spec.clone());
+                }
+            }
+        }
+    }
+
+    pub fn sandbox(&self, pane: PaneId) -> Option<&muxy_protocol::SandboxSpec> {
+        self.projects
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .find(|candidate| candidate.id == pane)
+            .and_then(|pane| pane.sandbox.as_ref())
+    }
+
+    pub fn set_sandbox(
+        &mut self,
+        pane: PaneId,
+        sandbox: Option<muxy_protocol::SandboxSpec>,
+    ) -> Result<(), AppError> {
+        let tab = self.pane_tab_mut(pane)?;
+        let target = tab
+            .panes
+            .iter_mut()
+            .find(|target| target.id == pane)
+            .ok_or(AppError::UnknownPane(pane))?;
+        target.sandbox = sandbox;
+        Ok(())
+    }
+
     pub fn split_pane(&mut self, pane: PaneId, edge: Direction) -> Result<PaneId, AppError> {
         let tab = self.pane_tab_mut(pane)?;
         let new = Pane {
+            sandbox: tab
+                .panes
+                .iter()
+                .find(|source| source.id == pane)
+                .and_then(|source| source.sandbox.clone()),
             id: PaneId::new(),
             title: "Terminal".into(),
             content: PaneContent::Terminal { session: None },

@@ -129,6 +129,7 @@ fn foreign_session_membership_is_never_inferred_from_directory() -> Result {
         &state,
         ServerId::local(),
         &[muxy_protocol::SessionInfo {
+            sandbox: None,
             id: session,
             project: ProjectId::new(),
             directory: ServerPath(b"/tmp".into()),

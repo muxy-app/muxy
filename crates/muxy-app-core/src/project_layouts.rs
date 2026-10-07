@@ -236,6 +236,7 @@ impl Terminal {
             })
             .unwrap_or("Terminal");
         Pane {
+            sandbox: None,
             id,
             title: title.into(),
             content: PaneContent::Terminal { session: None },

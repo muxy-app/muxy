@@ -5,9 +5,10 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, HitboxBehavior, Hsla,
+    AnyElement, AppContext, Bounds, Context, CursorStyle, DispatchPhase, HitboxBehavior, Hsla,
     InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Point, SharedString, Styled, canvas, div, point, px, relative,
+    Pixels, Point, SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px,
+    relative,
 };
 use muxy_app_core::{Axis, Branch, Layout, TabId};
 
@@ -389,5 +390,64 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
     let Some(pane) = model.grids.get(&id) else {
         return div().size_full().into_any_element();
     };
-    pane.element()
+    let Some(sandbox) = model.state.sandbox(id) else {
+        return pane.element();
+    };
+    let network = match sandbox.policy.network {
+        muxy_protocol::SandboxNetwork::Blocked => muxy_ui::tr!("Network blocked"),
+        muxy_protocol::SandboxNetwork::Domains => muxy_ui::tr!("Approved domains"),
+        _ => muxy_ui::tr!("Unknown network policy"),
+    };
+    let label = if model.pane_session(id).is_some() {
+        muxy_ui::tr!("Sandboxed")
+    } else {
+        muxy_ui::tr!("Sandbox requested")
+    };
+    let policy = sandbox.clone();
+    let theme = model.theme.clone();
+    let metrics = model.metrics;
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .id(SharedString::from(format!("sandbox-{id}")))
+                .flex_none()
+                .px(px(8.0))
+                .py(px(3.0))
+                .text_size(metrics.font_footnote())
+                .text_color(theme.fg_muted)
+                .bg(theme.bg)
+                .child(format!("{label} · {network}"))
+                .tooltip(move |_, cx| {
+                    let tools = policy
+                        .policy
+                        .read_paths
+                        .iter()
+                        .map(|p| String::from_utf8_lossy(&p.0))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let details = muxy_ui::tr!(
+                        "Workspace: %@\nRead-only: system runtime%@%@\nConfigured domains: %@\nForwarded environment: %@",
+                        String::from_utf8_lossy(&policy.workspace.0),
+                        if tools.is_empty() { "" } else { "\n" },
+                        tools,
+                        policy.policy.domains.join(", "),
+                        policy.policy.environment.join(", ")
+                    ).to_string();
+                    cx.new(|_| {
+                        muxy_ui::components::Tooltip::new(
+                            details,
+                            theme.raised(),
+                            theme.fg,
+                            theme.border,
+                            theme.bg,
+                        )
+                    })
+                    .into()
+                }),
+        )
+        .child(div().flex_1().min_h(px(0.0)).child(pane.element()))
+        .into_any_element()
 }

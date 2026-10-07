@@ -52,6 +52,10 @@ pub(crate) enum Command {
     Worktrees(muxy_app_core::ProjectId),
     NewWorktree(muxy_app_core::ProjectId),
     NewProjectTab(muxy_app_core::ProjectId),
+    NewSandboxedTab(
+        muxy_app_core::ProjectId,
+        Option<muxy_protocol::SandboxNetwork>,
+    ),
     RemoveWorktree(muxy_app_core::ProjectId),
     ExistingSessions(muxy_app_core::ProjectId),
     ProjectLayouts(muxy_app_core::ProjectId),
@@ -580,6 +584,11 @@ impl AppModel {
             Command::ExistingSessions(project) => {
                 self.open_session_picker(project, window, cx);
                 return;
+            }
+            Command::NewSandboxedTab(project, network) => {
+                if self.state.select_project(project).is_ok() {
+                    self.new_sandboxed_tab(network, cx);
+                }
             }
             Command::DetachTerminal(pane) => self.detach_terminal(pane, cx),
             Command::SplitPane(id, _)

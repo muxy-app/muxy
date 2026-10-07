@@ -77,6 +77,7 @@ pub(crate) enum Session {
         all: bool,
     },
     Create {
+        sandbox: bool,
         project: String,
         directory: Option<PathBuf>,
         size: Size,
@@ -148,7 +149,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
         }
         ("server", "stop") => (&[], &["--force"]),
         ("session", "list") => (&["--project"], &["--all"]),
-        ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
+        ("session", "create") => (&["--directory", "--cols", "--rows"], &["--sandbox"]),
         ("session", "read-screen") => (&["--lines"], &["--saved"]),
         ("session", "history") => (&["--before", "--limit"], &["--saved"]),
         ("session", "search") => (&["--before", "--limit"], &["--saved", "--ignore-case"]),
@@ -295,6 +296,7 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     if verb == "create" {
         o.count(1)?;
         return Ok(Session::Create {
+            sandbox: o.flag("--sandbox"),
             project: o.word(0)?.into(),
             directory: o.values.get("--directory").map(PathBuf::from),
             size: Size {

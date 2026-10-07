@@ -133,6 +133,7 @@ fn every_message_with_a_path_validates_it() {
         (ServerPath(Vec::new()), Err(ErrorCode::BadPath)),
     ] {
         let info = SessionInfo {
+            sandbox: None,
             project: muxy_protocol::ProjectId::from_u128(1),
             id: session_id(),
             directory: directory.clone(),
@@ -149,6 +150,7 @@ fn every_message_with_a_path_validates_it() {
             reply(ReplyBody::SessionCreated(info.clone())),
             reply(ReplyBody::Sessions(vec![
                 SessionInfo {
+                    sandbox: None,
                     project: muxy_protocol::ProjectId::from_u128(1),
                     id: session_id(),
                     directory: self::directory(),
@@ -479,6 +481,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::ClearScreen(_),
                 ..
             } => ("ClearScreen", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::CreateSandboxedSession { .. },
+                ..
+            } => ("CreateSandboxedSession", ChannelKind::Control),
             Message::Request { .. } => ("Request", ChannelKind::Control),
             Message::FrameAck { .. } => ("FrameAck", ChannelKind::Control),
             Message::HelloReply { .. } => ("HelloReply", ChannelKind::Control),
@@ -619,6 +625,7 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "ServerStopping",
             "Hello",
             "ServerRestarting",
+            "CreateSandboxedSession",
             "Request",
             "SearchRequest",
             "SavedSearchRequest",

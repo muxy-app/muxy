@@ -40,6 +40,7 @@ fn attached_composer(
                 ServerId::local(),
                 1,
                 Update::Attached {
+                    sandbox: None,
                     pane,
                     session,
                     attachment: attachment(),
@@ -142,6 +143,7 @@ fn composer_broadcast_deduplicates_sessions_and_retains_partial_failure(cx: &mut
                     ServerId::local(),
                     1,
                     Update::Attached {
+                        sandbox: None,
                         pane,
                         session: model.pane_session(pane).expect("session"),
                         attachment,

@@ -769,3 +769,44 @@ fn asynchronous_session_presence_includes_saved_history_without_mutating_project
     assert!(!has_sessions()?);
     Ok(())
 }
+
+#[test]
+fn sandbox_creation_never_falls_back_on_an_older_server() -> TestResult {
+    let (socket, server) = UnixStream::pair()?;
+    let mut decoder = Decoder::new(server.try_clone()?);
+    let mut encoder = Encoder::new(server);
+    let fake = thread::spawn(move || -> Result<(), WireError> {
+        decoder.next()?;
+        encoder.send(
+            CONTROL,
+            &Message::HelloReply {
+                versions: muxy_protocol::SUPPORTED.to_vec(),
+                server: muxy_protocol::ServerInfo::current(),
+                features: Vec::new(),
+            },
+        )?;
+        assert!(
+            matches!(decoder.next(), Err(WireError::Closed)),
+            "client must not send a fallback request"
+        );
+        Ok(())
+    });
+    let client = Client::from_stream(Box::new(socket))?;
+    let result = client.create_sandboxed_session(
+        muxy_protocol::ProjectId::new(),
+        muxy_protocol::OperationId::new(),
+        std::path::Path::new("/work"),
+        SIZE,
+        muxy_protocol::SandboxSpec {
+            workspace: muxy_protocol::ServerPath(b"/work".to_vec()),
+            policy: muxy_protocol::SandboxPolicy::default(),
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported
+    ));
+    drop(client);
+    fake.join().map_err(|_| "fake server panicked")??;
+    Ok(())
+}

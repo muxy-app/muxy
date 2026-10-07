@@ -26,6 +26,7 @@ fn run() -> Result<ExitStatus, Box<dyn Error>> {
         return Err("usage: run <program> [args...]".into());
     };
     let request = SpawnRequest {
+        clear_env: false,
         program: PathBuf::from(program),
         args: args.collect(),
         cwd: env::current_dir()?,

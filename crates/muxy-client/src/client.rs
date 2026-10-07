@@ -183,6 +183,12 @@ impl Client {
         &self,
         settings: muxy_protocol::ServerSettingsDoc,
     ) -> Result<(), ClientError> {
+        if settings.sandbox.is_some() && !self.supports(Feature::SANDBOXED_TERMINALS) {
+            return Err(ClientError::Server(muxy_protocol::ErrorReply {
+                code: ErrorCode::Unsupported,
+                message: "This server does not support sandbox settings".into(),
+            }));
+        }
         match self.request(RequestBody::WriteServerSettings(settings))? {
             ReplyBody::ServerSettingsWritten => Ok(()),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),
@@ -259,6 +265,32 @@ impl Client {
     pub fn end_session(&self, id: SessionId) -> Result<(), ClientError> {
         match self.request(RequestBody::EndSession(id))? {
             ReplyBody::SessionEnded => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    pub fn create_sandboxed_session(
+        &self,
+        project: muxy_protocol::ProjectId,
+        operation: muxy_protocol::OperationId,
+        directory: &Path,
+        size: Size,
+        sandbox: muxy_protocol::SandboxSpec,
+    ) -> Result<SessionInfo, ClientError> {
+        if !self.supports(Feature::SANDBOXED_TERMINALS) {
+            return Err(ClientError::Server(muxy_protocol::ErrorReply {
+                code: ErrorCode::Unsupported,
+                message: "This server does not support sandboxed terminals".into(),
+            }));
+        }
+        match self.request(RequestBody::CreateSandboxedSession {
+            project,
+            operation,
+            directory: ServerPath(directory.as_os_str().as_bytes().to_vec()),
+            size,
+            sandbox,
+        })? {
+            ReplyBody::SessionCreated(info) => Ok(info),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),
         }
     }

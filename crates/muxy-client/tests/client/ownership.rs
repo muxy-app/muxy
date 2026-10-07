@@ -62,6 +62,7 @@ fn availability_search_skips_attached_pages_and_restarts_after_invalidation() ->
                     sessions: range
                         .map(|id| ProjectSession {
                             info: SessionInfo {
+                                sandbox: None,
                                 id: SessionId::new(id).expect("id"),
                                 project,
                                 directory: ServerPath(b"/tmp".to_vec()),

@@ -46,6 +46,7 @@ struct ServerSettings {
     default_shell: Option<PathBuf>,
     history_budget_bytes: u64,
     shell_integration: bool,
+    sandbox: Option<muxy_protocol::SandboxSettings>,
 }
 
 impl Default for ServerSettings {
@@ -54,6 +55,7 @@ impl Default for ServerSettings {
             default_shell: None,
             history_budget_bytes: 16 * 1024 * 1024,
             shell_integration: true,
+            sandbox: None,
         }
     }
 }
@@ -62,6 +64,7 @@ impl ServerSettings {
     fn document(&self) -> muxy_protocol::ServerSettingsDoc {
         use std::os::unix::ffi::OsStrExt;
         muxy_protocol::ServerSettingsDoc {
+            sandbox: self.sandbox.clone(),
             default_shell: self
                 .default_shell
                 .as_ref()

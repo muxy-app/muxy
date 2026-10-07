@@ -75,6 +75,10 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         let note = tr!("Load the current device's settings to edit them.");
         rows.push(pane.note(&note, false).into_any_element());
     }
+    rows.extend(sandbox_rows(pane));
+    if pane.matches(Category::Server, tr_key!("Sandboxed terminals")) {
+        rows.push(pane.note(&tr!("Sandboxed terminals are experimental. Settings apply to new terminals. Unrestricted networking is unavailable because it exposes host control sockets."), false).into_any_element());
+    }
     for (restart, label) in [
         (false, tr_key!("Stop Server")),
         (true, tr_key!("Restart Server")),
@@ -99,4 +103,33 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         }
     }
     rows
+}
+
+fn sandbox_rows(pane: &SettingsView) -> Vec<AnyElement> {
+    if pane.snapshot.server.is_none() {
+        return Vec::new();
+    }
+    [
+        ("sandbox-executable", tr_key!("Sandbox: nono executable")),
+        (
+            "sandbox-network",
+            tr_key!("Sandbox network: blocked or domains"),
+        ),
+        (
+            "sandbox-domains",
+            tr_key!("Sandbox approved domains (comma separated)"),
+        ),
+        (
+            "sandbox-tools",
+            tr_key!("Sandbox read-only tool paths (semicolon separated)"),
+        ),
+        (
+            "sandbox-environment",
+            tr_key!("Sandbox approved environment names (comma separated)"),
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, label)| pane.matches(Category::Server, label))
+    .map(|(id, label)| pane.row(id, label, pane.field(id)))
+    .collect()
 }

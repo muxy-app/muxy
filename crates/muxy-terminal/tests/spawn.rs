@@ -56,6 +56,7 @@ fn shell(script: &str) -> SpawnRequest {
 
 fn request(program: &str, args: &[&str]) -> SpawnRequest {
     SpawnRequest {
+        clear_env: false,
         program: PathBuf::from(program),
         args: args.iter().map(OsString::from).collect(),
         cwd: env::temp_dir(),

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default, deny_unknown_fields)]
 struct SettingsFile {
     default_shell: Option<PathBuf>,
+    sandbox: Option<muxy_protocol::SandboxSettings>,
     history_budget_bytes: u64,
     shell_integration: bool,
 }
@@ -19,6 +20,7 @@ impl Default for SettingsFile {
         let defaults = ServerSettings::default();
         Self {
             default_shell: defaults.default_shell,
+            sandbox: defaults.sandbox,
             shell_integration: defaults.shell_integration,
             history_budget_bytes: defaults.history_budget_bytes,
         }
@@ -54,6 +56,7 @@ pub(crate) fn load(path: &Path) -> io::Result<ServerSettings> {
     })?;
     let settings = ServerSettings {
         default_shell: settings.default_shell,
+        sandbox: settings.sandbox,
         shell_integration: settings.shell_integration,
         history_budget_bytes: settings.history_budget_bytes,
     };
@@ -71,6 +74,7 @@ pub(crate) fn save(path: &Path, settings: &ServerSettings) -> io::Result<()> {
     static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
     let source = toml::to_string_pretty(&SettingsFile {
         default_shell: settings.default_shell.clone(),
+        sandbox: settings.sandbox.clone(),
         history_budget_bytes: settings.history_budget_bytes,
         shell_integration: settings.shell_integration,
     })

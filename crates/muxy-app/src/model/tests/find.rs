@@ -114,6 +114,7 @@ fn find_searches_each_edit_immediately_ignores_case_and_keeps_input_out_of_the_s
                 ServerId::local(),
                 1,
                 Update::Attached {
+                    sandbox: None,
                     pane,
                     session: SessionId::new(42).expect("ID"),
                     attachment: attachment(),

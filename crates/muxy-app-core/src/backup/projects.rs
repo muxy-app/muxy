@@ -538,6 +538,7 @@ fn import_layout(
         return Ok(tab.map(|tab| {
             let id = PaneId::new();
             panes.push(Pane {
+                sandbox: None,
                 id,
                 title: tab["paneTitle"].as_str().unwrap_or("Terminal").into(),
                 content: PaneContent::Terminal { session: None },

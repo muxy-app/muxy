@@ -26,6 +26,7 @@ fn attach_panes(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppMode
                 ServerId::local(),
                 1,
                 Update::Attached {
+                    sandbox: None,
                     pane: *pane,
                     session: model.pane_session(*pane).expect("session"),
                     attachment,
@@ -238,6 +239,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
                     ServerId::local(),
                     1,
                     Update::Attached {
+                        sandbox: None,
                         pane: original,
                         session: SessionId::new(100).expect("session"),
                         attachment: data,
@@ -275,6 +277,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
                     ServerId::local(),
                     1,
                     Update::Attached {
+                        sandbox: None,
                         pane: new,
                         session: SessionId::new(101).expect("session"),
                         attachment: attachment(),

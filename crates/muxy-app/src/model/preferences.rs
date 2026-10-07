@@ -248,7 +248,17 @@ impl AppModel {
             self.preference_result(&id, result.err().as_deref(), cx);
         } else if matches!(
             &change,
-            Change::ShellIntegration(_) | Change::Field("default-shell" | "history-budget", _)
+            Change::ShellIntegration(_)
+                | Change::Field(
+                    "default-shell"
+                        | "history-budget"
+                        | "sandbox-executable"
+                        | "sandbox-network"
+                        | "sandbox-domains"
+                        | "sandbox-tools"
+                        | "sandbox-environment",
+                    _
+                )
         ) {
             if self.server_preferences.busy {
                 self.server_preferences
@@ -595,10 +605,59 @@ impl AppModel {
                     .checked_mul(1024 * 1024)
                     .ok_or_else(|| tr!("History budget is too large").to_string())?;
             }
+            Change::Field(
+                id @ ("sandbox-executable"
+                | "sandbox-network"
+                | "sandbox-domains"
+                | "sandbox-tools"
+                | "sandbox-environment"),
+                value,
+            ) => {
+                let sandbox = settings.sandbox.get_or_insert_with(Default::default);
+                let values = |separator| {
+                    value
+                        .split(separator)
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                };
+                match id {
+                    "sandbox-executable" => {
+                        sandbox.executable = (!value.trim().is_empty())
+                            .then(|| muxy_protocol::ServerPath(value.trim().as_bytes().to_vec()));
+                    }
+                    "sandbox-network" => {
+                        sandbox.policy.network = match value.trim() {
+                            "blocked" => muxy_protocol::SandboxNetwork::Blocked,
+                            "domains" => muxy_protocol::SandboxNetwork::Domains,
+                            "unrestricted" => return Err(tr!(
+                                "Unrestricted networking is unavailable with this sandbox backend"
+                            )
+                            .to_string()
+                            .into()),
+                            _ => {
+                                return Err(tr!("Use blocked or domains for sandbox networking")
+                                    .to_string()
+                                    .into());
+                            }
+                        }
+                    }
+                    "sandbox-domains" => sandbox.policy.domains = values(','),
+                    "sandbox-tools" => {
+                        sandbox.policy.read_paths = values(';')
+                            .into_iter()
+                            .map(|p| muxy_protocol::ServerPath(p.into_bytes()))
+                            .collect();
+                    }
+                    "sandbox-environment" => sandbox.policy.environment = values(','),
+                    _ => unreachable!(),
+                }
+            }
             _ => return Err(tr!("Unknown server setting").to_string().into()),
         }
         settings.validate().map_err(|_| {
-            tr!("Use an absolute shell path and a history budget between 0 and 65536 MiB")
+            tr!("Check sandbox paths, domain names and environment names; use an absolute shell path and a history budget between 0 and 65536 MiB")
                 .to_string()
         })?;
         self.server_preferences.busy =

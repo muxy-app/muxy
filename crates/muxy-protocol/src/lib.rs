@@ -15,6 +15,11 @@ pub use input::{KeyAction, KeyEvent, KeyModifiers, TerminalInput};
 mod message;
 mod path;
 mod samples;
+mod sandbox;
+pub use sandbox::{
+    SandboxInfo, SandboxNetwork, SandboxPolicy, SandboxSettings, SandboxSpec,
+    allowed_environment_name,
+};
 mod screen;
 mod session;
 mod validate;

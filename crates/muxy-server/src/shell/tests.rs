@@ -51,6 +51,7 @@ impl Shell {
         fs::create_dir_all(&home)?;
         let hooks = ShellIntegration::install(&directory.join("hooks"))?;
         let mut request = SpawnRequest {
+            clear_env: false,
             program: shell.into(),
             args: vec!["-l".into()],
             cwd: home.clone(),

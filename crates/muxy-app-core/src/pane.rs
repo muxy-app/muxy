@@ -8,6 +8,8 @@ pub struct Pane {
     pub id: PaneId,
     pub title: String,
     pub content: PaneContent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<muxy_protocol::SandboxSpec>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -172,9 +172,9 @@ fn switching_projects_detaches_and_reattaches_in_the_owning_directory(cx: &mut T
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        model.receive((ServerId::local(), 1, Update::Connected([first_session, second_session].map(|id| SessionInfo { project: ProjectId::from_u128(1),  id, directory: muxy_protocol::ServerPath(b"/tmp".to_vec()) }).to_vec())), cx);
+        model.receive((ServerId::local(), 1, Update::Connected([first_session, second_session].map(|id| SessionInfo { sandbox: None, project: ProjectId::from_u128(1),  id, directory: muxy_protocol::ServerPath(b"/tmp".to_vec()) }).to_vec())), cx);
         acknowledge_catalog(model, cx);
-        model.receive((ServerId::local(), 1, Update::Attached { pane: first_pane, session: first_session, attachment: attachment(), created: false }), cx);
+        model.receive((ServerId::local(), 1, Update::Attached { sandbox: None, pane: first_pane, session: first_session, attachment: attachment(), created: false }), cx);
         requests.try_iter().for_each(drop);
         model.select_project(second, cx);
         model.start_attach(second_pane, Size { cols: 80, rows: 24 }, cx);
@@ -213,7 +213,7 @@ fn hidden_restore_creates_in_each_project_and_removal_discards_late_creations(
         }
         model.remove_project_confirmed(first, cx);
         let session = SessionId::new(51).expect("session");
-        model.receive((ServerId::local(), 1, Update::Attached { pane: first_pane, session, attachment: attachment(), created: true }), cx);
+        model.receive((ServerId::local(), 1, Update::Attached { sandbox: None, pane: first_pane, session, attachment: attachment(), created: true }), cx);
         assert!(model.state.project(first).is_none());
         assert_eq!(model.state.pending_discards(ServerId::local()), [session]);
         assert!(requests.try_iter().any(|(_, work)| matches!(work, Work::Discard(id, _) if id == session)));
@@ -573,7 +573,7 @@ fn project_editor_and_color_shortcuts_apply_to_the_requested_project(cx: &mut Te
             model.open_menu(items, gpui::point(px(10.0), px(60.0)), window, cx);
         });
     });
-    cx.simulate_keystrokes("down down down down down down right down enter");
+    cx.simulate_keystrokes("down down down down down down down right down enter");
     cx.run_until_parked();
     assert_eq!(
         view.read_with(cx, |model, _| model
@@ -976,4 +976,41 @@ fn creating_a_project_folder_requires_the_explicit_create_confirmation(cx: &mut 
         assert!(model.overlay.is_none());
     });
     std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[gpui::test]
+fn creating_a_sandboxed_terminal_reconnects_a_stopped_server(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("project directory");
+    let mut state = AppState::bootstrap().expect("state");
+    let project = state
+        .add_project(ServerId::local(), root.path().to_path_buf())
+        .expect("project");
+    state.select_project(project).expect("select project");
+    let (boot, requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Disconnected;
+        model.server_preferences.document = Some(muxy_protocol::ServerSettingsDoc {
+            sandbox: Some(muxy_protocol::SandboxSettings {
+                executable: Some(muxy_protocol::ServerPath(b"/opt/nono".to_vec())),
+                ..Default::default()
+            }),
+            default_shell: None,
+            history_budget_bytes: 1024 * 1024,
+            shell_integration: true,
+        });
+        requests.try_iter().for_each(drop);
+        model.new_sandboxed_tab(None, cx);
+        let pane = model.active_pane().expect("sandboxed pane");
+        assert!(model.state.sandbox(pane).is_some());
+        assert_eq!(
+            model.connection(ServerId::local()),
+            ConnectionState::Connecting
+        );
+        assert!(
+            requests
+                .try_iter()
+                .any(|(_, work)| matches!(work, Work::Connect))
+        );
+    });
 }
