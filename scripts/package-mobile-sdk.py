@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a scripts/build-mobile-sdk.sh build as the mobile SDK files of a beta release."""
+"""Package a scripts/build-mobile-sdk.sh build as the mobile SDK files of a release."""
 
 import argparse
 import hashlib
@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import zipfile
 
-from beta_release import build_metadata, build_number
+from release import build_metadata, channel
 
 ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 
@@ -29,7 +29,7 @@ def contents(sdk):
 
 
 def package(version, sdk, output):
-    build_number(version)
+    channel(version)
     build = build_metadata()
     zips = contents(sdk)
     output.mkdir(parents=True, exist_ok=True)

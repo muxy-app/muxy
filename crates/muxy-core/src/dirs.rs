@@ -5,6 +5,8 @@ use std::io;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
 
+use crate::release::{Channel, Version};
+
 pub fn muxy_dir() -> io::Result<PathBuf> {
     let linux = cfg!(target_os = "linux");
     let directory = resolve_directory(
@@ -21,12 +23,19 @@ pub fn muxy_dir() -> io::Result<PathBuf> {
     Ok(directory)
 }
 
+/// Releases of each channel and local builds never share data. Stable is
+/// `Muxy 2` on macOS because 1.x keeps its data in `Muxy`.
 fn directory_name(version: &str, debug: bool, linux: bool) -> &'static str {
-    match (debug || version == "2.0.0-beta-0", linux) {
-        (true, false) => "Muxy Dev",
-        (false, false) => "Muxy Beta",
-        (true, true) => "muxy-dev",
-        (false, true) => "muxy-beta",
+    let channel = Version::parse(version)
+        .filter(|_| !debug)
+        .map(Version::channel);
+    match (channel, linux) {
+        (None, false) => "Muxy Dev",
+        (None, true) => "muxy-dev",
+        (Some(Channel::Beta), false) => "Muxy Beta",
+        (Some(Channel::Beta), true) => "muxy-beta",
+        (Some(Channel::Stable), false) => "Muxy 2",
+        (Some(Channel::Stable), true) => "muxy",
     }
 }
 
@@ -74,19 +83,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn development_builds_do_not_share_beta_data_on_either_platform() -> io::Result<()> {
+    fn channels_and_development_builds_do_not_share_data_on_either_platform() -> io::Result<()> {
         for linux in [false, true] {
-            for (version, debug, development) in [
-                ("2.0.0-beta-0", true, true),
-                ("2.0.0-beta-0", false, true),
-                ("2.0.0-beta-1001", true, true),
-                ("2.0.0-beta-1001", false, false),
+            for (version, debug, macos_name, linux_name) in [
+                ("2.0.0-beta-0", true, "Muxy Dev", "muxy-dev"),
+                ("2.0.0-beta-0", false, "Muxy Dev", "muxy-dev"),
+                ("2.0.0-beta.1001", true, "Muxy Dev", "muxy-dev"),
+                ("2.0.0-beta.1001", false, "Muxy Beta", "muxy-beta"),
+                ("2.0.0", true, "Muxy Dev", "muxy-dev"),
+                ("2.0.0", false, "Muxy 2", "muxy"),
             ] {
-                let expected = match (linux, development) {
-                    (false, true) => "Library/Application Support/Muxy Dev",
-                    (false, false) => "Library/Application Support/Muxy Beta",
-                    (true, true) => ".local/state/muxy-dev",
-                    (true, false) => ".local/state/muxy-beta",
+                let expected = if linux {
+                    format!(".local/state/{linux_name}")
+                } else {
+                    format!("Library/Application Support/{macos_name}")
                 };
                 assert_eq!(
                     resolve_directory(

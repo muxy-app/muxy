@@ -166,13 +166,7 @@ pub(crate) fn check_update(
 }
 
 pub(crate) fn newer_build(running: &str) -> bool {
-    match (
-        crate::updater::build_number(running),
-        crate::updater::build_number(env!("CARGO_PKG_VERSION")),
-    ) {
-        (Some(running), Some(installed)) => installed > running,
-        _ => false,
-    }
+    muxy_core::release::is_newer(env!("CARGO_PKG_VERSION"), running)
 }
 
 pub(crate) use muxy_client::local::lock_startup as lock_for_update;

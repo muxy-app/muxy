@@ -1,0 +1,164 @@
+name: Release
+
+# Promotes a published beta to a stable release: the latest GitHub release,
+# which Muxy 2 and Muxy 1.x both update to, and the Homebrew cask and formula.
+on:
+  workflow_dispatch:
+    inputs:
+      from_beta_tag:
+        description: "Beta tag to promote to stable (e.g. v2.0.0-beta.1150)"
+        required: true
+        type: string
+      version:
+        description: "Stable version to release (X.Y.Z)"
+        required: true
+        type: string
+      next_beta_version:
+        description: "Version that beta builds should target after this release (X.Y.Z) — written to BETA_VERSION"
+        required: true
+        type: string
+      draft:
+        description: "Create the GitHub release as a draft"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: muxy-stable-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'muxy-app/muxy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      source: ${{ steps.promote.outputs.source }}
+      build_number: ${{ steps.promote.outputs.build_number }}
+    steps:
+      - name: Release only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Error: run Release on main, not ${GITHUB_REF#refs/heads/}" >&2
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check the beta to promote
+        id: promote
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BETA_TAG: ${{ inputs.from_beta_tag }}
+          VERSION: ${{ inputs.version }}
+          NEXT: ${{ inputs.next_beta_version }}
+        run: |
+          python3 scripts/release.py promote "$BETA_TAG" "$VERSION" "$NEXT" >> "$GITHUB_OUTPUT"
+          SOURCE="$(git rev-parse --verify "refs/tags/$BETA_TAG^{commit}")"
+          if ! git merge-base --is-ancestor "$SOURCE" HEAD; then
+            echo "Error: $BETA_TAG is not on main" >&2
+            exit 1
+          fi
+          if [[ "$(gh release view "$BETA_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '.isPrerelease and (.isDraft | not)')" != true ]]; then
+            echo "Error: $BETA_TAG is not a published beta release" >&2
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/tags/v$VERSION" \
+            && [[ "$(git rev-parse "refs/tags/v$VERSION^{commit}")" != "$SOURCE" ]]; then
+            echo "Error: v$VERSION already points to a different commit" >&2
+            exit 1
+          fi
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    uses: ./.github/workflows/build-release.yml
+    with:
+      version: ${{ inputs.version }}
+      source: ${{ needs.prepare.outputs.source }}
+      build_number: ${{ needs.prepare.outputs.build_number }}
+    secrets: inherit
+
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: distribution-*
+          merge-multiple: true
+          path: artifacts
+      - name: Include the exact installer from the promoted beta
+        run: cp scripts/install-muxy.sh artifacts/install-muxy.sh
+      - name: Publish stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          BETA_TAG: ${{ inputs.from_beta_tag }}
+          DRAFT: ${{ inputs.draft }}
+        run: bash scripts/publish-release.sh "$VERSION" artifacts
+      - name: Notify Discord
+        if: ${{ !inputs.draft }}
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ inputs.version }}
+        run: |
+          if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
+            echo "DISCORD_WEBHOOK_URL not set, skipping Discord notification"
+            exit 0
+          fi
+          NOTES=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          if [[ ${#NOTES} -gt 3800 ]]; then
+            NOTES="${NOTES:0:3800}…"
+          fi
+          PAYLOAD=$(jq -n \
+            --arg title "Muxy $TAG released" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" \
+            --arg notes "$NOTES" \
+            '{username: "Muxy Releases", embeds: [{title: $title, url: $url, description: $notes,
+              color: 3066993, footer: {text: "Stable channel"}, timestamp: (now | todate)}]}')
+          curl -fsSL -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+
+  bump-beta-version:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GH_RELEASE_PAT }}
+      - name: Bump BETA_VERSION
+        env:
+          NEXT: ${{ inputs.next_beta_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "$NEXT" > BETA_VERSION
+          git add BETA_VERSION
+          if git diff --cached --quiet; then
+            echo "BETA_VERSION already at $NEXT, nothing to commit"
+            exit 0
+          fi
+          git commit -m "Bump BETA_VERSION to $NEXT"
+          git push origin main
+
+  update-homebrew-tap:
+    needs: release
+    if: ${{ !inputs.draft }}
+    uses: ./.github/workflows/update-homebrew-tap.yml
+    with:
+      tag: v${{ inputs.version }}
+    secrets: inherit

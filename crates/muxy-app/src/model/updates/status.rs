@@ -282,7 +282,7 @@ fn scheduled_details(sessions: usize) -> UpdateDetails {
 }
 
 fn version_transition(current: &str, target: &str) -> String {
-    if crate::updater::build_number(target) > crate::updater::build_number(current) {
+    if muxy_core::release::is_newer(target, current) {
         format!("{current} → {target}")
     } else {
         current.into()

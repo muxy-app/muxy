@@ -18,7 +18,8 @@ pub(super) fn replace_and_restart(
     if let Err(error) = restart() {
         replace(current, backup, next)?;
         return Err(tr!(
-            "Could not restart Muxy Beta; the previous app was restored: %@",
+            "Could not restart %@; the previous app was restored: %@",
+            muxy_core::release::Channel::current().app_name(),
             error.to_string()
         )
         .to_string()

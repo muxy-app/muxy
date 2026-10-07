@@ -6,7 +6,7 @@ export LC_ALL
 
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "Install $1 and retry."; }
-usage() { echo 'Usage: install-muxy.sh (--version 2.0.0-beta-N | --dev-archive < archive.tar.gz) [--install-dir PATH] [--replace]'; }
+usage() { echo 'Usage: install-muxy.sh (--version X.Y.Z[-beta.N] | --dev-archive < archive.tar.gz) [--install-dir PATH] [--replace]'; }
 VERSION=
 DEV_ARCHIVE=false
 DEST=${HOME:?HOME is required}/.local/bin
@@ -29,11 +29,13 @@ if [ "$DEV_ARCHIVE" = true ]; then
     FILES='muxy muxy-server'
     FILE_COUNT=2
 else
-    case "$VERSION" in
-        2.0.0-beta-*) COUNT=${VERSION#2.0.0-beta-} ;;
-        *) fail 'Specify an exact version with --version 2.0.0-beta-N.' ;;
-    esac
-    case "$COUNT" in ''|0*|*[!0-9]*) fail 'Invalid beta version.' ;; esac
+    # A stable X.Y.Z, or a beta X.Y.Z-beta.N where N is a commit count.
+    BASE=${VERSION%%-beta.*}
+    if [ "$BASE" != "$VERSION" ]; then
+        case "${VERSION#"$BASE"-beta.}" in ''|0*|*[!0-9]*) fail 'Invalid beta version.' ;; esac
+    fi
+    case "$BASE" in [0-9]*.[0-9]*.[0-9]*) ;; *) fail 'Specify an exact version with --version X.Y.Z or X.Y.Z-beta.N.' ;; esac
+    case "$BASE" in *[!0-9.]*|*..*|*.*.*.*) fail 'Invalid version.' ;; esac
     FILES='muxy muxy-server LICENSE'
     FILE_COUNT=3
     need curl

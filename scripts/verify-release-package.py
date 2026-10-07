@@ -17,6 +17,8 @@ import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'scripts'))
+from release import APPS, channel  # noqa: E402
 
 
 def run(*command, **kwargs):
@@ -44,7 +46,7 @@ def verify(args):
         for name in ('muxy', 'muxy-server'):
             binary = extracted / name
             binary.chmod(0o755)
-            run(sys.executable, ROOT / 'scripts/beta_release.py', 'check-build', args.version, binary)
+            run(sys.executable, ROOT / 'scripts/release.py', 'check-build', args.version, binary)
             if platform.system() == 'Darwin':
                 assert subprocess.check_output(['lipo', '-archs', binary], text=True).strip() == platform.machine()
                 run('codesign', '--verify', '--strict', binary)
@@ -57,7 +59,7 @@ def verify(args):
             mount = work / 'mounted'
             run('hdiutil', 'attach', args.dmg, '-nobrowse', '-readonly', '-mountpoint', mount)
             try:
-                app = mount / 'Muxy Beta.app'
+                app = mount / f'{APPS[channel(args.version)][0]}.app'
                 run('codesign', '--verify', '--deep', '--strict', app)
                 for name in ('muxy', 'muxy-server'):
                     assert (app / 'Contents/MacOS' / name).read_bytes() == (extracted / name).read_bytes()

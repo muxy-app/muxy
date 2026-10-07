@@ -96,14 +96,14 @@ def package_app(directory, binaries, version, identity):
     resources.mkdir()
     for name in (*BINARIES, "muxy-app"):
         shutil.copy2(binaries / name, executables / name)
-    beta = re.fullmatch(r"2\.0\.0-beta-(\d+)", version)
-    if not beta:
-        raise ValueError("Expected the checkout's version to be 2.0.0-beta-N.")
-    # Keep local beta-0 builds identifiable without stamping the source checkout.
-    from beta_release import bundle_info
-    info = bundle_info("2.0.0-beta-" + str(max(1, int(beta[1]))))
-    info.update(CFBundleVersion=beta[1], MuxyVersion=version,
-                CFBundleGetInfoString="Muxy Beta " + version)
+    from release import build_number, bundle_info
+    if version == "2.0.0-beta-0":
+        # Keep unstamped local builds identifiable without stamping the source checkout.
+        info = bundle_info("2.0.0-beta.1", "1")
+        info.update(CFBundleVersion="0", MuxyVersion=version,
+                    CFBundleGetInfoString="Muxy Beta " + version)
+    else:
+        info = bundle_info(version, build_number(version))
     (contents / "Info.plist").write_bytes(plistlib.dumps(info))
     (contents / "PkgInfo").write_bytes(b"APPL????")
     (resources / "LICENSE").write_bytes(b"\n".join((ROOT / path).read_bytes() for path in (

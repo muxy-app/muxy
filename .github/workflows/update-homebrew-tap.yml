@@ -1,0 +1,59 @@
+name: Update Homebrew Tap
+
+# Points the `muxy` cask (desktop app) and `muxy-cli` formula (CLI and
+# server) of muxy-app/homebrew-tap at a published stable release.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Stable release tag to publish to the tap (e.g. v2.0.0)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Stable release tag to publish to the tap (e.g. v2.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  update-homebrew-tap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the release checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          if [[ "$TAG" != "v$VERSION" || "$(python3 scripts/release.py channel "$VERSION")" != stable ]]; then
+            echo "Error: $TAG is not a stable vX.Y.Z tag" >&2
+            exit 1
+          fi
+          if [[ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" != false ]]; then
+            echo "Error: $TAG is not a published stable release" >&2
+            exit 1
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir release
+      - name: Update the cask and formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/muxy-app/homebrew-tap.git" tap
+          python3 scripts/homebrew.py "${TAG#v}" release/SHA256SUMS tap --repository "$GITHUB_REPOSITORY"
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/muxy.rb Formula/muxy-cli.rb
+          if git diff --cached --quiet; then
+            echo "Tap already at $TAG, nothing to commit"
+            exit 0
+          fi
+          git commit -m "Update Muxy to $TAG"
+          git push

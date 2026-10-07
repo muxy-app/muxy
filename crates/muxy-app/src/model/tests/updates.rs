@@ -149,7 +149,7 @@ fn incompatible_update_waits_and_can_be_cancelled_without_shutdown(cx: &mut Test
         )
         .expect("json");
         assert_eq!(record["scheduled"], true);
-        assert_eq!(record["version"], "2.0.0-beta-1234");
+        assert_eq!(record["version"], "2.0.0-beta.1234");
         assert!(model.quitting == Quitting::Idle);
     });
     assert!(

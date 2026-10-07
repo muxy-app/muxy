@@ -77,6 +77,7 @@ fn install() -> io::Result<PathBuf> {
 }
 
 fn bundled_target(executable: &Path) -> io::Result<PathBuf> {
+    let app_name = muxy_core::release::Channel::current().app_name();
     let bundle = executable
         .parent()
         .and_then(Path::parent)
@@ -84,8 +85,11 @@ fn bundled_target(executable: &Path) -> io::Result<PathBuf> {
         .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
         .ok_or_else(|| {
             io::Error::other(
-                tr!("Install and open Muxy Beta.app before installing its command line tool.")
-                    .to_string(),
+                tr!(
+                    "Install and open %@.app before installing its command line tool.",
+                    app_name
+                )
+                .to_string(),
             )
         })?;
     if executable.file_name().is_none_or(|name| name != "muxy-app")
@@ -107,7 +111,8 @@ fn bundled_target(executable: &Path) -> io::Result<PathBuf> {
     {
         return Err(io::Error::other(
             tr!(
-                "Move Muxy Beta.app to Applications and reopen it before installing its command line tool."
+                "Move %@.app to Applications and reopen it before installing its command line tool.",
+                app_name
             )
             .to_string(),
         ));
