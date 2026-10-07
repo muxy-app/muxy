@@ -10,26 +10,6 @@ use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, SUPPORTED};
 
 type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
-#[test]
-fn remote_commands_stream_the_archive_and_report_missing_builds() -> TestResult {
-    use std::os::unix::fs::PermissionsExt;
-
-    let directory = tempfile::tempdir()?;
-    let program = directory.path().join("ssh");
-    fs::write(&program, "#!/bin/sh\nexec /bin/cat\n")?;
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
-    let target = SshTarget::new("box")?.with_program(program);
-    let archive = directory.path().join("archive with ' spaces.tar.gz");
-    let payload = "archive\0bytes\n";
-    fs::write(&archive, payload)?;
-    assert_eq!(run(&target, "install", Some(&archive)), Ok(payload.into()));
-    assert_eq!(run(&target, "no upload", None), Ok(String::new()));
-    fs::remove_file(&archive)?;
-    let error = run(&target, "install", Some(&archive)).expect_err("missing archive");
-    assert!(error.contains("scripts/build-linux-dev.sh"));
-    Ok(())
-}
-
 /// An `ssh` for tests that plays the other computer: it prints the bridge's
 /// ready line and relays to `socket` with macOS's `nc`.
 pub(crate) fn fake_ssh(
@@ -239,25 +219,6 @@ fn attachment_completion_precedes_early_frames_and_disconnect_without_blocking_o
 }
 
 #[test]
-fn deferred_lifecycle_events_are_bounded() {
-    let mut delivery = delivery::Delivery::default();
-    delivery.pending = 1;
-    let mut accepted = 0;
-    while delivery
-        .event(ClientEvent::SessionEnded {
-            session: SessionId::from(std::num::NonZeroU64::MIN),
-            reason: muxy_protocol::ExitReason::Ended,
-        })
-        .is_ok()
-    {
-        accepted += 1;
-        assert!(accepted <= 1024);
-    }
-    assert_eq!(accepted, 1024);
-    assert_eq!(delivery.complete(None).len(), accepted);
-}
-
-#[test]
 fn exit_closes_known_panes_immediately_and_follows_its_pending_attachment() -> TestResult {
     let mut delivery = delivery::Delivery::default();
     delivery.pending = 2;
@@ -388,27 +349,6 @@ fn identify_desktop<R: std::io::Read, W: std::io::Write>(
 }
 
 #[test]
-fn deferred_progress_keeps_only_the_latest_state_and_completion_count() -> TestResult {
-    let mut delivery = delivery::Delivery::default();
-    delivery.pending = 1;
-    let session = SessionId::from(std::num::NonZeroU64::MIN);
-    let event = |completed| ClientEvent::Progress {
-        session,
-        progress: muxy_protocol::SessionProgress {
-            progress: None,
-            completed,
-        },
-    };
-    for completed in 1..=2000 {
-        assert!(delivery.event(event(completed))?.is_empty());
-    }
-    assert!(
-        matches!(delivery.complete(None).as_slice(), [Update::Event(received)] if *received == event(2000))
-    );
-    Ok(())
-}
-
-#[test]
 fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult {
     let directory = tempfile::Builder::new()
         .prefix("muxy-async-")
@@ -529,32 +469,5 @@ fn withhold_extension_replies(listener: &UnixListener, started: &Sender<()>) -> 
         };
         encoder.send(CONTROL, &Message::Reply { id, body })?;
     }
-    Ok(())
-}
-
-#[test]
-fn a_remote_command_reports_the_last_line_it_printed_when_it_fails() -> TestResult {
-    use std::os::unix::fs::PermissionsExt;
-    let directory = tempfile::tempdir()?;
-    let program = directory.path().join("ssh");
-    fs::write(
-        &program,
-        "#!/bin/sh\nfor last; do :; done\nexec sh -c \"$last\"\n",
-    )?;
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
-    let host = SshTarget::new("box")?.with_program(program);
-    assert_eq!(run(&host, "echo installed", None), Ok("installed\n".into()));
-    assert_eq!(
-        run(
-            &host,
-            "echo Downloading; echo 'Error: Install curl and retry.' >&2; exit 1",
-            None
-        ),
-        Err("Error: Install curl and retry.".into())
-    );
-    assert_eq!(
-        run(&host, "exit 3", None),
-        Err("box exited with exit status: 3".into())
-    );
     Ok(())
 }

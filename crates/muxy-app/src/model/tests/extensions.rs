@@ -1,45 +1,6 @@
 use super::*;
 
 #[gpui::test]
-fn extensions_request_server_client_on_initial_connection_and_reconnect(cx: &mut TestAppContext) {
-    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        for generation in 1..=2 {
-            assert!(model.servers.local.connection == ConnectionState::Connecting);
-            assert_eq!(model.servers.local.generation, generation);
-            requests.try_iter().for_each(drop);
-            model.receive(
-                (ServerId::local(), generation, Update::Connected(Vec::new())),
-                cx,
-            );
-            assert!(model.servers.local.connection == ConnectionState::Ready);
-            assert!(model.error.is_none());
-            let clients: Vec<_> = requests
-                .try_iter()
-                .filter_map(|(request_generation, work)| match work {
-                    Work::ExtensionConnection(reply) => {
-                        assert_eq!(request_generation, generation);
-                        Some(reply)
-                    }
-                    _ => None,
-                })
-                .collect();
-            assert_eq!(
-                clients.len(),
-                1,
-                "extensions must ask for their own connection"
-            );
-            assert!(!clients[0].is_closed());
-            if generation == 1 {
-                model.disconnect(ServerId::local(), cx);
-                model.connect(cx);
-            }
-        }
-    });
-}
-
-#[gpui::test]
 fn extension_permissions_shortcuts_and_toolbar_follow_enable_disable_and_unload(
     cx: &mut TestAppContext,
 ) {

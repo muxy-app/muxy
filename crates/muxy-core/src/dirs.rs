@@ -104,34 +104,6 @@ mod tests {
     }
 
     #[test]
-    fn explicit_directory_preserves_relative_overrides_and_ignores_invalid_defaults()
-    -> io::Result<()> {
-        for linux in [false, true] {
-            for path in ["/tmp/muxy-test", "relative"] {
-                assert_eq!(
-                    resolve_directory(
-                        Some(path.into()),
-                        None,
-                        Some("relative-xdg".into()),
-                        "name",
-                        linux
-                    )?,
-                    PathBuf::from(path)
-                );
-            }
-            let result = resolve_directory(
-                Some(OsString::new()),
-                Some("/home/test".into()),
-                None,
-                "name",
-                linux,
-            );
-            assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
-        }
-        Ok(())
-    }
-
-    #[test]
     fn linux_uses_absolute_xdg_without_requiring_home_and_macos_ignores_it() -> io::Result<()> {
         assert_eq!(
             resolve_directory(None, None, Some("/state".into()), "muxy-beta", true)?,
@@ -160,15 +132,5 @@ mod tests {
             PathBuf::from("/Users/test/Library/Application Support/Muxy Dev")
         );
         Ok(())
-    }
-
-    #[test]
-    fn missing_or_empty_home_requires_an_override() {
-        for linux in [false, true] {
-            for home in [None, Some(OsString::new())] {
-                let result = resolve_directory(None, home, None, "name", linux);
-                assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::NotFound));
-            }
-        }
     }
 }

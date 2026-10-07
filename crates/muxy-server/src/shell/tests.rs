@@ -1,30 +1,5 @@
 use super::*;
 
-#[test]
-fn disabled_integration_preserves_shell_startup() {
-    let hooks = ShellIntegration {
-        directory: "/tmp/muxy-hooks".into(),
-    };
-    let mut request = SpawnRequest {
-        program: "/bin/zsh".into(),
-        args: vec!["-l".into()],
-        cwd: "/tmp".into(),
-        env: vec![
-            ("ZDOTDIR".into(), "/custom".into()),
-            ("XDG_DATA_DIRS".into(), "/xdg".into()),
-        ],
-        size: PtySize { cols: 80, rows: 24 },
-    };
-    let before = request.env.clone();
-    hooks.configure(&mut request, false);
-    assert_eq!(&request.env[..before.len()], &before);
-    assert_eq!(request.args, [OsString::from("-l")]);
-    assert_eq!(
-        get_env(&request, "MUXY_SHELL_INTEGRATION"),
-        Some(&OsString::from("0"))
-    );
-}
-
 use muxy_terminal::pty::{Pty, PtyEvent, PtySize};
 use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};

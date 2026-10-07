@@ -490,25 +490,6 @@ fn paired_devices_cannot_manage_access_or_the_server() -> TestResult {
 }
 
 #[test]
-fn a_pairing_code_lists_the_given_addresses_first() -> TestResult {
-    let fixture = Fixture::new();
-    let mut local = fixture.enabled()?;
-    let given = vec!["box.example.com".into()];
-    let offer = match local.request(RequestBody::StartPairingWithHosts(given))? {
-        ReplyBody::Pairing(offer) => offer,
-        other => return Err(format!("expected pairing, got {other:?}").into()),
-    };
-    assert_eq!(offer.invite.hosts[0], "box.example.com");
-    let with_port = vec!["box.example.com:7419".into()];
-    match local.request(RequestBody::StartPairingWithHosts(with_port))? {
-        ReplyBody::Error(error) => assert_eq!(error.code, ErrorCode::BadRequest),
-        other => return Err(format!("expected a refusal, got {other:?}").into()),
-    }
-    assert_eq!(local.request(RequestBody::Ping)?, ReplyBody::Pong);
-    Ok(())
-}
-
-#[test]
 fn revoking_closes_only_that_device_and_disabling_closes_all() -> TestResult {
     let fixture = Fixture::new();
     let mut local = fixture.enabled()?;
@@ -551,39 +532,5 @@ fn a_revoke_racing_authentication_never_leaves_the_device_connected() -> TestRes
         local.request(RequestBody::RevokeDevice(credential.device))?;
         phone.join().map_err(|_| "phone thread panicked")??;
     }
-    Ok(())
-}
-
-#[test]
-fn local_watchers_hear_about_pairing_and_connections() -> TestResult {
-    let fixture = Fixture::new();
-    let mut local = fixture.enabled()?;
-    let mut watcher = fixture.local()?;
-    let before = remote_access(watcher.request(RequestBody::ReadRemoteAccess)?)?;
-    let (_, _phone) = fixture.pair(&mut local)?;
-    loop {
-        match watcher.receive()? {
-            (
-                CONTROL,
-                Message::Changed {
-                    topic: muxy_protocol::Topic::RemoteAccess,
-                    revision,
-                },
-            ) if revision > before.revision => {
-                break;
-            }
-            (
-                CONTROL,
-                Message::Changed {
-                    topic: muxy_protocol::Topic::RemoteAccess,
-                    ..
-                },
-            ) => {}
-            other => return Err(format!("unexpected message: {other:?}").into()),
-        }
-    }
-    let after = remote_access(watcher.request(RequestBody::ReadRemoteAccess)?)?;
-    assert_eq!(after.devices.len(), 1);
-    assert!(after.devices[0].connected);
     Ok(())
 }

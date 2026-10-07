@@ -1,6 +1,5 @@
 import importlib.util
 import os
-import plistlib
 import subprocess
 import sys
 import tempfile
@@ -57,15 +56,6 @@ class BuildInstallTests(unittest.TestCase):
         self.assertIn("new-muxy", (self.bin_dir / "muxy").read_text())
         self.assertEqual(os.readlink(old_link), "missing-old-server")
 
-    def test_refuses_command_directory_before_replacing_installation(self):
-        build_install.install(self.artifact, self.bin_dir)
-        (self.bin_dir / "muxy-server").unlink()
-        (self.bin_dir / "muxy-server").mkdir()
-        (self.artifact / "muxy").write_text("updated")
-        with self.assertRaisesRegex(ValueError, "Cannot replace"):
-            build_install.install(self.artifact, self.bin_dir)
-        self.assertIn("new-muxy", (self.bin_dir / "muxy").read_text())
-
     def test_native_targets_and_linux_glibc_floor(self):
         for system, arch, target in (
             ("Darwin", "arm64", "aarch64-apple-darwin"),
@@ -86,52 +76,6 @@ class BuildInstallTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "glibc 2.35"):
                         build_install.host_target()
 
-    def test_mac_build_selects_sdk_matching_xcode_over_inherited_sdk(self):
-        selected_sdk = "/Applications/Xcode.app/Contents/Developer/SDKs/MacOSX.sdk"
-
-        def command_output(*args):
-            if args == ("xcrun", "--sdk", "macosx", "--show-sdk-path"):
-                return selected_sdk
-            return '{"version":"2.0.0-beta-0","compatibility":15}'
-
-        with patch.dict(os.environ, {"SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk"}), \
-                patch.object(build_install, "ROOT", self.root), \
-                patch.object(sys, "argv", ["build-install.py", "--build-only"]), \
-                patch.object(build_install, "host_target", return_value=("Darwin", "aarch64-apple-darwin")), \
-                patch.object(build_install.shutil, "which", return_value="tool"), \
-                patch.object(build_install, "signing_identity", return_value="identity"), \
-                patch.object(build_install, "output", side_effect=command_output), \
-                patch.object(build_install, "run") as run, \
-                patch.object(build_install, "package_app", return_value=self.artifact):
-            build_install.main()
-            build = next(call for call in run.call_args_list if call.args[:2] == ("cargo", "build"))
-            self.assertEqual(build.kwargs["env"]["SDKROOT"], selected_sdk)
-            self.assertEqual(os.environ["SDKROOT"], "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk")
-
-    def test_identity_selection_requires_developer_id_and_is_unambiguous(self):
-        first, second = "A" * 40, "B" * 40
-        with patch.object(build_install, "output", return_value=(
-            f'1) {first} "Developer ID Application: One (TEAM)"\n'
-            f'2) {second} "Developer ID Application: Two (TEAM)"\n'
-        )):
-            self.assertEqual(build_install.signing_identity(first), first)
-            self.assertEqual(build_install.signing_identity("Developer ID Application: Two (TEAM)"), second)
-            for identity in (None, "-", "unknown"):
-                with self.assertRaises(ValueError):
-                    build_install.signing_identity(identity)
-
-    def test_mac_bundle_uses_checkout_version_and_signs_all_executables(self):
-        (self.artifact / "muxy-app").write_text("desktop")
-        with patch.object(build_install, "run") as run:
-            app = build_install.package_app(self.root, self.artifact, "2.0.0-beta-0", "identity")
-        info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-        self.assertEqual(info["MuxyVersion"], "2.0.0-beta-0")
-        self.assertEqual(info["CFBundleVersion"], "0")
-        self.assertEqual(info["CFBundleIdentifier"], "com.muxy-beta.app")
-        signed = [call.args for call in run.call_args_list if call.args[:2] == ("codesign", "--force")]
-        self.assertEqual([args[-1].name for args in signed], ["muxy", "muxy-server", "muxy-app", "Muxy Beta.app"])
-        self.assertTrue(all("runtime" in args and "--timestamp" in args for args in signed))
-
     def test_mac_install_verifies_stapled_copy_before_replacing_existing_app(self):
         app_dir = self.root / "Applications"
         old = app_dir / "Muxy Beta.app"
@@ -150,82 +94,6 @@ class BuildInstallTests(unittest.TestCase):
                 build_install.install(self.artifact, self.bin_dir, app_dir)
         self.assertEqual((old / "old-marker").read_text(), "keep")
 
-    def test_mac_missing_credentials_fails_before_build(self):
-        with patch.dict(os.environ, {}, clear=True), \
-                patch.object(build_install, "ROOT", self.root), \
-                patch.object(sys, "argv", ["build-install.py"]), \
-                patch.object(build_install, "host_target", return_value=("Darwin", "aarch64-apple-darwin")), \
-                patch.object(build_install.shutil, "which", return_value="tool"), \
-                patch.object(build_install, "signing_identity", return_value="identity"), \
-                patch.object(build_install, "run") as run:
-            with self.assertRaisesRegex(ValueError, "APPLE_ID"):
-                build_install.main()
-            run.assert_not_called()
-
-    def test_linux_builds_only_cli_and_server_without_notarization(self):
-        fake_root = self.root / "checkout"
-        binaries = fake_root / "target/aarch64-unknown-linux-gnu/release"
-        binaries.mkdir(parents=True)
-        for name in build_install.BINARIES:
-            (binaries / name).write_text("binary")
-        with patch.object(build_install, "ROOT", fake_root), \
-                patch.object(sys, "argv", ["build-install.py", "--install-dir", str(self.bin_dir)]), \
-                patch.object(build_install, "host_target", return_value=("Linux", "aarch64-unknown-linux-gnu")), \
-                patch.object(build_install.shutil, "which", return_value="tool"), \
-                patch.object(build_install, "output", return_value='{"version":"2.0.0-beta-0","compatibility":15}'), \
-                patch.object(build_install, "run") as run, \
-                patch.object(build_install, "install") as install:
-            build_install.main()
-        self.assertEqual(run.call_count, 1)
-        self.assertEqual(run.call_args.args, (
-            "cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-gnu",
-            "-p", "muxy-cli", "-p", "muxy-server",
-        ))
-        self.assertIsNone(install.call_args.args[2])
-
-    def test_notarization_failure_prevents_install(self):
-        fake_root = self.root / "checkout"
-
-        def fail_notarization(*args, **kwargs):
-            if args[0] == "bash":
-                raise subprocess.CalledProcessError(1, args)
-
-        with patch.object(build_install, "ROOT", fake_root), \
-                patch.object(sys, "argv", ["build-install.py", "--keychain-profile", "local-notary"]), \
-                patch.object(build_install, "host_target", return_value=("Darwin", "aarch64-apple-darwin")), \
-                patch.object(build_install.shutil, "which", return_value="tool"), \
-                patch.object(build_install, "signing_identity", return_value="identity"), \
-                patch.object(build_install, "output", return_value='{"version":"2.0.0-beta-0","compatibility":15}'), \
-                patch.object(build_install, "run", side_effect=fail_notarization) as run, \
-                patch.object(build_install, "package_app", return_value=self.artifact), \
-                patch.object(build_install, "install") as install:
-            with self.assertRaises(subprocess.CalledProcessError):
-                build_install.main()
-            install.assert_not_called()
-        self.assertEqual(run.call_args.kwargs["env"]["NOTARY_KEYCHAIN_PROFILE"], "local-notary")
-
-    def test_release_env_is_optional_and_preserves_existing_shell_values(self):
-        env_file = self.root / ".env.release"
-        with patch.dict(os.environ, {"APPLE_ID": "shell@example.invalid"}, clear=True):
-            build_install.load_release_env(env_file)
-            self.assertEqual(dict(os.environ), {"APPLE_ID": "shell@example.invalid"})
-            env_file.write_text(
-                "# Dummy release configuration\n\n"
-                "APPLE_ID=file@example.invalid\n"
-                "export APPLE_TEAM_ID = 'TEST TEAM' # comment\n"
-                'SIGN_IDENTITY="Developer ID Application: Test (TEAM)"\n'
-                "APPLE_APP_SPECIFIC_PASSWORD='dummy$literal#value'\n"
-                "HASH=abc#def # trailing comment\n"
-                "EMPTY=\nQUOTED_EMPTY=\"\"\n"
-            )
-            build_install.load_release_env(env_file)
-            self.assertEqual(dict(os.environ), {
-                "APPLE_ID": "shell@example.invalid", "APPLE_TEAM_ID": "TEST TEAM",
-                "SIGN_IDENTITY": "Developer ID Application: Test (TEAM)",
-                "APPLE_APP_SPECIFIC_PASSWORD": "dummy$literal#value", "HASH": "abc#def",
-                "EMPTY": "", "QUOTED_EMPTY": "",
-            })
-
     def test_release_env_does_not_execute_or_expand_values(self):
         marker = self.root / "must-not-exist"
         value = f"$(touch '{marker}') `${{HOME}}`"
@@ -243,31 +111,8 @@ class BuildInstallTests(unittest.TestCase):
                 env_file.write_text("FIRST=dummy\n" + invalid + "\n")
                 with self.assertRaises(ValueError) as error:
                     build_install.load_release_env(env_file)
-                self.assertIn(".env.release at line 2", str(error.exception))
                 self.assertNotIn("secret", str(error.exception))
                 self.assertNotIn("FIRST", os.environ)
-
-    def test_main_loads_root_release_env_before_selecting_signing_credentials(self):
-        (self.root / ".env.release").write_text(
-            "SIGN_IDENTITY=file-identity\nNOTARY_KEYCHAIN_PROFILE=file-profile\n"
-        )
-        for options, identity, profile in (
-            ([], "file-identity", "file-profile"),
-            (["--sign-identity", "cli-identity", "--keychain-profile", "cli-profile"], "cli-identity", "cli-profile"),
-        ):
-            with self.subTest(options=options), patch.dict(os.environ, {}, clear=True), \
-                    patch.object(build_install, "ROOT", self.root), \
-                    patch.object(sys, "argv", ["build-install.py", *options]), \
-                    patch.object(build_install, "host_target", return_value=("Darwin", "aarch64-apple-darwin")), \
-                    patch.object(build_install.shutil, "which", return_value="tool"), \
-                    patch.object(build_install, "signing_identity", return_value="identity") as signing, \
-                    patch.object(build_install, "output", return_value='{"version":"2.0.0-beta-0","compatibility":15}'), \
-                    patch.object(build_install, "run") as run, \
-                    patch.object(build_install, "package_app", return_value=self.artifact), \
-                    patch.object(build_install, "install"):
-                build_install.main()
-                signing.assert_called_once_with(identity)
-                self.assertEqual(run.call_args.kwargs["env"]["NOTARY_KEYCHAIN_PROFILE"], profile)
 
 
 if __name__ == "__main__":

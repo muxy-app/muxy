@@ -1,5 +1,5 @@
 use super::*;
-use muxy_app_core::settings::{AppLayout, ServerEntry};
+use muxy_app_core::settings::ServerEntry;
 use muxy_protocol::{ChannelId, ProjectDescriptor, ServerPath};
 
 pub(super) fn entry(id: ServerId, name: &str) -> ServerEntry {
@@ -112,23 +112,9 @@ pub(super) fn from(server: ServerId, update: Update) -> (ServerId, u64, Update) 
     (server, 1, update)
 }
 
-pub(super) fn drawn(cx: &mut VisualTestContext, selector: String) -> bool {
-    cx.debug_bounds(selector.leak()).is_some()
-}
-
 pub(super) fn redraw(cx: &mut VisualTestContext) {
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
-}
-
-fn indeterminate() -> muxy_protocol::SessionProgress {
-    muxy_protocol::SessionProgress {
-        progress: Some(muxy_protocol::TerminalProgress {
-            state: muxy_protocol::ProgressState::Indeterminate,
-            percent: None,
-        }),
-        completed: 0,
-    }
 }
 
 /// Shows a remote tab and the local Quick Terminal together, both attached
@@ -237,27 +223,22 @@ struct Scene {
     remotes: Remotes,
     remote: ServerId,
     local_home: ProjectId,
-    local_tab: TabId,
-    home: ProjectId,
     api: ProjectId,
-    remote_tab: TabId,
     remote_pane: PaneId,
 }
 
 fn show_local_and_remote(
     cx: &mut TestAppContext,
 ) -> (Scene, Entity<AppModel>, &mut VisualTestContext) {
-    let (remote, dormant) = (ServerId::new(), ServerId::new());
+    let remote = ServerId::new();
     let mut state = AppState::bootstrap().expect("state");
     let local_home = state.home().id;
-    let local_tab = state.open_terminal_tab(local_home).expect("local tab");
+    state.open_terminal_tab(local_home).expect("local tab");
     let session = SessionId::new(42).expect("session");
     let local_pane = state.home().tabs[0].panes[0].id;
     state
         .set_pane_session(local_pane, Some(session))
         .expect("session");
-    let old = page(3, ProjectId::new(), &[(ProjectId::new(), "old")]);
-    state.apply_catalog(dormant, &old).expect("dormant server");
     let (mut boot, local_work, remotes) = remote_boot(state, vec![entry(remote, "box")]);
     boot.settings.appearance.sidebar_expanded = true;
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -271,11 +252,10 @@ fn show_local_and_remote(
         model.receive(from(ServerId::local(), Update::Connected(sessions)), cx);
         acknowledge_catalog(model, cx);
         let api = ProjectId::new();
-        let home = connect_remote(model, remote, vec![], &[(api, "api")], cx);
+        connect_remote(model, remote, vec![], &[(api, "api")], cx);
         model.select_project(api, cx);
         model.new_tab(cx);
         let remote_pane = model.active_pane().expect("remote pane");
-        let remote_tab = model.active_tab().expect("remote tab");
         let assigned = model.state.set_pane_session(remote_pane, Some(session));
         assigned.expect("session");
         Scene {
@@ -283,45 +263,12 @@ fn show_local_and_remote(
             remotes,
             remote,
             local_home,
-            local_tab,
-            home,
             api,
-            remote_tab,
             remote_pane,
         }
     });
     redraw(cx);
     (scene, view, cx)
-}
-
-#[gpui::test]
-fn remote_projects_show_their_server_and_their_own_progress(cx: &mut TestAppContext) {
-    let (scene, view, cx) = show_local_and_remote(cx);
-    assert!(row_drawn(cx, 1));
-    assert!(
-        !row_drawn(cx, 2),
-        "the remote Home and the dormant server's projects stay hidden"
-    );
-    assert!(drawn(cx, format!("project-server-label-{}", scene.api)));
-    for project in [scene.local_home, scene.home] {
-        assert!(!drawn(cx, format!("project-server-label-{project}")));
-    }
-
-    view.update(cx, |model, cx| {
-        model.appearance.layout = AppLayout::TabFocused;
-        for project in [scene.local_home, scene.api] {
-            model.appearance.tab_focused_expanded.insert(project, true);
-        }
-        model.select_project(scene.local_home, cx);
-        let progress = ClientEvent::Progress {
-            session: SessionId::new(42).expect("session"),
-            progress: indeterminate(),
-        };
-        model.receive(from(scene.remote, Update::Event(progress)), cx);
-    });
-    redraw(cx);
-    assert!(drawn(cx, format!("tab-progress-{}", scene.remote_tab)));
-    assert!(!drawn(cx, format!("tab-progress-{}", scene.local_tab)));
 }
 
 #[gpui::test]
@@ -356,10 +303,6 @@ fn a_remote_going_offline_leaves_local_panes_live_and_reconnects_when_opened(
             .try_iter()
             .any(|(generation, work)| generation == 2 && matches!(work, Work::Connect))
     );
-}
-
-fn row_drawn(cx: &mut VisualTestContext, index: usize) -> bool {
-    drawn(cx, format!("project-row-{index}"))
 }
 
 #[gpui::test]

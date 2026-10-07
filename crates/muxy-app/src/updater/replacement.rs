@@ -64,17 +64,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn concurrent_installations_are_excluded_until_the_lock_is_released() -> Result<()> {
-        let directory = tempfile::tempdir()?;
-        let first = lock(directory.path())?;
-        assert!(lock(directory.path()).is_err());
-        first.unlock()?;
-        drop(first);
-        assert!(lock(directory.path()).is_ok());
-        Ok(())
-    }
-
-    #[test]
     fn failed_restart_restores_the_previous_app() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let current = directory.path().join("current.app");

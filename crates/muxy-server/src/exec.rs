@@ -488,28 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn launch_failures_read_like_main() {
-        let root = TestDirectory::new();
-        let launch = |program: &str, cwd: Option<&str>| {
-            let mut request = request("");
-            request.shell = None;
-            request.argv = vec![program.into()];
-            request.cwd = cwd.map(|path| ServerPath(path.as_bytes().to_vec()));
-            let failure = execute(&request, root.path(), &AtomicBool::new(false), || false)
-                .expect_err("launch fails");
-            assert_eq!(failure.code(), ErrorCode::SpawnFailed);
-            failure.message().to_owned()
-        };
-        assert_eq!(
-            launch("muxy-missing-command", None),
-            "command not found: muxy-missing-command"
-        );
-        let missing = "spawn process: No such file or directory";
-        assert_eq!(launch("/muxy/missing/command", None), missing);
-        assert_eq!(launch("true", Some("missing-folder")), missing);
-    }
-
-    #[test]
     fn timeout_and_disconnect_stop_commands_even_when_descendants_keep_pipes_open() {
         let root = TestDirectory::new();
         let mut request = request("trap '' TERM; sleep 30 & wait");

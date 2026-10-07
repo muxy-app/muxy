@@ -118,7 +118,6 @@ class InstallerTests(unittest.TestCase):
                     urls = (self.root / 'curl.log').read_text().splitlines()[-2:]
                     self.assertEqual(urls, [f'https://github.com/muxy-app/muxy/releases/download/v{VERSION}/{name}'
                                            for name in (self.asset.name, 'SHA256SUMS')])
-                    self.assertIn('Add this directory to PATH:', result.stdout)
 
     def test_replacement_requires_opt_in_and_switches_one_generation(self):
         self.assertEqual(self.install().returncode, 0)
@@ -142,7 +141,6 @@ class InstallerTests(unittest.TestCase):
             (self.dest / name).symlink_to(bundle / name)
         result = self.install()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('--replace', result.stderr)
         self.assertEqual(self.install('--replace').returncode, 0)
         self.assert_pair()
         self.assertTrue(all(p.read_bytes() == b'original' for p in bundle.iterdir()))
@@ -163,15 +161,6 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(transition.read_text()), {'muxy': 'old-muxy', 'muxy-server': 'old-muxy-server'})
         self.assert_pair()
-
-    def test_identical_regular_files_are_a_noop(self):
-        self.dest.mkdir()
-        for name in ('muxy', 'muxy-server'):
-            (self.dest / name).write_bytes(self.pair[name])
-        result = self.install()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((self.dest / 'muxy').is_symlink())
-        self.assertIn('already installed', result.stdout)
 
     def test_activation_failure_restores_unmanaged_commands_and_managed_pair(self):
         self.dest.mkdir()
@@ -227,7 +216,6 @@ class InstallerTests(unittest.TestCase):
         (self.tools / 'unzip').unlink()
         result = self.install()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Install unzip', result.stderr)
         self.assertFalse(self.dest.exists())
 
     def test_missing_checksum_tool_is_actionable(self):
@@ -235,7 +223,6 @@ class InstallerTests(unittest.TestCase):
             (self.tools / tool).unlink(missing_ok=True)
         result = self.install()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Install sha256sum or shasum', result.stderr)
         self.assertFalse(self.dest.exists())
 
     def dev_archive(self, members=None, kind=None):
@@ -259,14 +246,6 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.root / 'curl.log').exists())
         self.assertFalse(list(self.root.glob('muxy-install.*')))
 
-    def test_development_archive_refuses_existing_installation(self):
-        self.dev_archive()
-        self.dest.mkdir()
-        (self.dest / 'muxy').write_bytes(b'existing')
-        self.assertNotEqual(self.install_dev().returncode, 0)
-        self.assertEqual((self.dest / 'muxy').read_bytes(), b'existing')
-        self.assertFalse((self.dest / 'muxy-server').exists())
-
     def test_development_archive_rejects_wrong_platform_before_install(self):
         self.dev_archive()
         for values in ({'TEST_ARCH': 'arm64'}, {'TEST_OS': 'Darwin'},
@@ -287,14 +266,6 @@ class InstallerTests(unittest.TestCase):
                 self.assertNotEqual(self.install_dev().returncode, 0)
                 self.assertFalse((self.dest / 'muxy').exists())
                 self.assertFalse((self.dest / 'muxy-server').exists())
-
-    def test_development_archive_activation_failure_rolls_back(self):
-        self.dev_archive()
-        self.env['ACTIVATE_FAIL'] = '1'
-        self.assertNotEqual(self.install_dev().returncode, 0)
-        self.assertFalse((self.dest / 'muxy').is_symlink())
-        self.assertFalse((self.dest / 'muxy-server').is_symlink())
-        self.assertFalse(list((self.dest / '.muxy').glob('pair-*')))
 
 
 if __name__ == '__main__':

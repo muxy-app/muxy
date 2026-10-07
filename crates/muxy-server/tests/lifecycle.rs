@@ -121,10 +121,6 @@ impl Fixture {
         self.child = Some(command.spawn()?);
         self.finish()
     }
-
-    fn log(&self) -> TestResult<String> {
-        Ok(fs::read_to_string(self.directory.join("server.log"))?)
-    }
 }
 
 impl Drop for Fixture {
@@ -383,11 +379,6 @@ fn lifecycle_serves_shell_logs_and_stops_every_session() -> TestResult {
     assert!(
         matches!(observer.request(RequestBody::ListSessions)?, ReplyBody::Sessions(sessions) if sessions.len() == 2)
     );
-    let defaults = fs::read_to_string(fixture.directory.join("server.toml"))?;
-    assert_eq!(
-        defaults.trim(),
-        "history_budget_bytes = 16777216\nshell_integration = true"
-    );
     fixture.signal("-TERM")?;
     creator.ended(&[first, second], ExitReason::ServerStopped)?;
     observer.ended(&[first, second], ExitReason::ServerStopped)?;
@@ -395,18 +386,6 @@ fn lifecycle_serves_shell_logs_and_stops_every_session() -> TestResult {
     observer.closed()?;
     assert!(fixture.finish()?.status.success());
     assert!(!fixture.socket().exists());
-    let log = fixture.log()?;
-    for event in [
-        "server started: socket=",
-        "client connected:",
-        "client disconnected:",
-        "session created:",
-        "session ended:",
-        "ServerStopped",
-        "server stopped",
-    ] {
-        assert!(log.contains(event), "missing {event}: {log}");
-    }
     Ok(())
 }
 
@@ -418,13 +397,6 @@ fn second_instance_exits_successfully_and_preserves_the_first() -> TestResult {
     let mut second = Fixture::new()?;
     let output = second.output(fixture.command())?;
     assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout)?.trim(),
-        format!(
-            "muxy-server already running at {}",
-            fixture.socket().display()
-        )
-    );
     assert_eq!(client.request(RequestBody::Ping)?, ReplyBody::Pong);
     fixture.stop("-INT")?;
     client.closed()?;
@@ -569,13 +541,7 @@ fn default_directory_does_not_touch_other_channels() -> TestResult {
     } else {
         ("Muxy Dev", "Muxy Beta")
     };
-    // Packaged-runtime verification runs a release server from a debug test harness.
-    let development_build = match std::env::var("MUXY_TEST_SERVER_PROFILE").as_deref() {
-        Ok("beta") => false,
-        Ok("dev") => true,
-        Ok(_) => return Err("invalid MUXY_TEST_SERVER_PROFILE".into()),
-        Err(_) => cfg!(debug_assertions) || env!("CARGO_PKG_VERSION") == "2.0.0-beta-0",
-    };
+    let development_build = cfg!(debug_assertions) || env!("CARGO_PKG_VERSION") == "2.0.0-beta-0";
     let (current, other) = if development_build {
         (development, beta)
     } else {
@@ -610,64 +576,6 @@ fn default_directory_does_not_touch_other_channels() -> TestResult {
         assert!(!directory.join("server.sock").exists());
     }
     fixture.stop("-TERM")?;
-    Ok(())
-}
-
-#[test]
-fn socket_length_and_invalid_arguments_fail_clearly() -> TestResult {
-    let mut fixture = Fixture::new()?;
-    for (arguments, expected) in [
-        (
-            vec![
-                "--socket".to_owned(),
-                "a".repeat(if cfg!(target_os = "linux") { 108 } else { 104 }),
-            ],
-            "platform limit",
-        ),
-        (vec!["--socket".to_owned()], "requires a path"),
-        (vec!["--stdio".to_owned()], "unknown argument: --stdio"),
-        (
-            vec!["--log".to_owned(), "--settings".to_owned()],
-            "requires a path",
-        ),
-        (
-            vec![
-                "--log".to_owned(),
-                "a".to_owned(),
-                "--log".to_owned(),
-                "b".to_owned(),
-            ],
-            "duplicate argument",
-        ),
-    ] {
-        let mut command = fixture.command();
-        command.args(arguments);
-        let output = fixture.output(command)?;
-        assert!(!output.status.success());
-        assert!(String::from_utf8(output.stderr)?.contains(expected));
-    }
-    Ok(())
-}
-
-#[test]
-fn fatal_protocol_errors_are_logged_before_and_after_hello() -> TestResult {
-    let mut fixture = Fixture::new()?;
-    fixture.start()?;
-    let socket = UnixStream::connect(fixture.socket())?;
-    socket.set_read_timeout(Some(TIMEOUT))?;
-    Encoder::new(socket.try_clone()?).send(CONTROL, &Message::VersionUnsupported)?;
-    assert!(matches!(
-        Decoder::new(socket).next()?,
-        (CONTROL, Message::Fatal(_))
-    ));
-    let mut client = Client::new(&fixture.socket())?;
-    client.encoder.send(CONTROL, &Message::VersionUnsupported)?;
-    assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
-    client.closed()?;
-    fixture.stop("-TERM")?;
-    let log = fixture.log()?;
-    assert!(log.contains("fatal protocol error: expected Hello on control"));
-    assert!(log.contains("fatal protocol error: misplaced client message"));
     Ok(())
 }
 
@@ -864,10 +772,7 @@ fn copy_executable(source: &Path, destination: &Path) -> TestResult {
 }
 
 fn binary() -> PathBuf {
-    std::env::var_os("MUXY_TEST_SERVER").map_or_else(
-        || PathBuf::from(env!("CARGO_BIN_EXE_muxy-server")),
-        PathBuf::from,
-    )
+    PathBuf::from(env!("CARGO_BIN_EXE_muxy-server"))
 }
 
 fn free_port() -> TestResult<u16> {

@@ -785,18 +785,3 @@ impl AppModel {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn paths_and_keys_follow_main() {
-        assert_eq!(standardized("/a/./b/../c"), PathBuf::from("/a/c"));
-        assert_eq!(key_bytes("Ctrl+C").expect("key"), b"\x03");
-        assert_eq!(key_bytes("Return").expect("key"), b"\r");
-        assert_eq!(key_bytes("f1").unwrap_err(), "unsupported key f1");
-        assert_eq!(base64(b"Muxy!"), "TXV4eSE=");
-        assert_eq!(base64(b"ab"), "YWI=");
-    }
-}

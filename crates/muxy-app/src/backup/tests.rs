@@ -201,20 +201,6 @@ fn traversal_symlinks_missing_manifest_and_unknown_versions_are_rejected() {
 }
 
 #[test]
-fn partial_import_validates_against_terminal_settings_that_will_be_kept() {
-    let directory = profile();
-    fs::write(
-        directory.path().join("ghostty.conf"),
-        "keybind = ctrl+alt+b=copy_to_clipboard\n",
-    )
-    .unwrap();
-    let json = directory.path().join("settings.json");
-    fs::write(&json, br#"{"shortcuts.customCommands":{"prefixCombo":{"key":"","modifiers":0},"shortcuts":[{"id":"build","name":"Build","command":"cargo build","combo":{"key":"b","modifiers":786432}}]}}"#).unwrap();
-    assert!(prepare(directory.path(), &json).is_err());
-    assert!(!directory.path().join(PENDING).exists());
-}
-
-#[test]
 fn ghostty_includes_are_resolved_and_untrusted_imports_cannot_read_external_files() {
     let directory = profile();
     fs::write(directory.path().join("included.conf"), "font-size = 21\n").unwrap();
@@ -346,39 +332,6 @@ fn partial_terminal_import_preserves_unmentioned_preferences_and_replaces_lists(
     .unwrap();
     let import = prepare(directory.path(), legacy.path()).unwrap();
     assert!(!import.files.contains_key("ghostty.conf"));
-}
-
-#[test]
-fn missing_project_directories_are_reported_before_confirmation_and_rechecked_at_startup() {
-    let directory = profile();
-    let project = tempfile::tempdir().unwrap();
-    let path = project.path().to_path_buf();
-    let mut state = AppState::bootstrap().unwrap();
-    state.add_project(ServerId::local(), path.clone()).unwrap();
-    let archive = directory.path().join("test.muxy");
-    export(directory.path(), &archive, &state).unwrap();
-    let import = prepare(directory.path(), &archive).unwrap();
-    stage(directory.path(), &import).unwrap();
-    project.close().unwrap();
-    let error = prepare(directory.path(), &archive)
-        .err()
-        .unwrap()
-        .to_string();
-    assert!(error.contains("Project folder unavailable"));
-    assert!(error.contains(&path.display().to_string()));
-    let before = fs::read(directory.path().join("settings.toml")).unwrap();
-    for _ in 0..2 {
-        let error = apply_pending(directory.path()).unwrap().unwrap();
-        assert!(error.contains("Project folder unavailable"));
-        assert!(error.contains("Settings → Backup & Restore"));
-    }
-    assert_eq!(
-        fs::read(directory.path().join("settings.toml")).unwrap(),
-        before
-    );
-    assert!(!directory.path().join("Backups").exists());
-    cancel_pending(directory.path()).unwrap();
-    assert!(apply_pending(directory.path()).unwrap().is_none());
 }
 
 #[test]

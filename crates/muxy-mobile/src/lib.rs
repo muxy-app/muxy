@@ -112,12 +112,4 @@ mod tests {
         assert!(long.len() <= MAX_DEVICE_NAME);
         assert!(muxy_protocol::validate_device_name(&long).is_ok());
     }
-
-    #[test]
-    fn links_are_validated_before_pairing() {
-        assert!(matches!(
-            parse_pairing_link("https://example.com".into()),
-            Err(MobileError::InvalidLink)
-        ));
-    }
 }

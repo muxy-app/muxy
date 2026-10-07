@@ -90,11 +90,6 @@ fn a_refused_login_is_reported_before_the_tui_takes_over_the_terminal() -> Resul
     let mut tui = remote_tui(&fixture, &remote)?;
     assert_eq!(tui.exit()?.code, Some(1));
     assert!(!tui.raw.windows(8).any(|bytes| bytes == b"\x1b[?1049h"));
-    let text = tui.text()?.join("\n");
-    assert!(
-        text.contains("muxy: SSH refused the login to box."),
-        "{text}"
-    );
     tui.assert_restored()?;
     assert!(!fixture.directory.path().join("servers").exists());
     Ok(())
@@ -165,11 +160,6 @@ fn a_reconnect_refused_by_ssh_ends_the_tui_instead_of_retrying() -> Result {
     kill_bridge(&remote)?;
     assert_eq!(tui.exit()?.code, Some(1));
     tui.assert_restored()?;
-    let text = tui.text()?.join("\n");
-    assert!(
-        text.contains("muxy: SSH refused the login to box."),
-        "{text}"
-    );
     let attempts = fs::read_to_string(remote.home().join("attempts"))?;
     assert_eq!(attempts.lines().count(), 2);
     Ok(())

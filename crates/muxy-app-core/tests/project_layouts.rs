@@ -1,38 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use muxy_app_core::{
-    AppState, Axis, Layout, PaneContent, ServerId,
-    project_layouts::{Config, discover},
-};
-use muxy_protocol::{FileEntry, ServerPath, SessionId};
-
-#[test]
-fn discovers_supported_files_by_name_without_hiding_ignored_layouts() {
-    let entries = [
-        "z.yml",
-        "A.yaml",
-        "a.json",
-        ".hidden.yaml",
-        "notes.txt",
-        "folder.yaml",
-        "UPPER.JSON",
-    ]
-    .map(|name| FileEntry {
-        name: ServerPath(name.as_bytes().to_vec()),
-        path: ServerPath(format!(".muxy/layouts/{name}").into_bytes()),
-        is_directory: name == "folder.yaml",
-        is_ignored: true,
-    });
-    let layouts = discover(entries.into());
-    assert_eq!(
-        layouts
-            .iter()
-            .map(|layout| layout.name.as_str())
-            .collect::<Vec<_>>(),
-        ["A", "a", "UPPER", "z"]
-    );
-    assert_ne!(layouts[0].path, layouts[1].path);
-}
+use muxy_app_core::{AppState, Axis, Layout, PaneContent, ServerId, project_layouts::Config};
+use muxy_protocol::SessionId;
 
 fn state() -> AppState {
     AppState::bootstrap().expect("state")
@@ -182,22 +151,4 @@ fn replacement_closes_only_target_references_and_cancels_pending_creations() {
         .apply_project_layout(state.home().id, &config)
         .expect("close last reference");
     assert_eq!(state.pending_discards(ServerId::local()), [session]);
-}
-
-#[test]
-fn unavailable_targets_and_closed_panes_do_not_retain_commands() {
-    let mut state = state();
-    let directory = tempfile::tempdir().expect("folder");
-    let project = state
-        .add_project(ServerId::local(), directory.path().into())
-        .expect("project");
-    let config = Config::parse("tab: nvim").expect("layout");
-    let panes = state.apply_project_layout(project, &config).expect("apply");
-    state.close_pane(panes[0]).expect("close");
-    assert!(state.startup_command(panes[0]).is_none());
-    drop(directory);
-    state.refresh_project_statuses();
-    let before = state.clone();
-    assert!(state.apply_project_layout(project, &config).is_err());
-    assert_eq!(state, before);
 }

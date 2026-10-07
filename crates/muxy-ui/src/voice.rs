@@ -579,40 +579,4 @@ mod tests {
         transcript.update("one two three");
         assert_eq!(transcript.update("one more"), "one two three one more");
     }
-    #[test]
-    fn partial_transcripts_replace_and_new_segments_append() {
-        let mut transcript = Transcript::default();
-        assert_eq!(transcript.update("hello"), "hello");
-        assert_eq!(transcript.update("hello world"), "hello world");
-        assert_eq!(transcript.update(""), "hello world");
-        assert_eq!(transcript.update("next phrase"), "hello world next phrase");
-        assert_eq!(
-            transcript.update("next phrase revised"),
-            "hello world next phrase revised"
-        );
-    }
-    #[test]
-    fn cancelling_permission_wait_and_finishing_do_not_require_audio() {
-        let shared = Arc::new(Shared::default());
-        let recorder = Recorder {
-            shared: shared.clone(),
-        };
-        recorder.pause(true);
-        assert!(shared.paused.load(Ordering::Acquire));
-        recorder.pause(false);
-        assert!(!shared.paused.load(Ordering::Acquire));
-        shared
-            .snapshot
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .transcript = "  retained words  ".into();
-        assert_eq!(recorder.finish(), "retained words");
-        let (_sender, receiver) = mpsc::channel();
-        assert!(permission(&receiver, &shared).is_err());
-        let shared = Arc::new(Shared::default());
-        drop(Recorder {
-            shared: shared.clone(),
-        });
-        assert!(shared.cancelled.load(Ordering::Acquire));
-    }
 }

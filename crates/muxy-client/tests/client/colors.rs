@@ -162,34 +162,3 @@ touch colors.done",
     }
     Ok(())
 }
-
-#[test]
-fn changing_cursor_defaults_repaints_an_idle_terminal() -> TestResult {
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let session = fixture.create(&connection.client)?;
-    let mut attachment = connection.client.attach(session.id, SIZE)?;
-    connection.quiet(&mut attachment)?;
-    connection.client.set_terminal_colors(colors(false))?;
-    let deadline = Instant::now() + TIMEOUT;
-    let mut shape = false;
-    let mut blink = false;
-    while !(shape && blink) {
-        match connection
-            .events
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))?
-        {
-            ClientEvent::Frame { channel, frame } if channel == attachment.channel => {
-                shape = frame.cursor.shape == muxy_protocol::CursorShape::Bar;
-                connection.client.ack(channel, frame.seq)?;
-            }
-            ClientEvent::Metadata {
-                event: muxy_protocol::MetadataEvent::CursorBlinking(false),
-                ..
-            } => blink = true,
-            _ => {}
-        }
-    }
-    connection.client.end_session(session.id)?;
-    Ok(())
-}

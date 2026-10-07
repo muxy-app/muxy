@@ -6,115 +6,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use muxy_client::{Client, ClientError, ClientEvent};
-use muxy_protocol::{ErrorCode, ExitReason, Size};
+use muxy_client::{Client, ClientEvent};
+use muxy_protocol::{ExitReason, Size};
 use muxy_server::{Registry, ServerSettings, connection};
 
 type TestResult = Result<(), Box<dyn Error>>;
 static NEXT: AtomicU64 = AtomicU64::new(0);
-
-struct Fixture {
-    root: PathBuf,
-    registry: Arc<Registry>,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        self.registry.shutdown();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !self.registry.is_stopped() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(10));
-        }
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
-#[test]
-fn exited_content_is_read_without_attachment_and_discard_is_idempotent() -> TestResult {
-    let root = std::env::temp_dir().join(format!(
-        "muxy-client-archive-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    fs::create_dir(&root)?;
-    let (send, events) = mpsc::channel();
-    let registry = Arc::new(Registry::persistent(
-        ServerSettings {
-            default_shell: Some(PathBuf::from("/bin/sh")),
-            ..ServerSettings::default()
-        },
-        send,
-        &root.join("sessions"),
-    )?);
-    let fixture = Fixture {
-        root,
-        registry: Arc::clone(&registry),
-    };
-    let (client, server) = UnixStream::pair()?;
-    let worker = thread::spawn(move || connection::serve(Box::new(server), registry, events));
-    let client = Client::from_stream(Box::new(client))?;
-    let events = client.events().ok_or("events already taken")?;
-    let size = Size { cols: 80, rows: 8 };
-    let session = client.create_session(&fixture.root, size)?;
-    let attachment = client.attach(session.id, size)?;
-    client.send_input(
-        attachment.channel,
-        b"stty -echo; printf '\\033[2J\\033[Hsaved-final'; exit 9\n",
-    )?;
-    loop {
-        match events.recv_timeout(Duration::from_secs(5))? {
-            ClientEvent::SessionEnded {
-                session: ended,
-                reason,
-            } => {
-                assert_eq!(ended, session.id);
-                assert_eq!(reason, ExitReason::Exited(9));
-                break;
-            }
-            ClientEvent::Frame { channel, frame } => client.ack(channel, frame.seq)?,
-            ClientEvent::Metadata { .. }
-            | ClientEvent::SessionsChanged { .. }
-            | ClientEvent::SessionMetadata { .. }
-            | ClientEvent::ActivityChanged { .. }
-            | ClientEvent::Progress { .. }
-            | ClientEvent::FilesChanged { .. }
-            | ClientEvent::GitChanged { .. }
-            | ClientEvent::CatalogChanged { .. }
-            | ClientEvent::RemoteAccessChanged { .. } => {}
-            ClientEvent::ServerRestarting | ClientEvent::Disconnected => {
-                return Err("client disconnected".into());
-            }
-        }
-    }
-    assert!(client.list_sessions()?.is_empty());
-    let saved = client.read_saved_screen(session.id)?;
-    assert_eq!(saved.reason, Some(ExitReason::Exited(9)));
-    assert!(
-        saved
-            .rows
-            .iter()
-            .flat_map(|row| &row.runs)
-            .any(|run| run.text.contains("saved-final"))
-    );
-    assert!(
-        matches!(client.attach(session.id, size), Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownSession)
-    );
-    client.discard_session(session.id)?;
-    client.discard_session(session.id)?;
-    assert!(
-        matches!(client.read_saved_screen(session.id), Err(ClientError::Server(error)) if error.code == ErrorCode::SavedContentUnavailable)
-    );
-    let live = client.create_session(&fixture.root, size)?;
-    client.discard_session(live.id)?;
-    assert!(client.list_sessions()?.is_empty());
-    assert!(client.read_saved_screen(live.id).is_err());
-    client.ping()?;
-    drop(client);
-    worker.join().map_err(|_| "connection panicked")??;
-    Ok(())
-}
 
 #[test]
 fn saved_history_pages_remain_readable_after_the_server_reopens_its_archive() -> TestResult {

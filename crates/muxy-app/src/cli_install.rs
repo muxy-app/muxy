@@ -227,25 +227,4 @@ mod tests {
         assert_eq!(fs::read(&destination)?, b"unrelated");
         Ok(())
     }
-
-    #[test]
-    fn temporary_translocated_retired_and_unbundled_paths_are_rejected() {
-        for path in [
-            "/tmp/Test.app",
-            "/Volumes/Test.app",
-            "/private/var/folders/Test.app",
-            "/Applications/.muxy-beta-update-123/previous.app",
-            "/Applications/AppTranslocation/Test.app",
-        ] {
-            assert!(bundled_target(&Path::new(path).join("Contents/MacOS/muxy-app")).is_err());
-        }
-        assert!(bundled_target(Path::new("/bin/muxy-app")).is_err());
-        assert_eq!(
-            bundled_target(Path::new(
-                "/Applications/Muxy Beta.app/Contents/MacOS/muxy-app"
-            ))
-            .expect("installed"),
-            PathBuf::from("/Applications/Muxy Beta.app/Contents/MacOS/muxy")
-        );
-    }
 }

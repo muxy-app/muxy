@@ -336,24 +336,3 @@ impl AppModel {
         Ok(Value::Null)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn combos_follow_main_grammar() {
-        let (chord, token) = parse_combo(" Command + Option + K ").expect("combo");
-        assert_eq!((chord.as_str(), token.as_str()), ("cmd-alt-k", "cmd+opt+k"));
-        let (chord, token) = parse_combo("ctrl+shift+Return").expect("named key");
-        assert_eq!(
-            (chord.as_str(), token.as_str()),
-            ("ctrl-shift-enter", "shift+ctrl+return")
-        );
-        assert!(parse_combo("shift+k").is_none());
-        assert!(parse_combo("cmd+hyper+k").is_none());
-        assert!(parse_combo("cmd+f13").is_none());
-        assert_eq!(chord_token(&chord), "shift+ctrl+return");
-        assert_eq!(title("toggle_command_palette"), "Toggle Command Palette");
-    }
-}

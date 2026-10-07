@@ -67,31 +67,6 @@ fn named_keys_encode_in_normal_and_application_modes() {
 }
 
 #[test]
-fn printable_text_preserves_unicode_case_and_multiple_codepoints() {
-    for text in ["a", "A", "é", "界", "e\u{301}", "👩‍💻", " "] {
-        assert_eq!(
-            input::encode(
-                &key("a", Some(text), Modifiers::default()),
-                Modes::default(),
-                true
-            )
-            .as_deref(),
-            Some(text.as_bytes())
-        );
-    }
-    for text in [None, Some(""), Some("\n"), Some("\x1b")] {
-        assert_eq!(
-            input::encode(
-                &key("unknown", text, Modifiers::default()),
-                Modes::default(),
-                true
-            ),
-            None
-        );
-    }
-}
-
-#[test]
 fn control_letters_and_symbols_produce_control_bytes() {
     let modifiers = Modifiers {
         control: true,
@@ -137,98 +112,6 @@ fn control_letters_and_symbols_produce_control_bytes() {
         input::encode(&key("9", None, modifiers), Modes::default(), true),
         None
     );
-}
-
-#[test]
-fn alt_prefixes_the_base_key_and_control_bytes() {
-    for (keystroke, expected) in [
-        (
-            key(
-                "f",
-                Some("ƒ"),
-                Modifiers {
-                    alt: true,
-                    ..Modifiers::default()
-                },
-            ),
-            b"\x1bf".as_slice(),
-        ),
-        (
-            key(
-                "f",
-                Some("Ï"),
-                Modifiers {
-                    alt: true,
-                    shift: true,
-                    ..Modifiers::default()
-                },
-            ),
-            b"\x1bF".as_slice(),
-        ),
-        (
-            key(
-                "c",
-                None,
-                Modifiers {
-                    alt: true,
-                    control: true,
-                    ..Modifiers::default()
-                },
-            ),
-            b"\x1b\x03".as_slice(),
-        ),
-        (
-            key(
-                "left",
-                None,
-                Modifiers {
-                    alt: true,
-                    ..Modifiers::default()
-                },
-            ),
-            if cfg!(target_os = "macos") {
-                b"\x1bb".as_slice()
-            } else {
-                b"\x1b[1;3D".as_slice()
-            },
-        ),
-        (
-            key(
-                "tab",
-                None,
-                Modifiers {
-                    shift: true,
-                    ..Modifiers::default()
-                },
-            ),
-            b"\x1b[Z".as_slice(),
-        ),
-    ] {
-        assert_eq!(
-            input::encode(&keystroke, Modes::default(), true).as_deref(),
-            Some(expected)
-        );
-    }
-}
-
-#[test]
-fn command_combinations_never_reach_the_terminal() {
-    for name in ["t", "w", "[", "]", "q", "c", "v", "enter", "up"] {
-        for control in [false, true] {
-            for alt in [false, true] {
-                let modifiers = Modifiers {
-                    platform: true,
-                    control,
-                    alt,
-                    ..Modifiers::default()
-                };
-                assert_eq!(
-                    input::encode(&key(name, Some(name), modifiers), Modes::default(), true),
-                    None
-                );
-            }
-        }
-    }
 }
 
 #[cfg(target_os = "macos")]

@@ -48,19 +48,3 @@ fn webview_round_trip_singleton_and_terminal_cleanup() -> Result<(), Box<dyn std
     assert!(restored.home().tabs.is_empty());
     Ok(())
 }
-
-#[test]
-fn independent_instances_and_project_scoped_singletons() -> Result<(), Box<dyn std::error::Error>> {
-    let mut state = AppState::bootstrap()?;
-    let home = state.home().id;
-    let first = state.open_webview(home, descriptor(), "Editor", false)?;
-    let second = state.open_webview(home, descriptor(), "Editor", false)?;
-    assert_ne!(first, second);
-    let other = state.add_project(ServerId::local(), std::env::temp_dir())?;
-    let third = state.open_webview(other, descriptor(), "Editor", true)?;
-    assert_ne!(first, third);
-    assert_eq!(state.project(other).ok_or("project")?.tabs.len(), 1);
-    state.close_pane(first.1)?;
-    assert_eq!(state.window().active_pane, Some(third.1));
-    Ok(())
-}

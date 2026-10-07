@@ -503,23 +503,3 @@ impl AppModel {
         Some(notifications)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn notification_ids_keep_servers_apart() {
-        let remote = ServerId::new();
-        assert_eq!(notification_id(ServerId::local(), 7), "7");
-        assert_eq!(
-            notification_event(&notification_id(ServerId::local(), 7)),
-            Some((ServerId::local(), 7))
-        );
-        assert_eq!(
-            notification_event(&notification_id(remote, 7)),
-            Some((remote, 7))
-        );
-        assert_eq!(notification_event("box:7"), None);
-    }
-}

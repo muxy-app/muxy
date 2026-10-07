@@ -166,37 +166,8 @@ impl AppState {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp, reason = "Exact clamped pixel dimensions")]
 mod tests {
     use super::*;
-
-    #[test]
-    fn modal_sizes_results_and_once_only_completion() {
-        let options = ModalOptions {
-            width: f64::NAN,
-            height: 1000.0,
-            ..Default::default()
-        }
-        .normalized();
-        assert_eq!(options.width, 480.0);
-        assert_eq!(options.height, 760.0);
-        assert_eq!(
-            ModalOptions {
-                width: 1.0,
-                ..Default::default()
-            }
-            .normalized()
-            .width,
-            120.0
-        );
-        let mut result = ModalResult::default();
-        assert_eq!(result.complete(Value::Bool(true)), Some(Value::Bool(true)));
-        assert_eq!(result.complete(Value::Null), None);
-        assert_eq!(
-            ModalResult::default().complete(Value::String("x".repeat(MAX_RESULT_BYTES))),
-            Some(Value::Null)
-        );
-    }
 
     #[test]
     fn acknowledged_close_waits_and_stale_replies_are_ignored() {

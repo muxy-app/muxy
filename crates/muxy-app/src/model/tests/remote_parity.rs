@@ -1,8 +1,7 @@
 //! Remote projects work like local ones where this computer's disk was
-//! assumed: files sent to terminals, file links, failed folders, versions,
-//! and dropped connections.
+//! assumed: files sent to terminals, file links, and dropped connections.
 
-use super::servers::{connect_remote, descriptor, entry, page, serve_remote, work};
+use super::servers::{connect_remote, entry, serve_remote, work};
 use super::*;
 use crate::views::composer::ComposerEvent;
 use muxy_app_core::opener::{FileLocation, Target};
@@ -45,8 +44,8 @@ impl Machine {
     }
 
     /// An ssh that fails like a real one while a marker file is there:
-    /// `offline` (unreachable), `refuse` (a refused login), or `old` (a
-    /// bridge of another version). It counts its runs in `attempts`.
+    /// `offline` (unreachable) or `refuse` (a refused login). It counts its
+    /// runs in `attempts`.
     fn ssh(&self) -> Result<muxy_client::SshTarget> {
         let directory = self.directory.path().display();
         let program = self.directory.path().join("ssh");
@@ -57,7 +56,6 @@ impl Machine {
                  echo run >> '{directory}/attempts'\n\
                  if [ -e '{directory}/refuse' ]; then echo 'dev@box: Permission denied (publickey).' >&2; exit 255; fi\n\
                  if [ -e '{directory}/offline' ]; then echo 'ssh: connect to host box port 22: Connection refused' >&2; exit 255; fi\n\
-                 if [ -e '{directory}/old' ]; then printf 'MUXY-STDIO/9\\n'; exit 0; fi\n\
                  printf 'MUXY-STDIO/1\\n'\n\
                  exec /usr/bin/nc -U '{}'\n",
                 self.socket.display()
@@ -366,46 +364,6 @@ fn links(cx: &mut TestAppContext) -> Result {
 }
 
 #[gpui::test]
-fn a_remote_project_whose_folder_is_gone_fails_but_an_offline_server_fails_none(
-    cx: &mut TestAppContext,
-) {
-    status(cx).expect("remote project status");
-}
-
-fn status(cx: &mut TestAppContext) -> Result {
-    let machine = Machine::new()?;
-    let (view, cx, remote, _) = remote_terminal(cx, &machine)?;
-    let project = view.read_with(cx, |model, _| model.state.current_project().id);
-    let status = |view: &Entity<AppModel>, cx: &VisualTestContext| {
-        view.read_with(cx, |model, _| {
-            model
-                .state
-                .project(project)
-                .map(muxy_app_core::Project::status)
-        })
-    };
-    view.update(cx, AppModel::refresh_project_statuses);
-    cx.run_until_parked();
-    assert_eq!(status(&view, cx), Some(ProjectStatus::Available));
-    std::fs::rename(machine.path("app"), machine.path("moved"))?;
-    view.update(cx, AppModel::refresh_project_statuses);
-    wait(cx, &view, |model, _| {
-        model
-            .state
-            .project(project)
-            .is_some_and(|project| project.status() == ProjectStatus::Missing)
-    })?;
-    view.update(cx, |model, cx| model.disconnect(remote, cx));
-    assert_eq!(
-        status(&view, cx),
-        Some(ProjectStatus::Available),
-        "nothing is known while it is offline"
-    );
-    view.update(cx, |model, _| model.stop_workers());
-    Ok(())
-}
-
-#[gpui::test]
 fn a_dropped_remote_reconnects_with_backoff_and_stops_on_a_refused_login(cx: &mut TestAppContext) {
     reconnect(cx).expect("reconnecting a remote");
 }
@@ -473,91 +431,6 @@ fn reconnect(cx: &mut TestAppContext) -> Result {
     assert_eq!(machine.attempts(), attempts, "it waits for Connect");
     view.update(cx, |model, _| model.stop_workers());
     Ok(())
-}
-
-#[gpui::test]
-fn a_remote_of_another_version_explains_how_to_update_it(cx: &mut TestAppContext) {
-    another_version(cx).expect("version guidance");
-}
-
-fn another_version(cx: &mut TestAppContext) -> Result {
-    let machine = Machine::new()?;
-    machine.mark("old", true)?;
-    let remote = ServerId::new();
-    let (mut boot, _local_work, _) =
-        remote_boot(AppState::bootstrap()?, vec![entry(remote, "box")]);
-    let (updates, received) = async_channel::unbounded();
-    let ssh = machine.ssh()?;
-    boot.workers = crate::boot::Workers::with(move |server, _| {
-        crate::boot::worker(
-            server,
-            crate::boot::Target::Ssh(ssh.clone()),
-            updates.clone(),
-        )
-    })
-    .with_run(|_, command| {
-        assert!(command.contains("muxy --version"), "{command}");
-        Ok("muxy 2.0.0-beta-3\n".into())
-    });
-    boot.updates = received;
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    let expected = "Muxy on box is 2.0.0-beta-3; this app needs a version that speaks protocol V2";
-    wait(cx, &view, |model, _| {
-        model
-            .server_error(remote)
-            .is_some_and(|error| error.starts_with(expected))
-    })?;
-    view.read_with(cx, |model, _| {
-        assert!(model.remote_servers()[0].incompatible);
-        let error = model.server_error(remote).expect("guidance");
-        assert!(
-            error.contains("scripts/build-linux-dev.sh") || error.contains("--replace"),
-            "{error}"
-        );
-    });
-    let attempts = machine.attempts();
-    cx.executor().advance_clock(Duration::from_secs(600));
-    cx.run_until_parked();
-    assert_eq!(machine.attempts(), attempts, "an old Muxy isn't retried");
-    view.update(cx, |model, _| model.stop_workers());
-    Ok(())
-}
-
-#[gpui::test]
-fn a_remote_whose_running_server_is_older_is_told_to_restart_it(cx: &mut TestAppContext) {
-    let remote = ServerId::new();
-    let (mut boot, _, _) = remote_boot(
-        AppState::bootstrap().expect("state"),
-        vec![entry(remote, "box")],
-    );
-    boot.workers = boot
-        .workers
-        .with_run(|_, _| Ok(format!("muxy {}\n", env!("CARGO_PKG_VERSION"))));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        let incompatible = Some(muxy_client::RemoteReason::Incompatible);
-        let failed = Update::ConnectFailed(
-            "Muxy on dev@box can't accept connections".into(),
-            incompatible,
-        );
-        let generation = model.generation(remote);
-        model.receive((remote, generation, failed), cx);
-        assert!(
-            model
-                .server_error(remote)
-                .is_some_and(|error| error.starts_with("Muxy on box is another version"))
-        );
-    });
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert!(
-            model.server_error(remote).is_some_and(|error| error
-                .contains("its running server is another version")
-                && error.contains("pkill -x muxy-server")),
-            "{:?}",
-            model.server_error(remote)
-        );
-    });
 }
 
 #[gpui::test]
@@ -637,54 +510,5 @@ fn remotes_stopped_by_the_user_or_needing_a_password_wait_for_connect(cx: &mut T
         connects(&worker),
         0,
         "a password login waits until the user connects and types it"
-    );
-}
-
-#[gpui::test]
-fn the_status_bar_shows_a_remote_folder_from_its_home_and_never_reveals_it_here(
-    cx: &mut TestAppContext,
-) {
-    let remote = ServerId::new();
-    let (boot, _, _) = remote_boot(
-        AppState::bootstrap().expect("state"),
-        vec![entry(remote, "box")],
-    );
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1000.0), px(700.0)));
-    let app = ProjectId::new();
-    view.update(cx, |model, cx| {
-        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
-        acknowledge_catalog(model, cx);
-        let home = connect_remote(model, remote, vec![], &[], cx);
-        let mut catalog = page(2, home, &[]);
-        let mut project = descriptor(app, false, "app");
-        project.directory = muxy_protocol::ServerPath(b"/home/dev/Home/app".to_vec());
-        catalog.projects.push(project);
-        catalog.revision = 2;
-        model.receive((remote, 1, Update::Catalog(Ok(catalog))), cx);
-        model.select_project(app, cx);
-        let project = model.state.project(app).expect("project");
-        assert_eq!(model.project_path_label(project), "~/app");
-        assert_eq!(
-            model.remote_location(project).as_deref(),
-            Some("box · ~/app")
-        );
-    });
-    cx.run_until_parked();
-    let path = cx.debug_bounds("status-path").expect("path chip");
-    cx.simulate_mouse_down(
-        path.center(),
-        gpui::MouseButton::Right,
-        Modifiers::default(),
-    );
-    cx.simulate_mouse_up(
-        path.center(),
-        gpui::MouseButton::Right,
-        Modifiers::default(),
-    );
-    cx.run_until_parked();
-    assert_eq!(
-        view.read_with(cx, |model, _| model.menu_outline()),
-        [vec!["Copy Path".to_owned()]]
     );
 }

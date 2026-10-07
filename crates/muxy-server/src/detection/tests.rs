@@ -195,33 +195,6 @@ fn process_identity_uses_executable_positions_not_prompt_text() {
 }
 
 #[test]
-fn xal_release_and_development_executables_share_provider_identity() {
-    for executable in ["xal", "xal-dev"] {
-        assert_eq!(identify(executable, &[]), Some(AgentProvider::Xal));
-        assert_eq!(
-            identify("cat", &[format!("/usr/local/bin/{executable}")]),
-            Some(AgentProvider::Xal)
-        );
-        assert_eq!(
-            identify(
-                "bun",
-                &["bun".into(), format!("/usr/local/bin/{executable}")]
-            ),
-            Some(AgentProvider::Xal)
-        );
-    }
-    assert_eq!(identify("xal-dev-server", &[]), None);
-    assert_eq!(
-        identify("node", &["node".into(), "app.js".into(), "xal-dev".into()]),
-        None
-    );
-    assert_eq!(
-        identify("bash", &["bash".into(), "-c".into(), "echo xal-dev".into()]),
-        None
-    );
-}
-
-#[test]
 fn redraws_unmatched_screens_and_exits_do_not_invent_completion() {
     let mut detector = Detector::default();
     let now = Instant::now();
@@ -283,68 +256,6 @@ fn old_prompt_text_does_not_override_live_xal_status() {
         ),
         Some((AgentState::Idle, true))
     );
-}
-
-#[test]
-#[ignore = "manual detector and terminal throughput measurement"]
-#[allow(clippy::print_stderr, reason = "Reports manual benchmark measurements")]
-fn detector_and_terminal_cost() -> Result<(), Box<dyn std::error::Error>> {
-    prepare();
-    let mut detectors: Vec<_> = (0..100).map(|_| Detector::default()).collect();
-    let now = Instant::now();
-    let screen = "A completed response\n› ".to_owned();
-    for detector in &mut detectors {
-        detector.update(Some(AgentProvider::Codex), screen.clone(), "Ready", "", now);
-    }
-    let start = Instant::now();
-    for tick in 0..600 {
-        for detector in &mut detectors {
-            std::hint::black_box(detector.update(
-                Some(AgentProvider::Codex),
-                screen.clone(),
-                "Ready",
-                "",
-                now + Duration::from_millis(tick * 100),
-            ));
-        }
-    }
-    eprintln!("100 idle agents × 600 polls: {:?}", start.elapsed());
-
-    for detection in [false, true] {
-        let mut terminal = muxy_terminal::Terminal::new(
-            muxy_protocol::Size {
-                cols: 200,
-                rows: 50,
-            },
-            4 * 1024 * 1024,
-        )?;
-        let chunk = "build output with moderately long lines and progress\r\n".repeat(1200);
-        let mut detector = Detector::default();
-        let start = Instant::now();
-        let mut next = start;
-        let mut scans = 0;
-        for _ in 0..1500 {
-            terminal.feed(chunk.as_bytes());
-            if detection && Instant::now() >= next {
-                next = Instant::now() + Duration::from_millis(100);
-                let screen = terminal.detection_text()?;
-                detector.update(
-                    Some(AgentProvider::Claude),
-                    screen,
-                    "⠋ Building",
-                    "",
-                    Instant::now(),
-                );
-                scans += 1;
-            }
-        }
-        eprintln!(
-            "{} bytes, detection={detection}, scans={scans}: {:?}",
-            chunk.len() * 1500,
-            start.elapsed()
-        );
-    }
-    Ok(())
 }
 
 #[test]

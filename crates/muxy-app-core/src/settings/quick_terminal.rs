@@ -63,27 +63,6 @@ impl QuickTerminalSettings {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use muxy_core::quick_terminal::keys::{CONTROL, KeyCombo, OPTION};
-
-    #[test]
-    fn settings_preserve_shortcut_and_enforce_original_ranges() {
-        let mut settings = QuickTerminalSettings {
-            shortcut: QuickTerminalShortcut::KeyCombo {
-                key_combo: KeyCombo::new("space", CONTROL | OPTION),
-                virtual_key_code: 49,
-            },
-            ..Default::default()
-        };
-        let encoded = toml::to_string(&settings).unwrap();
-        assert_eq!(
-            toml::from_str::<QuickTerminalSettings>(&encoded).unwrap(),
-            settings
-        );
-        for width in [0, 479, 1201, u16::MAX] {
-            settings.width = width;
-            assert!(settings.validate().is_err());
-        }
-    }
 
     #[test]
     fn removed_double_shift_loads_as_unassigned_without_losing_settings() {

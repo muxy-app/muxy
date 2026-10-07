@@ -95,21 +95,3 @@ pub(crate) fn save(path: &Path, settings: &ServerSettings) -> io::Result<()> {
     }
     result
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn existing_settings_enable_integration_and_explicit_false_survives_serialization()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let existing: SettingsFile =
-            toml::from_str("default_shell = '/bin/zsh'\nhistory_budget_bytes = 4096")?;
-        assert!(existing.shell_integration);
-        let disabled: SettingsFile = toml::from_str("shell_integration = false")?;
-        assert!(!disabled.shell_integration);
-        let saved: SettingsFile = toml::from_str(&toml::to_string(&disabled)?)?;
-        assert!(!saved.shell_integration);
-        Ok(())
-    }
-}

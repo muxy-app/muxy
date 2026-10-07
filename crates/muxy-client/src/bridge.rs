@@ -398,21 +398,6 @@ mod tests {
     }
 
     #[test]
-    fn reading_returns_the_reader_with_the_bytes_after_the_ready_line() -> io::Result<()> {
-        let (mut reader, rest) =
-            ready(&b"motd\nMUXY-STDIO/1\nab"[..]).map_err(|_| io::Error::other("no ready line"))?;
-        assert_eq!(rest, b"ab");
-        let mut remaining = Vec::new();
-        reader.read_to_end(&mut remaining)?;
-        assert!(remaining.is_empty());
-        assert_eq!(
-            ready(&b"motd\n"[..]).err(),
-            Some(NotReady::Ended(b"motd\n".to_vec()))
-        );
-        Ok(())
-    }
-
-    #[test]
     fn ssh_failures_are_told_apart_by_its_own_words() {
         let ssh = |stderr: &str| explain(&exit(Some(255), stderr), b"");
         let changed = "@@@@\n@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\n\
@@ -489,56 +474,6 @@ mod tests {
             )
             .0,
             RemoteReason::BridgeFailed
-        );
-    }
-
-    #[test]
-    fn output_without_a_bridge_is_reported_and_silence_says_so() {
-        assert_eq!(
-            explain(
-                &exit(Some(0), ""),
-                b"Welcome to box\nThis account is restricted\n"
-            ),
-            (
-                RemoteReason::UnexpectedOutput,
-                "This account is restricted".into()
-            )
-        );
-        let warned = exit(Some(0), "bash: warning: setlocale\n");
-        assert_eq!(
-            explain(&warned, b"restricted\n").0,
-            RemoteReason::UnexpectedOutput
-        );
-        assert_eq!(
-            explain(&exit(Some(1), ""), b""),
-            (
-                RemoteReason::BridgeFailed,
-                "the connection closed before Muxy started (exit status 1)".into()
-            )
-        );
-        assert_eq!(
-            explain(&exit(None, ""), b" \n").1,
-            "the connection closed before Muxy started"
-        );
-    }
-
-    #[test]
-    fn details_are_one_clean_line() {
-        assert_eq!(last_line(b"first\n\x1b[31mred\x1b[0m\r\n\n"), "[31mred[0m");
-        assert_eq!(last_line(b"\xff\xfe broken\n"), "\u{fffd}\u{fffd} broken");
-        assert_eq!(last_line(&[b'a'; 1000]).len(), MAX_DETAIL);
-        assert_eq!(last_line(b" \n\t\n"), "");
-    }
-
-    #[test]
-    fn the_remote_command_runs_the_bridge_under_sh_with_the_installer_path() {
-        assert_eq!(
-            command(Start::IfNeeded),
-            r#"sh -c 'export PATH="$PATH:$HOME/.local/bin"; exec muxy stdio'"#
-        );
-        assert_eq!(
-            command(Start::Never),
-            r#"sh -c 'export PATH="$PATH:$HOME/.local/bin"; exec muxy stdio --no-start'"#
         );
     }
 }

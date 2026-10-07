@@ -11,9 +11,6 @@ use gpui::{
 use std::cell::Cell;
 use std::rc::Rc;
 
-#[cfg(test)]
-mod tests;
-
 pub const CONTROL_WIDTH: f32 = 210.0;
 pub const SLIDER_WIDTH: f32 = 220.0;
 

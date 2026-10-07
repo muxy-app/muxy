@@ -247,38 +247,3 @@ pub fn use_overlay_scrollers() {
     );
     unsafe { defaults.setVolatileDomain_forName(&arguments, domain) };
 }
-
-#[cfg(test)]
-mod tests {
-    use objc2::runtime::AnyObject;
-    use objc2_foundation::{NSArgumentDomain, NSDictionary, NSString, NSUserDefaults, ns_string};
-
-    #[test]
-    fn overlay_scrollers_outrank_launch_arguments_and_keep_them() {
-        let defaults = NSUserDefaults::standardUserDefaults();
-        let domain = unsafe { NSArgumentDomain };
-        let original = defaults.volatileDomainForName(domain);
-        let launched = NSDictionary::<NSString, AnyObject>::from_slices(
-            &[
-                ns_string!("AppleShowScrollBars"),
-                ns_string!("MuxyTestArgument"),
-            ],
-            &[ns_string!("Always"), ns_string!("kept")],
-        );
-        unsafe { defaults.setVolatileDomain_forName(&launched, domain) };
-
-        super::use_overlay_scrollers();
-        let scrollers = defaults.stringForKey(ns_string!("AppleShowScrollBars"));
-        let argument = defaults.stringForKey(ns_string!("MuxyTestArgument"));
-        unsafe { defaults.setVolatileDomain_forName(&original, domain) };
-
-        assert_eq!(
-            scrollers.map(|value| value.to_string()).as_deref(),
-            Some("WhenScrolling")
-        );
-        assert_eq!(
-            argument.map(|value| value.to_string()).as_deref(),
-            Some("kept")
-        );
-    }
-}

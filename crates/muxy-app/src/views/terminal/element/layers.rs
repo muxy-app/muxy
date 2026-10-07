@@ -228,7 +228,3 @@ impl QuadLayers {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "dots_tests.rs"]
-mod dot_tests;

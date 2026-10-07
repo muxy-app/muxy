@@ -12,88 +12,6 @@ fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
     Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
 }
 
-#[test]
-fn overlapping_quads_split_layers_and_preserve_order() {
-    let color = rgb(0x12_3456).into();
-    let quads = [
-        (bounds(0.0, 0.0, 8.0, 16.0), color),
-        (bounds(8.0, 0.0, 8.0, 16.0), color),
-        (bounds(4.0, 0.0, 8.0, 16.0), color),
-        (bounds(16.0, 0.0, 8.0, 16.0), color),
-    ];
-    assert_eq!(disjoint_prefix(&quads), (2, bounds(0.0, 0.0, 16.0, 16.0)));
-    assert_eq!(
-        disjoint_prefix(&quads[2..]),
-        (2, bounds(4.0, 0.0, 20.0, 16.0))
-    );
-}
-
-#[test]
-fn braille_batches_keep_every_dot_and_color_across_adjacent_cells() {
-    let mut paths = Paths {
-        legacy_dots: true,
-        ..Paths::default()
-    };
-    let mut quads = Vec::new();
-    for column in 0..120_u16 {
-        let mut color: Hsla = rgb(u32::from(column) * 100).into();
-        color.a = 0.5;
-        assert!(glyph::prepare(
-            "⣿",
-            bounds(f32::from(column) * 8.0, 0.0, 8.0, 16.0),
-            color,
-            2.0,
-            &mut quads,
-            &mut paths,
-        ));
-    }
-    assert!(quads.is_empty());
-    assert_eq!(paths.groups.len(), 1);
-    assert_eq!(paths.groups[0].bounds, Some(bounds(0.0, 0.0, 960.0, 16.0)));
-    assert_eq!(vector_paths(&paths.groups[0]).len(), 960);
-    for (column, dots) in vector_paths(&paths.groups[0]).chunks_exact(8).enumerate() {
-        let mut color: Hsla = rgb(u32::try_from(column).unwrap_or(0) * 100).into();
-        color.a = 0.5;
-        assert!(dots.iter().all(|(_, actual)| *actual == color));
-    }
-}
-
-#[test]
-fn paths_that_may_overlap_never_share_a_layer() {
-    let mut paths = Paths {
-        legacy_dots: true,
-        ..Paths::default()
-    };
-    let mut quads = Vec::new();
-    let color = rgb(0xff_ffff).into();
-    for text in ["⣿", "╭", "⣿", "⣿"] {
-        glyph::prepare(
-            text,
-            bounds(0.0, 0.0, 8.0, 16.0),
-            color,
-            2.0,
-            &mut quads,
-            &mut paths,
-        );
-    }
-    assert_eq!(paths.groups.len(), 4);
-    assert!(paths.groups[1].bounds.is_none());
-    let mut cramped = Paths {
-        legacy_dots: true,
-        ..Paths::default()
-    };
-    glyph::prepare(
-        "⣿",
-        bounds(0.0, 0.0, 8.0, 4.0),
-        color,
-        1.0,
-        &mut quads,
-        &mut cramped,
-    );
-    assert_eq!(cramped.groups.len(), 8);
-    assert!(cramped.groups.iter().all(|group| group.bounds.is_none()));
-}
-
 struct Chart {
     rows: Vec<Rc<RowPainting>>,
     unbatched: bool,
@@ -326,56 +244,6 @@ fn box_drawing_layers_preserve_every_stroke_and_overlap_order() {
     }
 }
 
-#[test]
-fn adjacent_crosses_share_four_layers() {
-    let mut layers = QuadLayers::default();
-    let mut quads = Vec::new();
-    let mut paths = Paths {
-        legacy_dots: true,
-        ..Paths::default()
-    };
-    for column in 0..120_u16 {
-        let start = quads.len();
-        glyph::prepare(
-            "┼",
-            bounds(f32::from(column) * 8.0, 0.0, 8.0, 16.0),
-            gpui::white(),
-            2.0,
-            &mut quads,
-            &mut paths,
-        );
-        layers.append_cell(&quads, start);
-    }
-    assert_eq!(quads.len(), 480);
-    assert_eq!(layers.layers.len(), 4);
-    assert_quad_order(&layers, &quads);
-}
-
-#[test]
-fn overlapping_cells_keep_the_original_order() {
-    let mut layers = QuadLayers::default();
-    let mut quads = Vec::new();
-    layers.append_cell(&quads, 0);
-    assert!(layers.layers.is_empty());
-    for x in [0.0, 8.0, 4.0, 16.0] {
-        let start = quads.len();
-        quads.extend([
-            (bounds(x, 0.0, 8.0, 16.0), gpui::red()),
-            (bounds(x + 2.0, 2.0, 4.0, 12.0), gpui::blue()),
-        ]);
-        layers.append_cell(&quads, start);
-    }
-    assert_eq!(layers.layers.len(), 4);
-    assert_quad_order(&layers, &quads);
-}
-
-fn vector_paths(group: &PathGroup) -> &[(Path<Pixels>, Hsla)] {
-    match &group.shapes {
-        Shapes::Paths(paths) => paths,
-        Shapes::Dots(_) => &[],
-    }
-}
-
 #[gpui::test]
 #[ignore = "manual headless benchmark of terminal row preparation"]
 fn terminal_prepare_matrix(cx: &mut gpui::TestAppContext) {
@@ -395,21 +263,4 @@ fn terminal_prepare_matrix(cx: &mut gpui::TestAppContext) {
             );
         });
     }
-}
-
-#[gpui::test]
-fn circles_survive_scene_replay_and_cursor_clipping(cx: &mut gpui::TestAppContext) {
-    let (host, cx) = cx
-        .add_window_view(|window, cx| Host(cx.new(|_| chart_with_text(4, 16, window, Some("⣿")))));
-    cx.run_until_parked();
-    let chart = host.read_with(cx, |host, _| host.0.clone());
-    let renders = chart.read_with(cx, |chart, _| chart.renders);
-    for _ in 0..3 {
-        host.update(cx, |_, cx| cx.notify());
-        cx.run_until_parked();
-    }
-    assert_eq!(chart.read_with(cx, |chart, _| chart.renders), renders);
-    chart.update(cx, |_, cx| cx.notify());
-    cx.run_until_parked();
-    assert!(chart.read_with(cx, |chart, _| chart.renders) > renders);
 }

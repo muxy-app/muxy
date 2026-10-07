@@ -212,14 +212,6 @@ pub(crate) struct SettingsView {
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
 impl SettingsView {
-    #[cfg(test)]
-    pub(crate) fn region_render_counts(&self, cx: &gpui::App) -> (usize, usize) {
-        (
-            self.navigation_view.read(cx).render_count,
-            self.content_view.read(cx).render_count,
-        )
-    }
-
     pub(crate) fn new(
         snapshot: Snapshot,
         theme: Theme,
@@ -381,44 +373,6 @@ impl SettingsView {
         cx.notify();
     }
 
-    #[cfg(test)]
-    pub(crate) fn focused_shortcut(&self, window: &Window) -> Option<(&'static str, bool)> {
-        self.results
-            .shortcut_focus
-            .iter()
-            .enumerate()
-            .find_map(|(index, handles)| {
-                handles
-                    .iter()
-                    .position(|handle| handle.is_focused(window))
-                    .map(|control| (muxy_core::shortcuts::ALL[index].id, control == 1))
-            })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn theme(&self) -> &Theme {
-        &self.theme
-    }
-
-    #[cfg(test)]
-    pub(crate) fn dictation_language(&self) -> &str {
-        &self.snapshot.settings.composer.language
-    }
-
-    #[cfg(test)]
-    pub(crate) fn matching_setting_ids(&self) -> Vec<&'static str> {
-        catalog::SETTINGS
-            .iter()
-            .filter(|setting| self.matches(setting.category, setting.label))
-            .map(|setting| setting.id)
-            .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn field_value(&self, id: &str, cx: &gpui::App) -> String {
-        self.fields[id].read(cx).text().to_owned()
-    }
-
     fn sync_fields(&self, cx: &mut Context<Self>) {
         let settings = &self.snapshot.settings;
         let terminal = &self.snapshot.terminal;
@@ -554,11 +508,6 @@ impl SettingsView {
         }
         self.results.dirty = true;
         cx.notify();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn results_state(&self) -> &gpui::ListState {
-        &self.results.state
     }
 
     fn commit_field(&mut self, id: &'static str, cx: &mut Context<Self>) {

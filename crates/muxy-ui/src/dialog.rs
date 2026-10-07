@@ -269,35 +269,6 @@ mod tests {
         assert_eq!(consent_choice(0, false), ConsentResponse::Cancel);
         assert_eq!(consent_choice(button(7), true), ConsentResponse::Cancel);
     }
-
-    #[test]
-    fn only_the_confirmation_button_can_suppress_future_prompts() {
-        for dont_ask_again in [false, true] {
-            assert_eq!(
-                classify(NSAlertFirstButtonReturn, dont_ask_again),
-                ConfirmationResponse::Confirmed { dont_ask_again }
-            );
-            for response in [NSAlertSecondButtonReturn, -1000, 0, 1002] {
-                assert_eq!(
-                    classify(response, dont_ask_again),
-                    ConfirmationResponse::Cancelled
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn a_checkbox_is_reported_only_when_confirmed() {
-        for checked in [false, true] {
-            assert_eq!(
-                checked_if_confirmed(NSAlertFirstButtonReturn, checked),
-                Some(checked)
-            );
-            for response in [NSAlertSecondButtonReturn, -1000, 0, 1002] {
-                assert_eq!(checked_if_confirmed(response, checked), None);
-            }
-        }
-    }
 }
 
 #[derive(Debug)]

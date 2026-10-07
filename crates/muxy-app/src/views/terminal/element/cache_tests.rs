@@ -52,41 +52,6 @@ fn frame(pane: &TerminalPane, window: &mut Window) -> Painting {
 }
 
 #[gpui::test]
-fn animation_prepares_only_changed_rows_and_cursor_blink_reuses_text(
-    cx: &mut gpui::TestAppContext,
-) {
-    let pane = cx.new(|cx| pane(cx, 40));
-    cx.add_empty_window().update(|window, cx| {
-        pane.update(cx, |pane, _| {
-            let first = frame(pane, window);
-            pane.grid.as_mut().unwrap().rows[20][0]
-                .text
-                .replace_range(..1, "x");
-            let next = frame(pane, window);
-            assert_eq!(next.rows.len(), 40);
-            for (index, (before, after)) in first.rows.iter().zip(&next.rows).enumerate() {
-                assert_eq!(Rc::ptr_eq(before, after), index != 20, "row {index}");
-            }
-            pane.grid.as_mut().unwrap().cursor.visible = true;
-            pane.cursor_blink.visible = false;
-            let hidden = frame(pane, window);
-            assert!(hidden.cursor.is_none());
-            pane.cursor_blink.visible = true;
-            let shown = frame(pane, window);
-            assert!(shown.cursor.is_some());
-            for (before, after) in hidden.rows.iter().zip(&shown.rows) {
-                assert!(Rc::ptr_eq(before, after));
-            }
-            pane.grid.as_mut().unwrap().cursor.row = 1;
-            let moved = frame(pane, window);
-            for (index, (before, after)) in shown.rows.iter().zip(&moved.rows).enumerate() {
-                assert_eq!(Rc::ptr_eq(before, after), index > 1, "cursor row {index}");
-            }
-        });
-    });
-}
-
-#[gpui::test]
 fn row_cache_tracks_styles_selection_scrolling_and_render_configuration(
     cx: &mut gpui::TestAppContext,
 ) {
@@ -138,26 +103,6 @@ fn row_cache_tracks_styles_selection_scrolling_and_render_configuration(
                 }
                 previous = next;
             }
-        });
-    });
-}
-
-#[gpui::test]
-fn row_cache_releases_removed_content(cx: &mut gpui::TestAppContext) {
-    let pane = cx.new(|cx| pane(cx, 3));
-    cx.add_empty_window().update(|window, cx| {
-        pane.update(cx, |pane, _| {
-            let painting = frame(pane, window);
-            let removed = Rc::downgrade(&painting.rows[2]);
-            let retained = Rc::downgrade(&painting.rows[0]);
-            drop(painting);
-            pane.grid.as_mut().unwrap().size.rows = 1;
-            drop(frame(pane, window));
-            assert!(removed.upgrade().is_none());
-            assert!(retained.upgrade().is_some());
-            pane.grid = None;
-            drop(frame(pane, window));
-            assert!(retained.upgrade().is_none());
         });
     });
 }

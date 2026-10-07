@@ -164,31 +164,6 @@ impl Workers {
     }
 
     #[cfg(test)]
-    pub(crate) fn with_run(
-        self,
-        run: impl Fn(&SshTarget, &str) -> Result<String, String> + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            run: Arc::new(move |target, command, _| run(target, command)),
-            ..self
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_run_input(
-        self,
-        run: impl Fn(&SshTarget, &str, Option<&std::path::Path>) -> Result<String, String>
-        + Send
-        + Sync
-        + 'static,
-    ) -> Self {
-        Self {
-            run: Arc::new(run),
-            ..self
-        }
-    }
-
-    #[cfg(test)]
     pub(crate) fn with_probe(
         self,
         probe: impl Fn(&SshTarget) -> Result<String, ProbeFailure> + Send + Sync + 'static,

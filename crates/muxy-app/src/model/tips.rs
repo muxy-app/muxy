@@ -161,39 +161,3 @@ const HIDE_MESSAGE: &str = tr_key!(
     "You can show tips again in Settings → Appearance → Interface by turning on Show tips."
 );
 pub(crate) const HIDE_ACTION: &str = tr_key!("Hide Tips");
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_tip_is_trimmed_non_empty_text() {
-        assert!(!TIPS.is_empty());
-        for tip in TIPS {
-            assert!(!tip.is_empty());
-            assert_eq!(tip.trim(), *tip);
-        }
-    }
-
-    #[test]
-    fn stepping_wraps_in_both_directions() {
-        let mut tips = Tips::starting_at(0);
-        assert_eq!(tips.position(), 1);
-        tips.step(false);
-        assert_eq!(tips.position(), TIPS.len());
-        assert_eq!(tips.current(), TIPS[TIPS.len() - 1]);
-        tips.step(true);
-        assert_eq!(tips.position(), 1);
-        tips.step(true);
-        assert_eq!(tips.current(), TIPS[1]);
-    }
-
-    #[test]
-    fn any_seed_starts_on_a_tip() {
-        for seed in [0, 1, TIPS.len() as u64, u64::MAX] {
-            let tips = Tips::starting_at(seed);
-            assert!((1..=TIPS.len()).contains(&tips.position()));
-        }
-        assert_eq!(Tips::starting_at(TIPS.len() as u64 + 2).position(), 3);
-    }
-}

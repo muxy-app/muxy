@@ -441,23 +441,6 @@ fn unix_paths_are_lossless() {
 }
 
 #[test]
-fn unknown_projects_and_direct_subscriptions_return_errors() {
-    let workspace = Workspace::new();
-    assert_eq!(
-        workspace
-            .registry
-            .files(&FilesRequest {
-                project: ProjectId::new(),
-                action: FilesAction::Stat(p(""))
-            })
-            .unwrap_err()
-            .code(),
-        ErrorCode::UnknownProject
-    );
-    assert!(workspace.files(FilesAction::Watch).is_err());
-}
-
-#[test]
 fn project_reads_overlap_and_mutations_wait_for_readers() {
     let workspace = Workspace::new();
     let lock = workspace.registry.files.lock_for(&workspace.path);

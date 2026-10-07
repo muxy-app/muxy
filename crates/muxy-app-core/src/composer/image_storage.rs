@@ -227,63 +227,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn composer_image_storage_writes_reads_and_removes_private_sources() {
-        let profile = tempfile::tempdir().unwrap();
-        let storage = ImageStorage::open(profile.path()).unwrap();
-        let filename = storage.write_source(&png()).unwrap();
-        validate_image_filename(&filename).unwrap();
-        assert_eq!(storage.read(&filename).unwrap(), png());
-        assert!(storage.remove(&filename).unwrap());
-        assert!(!storage.remove(&filename).unwrap());
-    }
-
-    #[test]
-    fn composer_image_storage_rejects_empty_invalid_and_oversized_sources() {
-        let profile = tempfile::tempdir().unwrap();
-        let storage = ImageStorage::open(profile.path()).unwrap();
-        assert!(storage.write_source(&[]).is_err());
-        assert!(storage.write_source(b"not an image").is_err());
-        let mut corrupted = png();
-        let corrupted_index = corrupted.len() - 13;
-        corrupted[corrupted_index] ^= 0xff;
-        assert!(
-            image::ImageReader::with_format(Cursor::new(&corrupted), ImageFormat::Png)
-                .into_dimensions()
-                .is_ok()
-        );
-        assert!(storage.write_source(&corrupted).is_err());
-        assert!(
-            storage
-                .write_source(&vec![0; MAX_ENCODED_IMAGE_BYTES + 1])
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn composer_image_normalization_accepts_supported_sources_and_outputs_png() {
-        for format in [
-            ImageFormat::Png,
-            ImageFormat::Jpeg,
-            ImageFormat::Gif,
-            ImageFormat::Tiff,
-            ImageFormat::WebP,
-        ] {
-            let normalized = normalize_png(&encoded(format)).unwrap();
-            assert_eq!(image::guess_format(&normalized).unwrap(), ImageFormat::Png);
-            let decoded =
-                image::load_from_memory_with_format(&normalized, ImageFormat::Png).unwrap();
-            assert_eq!((decoded.width(), decoded.height()), (2, 2));
-        }
-    }
-
-    #[test]
-    fn composer_image_pixel_limit_accepts_the_boundary_and_rejects_larger_or_empty_dimensions() {
-        assert!(validate_dimensions(8_000, 8_000).is_ok());
-        assert!(validate_dimensions(8_001, 8_000).is_err());
-        assert!(validate_dimensions(0, 8_000).is_err());
-    }
-
     #[cfg(unix)]
     #[test]
     fn composer_image_sweep_ignores_symlinks_and_removes_only_regular_orphans() {

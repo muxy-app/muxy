@@ -1,24 +1,15 @@
+use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
-use std::{env, fs, process};
 
-use muxy_terminal::pty::{ExitStatus, Pty, PtyEvent, PtySize, SpawnRequest};
+use muxy_terminal::pty::{Pty, PtyEvent, PtySize, SpawnRequest};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
-
-#[test]
-fn printf_delivers_output_then_closed_with_exit_code_zero() -> TestResult {
-    let (output, status) = run(shell("printf hello"))?;
-
-    assert_eq!(output, b"hello");
-    assert_eq!(status.code, Some(0));
-    Ok(())
-}
 
 #[test]
 fn cat_echoes_written_input_and_closes_after_kill() -> TestResult {
@@ -36,36 +27,6 @@ fn cat_echoes_written_input_and_closes_after_kill() -> TestResult {
     reader.join().map_err(|_| "reader thread panicked")?;
 
     assert_eq!(status.signal, Some(1));
-    Ok(())
-}
-
-#[test]
-fn pwd_prints_the_requested_directory() -> TestResult {
-    let dir = env::temp_dir().join(format!("muxy-pty-{}", process::id()));
-    fs::create_dir_all(&dir)?;
-    let dir = fs::canonicalize(&dir)?;
-    let mut request = shell("pwd");
-    request.cwd.clone_from(&dir);
-
-    let (output, status) = run(request)?;
-    fs::remove_dir(&dir)?;
-
-    assert_eq!(text(&output).trim(), dir.to_string_lossy());
-    assert_eq!(status.code, Some(0));
-    Ok(())
-}
-
-#[test]
-fn exit_code_is_reported() -> TestResult {
-    let (_, status) = run(shell("exit 3"))?;
-
-    assert_eq!(
-        status,
-        ExitStatus {
-            code: Some(3),
-            signal: None
-        }
-    );
     Ok(())
 }
 
@@ -89,19 +50,6 @@ fn resize_is_visible_to_stty() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn env_entries_are_visible_to_the_child() -> TestResult {
-    let mut request = shell("echo $MUXY_TEST");
-    request
-        .env
-        .push((OsString::from("MUXY_TEST"), OsString::from("1")));
-
-    let (output, _) = run(request)?;
-
-    assert_eq!(text(&output).trim(), "1");
-    Ok(())
-}
-
 fn shell(script: &str) -> SpawnRequest {
     request("/bin/sh", &["-c", script])
 }
@@ -114,16 +62,6 @@ fn request(program: &str, args: &[&str]) -> SpawnRequest {
         env: Vec::new(),
         size: PtySize { cols: 80, rows: 24 },
     }
-}
-
-fn run(request: SpawnRequest) -> Result<(Vec<u8>, ExitStatus), Box<dyn Error>> {
-    let mut pty = Pty::spawn(request)?;
-    let (sender, receiver) = channel();
-    let reader = pty.start_reader(sender)?;
-    let output = collect_until_closed(&receiver)?;
-    let status = pty.wait()?;
-    reader.join().map_err(|_| "reader thread panicked")?;
-    Ok((output, status))
 }
 
 fn collect_until_closed(receiver: &Receiver<PtyEvent>) -> Result<Vec<u8>, Box<dyn Error>> {

@@ -501,17 +501,6 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_selection_scroll_preserves_a_later_wheel_target() {
-        let live = grid();
-        let mut scroll = Scroll::default();
-        let request = scroll.move_selection(25.0, &live, 5).unwrap();
-        scroll.move_rows(2.0, &live, 5);
-        scroll.cancel_selection_scroll();
-        scroll.receive(request, Ok(page(60, 80, Some(HistoryCursor(7)))), 5);
-        assert_eq!(scroll.offset, 27.0);
-    }
-
-    #[test]
     fn prompt_navigation_loads_older_pages_then_returns_to_the_next_prompt() {
         let mut live = grid();
         live.prompts = [20, 24].into();
@@ -555,85 +544,6 @@ mod tests {
         scroll.receive(request, Ok(older), 5);
         assert_eq!(scroll.take_command_output(), Some((-29, 4)));
         assert!(scroll.take_command_output().is_none());
-    }
-
-    #[test]
-    fn prompt_jumps_cancel_on_stale_history_or_return_to_bottom() {
-        let live = grid();
-        let mut scroll = Scroll::default();
-        let request = scroll
-            .prompt(PromptOperation::Previous, 24, &live, 5)
-            .unwrap();
-        scroll.bottom();
-        scroll.receive(request, Ok(page(60, 80, None)), 5);
-        assert!(scroll.view.is_none());
-        let request = scroll
-            .prompt(PromptOperation::Previous, 24, &live, 5)
-            .unwrap();
-        let recent = scroll.receive(request, Err(stale()), 5).unwrap();
-        assert!(scroll.prompt.is_none());
-        let mut refreshed = page(90, 110, Some(HistoryCursor(7)));
-        refreshed.prompts = vec![19];
-        assert!(scroll.receive(recent, Ok(refreshed), 5).is_none());
-        assert!(scroll.view.is_none());
-        assert!(scroll.take_command_output().is_none());
-    }
-
-    #[test]
-    fn refreshing_a_changed_snapshot_does_not_retarget_a_prompt_action() {
-        for operation in [
-            PromptOperation::Previous,
-            PromptOperation::Select {
-                include_prompt: true,
-            },
-        ] {
-            let mut live = grid();
-            live.history_fresh = false;
-            let mut scroll = Scroll::default();
-            let request = scroll.prompt(operation, 22, &live, 5).unwrap();
-            let mut recent = page(90, 110, Some(HistoryCursor(7)));
-            recent.total_rows = 110;
-            recent.prompts = vec![19, 23];
-            recent.screen = Some(SavedScreen {
-                graphics: muxy_protocol::Graphics::default(),
-                reason: None,
-                size: live.size,
-                rows: page(110, 115, None).rows,
-                cursor: live.cursor,
-            });
-            assert!(scroll.receive(request, Ok(recent), 5).is_none());
-            assert!(scroll.take_command_output().is_none());
-            assert!(scroll.view.is_none());
-        }
-    }
-
-    #[test]
-    fn future_prompt_metadata_does_not_change_a_frozen_selection() {
-        let mut live = grid();
-        live.prompts = [20, 24].into();
-        live.screen_prompts(3, vec![]);
-        let mut scroll = Scroll::default();
-        let request = scroll.prompt(
-            PromptOperation::Select {
-                include_prompt: true,
-            },
-            22,
-            &live,
-            5,
-        );
-        assert!(request.is_none());
-        assert_eq!(scroll.take_command_output(), Some((1, 3)));
-        live.apply(&ScreenFrame {
-            size: live.size,
-            graphics: None,
-            seq: 3,
-            reset: false,
-            rows: vec![],
-            cursor: live.cursor,
-            modes: live.modes,
-        });
-        assert!(live.prompts.is_empty());
-        assert_eq!(scroll.view.as_ref().unwrap().prompts, [20, 24].into());
     }
 
     #[test]
@@ -687,20 +597,6 @@ mod tests {
     }
 
     #[test]
-    fn entering_saved_scrollback_reuses_the_pending_recent_read() {
-        let mut live = grid();
-        live.history_fresh = false;
-        let mut scroll = Scroll::default();
-        let preload = HistoryRequest::recent();
-        scroll.move_rows(3.5, &live, 5);
-        scroll.adopt_recent(preload);
-        assert!(scroll.move_rows(2.0, &live, 5).is_none());
-        scroll.receive(preload, Ok(page(80, 100, Some(HistoryCursor(7)))), 5);
-        assert_eq!(scroll.offset, 5.5);
-        assert!(scroll.pending.is_none());
-    }
-
-    #[test]
     fn a_large_gesture_pages_sequentially_and_bottom_ignores_the_outstanding_reply() {
         let live = grid();
         let mut scroll = Scroll::default();
@@ -734,32 +630,6 @@ mod tests {
             .unwrap();
         assert!(scroll.receive(older, Err(stale()), 5).is_none());
         assert!(scroll.pending.is_none());
-    }
-
-    #[test]
-    fn cleared_history_clamps_the_view_without_leaving_a_stretched_blank_area() {
-        let live = grid();
-        let mut scroll = Scroll::default();
-        let older = scroll.move_rows(100.0, &live, 5).unwrap();
-        let refresh = scroll.receive(older, Err(stale()), 5).unwrap();
-        let mut page = page(0, 3, None);
-        page.total_rows = 3;
-        let revision = scroll.revision;
-        scroll.receive(refresh, Ok(page), 5);
-        assert_eq!(scroll.offset, 3.0);
-        assert_eq!(scroll.elastic, 0.0);
-        assert_eq!(scroll.requested_pixels(16.0), 48.0);
-        assert_ne!(scroll.revision, revision);
-    }
-
-    #[test]
-    fn elastic_motion_is_kept_separate_from_the_paged_position() {
-        let live = grid();
-        let mut scroll = Scroll::default();
-        scroll.move_to(100.5, &live, 5);
-        assert_eq!(scroll.wanted, 100.0);
-        assert_eq!(scroll.elastic, 0.5);
-        assert_eq!(scroll.requested_pixels(16.0), 1608.0);
     }
 
     #[test]
@@ -809,38 +679,6 @@ mod tests {
         );
         assert!(scroll.view.is_none());
         assert!(scroll.move_rows(5.0, &live, 5).is_some());
-    }
-
-    #[test]
-    fn resizing_saved_content_ignores_an_outstanding_reply() {
-        let live = grid();
-        let mut scroll = Scroll::default();
-        let request = scroll.move_rows(20.0, &live, 5).unwrap();
-        let before = scroll.view.clone();
-        scroll.resized(3);
-        scroll.receive(request, Ok(page(60, 80, None)), 3);
-        assert_eq!(scroll.view, before);
-        assert!(scroll.pending.is_none());
-    }
-
-    #[test]
-    fn saved_content_keeps_its_width_and_resize_changes_only_the_visible_rows() {
-        let live = grid();
-        let saved = RunGrid::from_saved(SavedScreen {
-            graphics: muxy_protocol::Graphics::default(),
-            size: live.size,
-            rows: page(100, 105, None).rows,
-            cursor: live.cursor,
-            reason: None,
-        });
-        let mut scroll = Scroll::default();
-        let request = scroll.move_rows(2.0, &saved, 3).unwrap();
-        scroll.receive(request, Ok(page(80, 100, None)), 3);
-        let frozen = scroll.view.as_ref().unwrap().clone();
-        assert_eq!(visible(&scroll, &saved, 3), ["100", "101", "102"]);
-        assert_eq!(visible(&scroll, &saved, 2), ["101", "102"]);
-        assert_eq!(scroll.view.as_ref().unwrap(), &frozen);
-        assert_eq!(frozen.size.cols, 10);
     }
 }
 

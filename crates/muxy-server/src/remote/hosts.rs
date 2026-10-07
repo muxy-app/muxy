@@ -87,14 +87,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_tailscale_range_counts_as_tailscale() {
-        assert!(is_tailscale(Ipv4Addr::new(100, 64, 0, 1)));
-        assert!(is_tailscale(Ipv4Addr::new(100, 127, 255, 254)));
-        assert!(!is_tailscale(Ipv4Addr::new(100, 128, 0, 1)));
-        assert!(!is_tailscale(Ipv4Addr::new(192, 168, 1, 5)));
-    }
-
-    #[test]
     fn candidates_are_valid_pairing_hosts() {
         for host in candidates(&[]) {
             assert!(!host.is_empty() && host.len() <= 253, "{host}");

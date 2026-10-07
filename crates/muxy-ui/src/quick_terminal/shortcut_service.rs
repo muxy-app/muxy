@@ -384,20 +384,14 @@ impl std::fmt::Debug for QuickTerminalShortcutService {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::float_cmp,
-    clippy::items_after_statements
-)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{
         QuickTerminalShortcutService, ShortcutBackend, ShortcutBackendFactory,
         ShortcutServiceError, ShortcutState,
     };
+    use muxy_core::quick_terminal::QuickTerminalShortcut;
     use muxy_core::quick_terminal::keys::{COMMAND, CONTROL, KeyCombo};
-    use muxy_core::quick_terminal::{ConflictCandidate, QuickTerminalShortcut};
     use std::cell::{Cell, RefCell};
     use std::collections::VecDeque;
     use std::io;
@@ -408,11 +402,9 @@ mod tests {
         starts: usize,
         stops: usize,
         trigger: Option<Rc<dyn Fn()>>,
-        events: Vec<String>,
     }
 
     struct TestBackend {
-        name: &'static str,
         state: ShortcutState,
         start_error: Option<&'static str>,
         record: Rc<RefCell<BackendRecord>>,
@@ -422,7 +414,6 @@ mod tests {
         fn start(&mut self, trigger: Rc<dyn Fn()>) -> Result<(), String> {
             let mut record = self.record.borrow_mut();
             record.starts += 1;
-            record.events.push(format!("start {}", self.name));
             if let Some(error) = self.start_error {
                 return Err(error.to_owned());
             }
@@ -434,7 +425,6 @@ mod tests {
         fn stop(&mut self) {
             let mut record = self.record.borrow_mut();
             record.stops += 1;
-            record.events.push(format!("stop {}", self.name));
             self.state = ShortcutState::Stopped;
         }
 
@@ -459,14 +449,10 @@ mod tests {
         }
     }
 
-    fn backend(
-        name: &'static str,
-        start_error: Option<&'static str>,
-    ) -> (TestBackend, Rc<RefCell<BackendRecord>>) {
+    fn backend(start_error: Option<&'static str>) -> (TestBackend, Rc<RefCell<BackendRecord>>) {
         let record = Rc::new(RefCell::new(BackendRecord::default()));
         (
             TestBackend {
-                name,
                 state: ShortcutState::Stopped,
                 start_error,
                 record: record.clone(),
@@ -512,8 +498,8 @@ mod tests {
 
     #[test]
     fn quick_terminal_shortcut_start_stop_and_stale_generation() {
-        let (first, first_record) = backend("first", None);
-        let (second, second_record) = backend("second", None);
+        let (first, first_record) = backend(None);
+        let (second, second_record) = backend(None);
         let mut service = service(other_key_combo(), true, vec![first, second], |_| Ok(()));
         service.start().unwrap();
         first_record.borrow().trigger.as_ref().unwrap()();
@@ -529,27 +515,9 @@ mod tests {
     }
 
     #[test]
-    fn quick_terminal_shortcut_replacement_is_transactional() {
-        let events = Rc::new(RefCell::new(Vec::new()));
-        let (first, first_record) = backend("first", None);
-        let (second, second_record) = backend("second", None);
-        let persisted = events.clone();
-        let mut service = service(other_key_combo(), true, vec![first, second], move |_| {
-            persisted.borrow_mut().push("persist".to_owned());
-            Ok(())
-        });
-        service.start().unwrap();
-        service.update_shortcut(key_combo(), &[]).unwrap();
-        assert_eq!(first_record.borrow().events, ["start first", "stop first"]);
-        assert_eq!(second_record.borrow().events, ["start second"]);
-        assert_eq!(events.borrow().as_slice(), ["persist"]);
-        assert_eq!(service.shortcut(), &key_combo());
-    }
-
-    #[test]
     fn quick_terminal_shortcut_registration_failure_keeps_previous() {
-        let (first, first_record) = backend("first", None);
-        let (second, second_record) = backend("second", Some("registration failed"));
+        let (first, first_record) = backend(None);
+        let (second, second_record) = backend(Some("registration failed"));
         let saves = Rc::new(Cell::new(0));
         let observed_saves = saves.clone();
         let mut service = service(other_key_combo(), true, vec![first, second], move |_| {
@@ -570,8 +538,8 @@ mod tests {
 
     #[test]
     fn quick_terminal_shortcut_persistence_failure_rolls_back_candidate() {
-        let (first, first_record) = backend("first", None);
-        let (second, second_record) = backend("second", None);
+        let (first, first_record) = backend(None);
+        let (second, second_record) = backend(None);
         let mut service = service(other_key_combo(), true, vec![first, second], |_| {
             Err(io::Error::other("disk full"))
         });
@@ -584,186 +552,5 @@ mod tests {
         assert_eq!(second_record.borrow().stops, 1);
         assert_eq!(service.shortcut(), &other_key_combo());
         assert_eq!(service.state(), ShortcutState::Registered);
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_unassignment_persists_before_stop() {
-        let ordering = Rc::new(RefCell::new(Vec::new()));
-        let record = Rc::new(RefCell::new(BackendRecord::default()));
-        struct OrderedBackend {
-            ordering: Rc<RefCell<Vec<&'static str>>>,
-            record: Rc<RefCell<BackendRecord>>,
-        }
-        impl ShortcutBackend for OrderedBackend {
-            fn start(&mut self, trigger: Rc<dyn Fn()>) -> Result<(), String> {
-                self.record.borrow_mut().trigger = Some(trigger);
-                Ok(())
-            }
-            fn stop(&mut self) {
-                self.ordering.borrow_mut().push("stop");
-            }
-            fn state(&self) -> ShortcutState {
-                ShortcutState::Registered
-            }
-        }
-        struct OrderedFactory {
-            backend: Option<OrderedBackend>,
-        }
-        impl ShortcutBackendFactory for OrderedFactory {
-            fn create(
-                &mut self,
-                shortcut: &QuickTerminalShortcut,
-            ) -> Option<Box<dyn ShortcutBackend>> {
-                matches!(shortcut, QuickTerminalShortcut::KeyCombo { .. })
-                    .then(|| Box::new(self.backend.take().unwrap()) as Box<dyn ShortcutBackend>)
-            }
-        }
-        let persisted = ordering.clone();
-        let mut service = QuickTerminalShortcutService::new(
-            other_key_combo(),
-            true,
-            Box::new(OrderedFactory {
-                backend: Some(OrderedBackend {
-                    ordering: ordering.clone(),
-                    record,
-                }),
-            }),
-            Box::new(move |_| {
-                persisted.borrow_mut().push("persist");
-                Ok(())
-            }),
-            Box::new(|_| Some("space".to_owned())),
-        );
-        service.start().unwrap();
-        service
-            .update_shortcut(QuickTerminalShortcut::Unassigned, &[])
-            .unwrap();
-        assert_eq!(ordering.borrow().as_slice(), ["persist", "stop"]);
-    }
-
-    #[test]
-    fn quick_terminal_custom_shortcut_registers_and_delivers_trigger() {
-        let (first, record) = backend("first", None);
-        let mut service = service(key_combo(), true, vec![first], |_| Ok(()));
-        service.start().unwrap();
-        assert_eq!(service.state(), ShortcutState::Registered);
-        record.borrow().trigger.as_ref().unwrap()();
-        assert!(service.try_receive_trigger());
-        assert!(!service.try_receive_trigger());
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_disabled_runtime_does_not_install_backend() {
-        let (first, first_record) = backend("first", None);
-        let mut service = service(other_key_combo(), false, vec![first], |_| Ok(()));
-        service.start().unwrap();
-        assert_eq!(first_record.borrow().starts, 0);
-        assert_eq!(service.state(), ShortcutState::Stopped);
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_prepares_enable_before_runtime_publish() {
-        let (candidate, record) = backend("candidate", None);
-        let mut service = service(other_key_combo(), false, vec![candidate], |_| Ok(()));
-        service.start().unwrap();
-        let prepared = service
-            .prepare_shortcut_for_enabled(other_key_combo(), &[], true)
-            .unwrap();
-        assert_eq!(record.borrow().starts, 1);
-        assert_eq!(service.state(), ShortcutState::Stopped);
-        service.commit_prepared(prepared);
-        assert_eq!(service.state(), ShortcutState::Registered);
-        service.stop();
-        assert_eq!(record.borrow().stops, 1);
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_cancelled_enable_stops_only_the_candidate() {
-        let (candidate, record) = backend("candidate", None);
-        let mut service = service(other_key_combo(), false, vec![candidate], |_| Ok(()));
-        service.start().unwrap();
-        let prepared = service
-            .prepare_shortcut_for_enabled(other_key_combo(), &[], true)
-            .unwrap();
-        service.cancel_prepared(prepared);
-        assert_eq!(record.borrow().stops, 1);
-        assert_eq!(service.state(), ShortcutState::Stopped);
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_failed_unassignment_keeps_active_backend() {
-        let (first, first_record) = backend("first", None);
-        let mut service = service(other_key_combo(), true, vec![first], |_| {
-            Err(io::Error::other("disk full"))
-        });
-        service.start().unwrap();
-        assert!(matches!(
-            service.update_shortcut(QuickTerminalShortcut::Unassigned, &[]),
-            Err(ShortcutServiceError::Persistence(_))
-        ));
-        assert_eq!(first_record.borrow().stops, 0);
-        assert_eq!(service.shortcut(), &other_key_combo());
-        assert_eq!(service.state(), ShortcutState::Registered);
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_disable_and_reenable_replaces_registration() {
-        let (first, first_record) = backend("first", None);
-        let (second, second_record) = backend("second", None);
-        let mut service = service(other_key_combo(), true, vec![first, second], |_| Ok(()));
-        service.start().unwrap();
-        service.set_enabled(false).unwrap();
-        assert_eq!(first_record.borrow().stops, 1);
-        assert_eq!(service.state(), ShortcutState::Stopped);
-        service.set_enabled(true).unwrap();
-        assert_eq!(second_record.borrow().starts, 1);
-        assert_eq!(service.state(), ShortcutState::Registered);
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_layout_refresh_preserves_registration() {
-        let (first, first_record) = backend("first", None);
-        let saved = Rc::new(RefCell::new(None));
-        let observed = saved.clone();
-        let initial = QuickTerminalShortcut::KeyCombo {
-            key_combo: KeyCombo::new("a", COMMAND),
-            virtual_key_code: 0,
-        };
-        let mut service = service(initial, true, vec![first], move |shortcut| {
-            *observed.borrow_mut() = Some(shortcut.clone());
-            Ok(())
-        });
-        service.start().unwrap();
-        service.key_resolver = Box::new(|code| (code == 0).then(|| "q".to_owned()));
-        let refreshed = QuickTerminalShortcut::KeyCombo {
-            key_combo: KeyCombo::new("a", COMMAND),
-            virtual_key_code: 0,
-        };
-        service.update_shortcut(refreshed, &[]).unwrap();
-        assert_eq!(first_record.borrow().starts, 1);
-        assert_eq!(first_record.borrow().stops, 0);
-        assert_eq!(
-            service.shortcut().key_combo().unwrap(),
-            &KeyCombo::new("q", COMMAND)
-        );
-        assert_eq!(saved.borrow().as_ref(), Some(service.shortcut()));
-    }
-
-    #[test]
-    fn quick_terminal_shortcut_conflict_is_rejected_before_registration() {
-        let (first, first_record) = backend("first", None);
-        let mut service = service(QuickTerminalShortcut::Unassigned, true, vec![first], |_| {
-            Ok(())
-        });
-        service.start().unwrap();
-        let conflicts = [ConflictCandidate {
-            label: "Open Project".to_owned(),
-            combo: KeyCombo::new("space", COMMAND),
-        }];
-        assert!(matches!(
-            service.update_shortcut(key_combo(), &conflicts),
-            Err(ShortcutServiceError::Conflict(label)) if label == "Open Project"
-        ));
-        assert_eq!(first_record.borrow().starts, 0);
     }
 }

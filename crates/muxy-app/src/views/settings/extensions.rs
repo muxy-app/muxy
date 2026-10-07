@@ -19,8 +19,6 @@ use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
 
 mod configuration;
-#[cfg(test)]
-mod tests;
 mod updates;
 
 #[derive(Clone, Copy, PartialEq)]

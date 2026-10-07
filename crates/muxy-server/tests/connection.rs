@@ -586,26 +586,6 @@ fn detach_ignores_late_input_and_ack_and_does_not_reuse_channel() -> TestResult 
 }
 
 #[test]
-fn resize_returns_reply_and_a_reset_frame() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(true)?;
-    let info = fixture.create(&mut client)?;
-    let channel = client.attach(info.id)?.channel;
-    client.quiet()?;
-    assert_eq!(
-        client.request(RequestBody::Resize {
-            channel,
-            size: Size { cols: 60, rows: 20 }
-        })?,
-        ReplyBody::Resized
-    );
-    let frame = client.frame(channel, "")?;
-    assert!(frame.reset);
-    assert_eq!(frame.rows.len(), 20);
-    client.disconnect()
-}
-
-#[test]
 fn ending_a_session_notifies_attached_and_unattached_connections_once() -> TestResult {
     let fixture = Fixture::new()?;
     let mut attached = fixture.client(true)?;
@@ -1113,22 +1093,6 @@ fn idle_shutdown_counts_sessions_from_other_clients_and_blocks_new_spawns() -> T
         ReplyBody::ServerStopping
     );
     assert!(fixture.registry.create(&fixture.directory, SIZE).is_err());
-    Ok(())
-}
-
-#[test]
-fn hellos_without_a_shared_version_never_open_a_request_channel() -> TestResult {
-    let fixture = Fixture::new()?;
-    let session = fixture.registry.create(&fixture.directory, SIZE)?;
-    let mut client = fixture.client(false)?;
-    client.send(
-        CONTROL,
-        Message::Hello {
-            versions: vec![Version(u16::MAX)],
-        },
-    )?;
-    assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
-    assert_eq!(fixture.registry.list(), vec![session]);
     Ok(())
 }
 

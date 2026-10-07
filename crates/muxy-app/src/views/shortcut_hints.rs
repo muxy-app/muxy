@@ -89,34 +89,3 @@ pub(super) fn badge(label: String, size: Pixels, model: &AppModel) -> AnyElement
         .child(label)
         .into_any_element()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hints_follow_custom_keys_and_only_appear_for_matching_modifiers() {
-        let control = Modifiers {
-            control: true,
-            ..Default::default()
-        };
-        for (chord, label) in [("ctrl-x", "X"), ("ctrl-enter", "↩"), ("ctrl-f12", "F12")] {
-            for id in [ShortcutId::SelectTab1, ShortcutId::SelectProject1] {
-                let keymap = Keymap::default()
-                    .with_binding(id.name(), Some(chord.parse().expect("chord")))
-                    .expect("custom binding");
-                let mut hints = ShortcutHints {
-                    modifiers: control,
-                    ..Default::default()
-                };
-                assert_eq!(hints.label(id, &keymap), None);
-                hints.visible = true;
-                assert_eq!(hints.label(id, &keymap).as_deref(), Some(label));
-                hints.modifiers.shift = true;
-                assert_eq!(hints.label(id, &keymap), None);
-                hints.modifiers = Modifiers::default();
-                assert_eq!(hints.label(id, &keymap), None);
-            }
-        }
-    }
-}

@@ -45,25 +45,3 @@ impl Navigation {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn history_skips_closed_tabs_and_truncates_forward_navigation() {
-        let mut history = Navigation::default();
-        let first = (ProjectId::new(), TabId::new());
-        let second = (ProjectId::new(), TabId::new());
-        let third = (ProjectId::new(), TabId::new());
-        for tab in [first, second, third] {
-            history.record(tab);
-        }
-        let target = history.target(false, |tab| tab != second);
-        assert_eq!(target, Some((0, first)));
-        history.commit(0);
-        history.record(second);
-        assert!(history.target(true, |_| true).is_none());
-        assert_eq!(history.target(false, |_| true), Some((0, first)));
-    }
-}

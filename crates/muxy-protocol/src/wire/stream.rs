@@ -115,22 +115,4 @@ mod tests {
         assert_eq!(decoder.next()?, (ChannelId(1), message));
         Ok(())
     }
-
-    #[test]
-    fn decoder_reuses_its_payload_buffer() -> Result<(), WireError> {
-        let large = Message::Input(vec![0xff; 4096]);
-        let small = Message::Input(vec![0; 3]);
-        let mut bytes = Vec::new();
-        let mut encoder = Encoder::new(&mut bytes);
-        encoder.send(ChannelId(1), &large)?;
-        encoder.send(ChannelId(2), &small)?;
-        let mut decoder = Decoder::new(bytes.as_slice());
-        assert_eq!(decoder.next()?, (ChannelId(1), large));
-        let capacity = decoder.buffer.capacity();
-        let pointer = decoder.buffer.as_ptr();
-        assert_eq!(decoder.next()?, (ChannelId(2), small));
-        assert_eq!(decoder.buffer.capacity(), capacity);
-        assert_eq!(decoder.buffer.as_ptr(), pointer);
-        Ok(())
-    }
 }

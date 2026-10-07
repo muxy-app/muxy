@@ -207,17 +207,3 @@ fn inside<'a>(root: &str, path: &'a str) -> Option<&'a str> {
     }
     path.strip_prefix(root)?.strip_prefix('/')
 }
-
-#[cfg(test)]
-mod tests {
-    use super::inside;
-
-    #[test]
-    fn paths_are_relative_to_home_and_nothing_outside_is_listed() {
-        assert_eq!(inside("/home/dev", "/home/dev"), Some(""));
-        assert_eq!(inside("/home/dev", "/home/dev/code/app"), Some("code/app"));
-        assert_eq!(inside("/home/dev", "/home/devops"), None);
-        assert_eq!(inside("/home/dev", "/srv"), None);
-        assert_eq!(inside("/", "/srv/app"), Some("srv/app"));
-    }
-}

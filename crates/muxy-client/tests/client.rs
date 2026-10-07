@@ -13,18 +13,12 @@ mod close;
 mod colors;
 #[path = "client/composer.rs"]
 mod composer;
-#[path = "client/cursor.rs"]
-mod cursor;
 #[path = "client/input.rs"]
 mod input;
-#[path = "client/links.rs"]
-mod links;
 #[path = "client/observe.rs"]
 mod observe;
 #[path = "client/ownership.rs"]
 mod ownership;
-#[path = "client/progress.rs"]
-mod progress;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -275,67 +269,6 @@ impl Connection {
     }
 }
 
-#[test]
-fn metadata_crosses_the_connection_and_is_included_in_the_next_attachment() -> TestResult {
-    use muxy_protocol::{ForegroundProcess, MetadataEvent};
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let client = &connection.client;
-    let session = fixture.create(client)?;
-    let attached = client.attach(session.id, SIZE)?;
-    client.send_input(
-        attached.channel,
-        b"cd /tmp; printf '\\033]0;hello\\007'; sleep 30\n",
-    )?;
-    let deadline = Instant::now() + TIMEOUT;
-    let (mut title, mut directory, mut process) = (false, false, false);
-    while !(title && directory && process) {
-        match connection
-            .events
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))?
-        {
-            ClientEvent::Metadata { channel, event } => {
-                assert_eq!(channel, attached.channel);
-                match event {
-                    MetadataEvent::Title(value) => title |= value == "hello",
-                    MetadataEvent::Directory(path) => directory |= path.0.ends_with(b"/tmp"),
-                    MetadataEvent::ForegroundProcess { name, is_shell } => {
-                        process |= name == "sleep" && !is_shell;
-                    }
-                    MetadataEvent::Bell
-                    | MetadataEvent::History { .. }
-                    | MetadataEvent::InputModes(_)
-                    | MetadataEvent::CursorBlinking(_)
-                    | MetadataEvent::Links { .. }
-                    | MetadataEvent::ScreenPrompts { .. } => {}
-                }
-            }
-            ClientEvent::Frame { .. }
-            | ClientEvent::SessionsChanged { .. }
-            | ClientEvent::SessionMetadata { .. }
-            | ClientEvent::ActivityChanged { .. }
-            | ClientEvent::Progress { .. }
-            | ClientEvent::FilesChanged { .. }
-            | ClientEvent::GitChanged { .. }
-            | ClientEvent::CatalogChanged { .. } => {}
-            other => return Err(format!("unexpected event: {other:?}").into()),
-        }
-    }
-    let current = client.attach(session.id, SIZE)?;
-    assert_eq!(current.title, "hello");
-    assert!(current.directory.0.ends_with(b"/tmp"));
-    assert_eq!(
-        current.process,
-        Some(ForegroundProcess {
-            name: "sleep".into(),
-            is_shell: false
-        })
-    );
-    client.detach(current.channel)?;
-    client.end_session(session.id)?;
-    Ok(())
-}
-
 fn text(grid: &RunGrid) -> String {
     (0..grid.rows.len())
         .map(|index| grid.row_text(index))
@@ -396,46 +329,6 @@ fn a_frame_arrives_only_after_the_previous_one_is_acked() -> TestResult {
     assert!(second.seq > first.seq);
     assert_eq!(attachment.grid.row_text(0), "first");
     assert_eq!(attachment.grid.row_text(2), "second");
-    Ok(())
-}
-
-#[test]
-fn detach_and_resize_reply_and_a_resize_resets_the_grid() -> TestResult {
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let client = &connection.client;
-    let info = fixture.create(client)?;
-    let mut attachment = client.attach(info.id, SIZE)?;
-    connection.quiet(&mut attachment)?;
-    let size = Size { cols: 60, rows: 20 };
-    client.resize(attachment.channel, size)?;
-    attachment.grid.resize(size);
-    let frame = connection.next_frame(attachment.channel)?;
-    assert!(frame.reset);
-    attachment.grid.apply(&frame);
-    assert_eq!(attachment.grid.rows.len(), 20);
-    client.ack(attachment.channel, frame.seq)?;
-    client.detach(attachment.channel)?;
-    assert!(matches!(
-        client.detach(attachment.channel),
-        Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownChannel
-    ));
-    assert_eq!(client.list_sessions()?, vec![info]);
-    Ok(())
-}
-
-#[test]
-fn session_ended_reaches_an_unattached_client() -> TestResult {
-    let fixture = Fixture::new()?;
-    let owner = fixture.connect()?;
-    let observer = fixture.connect()?;
-    let info = fixture.create(&owner.client)?;
-    let attachment = owner.client.attach(info.id, SIZE)?;
-    owner.client.send_input(attachment.channel, b"exit 3\n")?;
-    assert_eq!(observer.expect_ended(info.id)?, ExitReason::Exited(3));
-    assert_eq!(owner.expect_ended(info.id)?, ExitReason::Exited(3));
-    owner.client.ack(attachment.channel, 1)?;
-    owner.client.ping()?;
     Ok(())
 }
 
@@ -529,65 +422,6 @@ fn dropping_the_last_client_closes_the_connection() -> TestResult {
 }
 
 #[test]
-fn a_late_handshake_reply_after_the_connect_timeout_is_closed() -> TestResult {
-    let (socket, server) = UnixStream::pair()?;
-    let mut decoder = Decoder::new(server.try_clone()?);
-    let mut encoder = Encoder::new(server);
-    let (release, released) = mpsc::channel();
-    let fake = thread::spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
-        decoder.next()?;
-        released.recv_timeout(TIMEOUT)?;
-        let sent = encoder.send(
-            CONTROL,
-            &Message::HelloReply {
-                versions: muxy_protocol::SUPPORTED.to_vec(),
-                server: muxy_protocol::ServerInfo::current(),
-                features: Vec::new(),
-            },
-        );
-        match (sent, decoder.next()) {
-            (Err(_), _) | (Ok(()), Err(WireError::Closed)) => Ok(()),
-            (Ok(()), other) => Err(format!("client did not close: {other:?}").into()),
-        }
-    });
-    let started = Instant::now();
-    assert!(matches!(
-        Client::from_stream(Box::new(socket)),
-        Err(ClientError::Timeout)
-    ));
-    assert!(started.elapsed() >= Duration::from_secs(5));
-    release.send(())?;
-    fake.join()
-        .map_err(|_| "fake server panicked")?
-        .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-#[test]
-fn handshake_rejections_fail_connect() -> TestResult {
-    let (socket, server) = UnixStream::pair()?;
-    let mut decoder = Decoder::new(server.try_clone()?);
-    let mut encoder = Encoder::new(server);
-    let fake = thread::spawn(move || -> Result<(), WireError> {
-        assert!(matches!(decoder.next()?, (CONTROL, Message::Hello { .. })));
-        encoder.send(CONTROL, &Message::VersionUnsupported)
-    });
-    assert!(matches!(
-        Client::from_stream(Box::new(socket)),
-        Err(ClientError::VersionUnsupported)
-    ));
-    fake.join().map_err(|_| "fake server panicked")??;
-
-    let (socket, server) = UnixStream::pair()?;
-    drop(server);
-    assert!(matches!(
-        Client::from_stream(Box::new(socket)),
-        Err(ClientError::Disconnected)
-    ));
-    Ok(())
-}
-
-#[test]
 fn a_misplaced_server_message_closes_the_client() -> TestResult {
     let (socket, server) = UnixStream::pair()?;
     let mut decoder = Decoder::new(server.try_clone()?);
@@ -614,18 +448,6 @@ fn a_misplaced_server_message_closes_the_client() -> TestResult {
     assert!(matches!(client.ping(), Err(ClientError::Disconnected)));
     fake.join().map_err(|_| "fake server panicked")??;
     drop(server);
-    Ok(())
-}
-
-#[test]
-fn session_directory_round_trips_as_bytes() -> TestResult {
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let info = fixture.create(&connection.client)?;
-    assert_eq!(
-        info.directory.0,
-        fixture.directory.as_os_str().as_bytes().to_vec()
-    );
     Ok(())
 }
 

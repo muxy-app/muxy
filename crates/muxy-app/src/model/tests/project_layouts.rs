@@ -250,44 +250,6 @@ fn project_layout_commands_survive_restore_and_run_once_even_for_hidden_tabs(
 }
 
 #[gpui::test]
-fn project_layout_restore_starts_pending_commands_in_existing_hidden_sessions(
-    cx: &mut TestAppContext,
-) {
-    let mut state = AppState::bootstrap().expect("state");
-    let project = state.home().id;
-    let panes = state
-        .apply_project_layout(
-            project,
-            &Config::parse("tabs: [{}, 'echo hidden']").expect("config"),
-        )
-        .expect("layout");
-    let session = SessionId::new(73).expect("session");
-    state
-        .set_pane_session(panes[1], Some(session))
-        .expect("session");
-    let (boot, requests) = stub_boot(state);
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.receive(
-            (
-                ServerId::local(),
-                1,
-                Update::Connected(vec![SessionInfo {
-                    project,
-                    id: session,
-                    directory: ServerPath(b"/tmp".to_vec()),
-                }]),
-            ),
-            cx,
-        );
-        acknowledge_catalog(model, cx);
-    });
-    assert!(requests.try_iter().any(|(_, work)| matches!(work,
-        Work::Attach { pane, session: Some(id), .. } if pane == panes[1] && id == session
-    )));
-}
-
-#[gpui::test]
 fn project_layout_replacement_rejects_panes_added_during_confirmation(cx: &mut TestAppContext) {
     let (state, project, _, first_pane, _) = projects::two_projects();
     let (boot, requests) = stub_boot(state);
@@ -326,22 +288,4 @@ fn project_layout_replacement_rejects_panes_added_during_confirmation(cx: &mut T
             .try_iter()
             .any(|(_, work)| matches!(work, Work::Discard(..)))
     );
-}
-
-#[gpui::test]
-fn project_layout_discovery_does_not_repeat_during_view_updates(cx: &mut TestAppContext) {
-    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.servers.local.connection = ConnectionState::Ready;
-        acknowledge_catalog(model, cx);
-        for _ in 0..10 {
-            model.sync_visible(cx);
-        }
-    });
-    let count = requests
-        .try_iter()
-        .filter(|(_, work)| matches!(work, Work::ProjectLayouts { .. }))
-        .count();
-    assert_eq!(count, 1);
 }

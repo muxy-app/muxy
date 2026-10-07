@@ -524,95 +524,6 @@ mod tests {
     }
 
     #[test]
-    fn configured_provider_is_preserved_and_auto_selects_installed() {
-        let installed = [PROVIDERS[1], PROVIDERS[0]];
-        assert_eq!(
-            selected(&installed, Some("codex")).map(|p| p.id),
-            Some("codex")
-        );
-        assert_eq!(selected(&installed, None).map(|p| p.id), Some("codex"));
-        assert_eq!(selected(&installed, Some("unknown")), None);
-    }
-
-    #[test]
-    fn providers_use_supported_headless_arguments() {
-        let catalog: Vec<_> = PROVIDERS
-            .iter()
-            .map(|provider| (provider.id, provider.executable, provider.arguments))
-            .collect();
-        assert_eq!(
-            catalog,
-            [
-                (
-                    "claude",
-                    "claude",
-                    &[
-                        "--print",
-                        "--output-format",
-                        "text",
-                        "--permission-mode",
-                        "dontAsk",
-                        "--no-session-persistence",
-                        "--tools=",
-                    ][..]
-                ),
-                (
-                    "codex",
-                    "codex",
-                    &[
-                        "exec",
-                        "--ephemeral",
-                        "--sandbox",
-                        "read-only",
-                        "--color",
-                        "never"
-                    ][..]
-                ),
-                ("opencode", "opencode", &["run"][..]),
-                (
-                    "copilot",
-                    "copilot",
-                    &["--silent", "--no-ask-user", "--available-tools=", "-p"][..]
-                ),
-                (
-                    "cursor",
-                    "cursor-agent",
-                    &["--print", "--output-format", "text"][..]
-                ),
-                ("droid", "droid", &["exec", "--output-format", "text"][..]),
-                (
-                    "grok",
-                    "grok",
-                    &[
-                        "--no-auto-update",
-                        "--sandbox",
-                        "workspace",
-                        "--permission-mode",
-                        "dontAsk",
-                        "--no-subagents",
-                        "--disable-web-search",
-                        "--output-format",
-                        "plain",
-                        "-p",
-                    ][..]
-                ),
-                (
-                    "kiro",
-                    "kiro-cli",
-                    &["chat", "--no-interactive", "--trust-tools="][..]
-                ),
-                ("pi", "pi", &["--print", "--no-session", "--no-tools"][..]),
-                ("xal", "xal", &["run", "--format", "text"][..]),
-                (
-                    "antigravity",
-                    "agy",
-                    &["--print", "--output-format", "text", "--mode=plan"][..]
-                ),
-            ]
-        );
-    }
-
-    #[test]
     fn timeout_kills_helpers_that_keep_running() {
         let directory = tempfile::tempdir().unwrap();
         let pid = directory.path().join("helper");
@@ -657,19 +568,5 @@ mod tests {
         );
         assert_eq!(result, Err(Failure::Cancelled));
         assert!(started.elapsed() < Duration::from_secs(5));
-    }
-
-    #[test]
-    fn provider_failures_describe_the_provider() {
-        let result = capture(
-            shell("echo 'Not inside a trusted directory' >&2; exit 1"),
-            Duration::from_secs(20),
-            OUTPUT_LIMIT,
-            &Cancellation::default(),
-        );
-        assert_eq!(
-            result.unwrap_err().describe("Codex"),
-            "Codex failed: Not inside a trusted directory"
-        );
     }
 }

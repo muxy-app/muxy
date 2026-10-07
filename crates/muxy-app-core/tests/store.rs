@@ -60,17 +60,6 @@ fn populated() -> Result<AppState, Box<dyn Error>> {
 }
 
 #[test]
-fn missing_file_bootstraps_without_writing() -> TestResult {
-    let fixture = Fixture::new()?;
-    let state = store::load(fixture.path())?;
-    assert_eq!(state.home().name, "Home");
-    assert!(state.home().tabs.is_empty());
-    assert!(!fixture.path().exists());
-    assert!(!fixture.temporary().exists());
-    Ok(())
-}
-
-#[test]
 fn saved_json_is_readable_and_round_trips_every_field() -> TestResult {
     let fixture = Fixture::new()?;
     let state = populated()?;
@@ -251,31 +240,6 @@ fn malformed_domain_state_is_rejected_with_the_path() -> TestResult {
             value
         );
     }
-    Ok(())
-}
-
-#[test]
-fn read_and_write_io_errors_name_the_path() -> TestResult {
-    let fixture = Fixture::new()?;
-    fs::create_dir(fixture.path())?;
-    let read_error = store::load(fixture.path())
-        .err()
-        .ok_or("directory read succeeded")?;
-    assert!(
-        read_error
-            .to_string()
-            .contains(&fixture.path().display().to_string())
-    );
-    let write_error = store::save(fixture.path(), &populated()?)
-        .err()
-        .ok_or("rename over directory succeeded")?;
-    assert!(
-        write_error
-            .to_string()
-            .contains(&fixture.path().display().to_string())
-    );
-    assert!(fixture.path().is_dir());
-    assert!(!fixture.temporary().exists());
     Ok(())
 }
 

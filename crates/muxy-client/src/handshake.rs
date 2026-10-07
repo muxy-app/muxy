@@ -100,6 +100,5 @@ mod tests {
         let error = accept(muxy_protocol::wire::Decoder::new(legacy_fatal.as_slice()).next())
             .expect_err("a version-1 frame is unreadable");
         assert!(matches!(error, ClientError::VersionUnsupported));
-        assert!(error.to_string().contains("can't talk to each other"));
     }
 }

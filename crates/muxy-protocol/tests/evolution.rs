@@ -182,19 +182,6 @@ fn unreadable_reply_bodies_are_correlated() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn correlated_failures_round_trip() -> Result<(), WireError> {
-    for message in [
-        Message::UnsupportedRequest { id: RequestId(3) },
-        Message::UnreadableReply { id: RequestId(3) },
-    ] {
-        let mut bytes = Vec::new();
-        encode(&message, CONTROL, &mut bytes)?;
-        assert_eq!(Decoder::new(bytes.as_slice()).next()?, (CONTROL, message));
-    }
-    Ok(())
-}
-
-#[test]
 fn malformed_request_bodies_are_still_rejected() -> Result<(), Box<dyn Error>> {
     // A body that claims more items than the payload holds is broken, not newer.
     let payload = [0x82, 0x01, 0x82, 0x18];

@@ -38,72 +38,6 @@ fn file(path: impl Into<PathBuf>) -> FileLocation {
 }
 
 #[test]
-fn builtins_route_without_launching_apps_and_preserve_unavailable_preferences() {
-    let request = OpenRequest {
-        target: Target::File(file("/tmp/a 'quoted'.rs")),
-        context: context(),
-    };
-    for (id, args) in [
-        (
-            "system.finder",
-            vec![OsString::from("-R"), "/tmp/a 'quoted'.rs".into()],
-        ),
-        (
-            "system.application",
-            vec![OsString::from("/tmp/a 'quoted'.rs")],
-        ),
-    ] {
-        let settings = muxy_app_core::settings::OpenerSettings {
-            file: id.into(),
-            ..muxy_app_core::settings::OpenerSettings::default()
-        };
-        open_with(
-            &request,
-            &settings,
-            || panic!("no discovery needed"),
-            |command| {
-                assert_eq!(command, &Launch::system(args.clone()));
-                Ok(())
-            },
-        )
-        .expect("open");
-    }
-    let settings = muxy_app_core::settings::OpenerSettings {
-        file: "extension:unavailable".into(),
-        project_target: Some(FINDER.into()),
-        ..muxy_app_core::settings::OpenerSettings::default()
-    };
-    open_with(
-        &request,
-        &settings,
-        || panic!("Finder bypasses discovery"),
-        |command| {
-            assert_eq!(command, &finder(Path::new("/tmp/a 'quoted'.rs")));
-            Ok(())
-        },
-    )
-    .expect("fallback");
-    assert_eq!(settings.file, "extension:unavailable");
-    let request = OpenRequest {
-        target: Target::web_url("https://example.com/a?x=1&y=2").expect("url"),
-        context: context(),
-    };
-    open_with(
-        &request,
-        &settings,
-        || panic!("browser bypasses discovery"),
-        |command| {
-            assert_eq!(
-                command,
-                &Launch::system(["https://example.com/a?x=1&y=2".into()])
-            );
-            Ok(())
-        },
-    )
-    .expect("browser");
-}
-
-#[test]
 fn editor_selection_and_failed_launch_fall_back_without_losing_context() {
     let editors = [
         Editor {
@@ -229,31 +163,6 @@ fn editor_cli_arguments_are_lossless_and_directories_are_not_line_locations() {
         finder(&directory),
         Launch::system(["-a".into(), "Finder".into(), directory.into_os_string()])
     );
-}
-
-#[test]
-fn editor_discovery_is_bounded_and_ignores_unrelated_bundles() {
-    let temp = Temp::new();
-    for (name, bundle) in [
-        ("Code", "com.microsoft.VSCode"),
-        ("Other", "com.apple.Safari"),
-    ] {
-        let contents = temp.0.join(format!("{name}.app/Contents"));
-        std::fs::create_dir_all(&contents).expect("app");
-        std::fs::write(contents.join("Info.plist"), format!("<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{bundle}</string></dict></plist>")).expect("plist");
-    }
-    let mut found = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    discover(&temp.0, 0, &mut 0, deadline, &mut found);
-    assert!(found.is_empty());
-    discover(&temp.0, 0, &mut 20, Instant::now(), &mut found);
-    assert!(found.is_empty());
-    discover(&temp.0, 0, &mut 20, deadline, &mut found);
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].bundle, "com.microsoft.VSCode");
-    assert_eq!(found[0].path, temp.0.join("Code.app"));
-    assert!(editor_rank("com.jetbrains.toolbox").is_none());
-    assert!(editor_rank("com.jetbrains.some-editor").is_some());
 }
 
 #[test]

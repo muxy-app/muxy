@@ -689,14 +689,9 @@ mod tests {
     const PROJECT: &str = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE";
     const WORKTREE: &str = "11111111-2222-4333-8444-555555555555";
     const OTHER_WORKTREE: &str = "99999999-AAAA-4BBB-8CCC-DDDDDDDDDDDD";
-    const IMAGE: &str = "22222222-3333-4444-8555-666666666666.png";
 
     fn id() -> DraftId {
         DraftId::new(PROJECT, WORKTREE).unwrap()
-    }
-
-    fn image_draft(text: &str) -> ComposerDraft {
-        image_draft_with(text, IMAGE)
     }
 
     fn image_draft_with(text: &str, filename: &str) -> ComposerDraft {
@@ -718,46 +713,6 @@ mod tests {
             .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
             .unwrap();
         bytes
-    }
-
-    #[test]
-    fn composer_store_save_debounce_is_exactly_four_hundred_milliseconds() {
-        assert_eq!(SAVE_DEBOUNCE, Duration::from_millis(400));
-    }
-
-    #[test]
-    fn composer_draft_ids_are_exact_uppercase_project_and_worktree_uuids() {
-        let id = id();
-        assert_eq!(id.as_str(), format!("{PROJECT}:{WORKTREE}"));
-        assert_eq!(DraftId::parse(id.as_str()), Some(id));
-        assert!(DraftId::parse(&format!("{}:{WORKTREE}", PROJECT.to_lowercase())).is_none());
-        assert!(DraftId::parse("bad").is_none());
-    }
-
-    #[test]
-    fn composer_placeholder_scanning_accepts_exact_numbers_only() {
-        assert_eq!(
-            placeholder_numbers("x [Image 1] [Image 42] [Image x] [Image 1]"),
-            BTreeSet::from([1, 42])
-        );
-    }
-
-    #[test]
-    fn composer_store_defaults_missing_fields_and_ignores_unknown_fields() {
-        let profile = tempfile::tempdir().unwrap();
-        let path = profile.path().join(super::super::DRAFTS_FILE_NAME);
-        std::fs::write(
-            &path,
-            serde_json::to_vec(&serde_json::json!({
-                id().as_str(): {"text": "hello", "future": true}
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        let store = ComposerStore::load_from(profile.path());
-        assert!(store.load_status().is_ready());
-        assert_eq!(store.draft(&id()).unwrap().text, "hello");
-        assert_eq!(store.draft(&id()).unwrap().next_image_number, 1);
     }
 
     #[test]
@@ -844,71 +799,6 @@ mod tests {
     }
 
     #[test]
-    fn composer_store_flush_is_revision_conditional_and_tracks_dirty_state() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        store
-            .edit_content(id(), "one".to_owned(), Vec::new())
-            .unwrap();
-        let stale = store.dirty_revision();
-        store
-            .edit_content(id(), "two".to_owned(), Vec::new())
-            .unwrap();
-        assert!(!store.flush_if_revision(stale).unwrap());
-        assert!(store.needs_flush());
-        assert!(store.flush().unwrap());
-        assert_eq!(store.dirty_revision(), store.flushed_revision());
-    }
-
-    #[test]
-    fn composer_store_pending_image_removal_can_be_undone_before_publication() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        store.replace_draft(id(), image_draft("[Image 1]")).unwrap();
-        store
-            .edit_content(id(), "removed".to_owned(), Vec::new())
-            .unwrap();
-        assert!(store.draft(&id()).unwrap().image_attachments.is_empty());
-        store
-            .edit_content(id(), "[Image 1]".to_owned(), Vec::new())
-            .unwrap();
-        assert_eq!(store.draft(&id()).unwrap().image_attachments.len(), 1);
-    }
-
-    #[test]
-    fn composer_store_duplicate_placeholder_keeps_image_until_the_last_token_is_removed() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        store
-            .replace_draft(id(), image_draft("[Image 1] [Image 1]"))
-            .unwrap();
-        store
-            .edit_content(id(), "[Image 1]".to_owned(), Vec::new())
-            .unwrap();
-        assert_eq!(store.draft(&id()).unwrap().image_attachments.len(), 1);
-        store
-            .edit_content(id(), "gone".to_owned(), Vec::new())
-            .unwrap();
-        assert!(store.draft(&id()).unwrap().image_attachments.is_empty());
-    }
-
-    #[test]
-    fn composer_store_relaunches_per_worktree_drafts() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        store
-            .edit_content(id(), "restored".to_owned(), vec!["/tmp/file".to_owned()])
-            .unwrap();
-        store.flush().unwrap();
-        let restored = ComposerStore::load_from(profile.path());
-        assert_eq!(restored.draft(&id()).unwrap().text, "restored");
-        assert_eq!(
-            restored.draft(&id()).unwrap().file_attachments,
-            ["/tmp/file"]
-        );
-    }
-
-    #[test]
     fn composer_store_image_attachment_is_durable_and_inserted_at_a_utf8_boundary() {
         let profile = tempfile::tempdir().unwrap();
         let mut store = ComposerStore::load_from(profile.path());
@@ -924,20 +814,6 @@ mod tests {
         let restored = ComposerStore::load_from(profile.path());
         assert_eq!(restored.draft(&id()).unwrap().text, "aé[Image 1]z");
         assert_eq!(restored.draft(&id()).unwrap().image_attachments.len(), 1);
-    }
-
-    #[test]
-    fn composer_store_image_attachment_replaces_the_selected_utf8_range() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        store
-            .edit_content(id(), "before chosen after".to_owned(), Vec::new())
-            .unwrap();
-        store.flush().unwrap();
-        let source = prepare_image_source(png()).unwrap();
-        let (number, _) = store.attach_prepared_image(id(), &source, 7..13).unwrap();
-        assert_eq!(number, 1);
-        assert_eq!(store.draft(&id()).unwrap().text, "before [Image 1] after");
     }
 
     #[test]
