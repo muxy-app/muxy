@@ -38,7 +38,7 @@ version = "2.0.0-beta-0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
-repository = "https://github.com/saeedvaziry/muxy"
+repository = "https://github.com/muxy-app/muxy"
 authors = ["Saeed Vaziry"]
 publish = false
 

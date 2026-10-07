@@ -98,8 +98,8 @@ sequenceDiagram
 - Mobile access is off until you turn it on.
 - A pairing code works once, for five minutes, and only while it is on screen.
 - A paired phone can do what a terminal on the computer can, except manage
-  mobile access, change server settings, stop the server, or run extension
-  commands.
+  mobile access, change server settings, stop the server, or run programs
+  outside a terminal (`exec`).
 - Revoking a phone, or turning mobile access off, disconnects it at once.
 - A phone can pair with a server on another computer too, with
   `muxy --host <computer> mobile pair`.

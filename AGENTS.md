@@ -6,8 +6,6 @@
 
 ## Main Guides
 
-- Docs are meant to be high level and simple and clear
-- Do not bloat the docs with details
 - Don't run the app for visual testing. All visual testings must be done by user.
 
 ## Third-party dependencies
