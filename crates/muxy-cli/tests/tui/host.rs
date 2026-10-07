@@ -6,8 +6,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use muxy_client::{Client, Start};
-use muxy_protocol::{SessionClient, SessionInfo};
+use muxy_client::{Client, ClientError, Start};
+use muxy_protocol::{ErrorCode, SessionClient, SessionInfo};
 
 use super::fixture::{Fixture, Result, Tui};
 use super::remote::FakeRemote;
@@ -17,9 +17,21 @@ fn remote_tui<'a>(fixture: &'a Fixture, remote: &FakeRemote) -> Result<Tui<'a>> 
     Tui::launch(fixture, &[("MUXY_SSH", &ssh)], &["--host", "box"])
 }
 
+/// The session's owner. The server refuses a listing while attachments
+/// change, as they do during a reconnect, and asks for it again.
 fn owner(client: &Client, session: &SessionInfo) -> Result<Option<SessionClient>> {
-    Ok(client
-        .project_sessions(session.project, None, None)?
+    let mut attempts = 0;
+    let page = loop {
+        match client.project_sessions(session.project, None, None) {
+            Err(ClientError::Server(error))
+                if error.code == ErrorCode::CatalogChanged && attempts < 20 =>
+            {
+                attempts += 1;
+            }
+            page => break page?,
+        }
+    };
+    Ok(page
         .sessions
         .into_iter()
         .find(|listed| listed.info.id == session.id)

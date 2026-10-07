@@ -39,7 +39,8 @@ try:
             break
     assert exited, "panic child did not exit"
     assert subprocess.check_output(["stty", "-g"], stdin=master) == before
-    for sequence in [b"\x1b[?1049h", b"\x1b[?1049l", b"\x1b[?2004l", b"\x1b[?1004l", b"\x1b[?25h"]:
+    for sequence in [b"\x1b[?1049h", b"\x1b[?1049l", b"\x1b[?2004l", b"\x1b[?1004l", b"\x1b[?25h",
+                     b"\x1b[?1000l", b"\x1b[?1003l", b"\x1b[?1006l"]:
         assert sequence in raw, (sequence, raw)
 finally:
     if not exited:

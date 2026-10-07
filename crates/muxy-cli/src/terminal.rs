@@ -109,7 +109,8 @@ impl Host {
             terminal::EnterAlternateScreen,
             cursor::Hide,
             event::EnableBracketedPaste,
-            event::EnableFocusChange
+            event::EnableFocusChange,
+            event::EnableMouseCapture
         )?;
         self.terminal.clear()
     }
@@ -145,6 +146,7 @@ impl Drop for Signals {
 fn restore() {
     let _ = execute!(
         io::stdout(),
+        event::DisableMouseCapture,
         event::DisableFocusChange,
         event::DisableBracketedPaste,
         cursor::SetCursorStyle::DefaultUserShape,
@@ -152,7 +154,18 @@ fn restore() {
         terminal::LeaveAlternateScreen
     );
     let _ = io::stdout().flush();
+    discard_pending_input();
     let _ = terminal::disable_raw_mode();
+}
+
+/// Reads away mouse reports already on their way, so none reach the shell
+/// once the terminal stops reporting.
+fn discard_pending_input() {
+    for _ in 0..64 {
+        if !event::poll(Duration::from_millis(5)).unwrap_or(false) || event::read().is_err() {
+            break;
+        }
+    }
 }
 
 #[cfg(test)]
