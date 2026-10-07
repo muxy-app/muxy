@@ -9,7 +9,7 @@
 
 ## Screenshots
 
-<img width="4070" alt="image" src="https://github.com/user-attachments/assets/72bff749-5179-4030-9c97-2047e44f4b0f" />
+<img height="1592" alt="image" src="https://github.com/user-attachments/assets/eca8fb92-b2f4-4a53-a25f-6f75316222af" />
 
 ## Top level features
 
