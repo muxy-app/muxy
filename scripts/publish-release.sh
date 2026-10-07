@@ -47,7 +47,6 @@ check_source
 
 cd "$ARTIFACTS"
 ASSETS=(install-muxy.sh)
-MACOS_ARCHITECTURES='Apple Silicon (`arm64`)'
 for ARCH in arm64 x86_64; do
     ASSETS+=("muxy-${VERSION}-linux-${ARCH}.tar.gz")
     # A beta may skip Intel; a stable release is also how Intel Macs leave Muxy 1.x.
@@ -57,9 +56,6 @@ for ARCH in arm64 x86_64; do
     ASSETS+=("Muxy-${VERSION}-${ARCH}.dmg" "muxy-${VERSION}-macos-${ARCH}.zip")
     if [[ "$CHANNEL" == stable ]]; then
         ASSETS+=("appcast-${ARCH}.xml")
-    fi
-    if [[ "$ARCH" == x86_64 ]]; then
-        MACOS_ARCHITECTURES+=' or Intel (`x86_64`)'
     fi
 done
 if [[ "$CHANNEL" == stable ]]; then
@@ -97,56 +93,21 @@ if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
         exit 0
     fi
 else
-    INSTALL_CLI="\`\`\`sh
-curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install-muxy.sh | sh -s -- --version $VERSION
-\`\`\`
-
-The installer uses \`~/.local/bin\`. Use \`--install-dir PATH\` to choose another directory and \`--replace\` to replace existing commands, including a desktop bundle link. It does not modify shell profiles or restart servers. Run \`muxy\` to open the TUI; Ctrl-B then D detaches."
+    # Like Muxy 1.x: GitHub's generated changes, cleaned. A beta lists the changes since the
+    # previous beta; a stable release lets GitHub choose the previous release.
+    NOTES_ARGS=(-f "tag_name=$TAG" -f "target_commitish=$SOURCE")
+    : > release-notes.md
     if [[ "$CHANNEL" == beta ]]; then
         PREVIOUS="$(git -C "$ROOT" describe --tags --match "v${VERSION%%.*}.*-beta*" --abbrev=0 "$SOURCE^" 2>/dev/null || true)"
-        UPGRADE=""
-        if [[ "$PREVIOUS" == v2.0.0-beta-* ]]; then
-            UPGRADE="Betas numbered \`2.0.0-beta-N\` can't update to this numbering on their own: install this release over them once, and later betas update automatically.
-
-"
+        if [[ -n "$PREVIOUS" ]]; then
+            NOTES_ARGS+=(-f "previous_tag_name=$PREVIOUS")
         fi
-        cat > release-notes.md <<EOF
-${UPGRADE}Experimental Rust/GPUI beta from the \`main\` branch. Not intended for production use.
-
-- macOS 14 or newer on $MACOS_ARCHITECTURES.
-- Drag \`Muxy Beta.app\` to Applications. The app bundles the matching \`muxy\` CLI/TUI and \`muxy-server\`. Use **Install Command Line Tool** to expose the bundled CLI on PATH.
-- Installs alongside Muxy, with separate settings and sessions in \`~/Library/Application Support/Muxy Beta\`.
-- Newer 2.x betas download automatically. Use **Check for Updates…** or **Restart to Update…** to install. Compatible servers keep running during updates; incompatible updates wait for the existing restart flow.
-- When replacing a beta manually, stop its server in Settings before replacing the app.
-
-Standalone CLI/TUI and server: macOS 14+ on $MACOS_ARCHITECTURES, or Linux with glibc 2.35+ on ARM64 or x86_64. Install the exact matching pair without a desktop app, Rust, or Zig:
-
-$INSTALL_CLI
-
-Source: https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE
-
-EOF
-    else
-        cat > release-notes.md <<EOF
-- macOS 14 or newer on $MACOS_ARCHITECTURES.
-- Drag \`Muxy.app\` to Applications, or run \`brew install --cask muxy-app/tap/muxy\`. The app bundles the matching \`muxy\` CLI/TUI and \`muxy-server\`. Use **Install Command Line Tool** to expose the bundled CLI on PATH.
-- Muxy 1.x updates itself to this release. Muxy 2 starts fresh, with its settings and sessions in \`~/Library/Application Support/Muxy 2\`. Muxy 1.x data stays where it is: **Settings → Backup & Restore → Import installed 1.x** brings it over.
-- Newer releases download automatically. Use **Check for Updates…** or **Restart to Update…** to install.
-
-Standalone CLI/TUI and server: macOS 14+ on $MACOS_ARCHITECTURES, or Linux with glibc 2.35+ on ARM64 or x86_64. Install them with \`brew install muxy-app/tap/muxy-cli\`, or without Homebrew:
-
-$INSTALL_CLI
-
-Source: https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE, promoted from $BETA_TAG
-
-EOF
-        PREVIOUS="$(git -C "$ROOT" describe --tags --match "v${VERSION%%.*}.*" --exclude '*-*' --abbrev=0 "$SOURCE^" 2>/dev/null || true)"
+        if [[ "$PREVIOUS" == v2.0.0-beta-* ]]; then
+            printf '%s\n\n' "Betas numbered \`2.0.0-beta-N\` can't update to this numbering on their own: install this release over them once, and later betas update automatically." > release-notes.md
+        fi
     fi
-    if [[ -n "$PREVIOUS" ]]; then
-        gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f "tag_name=$TAG" -f "target_commitish=$SOURCE" \
-            -f "previous_tag_name=$PREVIOUS" --jq .body >> release-notes.md
-    fi
+    gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${NOTES_ARGS[@]}" --jq .body \
+        | bash "$ROOT/scripts/clean-changelog.sh" >> release-notes.md
     DRAFT_FLAGS=(--draft --latest=false)
     if [[ "$CHANNEL" == beta ]]; then
         DRAFT_FLAGS+=(--prerelease)

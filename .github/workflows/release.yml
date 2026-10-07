@@ -103,29 +103,22 @@ jobs:
           BETA_TAG: ${{ inputs.from_beta_tag }}
           DRAFT: ${{ inputs.draft }}
         run: bash scripts/publish-release.sh "$VERSION" artifacts
+
+  # Runs main's script: the promoted beta's checkout may predate it.
+  notify-discord:
+    needs: release
+    if: ${{ !inputs.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
       - name: Notify Discord
-        if: ${{ !inputs.draft }}
-        continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ inputs.version }}
-        run: |
-          if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
-            echo "DISCORD_WEBHOOK_URL not set, skipping Discord notification"
-            exit 0
-          fi
-          NOTES=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
-          if [[ ${#NOTES} -gt 3800 ]]; then
-            NOTES="${NOTES:0:3800}…"
-          fi
-          PAYLOAD=$(jq -n \
-            --arg title "Muxy $TAG released" \
-            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" \
-            --arg notes "$NOTES" \
-            '{username: "Muxy Releases", embeds: [{title: $title, url: $url, description: $notes,
-              color: 3066993, footer: {text: "Stable channel"}, timestamp: (now | todate)}]}')
-          curl -fsSL -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+        run: python3 scripts/notify-discord.py "$TAG"
 
   bump-beta-version:
     needs: release
