@@ -461,7 +461,8 @@ fn history_reads_refresh_a_coherent_boundary_and_merge_all_older_pages() -> Test
     connection.quiet(&mut attachment)?;
     connection.client.send_input(
         attachment.channel,
-        b"stty -echo; PS1=''; printf '\\033[2J\\033[H\\033[3J'; seq 1 5000; printf HISTORY_READY\n",
+        // The shell's own job-control warnings would land in the history.
+        b"exec 2>/dev/null; stty -echo; PS1=''; printf '\\033[2J\\033[H\\033[3J'; seq 1 5000; printf HISTORY_READY\n",
     )?;
     let deadline = Instant::now() + TIMEOUT;
     let page = loop {
@@ -638,10 +639,18 @@ fn explicit_disconnect_closes_all_clones_without_ending_sessions() -> TestResult
     let clone = connection.client.clone();
     let session = fixture.create(&clone)?;
     connection.disconnect()?;
-    assert_eq!(
-        connection.events.recv_timeout(TIMEOUT)?,
-        ClientEvent::Disconnected
-    );
+    // Notices about the new session can still be queued ahead of the disconnect.
+    loop {
+        match connection.events.recv_timeout(TIMEOUT)? {
+            ClientEvent::Disconnected => break,
+            ClientEvent::CatalogChanged { .. }
+            | ClientEvent::SessionsChanged { .. }
+            | ClientEvent::SessionMetadata { .. }
+            | ClientEvent::ActivityChanged { .. }
+            | ClientEvent::Progress { .. } => {}
+            other => return Err(format!("expected disconnect, got {other:?}").into()),
+        }
+    }
     assert!(matches!(clone.ping(), Err(ClientError::Disconnected)));
     assert!(fixture.registry.handle(session.id).is_some());
     Ok(())

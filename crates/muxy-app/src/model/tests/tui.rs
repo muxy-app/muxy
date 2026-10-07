@@ -207,7 +207,7 @@ fn shared_closes(
     let last = view.read_with(cx, |model, _| model.active_tab().expect("last desktop tab"));
     view.update(cx, |model, cx| model.select_tab(host_tab, cx));
     wait_live(cx, view)?;
-    probe.send_input(channel, b"\x020")?;
+    probe.send_input(channel, b"\x021")?;
     wait(cx, view, |_, _| {
         let directory = std::env::var("MUXY_DIR").expect("isolated profile");
         let Ok(bytes) = std::fs::read(std::path::Path::new(&directory).join("tui-state.json"))

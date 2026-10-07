@@ -147,9 +147,9 @@ fn exit_during_resize_keeps_tab_selection_bound_to_the_displayed_pane() -> Resul
     tui.ready()?;
     let client = fixture.client()?;
     let dead = client.list_sessions()?[0].id;
-    for index in 1..=2 {
+    for count in 2..=3 {
         tui.write(b"\x02c")?;
-        tui.output(&format!("{index}:"))?;
+        tui.output(&format!(" {count} home"))?;
         tui.ready()?;
     }
     let selected = tui.active_tab()?["focus"].clone();
@@ -159,13 +159,11 @@ fn exit_during_resize_keeps_tab_selection_bound_to_the_displayed_pane() -> Resul
     tui.wait(|_| Ok(proxy.reached()))?;
     client.end_session(dead)?;
     tui.wait(|tui| {
-        Ok(tui
-            .text()?
-            .iter()
-            .any(|row| row.starts_with(" Home ") && row.contains("1:") && !row.contains("2:")))
+        let tabs = &tui.text()?[0];
+        Ok(tabs.contains(" 2 home") && !tabs.contains(" 3 home"))
     })?;
     assert_eq!(tui.tabs()?.len(), 3);
-    tui.write(b"\x021")?;
+    tui.write(b"\x022")?;
     for _ in 0..5 {
         tui.pump()?;
     }

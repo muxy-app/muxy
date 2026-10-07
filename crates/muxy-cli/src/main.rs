@@ -1,15 +1,19 @@
 //! Command-line and terminal client for the server on this computer or, with
 //! `--host`, on another one; the server runs as a separate executable.
 mod args;
+mod clipboard;
 mod input;
 mod manage;
 mod mobile;
 mod open;
-mod render;
+mod projects;
+mod scroll;
+mod selection;
 mod state;
 mod target;
 mod terminal;
 mod tui;
+mod ui;
 mod worker;
 
 use args::Command;
