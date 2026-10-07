@@ -5,12 +5,13 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use muxy_app_core::PaneId;
-use muxy_client::{Attachment, Client, ClientEvent, RunGrid};
+use muxy_client::{Attachment, Client, ClientError, ClientEvent, RunGrid};
 use muxy_protocol::{
-    CatalogPage, ChannelId, ForegroundProcess, InputModes, MetadataEvent, ProjectSession,
-    ScreenFrame, SessionId, Size,
+    ActivitySnapshot, CatalogPage, ChannelId, ForegroundProcess, InputModes, MetadataEvent,
+    MouseEvent, ProjectSession, ScreenFrame, SessionId, SessionMetadata, Size,
 };
 
+use crate::scroll::{HistoryRequest, Scroll};
 use crate::state::{Result, State};
 
 #[derive(Clone, Debug)]
@@ -23,6 +24,7 @@ pub(crate) struct View {
     pub title: String,
     pub viewport: Size,
     pub ended: bool,
+    pub scroll: Scroll,
 }
 
 impl View {
@@ -39,6 +41,7 @@ impl View {
             title: attachment.title,
             viewport,
             ended: false,
+            scroll: Scroll::default(),
         }
     }
 
@@ -60,8 +63,27 @@ struct Pending {
     metadata: Vec<MetadataEvent>,
 }
 
+/// What a close that needs confirming would end.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Closing {
+    Pane(PaneId),
+    /// The tab holding this pane.
+    Tab(PaneId),
+}
+
+impl Closing {
+    pub(crate) fn pane(self) -> PaneId {
+        match self {
+            Self::Pane(pane) | Self::Tab(pane) => pane,
+        }
+    }
+}
+
 #[derive(Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Shared {
+    /// The server, as named to the user.
+    pub server: String,
     pub client: Option<Client>,
     pub state: Option<State>,
     pub catalog: Option<CatalogPage>,
@@ -70,23 +92,36 @@ pub(crate) struct Shared {
     pub sessions_project: Option<muxy_protocol::ProjectId>,
     pub views: BTreeMap<PaneId, View>,
     pub message: String,
+    /// Counts messages, so the same text said again is shown again.
+    pub message_id: u64,
     pub refresh: bool,
     pub exit: Option<Result>,
-    pub confirm: Option<PaneId>,
+    pub confirm: Option<Closing>,
     pub focus: Option<ChannelId>,
     pub host_unfocused: bool,
     pub ended: BTreeSet<SessionId>,
+    /// Titles and programs of the terminals in this layout, shown or not.
+    pub metadata: BTreeMap<SessionId, SessionMetadata>,
+    pub activity: ActivitySnapshot,
+    pub activity_dirty: bool,
     pending: BTreeMap<ChannelId, Pending>,
     last_channel: u32,
 }
 
 impl Shared {
+    /// Shows `text` to the user, replacing the last message.
+    pub(crate) fn say(&mut self, text: impl Into<String>) {
+        self.message = text.into();
+        self.message_id = self.message_id.wrapping_add(1);
+    }
+
     pub(crate) fn session_ended(&mut self, session: SessionId) {
         self.ended.insert(session);
         if let Some(state) = &mut self.state {
             state.close_sessions(&self.ended);
         }
         self.sessions.retain(|entry| entry.info.id != session);
+        self.metadata.remove(&session);
         let removed: Vec<_> = self
             .views
             .iter()
@@ -101,7 +136,7 @@ impl Shared {
                     self.focus = None;
                 }
             }
-            if self.confirm == Some(pane) {
+            if self.confirm.is_some_and(|closing| closing.pane() == pane) {
                 self.confirm = None;
             }
         }
@@ -144,8 +179,10 @@ impl Shared {
         self.focus = None;
         self.pending.clear();
         self.last_channel = 0;
+        self.activity_dirty = true;
         for view in self.views.values_mut() {
             view.channel = None;
+            view.scroll.bottom();
         }
     }
 }
@@ -163,7 +200,10 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                 let mut state = lock(&shared);
                 let mut ack = None;
                 match event {
-                    ClientEvent::SessionMetadata { .. } | ClientEvent::ActivityChanged { .. } => {}
+                    ClientEvent::SessionMetadata { session, metadata } => {
+                        state.metadata.insert(session, metadata);
+                    }
+                    ClientEvent::ActivityChanged { .. } => state.activity_dirty = true,
                     ClientEvent::Frame { channel, mut frame } => {
                         frame.graphics = None;
                         if let Some(view) = state
@@ -171,6 +211,9 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                             .values_mut()
                             .find(|view| view.channel == Some(channel))
                         {
+                            if frame.reset {
+                                view.scroll.bottom();
+                            }
                             view.grid.apply(&frame);
                             ack = Some((channel, frame.seq));
                         } else if channel.0 > state.last_channel {
@@ -233,6 +276,11 @@ enum Input {
         channel: ChannelId,
         bytes: Vec<u8>,
     },
+    Mouse {
+        client: Client,
+        channel: ChannelId,
+        event: MouseEvent,
+    },
     Flush(SyncSender<()>),
 }
 
@@ -251,20 +299,30 @@ impl InputWriter {
             .name("muxy-tui-input".into())
             .spawn(move || {
                 while let Ok(input) = receiver.recv() {
-                    let Input::Bytes {
-                        client,
-                        channel,
-                        bytes,
-                    } = input
-                    else {
-                        if let Input::Flush(done) = input {
-                            let _ = done.send(());
+                    let (client, channel, bytes) = match input {
+                        Input::Bytes {
+                            client,
+                            channel,
+                            bytes,
+                        } => (client, channel, bytes),
+                        Input::Mouse {
+                            client,
+                            channel,
+                            event,
+                        } => {
+                            if let Err(error) = client.send_mouse(channel, event) {
+                                lock(&shared).say(error.to_string());
+                            }
+                            continue;
                         }
-                        continue;
+                        Input::Flush(done) => {
+                            let _ = done.send(());
+                            continue;
+                        }
                     };
                     for chunk in bytes.chunks(muxy_protocol::MAX_INPUT) {
                         if let Err(error) = client.send_input(channel, chunk) {
-                            lock(&shared).message = error.to_string();
+                            lock(&shared).say(error.to_string());
                             break;
                         }
                     }
@@ -305,6 +363,19 @@ impl InputWriter {
         Ok(())
     }
 
+    /// Queues `event` behind any typing, so clicks and keys keep their order.
+    pub(crate) fn mouse(&self, client: Client, channel: ChannelId, event: MouseEvent) -> Result {
+        self.sender
+            .as_ref()
+            .ok_or("Input writer stopped")?
+            .try_send(Input::Mouse {
+                client,
+                channel,
+                event,
+            })
+            .map_err(|_| "Input buffer is full; wait before sending more input".into())
+    }
+
     pub(crate) fn flush(&self) -> Result {
         let (done, finished) = mpsc::sync_channel(1);
         self.sender
@@ -319,6 +390,92 @@ impl InputWriter {
 }
 
 impl Drop for InputWriter {
+    fn drop(&mut self) {
+        self.sender.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+struct Fetch {
+    client: Client,
+    channel: ChannelId,
+    request: HistoryRequest,
+}
+
+/// Pages scrollback in from the server off the input and request threads, so
+/// scrolling never delays typing or layout changes.
+pub(crate) struct Fetcher {
+    sender: Option<SyncSender<Fetch>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl Fetcher {
+    pub(crate) fn new(shared: Arc<Mutex<Shared>>) -> Result<Self> {
+        let (sender, receiver) = mpsc::sync_channel::<Fetch>(64);
+        let worker = thread::Builder::new()
+            .name("muxy-tui-history".into())
+            .spawn(move || {
+                while let Ok(fetch) = receiver.recv() {
+                    let mut next = Some(fetch);
+                    while let Some(fetch) = next.take() {
+                        let result = fetch.client.history_page(
+                            fetch.channel,
+                            fetch.request.before,
+                            fetch.request.max_rows,
+                        );
+                        let mut state = lock(&shared);
+                        let Some(view) = state
+                            .views
+                            .values_mut()
+                            .find(|view| view.channel == Some(fetch.channel))
+                        else {
+                            continue;
+                        };
+                        let height = usize::from(view.viewport.rows);
+                        next = view
+                            .scroll
+                            .receive(fetch.request, result, height)
+                            .map(|request| Fetch { request, ..fetch });
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            sender: Some(sender),
+            worker: Some(worker),
+        })
+    }
+
+    /// Asks for `request` for the view on `channel`, or tells the view it
+    /// failed so it can stop waiting.
+    pub(crate) fn fetch(&self, shared: &mut Shared, channel: ChannelId, request: HistoryRequest) {
+        let sent = shared.client.clone().is_some_and(|client| {
+            self.sender.as_ref().is_some_and(|sender| {
+                sender
+                    .try_send(Fetch {
+                        client,
+                        channel,
+                        request,
+                    })
+                    .is_ok()
+            })
+        });
+        if !sent
+            && let Some(view) = shared
+                .views
+                .values_mut()
+                .find(|view| view.channel == Some(channel))
+        {
+            let height = usize::from(view.viewport.rows);
+            view.scroll
+                .receive(request, Err(ClientError::Disconnected), height);
+        }
+    }
+}
+
+impl Drop for Fetcher {
     fn drop(&mut self) {
         self.sender.take();
         if let Some(worker) = self.worker.take() {

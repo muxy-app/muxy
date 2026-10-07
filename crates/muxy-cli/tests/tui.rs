@@ -6,6 +6,8 @@ mod faults;
 mod fixture;
 #[path = "tui/host.rs"]
 mod host;
+#[path = "tui/mouse.rs"]
+mod mouse;
 #[path = "tui/proxy.rs"]
 mod proxy;
 #[path = "support/ssh.rs"]
@@ -63,10 +65,11 @@ fn external_exit_removes_hidden_tabs_and_preserves_the_live_split() -> Result {
     )
     .ok_or("session ID")?;
     client.end_session(session)?;
-    // Keys follow the drawn layout, which can lag the saved state; wait for one pane on screen.
+    // Keys follow the drawn layout, which can lag the saved state; wait for
+    // one pane on screen, which has no frame.
     tui.wait(|tui| {
-        let drawn_panes: usize = tui.text()?.iter().map(|row| row.matches('┌').count()).sum();
-        Ok(drawn_panes == 1
+        let framed_panes: usize = tui.text()?.iter().map(|row| row.matches('┌').count()).sum();
+        Ok(framed_panes == 0
             && tui.active_tab()?["panes"]
                 .as_object()
                 .is_some_and(|panes| panes.len() == 1))
@@ -361,13 +364,11 @@ fn projects_existing_terminals_and_other_client_changes_share_sessions_without_s
     })?;
     let size = Size { cols: 80, rows: 24 };
     let shared = client.create_project_session(project, OperationId::new(), &directory, size)?;
-    let index = client
-        .catalog()?
-        .projects
-        .iter()
-        .position(|item| item.id == project)
-        .ok_or("project")?;
-    tui.pick(b's', index, "Shared project")?;
+    // The sidebar lists the project once the TUI knows it; only then can the finder match it.
+    tui.output("Shared project")?;
+    tui.write(b"\x02s")?;
+    tui.output("type to filter")?;
+    tui.write(b"shared\r")?;
     tui.wait(|tui| {
         Ok(fixture.state()?["active"] == project.to_string()
             && tui.active_tab()?["panes"]
@@ -380,7 +381,14 @@ fn projects_existing_terminals_and_other_client_changes_share_sessions_without_s
         .iter()
         .position(|session| session.info.id == shared.id)
         .ok_or("shared session")?;
-    tui.pick(b'w', index, &shared.id.get().to_string())?;
+    // The tab bar counts the project's terminals that no tab shows; clicking it lists them.
+    let (column, row) = tui.locate("▤ 1")?;
+    tui.click(column, row)?;
+    tui.output(&shared.id.get().to_string())?;
+    for _ in 0..index {
+        tui.write(b"\x1b[B")?;
+    }
+    tui.write(b"\r")?;
     tui.wait(|tui| Ok(tui.tabs()?.len() == 2))?;
     let attachment = client.attach(shared.id, size)?;
     client.send_input(attachment.channel, b"printf '\\nOTHER_CLIENT_OUTPUT\\n'\n")?;
@@ -401,8 +409,14 @@ fn projects_existing_terminals_and_other_client_changes_share_sessions_without_s
         mutation: ProjectMutation::Delete(project),
     })?;
     tui.wait(|tui| {
-        Ok(tui.text()?.iter().any(|line| line.starts_with(" Home "))
-            && client.list_sessions()?.len() == 1)
+        Ok(
+            fixture.state()?["active"] == client.catalog()?.home.to_string()
+                && !tui
+                    .text()?
+                    .iter()
+                    .any(|line| line.contains("Renamed elsewhere"))
+                && client.list_sessions()?.len() == 1,
+        )
     })?;
     assert!(directory.is_dir());
     let remaining = client.list_sessions()?[0].id;
@@ -435,25 +449,28 @@ fn wide_text_clipping_and_repainting_do_not_overwrite_the_neighboring_pane() -> 
             .as_object()
             .is_some_and(|panes| panes.len() == 2))
     })?;
-    tui.wait(|tui| Ok(tui.cells()?[2][51..60].concat() == "tui-test>"))?;
+    // The 26-column sidebar leaves 74 columns: framed panes of 37 each, the
+    // left one drawing its text from column 27 and the right one from 64.
+    tui.wait(|tui| Ok(tui.cells()?[2][64..73].concat() == "tui-test>"))?;
     tui.write(b"\x02\x1b[D")?;
     tui.write("printf '\\033[2J\\033[H界e\u{301}👩‍💻END\\n'\r".as_bytes())?;
     tui.output("END")?;
     let rows = tui.cells()?;
-    assert_eq!(rows[2][1], "界");
-    assert_eq!(rows[2][2], "");
-    assert_eq!(rows[2][3], "e\u{301}");
-    assert_eq!(rows[2][50], "│");
-    let neighbor: Vec<_> = rows[1..25].iter().map(|row| row[50..].to_vec()).collect();
+    assert_eq!(rows[2][27], "界");
+    assert_eq!(rows[2][28], "");
+    assert_eq!(rows[2][29], "e\u{301}");
+    assert_eq!(rows[2][62], "│");
+    assert_eq!(rows[2][63], "│");
+    let neighbor: Vec<_> = rows[1..25].iter().map(|row| row[63..].to_vec()).collect();
     tui.write(b"printf '\\033[2J\\033[Hshort\\n'\r")?;
     tui.output("short")?;
     let rows = tui.cells()?;
-    assert_eq!(rows[2][1..6].concat(), "short");
-    assert!(rows[2][6..49].iter().all(|cell| cell == " "));
+    assert_eq!(rows[2][27..32].concat(), "short");
+    assert!(rows[2][32..62].iter().all(|cell| cell == " "));
     assert_eq!(
         rows[1..25]
             .iter()
-            .map(|row| row[50..].to_vec())
+            .map(|row| row[63..].to_vec())
             .collect::<Vec<_>>(),
         neighbor
     );
@@ -640,7 +657,12 @@ fn shared_running_program_still_requires_confirmation_if_the_other_client_detach
     tui.output("Close terminal?")?;
     client.detach(other.channel)?;
     tui.write(b"n")?;
-    tui.output("Ctrl-B ? help")?;
+    tui.wait(|tui| {
+        Ok(!tui
+            .text()?
+            .iter()
+            .any(|row| row.contains("Close terminal?")))
+    })?;
     assert_eq!(client.list_sessions()?.len(), 1);
     assert_eq!(tui.tabs()?.len(), 1);
     tui.write(b"\x02x")?;

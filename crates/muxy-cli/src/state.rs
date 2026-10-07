@@ -12,6 +12,7 @@ pub(crate) type Result<T = ()> = std::result::Result<T, String>;
 pub(crate) const MAX_PANES: usize = 256;
 const MAX_TABS: usize = 64;
 const MAX_SPLIT_PANES: usize = 16;
+const MAX_TITLE_CHARS: usize = 64;
 const MAX_STATE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -43,6 +44,9 @@ pub(crate) struct Tab {
     pub focus: PaneId,
     pub zoom: bool,
     pub panes: BTreeMap<PaneId, Pane>,
+    /// A name given in place of the terminal's title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -211,6 +215,7 @@ impl State {
                 focus: id,
                 zoom: false,
                 panes: BTreeMap::from([(id, pane)]),
+                title: None,
             });
             project.active = project.tabs.len() - 1;
         }
@@ -247,6 +252,78 @@ impl State {
             self.discards.push(discard);
         }
         Ok(())
+    }
+
+    /// Closes every pane of the current project's tab that holds `pane`.
+    pub(crate) fn close_tab(&mut self, pane: PaneId) -> Result {
+        let index = self.tab_index(pane)?;
+        let project = self
+            .projects
+            .get_mut(&self.active)
+            .ok_or("No active project")?;
+        project.active = index;
+        let panes: Vec<_> = project.tabs[index].panes.keys().copied().collect();
+        for id in panes {
+            self.close(id)?;
+        }
+        Ok(())
+    }
+
+    /// Moves the tab holding `pane` one place earlier or later.
+    pub(crate) fn move_tab(&mut self, pane: PaneId, forward: bool) -> Result {
+        let index = self.tab_index(pane)?;
+        let project = self
+            .projects
+            .get_mut(&self.active)
+            .ok_or("No active project")?;
+        let Some(other) = (if forward {
+            index
+                .checked_add(1)
+                .filter(|other| *other < project.tabs.len())
+        } else {
+            index.checked_sub(1)
+        }) else {
+            return Ok(());
+        };
+        project.tabs.swap(index, other);
+        if project.active == index {
+            project.active = other;
+        } else if project.active == other {
+            project.active = index;
+        }
+        Ok(())
+    }
+
+    /// Names the tab holding `pane`; no name shows its terminal's title.
+    pub(crate) fn rename_tab(&mut self, pane: PaneId, title: Option<String>) -> Result {
+        let index = self.tab_index(pane)?;
+        let title = title
+            .map(|title| {
+                title
+                    .chars()
+                    .filter(|character| !character.is_control())
+                    .take(MAX_TITLE_CHARS)
+                    .collect::<String>()
+                    .trim()
+                    .to_owned()
+            })
+            .filter(|title| !title.is_empty());
+        if let Some(project) = self.projects.get_mut(&self.active) {
+            project.tabs[index].title = title;
+        }
+        Ok(())
+    }
+
+    fn tab_index(&self, pane: PaneId) -> Result<usize> {
+        self.projects
+            .get(&self.active)
+            .and_then(|project| {
+                project
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.panes.contains_key(&pane))
+            })
+            .ok_or_else(|| "Tab was closed in another instance".into())
     }
 
     pub(crate) fn session_references(&self) -> Vec<SessionId> {
@@ -339,12 +416,34 @@ impl State {
         }
     }
 
+    pub(crate) fn cycle_pane(&mut self, forward: bool) {
+        if let Some(tab) = self.tab_mut() {
+            let leaves = tab.layout.leaves();
+            if let Some(index) = leaves.iter().position(|id| *id == tab.focus) {
+                let count = leaves.len();
+                tab.focus = leaves[(index + if forward { 1 } else { count - 1 }) % count];
+            }
+        }
+    }
+
     pub(crate) fn resize(&mut self, direction: Direction) -> Result {
         let tab = self.tab_mut().ok_or("No pane to resize")?;
         let Some((path, ratio)) = resize_path(&tab.layout, tab.focus, direction, &mut Vec::new())
         else {
             return Ok(());
         };
+        tab.layout
+            .set_ratio(&path, ratio)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Sets the split that divides `first` from `second`, as a mouse drag
+    /// does. Naming panes instead of a path keeps it right if another
+    /// instance changed the layout meanwhile.
+    pub(crate) fn set_ratio(&mut self, first: PaneId, second: PaneId, ratio: f32) -> Result {
+        let tab = self.tab_mut().ok_or("No pane to resize")?;
+        let path = split_between(&tab.layout, first, second, &mut Vec::new())
+            .ok_or("Split is no longer available")?;
         tab.layout
             .set_ratio(&path, ratio)
             .map_err(|error| error.to_string())
@@ -365,6 +464,13 @@ impl State {
                 return Err("Invalid TUI tabs".into());
             }
             for tab in &project.tabs {
+                if tab.title.as_ref().is_some_and(|title| {
+                    title.is_empty()
+                        || title.chars().count() > MAX_TITLE_CHARS
+                        || title.chars().any(char::is_control)
+                }) {
+                    return Err("Invalid TUI tab title".into());
+                }
                 let leaves = tab.layout.leaves();
                 if leaves.len() > MAX_SPLIT_PANES
                     || tab.panes.len() != leaves.len()
@@ -444,6 +550,34 @@ fn resize_path(
             )
         })
     })
+}
+
+fn split_between(
+    layout: &Layout,
+    first: PaneId,
+    second: PaneId,
+    path: &mut Vec<Branch>,
+) -> Option<Vec<Branch>> {
+    let Layout::Split {
+        first: a,
+        second: b,
+        ..
+    } = layout
+    else {
+        return None;
+    };
+    if a.contains(first) && b.contains(second) {
+        return Some(path.clone());
+    }
+    let (branch, child) = if a.contains(first) {
+        (Branch::First, a)
+    } else {
+        (Branch::Second, b)
+    };
+    path.push(branch);
+    let found = split_between(child, first, second, path);
+    path.pop();
+    found
 }
 
 pub(crate) struct Store {
@@ -792,6 +926,36 @@ mod tests {
         state.close(right)?;
         assert!(!state.tab().ok_or("tab")?.zoom);
         assert_eq!(state.tab().ok_or("tab")?.layout.leaves(), vec![left]);
+        state.validate()
+    }
+
+    #[test]
+    fn tabs_move_take_names_and_close_with_all_their_panes() -> Result {
+        let catalog = catalog();
+        let mut state = State::new(&catalog);
+        state.reconcile(&catalog)?;
+        let directory = ServerPath(b"/tmp".to_vec());
+        let first = state.tab().ok_or("tab")?.focus;
+        let second = state.new_pane(None, directory.clone(), None)?;
+        let split = state.new_pane(Some(Direction::Right), directory, None)?;
+        state.move_tab(second, false)?;
+        state.move_tab(split, false)?;
+        let project = &state.projects[&catalog.home];
+        assert_eq!(project.tabs[0].focus, split);
+        assert_eq!(project.active, 0);
+        state.rename_tab(first, Some("  Logs\u{7} ".into()))?;
+        assert_eq!(
+            state.projects[&catalog.home].tabs[1].title.as_deref(),
+            Some("Logs")
+        );
+        state.validate()?;
+        state.rename_tab(first, Some("   ".into()))?;
+        assert_eq!(state.projects[&catalog.home].tabs[1].title, None);
+        state.close_tab(second)?;
+        let project = &state.projects[&catalog.home];
+        assert_eq!(project.tabs.len(), 1);
+        assert_eq!(state.tab().ok_or("tab")?.focus, first);
+        assert_eq!(state.discards.len(), 2);
         state.validate()
     }
 

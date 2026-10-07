@@ -240,17 +240,64 @@ impl<'a> Tui<'a> {
             .collect())
     }
 
-    pub(super) fn ready(&mut self) -> Result {
-        self.output("tui-test>")
+    /// The first cell of `text` on screen, as a column and row.
+    pub(super) fn find(&mut self, text: &str) -> Result<Option<(u16, u16)>> {
+        let characters: Vec<String> = text.chars().map(String::from).collect();
+        for (row, cells) in self.cells()?.into_iter().enumerate() {
+            let found = (0..cells.len().saturating_sub(characters.len() - 1))
+                .find(|start| cells[*start..].starts_with(&characters));
+            if let Some(column) = found {
+                return Ok(Some((u16::try_from(column)?, u16::try_from(row)?)));
+            }
+        }
+        Ok(None)
     }
 
-    pub(super) fn pick(&mut self, picker: u8, index: usize, expected: &str) -> Result {
-        self.write(&[0x02, picker])?;
-        self.output(expected)?;
-        for _ in 0..index {
-            self.write(b"\x1b[B")?;
-        }
-        self.write(b"\r")
+    /// Waits for `text` and returns where it starts.
+    pub(super) fn locate(&mut self, text: &str) -> Result<(u16, u16)> {
+        let mut found = None;
+        self.wait(|tui| {
+            found = tui.find(text)?;
+            Ok(found.is_some())
+        })?;
+        found.ok_or_else(|| format!("{text} is not on screen").into())
+    }
+
+    /// Sends an SGR mouse report for `button` at a zero-based cell.
+    pub(super) fn mouse(&mut self, button: u8, column: u16, row: u16, press: bool) -> Result {
+        let end = if press { 'M' } else { 'm' };
+        self.write(format!("\x1b[<{button};{};{}{end}", column + 1, row + 1).as_bytes())
+    }
+
+    pub(super) fn click(&mut self, column: u16, row: u16) -> Result {
+        self.mouse(0, column, row, true)?;
+        self.mouse(0, column, row, false)
+    }
+
+    pub(super) fn drag(&mut self, from: (u16, u16), to: (u16, u16)) -> Result {
+        self.mouse(0, from.0, from.1, true)?;
+        self.mouse(32, to.0, to.1, true)?;
+        self.mouse(0, to.0, to.1, false)
+    }
+
+    pub(super) fn right_click(&mut self, column: u16, row: u16) -> Result {
+        self.mouse(2, column, row, true)?;
+        self.mouse(2, column, row, false)
+    }
+
+    /// Right-clicks a cell, then clicks `item` in the menu that opens.
+    pub(super) fn menu(&mut self, at: (u16, u16), item: &str) -> Result {
+        self.right_click(at.0, at.1)?;
+        let (column, row) = self.locate(item)?;
+        self.click(column, row)
+    }
+
+    pub(super) fn wheel(&mut self, column: u16, row: u16, up: bool) -> Result {
+        self.mouse(if up { 64 } else { 65 }, column, row, true)
+    }
+
+    pub(super) fn ready(&mut self) -> Result {
+        self.output("tui-test>")
     }
 
     pub(super) fn tabs(&self) -> Result<Vec<Value>> {

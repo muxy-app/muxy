@@ -1,7 +1,7 @@
 mod io;
-pub(crate) use io::{InputWriter, Shared, View, lock};
+pub(crate) use io::{Closing, Fetcher, InputWriter, Shared, View, lock};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
@@ -14,12 +14,13 @@ use std::time::{Duration, Instant};
 use muxy_app_core::{Direction, PaneId};
 use muxy_client::{Client, ClientError, Start};
 use muxy_protocol::{
-    CatalogPage, ErrorCode, ProjectId, ProjectSession, ServerIdentity, SessionId, Size,
+    CatalogPage, ChannelId, ErrorCode, MouseEvent, ProjectId, ProjectSession, ServerIdentity,
+    SessionId, Size,
 };
 use ratatui::layout::Rect;
 
 use crate::input::Input;
-use crate::state::{Discard, Result, Store};
+use crate::state::{Discard, Result, State, Store};
 use crate::target::Target;
 
 /// How long the worker waits for a request before checking whether to quit.
@@ -33,19 +34,41 @@ pub(crate) enum Action {
     SelectPane(ProjectId, PaneId),
     CycleTab(bool),
     Focus(Direction),
+    CyclePane(bool),
     Resize(Direction),
+    /// Moves the border between the split holding `first` and `second`.
+    Ratio {
+        first: PaneId,
+        second: PaneId,
+        ratio: f32,
+    },
     Zoom,
     CheckClose,
     Close(PaneId),
+    /// Closes the current tab, asking first if a program is running in it.
+    CheckCloseTab,
+    /// Closes the tab holding this pane.
+    CloseTab(PaneId),
+    MoveTab {
+        pane: PaneId,
+        forward: bool,
+    },
+    RenameTab {
+        pane: PaneId,
+        title: Option<String>,
+    },
     Existing(ProjectSession),
     ListSessions,
     Detach,
     Input(Input),
+    Mouse(ChannelId, MouseEvent),
 }
 
 pub(crate) struct Worker {
     pub shared: Arc<Mutex<Shared>>,
     pub input: Arc<InputWriter>,
+    pub history: Fetcher,
+    /// Where panes are drawn; their terminals are sized to fit it.
     pub viewport: Arc<Mutex<Rect>>,
     sender: SyncSender<Action>,
     stop: Arc<AtomicBool>,
@@ -59,8 +82,11 @@ impl Worker {
     /// Starts serving `target`, beginning with `first` if it is already
     /// connected.
     pub(crate) fn start(target: Target, first: Option<Client>, viewport: Rect) -> Result<Self> {
-        let shared = Arc::new(Mutex::new(Shared::default()));
+        let mut initial = Shared::default();
+        target.describe().clone_into(&mut initial.server);
+        let shared = Arc::new(Mutex::new(initial));
         let input = Arc::new(InputWriter::new(Arc::clone(&shared))?);
+        let history = Fetcher::new(Arc::clone(&shared))?;
         let ordered = Arc::new(AtomicUsize::new(0));
         let queued_bytes = Arc::new(AtomicUsize::new(0));
         let viewport = Arc::new(Mutex::new(viewport));
@@ -75,6 +101,7 @@ impl Worker {
             connection: Arc::clone(&connection),
             store: None,
             references: None,
+            acknowledged: BTreeSet::new(),
             input: Arc::clone(&input),
             ordered: Arc::clone(&ordered),
             queued_bytes: Arc::clone(&queued_bytes),
@@ -89,6 +116,7 @@ impl Worker {
         Ok(Self {
             shared,
             input,
+            history,
             viewport,
             sender,
             stop,
@@ -144,6 +172,18 @@ impl Worker {
         Ok(())
     }
 
+    /// Sends a mouse event to the terminal on `channel`, after any typing
+    /// still waiting behind a layout change.
+    pub(crate) fn mouse(&self, channel: ChannelId, event: MouseEvent) -> Result {
+        if self.ordered.load(Ordering::Acquire) > 0 {
+            return self.send(Action::Mouse(channel, event));
+        }
+        let Some(client) = lock(&self.shared).client.clone() else {
+            return Ok(());
+        };
+        self.input.mouse(client, channel, event)
+    }
+
     pub(crate) fn typing(&self, input: Input) -> Result {
         if self.ordered.load(Ordering::Acquire) > 0 {
             return self.send(Action::Input(input));
@@ -172,6 +212,8 @@ struct Core {
     connection: Arc<Mutex<Option<Client>>>,
     store: Option<Store>,
     references: Option<(u64, Vec<SessionId>)>,
+    /// Activity events already marked as seen.
+    acknowledged: BTreeSet<u64>,
     input: Arc<InputWriter>,
     ordered: Arc<AtomicUsize>,
     queued_bytes: Arc<AtomicUsize>,
@@ -316,8 +358,12 @@ impl Core {
         }
         self.close_ended_sessions(&catalog)?;
         self.publish(&catalog);
-        lock(&self.shared).client = Some(client.clone());
-        lock(&self.shared).refresh = true;
+        {
+            let mut shared = lock(&self.shared);
+            shared.client = Some(client.clone());
+            shared.refresh = true;
+            shared.activity_dirty = true;
+        }
         self.message("");
         while !self.stop.load(Ordering::Acquire) && client.is_connected() {
             self.close_ended_sessions(&catalog)?;
@@ -351,6 +397,7 @@ impl Core {
             if sessions_dirty && let Err(error) = self.list_sessions(client, &catalog) {
                 self.message(&error);
             }
+            self.refresh_activity(client);
             match requests.recv_timeout(POLL) {
                 Ok(Action::Detach) | Err(RecvTimeoutError::Disconnected) => return Ok(true),
                 Ok(action) => {
@@ -399,14 +446,19 @@ impl Core {
         if matches!(action, Action::CheckClose) {
             return self.check_close(client, catalog);
         }
+        if matches!(action, Action::CheckCloseTab) {
+            return self.check_close_tab(client, catalog);
+        }
         if let Action::Input(input) = action {
             return send_input(&self.shared, &self.input, input);
+        }
+        if let Action::Mouse(channel, event) = action {
+            return self.input.mouse(client.clone(), channel, event);
         }
         if matches!(action, Action::ListSessions) {
             return self.list_sessions(client, catalog);
         }
         self.input.flush()?;
-        let host = hosting_session(catalog.server);
         let (selection, selected_tab) = {
             let shared = lock(&self.shared);
             let state = shared.state.as_ref().ok_or("TUI state is not ready")?;
@@ -422,64 +474,48 @@ impl Core {
             if !matches!(action, Action::Open(_)) {
                 state.select(selection)?;
             }
-            match action {
-                Action::Open(id) => state.open(id, catalog)?,
-                Action::New(split) => {
-                    let directory = catalog
-                        .projects
-                        .iter()
-                        .find(|project| project.id == state.active)
-                        .ok_or("Project is no longer available")?
-                        .directory
-                        .clone();
-                    state.new_pane(split, directory, None)?;
-                }
-                Action::Existing(session) => {
-                    if state.session_references().contains(&session.info.id) {
-                        return Ok(());
-                    }
-                    if !matches!(
-                        session.status,
-                        muxy_protocol::SessionStatus::Live | muxy_protocol::SessionStatus::Starting
-                    ) {
-                        return Err("Terminal has ended".into());
-                    }
-                    if Some(session.info.id) == host {
-                        return Err("Cannot attach the terminal hosting this TUI".into());
-                    }
-                    if session.info.project != state.active {
-                        return Err("Terminal belongs to another project".into());
-                    }
-                    state.new_pane(None, session.info.directory, Some(session.info.id))?;
-                }
-                Action::Close(id) => {
-                    if state
-                        .tab()
-                        .and_then(|tab| tab.panes.get(&id))
-                        .is_some_and(|pane| pane.session.is_some() && pane.session == host)
-                    {
-                        return Err("Cannot close the terminal hosting this TUI".into());
-                    }
-                    state.close(id)?;
-                }
-                Action::Focus(direction) => state.focus(direction),
-                Action::Resize(direction) => state.resize(direction)?,
-                Action::Zoom => {
-                    if let Some(tab) = state.tab_mut() {
-                        tab.zoom = !tab.zoom;
-                    }
-                }
-                Action::SelectPane(_, _) | Action::SelectTab(_) | Action::CycleTab(_) => {
-                    if let Some(selected) = selected_tab {
-                        state.select(selected)?;
-                    }
-                }
-                Action::ListSessions | Action::Detach | Action::Input(_) | Action::CheckClose => {}
-            }
-            Ok(())
+            apply(state, action, catalog, selected_tab)
         })?;
         self.message("");
         Ok(())
+    }
+
+    /// Reads agent activity again after the server reports a change, and
+    /// marks alerts seen once their terminal is on screen and focused.
+    fn refresh_activity(&mut self, client: &Client) {
+        let dirty = std::mem::take(&mut lock(&self.shared).activity_dirty);
+        if dirty {
+            // Older servers don't report activity; they just show none.
+            let activity = client.activity().unwrap_or_default();
+            self.acknowledged
+                .retain(|id| activity.events.iter().any(|event| event.id == *id));
+            lock(&self.shared).activity = activity;
+        }
+        let unseen: Vec<u64> = {
+            let shared = lock(&self.shared);
+            let focused = shared
+                .state
+                .as_ref()
+                .and_then(State::tab)
+                .filter(|_| !shared.host_unfocused)
+                .and_then(|tab| shared.views.get(&tab.focus))
+                .filter(|view| view.channel.is_some())
+                .map(|view| view.session);
+            shared
+                .activity
+                .events
+                .iter()
+                .filter(|event| {
+                    !event.read
+                        && Some(event.session) == focused
+                        && !self.acknowledged.contains(&event.id)
+                })
+                .map(|event| event.id)
+                .collect()
+        };
+        if !unseen.is_empty() && client.acknowledge_activity(unseen.clone()).is_ok() {
+            self.acknowledged.extend(unseen);
+        }
     }
 
     fn check_close(&mut self, client: &Client, catalog: &CatalogPage) -> Result {
@@ -490,18 +526,43 @@ impl Core {
         if session.is_some() && session == hosting_session(catalog.server) {
             return Err("Cannot close the terminal hosting this TUI".into());
         }
-        if let Some(session) = session {
-            let local = self
-                .store_mut()?
-                .state
-                .projects
-                .values()
-                .flat_map(|project| &project.tabs)
-                .flat_map(|tab| &tab.panes)
-                .any(|(pane, value)| *pane != id && value.session == Some(session));
-            if local {
-                return self.action(Action::Close(id), client, catalog);
-            }
+        if self.ends_running_program(client, &[id])? {
+            lock(&self.shared).confirm = Some(Closing::Pane(id));
+            return Ok(());
+        }
+        self.action(Action::Close(id), client, catalog)
+    }
+
+    fn check_close_tab(&mut self, client: &Client, catalog: &CatalogPage) -> Result {
+        self.input.flush()?;
+        let tab = self.store_mut()?.state.tab().ok_or("No tab to close")?;
+        let focus = tab.focus;
+        let panes: Vec<_> = tab.panes.keys().copied().collect();
+        if self.ends_running_program(client, &panes)? {
+            lock(&self.shared).confirm = Some(Closing::Tab(focus));
+            return Ok(());
+        }
+        self.action(Action::CloseTab(focus), client, catalog)
+    }
+
+    /// Whether closing `panes` would end a terminal running a program other
+    /// than its shell. A terminal another pane still shows keeps running.
+    fn ends_running_program(&mut self, client: &Client, panes: &[PaneId]) -> Result<bool> {
+        let state = &self.store_mut()?.state;
+        let sessions: Vec<_> = panes
+            .iter()
+            .filter_map(|id| {
+                let session = state.tab()?.panes.get(id)?.session?;
+                let shown_elsewhere = state
+                    .projects
+                    .values()
+                    .flat_map(|project| &project.tabs)
+                    .flat_map(|tab| &tab.panes)
+                    .any(|(pane, value)| !panes.contains(pane) && value.session == Some(session));
+                (!shown_elsewhere).then_some((*id, session))
+            })
+            .collect();
+        for (id, session) in sessions {
             let size = lock(&self.shared)
                 .views
                 .get(&id)
@@ -517,15 +578,14 @@ impl Core {
                         Err(error) => return Err(error.to_string()),
                     }
                     if attachment.process.is_none_or(|process| !process.is_shell) {
-                        lock(&self.shared).confirm = Some(id);
-                        return Ok(());
+                        return Ok(true);
                     }
                 }
                 Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownSession => {}
                 Err(error) => return Err(error.to_string()),
             }
         }
-        self.action(Action::Close(id), client, catalog)
+        Ok(false)
     }
 
     fn synchronize(&mut self, client: &Client, catalog: &CatalogPage) -> Result {
@@ -548,13 +608,10 @@ impl Core {
         self.close_ended_sessions(catalog)?;
         self.sync_references(client)?;
         let state = self.store_mut()?.state.clone();
-        let regions = crate::render::regions(&state, viewport);
+        let regions = crate::ui::layout::panes(&state, viewport);
         let desired: BTreeMap<_, _> = regions
             .iter()
-            .filter_map(|(id, rect)| {
-                let size = crate::render::terminal_size(*rect)?;
-                Some((*id, size))
-            })
+            .filter_map(|area| Some((area.id, crate::ui::layout::terminal_size(area.inner)?)))
             .collect();
         let obsolete: Vec<_> = lock(&self.shared)
             .views
@@ -614,7 +671,7 @@ impl Core {
 
     fn create_pending(&mut self, client: &Client, viewport: Rect) -> Result {
         let state = self.store_mut()?.state.clone();
-        let regions = crate::render::regions(&state, viewport);
+        let regions = crate::ui::layout::panes(&state, viewport);
         for (project, layout) in state.projects {
             for tab in layout.tabs {
                 for (id, mut pane) in tab.panes {
@@ -626,8 +683,8 @@ impl Core {
                     }
                     let size = regions
                         .iter()
-                        .find(|(pane, _)| *pane == id)
-                        .and_then(|(_, rect)| crate::render::terminal_size(*rect))
+                        .find(|area| area.id == id)
+                        .and_then(|area| crate::ui::layout::terminal_size(area.inner))
                         .unwrap_or(Size { cols: 80, rows: 24 });
                     self.create_pane(client, project, id, size, &mut pane)?;
                 }
@@ -668,6 +725,7 @@ impl Core {
                     if let Some(view) = lock(&self.shared).views.get_mut(&id) {
                         view.viewport = size;
                         view.grid.resize(size);
+                        view.scroll.bottom();
                     }
                     client
                         .resize(channel, size)
@@ -782,7 +840,7 @@ impl Core {
         Ok(())
     }
     fn message(&self, text: &str) {
-        lock(&self.shared).message = text.into();
+        lock(&self.shared).say(text);
     }
     fn publish(&self, catalog: &CatalogPage) {
         let mut shared = lock(&self.shared);
@@ -794,7 +852,7 @@ impl Core {
         let references = shared
             .state
             .as_ref()
-            .map(crate::state::State::session_references)
+            .map(State::session_references)
             .unwrap_or_default();
         shared
             .sessions
@@ -808,6 +866,105 @@ impl Core {
         }
         shared.catalog = Some(catalog.clone());
     }
+}
+
+/// Changes the layout for `action`. `selected` is where a tab action goes,
+/// as chosen from the layout on screen.
+fn apply(
+    state: &mut State,
+    action: Action,
+    catalog: &CatalogPage,
+    selected: Option<(ProjectId, Option<PaneId>)>,
+) -> Result {
+    let host = hosting_session(catalog.server);
+    match action {
+        Action::Open(id) => state.open(id, catalog)?,
+        Action::New(split) => {
+            let directory = catalog
+                .projects
+                .iter()
+                .find(|project| project.id == state.active)
+                .ok_or("Project is no longer available")?
+                .directory
+                .clone();
+            state.new_pane(split, directory, None)?;
+        }
+        Action::Existing(session) => {
+            if state.session_references().contains(&session.info.id) {
+                return Ok(());
+            }
+            if !matches!(
+                session.status,
+                muxy_protocol::SessionStatus::Live | muxy_protocol::SessionStatus::Starting
+            ) {
+                return Err("Terminal has ended".into());
+            }
+            if Some(session.info.id) == host {
+                return Err("Cannot attach the terminal hosting this TUI".into());
+            }
+            if session.info.project != state.active {
+                return Err("Terminal belongs to another project".into());
+            }
+            state.new_pane(None, session.info.directory, Some(session.info.id))?;
+        }
+        Action::Close(id) => {
+            if state
+                .tab()
+                .and_then(|tab| tab.panes.get(&id))
+                .is_some_and(|pane| pane.session.is_some() && pane.session == host)
+            {
+                return Err("Cannot close the terminal hosting this TUI".into());
+            }
+            state.close(id)?;
+        }
+        Action::CloseTab(pane) => {
+            let hosts = state
+                .projects
+                .get(&state.active)
+                .and_then(|project| {
+                    project
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.panes.contains_key(&pane))
+                })
+                .is_some_and(|tab| {
+                    tab.panes
+                        .values()
+                        .any(|pane| pane.session.is_some() && pane.session == host)
+                });
+            if hosts {
+                return Err("Cannot close the tab hosting this TUI".into());
+            }
+            state.close_tab(pane)?;
+        }
+        Action::MoveTab { pane, forward } => state.move_tab(pane, forward)?,
+        Action::RenameTab { pane, ref title } => state.rename_tab(pane, title.clone())?,
+        Action::Focus(direction) => state.focus(direction),
+        Action::CyclePane(forward) => state.cycle_pane(forward),
+        Action::Resize(direction) => state.resize(direction)?,
+        Action::Ratio {
+            first,
+            second,
+            ratio,
+        } => state.set_ratio(first, second, ratio)?,
+        Action::Zoom => {
+            if let Some(tab) = state.tab_mut() {
+                tab.zoom = !tab.zoom;
+            }
+        }
+        Action::SelectPane(_, _) | Action::SelectTab(_) | Action::CycleTab(_) => {
+            if let Some(selected) = selected {
+                state.select(selected)?;
+            }
+        }
+        Action::ListSessions
+        | Action::Detach
+        | Action::Input(_)
+        | Action::Mouse(..)
+        | Action::CheckClose
+        | Action::CheckCloseTab => {}
+    }
+    Ok(())
 }
 
 fn send_input(shared: &Mutex<Shared>, writer: &InputWriter, input: Input) -> Result {
