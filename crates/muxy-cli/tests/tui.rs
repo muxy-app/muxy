@@ -454,7 +454,9 @@ fn wide_text_clipping_and_repainting_do_not_overwrite_the_neighboring_pane() -> 
     tui.wait(|tui| Ok(tui.cells()?[2][64..73].concat() == "tui-test>"))?;
     tui.write(b"\x02\x1b[D")?;
     tui.write("printf '\\033[2J\\033[H界e\u{301}👩‍💻END\\n'\r".as_bytes())?;
-    tui.output("END")?;
+    // The command line wraps in the narrow pane, so wait for its output at
+    // the pane's first cell rather than for any row showing END.
+    tui.wait(|tui| Ok(tui.cells()?[2][27] == "界"))?;
     let rows = tui.cells()?;
     assert_eq!(rows[2][27], "界");
     assert_eq!(rows[2][28], "");
@@ -463,7 +465,7 @@ fn wide_text_clipping_and_repainting_do_not_overwrite_the_neighboring_pane() -> 
     assert_eq!(rows[2][63], "│");
     let neighbor: Vec<_> = rows[1..25].iter().map(|row| row[63..].to_vec()).collect();
     tui.write(b"printf '\\033[2J\\033[Hshort\\n'\r")?;
-    tui.output("short")?;
+    tui.wait(|tui| Ok(tui.cells()?[2][27..32].concat() == "short"))?;
     let rows = tui.cells()?;
     assert_eq!(rows[2][27..32].concat(), "short");
     assert!(rows[2][32..62].iter().all(|cell| cell == " "));
