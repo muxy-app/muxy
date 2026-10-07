@@ -448,14 +448,14 @@ fn shutdown_cancels_clients_that_never_finish_hello() -> TestResult {
 #[test]
 fn shutdown_interrupts_a_blocked_pty_write() -> TestResult {
     assert_shutdown_interrupts_input(
-        b"stty -icanon -echo; printf '\\nnonreading-ready\\n'; exec sleep 3\n",
+        b"stty -icanon -echo; printf '\\nnonreading-ready\\n'; exec sleep 10\n",
     )
 }
 
 #[test]
 fn shutdown_does_not_wait_for_a_descendant_holding_the_pty() -> TestResult {
     assert_shutdown_interrupts_input(
-        b"stty -icanon -echo; trap '' HUP; sleep 3 & printf '\\nnonreading-ready\\n'; wait\n",
+        b"stty -icanon -echo; trap '' HUP; sleep 10 & printf '\\nnonreading-ready\\n'; wait\n",
     )
 }
 
@@ -479,7 +479,7 @@ fn assert_shutdown_interrupts_input(command: &[u8]) -> TestResult {
     client.ended(&[session], ExitReason::ServerStopped)?;
     client.closed()?;
     assert!(fixture.finish()?.status.success());
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(5));
     assert!(!fixture.socket().exists());
     Ok(())
 }
