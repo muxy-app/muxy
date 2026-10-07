@@ -71,8 +71,9 @@ Muxy never updates a remote computer by itself. When versions can't talk, the
 app shows the command to run there. To update by hand:
 
 ```bash
-curl -fsSL https://github.com/muxy-app/muxy/releases/download/v<version>/install-muxy.sh \
-  | sh -s -- --version <version> --replace
+VERSION=2.0.0-beta-N
+curl -fsSL "https://github.com/muxy-app/muxy/releases/download/v$VERSION/install-muxy.sh" \
+  | sh -s -- --version "$VERSION" --replace
 ```
 
 The old server keeps running until it stops. To switch now, stop it on that

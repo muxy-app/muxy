@@ -5,11 +5,11 @@ The manifest is the `package.json` at the root of the extension. `name` and
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/muxy-app/muxy/main/docs/extensions/schema/manifest.schema.json",
   "name": "hello",
   "version": "0.1.0",
   "scripts": { "build": "vite build && cp package.json dist/" },
   "muxy": {
-    "$schema": "https://raw.githubusercontent.com/muxy-app/muxy/main/docs/extensions/schema/manifest.schema.json",
     "description": "Says hello",
     "permissions": ["notifications:write"],
     "commands": [{ "id": "ping", "title": "Hello: Ping" }]
@@ -17,8 +17,11 @@ The manifest is the `package.json` at the root of the extension. `name` and
 }
 ```
 
-The [JSON schema](schema/manifest.schema.json) gives editor completion. Muxy
-ignores `$schema` and other keys it doesn't know.
+The [JSON schema](schema/manifest.schema.json) gives editor completion when
+`$schema` sits at the top level. In VS Code it replaces the built-in
+`package.json` schema for that file. The schema checks publishable packages, so
+it also requires `scripts.build`. Muxy ignores `$schema` and other keys it
+doesn't know.
 
 ## Loading
 

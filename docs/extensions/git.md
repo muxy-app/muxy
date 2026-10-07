@@ -3,9 +3,9 @@
 `muxy.git` reads and changes the project's repository. It runs on the project's
 server, so it works for remote projects too, and is available everywhere.
 
-Every call takes one options object. Pass `project` in it to target a project
-or worktree by ID; otherwise a tab uses its own project and other views use
-the current one.
+Calls take an optional options object. Pass `project` in it to target a
+project or worktree by ID; otherwise a tab uses its own project and other views
+use the current one.
 
 ```js
 const status = await muxy.git.status();

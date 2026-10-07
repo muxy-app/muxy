@@ -14,8 +14,8 @@ flowchart LR
 
 ## Lifetime
 
-- Any app or CLI command starts the server when it isn't running. You never
-  need to start it yourself.
+- Apps and CLI commands start the server when they need it. You never need to
+  start it yourself.
 - It keeps running until you stop it, even with no app open.
 - Stopping or restarting it ends every terminal. Saved screens and history are
   kept. Use the status bar, **Settings → Server**, or

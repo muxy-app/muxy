@@ -1,7 +1,9 @@
 # API Reference
 
-Muxy injects a `muxy` object into extension code. On pages, every call returns
-a Promise. In scripts and background scripts, calls are synchronous.
+Muxy injects a `muxy` object into extension code. On pages, most calls return
+a Promise. In scripts and background scripts, most calls are synchronous.
+Exceptions are noted where they apply, such as `execAsync`, which returns a
+handle whose `result` you await.
 
 ```js
 const tabs = await muxy.tabs.list();   // page

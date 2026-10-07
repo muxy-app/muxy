@@ -45,7 +45,9 @@ For the terminal UI, see [Terminal UI keys](../features/terminal-ui.md#keys).
 | Scroll to top / bottom | `Cmd+Home` / `Cmd+End` |
 | Delete line | `Cmd+Backspace` |
 | Start / end of line | `Cmd+Left` / `Cmd+Right` |
-| New line without running | `Shift+Return` |
+| Line feed (`Ctrl+J`) | `Shift+Return` |
+
+A line feed is a new line in many AI tools, but shells treat it like Return.
 
 ## Composer and dictation
 

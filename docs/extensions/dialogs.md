@@ -1,8 +1,9 @@
 # Dialogs
 
 Native dialogs, a searchable picker, and modal web views. All work from pages,
-scripts, and background scripts. On pages they return Promises; in scripts
-they block until answered.
+scripts, and background scripts. On pages they return Promises. In scripts,
+dialogs block until answered, but the picker and modal web views don't; see
+their sections.
 
 ## Dialogs
 

@@ -54,13 +54,13 @@ Extensions start disabled after installing or loading.
 
 ## Security
 
-- **Declared permissions.** Every API call that reads or changes something
-  needs a [permission](permissions.md) in the manifest.
+- **Declared permissions.** Most API calls need a
+  [permission](permissions.md) in the manifest. Web requests, dialogs, and
+  events need none.
 - **Runtime prompts.** Running programs, typing into terminals, writing files or
-  Git, web requests, and deleting projects ask the user, even with the
-  permission.
-- **Declared events.** An extension only receives events it lists in its
-  manifest.
+  Git, web requests, and deleting projects ask the user first.
+- **Declared events.** An extension only receives the workspace events it
+  lists in its manifest.
 - **Own files only.** Pages load only from the extension's own folder.
 - **Verified installs.** Marketplace packages are checked against their listing
   before they are installed.

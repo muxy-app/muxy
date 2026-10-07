@@ -24,8 +24,9 @@ muxy project list    # list projects
 muxy --help          # all commands; muxy <command> --help for details
 ```
 
-- Commands start the local server if it isn't running. `muxy server status`
-  and `muxy server stop` never start it.
+- Commands start the server they use if it isn't running, including a remote
+  one with `--host`. `muxy server status` and `muxy server stop` never start
+  it.
 - Add `--json` to any management command for machine-readable output.
 - Commands that end terminals or delete data need `--yes`.
 - A project can be named by its ID, its name if unique, or its folder.

@@ -24,11 +24,12 @@ The app updates itself. Running terminals keep going through most updates.
 ## CLI and server only
 
 On a server, or on Linux, install `muxy` and `muxy-server` without the desktop
-app. Pick a version from the releases page:
+app. Set `VERSION` to a version from the releases page:
 
 ```bash
-curl -fsSL https://github.com/muxy-app/muxy/releases/download/v<version>/install-muxy.sh \
-  | sh -s -- --version <version>
+VERSION=2.0.0-beta-N
+curl -fsSL "https://github.com/muxy-app/muxy/releases/download/v$VERSION/install-muxy.sh" \
+  | sh -s -- --version "$VERSION"
 ```
 
 This installs into `~/.local/bin`. Add it to your `PATH` if needed. Run the

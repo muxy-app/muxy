@@ -33,7 +33,7 @@ panes:
           name: shell
 ```
 
-Splits nest as deep as you like. Panes in a split share its space evenly.
+Splits can nest up to 32 levels. Panes in a split share its space evenly.
 
 ## Fields
 
