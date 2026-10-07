@@ -81,6 +81,8 @@ struct State {
     sequence: Cell<u64>,
     generation: Cell<u64>,
     snapshot_id: Cell<u64>,
+    focused: Cell<bool>,
+    clicked: Cell<bool>,
     modal: Cell<bool>,
     shortcuts: RefCell<Vec<gpui::Keystroke>>,
     replies: RefCell<HashMap<u64, Reply>>,
@@ -476,6 +478,8 @@ impl NativeWebview {
             sequence: Cell::new(0),
             generation: Cell::new(0),
             snapshot_id: Cell::new(0),
+            focused: Cell::new(false),
+            clicked: Cell::new(false),
             modal: Cell::new(false),
             shortcuts: RefCell::default(),
             replies: RefCell::default(),
@@ -546,6 +550,18 @@ impl NativeWebview {
     pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
         self.delegate.ivars().modal.set(modal);
         *self.delegate.ivars().shortcuts.borrow_mut() = shortcuts;
+    }
+
+    /// Whether Muxy shows this page focused. Keys reach the page only while it
+    /// is, or after a click into it until Muxy catches up. A page that takes
+    /// the native focus itself, as when its script focuses an element, doesn't
+    /// get them.
+    pub fn set_focused(&self, focused: bool) {
+        let state = self.delegate.ivars();
+        state.focused.set(focused);
+        if focused {
+            state.clicked.set(false);
+        }
     }
 
     /// Sends clicks on the resize grips drawn over the page, in window
@@ -743,11 +759,12 @@ impl NativeWebview {
         if self.visible.replace(visible) == visible && self.view.isHidden() != visible {
             return;
         }
-        self.view.setHidden(!visible);
-        self.grips.setHidden(!visible);
+        // Hiding the focused page would leave the keyboard with the window.
         if !visible {
             self.blur();
         }
+        self.view.setHidden(!visible);
+        self.grips.setHidden(!visible);
     }
 
     pub fn focus(&self) {
@@ -759,6 +776,7 @@ impl NativeWebview {
     }
 
     pub fn blur(&self) {
+        self.delegate.ivars().clicked.set(false);
         if let Some(window) = self.view.window()
             && window.firstResponder().is_some_and(|responder| {
                 responder
@@ -1036,22 +1054,50 @@ fn monitor(
     let monitor = RcBlock::new(move |event: ptr::NonNull<NSEvent>| -> *mut NSEvent {
         let event_ref = unsafe { event.as_ref() };
         let event = event.as_ptr();
+        if matches!(
+            event_ref.r#type(),
+            NSEventType::LeftMouseDown | NSEventType::RightMouseDown | NSEventType::OtherMouseDown
+        ) {
+            // Muxy hears of a click from the page itself, which can be late.
+            let clicked = monitor_view
+                .window()
+                .filter(|window| event_ref.window(monitor_view.mtm()).as_ref() == Some(window))
+                .and_then(|window| window.contentView())
+                .and_then(|content| content.hitTest(event_ref.locationInWindow()))
+                .is_some_and(|view| view.isDescendantOf(&monitor_view));
+            monitor_delegate.ivars().clicked.set(clicked);
+            return event;
+        }
         if monitor_view.isHidden() {
             return event;
         }
-        let Some(responder) = monitor_view
-            .window()
-            .filter(|window| {
-                window.isKeyWindow()
-                    && event_ref.window(monitor_view.mtm()).as_ref() == Some(window)
-            })
-            .and_then(|window| window.firstResponder())
-            .filter(|responder| {
+        let Some(window) = monitor_view.window().filter(|window| {
+            window.isKeyWindow() && event_ref.window(monitor_view.mtm()).as_ref() == Some(window)
+        }) else {
+            return event;
+        };
+        let page_responder = || {
+            window.firstResponder().filter(|responder| {
                 responder
                     .downcast_ref::<NSView>()
                     .is_some_and(|responder| responder.isDescendantOf(&monitor_view))
             })
-        else {
+        };
+        // Keys follow Muxy's focus: pages take the native focus on their own,
+        // even from each other, and a click on Muxy never takes it back.
+        let state = monitor_delegate.ivars();
+        let focused = state.focused.get() || state.clicked.get();
+        let holds_focus = page_responder().is_some();
+        if holds_focus && !focused {
+            if let Some(parent) = unsafe { monitor_view.superview() } {
+                window.makeFirstResponder(Some(&parent));
+            }
+            return event;
+        }
+        if !holds_focus && focused && event_ref.r#type() == NSEventType::KeyDown {
+            window.makeFirstResponder(Some(&monitor_view));
+        }
+        let Some(responder) = page_responder() else {
             return event;
         };
         if event_ref.r#type() == NSEventType::FlagsChanged {
@@ -1088,7 +1134,11 @@ fn monitor(
     });
     unsafe {
         NSEvent::addLocalMonitorForEventsMatchingMask_handler(
-            NSEventMask::KeyDown | NSEventMask::FlagsChanged,
+            NSEventMask::KeyDown
+                | NSEventMask::FlagsChanged
+                | NSEventMask::LeftMouseDown
+                | NSEventMask::RightMouseDown
+                | NSEventMask::OtherMouseDown,
             &monitor,
         )
     }
