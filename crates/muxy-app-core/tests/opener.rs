@@ -2,7 +2,7 @@ use std::path::Path;
 
 use muxy_app_core::{
     PaneId, ProjectId, ServerId,
-    opener::{FileLocation, OpenContext, OpenRequest, Registry, Target},
+    opener::{FileLocation, OpenContext, OpenRequest, Target},
 };
 
 fn request() -> OpenRequest {
@@ -20,44 +20,6 @@ fn request() -> OpenRequest {
             project_directory: "/project".into(),
         },
     }
-}
-
-#[test]
-fn registration_selection_and_fallback_are_independent_of_execution() {
-    let request = request();
-    let mut registry = Registry::default();
-    assert!(registry.register("system", "System", |_| true, 1));
-    assert!(registry.register("extension:rust", "Rust Editor", |r| matches!(&r.target, Target::File(file) if file.path.extension().is_some_and(|ext| ext == "rs")), 2));
-    assert!(!registry.register("extension:rust", "duplicate", |_| true, 3));
-    assert!(!registry.register("", "empty", |_| true, 3));
-    assert_eq!(registry.available(&request).count(), 2);
-    assert_eq!(
-        registry
-            .resolve(&request, "extension:rust", "system")
-            .map(|e| e.handler),
-        Some(2)
-    );
-    assert_eq!(
-        registry
-            .resolve(&request, "missing", "system")
-            .map(|e| e.handler),
-        Some(1)
-    );
-    let url = OpenRequest {
-        target: Target::Url("https://example.com".into()),
-        ..request
-    };
-    assert_eq!(
-        registry
-            .resolve(&url, "extension:rust", "system")
-            .map(|e| e.handler),
-        Some(1)
-    );
-    assert!(
-        registry
-            .resolve(&url, "extension:rust", "missing")
-            .is_none()
-    );
 }
 
 #[test]

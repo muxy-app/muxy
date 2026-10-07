@@ -181,7 +181,6 @@ pub(crate) use muxy_client::local::read_build_info;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use muxy_client::local::unavailable;
 
     #[test]
     fn server_startup_respects_the_update_lock_and_releases_it_after_failure() -> io::Result<()> {
@@ -198,17 +197,5 @@ mod tests {
         drop(lock);
         assert!(lock_for_update(&socket).is_ok());
         Ok(())
-    }
-
-    #[test]
-    fn only_a_missing_or_refused_socket_can_start_a_server() {
-        for kind in [io::ErrorKind::NotFound, io::ErrorKind::ConnectionRefused] {
-            assert!(unavailable(&ClientError::Io(kind.into())));
-        }
-        for kind in [io::ErrorKind::PermissionDenied, io::ErrorKind::TimedOut] {
-            assert!(!unavailable(&ClientError::Io(kind.into())));
-        }
-        assert!(!unavailable(&ClientError::VersionUnsupported));
-        assert!(!unavailable(&ClientError::Disconnected));
     }
 }

@@ -6,22 +6,6 @@ use muxy_protocol::wire::{
 use muxy_protocol::{CONTROL, ChannelId, ChannelKind, Message, MetadataEvent, V2};
 
 #[test]
-fn all_samples_round_trip_in_one_stream() -> Result<(), WireError> {
-    let samples = Message::samples();
-    let mut bytes = Vec::new();
-    let mut encoder = Encoder::new(&mut bytes);
-    for message in &samples {
-        encoder.send(channel(message), message)?;
-    }
-    let mut decoder = Decoder::new(bytes.as_slice());
-    for message in samples {
-        assert_eq!(decoder.next()?, (channel(&message), message));
-    }
-    assert!(matches!(decoder.next(), Err(WireError::Closed)));
-    Ok(())
-}
-
-#[test]
 fn header_bytes_are_little_endian_and_length_excludes_the_prefix() -> Result<(), WireError> {
     let header = Header::new(0x10203, ChannelId(0x1234_5678), MessageKind::Input)?;
     assert_eq!(HEADER_LEN, 11);
@@ -45,17 +29,6 @@ fn input_is_raw_including_empty_and_non_utf8_bytes() -> Result<(), WireError> {
         let mut decoder = Decoder::new(bytes.as_slice());
         assert_eq!(decoder.next()?, (ChannelId(u32::MAX), message));
     }
-    Ok(())
-}
-
-#[test]
-fn payloads_are_field_arrays_without_the_kind() -> Result<(), WireError> {
-    let mut bytes = Vec::new();
-    encode(&Message::Hello { versions: vec![V2] }, CONTROL, &mut bytes)?;
-    // array(1) [ array(1) [ 2 ] ]
-    assert_eq!(&bytes[HEADER_LEN..], [0x81, 0x81, 0x02]);
-    encode(&Message::VersionUnsupported, CONTROL, &mut bytes)?;
-    assert_eq!(&bytes[HEADER_LEN..], [0x80]);
     Ok(())
 }
 
@@ -234,30 +207,6 @@ fn partial_reads_and_writes_preserve_frames() -> Result<(), WireError> {
     Ok(())
 }
 
-#[test]
-fn encoder_calls_write_all_once_per_frame() -> Result<(), WireError> {
-    let mut writer = CountingWriter::default();
-    let mut encoder = Encoder::new(&mut writer);
-    let samples = Message::samples();
-    for message in &samples {
-        encoder.send(channel(message), message)?;
-    }
-    assert_eq!(writer.writes, samples.len());
-    Ok(())
-}
-
-#[test]
-fn io_errors_keep_their_source() {
-    let error = Decoder::new(FailingIo).next();
-    assert!(
-        matches!(error, Err(WireError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
-    );
-    let error = Encoder::new(FailingIo).send(CONTROL, &Message::VersionUnsupported);
-    assert!(
-        matches!(error, Err(WireError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
-    );
-}
-
 fn channel(message: &Message) -> ChannelId {
     match message.channel_kind() {
         ChannelKind::Control => CONTROL,
@@ -279,45 +228,6 @@ struct ShortWriter(Vec<u8>);
 impl Write for ShortWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.0.write(&bytes[..bytes.len().min(2)])
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct CountingWriter {
-    writes: usize,
-}
-
-impl Write for CountingWriter {
-    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-        Err(io::Error::other("expected write_all"))
-    }
-
-    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.writes += 1;
-        assert!(bytes.len() >= HEADER_LEN);
-        Ok(())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-struct FailingIo;
-
-impl Read for FailingIo {
-    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-        Err(io::ErrorKind::PermissionDenied.into())
-    }
-}
-
-impl Write for FailingIo {
-    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-        Err(io::ErrorKind::PermissionDenied.into())
     }
 
     fn flush(&mut self) -> io::Result<()> {

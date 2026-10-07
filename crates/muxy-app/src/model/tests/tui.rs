@@ -84,12 +84,7 @@ fn walkthrough(cx: &mut TestAppContext) -> Result {
         })
     })?;
     assert_eq!(probe.list_sessions()?.len(), 2);
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&std::fs::read(
-            directory.join("tui-state.json")
-        )?)?,
-        state
-    );
+    assert_eq!(tui_layout(&directory)?, state);
     assert_eq!(
         view.read_with(cx, |model, _| model.state.home().tabs.len()),
         2
@@ -108,8 +103,7 @@ fn saved_layout(
     home: ProjectId,
     session: SessionId,
 ) -> Result<serde_json::Value> {
-    let state: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(directory.join("tui-state.json"))?)?;
+    let state = tui_layout(directory)?;
     let panes = &state["projects"][home.to_string()]["tabs"][0]["panes"];
     assert_eq!(panes.as_object().ok_or("panes")?.len(), 1);
     assert!(
@@ -119,6 +113,18 @@ fn saved_layout(
             .values()
             .all(|pane| pane["session"] == session.get())
     );
+    Ok(state)
+}
+
+/// The TUI's saved state without the catalog revision it last saw, which
+/// moves with every session change on the server.
+fn tui_layout(directory: &std::path::Path) -> Result<serde_json::Value> {
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("tui-state.json"))?)?;
+    state
+        .as_object_mut()
+        .ok_or("TUI state")?
+        .remove("catalog_revision");
     Ok(state)
 }
 

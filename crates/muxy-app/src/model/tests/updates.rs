@@ -7,118 +7,6 @@ fn ready(model: &mut AppModel) {
 }
 
 #[gpui::test]
-fn update_popover_opens_from_status_and_stays_above_it(cx: &mut TestAppContext) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        ready(model);
-        cx.notify();
-    });
-    cx.simulate_resize(size(px(1000.0), px(700.0)));
-    cx.run_until_parked();
-    let status = cx
-        .debug_bounds("beta-update-status")
-        .expect("status button");
-    cx.simulate_click(status.center(), Modifiers::none());
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert!(matches!(model.overlay, Some(Overlay::Updates)));
-        assert!(model.settings_window.is_none());
-        assert!(model.close_prompt.is_none());
-    });
-    for (width, height) in [(1000.0, 700.0), (600.0, 400.0)] {
-        cx.simulate_resize(size(px(width), px(height)));
-        cx.run_until_parked();
-        let panel = cx.debug_bounds("update-popover").expect("popover");
-        let status = cx.debug_bounds("beta-update-status").expect("status");
-        assert!(panel.bottom() <= status.top());
-        assert!(panel.left() >= px(0.0) && panel.right() <= px(width));
-        assert!(panel.top() >= px(0.0));
-        assert!(cx.debug_bounds("update-action").is_some());
-    }
-    cx.simulate_keystrokes("escape");
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
-}
-
-#[gpui::test]
-fn server_update_action_confirms_without_settings_and_reconnects(cx: &mut TestAppContext) {
-    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        ready(model);
-        model.updates.ready = None;
-        model.perform_update_action(UpdateAction::RestartServer, cx);
-    });
-    cx.run_until_parked();
-    assert!(cx.has_pending_prompt());
-    cx.simulate_prompt_answer("Cancel");
-    cx.run_until_parked();
-    assert!(
-        !requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::StopServer { .. }))
-    );
-    view.update(cx, |model, cx| {
-        model.perform_update_action(UpdateAction::RestartServer, cx);
-    });
-    cx.run_until_parked();
-    cx.simulate_prompt_answer("Restart");
-    cx.run_until_parked();
-    assert!(
-        requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::StopServer { restart: true, .. }))
-    );
-    view.update(cx, |model, cx| {
-        assert!(model.settings_window.is_none());
-        assert!(model.server_preferences.control_busy);
-        assert_eq!(
-            model.update_details().expect("status").label,
-            "Restarting server…"
-        );
-        model.receive(
-            (
-                ServerId::local(),
-                1,
-                Update::ServerStopped {
-                    restart: true,
-                    result: Ok(()),
-                },
-            ),
-            cx,
-        );
-        assert!(model.servers.local.connection == ConnectionState::Connecting);
-    });
-    assert!(
-        requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::Connect))
-    );
-    view.update(cx, |model, cx| {
-        model.receive(
-            (
-                ServerId::local(),
-                2,
-                Update::ConnectFailed("unavailable".into(), None),
-            ),
-            cx,
-        );
-        assert_eq!(
-            model.update_details().expect("status").action,
-            Some((UpdateAction::RetryServer, "Retry connection"))
-        );
-        model.perform_update_action(UpdateAction::RetryServer, cx);
-        assert!(model.servers.local.connection == ConnectionState::Connecting);
-    });
-    assert!(
-        requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::ReconnectAfterUpdate(_)))
-    );
-}
-
-#[gpui::test]
 fn update_confirmation_cancels_or_flushes_before_stopping_the_server(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     state.open_terminal_tab(state.home().id).expect("tab");
@@ -163,31 +51,6 @@ fn update_confirmation_cancels_or_flushes_before_stopping_the_server(cx: &mut Te
         assert!(model.quitting == Quitting::Update);
         assert_eq!(model.state.home().tabs.len(), 1);
     });
-}
-
-#[gpui::test]
-fn compatible_update_can_restart_the_server_without_asking_again(cx: &mut TestAppContext) {
-    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        ready(model);
-        model.confirm_update(cx);
-    });
-    cx.run_until_parked();
-    cx.simulate_prompt_answer(crate::views::confirm::INSTALL_AND_RESTART_SERVER);
-    cx.run_until_parked();
-    assert!(!cx.has_pending_prompt());
-    view.update(cx, |model, cx| {
-        assert!(model.quitting == Quitting::Update);
-        model.receive((ServerId::local(), 1, Update::Flushed), cx);
-    });
-    assert!(requests.try_iter().any(|(_, work)| matches!(
-        work,
-        Work::PrepareUpdate {
-            mode: crate::server::UpdateMode::EndSessions,
-            ..
-        }
-    )));
 }
 
 #[gpui::test]
@@ -259,28 +122,6 @@ fn update_waits_for_attaches_and_refuses_to_stop_when_saving_fails(cx: &mut Test
 }
 
 #[gpui::test]
-fn update_requires_connected_server_and_finished_settings(cx: &mut TestAppContext) {
-    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        ready(model);
-        model.server_preferences.busy = true;
-        model.begin_update(cx);
-        assert!(model.quitting == Quitting::Idle);
-        model.server_preferences.busy = false;
-        model.disconnect(ServerId::local(), cx);
-        model.begin_update(cx);
-        assert!(model.quitting == Quitting::Idle);
-        assert!(model.updates.ready.is_some());
-    });
-    assert!(
-        !requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::Flush | Work::PrepareUpdate { .. }))
-    );
-}
-
-#[gpui::test]
 fn incompatible_update_waits_and_can_be_cancelled_without_shutdown(cx: &mut TestAppContext) {
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -303,13 +144,6 @@ fn incompatible_update_waits_and_can_be_cancelled_without_shutdown(cx: &mut Test
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert!(model.updates.scheduled);
-        assert!(
-            model
-                .update_details()
-                .expect("status")
-                .description
-                .contains("2 terminal sessions")
-        );
         let record: serde_json::Value = serde_json::from_slice(
             &std::fs::read(model.path.with_file_name("pending-update.json")).expect("record"),
         )

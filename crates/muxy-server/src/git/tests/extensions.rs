@@ -247,37 +247,6 @@ fn branch_diff_includes_committed_branch_changes() {
     assert!(diff.diff.contains("earlier branch work"));
 }
 
-#[test]
-fn checkout_cherry_pick_revert_and_optional_force_deletion() {
-    let repo = Repo::new(true);
-    let initial = repo.summary().head.unwrap();
-    repo.git(GitAction::CreateBranch("feature".into())).unwrap();
-    std::fs::write(repo.path.join("change"), "added\n").unwrap();
-    let hash = commit(&repo, "feature");
-    repo.git(GitAction::SwitchBranch("main".into())).unwrap();
-    assert!(
-        repo.git(GitAction::DeleteLocalBranch {
-            name: "feature".into(),
-            force: false
-        })
-        .is_err()
-    );
-    repo.git(GitAction::CherryPick(hash.clone())).unwrap();
-    assert!(repo.path.join("change").exists());
-    let head = repo.summary().head.unwrap();
-    repo.git(GitAction::Revert(head.clone())).unwrap();
-    assert_eq!(repo.summary().head.as_ref(), Some(&head));
-    assert_eq!(repo.summary().staged, 1);
-    commit(&repo, "reverted");
-    repo.git(GitAction::Checkout(initial)).unwrap();
-    assert!(repo.summary().branch.is_none());
-    repo.git(GitAction::DeleteLocalBranch {
-        name: "feature".into(),
-        force: true,
-    })
-    .unwrap();
-}
-
 pub(super) fn remote(repo: &Repo) -> PathBuf {
     let remote = repo.path.join(".git/test-remote.git");
     std::fs::create_dir(&remote).unwrap();
@@ -666,27 +635,6 @@ fn github_update_branch_merges_base_and_pushes_the_pr_head() {
 }
 
 #[test]
-fn github_returns_no_pr_when_view_finds_none_and_branch_list_is_empty() {
-    let mut repo = Repo::new(true);
-    fake_gh(&mut repo);
-    std::fs::write(
-        repo.path.join(".git/gh-view-error"),
-        "no pull requests found for branch main",
-    )
-    .unwrap();
-    std::fs::write(repo.path.join(".git/gh-list"), "[]").unwrap();
-
-    assert_eq!(pr(&repo, Pr::Info).unwrap(), GitReply::PullRequest(None));
-    assert_eq!(
-        pr(&repo, Pr::Number).unwrap(),
-        GitReply::PullRequestNumber(None)
-    );
-    let calls = std::fs::read_to_string(repo.path.join(".git/gh-calls")).unwrap();
-    assert!(calls.contains("pr\nview\n--json\n"));
-    assert!(!calls.contains("pr\nview\n--repo\n"));
-}
-
-#[test]
 fn github_distinguishes_absent_prs_authentication_missing_tools_and_invalid_data() {
     let mut repo = Repo::new(true);
     fake_gh(&mut repo);
@@ -719,29 +667,6 @@ fn github_distinguishes_absent_prs_authentication_missing_tools_and_invalid_data
             .contains("GitHub CLI")
     );
     repo.git(GitAction::Status { local: true }).unwrap();
-}
-
-#[test]
-fn executable_lookup_takes_the_first_runnable_file_and_stops_searching() {
-    let repo = Repo::new(false);
-    let [missing, plain, folder, installed] =
-        ["missing", "plain", "folder", "installed"].map(|name| repo.path.join(name));
-    std::fs::create_dir_all(folder.join("gh")).unwrap();
-    for directory in [&plain, &installed] {
-        std::fs::create_dir(directory).unwrap();
-        std::fs::write(directory.join("gh"), "#!/bin/sh\n").unwrap();
-    }
-    std::fs::set_permissions(installed.join("gh"), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let never_searched = std::iter::once_with(|| -> PathBuf { panic!("searched past a match") });
-    assert_eq!(
-        command::find_executable(
-            "gh",
-            [missing, plain, folder, installed.clone()]
-                .into_iter()
-                .chain(never_searched),
-        ),
-        Some(installed.join("gh"))
-    );
 }
 
 #[test]

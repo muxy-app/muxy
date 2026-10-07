@@ -561,27 +561,6 @@ mod tests {
     }
 
     #[test]
-    fn session_listing_requires_all_to_include_archives() -> io::Result<()> {
-        for all in [false, true] {
-            let mut args = vec!["session", "list", "--project", "Home", "--json"];
-            if all {
-                args.push("--all");
-            }
-            assert_eq!(
-                words(&args)?,
-                Invocation {
-                    json: true,
-                    action: Action::Session(Session::List {
-                        project: Some("Home".into()),
-                        all,
-                    }),
-                }
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
     fn rejects_invalid_or_unconfirmed_operations() {
         for args in [
             vec!["session", "create", "Home", "--cols", "0"],

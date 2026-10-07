@@ -1,95 +1,10 @@
 use muxy_protocol::{
-    CONTROL, FileBytes, FileChanges, FileContent, FileEntry, FileInfo, FilesAction, FilesReply,
-    FilesRequest, MAX_FILE_BYTES, MAX_FILE_CHANGES, Message, ProjectId, ReplyBody, RequestBody,
-    RequestId, ServerPath,
-    wire::{Decoder, encode},
+    FileBytes, FileChanges, FileContent, FilesAction, FilesReply, FilesRequest, MAX_FILE_BYTES,
+    MAX_FILE_CHANGES, ProjectId, ServerPath,
 };
 
 fn p(value: &str) -> ServerPath {
     ServerPath(value.as_bytes().to_vec())
-}
-
-#[test]
-fn files_contract_round_trips_all_operations_and_results() -> Result<(), Box<dyn std::error::Error>>
-{
-    let project = ProjectId::new();
-    let mut messages = Vec::new();
-    for action in [
-        FilesAction::List(p("")),
-        FilesAction::Read(p("file")),
-        FilesAction::Stat(p(".")),
-        FilesAction::Write {
-            path: p("file"),
-            content: "Hello\n".into(),
-        },
-        FilesAction::Mkdir(p("folder")),
-        FilesAction::Rename {
-            path: p("file"),
-            name: p("new"),
-        },
-        FilesAction::Move {
-            paths: vec![p("new")],
-            into: p("folder"),
-        },
-        FilesAction::Delete(vec![p("folder/new")]),
-        FilesAction::Watch,
-        FilesAction::Unwatch,
-        FilesAction::ReadBytes(p("image.png")),
-        FilesAction::WriteBytes {
-            path: p("image.png"),
-            bytes: vec![0, 0xff, b'\n'],
-        },
-    ] {
-        messages.push(Message::Request {
-            id: RequestId(1),
-            body: RequestBody::Files(FilesRequest { project, action }),
-        });
-    }
-    for reply in [
-        FilesReply::Entries(vec![FileEntry {
-            name: p("file"),
-            path: p("folder/file"),
-            is_directory: false,
-            is_ignored: true,
-        }]),
-        FilesReply::Content(FileContent {
-            path: p("file"),
-            content: "Hello\n".into(),
-            size: 6,
-        }),
-        FilesReply::Info(FileInfo {
-            name: p("folder"),
-            path: p(""),
-            is_directory: true,
-            size: 0,
-        }),
-        FilesReply::Path(p("folder")),
-        FilesReply::Paths(vec![p("folder/new")]),
-        FilesReply::Done,
-        FilesReply::Bytes(FileBytes {
-            path: p("image.png"),
-            bytes: vec![0, 0xff, b'\n'],
-        }),
-    ] {
-        messages.push(Message::Reply {
-            id: RequestId(1),
-            body: ReplyBody::Files(reply),
-        });
-    }
-    messages.push(Message::FilesChanged {
-        project,
-        changes: FileChanges {
-            paths: vec![ServerPath(b"odd\xff\n".to_vec())],
-            rescan: false,
-        },
-    });
-    for message in messages {
-        assert_eq!(message.validate(), Ok(()));
-        let mut bytes = Vec::new();
-        encode(&message, CONTROL, &mut bytes)?;
-        assert_eq!(Decoder::new(bytes.as_slice()).next()?, (CONTROL, message));
-    }
-    Ok(())
 }
 
 #[test]

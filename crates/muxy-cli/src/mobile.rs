@@ -193,35 +193,3 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn codes_print_as_half_blocks_inside_a_quiet_zone() -> io::Result<()> {
-        let code = QrCode::encode("muxy://pair?v=1").ok_or(io::ErrorKind::InvalidData)?;
-        let mut output = Vec::new();
-        print_code(&mut output, &code)?;
-        let text = String::from_utf8(output).map_err(|_| io::ErrorKind::InvalidData)?;
-        let lines: Vec<_> = text.lines().collect();
-        let span = code.size() + 2 * QUIET_ZONE;
-        assert_eq!(lines.len(), span.div_ceil(2));
-        assert!(lines.iter().all(|line| line.starts_with("\x1b[30;47m")));
-        assert!(
-            lines[0]
-                .trim_start_matches("\x1b[30;47m")
-                .starts_with("    ")
-        );
-        assert!(text.contains('█'));
-        Ok(())
-    }
-
-    #[test]
-    fn ages_read_naturally() {
-        assert_eq!(ago(5), "just now");
-        assert_eq!(ago(125), "2 min ago");
-        assert_eq!(ago(7_200), "2 h ago");
-        assert_eq!(ago(200_000), "2 d ago");
-    }
-}

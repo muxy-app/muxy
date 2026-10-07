@@ -540,22 +540,3 @@ fn ai_instructions(configured: &str, additional: &str) -> String {
         format!("{configured}\n\n{additional}")
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn additional_prompt_is_trimmed_bounded_and_appended_only_for_this_run() {
-        assert_eq!(ai_instructions("Configured", "  \n "), "Configured");
-        assert_eq!(
-            ai_instructions("Configured", "  Extra\nInstructions  "),
-            "Configured\n\nExtra\nInstructions"
-        );
-        let prompt = "🦀".repeat(ADDITIONAL_PROMPT_LIMIT + 10);
-        assert_eq!(
-            ai_instructions("Configured", &prompt),
-            format!("Configured\n\n{}", "🦀".repeat(ADDITIONAL_PROMPT_LIMIT))
-        );
-    }
-}

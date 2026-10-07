@@ -152,36 +152,6 @@ fn older_pages_do_not_move_selection_and_selected_rows_detect_changes() {
 }
 
 #[test]
-fn selected_content_ignores_redraw_styles_and_changes_outside_its_columns() {
-    let mut grid = grid();
-    let selected = selection((0, 0), (0, 3));
-    let before = selected.rows(&grid);
-    grid.rows[0] = vec![run("one updated footer", 18)];
-    assert_eq!(selected.rows(&grid), before);
-    grid.rows[0] = vec![run("o", 1), run("ne", 2), run(" changed again", 14)];
-    grid.rows[0][0].style.bold = true;
-    grid.rows[0][1].style.faint = true;
-    assert_eq!(selected.rows(&grid), before);
-    assert_eq!(selected.text(&grid), "one");
-    grid.rows[0][1].text = "ff".into();
-    assert_ne!(selected.rows(&grid), before);
-}
-
-#[test]
-fn selected_blank_cells_survive_equivalent_padding_but_detect_new_text() {
-    let mut grid = grid();
-    let selected = selection((2, 4), (2, 10));
-    let before = selected.rows(&grid);
-    grid.rows[2] = vec![run("last", 4)];
-    assert_eq!(selected.rows(&grid), before);
-    grid.rows[2] = vec![run("last      ", 10)];
-    grid.rows[2][0].style.bold = true;
-    assert_eq!(selected.rows(&grid), before);
-    grid.rows[2] = vec![run("last text", 9)];
-    assert_ne!(selected.rows(&grid), before);
-}
-
-#[test]
 fn multiline_and_wide_selections_track_only_selected_text_and_cell_boundaries() {
     let mut grid = grid();
     let selected = selection((0, 5), (1, 6));

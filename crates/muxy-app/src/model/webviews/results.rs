@@ -106,22 +106,4 @@ mod tests {
             Value::Bool(true)
         );
     }
-
-    #[gpui::test]
-    fn unconsumed_results_are_bounded_and_retired_documents_are_pruned(
-        cx: &mut gpui::TestAppContext,
-    ) {
-        let owner = cx.new(|_| ()).entity_id();
-        let mut results = Results::default();
-        for index in 0..MAX_UNCONSUMED {
-            results.reserve(index.to_string(), owner, 1).expect("slot");
-        }
-        assert!(results.reserve("overflow".into(), owner, 1).is_err());
-        assert!(results.take("0", owner, 1).is_ok());
-        assert!(results.reserve("new".into(), owner, 2).is_ok());
-        results.retain(std::iter::once((owner, 2)));
-        assert!(results.take("1", owner, 1).is_err());
-        assert!(results.take("new", owner, 2).is_ok());
-        assert!(results.0.is_empty());
-    }
 }

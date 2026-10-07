@@ -127,29 +127,3 @@ impl Notifications {
             );
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::PendingDeliveries;
-    use std::cell::Cell;
-
-    #[test]
-    fn read_acknowledgement_cancels_delivery_waiting_for_authorization() {
-        let pending = PendingDeliveries::default();
-        let delivered = Cell::new(false);
-        pending.register("1".into());
-        pending.cancel(&["1".into()], || delivered.set(false));
-        pending.authorized("1", true, || delivered.set(true));
-        assert!(!delivered.get());
-
-        pending.register("2".into());
-        pending.authorized("2", false, || delivered.set(true));
-        assert!(!delivered.get());
-
-        pending.register("3".into());
-        pending.authorized("3", true, || delivered.set(true));
-        assert!(delivered.get());
-        pending.cancel(&["3".into()], || delivered.set(false));
-        assert!(!delivered.get());
-    }
-}

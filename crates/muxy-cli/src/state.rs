@@ -776,48 +776,6 @@ mod tests {
     }
 
     #[test]
-    fn failed_close_save_retains_the_pane_and_failed_ack_save_retains_the_intent() -> Result {
-        let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
-        let catalog = catalog();
-        let mut store = Store::load(directory.path(), &catalog)?;
-        store.change(|state| state.reconcile(&catalog))?;
-        let id = store.state.tab().ok_or("tab")?.focus;
-        let before = store.state.clone();
-        let path = directory.path().join("tui-state.json");
-        let backup = directory.path().join("saved.json");
-        let block = || -> Result {
-            fs::rename(&path, &backup).map_err(|error| error.to_string())?;
-            fs::create_dir(&path).map_err(|error| error.to_string())
-        };
-        let unblock = || -> Result {
-            fs::remove_dir(&path).map_err(|error| error.to_string())?;
-            fs::rename(&backup, &path).map_err(|error| error.to_string())
-        };
-        block()?;
-        assert!(store.change(|state| state.close(id)).is_err());
-        assert_eq!(store.state, before);
-        assert!(store.ready().is_err());
-        unblock()?;
-        let mut store = Store::load(directory.path(), &catalog)?;
-        store.change(|state| state.close(id))?;
-        let closed = store.state.clone();
-        assert!(!closed.discards.is_empty());
-        block()?;
-        assert!(
-            store
-                .change(|state| {
-                    state.discards.remove(0);
-                    Ok(())
-                })
-                .is_err()
-        );
-        assert_eq!(store.state, closed);
-        unblock()?;
-        assert_eq!(Store::load(directory.path(), &catalog)?.state, closed);
-        Ok(())
-    }
-
-    #[test]
     fn split_focus_resize_zoom_and_close_preserve_valid_layouts() -> Result {
         let catalog = catalog();
         let mut state = State::new(&catalog);

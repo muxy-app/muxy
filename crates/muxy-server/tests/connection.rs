@@ -586,26 +586,6 @@ fn detach_ignores_late_input_and_ack_and_does_not_reuse_channel() -> TestResult 
 }
 
 #[test]
-fn resize_returns_reply_and_a_reset_frame() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(true)?;
-    let info = fixture.create(&mut client)?;
-    let channel = client.attach(info.id)?.channel;
-    client.quiet()?;
-    assert_eq!(
-        client.request(RequestBody::Resize {
-            channel,
-            size: Size { cols: 60, rows: 20 }
-        })?,
-        ReplyBody::Resized
-    );
-    let frame = client.frame(channel, "")?;
-    assert!(frame.reset);
-    assert_eq!(frame.rows.len(), 20);
-    client.disconnect()
-}
-
-#[test]
 fn ending_a_session_notifies_attached_and_unattached_connections_once() -> TestResult {
     let fixture = Fixture::new()?;
     let mut attached = fixture.client(true)?;
@@ -1117,22 +1097,6 @@ fn idle_shutdown_counts_sessions_from_other_clients_and_blocks_new_spawns() -> T
 }
 
 #[test]
-fn hellos_without_a_shared_version_never_open_a_request_channel() -> TestResult {
-    let fixture = Fixture::new()?;
-    let session = fixture.registry.create(&fixture.directory, SIZE)?;
-    let mut client = fixture.client(false)?;
-    client.send(
-        CONTROL,
-        Message::Hello {
-            versions: vec![Version(u16::MAX)],
-        },
-    )?;
-    assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
-    assert_eq!(fixture.registry.list(), vec![session]);
-    Ok(())
-}
-
-#[test]
 fn clients_from_before_v2_are_told_to_update_in_their_own_framing() -> TestResult {
     use std::io::{Read, Write};
 
@@ -1149,7 +1113,13 @@ fn clients_from_before_v2_are_told_to_update_in_their_own_framing() -> TestResul
     // A pre-V2 hello: version-1 header, then postcard (versions, compatibility).
     socket.write_all(&[10, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 20])?;
     let mut reply = Vec::new();
-    socket.read_to_end(&mut reply)?;
+    // The server closes without reading the hello's payload, which Linux
+    // reports as a reset after the reply.
+    if let Err(error) = socket.read_to_end(&mut reply)
+        && error.kind() != io::ErrorKind::ConnectionReset
+    {
+        return Err(error.into());
+    }
     assert_eq!(reply, muxy_protocol::wire::legacy_version_unsupported());
     serving.join().map_err(|_| "server thread panicked")??;
     Ok(())

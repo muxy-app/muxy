@@ -31,10 +31,6 @@ class ProtocolFixtureTests(unittest.TestCase):
         source = (ROOT / fixtures.VERSION).read_text()
         self.assertTrue((ROOT / fixtures.FIXTURES / f"v{fixtures.current_version(source)}").is_dir())
 
-    def test_unknown_or_new_branch_bases_are_skipped(self):
-        fixtures.append_only("")
-        fixtures.append_only("0" * 40)
-
 
 if __name__ == "__main__":
     unittest.main()

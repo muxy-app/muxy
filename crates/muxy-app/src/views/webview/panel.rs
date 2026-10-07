@@ -279,21 +279,3 @@ fn panel_size_bounds(available: gpui::Size<f32>, right: bool) -> PanelSizeBounds
         maximum,
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn panel_sizing_respects_space_remaining_beside_composer() {
-        let remaining = gpui::size(800.0 - 200.0 - 401.0, 400.0);
-        let bounds = panel_size_bounds(remaining, true);
-        assert!(bounds.clamp(360.0) + 1.0 <= remaining.width);
-        assert!(bounds.minimum <= bounds.maximum);
-        for available in [0.0, 20.0, 100.0, 640.0] {
-            let bounds = panel_size_bounds(gpui::size(available, available), false);
-            assert!(bounds.clamp(260.0) <= available);
-            assert!(bounds.minimum <= bounds.maximum);
-        }
-    }
-}

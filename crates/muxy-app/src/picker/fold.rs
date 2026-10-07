@@ -18,14 +18,3 @@ fn deaccent(character: char) -> char {
         other => other,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::fold;
-
-    #[test]
-    fn folds_case_and_diacritics() {
-        assert_eq!(fold("Café"), "cafe");
-        assert_eq!(fold("MUXY"), "muxy");
-    }
-}

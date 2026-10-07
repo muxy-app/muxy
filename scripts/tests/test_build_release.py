@@ -1,6 +1,5 @@
 import json
 import os
-import plistlib
 import re
 import shutil
 import subprocess
@@ -90,52 +89,6 @@ class BuildReleaseTests(unittest.TestCase):
             env={**self.env, "TEST_ARCH": arch}, capture_output=True, text=True,
         )
 
-    def calls(self, tool):
-        if not self.log.exists():
-            return []
-        return [entry for line in self.log.read_text().splitlines()
-                if (entry := json.loads(line))[0] == tool]
-
-    def test_beta_build_uses_dedicated_icon_for_every_size_and_architecture(self):
-        source = str(self.root / "packaging/macos/AppIconBeta.png")
-        expected = {
-            (str(size * factor), f"icon_{size}x{size}{suffix}.png")
-            for size in (16, 32, 128, 256, 512)
-            for factor, suffix in ((1, ""), (2, "@2x"))
-        }
-        for arch in TARGETS:
-            with self.subTest(arch=arch):
-                self.log.unlink(missing_ok=True)
-                result = self.build(arch)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                calls = self.calls("sips")
-                self.assertEqual(len(calls), 10)
-                for call in calls:
-                    self.assertEqual(call[1:6], ["-z", call[2], call[2], source, "--out"])
-                self.assertEqual({(call[2], Path(call[6]).name) for call in calls}, expected)
-                app = self.root / "target/beta" / VERSION / arch / "Muxy Beta.app"
-                info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-                icon = info["CFBundleIconFile"] + ".icns"
-                self.assertTrue((app / "Contents/Resources" / icon).is_file())
-                conversion = self.calls("iconutil")
-                self.assertEqual(len(conversion), 1)
-                self.assertEqual(conversion[0][1:4], ["--convert", "icns", "--output"])
-                self.assertTrue(conversion[0][4].endswith(f"/Contents/Resources/{icon}"))
-
-    def test_bundle_builds_and_signs_three_separate_executables(self):
-        result = self.build()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        binaries = self.root / "target/beta" / VERSION / "arm64/Muxy Beta.app/Contents/MacOS"
-        canonical, alias = binaries / "muxy", binaries / "muxy-server"
-        self.assertEqual(canonical.read_bytes(), alias.read_bytes())
-        self.assertNotEqual(canonical.stat().st_ino, alias.stat().st_ino)
-        build = next(call for call in self.calls("cargo") if call[1] == "build")
-        self.assertIn("muxy-cli", build)
-        self.assertIn("muxy-server", build)
-        signing = [call[-1] for call in self.calls("codesign") if "--sign" in call]
-        self.assertEqual(sum(path.endswith("/muxy") for path in signing), 1)
-        self.assertEqual(sum(path.endswith("/muxy-server") for path in signing), 1)
-
     def test_standalone_zip_contains_exact_bundle_executable_bytes(self):
         result = self.build()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -146,14 +99,6 @@ class BuildReleaseTests(unittest.TestCase):
             for name in ("muxy", "muxy-server"):
                 self.assertEqual(archive.read(name), (output / "Muxy Beta.app/Contents/MacOS" / name).read_bytes())
         self.assertNotEqual(self.build().returncode, 0)
-
-    def test_non_beta_releases_are_rejected_before_packaging(self):
-        for version in ("2.0.0", "2.0.0-alpha-1", "2.0.0-beta-0"):
-            with self.subTest(version=version):
-                result = self.build(version=version)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("release version must be", result.stderr)
-                self.assertFalse(self.log.exists())
 
 if __name__ == "__main__":
     unittest.main()

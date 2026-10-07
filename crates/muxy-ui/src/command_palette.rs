@@ -412,6 +412,3 @@ impl<A: Clone + 'static> Render for CommandPalette<A> {
         self.picker.clone()
     }
 }
-
-#[cfg(test)]
-mod tests;

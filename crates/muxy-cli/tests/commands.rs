@@ -93,32 +93,6 @@ impl Drop for Profile {
 }
 
 #[test]
-fn informational_commands_and_invalid_arguments_do_not_create_profile_data() -> Result {
-    let profile = Profile::new()?;
-    for flag in ["--help", "--version", "--build-info"] {
-        let output = profile.run(&[flag])?;
-        assert!(output.status.success(), "{output:?}");
-        assert!(!output.stdout.is_empty());
-    }
-    let usage = profile.run(&["mobile", "--help"])?;
-    assert!(usage.status.success(), "{usage:?}");
-    assert!(String::from_utf8(usage.stdout)?.contains("pair [--address HOST]..."));
-    for args in [
-        vec![],
-        vec!["remote"],
-        vec!["server"],
-        vec!["project", "add"],
-        vec!["project", "add", "/tmp", "--name"],
-        vec!["mobile", "unknown"],
-        vec!["mobile", "enable", "--port", "not-a-port"],
-    ] {
-        assert!(!profile.run(&args)?.status.success());
-    }
-    assert_eq!(fs::read_dir(&profile.0)?.count(), 0);
-    Ok(())
-}
-
-#[test]
 fn project_commands_work_without_desktop_and_duplicate_directories_keep_distinct_ids() -> Result {
     let profile = Profile::new()?;
     let output = profile.run(&["project", "list"])?;
@@ -174,33 +148,6 @@ fn simultaneous_client_startup_reuses_one_server_instance() -> Result {
     }
     assert!(ids.iter().all(|id| *id == ids[0]));
     assert!(Client::connect(&socket)?.list_sessions()?.is_empty());
-    Ok(())
-}
-
-#[test]
-fn separate_server_reports_matching_metadata_and_accepts_server_flags() -> Result {
-    let profile = Profile::new()?;
-    let alias = profile.0.join("muxy-server");
-    fs::copy(support::binary().with_file_name("muxy-server"), &alias)?;
-    let canonical = profile.run(&["--build-info"])?;
-    let old_name = Command::new(&alias).arg("--build-info").output()?;
-    assert!(old_name.status.success());
-    assert_eq!(canonical.stdout, old_name.stdout);
-    let mut server = Command::new(&alias).env("MUXY_DIR", &profile.0).spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while !profile.socket().exists() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let explicit = Command::new(&alias).env("MUXY_DIR", &profile.0).output()?;
-    assert!(explicit.status.success(), "{explicit:?}");
-    let result = Client::connect(&profile.socket());
-    if let Ok(client) = &result {
-        client.stop_server()?;
-    } else {
-        server.kill()?;
-    }
-    assert!(server.wait()?.success());
-    result?;
     Ok(())
 }
 

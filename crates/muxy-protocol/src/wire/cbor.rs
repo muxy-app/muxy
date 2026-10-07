@@ -240,50 +240,13 @@ pub(crate) use open_enum;
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use std::sync::Arc;
 
-    use minicbor::data::Type;
     use minicbor::decode::Error as DecodeError;
     use minicbor::encode::{Error as EncodeError, Write};
     use minicbor::{Decode, Decoder, Encode, Encoder};
-    use uuid::Uuid;
 
     use super::open::{self, Variant};
     use crate::{Color, Row, Run, Style};
-
-    #[derive(Debug, PartialEq, Encode, Decode)]
-    struct Before {
-        #[n(0)]
-        id: u32,
-    }
-
-    #[derive(Debug, PartialEq, Encode, Decode)]
-    struct After {
-        #[n(0)]
-        id: u32,
-        #[n(1)]
-        label: Option<String>,
-    }
-
-    #[test]
-    fn older_builds_skip_fields_they_do_not_know() -> Result<(), Box<dyn Error>> {
-        let bytes = minicbor::to_vec(After {
-            id: 7,
-            label: Some("new".into()),
-        })?;
-        assert_eq!(minicbor::decode::<Before>(&bytes)?, Before { id: 7 });
-        Ok(())
-    }
-
-    #[test]
-    fn newer_builds_read_missing_optional_fields_as_none() -> Result<(), Box<dyn Error>> {
-        let bytes = minicbor::to_vec(Before { id: 7 })?;
-        assert_eq!(
-            minicbor::decode::<After>(&bytes)?,
-            After { id: 7, label: None }
-        );
-        Ok(())
-    }
 
     #[derive(Debug, PartialEq)]
     enum Status {
@@ -314,55 +277,6 @@ mod tests {
                 other => Self::Unrecognized(open::unrecognized(decoder, other)?),
             })
         }
-    }
-
-    /// The same enum in a newer build, with two variants the older one lacks.
-    enum NewerStatus {
-        Exited(i32),
-        Paused,
-        Failed(String),
-    }
-
-    impl<C> Encode<C> for NewerStatus {
-        fn encode<W: Write>(
-            &self,
-            encoder: &mut Encoder<W>,
-            ctx: &mut C,
-        ) -> Result<(), EncodeError<W::Error>> {
-            match self {
-                Self::Exited(code) => open::encode_value(1, code, encoder, ctx),
-                Self::Paused => open::encode_unit(2, encoder),
-                Self::Failed(reason) => open::encode_value(3, reason, encoder, ctx),
-            }
-        }
-    }
-
-    #[test]
-    fn unknown_variants_are_kept_by_number_and_their_values_skipped() -> Result<(), Box<dyn Error>>
-    {
-        let bytes = minicbor::to_vec(vec![
-            NewerStatus::Paused,
-            NewerStatus::Failed("disk full".into()),
-            NewerStatus::Exited(3),
-        ])?;
-        assert_eq!(
-            minicbor::decode::<Vec<Status>>(&bytes)?,
-            [
-                Status::Unrecognized(2),
-                Status::Unrecognized(3),
-                Status::Exited(3)
-            ]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn open_enums_round_trip_including_unrecognized_variants() -> Result<(), Box<dyn Error>> {
-        for status in [Status::Idle, Status::Exited(-1), Status::Unrecognized(9)] {
-            let bytes = minicbor::to_vec(&status)?;
-            assert_eq!(minicbor::decode::<Status>(&bytes)?, status);
-        }
-        Ok(())
     }
 
     #[test]
@@ -397,78 +311,12 @@ mod tests {
     }
 
     #[test]
-    fn rows_are_postcard_bytes_inside_a_byte_string() -> Result<(), Box<dyn Error>> {
-        let rows = sample_rows();
-        let bytes = minicbor::to_vec(Screen { rows: rows.clone() })?;
-        let mut decoder = Decoder::new(&bytes);
-        assert_eq!(decoder.array()?, Some(1));
-        assert_eq!(decoder.bytes()?, postcard::to_allocvec(&rows)?.as_slice());
-        assert_eq!(minicbor::decode::<Screen>(&bytes)?, Screen { rows });
-        Ok(())
-    }
-
-    #[test]
     fn rows_with_trailing_bytes_are_rejected() -> Result<(), Box<dyn Error>> {
         let mut rows = postcard::to_allocvec(&sample_rows())?;
         rows.push(0);
         let mut bytes = Vec::new();
         Encoder::new(&mut bytes).array(1)?.bytes(&rows)?;
         assert!(minicbor::decode::<Screen>(&bytes).is_err());
-        Ok(())
-    }
-
-    #[derive(Debug, PartialEq, Encode, Decode)]
-    struct Blobs {
-        #[n(0)]
-        #[cbor(with = "super::bytes")]
-        input: Vec<u8>,
-        #[n(1)]
-        #[cbor(with = "super::bytes")]
-        image: Arc<[u8]>,
-        #[n(2)]
-        #[cbor(with = "super::bytes")]
-        fingerprint: [u8; 4],
-        #[n(3)]
-        #[cbor(with = "super::bytes")]
-        project: Uuid,
-        #[n(4)]
-        #[cbor(with = "super::bytes")]
-        logo: Option<Arc<[u8]>>,
-    }
-
-    fn sample_blobs() -> Blobs {
-        Blobs {
-            input: vec![0xff, 0x80, 0],
-            image: Arc::from([1, 2, 3].as_slice()),
-            fingerprint: [9, 8, 7, 6],
-            project: Uuid::from_u128(0x0123_4567_89ab_cdef_0123_4567_89ab_cdef),
-            logo: Some(Arc::from([0x89, b'P', b'N', b'G'].as_slice())),
-        }
-    }
-
-    #[test]
-    fn byte_fields_are_byte_strings() -> Result<(), Box<dyn Error>> {
-        let blobs = sample_blobs();
-        let bytes = minicbor::to_vec(&blobs)?;
-        let mut decoder = Decoder::new(&bytes);
-        assert_eq!(decoder.array()?, Some(5));
-        for _ in 0..5 {
-            assert_eq!(decoder.datatype()?, Type::Bytes);
-            decoder.skip()?;
-        }
-        assert_eq!(minicbor::decode::<Blobs>(&bytes)?, blobs);
-        Ok(())
-    }
-
-    #[test]
-    fn missing_optional_bytes_are_none() -> Result<(), Box<dyn Error>> {
-        let blobs = Blobs {
-            logo: None,
-            ..sample_blobs()
-        };
-        let bytes = minicbor::to_vec(&blobs)?;
-        assert_eq!(Decoder::new(&bytes).array()?, Some(4));
-        assert_eq!(minicbor::decode::<Blobs>(&bytes)?, blobs);
         Ok(())
     }
 

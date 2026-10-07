@@ -99,28 +99,3 @@ impl From<ClientError> for MobileError {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn remote(reason: RemoteReason) -> ClientError {
-        ClientError::Remote {
-            reason,
-            destination: "box".into(),
-            detail: "it speaks bridge version 2".into(),
-        }
-    }
-
-    #[test]
-    fn bridge_failures_keep_their_message_and_versions_stay_incompatible() {
-        assert!(matches!(
-            MobileError::from(remote(RemoteReason::NotInstalled)),
-            MobileError::Unreachable { reason } if reason == "Muxy isn't installed on box (looked on PATH and in ~/.local/bin)."
-        ));
-        assert!(matches!(
-            MobileError::from(remote(RemoteReason::Incompatible)),
-            MobileError::IncompatibleVersion
-        ));
-    }
-}

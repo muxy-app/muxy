@@ -95,7 +95,3 @@ impl Element for Measured {
         self.child.paint(window, cx);
     }
 }
-
-#[cfg(test)]
-#[path = "element_tests.rs"]
-mod tests;

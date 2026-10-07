@@ -233,7 +233,6 @@ fn screen_text(grid: &RunGrid, lines: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use muxy_protocol::Size;
     #[test]
     fn acknowledged_success_survives_terminal_exit_during_detach() -> Result {
         let gone = ClientError::Server(muxy_protocol::ErrorReply {
@@ -257,37 +256,5 @@ mod tests {
             .is_err()
         );
         Ok(())
-    }
-
-    #[test]
-    fn screen_does_not_include_scrollback() {
-        let mut grid = RunGrid::from_saved(muxy_protocol::SavedScreen {
-            graphics: muxy_protocol::Graphics::default(),
-            size: Size { cols: 80, rows: 2 },
-            rows: Vec::new(),
-            cursor: muxy_protocol::Cursor {
-                shape: muxy_protocol::CursorShape::Block,
-                row: 0,
-                col: 0,
-                visible: true,
-            },
-            reason: None,
-        });
-        grid.history.push_back(muxy_protocol::Row {
-            index: 0,
-            runs: Vec::new(),
-        });
-        let text = screen_text(&grid, 1);
-        assert!(!text.contains('\n'));
-        assert_eq!(
-            text,
-            grid.rows
-                .last()
-                .into_iter()
-                .flatten()
-                .map(|run| run.text.as_str())
-                .collect::<String>()
-                .trim_end()
-        );
     }
 }

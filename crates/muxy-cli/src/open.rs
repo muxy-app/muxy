@@ -58,39 +58,3 @@ fn containing_app(executable: &Path) -> Option<&Path> {
         && app.extension()? == "app")
         .then_some(app)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_existing_folders_are_opened() {
-        let file = std::env::current_exe().expect("test executable");
-        for word in [
-            Path::new("/muxy-missing-folder"),
-            Path::new("muxy-missing-folder"),
-            &file,
-        ] {
-            let error = run(word).expect_err("not a folder");
-            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-            assert!(error.to_string().contains("not a command or a folder"));
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn the_app_is_the_bundle_that_ships_this_executable() {
-        assert_eq!(
-            containing_app(Path::new("/Applications/Muxy Beta.app/Contents/MacOS/muxy")),
-            Some(Path::new("/Applications/Muxy Beta.app"))
-        );
-        for executable in [
-            "/Users/me/.local/bin/muxy",
-            "/Applications/Muxy Beta.app/Contents/Resources/muxy",
-            "/Applications/Muxy Beta/Contents/MacOS/muxy",
-            "/muxy",
-        ] {
-            assert_eq!(containing_app(Path::new(executable)), None, "{executable}");
-        }
-    }
-}

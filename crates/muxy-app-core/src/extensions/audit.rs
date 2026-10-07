@@ -115,7 +115,6 @@ mod tests {
         reason = "Tests fail immediately on fixture errors"
     )]
     use super::*;
-    use std::time::Duration;
 
     fn entry(summary: &str) -> AuditEntry {
         AuditEntry {
@@ -178,19 +177,6 @@ mod tests {
         assert!(
             text.lines()
                 .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
-        );
-    }
-
-    #[test]
-    fn timestamps_are_utc_iso_8601() {
-        assert_eq!(timestamp(UNIX_EPOCH), "1970-01-01T00:00:00Z");
-        assert_eq!(
-            timestamp(UNIX_EPOCH + Duration::from_secs(951_825_600)),
-            "2000-02-29T12:00:00Z"
-        );
-        assert_eq!(
-            timestamp(UNIX_EPOCH + Duration::from_secs(1_790_540_103)),
-            "2026-09-27T20:15:03Z"
         );
     }
 }

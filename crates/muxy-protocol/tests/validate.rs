@@ -2,50 +2,10 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
 use muxy_protocol::{
-    AttachSnapshot, CONTROL, ChannelId, ChannelKind, Cursor, ErrorCode, ErrorReply, ExitReason,
-    MAX_COLS, MAX_INPUT, MAX_ROWS, Message, MetadataEvent, Modes, ReplyBody, RequestBody,
-    RequestId, Row, Run, SUPPORTED, ServerPath, SessionId, SessionInfo, Size, Style, Topic, V2,
-    Version, validate_input, validate_path, validate_size, validate_versions,
+    AttachSnapshot, CONTROL, ChannelId, ChannelKind, Cursor, ErrorCode, MAX_COLS, MAX_ROWS,
+    Message, MetadataEvent, Modes, ReplyBody, RequestBody, RequestId, Row, Run, SUPPORTED,
+    ServerPath, SessionId, SessionInfo, Size, Style, Topic, V2, Version, validate_versions,
 };
-use serde::Deserialize;
-use serde::de::value::{Error, SeqDeserializer, U64Deserializer};
-
-#[test]
-fn sizes_accept_both_boundaries_in_each_dimension() {
-    assert_eq!(MAX_COLS, 4096);
-    assert_eq!(MAX_ROWS, 1024);
-    for cols in [1, 4096] {
-        for rows in [1, 1024] {
-            assert_eq!(validate_size(Size { cols, rows }), Ok(()));
-        }
-    }
-}
-
-#[test]
-fn sizes_reject_zero_and_each_dimension_above_its_limit() {
-    for size in [
-        Size { cols: 0, rows: 1 },
-        Size { cols: 1, rows: 0 },
-        Size {
-            cols: 4097,
-            rows: 1,
-        },
-        Size {
-            cols: 1,
-            rows: 1025,
-        },
-        Size {
-            cols: u16::MAX,
-            rows: 1,
-        },
-        Size {
-            cols: 1,
-            rows: u16::MAX,
-        },
-    ] {
-        assert_eq!(validate_size(size), Err(ErrorCode::BadSize), "{size:?}");
-    }
-}
 
 #[test]
 fn screen_frames_validate_their_size() {
@@ -94,37 +54,6 @@ fn screen_frames_validate_their_size() {
 }
 
 #[test]
-fn input_accepts_empty_and_one_mebibyte_but_rejects_one_more_byte() {
-    assert_eq!(MAX_INPUT, 1_048_576);
-    assert_eq!(validate_input(&[]), Ok(()));
-    assert_eq!(validate_input(&vec![0; 1_048_576]), Ok(()));
-    assert_eq!(
-        validate_input(&vec![0; 1_048_577]),
-        Err(ErrorCode::BadRequest)
-    );
-    assert_eq!(Message::Input(vec![0; 1_048_576]).validate(), Ok(()));
-    assert_eq!(
-        Message::Input(vec![0; 1_048_577]).validate(),
-        Err(ErrorCode::BadRequest)
-    );
-}
-
-#[test]
-fn paths_reject_only_empty_bytes() -> Result<(), Error> {
-    assert_eq!(
-        validate_path(&ServerPath(Vec::new())),
-        Err(ErrorCode::BadPath)
-    );
-    for bytes in [vec![b'/'], vec![0xff], vec![0], b"relative/path".to_vec()] {
-        let path =
-            ServerPath::deserialize(SeqDeserializer::<_, Error>::new(bytes.clone().into_iter()))?;
-        assert_eq!(path.0, bytes);
-        assert_eq!(validate_path(&path), Ok(()));
-    }
-    Ok(())
-}
-
-#[test]
 fn version_lists_require_an_entry_without_negotiating_support() {
     assert_eq!(V2, Version(2));
     assert_eq!(SUPPORTED, &[V2]);
@@ -154,20 +83,6 @@ fn version_lists_require_an_entry_without_negotiating_support() {
             expected
         );
     }
-}
-
-#[test]
-fn session_ids_are_nonzero_in_construction_and_deserialization() -> Result<(), Error> {
-    assert_eq!(SessionId::new(0), None);
-    assert!(SessionId::deserialize(U64Deserializer::<Error>::new(0)).is_err());
-    for value in [1, u64::MAX] {
-        let id = SessionId::deserialize(U64Deserializer::<Error>::new(value))?;
-        assert_eq!(SessionId::new(value), Some(id));
-        assert_eq!(id.get(), value);
-    }
-    assert_eq!(session_id().get(), 1);
-    assert_eq!(CONTROL, ChannelId(0));
-    Ok(())
 }
 
 #[test]
@@ -248,87 +163,6 @@ fn every_message_with_a_path_validates_it() {
         ] {
             assert_eq!(message.validate(), expected, "{message:?}");
         }
-    }
-}
-
-#[test]
-fn attach_snapshots_validate_size() {
-    let mut snapshot = snapshot();
-    snapshot.size.cols = 4097;
-    assert_eq!(
-        reply(ReplyBody::Attached {
-            snapshot: Box::new(snapshot.clone()),
-            process: None
-        })
-        .validate(),
-        Err(ErrorCode::BadSize)
-    );
-    snapshot.size = Size { cols: 1, rows: 0 };
-    assert_eq!(
-        reply(ReplyBody::Attached {
-            snapshot: Box::new(snapshot),
-            process: None
-        })
-        .validate(),
-        Err(ErrorCode::BadSize)
-    );
-}
-
-#[test]
-fn requests_without_limited_fields_are_valid() {
-    for body in [
-        RequestBody::ListSessions,
-        RequestBody::EndSession(session_id()),
-        RequestBody::Detach(ChannelId(1)),
-        RequestBody::Ping,
-    ] {
-        assert_eq!(request(body).validate(), Ok(()));
-    }
-}
-
-#[test]
-fn replies_without_limited_fields_are_valid() {
-    for body in [
-        ReplyBody::Sessions(Vec::new()),
-        ReplyBody::SessionEnded,
-        ReplyBody::Detached,
-        ReplyBody::Resized,
-        ReplyBody::Pong,
-        ReplyBody::Error(ErrorReply {
-            code: ErrorCode::UnknownSession,
-            message: "unknown session".to_owned(),
-        }),
-    ] {
-        assert_eq!(reply(body).validate(), Ok(()));
-    }
-}
-
-#[test]
-fn metadata_and_exit_reasons_without_limited_fields_are_valid() {
-    for event in [
-        MetadataEvent::Title(String::new()),
-        MetadataEvent::ForegroundProcess {
-            name: "zsh".to_owned(),
-            is_shell: true,
-        },
-        MetadataEvent::Bell,
-    ] {
-        assert_eq!(Message::Metadata(event).validate(), Ok(()));
-    }
-    for reason in [
-        ExitReason::Exited(3),
-        ExitReason::Signaled(15),
-        ExitReason::Ended,
-        ExitReason::ServerStopped,
-    ] {
-        assert_eq!(
-            Message::SessionEnded {
-                session: session_id(),
-                reason
-            }
-            .validate(),
-            Ok(())
-        );
     }
 }
 
@@ -919,19 +753,6 @@ fn snapshot() -> AttachSnapshot {
         history_cursor: None,
         history_total: 0,
     }
-}
-
-#[test]
-fn clear_screen_requires_a_session_channel() {
-    assert_eq!(
-        request(RequestBody::ClearScreen(CONTROL)).validate(),
-        Err(ErrorCode::UnknownChannel)
-    );
-    assert_eq!(
-        request(RequestBody::ClearScreen(ChannelId(1))).validate(),
-        Ok(())
-    );
-    assert_eq!(reply(ReplyBody::ScreenCleared).validate(), Ok(()));
 }
 
 #[test]

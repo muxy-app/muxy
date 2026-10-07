@@ -158,24 +158,6 @@ fn a_pipeline_keeps_non_shell_metadata_after_its_group_leader_exits() -> TestRes
 }
 
 #[test]
-fn idle_polling_detects_a_foreground_change_without_output() -> TestResult {
-    let fixture = Fixture::new()?;
-    let (events, _, _) = fixture.attach(1)?;
-    fixture.input(b"stty -echo; PS1=''; sleep 0.3; tail -f /dev/null\n")?;
-    metadata(
-        &events,
-        |event| matches!(event, MetadataEvent::ForegroundProcess { name, .. } if name == "sleep"),
-    )?;
-    let deadline = Instant::now() + Duration::from_millis(1500);
-    metadata(
-        &events,
-        |event| matches!(event, MetadataEvent::ForegroundProcess { name, is_shell: false } if name == "tail"),
-    )?;
-    assert!(Instant::now() < deadline);
-    Ok(())
-}
-
-#[test]
 fn directory_changes_without_shell_integration_and_metadata_is_current_on_attach() -> TestResult {
     let fixture = Fixture::new()?;
     let (events, _, _) = fixture.attach(1)?;

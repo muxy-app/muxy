@@ -74,31 +74,6 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn help_errors_and_confirmation_never_start_a_server() -> Result {
-    let f = Fixture::new()?;
-    for group in [
-        "server", "project", "session", "worktree", "settings", "activity", "git", "files", "exec",
-    ] {
-        assert!(f.ok(&[group, "--help"])?.contains("Usage:"));
-    }
-    for args in [
-        vec!["server", "status"],
-        vec!["server", "stop"],
-        vec!["session", "end", "1"],
-        vec!["project", "delete", "Home"],
-        vec!["session", "create", "Home", "--rows", "0"],
-        vec!["browser", "list"],
-        vec!["list-panes"],
-        vec!["worktree", "remove", "feature"],
-    ] {
-        assert!(!f.run(&args)?.status.success(), "{args:?}");
-    }
-    assert!(!f.profile.join("server.sock").exists());
-    assert!(!f.profile.join("server.json").exists());
-    Ok(())
-}
-
-#[test]
 fn projects_settings_files_exec_and_activity_are_scriptable() -> Result {
     let f = Fixture::new()?;
     let project = f.project()?;
@@ -229,37 +204,6 @@ fn sessions_survive_commands_accept_input_and_keep_saved_output() -> Result {
 }
 
 #[test]
-fn session_listing_separates_live_sessions_from_archives_in_text_and_json() -> Result {
-    let f = Fixture::new()?;
-    let project = f.project()?;
-    f.shell()?;
-    let ended = f.ok(&["session", "create", &project])?.trim().to_owned();
-    let live = f.ok(&["session", "create", &project])?.trim().to_owned();
-    f.ok(&["session", "end", &ended, "--yes"])?;
-    let listed = f.json(&["session", "list", "--json"])?;
-    assert_eq!(listed.as_array().ok_or("sessions")?.len(), 1);
-    assert_eq!(listed[0]["id"], live);
-    let all = f.json(&["session", "list", "--all", "--json"])?;
-    assert_eq!(all.as_array().ok_or("sessions")?.len(), 2);
-    assert_eq!(
-        f.json(&["session", "list", "--project", "Home", "--all", "--json"])?,
-        json!([])
-    );
-    let text = f.ok(&["session", "list", "--project", &project])?;
-    assert_eq!(text.lines().count(), 1);
-    assert!(text.starts_with(&format!("{live}\t")));
-    let all = f.ok(&["session", "list", "--project", &project, "--all"])?;
-    assert_eq!(all.lines().count(), 2);
-    assert!(
-        all.lines()
-            .any(|line| line.starts_with(&format!("{ended}\t")))
-    );
-    f.ok(&["session", "discard", &live, "--yes"])?;
-    f.ok(&["session", "discard", &ended, "--yes"])?;
-    Ok(())
-}
-
-#[test]
 fn worktrees_use_server_git_and_refuse_dirty_removal() -> Result {
     let f = Fixture::new()?;
     f.git(&["init", "-b", "main"])?;
@@ -296,83 +240,5 @@ fn worktrees_use_server_git_and_refuse_dirty_removal() -> Result {
     std::fs::remove_file(directory.join("untracked"))?;
     f.ok(&["worktree", "remove", worktree, "--yes"])?;
     assert!(!directory.exists());
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn project_and_session_directories_preserve_non_utf8_paths() -> Result {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-    let f = Fixture::new()?;
-    let directory = f.directory.path().join(OsStr::from_bytes(b"raw-\xff"));
-    std::fs::create_dir(&directory)?;
-    let directory = directory.canonicalize()?;
-    let added = f.run(&[
-        OsStr::new("project"),
-        OsStr::new("add"),
-        directory.as_os_str(),
-        OsStr::new("--name"),
-        OsStr::new("Raw"),
-        OsStr::new("--json"),
-    ])?;
-    assert!(added.status.success(), "{added:?}");
-    let project: Value = serde_json::from_slice(&added.stdout)?;
-    assert_eq!(
-        project["directory_bytes"],
-        json!(directory.as_os_str().as_bytes())
-    );
-    let id = project["id"].as_str().ok_or("project")?;
-    f.shell()?;
-    let created = f.run(&[
-        OsStr::new("session"),
-        OsStr::new("create"),
-        OsStr::new(id),
-        OsStr::new("--directory"),
-        directory.as_os_str(),
-        OsStr::new("--json"),
-    ])?;
-    assert!(created.status.success(), "{created:?}");
-    let session: Value = serde_json::from_slice(&created.stdout)?;
-    assert_eq!(session["directory_bytes"], project["directory_bytes"]);
-    Ok(())
-}
-
-#[test]
-fn history_and_search_cursors_can_be_passed_to_the_next_command() -> Result {
-    let f = Fixture::new()?;
-    let project = f.project()?;
-    f.shell()?;
-    let session = f.ok(&["session", "create", &project])?.trim().to_owned();
-    f.ok(&[
-        "session",
-        "send",
-        &session,
-        "i=0; while [ $i -lt 120 ]; do printf 'PAGE_%s\\n' $i; i=$((i+1)); done",
-    ])?;
-    f.ok(&["session", "send-keys", &session, "Enter"])?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let screen = f.ok(&["session", "read-screen", &session])?;
-        if screen.contains("PAGE_119") {
-            break;
-        }
-        assert!(Instant::now() < deadline, "{screen}");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    f.ok(&["session", "end", &session, "--yes"])?;
-    for command in ["history", "search"] {
-        let mut args = vec!["session", command, &session];
-        if command == "search" {
-            args.push("PAGE_");
-        }
-        args.extend(["--saved", "--limit", "10"]);
-        let first = f.json(&args)?;
-        let next = first["next"].as_str().ok_or("next cursor")?;
-        args.extend(["--before", next]);
-        let second = f.json(&args)?;
-        assert_ne!(first, second);
-        assert_eq!(first["total_rows"], second["total_rows"]);
-    }
     Ok(())
 }

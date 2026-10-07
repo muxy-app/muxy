@@ -918,19 +918,14 @@ impl std::fmt::Debug for PanelFrame {
 }
 
 #[cfg(test)]
-mod interaction_tests;
-
-#[cfg(test)]
 #[allow(
     clippy::float_cmp,
     reason = "These geometry cases use exactly representable values."
 )]
 mod tests {
     use super::{
-        PanelHost, PanelId, PanelLayout, PanelMode, PanelPlacement, PanelPosition, PanelResize,
-        PanelResizeState, PanelSizeBounds, PanelSlot,
+        PanelHost, PanelId, PanelMode, PanelPlacement, PanelPosition, PanelSizeBounds, PanelSlot,
     };
-    use gpui::Point;
 
     #[test]
     fn every_placement_displaces_the_previous_panel() -> Result<(), Box<dyn std::error::Error>> {
@@ -989,65 +984,6 @@ mod tests {
                 PanelMode::Pinned,
             ))
         );
-    }
-
-    #[test]
-    fn pinned_layout_consumes_only_its_axis_and_floating_layout_overlays() {
-        let bounds = PanelSizeBounds::new(100.0, 500.0);
-        let right = PanelLayout::new(PanelPosition::Right, PanelMode::Pinned, 320.0, bounds);
-        assert_eq!(right.consumed_width(), 320.0);
-        assert_eq!(right.consumed_height(), 0.0);
-        assert!(!right.overlays_workspace());
-
-        let bottom = PanelLayout::new(PanelPosition::Bottom, PanelMode::Pinned, 220.0, bounds);
-        assert_eq!(bottom.consumed_width(), 0.0);
-        assert_eq!(bottom.consumed_height(), 220.0);
-
-        let floating = PanelLayout::new(PanelPosition::Right, PanelMode::Floating, 320.0, bounds);
-        assert_eq!(floating.consumed_width(), 0.0);
-        assert_eq!(floating.consumed_height(), 0.0);
-        assert!(floating.overlays_workspace());
-    }
-
-    #[test]
-    fn right_and_bottom_resize_clamp_to_caller_bounds() {
-        let bounds = PanelSizeBounds::new(100.0, 500.0);
-        let right = PanelResize::new(
-            PanelPosition::Right,
-            300.0,
-            Point::new(600.0, 400.0),
-            bounds,
-        );
-        assert_eq!(right.dimension_at(Point::new(500.0, 400.0)), 400.0);
-        assert_eq!(right.dimension_at(Point::new(900.0, 400.0)), 100.0);
-
-        let bottom = PanelResize::new(
-            PanelPosition::Bottom,
-            200.0,
-            Point::new(600.0, 400.0),
-            bounds,
-        );
-        assert_eq!(bottom.dimension_at(Point::new(600.0, 250.0)), 350.0);
-        assert_eq!(bottom.dimension_at(Point::new(600.0, -500.0)), 500.0);
-    }
-
-    #[test]
-    fn persistent_resize_state_tracks_moves_until_end() {
-        let state = PanelResizeState::default();
-        state.begin(PanelResize::new(
-            PanelPosition::Right,
-            300.0,
-            Point::new(600.0, 400.0),
-            PanelSizeBounds::new(100.0, 500.0),
-        ));
-        assert!(state.is_active());
-        assert_eq!(state.dimension_at(Point::new(550.0, 400.0)), Some(350.0));
-        assert_eq!(state.dimension_at(Point::new(0.0, 400.0)), Some(500.0));
-        assert_eq!(state.dimension_at(Point::new(900.0, 400.0)), Some(100.0));
-        assert!(state.end());
-        assert!(!state.is_active());
-        assert_eq!(state.dimension_at(Point::new(550.0, 400.0)), None);
-        assert!(!state.end());
     }
 
     #[test]

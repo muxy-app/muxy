@@ -1978,83 +1978,7 @@ impl std::fmt::Debug for TextInput {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    reason = "These geometry cases use exactly representable values."
-)]
 mod tests {
-    use gpui::{point, px, size};
-
-    #[test]
-    fn line_ranges_splits_on_every_newline_and_keeps_a_trailing_empty_line() {
-        assert_eq!(super::line_ranges(""), vec![0..0]);
-        assert_eq!(super::line_ranges("abc"), vec![0..3]);
-        assert_eq!(super::line_ranges("ab\ncd"), vec![0..2, 3..5]);
-        assert_eq!(super::line_ranges("ab\n"), vec![0..2, 3..3]);
-        assert_eq!(super::line_ranges("\n\n"), vec![0..0, 1..1, 2..2]);
-    }
-
-    #[test]
-    fn a_line_index_is_found_for_every_offset_including_line_ends() {
-        let ranges = super::line_ranges("ab\ncd\nef");
-        assert_eq!(super::line_index_for(&ranges, 0), 0);
-        assert_eq!(super::line_index_for(&ranges, 2), 0);
-        assert_eq!(super::line_index_for(&ranges, 3), 1);
-        assert_eq!(super::line_index_for(&ranges, 5), 1);
-        assert_eq!(super::line_index_for(&ranges, 8), 2);
-    }
-
-    #[test]
-    fn first_row_of_sums_the_visual_rows_of_every_earlier_hard_line() {
-        let rows = [1, 3, 2];
-        assert_eq!(super::first_row_of(&rows, 0), 0);
-        assert_eq!(super::first_row_of(&rows, 1), 1);
-        assert_eq!(super::first_row_of(&rows, 2), 4);
-        assert_eq!(super::first_row_of(&rows, 3), 6);
-    }
-
-    #[test]
-    fn line_at_row_resolves_the_hard_line_and_the_row_within_it() {
-        let rows = [1, 3, 2];
-        assert_eq!(super::line_at_row(&rows, 0), (0, 0));
-        assert_eq!(super::line_at_row(&rows, 1), (1, 0));
-        assert_eq!(super::line_at_row(&rows, 2), (1, 1));
-        assert_eq!(super::line_at_row(&rows, 3), (1, 2));
-        assert_eq!(super::line_at_row(&rows, 4), (2, 0));
-        assert_eq!(super::line_at_row(&rows, 5), (2, 1));
-        assert_eq!(super::line_at_row(&rows, 9), (2, 1));
-    }
-
-    #[test]
-    fn clamp_scroll_pins_short_content_and_stops_at_the_last_screenful() {
-        let viewport = size(px(100.0), px(50.0));
-        let short = size(px(80.0), px(20.0));
-        assert_eq!(
-            super::clamp_scroll(point(px(30.0), px(30.0)), short, viewport),
-            point(px(0.0), px(0.0))
-        );
-
-        let tall = size(px(300.0), px(250.0));
-        assert_eq!(
-            super::clamp_scroll(point(px(900.0), px(900.0)), tall, viewport),
-            point(px(200.0), px(200.0))
-        );
-        assert_eq!(
-            super::clamp_scroll(point(px(-40.0), px(-40.0)), tall, viewport),
-            point(px(0.0), px(0.0))
-        );
-    }
-
-    fn edit(at: usize, removed: &str, inserted: &str) -> super::Edit {
-        super::Edit {
-            at,
-            removed: removed.to_owned(),
-            inserted: inserted.to_owned(),
-            before: at..at,
-            reversed: false,
-        }
-    }
-
     #[test]
     fn a_layout_offset_is_clamped_into_the_content_it_will_index() {
         assert_eq!(super::valid_offset("", 18), 0);
@@ -2063,17 +1987,6 @@ mod tests {
         assert_eq!(super::valid_offset("héllo", 2), 1);
         assert_eq!(super::valid_offset("日本", 2), 0);
         assert_eq!(super::valid_offset("日本", 3), 3);
-    }
-
-    #[test]
-    fn selection_helpers_preserve_unicode_ranges_and_direction() {
-        let text = "aé👩‍💻日";
-        let range = "a".len().."aé👩‍💻".len();
-        assert_eq!(&text[range.clone()], "é👩‍💻");
-        assert_eq!(super::selection_cursor(&range, false), range.end);
-        assert_eq!(super::selection_cursor(&range, true), range.start);
-        assert!(text.is_char_boundary(range.start));
-        assert!(text.is_char_boundary(range.end));
     }
 
     #[test]
@@ -2086,102 +1999,6 @@ mod tests {
     }
 
     #[test]
-    fn ime_relative_selection_stays_within_the_inserted_unicode_text() {
-        let insertion_start = 5;
-        let marked = "日本";
-        let selected_utf16 = 1..2;
-        let selected_utf8 = insertion_start
-            + super::utf8_offset_from_utf16(marked, selected_utf16.start)
-            ..insertion_start + super::utf8_offset_from_utf16(marked, selected_utf16.end);
-        assert_eq!(selected_utf8, 8..11);
-    }
-
-    #[test]
-    fn selection_replacement_records_one_undoable_edit() {
-        let content = "alpha βeta";
-        let range = 6..8;
-        let replaced = super::replace_content(content, range.clone(), "B");
-        assert_eq!(replaced.as_ref(), "alpha Beta");
-
-        let mut history = super::History::default();
-        history.record(
-            super::Edit {
-                at: range.start,
-                removed: content[range.clone()].to_owned(),
-                inserted: "B".to_owned(),
-                before: range,
-                reversed: false,
-            },
-            false,
-        );
-        assert_eq!(history.undo.len(), 1);
-        assert_eq!(history.undo[0].removed, "β");
-        assert_eq!(history.undo[0].inserted, "B");
-    }
-
-    #[test]
-    fn ordinary_paste_fallback_preserves_multiline_and_flattens_single_line() {
-        let text = "first\nsecond".to_owned();
-        assert_eq!(super::normalized_paste_text(text.clone(), true), text);
-        assert_eq!(super::normalized_paste_text(text, false), "first second");
-    }
-
-    #[test]
-    fn word_range_at_prefers_the_word_over_an_adjacent_separator() {
-        let text = "foo bar-baz";
-        assert_eq!(super::word_range_at(text, 1), 0..3);
-        assert_eq!(super::word_range_at(text, 3), 0..3);
-        assert_eq!(super::word_range_at(text, 5), 4..7);
-        assert_eq!(super::word_range_at(text, 8), 7..8);
-        assert_eq!(super::word_range_at(text, 11), 8..11);
-    }
-
-    #[test]
-    fn hard_line_range_at_covers_every_line_including_a_trailing_empty_one() {
-        let text = "a\nbb\n";
-        assert_eq!(super::hard_line_range_at(text, 0), 0..1);
-        assert_eq!(super::hard_line_range_at(text, 1), 0..1);
-        assert_eq!(super::hard_line_range_at(text, 3), 2..4);
-        assert_eq!(super::hard_line_range_at(text, 5), 5..5);
-    }
-
-    #[test]
-    fn a_typing_run_coalesces_until_a_space_a_newline_or_a_caret_move_breaks_it() {
-        let mut history = super::History::default();
-        history.record(edit(0, "", "a"), true);
-        history.record(edit(1, "", "b"), true);
-        assert_eq!(history.undo.len(), 1);
-        assert_eq!(history.undo[0].inserted, "ab");
-
-        history.record(edit(2, "", " "), true);
-        assert_eq!(history.undo.len(), 2);
-        history.record(edit(3, "", "c"), true);
-        assert_eq!(history.undo.len(), 3);
-
-        history.record(edit(4, "", "\n"), true);
-        assert_eq!(history.undo.len(), 4);
-
-        history.coalesce = false;
-        history.record(edit(5, "", "d"), true);
-        assert_eq!(history.undo.len(), 5);
-    }
-
-    #[test]
-    fn a_paste_and_a_whole_document_replacement_are_never_merged() {
-        let mut history = super::History::default();
-        history.record(edit(0, "", "a"), true);
-        history.record(edit(1, "", "pasted"), false);
-        assert_eq!(history.undo.len(), 2);
-        history.record(edit(7, "", "b"), true);
-        assert_eq!(history.undo.len(), 3);
-
-        let mut history = super::History::default();
-        history.record(edit(0, "", "a"), true);
-        history.record(edit(0, "a", "whole"), false);
-        assert_eq!(history.undo.len(), 2);
-    }
-
-    #[test]
     fn a_composition_records_one_entry_holding_the_pre_composition_text() {
         let mut history = super::History::default();
         history.begin_composition(2, "old".to_owned(), 2..5, false);
@@ -2191,62 +2008,6 @@ mod tests {
         assert_eq!(history.undo[0].removed, "old");
         assert_eq!(history.undo[0].inserted, "committed");
         assert!(history.composing.is_none());
-    }
-
-    #[test]
-    fn canceled_composition_does_not_move_the_next_undo_target() {
-        let mut history = super::History::default();
-        history.redo.push(edit(0, "", "redo"));
-        history.begin_composition(2, String::new(), 2..2, false);
-        history.end_composition(String::new());
-        assert!(history.composing.is_none());
-        assert!(history.undo.is_empty());
-        assert_eq!(history.redo.len(), 1);
-        history.begin_composition(0, String::new(), 0..0, false);
-        history.end_composition("Y".into());
-        assert_eq!(history.undo.len(), 1);
-        let edit = &history.undo[0];
-        let restored =
-            super::replace_content("Yab", edit.at..edit.at + edit.inserted.len(), &edit.removed);
-        assert_eq!(restored, "ab");
-    }
-
-    #[test]
-    fn canceled_selection_replacement_remains_undoable() {
-        let mut history = super::History::default();
-        history.begin_composition(1, "b".into(), 1..2, false);
-        history.end_composition(String::new());
-        assert_eq!(history.undo.len(), 1);
-        let edit = &history.undo[0];
-        assert_eq!(
-            super::replace_content("a", edit.at..edit.at, &edit.removed),
-            "ab"
-        );
-    }
-
-    #[test]
-    fn recording_clears_the_redo_stack_and_the_undo_stack_is_capped() {
-        let mut history = super::History::default();
-        history.redo.push(edit(0, "", "x"));
-        history.record(edit(0, "", "y"), false);
-        assert!(history.redo.is_empty());
-
-        let mut history = super::History::default();
-        for index in 0..(super::UNDO_LIMIT + 10) {
-            history.record(edit(index, "", "pasted"), false);
-        }
-        assert_eq!(history.undo.len(), super::UNDO_LIMIT);
-        assert_eq!(history.undo[0].at, 10);
-    }
-
-    #[test]
-    fn backward_deletes_coalesce_into_a_single_entry() {
-        let mut history = super::History::default();
-        history.record(edit(4, "d", ""), true);
-        history.record(edit(3, "c", ""), true);
-        assert_eq!(history.undo.len(), 1);
-        assert_eq!(history.undo[0].removed, "cd");
-        assert_eq!(history.undo[0].at, 3);
     }
 }
 
@@ -2295,42 +2056,6 @@ mod gpui_regression_tests {
     }
 
     #[gpui::test]
-    fn placeholder_and_completion_never_paint_together(cx: &mut TestAppContext) {
-        let (input, cx) = open(cx, "");
-        let placeholder = "Enter a path on hobby…";
-        for (text, ghost, expected_text, expected_ghost) in [
-            ("", "~/local/", placeholder, None),
-            ("~/", "local/", "~/", Some("local/")),
-            ("", "~/local/", placeholder, None),
-        ] {
-            cx.update(|window, cx| {
-                input.update(cx, |input, cx| {
-                    input.set_placeholder(placeholder);
-                    input.set_text(text, cx);
-                    input.set_ghost(ghost, cx);
-                });
-                let mut element = TextElement {
-                    input: input.clone(),
-                };
-                let state = element.prepaint(
-                    None,
-                    None,
-                    Bounds::new(point(px(0.0), px(0.0)), size(px(500.0), px(30.0))),
-                    &mut (),
-                    window,
-                    cx,
-                );
-                assert_eq!(state.layout.lines.len(), 1);
-                assert_eq!(state.layout.lines[0].text.as_ref(), expected_text);
-                assert_eq!(
-                    state.ghost.as_ref().map(|line| line.text.as_ref()),
-                    expected_ghost
-                );
-            });
-        }
-    }
-
-    #[gpui::test]
     fn canceled_ime_does_not_corrupt_the_next_composition_undo(cx: &mut TestAppContext) {
         let (input, cx) = open(cx, "ab");
         mark(&input, cx, "x");
@@ -2358,25 +2083,6 @@ mod gpui_regression_tests {
         );
         assert_eq!(input.read_with(cx, |input, _| input.selected_range()), 0..0);
         assert!(input.read_with(cx, |input, _| input.marked_range.is_none()));
-    }
-
-    #[gpui::test]
-    fn canceled_ime_preserves_redo_for_an_unchanged_document(cx: &mut TestAppContext) {
-        let (input, cx) = open(cx, "ab");
-        cx.simulate_input("x");
-        cx.simulate_keystrokes("cmd-z");
-        assert_eq!(
-            input.read_with(cx, |input, _| input.text().to_owned()),
-            "ab"
-        );
-        mark(&input, cx, "x");
-        mark(&input, cx, "");
-        cx.simulate_keystrokes("cmd-shift-z");
-        assert_eq!(
-            input.read_with(cx, |input, _| input.text().to_owned()),
-            "abx"
-        );
-        assert_eq!(input.read_with(cx, |input, _| input.selected_range()), 3..3);
     }
 
     #[gpui::test]

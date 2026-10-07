@@ -43,8 +43,7 @@ fn remaining_local_panes_keep_the_session_and_detach_never_ends_it() -> TestResu
         .close_session(session, OperationId::new())?;
     assert_eq!(fixture.registry.list().len(), 1);
     connection.client.sync_session_references(vec![])?;
-    connection.client.disconnect();
-    connection.finished.recv_timeout(TIMEOUT)??;
+    connection.disconnect()?;
     assert_eq!(fixture.registry.list().len(), 1);
     let reopened = fixture.connect()?;
     reopened.client.close_session(session, OperationId::new())?;
@@ -61,8 +60,7 @@ fn retrying_a_shared_close_after_reconnect_cannot_kill_the_surviving_session() -
     let operation = OperationId::new();
     let attachment = second.client.attach(session, SIZE)?;
     first.client.close_session(session, operation)?;
-    first.client.disconnect();
-    first.finished.recv_timeout(TIMEOUT)??;
+    first.disconnect()?;
     second.client.detach(attachment.channel)?;
     let retry = fixture.connect()?;
     retry.client.close_session(session, operation)?;
@@ -109,10 +107,8 @@ fn shared_close_receipt_survives_a_server_restart() -> TestResult {
     second.client.sync_session_references(vec![session])?;
     let operation = OperationId::new();
     first.client.close_session(session, operation)?;
-    first.client.disconnect();
-    second.client.disconnect();
-    first.finished.recv_timeout(TIMEOUT)??;
-    second.finished.recv_timeout(TIMEOUT)??;
+    first.disconnect()?;
+    second.disconnect()?;
     fixture.registry.end(session)?;
     let (events, _) = mpsc::channel();
     let previous = std::mem::replace(

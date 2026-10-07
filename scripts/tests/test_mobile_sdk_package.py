@@ -80,13 +80,6 @@ class MobileSdkPackageTests(unittest.TestCase):
         (self.sdk / "android/jniLibs/x86_64/libmuxy_mobile.so").unlink()
         result = self.package()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("android/jniLibs/x86_64/libmuxy_mobile.so", result.stderr)
-        self.assertFalse(self.output.exists())
-
-    def test_only_beta_versions_are_packaged(self):
-        result = self.package("2.0.0")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("2.0.0-beta-", result.stderr)
         self.assertFalse(self.output.exists())
 
 

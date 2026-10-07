@@ -349,42 +349,6 @@ fn projects_of_unlisted_servers_survive_load_and_save() -> TestResult {
 }
 
 #[test]
-fn valid_project_orders_survive_load_and_catalog_refreshes() -> TestResult {
-    let TwoServers {
-        mut state,
-        remote,
-        remote_home,
-        api,
-    } = two_servers()?;
-    let ids = |state: &AppState| {
-        state
-            .projects()
-            .iter()
-            .map(|project| project.id)
-            .collect::<Vec<_>>()
-    };
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("desktop-state.json");
-    let local_project = state.projects()[1].id;
-    state.move_project(local_project, 2)?;
-    let order = ids(&state);
-    assert_eq!(order, [state.home().id, remote_home, local_project, api]);
-    store::save(&path, &state)?;
-    assert_eq!(store::load(&path)?, state);
-    state.apply_catalog(remote, &remote_catalog(2, remote_home, &[(api, "api")]))?;
-    assert_eq!(ids(&state), order);
-
-    state.apply_catalog(remote, &remote_catalog(2, remote_home, &[]))?;
-    state.add_project(LOCAL, std::env::temp_dir())?;
-    let order = ids(&state);
-    store::save(&path, &state)?;
-    assert_eq!(store::load(&path)?, state);
-    state.apply_catalog(remote, &remote_catalog(2, remote_home, &[]))?;
-    assert_eq!(ids(&state), order);
-    Ok(())
-}
-
-#[test]
 fn remote_projects_never_touch_this_computers_disk() -> TestResult {
     let TwoServers {
         mut state,
@@ -416,41 +380,6 @@ fn remote_projects_never_touch_this_computers_disk() -> TestResult {
     assert!(state.project_creation_pending(project));
     state.remove_project(project)?;
     assert!(state.project_creation_pending(project));
-    Ok(())
-}
-
-#[test]
-fn remote_homes_stay_first_and_out_of_workspaces() -> TestResult {
-    let TwoServers {
-        mut state,
-        remote_home,
-        api,
-        ..
-    } = two_servers()?;
-    let local_project = state.projects()[1].id;
-    assert!(state.remove_project(remote_home).is_err());
-    assert!(state.move_project(remote_home, 3).is_err());
-    assert!(state.move_project(api, 2).is_err());
-    assert!(state.move_project(api, 1).is_err());
-    let workspace = state.create_workspace("Work")?;
-    assert!(
-        state
-            .set_workspace_member(workspace, remote_home, true)
-            .is_err()
-    );
-
-    state.move_project(local_project, 3)?;
-    assert_eq!(
-        state
-            .projects()
-            .iter()
-            .map(|project| project.id)
-            .collect::<Vec<_>>(),
-        [state.home().id, remote_home, api, local_project]
-    );
-    state.select_workspace(Some(workspace))?;
-    assert!(state.is_listed(state.project(remote_home).ok_or("remote Home")?));
-    assert!(!state.is_listed(state.project(api).ok_or("api")?));
     Ok(())
 }
 

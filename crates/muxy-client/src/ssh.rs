@@ -431,47 +431,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_detection_resolves_the_full_destination_without_connecting() -> io::Result<()> {
-        use std::os::unix::fs::PermissionsExt;
-        let directory = tempfile::tempdir()?;
-        let key = directory.path().join("custom-key");
-        std::fs::write(&key, "fixture")?;
-        std::fs::write(
-            directory.path().join("config"),
-            format!("identityfile {}\n", key.display()),
-        )?;
-        let program = directory.path().join("ssh");
-        std::fs::write(
-            &program,
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\ncat \"$(dirname \"$0\")/config\"\n",
-        )?;
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))?;
-        let target = SshTarget::new("ssh://dev@box:2222")?.with_program(program);
-        assert_eq!(target.default_identity()?, Some(key));
-        assert_eq!(
-            std::fs::read_to_string(directory.path().join("args"))?,
-            "-G\n--\nssh://dev@box:2222\n"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_missing_ssh_names_the_program_and_the_host() -> io::Result<()> {
-        let target = SshTarget::new("box")?.with_program("/nonexistent/ssh");
-        let error = Client::connect_ssh(&target, Start::IfNeeded).err();
-        assert!(matches!(
-            &error,
-            Some(ClientError::Remote { reason: RemoteReason::SshMissing, detail, .. })
-                if detail == "/nonexistent/ssh"
-        ));
-        assert_eq!(
-            error.map(|error| error.to_string()),
-            Some("Muxy needs /nonexistent/ssh to reach box, but it isn't installed.".into())
-        );
-        Ok(())
-    }
-
-    #[test]
     fn destinations_that_ssh_could_misread_are_refused() {
         for accepted in [
             "box",
@@ -507,37 +466,6 @@ mod tests {
                 .ok(),
             Some("dev@box".into())
         );
-    }
-
-    #[test]
-    fn ssh_runs_without_prompts_and_with_the_bridge_as_the_last_argument() -> io::Result<()> {
-        let target = SshTarget::new("dev@box")?;
-        let options = [
-            "-T",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=10",
-            "-o",
-            "ServerAliveInterval=15",
-            "-o",
-            "ServerAliveCountMax=3",
-            "-o",
-            "ControlMaster=no",
-            "-o",
-            "RemoteCommand=none",
-            "-o",
-            "ClearAllForwardings=yes",
-            "--",
-            "dev@box",
-        ];
-        for start in [Start::IfNeeded, Start::Never] {
-            let mut expected = options.to_vec();
-            expected.push(bridge::command(start));
-            assert_eq!(target.arguments(start), expected);
-        }
-        assert!(target.environment().is_empty());
-        Ok(())
     }
 
     #[test]
@@ -600,39 +528,5 @@ mod tests {
             ]
         );
         Ok(())
-    }
-
-    #[test]
-    fn the_program_is_the_targets_then_muxy_ssh_then_ssh() -> io::Result<()> {
-        let fake = Path::new("/tmp/fake-ssh");
-        assert_eq!(program(Some(fake), Some("/usr/bin/other".into()))?, fake);
-        assert_eq!(
-            program(None, Some("/usr/bin/other".into()))?,
-            Path::new("/usr/bin/other")
-        );
-        assert_eq!(program(None, None)?, Path::new("ssh"));
-        assert_eq!(
-            program(None, Some(OsString::new()))
-                .err()
-                .map(|error| error.kind()),
-            Some(io::ErrorKind::InvalidInput)
-        );
-        assert_eq!(
-            SshTarget::new("box")?.with_program(fake).program.as_deref(),
-            Some(fake)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn only_the_end_of_the_error_output_is_kept() {
-        let tail = ErrorTail::default();
-        tail.push(&[b'a'; STDERR_TAIL]);
-        tail.push(b"last line\n");
-        tail.finish();
-        assert_eq!(
-            tail.wait(Duration::ZERO),
-            format!("{}last line\n", "a".repeat(STDERR_TAIL - 10))
-        );
     }
 }

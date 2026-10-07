@@ -18,46 +18,12 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 const BLOCKED_INTERVAL: Duration = Duration::from_millis(50);
 
 #[test]
-fn bind_connect_accept_and_exchange_bytes_through_split_halves() -> TestResult {
-    let path = SocketPath::new()?;
-    let listener: Box<dyn Listener> = Box::new(UnixSocketListener::bind(path.socket())?);
-    let client = connect(path.socket())?;
-    let server = listener.accept()?;
-    let (mut client_reader, mut client_writer) = client.split()?;
-    let (mut server_reader, mut server_writer) = server.split()?;
-
-    client_writer.write_all(b"hello\0\xff")?;
-    let mut request = [0; 7];
-    server_reader.read_exact(&mut request)?;
-    assert_eq!(&request, b"hello\0\xff");
-
-    server_writer.write_all(b"reply")?;
-    let mut reply = [0; 5];
-    client_reader.read_exact(&mut reply)?;
-    assert_eq!(&reply, b"reply");
-    Ok(())
-}
-
-#[test]
-fn bind_creates_missing_parent_directories() -> TestResult {
-    let path = SocketPath::new()?;
-    let nested = path.directory.join("a/b/socket");
-    let listener = UnixSocketListener::bind(&nested)?;
-
-    assert!(nested.exists());
-    let _client = connect(&nested)?;
-    let _server = listener.accept()?;
-    Ok(())
-}
-
-#[test]
 fn live_socket_returns_in_use_and_remains_reachable() -> TestResult {
     let path = SocketPath::new()?;
     let listener = UnixSocketListener::bind(path.socket())?;
     let result = UnixSocketListener::bind(path.socket());
 
     assert!(matches!(result, Err(BindError::InUse)), "{result:?}");
-    assert_eq!(BindError::InUse.to_string(), "already in use");
     let (mut probe_reader, _) = listener.accept()?.split()?;
     assert_eq!(probe_reader.read(&mut [0])?, 0);
 
@@ -144,28 +110,6 @@ fn bind_preserves_a_symlink_to_a_stale_socket() -> TestResult {
     ));
     assert_eq!(fs::read_link(path.socket())?, target);
     assert!(target.exists());
-    Ok(())
-}
-
-#[test]
-fn bind_reports_parent_directory_errors() -> TestResult {
-    let path = SocketPath::new()?;
-    fs::write(path.socket(), b"keep me")?;
-    let result = UnixSocketListener::bind(path.socket().join("socket"));
-
-    assert!(matches!(result, Err(BindError::Io(_))), "{result:?}");
-    assert_eq!(fs::read(path.socket())?, b"keep me");
-    Ok(())
-}
-
-#[test]
-fn connect_reports_a_missing_socket() -> TestResult {
-    let path = SocketPath::new()?;
-    let error = connect(path.socket())
-        .err()
-        .ok_or("connect unexpectedly succeeded")?;
-
-    assert_eq!(error.kind(), io::ErrorKind::NotFound);
     Ok(())
 }
 

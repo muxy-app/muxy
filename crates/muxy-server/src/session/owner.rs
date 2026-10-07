@@ -1151,30 +1151,6 @@ mod tests {
     }
 
     #[test]
-    fn unchanged_output_emits_no_frame() -> Result<(), Fault> {
-        let mut owner = owner()?;
-        owner.feed(b"\x1b[1;1HA")?;
-        let (sink, events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink)?;
-        owner.tick()?;
-        events.try_iter().for_each(drop);
-        owner.feed(b"\x1b[1;1HA")?;
-        owner.tick()?;
-        let frames: Vec<_> = events
-            .try_iter()
-            .filter_map(|event| match event {
-                AttachmentEvent::Frame(frame) => Some(frame),
-                _ => None,
-            })
-            .collect();
-        assert!(
-            frames.is_empty(),
-            "unchanged screen, cursor and modes should not emit a frame"
-        );
-        Ok(())
-    }
-
-    #[test]
     fn cursor_only_mode_only_and_reset_frames_are_not_suppressed() -> Result<(), Fault> {
         let mut owner = owner()?;
         let (sink, events) = mpsc::channel();

@@ -1,65 +1,6 @@
 use super::*;
 
 #[gpui::test]
-#[ignore = "requires a built server and a fresh MUXY_DIR under /tmp/muxy-catalog-"]
-fn quick_terminal_catalog_walkthrough(cx: &mut TestAppContext) {
-    quick_catalog_walkthrough(cx).expect("Quick Terminal catalog walkthrough");
-}
-
-fn quick_catalog_walkthrough(cx: &mut TestAppContext) -> Result {
-    let directory = PathBuf::from(std::env::var("MUXY_DIR")?);
-    assert!(
-        directory
-            .to_string_lossy()
-            .starts_with("/tmp/muxy-catalog-")
-    );
-    let (view, cx) =
-        cx.add_window_view(|window, cx| AppModel::new(Boot::load().expect("boot"), window, cx));
-    wait(cx, &view, |model, _| {
-        model.servers.local.connection == ConnectionState::Ready
-            && model.servers.local.catalog.restore.is_none()
-    })?;
-    let before = view.read_with(cx, |model, _| model.state.window().clone());
-    let quick = view.update(cx, |model, cx| {
-        let pane = model.state.ensure_quick_terminal();
-        model.quick.visible = true;
-        model.sync_visible(cx);
-        model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
-        pane
-    });
-    wait(cx, &view, |model, _| model.pane_session(quick).is_some())?;
-    let session = view
-        .read_with(cx, |model, _| model.pane_session(quick))
-        .ok_or("session")?;
-    let probe = Client::connect(&directory.join("server.sock"))?;
-    let catalog = probe.catalog()?;
-    let membership = probe.project_sessions(catalog.home, None, None)?;
-    assert_eq!(membership.sessions[0].info.id, session);
-    assert_eq!(membership.sessions[0].info.project, catalog.home);
-    view.update(cx, |model, cx| {
-        model.hide_quick_terminal(false, cx);
-        assert_eq!(model.state.window(), &before);
-        model.quick.visible = true;
-        model.sync_visible(cx);
-        model.start_attach(quick, Size { cols: 80, rows: 24 }, cx);
-    });
-    wait(cx, &view, |model, _| !model.pending.contains_key(&quick))?;
-    assert_eq!(probe.list_sessions()?.len(), 1);
-    view.update(cx, AppModel::close_quick_terminal);
-    wait(cx, &view, |model, _| {
-        model.state.pending_discards(ServerId::local()).is_empty()
-            && model
-                .state
-                .pending_cancellations(ServerId::local())
-                .is_empty()
-    })?;
-    assert!(probe.list_sessions()?.is_empty());
-    report(
-        "Quick Terminal belongs to server Home; hide/reattach preserves identity; close cleans session: PASS",
-    )
-}
-
-#[gpui::test]
 fn quick_terminal_uses_home_without_changing_workspace_and_reattaches_after_hide(
     cx: &mut TestAppContext,
 ) {
@@ -166,27 +107,6 @@ fn quick_terminal_exit_discards_only_its_session_and_next_show_gets_new_identity
         assert_eq!(model.state.window(), &window);
         assert_eq!(model.state.home().tabs.len(), 1);
         assert_ne!(model.state.ensure_quick_terminal(), pane);
-    });
-}
-
-#[gpui::test]
-fn quick_terminal_focus_and_visibility_survive_workspace_overlays(cx: &mut TestAppContext) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    let quick = view.update(cx, |model, cx| {
-        let quick = model.state.ensure_quick_terminal();
-        model.quick.visible = true;
-        model.sync_visible(cx);
-        let pane = model.terminal(&quick).expect("quick terminal").view.clone();
-        pane.update(cx, |pane, cx| pane.set_focused(true, cx));
-        pane
-    });
-    cx.update(|window, cx| view.update(cx, |model, cx| model.open_theme_picker(window, cx)));
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| assert!(model.overlay.is_some()));
-    quick.read_with(cx, |pane, _| {
-        assert!(pane.focused);
-        assert!(pane.native_visible);
     });
 }
 

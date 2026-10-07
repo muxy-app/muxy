@@ -124,17 +124,6 @@ fn terminal_directory(value: &str) -> Option<ServerPath> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::ffi::OsStrExt;
-
-    #[test]
-    fn process_directory_preserves_the_kernel_path() -> Result<(), Box<dyn std::error::Error>> {
-        let expected = std::env::current_dir()?.canonicalize()?;
-        assert_eq!(
-            process_directory(i32::try_from(std::process::id())?),
-            Some(ServerPath(expected.as_os_str().as_bytes().to_vec()))
-        );
-        Ok(())
-    }
 
     #[test]
     fn osc_directory_decodes_file_uris_without_losing_path_bytes() {

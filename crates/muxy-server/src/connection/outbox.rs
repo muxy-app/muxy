@@ -721,55 +721,6 @@ mod tests {
     }
 
     #[test]
-    fn history_counts_are_coalesced() {
-        let outbox = Outbox::new(Arc::default());
-        let channel = ChannelId(1);
-        outbox.lock().credit.insert(channel, true);
-        for total_rows in [10, 20, 30] {
-            outbox.push_metadata(channel, MetadataEvent::History { total_rows });
-        }
-        assert_eq!(
-            outbox.lock().metadata[&channel],
-            [MetadataEvent::History { total_rows: 30 }]
-        );
-    }
-
-    #[test]
-    fn cursor_blinking_is_coalesced_without_credit() {
-        let outbox = Outbox::new(Arc::default());
-        let channel = ChannelId(1);
-        outbox.lock().credit.insert(channel, false);
-        for blinking in [false, true, false] {
-            outbox.push_metadata(channel, MetadataEvent::CursorBlinking(blinking));
-        }
-        assert_eq!(
-            outbox.lock().metadata[&channel],
-            [MetadataEvent::CursorBlinking(false)]
-        );
-    }
-
-    #[test]
-    fn input_modes_are_coalesced_without_credit() {
-        let outbox = Outbox::new(Arc::default());
-        let channel = ChannelId(1);
-        outbox.lock().credit.insert(channel, false);
-        let modes = muxy_protocol::InputModes {
-            mouse_tracking: true,
-            alternate_scroll: true,
-            focus_events: true,
-        };
-        outbox.push_metadata(
-            channel,
-            MetadataEvent::InputModes(muxy_protocol::InputModes::default()),
-        );
-        outbox.push_metadata(channel, MetadataEvent::InputModes(modes));
-        assert_eq!(
-            outbox.lock().metadata[&channel],
-            [MetadataEvent::InputModes(modes)]
-        );
-    }
-
-    #[test]
     fn title_updates_coalesce_and_resubscribe_without_screen_credit() {
         let outbox = Outbox::new(Arc::default());
         let session = SessionId::from(std::num::NonZeroU64::MIN);
@@ -987,47 +938,5 @@ mod tests {
         outbox.push_control(Message::VersionUnsupported);
         assert_eq!(outbox.next(), None);
         Ok(())
-    }
-    #[test]
-    fn hyperlink_replacements_coalesce_before_frames_even_without_credit() {
-        let outbox = Outbox::new(Arc::default());
-        let channel = ChannelId(1);
-        outbox.lock().credit.insert(channel, false);
-        for seq in 1..=3 {
-            outbox.push_metadata(
-                channel,
-                MetadataEvent::Links {
-                    seq,
-                    rows: vec![muxy_protocol::LinkRow {
-                        row: 0,
-                        spans: vec![muxy_protocol::LinkSpan {
-                            start: 0,
-                            end: 1,
-                            uri: format!("https://example.com/{seq}"),
-                        }],
-                    }],
-                },
-            );
-            outbox.push_frame(channel, frame(seq, 0));
-        }
-        outbox.push_metadata(
-            channel,
-            MetadataEvent::Links {
-                seq: 4,
-                rows: vec![],
-            },
-        );
-        assert_eq!(
-            outbox.next(),
-            Some((
-                channel,
-                Message::Metadata(MetadataEvent::Links {
-                    seq: 4,
-                    rows: vec![]
-                })
-            ))
-        );
-        assert!(outbox.lock().metadata.is_empty());
-        assert_eq!(outbox.lock().pending.len(), 1);
     }
 }

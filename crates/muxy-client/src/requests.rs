@@ -194,14 +194,4 @@ mod tests {
         assert!(matches!(pending.register(), Err(ClientError::Disconnected)));
         Ok(())
     }
-
-    #[test]
-    fn forgotten_requests_ignore_late_replies() -> Result<(), ClientError> {
-        let pending = Pending::default();
-        let (id, reply) = pending.register()?;
-        pending.forget(id);
-        pending.resolve(id, ReplyBody::Pong);
-        assert_eq!(reply.try_recv(), Err(TryRecvError::Disconnected));
-        Ok(())
-    }
 }

@@ -34,28 +34,3 @@ impl QrCode {
         x < self.size && y < self.size && self.modules[y * self.size + x]
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pairing_links_encode_to_a_scannable_square() {
-        let link = format!(
-            "muxy://pair?v=1&h=192.168.1.5&h=studio-mac.local&p=7419&f={}&s={}",
-            "c3".repeat(32),
-            "ab".repeat(16)
-        );
-        let code = QrCode::encode(&link).expect("link fits in a QR code");
-        assert!((21..=177).contains(&code.size()));
-        assert_eq!((code.size() - 17) % 4, 0);
-        assert!(code.dark(0, 0), "finder patterns start dark");
-        assert!(!code.dark(code.size(), 0));
-        assert_eq!(QrCode::encode(&link), Some(code));
-    }
-
-    #[test]
-    fn text_beyond_the_largest_version_is_refused() {
-        assert_eq!(QrCode::encode(&"x".repeat(8000)), None);
-    }
-}

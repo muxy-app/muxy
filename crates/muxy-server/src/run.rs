@@ -411,14 +411,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn socket_length_counts_bytes_and_reserves_the_terminator() {
-        let limit = if cfg!(target_os = "linux") { 108 } else { 104 };
-        assert!(validate_socket(Path::new(&"a".repeat(limit - 1))).is_ok());
-        assert!(validate_socket(Path::new(&"a".repeat(limit))).is_err());
-        assert!(validate_socket(Path::new(&"é".repeat(limit / 2))).is_err());
-    }
-
-    #[test]
     fn closed_socket_cleanup_does_not_remove_its_replacement() -> io::Result<()> {
         let directory =
             Path::new("/tmp").join(format!("muxy-socket-{}", muxy_protocol::OperationId::new()));

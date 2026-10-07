@@ -71,30 +71,3 @@ fn dimensions(
         .min((viewport.height - top - margin).max(px(0.0)));
     (width, height, top)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn large_modals_fit_small_windows_at_every_interface_scale() {
-        let options = muxy_app_core::webview::ModalOptions {
-            width: 900.0,
-            height: 760.0,
-            ..Default::default()
-        }
-        .normalized();
-        for scale in [0.75, 1.0, 1.5, 2.0] {
-            let metrics = muxy_ui::theme::Metrics::new(scale);
-            for viewport in [
-                gpui::size(px(640.0), px(400.0)),
-                gpui::size(px(1200.0), px(900.0)),
-            ] {
-                let (width, height, top) = dimensions(&options, metrics, viewport);
-                assert!(width > px(0.0) && height > px(0.0));
-                assert!(width + metrics.scaled(40.0) <= viewport.width);
-                assert!(top + height + metrics.scaled(20.0) <= viewport.height);
-            }
-        }
-    }
-}

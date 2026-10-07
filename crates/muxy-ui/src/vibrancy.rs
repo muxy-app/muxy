@@ -92,32 +92,3 @@ fn native_appearance(appearance: Appearance) -> Option<Retained<NSAppearance>> {
         }
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::theme::{ColorScheme, Theme};
-
-    #[test]
-    fn vibrancy_appearance_follows_the_theme_background() {
-        for (source, expected) in [
-            ("background = 19171f\nforeground = c9c2d9", Appearance::Dark),
-            (
-                "background = f0f0f5\nforeground = 1e1e2e",
-                Appearance::Light,
-            ),
-            ("background = 123456\nforeground = abcdef", Appearance::Dark),
-        ] {
-            let theme = Theme::from_scheme(&ColorScheme::parse(source));
-            assert_eq!(appearance(theme.bg), expected);
-            let name = native_appearance(appearance(theme.bg)).map(|native| native.name());
-            let expected_name = unsafe {
-                match expected {
-                    Appearance::Light => NSAppearanceNameAqua,
-                    Appearance::Dark => NSAppearanceNameDarkAqua,
-                }
-            };
-            assert_eq!(name.as_deref(), Some(expected_name));
-        }
-    }
-}

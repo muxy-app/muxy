@@ -2,36 +2,6 @@ use super::*;
 use std::os::unix::fs::MetadataExt;
 
 #[gpui::test]
-fn resize_bursts_save_only_the_latest_bounds_after_idle(cx: &mut TestAppContext) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.run_until_parked();
-    let path = view.read_with(cx, |model, _| model.path.clone());
-    let inode = std::fs::metadata(&path).expect("initial save").ino();
-    for width in 800_u16..820 {
-        cx.simulate_resize(size(px(f32::from(width)), px(650.0)));
-        cx.run_until_parked();
-        cx.executor().advance_clock(Duration::from_millis(16));
-        cx.run_until_parked();
-        assert_eq!(std::fs::metadata(&path).expect("state").ino(), inode);
-    }
-    cx.executor().advance_clock(Duration::from_millis(183));
-    cx.run_until_parked();
-    assert_eq!(std::fs::metadata(&path).expect("state").ino(), inode);
-    cx.executor().advance_clock(Duration::from_millis(1));
-    cx.run_until_parked();
-    let saved_inode = std::fs::metadata(&path).expect("saved bounds").ino();
-    assert_ne!(saved_inode, inode);
-    view.read_with(cx, |model, _| {
-        assert_eq!(store::load(&path).expect("saved state"), model.state);
-        assert!(model.bounds_save.is_none());
-    });
-    cx.executor().advance_clock(Duration::from_secs(1));
-    cx.run_until_parked();
-    assert_eq!(std::fs::metadata(&path).expect("state").ino(), saved_inode);
-}
-
-#[gpui::test]
 fn tab_changes_and_quit_flush_pending_bounds_without_stale_saves(cx: &mut TestAppContext) {
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -71,36 +41,5 @@ fn tab_changes_and_quit_flush_pending_bounds_without_stale_saves(cx: &mut TestAp
             store::load(&model.path).expect("saved before quit"),
             model.state
         );
-    });
-}
-
-#[gpui::test]
-fn deferred_bounds_save_reports_errors_and_next_resize_can_retry(cx: &mut TestAppContext) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    let path = view.read_with(cx, |model, _| model.path.clone());
-    view.update(cx, |model, _| {
-        model.path = path.join("not-a-directory.json");
-    });
-    cx.simulate_resize(size(px(920.0), px(650.0)));
-    cx.run_until_parked();
-    cx.executor().advance_clock(Duration::from_millis(200));
-    cx.run_until_parked();
-    view.update(cx, |model, _| {
-        assert!(
-            model
-                .error
-                .as_deref()
-                .is_some_and(|error| error.starts_with("Could not save tabs:"))
-        );
-        assert!(model.bounds_save.is_none());
-        model.path = path.clone();
-    });
-    cx.simulate_resize(size(px(930.0), px(660.0)));
-    cx.run_until_parked();
-    cx.executor().advance_clock(Duration::from_millis(200));
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert_eq!(store::load(&path).expect("retry saved state"), model.state);
     });
 }

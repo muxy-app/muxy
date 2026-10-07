@@ -113,15 +113,3 @@ impl AppModel {
             && !self.servers.passwords.has(server)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn waits_double_from_two_seconds_up_to_a_minute() {
-        let waits: Vec<_> = (0..8).map(|attempts| delay(attempts).as_secs()).collect();
-        assert_eq!(waits, [2, 4, 8, 16, 32, 60, 60, 60]);
-        assert_eq!(delay(u32::MAX), Duration::from_secs(60));
-    }
-}

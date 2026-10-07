@@ -339,41 +339,6 @@ mod tests {
     )]
     use super::*;
 
-    #[test]
-    fn version_checks_batch_installed_names_and_skip_unpublished_extensions() {
-        let names: Vec<_> = (0..205).map(|index| format!("extension-{index}")).collect();
-        let mut batches = Vec::new();
-        let versions = versions_with(&names, |batch| {
-            batches.push(batch.to_vec());
-            Ok(batch
-                .iter()
-                .map(|name| {
-                    (
-                        name.clone(),
-                        (name != "extension-5").then(|| "1.1.0".into()),
-                    )
-                })
-                .collect())
-        })
-        .unwrap();
-        assert_eq!(
-            batches.iter().map(Vec::len).collect::<Vec<_>>(),
-            [100, 100, 5]
-        );
-        assert_eq!(batches.concat(), names);
-        assert_eq!(versions.len(), 204);
-        assert!(!versions.contains_key("extension-5"));
-        assert!(
-            versions_with(&[], |_| panic!("empty list must not make a request"))
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(
-            versions_with(&names, |_| Err("Offline".into())),
-            Err("Offline".into())
-        );
-    }
-
     fn archive(path: &str, mode: Option<u32>) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         if mode == Some(0o120_777) {

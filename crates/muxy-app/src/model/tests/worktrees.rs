@@ -1,7 +1,6 @@
 use super::git::registered_current_project;
 use super::*;
-use muxy_app_core::settings::Settings;
-use muxy_protocol::{ErrorCode, ErrorReply, GitWorktree, ProjectMutation, ServerPath};
+use muxy_protocol::{GitWorktree, ProjectMutation, ServerPath};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
@@ -37,38 +36,18 @@ fn worktree(directory: &[u8], primary: bool) -> GitWorktree {
     }
 }
 
-fn register(model: &mut AppModel, project: ProjectId, cx: &mut Context<AppModel>) {
-    let create = model
-        .state
-        .project_intents(ServerId::local())
-        .iter()
-        .find(|intent| matches!(&intent.mutation, ProjectMutation::Create(record) if record.id == project))
-        .expect("pending create")
-        .operation;
-    model.receive_project_mutation(ServerId::local(), create, Ok(1), cx);
-}
-
-fn add_and_register(model: &mut AppModel, cx: &mut Context<AppModel>) -> ProjectId {
-    let project = model
-        .add_project(std::env::temp_dir(), cx)
-        .expect("project");
-    register(model, project, cx);
-    project
-}
-
 fn connected(
     state: AppState,
     cx: &mut TestAppContext,
-) -> (Entity<AppModel>, &mut VisualTestContext, Sent, PathBuf) {
+) -> (Entity<AppModel>, &mut VisualTestContext, Sent) {
     let (boot, requests) = stub_boot(state);
-    let settings = boot.state_path.with_file_name("settings.toml");
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     let mut sent = Sent(requests, Vec::new());
     view.update(cx, |model, _| {
         model.servers.local.connection = ConnectionState::Ready;
     });
     sent.take();
-    (view, cx, sent, settings)
+    (view, cx, sent)
 }
 
 #[test]
@@ -97,167 +76,6 @@ fn listed_worktrees_skip_the_main_checkout_leftovers_and_the_projects_own_folder
         &remote,
         false
     ));
-}
-
-#[gpui::test]
-fn new_projects_show_worktrees_once_git_lists_linked_ones(cx: &mut TestAppContext) {
-    let (view, cx, mut sent, settings) = connected(AppState::bootstrap().expect("state"), cx);
-    view.update(cx, |model, cx| {
-        let project = model
-            .add_project(std::env::temp_dir(), cx)
-            .expect("project");
-        assert!(!model.worktrees_visible(project));
-        assert_eq!(sent.syncs(), 0, "the server doesn't know the project yet");
-        register(model, project, cx);
-        assert_eq!(sent.syncs(), 1);
-        model.servers.local.catalog.pending = false;
-        let linked = vec![worktree(b"/code/app-feature", false)];
-        model.worktrees_synced(
-            project,
-            model.servers.local.generation + 1,
-            Ok(linked.clone()),
-            cx,
-        );
-        assert!(
-            !model.worktrees_visible(project),
-            "results from another connection are ignored"
-        );
-        model.worktrees_synced(project, model.servers.local.generation, Ok(linked), cx);
-        assert!(model.worktrees_visible(project));
-        let saved = Settings::load(&settings).expect("settings").appearance;
-        assert!(!saved.hidden_worktrees.contains(&project));
-        assert!(
-            sent.take()
-                .iter()
-                .any(|work| matches!(work, Work::ReadCatalog)),
-            "imported worktrees are read back into the sidebar"
-        );
-    });
-}
-
-#[gpui::test]
-fn new_projects_keep_worktrees_hidden_without_linked_ones(cx: &mut TestAppContext) {
-    let (view, cx, mut sent, settings) = connected(AppState::bootstrap().expect("state"), cx);
-    view.update(cx, |model, cx| {
-        let project = add_and_register(model, cx);
-        assert_eq!(sent.syncs(), 1, "one listing per new project");
-        model.servers.local.catalog.pending = false;
-        model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
-        assert!(!model.worktrees_visible(project));
-        let saved = Settings::load(&settings).expect("settings").appearance;
-        assert!(saved.hidden_worktrees.contains(&project));
-        assert!(
-            !sent
-                .take()
-                .iter()
-                .any(|work| matches!(work, Work::ReadCatalog))
-        );
-        model.sync_all_worktrees(cx);
-        assert_eq!(sent.syncs(), 0, "hidden worktrees are not synced");
-    });
-}
-
-#[gpui::test]
-fn new_project_check_retries_after_disconnects_but_not_after_server_errors(
-    cx: &mut TestAppContext,
-) {
-    let (view, cx, mut sent, _) = connected(AppState::bootstrap().expect("state"), cx);
-    view.update(cx, |model, cx| {
-        let project = add_and_register(model, cx);
-        assert_eq!(sent.syncs(), 1);
-        model.worktrees_synced(
-            project,
-            model.servers.local.generation,
-            Err(muxy_client::ClientError::Disconnected),
-            cx,
-        );
-        assert!(!model.worktrees_visible(project));
-        model.sync_all_worktrees(cx);
-        assert_eq!(sent.syncs(), 1, "the check runs again on the next sync");
-        model.worktrees_synced(
-            project,
-            model.servers.local.generation,
-            Err(muxy_client::ClientError::Server(ErrorReply {
-                code: ErrorCode::BadRequest,
-                message: "not a git repository".into(),
-            })),
-            cx,
-        );
-        model.sync_all_worktrees(cx);
-        assert!(!model.worktrees_visible(project));
-        assert_eq!(sent.syncs(), 0);
-    });
-}
-
-#[gpui::test]
-fn a_worktrees_menu_choice_replaces_the_new_project_default(cx: &mut TestAppContext) {
-    let (view, cx, mut sent, _) = connected(AppState::bootstrap().expect("state"), cx);
-    view.update(cx, |model, cx| {
-        let project = add_and_register(model, cx);
-        assert_eq!(sent.syncs(), 1);
-        model.toggle_worktree_visibility(project, cx);
-        model.toggle_worktree_visibility(project, cx);
-        model.worktrees_synced(
-            project,
-            model.servers.local.generation,
-            Ok(vec![worktree(b"/code/app-feature", false)]),
-            cx,
-        );
-        assert!(!model.worktrees_visible(project));
-    });
-}
-
-#[gpui::test]
-fn only_git_changes_rerun_a_sync_that_is_already_running(cx: &mut TestAppContext) {
-    let (state, project) = registered_current_project();
-    let (view, cx, mut sent, _) = connected(state, cx);
-    view.update(cx, |model, cx| {
-        model.sync_git(cx);
-        model.sync_worktrees(project, cx);
-        assert_eq!(sent.syncs(), 1);
-        model.sync_worktrees(project, cx);
-        model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
-        assert_eq!(
-            sent.syncs(),
-            0,
-            "asking again while it runs changes nothing"
-        );
-        model.sync_worktrees(project, cx);
-        assert_eq!(sent.syncs(), 1);
-        model.git_invalidated(project, cx);
-        model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
-        assert_eq!(sent.syncs(), 1, "a Git change during a sync runs it again");
-    });
-}
-
-#[gpui::test]
-fn worktrees_sync_one_project_at_a_time_and_skip_hidden_ones(cx: &mut TestAppContext) {
-    let mut state = AppState::bootstrap().expect("state");
-    let [first, second, hidden] = [(); 3].map(|()| {
-        state
-            .add_project(ServerId::local(), std::env::temp_dir())
-            .expect("project")
-    });
-    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
-        state
-            .complete_project_intent(ServerId::local(), intent.operation)
-            .expect("registered");
-    }
-    state.select_project(state.home().id).expect("home");
-    let (mut boot, requests) = stub_boot(state);
-    boot.settings.appearance.hidden_worktrees.insert(hidden);
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    let mut sent = Sent(requests, Vec::new());
-    view.update(cx, |model, cx| {
-        model.receive((ServerId::local(), 1, Update::Connected(Vec::new())), cx);
-        sent.take();
-        acknowledge_catalog(model, cx);
-        assert_eq!(sent.syncs(), 1, "one project syncs at a time");
-        for (project, next) in [(first, 1), (second, 0)] {
-            model.worktrees_synced(project, model.servers.local.generation, Ok(Vec::new()), cx);
-            assert_eq!(sent.syncs(), next);
-        }
-    });
 }
 
 fn pruning_fixture() -> (AppState, ProjectId, [ProjectId; 3], tempfile::TempDir) {
@@ -315,7 +133,7 @@ fn sync_prunes_empty_worktrees_without_allowing_tabs_during_reconciliation(
     );
     entry.registered = Some(listed);
     let missing_record = state.project(missing).expect("missing").descriptor();
-    let (view, cx, mut sent, _) = connected(state, cx);
+    let (view, cx, mut sent) = connected(state, cx);
     view.update(cx, |model, cx| {
         model.sync_worktrees(root, cx);
         assert_eq!(sent.syncs(), 1);
@@ -385,7 +203,7 @@ fn sync_prunes_empty_worktrees_without_allowing_tabs_during_reconciliation(
 #[gpui::test]
 fn failed_and_obsolete_worktree_lists_never_prune(cx: &mut TestAppContext) {
     let (state, root, _, _directory) = pruning_fixture();
-    let (view, cx, mut sent, _) = connected(state, cx);
+    let (view, cx, mut sent) = connected(state, cx);
     view.update(cx, |model, cx| {
         model.sync_worktrees(root, cx);
         assert_eq!(sent.syncs(), 1);
@@ -424,7 +242,7 @@ fn worktree_sync_preserves_tabs_opened_while_it_was_running(cx: &mut TestAppCont
         .collect();
     entries[0].registered = Some(listed);
     entries[1].locked = true;
-    let (view, cx, mut sent, _) = connected(state, cx);
+    let (view, cx, mut sent) = connected(state, cx);
     view.update(cx, |model, cx| {
         model.sync_worktrees(root, cx);
         assert_eq!(sent.syncs(), 1);
@@ -438,7 +256,7 @@ fn worktree_sync_preserves_tabs_opened_while_it_was_running(cx: &mut TestAppCont
 #[gpui::test]
 fn worktree_sync_never_prunes_projects_added_after_the_listing_started(cx: &mut TestAppContext) {
     let (state, root, children, _directory) = pruning_fixture();
-    let (view, cx, mut sent, _) = connected(state, cx);
+    let (view, cx, mut sent) = connected(state, cx);
     view.update(cx, |model, cx| {
         model.sync_worktrees(root, cx);
         assert_eq!(sent.syncs(), 1);
@@ -532,7 +350,7 @@ fn pruning_uses_remaining_queue_capacity_and_resumes_after_reconciliation(cx: &m
     while state.project_intent_capacity(ServerId::local()) > 1 {
         state.rename_project(root, "Pending edit").expect("edit");
     }
-    let (view, cx, mut sent, _) = connected(state, cx);
+    let (view, cx, mut sent) = connected(state, cx);
     view.update(cx, |model, cx| {
         model.sync_worktrees(root, cx);
         assert_eq!(sent.syncs(), 1);

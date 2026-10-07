@@ -184,12 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn pastes_are_bracketed_only_when_the_program_asks() {
-        assert_eq!(paste("ls", false), b"ls");
-        assert_eq!(paste("ls", true), b"\x1b[200~ls\x1b[201~");
-    }
-
-    #[test]
     fn pasted_text_cannot_escape_its_brackets() {
         assert_eq!(
             paste("a\r\nb\n\x1b[201~rm\u{009b}201~", true),

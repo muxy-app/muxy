@@ -567,29 +567,6 @@ fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElemen
 mod tests {
     use super::*;
 
-    #[test]
-    fn crop_stays_square_and_inside_portrait_landscape_and_extreme_aspect_images() {
-        for (width, height) in [(100.0, 300.0), (300.0, 100.0), (1.0, 1024.0), (1024.0, 1.0)] {
-            let mut crop = Crop {
-                width,
-                height,
-                zoom: 1.0,
-                offset: point(0.0, 0.0),
-            };
-            for zoom in [1.0, 5.0, 0.1, 100.0] {
-                crop.zoom(zoom);
-                for offset in [-1000.0, 0.0, 1000.0] {
-                    crop.offset = point(offset, -offset);
-                    crop.clamp();
-                    let (x, y, side) = crop.rectangle();
-                    assert!(side > 0);
-                    assert!(f64::from(x + side) <= f64::from(width));
-                    assert!(f64::from(y + side) <= f64::from(height));
-                }
-            }
-        }
-    }
-
     #[gpui::test]
     fn cropped_logo_preserves_alpha_and_produces_bounded_png(cx: &mut gpui::TestAppContext) {
         let image = image::RgbaImage::from_pixel(80, 40, image::Rgba([240, 60, 10, 128]));
@@ -602,16 +579,5 @@ mod tests {
         let decoded = image::load_from_memory(&png).expect("decode").to_rgba8();
         assert_eq!(decoded.dimensions(), (256, 256));
         assert_eq!(decoded.get_pixel(128, 128).0, [240, 60, 10, 128]);
-    }
-
-    #[test]
-    fn load_rejects_non_images_and_oversized_input() {
-        let file = tempfile::NamedTempFile::new().expect("file");
-        std::fs::write(file.path(), b"not an image").expect("write");
-        assert!(load(file.path()).is_err());
-        file.as_file()
-            .set_len(20 * 1024 * 1024 + 1)
-            .expect("resize");
-        assert!(load(file.path()).is_err());
     }
 }

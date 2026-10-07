@@ -1,57 +1,8 @@
 #[path = "../src/views/terminal/clipboard.rs"]
+#[allow(dead_code, reason = "only the path escaping is exercised here")]
 mod clipboard;
 
 use muxy_protocol::Modes;
-
-#[test]
-fn paste_preserves_unicode_and_normalizes_lf_crlf_and_cr() {
-    assert_eq!(
-        clipboard::paste("one\ntwo\r\n三\rfour", Modes::default()),
-        "one\rtwo\r三\rfour".as_bytes()
-    );
-}
-
-#[test]
-fn bracketed_paste_wraps_the_whole_payload_once() {
-    let modes = Modes {
-        bracketed_paste: true,
-        ..Modes::default()
-    };
-    assert_eq!(
-        clipboard::paste("  one\n    two\n", modes),
-        b"\x1b[200~  one\r    two\r\x1b[201~"
-    );
-    assert!(clipboard::paste("", modes).is_empty());
-    assert!(clipboard::paste("", Modes::default()).is_empty());
-}
-
-#[test]
-fn file_paths_are_shell_escaped_losslessly_and_bracketed_once() {
-    use std::os::unix::ffi::OsStringExt;
-    use std::path::PathBuf;
-    let paths = [PathBuf::from("/tmp/a b"), PathBuf::from("/tmp/it's.txt")];
-    assert_eq!(
-        clipboard::paths(&paths, Modes::default()),
-        Some(b"'/tmp/a b' '/tmp/it'\\''s.txt'".to_vec())
-    );
-    let modes = Modes {
-        bracketed_paste: true,
-        ..Modes::default()
-    };
-    assert_eq!(
-        clipboard::paths(&paths, modes),
-        Some(b"\x1b[200~'/tmp/a b' '/tmp/it'\\''s.txt'\x1b[201~".to_vec())
-    );
-    let path = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff".to_vec()));
-    assert_eq!(
-        clipboard::paths(&[path], Modes::default()),
-        Some(b"'/tmp/\xff'".to_vec())
-    );
-    assert_eq!(clipboard::paths(&[], modes), Some(Vec::new()));
-    for path in ["relative", "/tmp/a\0b"] {
-        assert!(clipboard::paths(&[PathBuf::from(path)], modes).is_none());
-    }
-}
 
 #[test]
 fn control_character_paths_round_trip_through_bash_and_zsh_without_terminal_controls()

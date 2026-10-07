@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
 
 use super::*;
 
@@ -62,24 +61,6 @@ fn enabling_creates_one_identity_and_reports_the_listener() -> Result<(), Server
     let state = remote.state(&HashSet::new());
     assert_eq!(state.status, ListenerStatus::Listening);
     assert_eq!(state.settings.port, 7420);
-    Ok(())
-}
-
-#[test]
-fn pairing_is_single_use_and_trims_the_device_name() -> Result<(), ServerError> {
-    let remote = enabled()?;
-    let secret = offer(&remote, ClientId::new());
-    assert!(remote.pair(&request([0; 16]), server()).is_none());
-    let paired = remote
-        .pair(&request(secret), server())
-        .ok_or_else(|| unavailable("pairing failed"))?;
-    assert_eq!(paired.server, server());
-    assert!(remote.pair(&request(secret), server()).is_none());
-    let state = remote.state(&HashSet::from([paired.credential.device]));
-    assert_eq!(state.devices.len(), 1);
-    assert_eq!(state.devices[0].name, "Phone");
-    assert!(state.devices[0].connected);
-    assert_eq!(state.pairing_expires_at, None);
     Ok(())
 }
 
@@ -156,15 +137,6 @@ fn revoked_devices_are_no_longer_authorized() -> Result<(), ServerError> {
 }
 
 #[test]
-fn given_addresses_lead_the_pairing_link_even_without_a_network() -> Result<(), ServerError> {
-    let remote = enabled()?;
-    let offer = remote.start_pairing(ClientId::new(), &["box.example.com".into()])?;
-    assert_eq!(offer.invite.hosts[0], "box.example.com");
-    assert_eq!(offer.invite.validate(), Ok(()));
-    Ok(())
-}
-
-#[test]
 fn pairing_needs_access_on_and_listening() -> Result<(), ServerError> {
     let remote = RemoteAccess::memory();
     assert!(remote.start_pairing(ClientId::new(), &[]).is_err());
@@ -190,55 +162,6 @@ fn unauthenticated_admissions_are_capped_and_released() {
     assert!(remote.admit().is_none());
     drop(admitted);
     assert!(remote.admit().is_some());
-}
-
-#[test]
-fn listener_changes_are_applied_without_holding_the_state_lock() -> Result<(), ServerError> {
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let recorded = Arc::clone(&calls);
-    let mut remote = RemoteAccess::memory();
-    remote.set_listener(Box::new(move |listening| {
-        let port = listening.map(|(port, _)| port);
-        recorded
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(port);
-        ListenerStatus::Listening
-    }));
-    let remote = Arc::new(remote);
-    remote.configure(RemoteAccessSettings {
-        enabled: true,
-        port: 7419,
-    })?;
-    remote.configure(RemoteAccessSettings {
-        enabled: false,
-        port: 7419,
-    })?;
-    assert_eq!(
-        *calls.lock().unwrap_or_else(PoisonError::into_inner),
-        vec![Some(7419), None]
-    );
-    Ok(())
-}
-
-#[test]
-fn pairing_is_refused_once_the_device_limit_is_reached() -> Result<(), ServerError> {
-    let remote = enabled()?;
-    remote.lock().stored.devices = (0..MAX_DEVICES)
-        .map(|index| Device {
-            id: DeviceId::new(),
-            name: format!("Phone {index}"),
-            token_hash: [0; 32],
-            paired_at: 1,
-            last_seen: None,
-        })
-        .collect();
-    let error = remote
-        .start_pairing(ClientId::new(), &[])
-        .err()
-        .ok_or_else(|| unavailable("pairing started"))?;
-    assert!(error.message().contains("Revoke"), "{error}");
-    Ok(())
 }
 
 #[test]

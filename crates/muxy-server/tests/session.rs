@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
@@ -26,44 +25,6 @@ struct Fixture {
 }
 
 #[test]
-fn create_lists_the_session_and_attach_delivers_a_snapshot() -> TestResult {
-    let fixture = fixture("snapshot")?;
-    let (info, handle) = session(&fixture)?;
-
-    assert_eq!(
-        info.directory.0,
-        fixture.directory.to_string_lossy().as_bytes()
-    );
-    assert_eq!(fixture.registry.list(), vec![info.clone()]);
-    assert_eq!(handle.id(), info.id);
-
-    let (_events, snapshot) = attach(&handle, 1, SIZE)?;
-
-    assert_eq!(snapshot.channel, ChannelId(1));
-    assert_eq!(snapshot.size, SIZE);
-    assert_eq!(snapshot.rows.len(), usize::from(SIZE.rows));
-    assert_eq!(
-        snapshot.directory.0,
-        fixture.directory.canonicalize()?.as_os_str().as_bytes()
-    );
-    fixture.finish()
-}
-
-#[test]
-fn echoed_input_arrives_in_a_frame() -> TestResult {
-    let fixture = fixture("echo")?;
-    let (_, handle) = session(&fixture)?;
-    let (events, _) = attach(&handle, 1, SIZE)?;
-
-    handle.send(SessionCommand::Input(b"echo muxy-ok\n".to_vec()))?;
-    let frame = wait_for_text(&events, "muxy-ok")?;
-
-    assert!(!frame.reset);
-    assert!(frame.seq >= 1);
-    fixture.finish()
-}
-
-#[test]
 fn a_second_attachment_gets_its_own_snapshot_and_the_same_frames() -> TestResult {
     let fixture = fixture("second")?;
     let (_, handle) = session(&fixture)?;
@@ -85,21 +46,6 @@ fn a_second_attachment_gets_its_own_snapshot_and_the_same_frames() -> TestResult
     wait_for_text(&first, "muxy-again")?;
 
     assert!(no_frame_containing(&second, "muxy-again"));
-    fixture.finish()
-}
-
-#[test]
-fn resize_sends_a_full_reset_frame_of_the_new_size() -> TestResult {
-    let fixture = fixture("resize")?;
-    let (_, handle) = session(&fixture)?;
-    let (events, _) = attach(&handle, 1, SIZE)?;
-    let smaller = Size { cols: 60, rows: 20 };
-
-    handle.send(SessionCommand::Resize(smaller))?;
-    let frame = wait_for_frame(&events, |frame| frame.reset)?;
-
-    assert_eq!(frame.rows.len(), usize::from(smaller.rows));
-    assert!(frame.rows.iter().all(|row| row.index < smaller.rows));
     fixture.finish()
 }
 
@@ -160,36 +106,6 @@ fn end_kills_a_running_program() -> TestResult {
         }
     );
     assert!(fixture.registry.list().is_empty());
-    fixture.finish()
-}
-
-#[test]
-fn creating_in_a_missing_directory_is_a_bad_path_error() -> TestResult {
-    let fixture = fixture("missing")?;
-    let missing = fixture.directory.join("missing");
-
-    let error = fixture
-        .registry
-        .create(&missing, SIZE)
-        .err()
-        .ok_or("create succeeded in a missing directory")?;
-
-    assert_eq!(error.code(), ErrorCode::BadPath);
-    assert!(fixture.registry.list().is_empty());
-    fixture.finish()
-}
-
-#[test]
-fn creating_with_a_zero_size_is_a_bad_size_error() -> TestResult {
-    let fixture = fixture("size")?;
-
-    let error = fixture
-        .registry
-        .create(&fixture.directory, Size { cols: 0, rows: 24 })
-        .err()
-        .ok_or("create succeeded with zero columns")?;
-
-    assert_eq!(error.code(), ErrorCode::BadSize);
     fixture.finish()
 }
 

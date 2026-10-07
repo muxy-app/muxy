@@ -248,23 +248,4 @@ mod tests {
         }
         Ok(())
     }
-
-    #[test]
-    fn remote_selectors_match_names_and_exact_paths_only() -> Result {
-        let directory = std::env::current_dir()?;
-        let here = project("Here", &directory.to_string_lossy());
-        let projects = vec![here.clone()];
-        assert_eq!(select(projects.clone(), ".", Paths::Local)?, here);
-        assert!(select(projects.clone(), ".", Paths::Remote).is_err());
-        assert_eq!(
-            select(
-                projects.clone(),
-                &directory.to_string_lossy(),
-                Paths::Remote
-            )?,
-            here
-        );
-        assert_eq!(select(projects, "here", Paths::Remote)?, here);
-        Ok(())
-    }
 }

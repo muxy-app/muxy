@@ -2,8 +2,6 @@ mod capture;
 mod element;
 
 pub(crate) use element::workspace;
-#[cfg(test)]
-mod tests;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};

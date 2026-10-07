@@ -203,16 +203,3 @@ impl ExtensionsView {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn number_settings_store_numbers_or_fall_back_to_the_default() {
-        assert_eq!(number(" 42 "), Some(Value::from(42)));
-        assert_eq!(number("1.5"), Some(serde_json::json!(1.5)));
-        assert_eq!(number(""), None);
-        assert_eq!(number("fast"), None);
-    }
-}

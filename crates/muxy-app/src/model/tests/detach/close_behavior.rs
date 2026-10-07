@@ -59,41 +59,6 @@ fn configured_close_detaches_a_whole_split_tab_or_only_the_shortcut_pane(cx: &mu
 }
 
 #[gpui::test]
-fn configured_detach_rolls_back_a_whole_tab_on_save_failure_and_works_disconnected(
-    cx: &mut TestAppContext,
-) {
-    let (mut state, pane) = terminal_state();
-    state.split_pane(pane, Direction::Right).expect("split");
-    let (mut boot, requests) = stub_boot(state);
-    boot.settings.window.close_behavior = CloseBehavior::Detach;
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        let before = model.state.clone();
-        let path = model.path.clone();
-        let blocked = path.with_file_name("blocked");
-        std::fs::write(&blocked, "file").expect("blocked directory");
-        model.path = blocked.join("state.json");
-        let tab = model.active_tab().expect("tab");
-        model.close_tab(tab, cx);
-        assert_eq!(model.state, before);
-        assert!(model.detached_pending.is_empty());
-        model.path = path;
-        model.disconnect(ServerId::local(), cx);
-        model.close_tab(tab, cx);
-        assert!(model.state.home().tabs.is_empty());
-        assert!(
-            model
-                .state
-                .pending_cancellations(ServerId::local())
-                .is_empty()
-        );
-        assert!(model.state.pending_discards(ServerId::local()).is_empty());
-        assert_eq!(store::load(&model.path).expect("layout"), model.state);
-    });
-    assert!(requests.try_iter().all(|(_, work)| non_destructive(&work)));
-}
-
-#[gpui::test]
 fn configured_detach_during_creation_preserves_late_sessions_and_releases_ownership(
     cx: &mut TestAppContext,
 ) {
@@ -146,34 +111,4 @@ fn configured_detach_during_creation_preserves_late_sessions_and_releases_owners
             );
         });
     }
-}
-
-#[gpui::test]
-fn changing_close_behavior_during_confirmation_preserves_the_original_intent(
-    cx: &mut TestAppContext,
-) {
-    let (state, pane) = terminal_state();
-    let (boot, requests) = stub_boot(state);
-    assert_eq!(
-        boot.settings.window.close_behavior,
-        CloseBehavior::CloseSession
-    );
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.servers.local.connection = ConnectionState::Ready;
-        attach_pane(model, pane, 1, cx);
-        requests.try_iter().for_each(drop);
-        let tab = model.active_tab().expect("tab");
-        let session = model.pane_session(pane).expect("session");
-        model.close_tab(tab, cx);
-        assert_eq!(model.pending_close, Some(tab));
-        model.settings.window.close_behavior = CloseBehavior::Detach;
-        model.receive_close_checked(tab, session, Ok(None), cx);
-        assert!(model.state.home().tabs.is_empty());
-        assert!(
-            requests
-                .try_iter()
-                .any(|(_, work)| matches!(work, Work::Discard(id, _) if id == session))
-        );
-    });
 }

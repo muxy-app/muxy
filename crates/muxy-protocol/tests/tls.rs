@@ -55,19 +55,6 @@ fn pair() -> Result<(Halves, Halves)> {
 }
 
 #[test]
-fn bytes_round_trip_through_split_halves() -> Result {
-    let ((mut client_read, mut client_write), (mut server_read, mut server_write)) = pair()?;
-    client_write.write_all(b"hello")?;
-    let mut received = [0; 5];
-    server_read.read_exact(&mut received)?;
-    assert_eq!(&received, b"hello");
-    server_write.write_all(b"world")?;
-    client_read.read_exact(&mut received)?;
-    assert_eq!(&received, b"world");
-    Ok(())
-}
-
-#[test]
 fn closing_one_writer_ends_that_direction_only() -> Result {
     let ((mut client_read, client_write), (mut server_read, mut server_write)) = pair()?;
     drop(client_write);

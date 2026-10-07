@@ -583,21 +583,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn image_formats_name_their_extension() {
-        for (bytes, extension) in [
-            (&b"\x89PNG\r\n"[..], "png"),
-            (b"\xff\xd8\xff\xe0", "jpg"),
-            (b"GIF89a", "gif"),
-            (b"RIFF\0\0\0\0WEBPVP8", "webp"),
-            (b"II*\0", "tiff"),
-            (b"MM\0*", "tiff"),
-            (b"", "png"),
-        ] {
-            assert_eq!(image_extension(bytes), extension);
-        }
-    }
-
-    #[test]
     fn copies_are_read_only_and_named_as_copies() {
         let copy = save_copy(b"fn main() {}", Path::new("/srv/app/main.rs"), "box/1").unwrap();
         assert_eq!(

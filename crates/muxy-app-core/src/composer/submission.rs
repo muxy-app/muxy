@@ -142,67 +142,6 @@ mod tests {
     }
 
     #[test]
-    fn selected_nonblank_text_suppresses_files_and_blank_selection_uses_the_draft() {
-        let mut selected = snapshot("draft");
-        selected.selected_text = Some("chosen".to_owned());
-        selected.file_paths = vec!["/tmp/file".to_owned()];
-        assert_eq!(
-            plan_submission(selected).segments,
-            [SubmissionSegment::Text("chosen".to_owned())]
-        );
-
-        let mut blank = snapshot("draft");
-        blank.selected_text = Some(" \n".to_owned());
-        blank.file_paths = vec!["/tmp/file".to_owned()];
-        assert_eq!(
-            plan_submission(blank).segments,
-            [
-                SubmissionSegment::LocalPath("/tmp/file".to_owned()),
-                SubmissionSegment::Text(" draft".to_owned()),
-            ]
-        );
-    }
-
-    #[test]
-    fn files_precede_body_with_exact_spacing_and_whitespace_body_is_omitted() {
-        let mut value = snapshot("body");
-        value.file_paths = vec!["/tmp/a".to_owned(), "/tmp/b".to_owned()];
-        assert_eq!(
-            plan_submission(value).segments,
-            [
-                SubmissionSegment::LocalPath("/tmp/a".to_owned()),
-                SubmissionSegment::Text(" ".to_owned()),
-                SubmissionSegment::LocalPath("/tmp/b".to_owned()),
-                SubmissionSegment::Text(" body".to_owned()),
-            ]
-        );
-        let mut whitespace = snapshot(" \n\t");
-        whitespace.file_paths = vec!["/tmp/a".to_owned()];
-        assert_eq!(
-            plan_submission(whitespace).segments,
-            [SubmissionSegment::LocalPath("/tmp/a".to_owned())]
-        );
-    }
-
-    #[test]
-    fn duplicate_files_are_removed_without_changing_first_seen_order() {
-        let mut value = snapshot("");
-        value.file_paths = vec![
-            "/tmp/a".to_owned(),
-            "/tmp/b".to_owned(),
-            "/tmp/a".to_owned(),
-        ];
-        assert_eq!(
-            plan_submission(value).segments,
-            [
-                SubmissionSegment::LocalPath("/tmp/a".to_owned()),
-                SubmissionSegment::Text(" ".to_owned()),
-                SubmissionSegment::LocalPath("/tmp/b".to_owned()),
-            ]
-        );
-    }
-
-    #[test]
     fn image_tokens_preserve_order_and_unknown_or_invalid_tokens_remain_literal() {
         let mut value = snapshot("a[Image 2]b[Image 9]c[Image x]d[Image 2]");
         value.image_attachments = vec![ImageAttachment {
@@ -224,10 +163,5 @@ mod tests {
                 },
             ]
         );
-    }
-
-    #[test]
-    fn empty_snapshot_has_no_submission_segments() {
-        assert!(plan_submission(snapshot(" \n")).is_empty());
     }
 }

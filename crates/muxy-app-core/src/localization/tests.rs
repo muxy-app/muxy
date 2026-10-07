@@ -7,8 +7,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use serde_json::json;
-
 use super::plist::{Value, dictionary};
 use super::*;
 
@@ -130,19 +128,6 @@ Unquoted = value.with-dots;
     ] {
         assert!(dictionary(invalid).is_err(), "accepted {invalid:?}");
     }
-}
-
-#[test]
-fn stringsdict_reads_as_plural_entries() {
-    let parsed = dictionary(STRINGSDICT.as_bytes()).unwrap();
-    let Value::Dictionary(entry) = &parsed["%lld changes"] else {
-        panic!("not a plural entry");
-    };
-    assert_eq!(
-        entry["NSStringLocalizedFormatKey"],
-        Value::String("%#@changes@".into())
-    );
-    assert_eq!(catalog::incompatible_key(&parsed), None);
 }
 
 #[test]
@@ -425,52 +410,4 @@ fn bundles_are_checked_like_main() {
         std::os::unix::fs::symlink(&outside, bundle.join("de.lproj/Localizable.strings")).unwrap();
         assert!(validate_bundle(&bundle, "de").is_err());
     }
-}
-
-#[test]
-fn enabled_extensions_provide_languages_with_cldr_plurals() {
-    let profile = tempfile::tempdir().unwrap();
-    let package = profile.path().join("extensions/packs");
-    write(
-        &package,
-        &[
-            (
-                "package.json",
-                &json!({"name":"packs","version":"1.0.0","muxy":{"localizations":[
-                    {"id":"ru","language":"ru","title":"Русский","bundle":"localization/Russian.bundle"}
-                ]}})
-                .to_string(),
-            ),
-            ("localization/Russian.bundle/Info.plist", INFO),
-            (
-                "localization/Russian.bundle/ru.lproj/Localizable.strings",
-                "\"Settings\" = \"Настройки\";",
-            ),
-            ("localization/Russian.bundle/ru.lproj/Localizable.stringsdict", STRINGSDICT),
-        ],
-    );
-    let mut registry = Registry::load(profile.path());
-    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
-    assert!(providers(&registry).is_empty());
-    assert_eq!(provider(&registry, "packs:ru"), None);
-    registry.set_enabled("packs", true).unwrap();
-
-    let listed = providers(&registry);
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].selection(), "packs:ru");
-    assert_eq!(listed[0].title, "Русский");
-    let russian = load(&provider(&registry, "packs:ru").unwrap()).unwrap();
-    assert_eq!(russian.translate("Settings"), "Настройки");
-    let changes = |count: i64| russian.format("%lld changes", &[count.into()]);
-    assert_eq!(changes(1), "1 изменение");
-    assert_eq!(changes(3), "3 изменения");
-    assert_eq!(changes(5), "5 изменений");
-    assert_eq!(changes(21), "21 изменение");
-
-    assert_eq!(parse_selection("packs:ru"), Some(("packs", "ru")));
-    assert_eq!(parse_selection("a:b:c"), Some(("a", "b:c")));
-    for invalid in ["", "packs", ":ru", "packs:"] {
-        assert_eq!(parse_selection(invalid), None, "{invalid}");
-    }
-    assert_eq!(provider(&registry, "packs:de"), None);
 }

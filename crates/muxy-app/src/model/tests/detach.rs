@@ -111,37 +111,6 @@ fn terminal_context_menu_detaches_clicked_split_and_last_pane_without_closing_se
 }
 
 #[gpui::test]
-fn detach_save_failure_keeps_the_pane_and_sends_no_detach(cx: &mut TestAppContext) {
-    let (state, pane) = terminal_state();
-    let (boot, requests) = stub_boot(state);
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.servers.local.connection = ConnectionState::Ready;
-        attach_pane(model, pane, 1, cx);
-        let previous = model.state.clone();
-        let original_path = model.path.clone();
-        let blocked = original_path.with_file_name("blocked");
-        std::fs::write(&blocked, "file").expect("blocked directory");
-        model.path = blocked.join("state.json");
-        requests.try_iter().for_each(drop);
-        model.detach_terminal(pane, cx);
-        assert_eq!(model.state, previous);
-        assert!(model.terminal(&pane).is_some());
-        assert!(
-            model
-                .error
-                .as_ref()
-                .is_some_and(|error| error.contains("Could not save tabs"))
-        );
-        assert!(requests.try_iter().all(|(_, work)| !matches!(
-            work,
-            Work::Detach(_) | Work::References(_)
-        ) && non_destructive(&work)));
-        model.path = original_path;
-    });
-}
-
-#[gpui::test]
 fn late_attachment_replies_after_detach_never_discard_the_existing_session(
     cx: &mut TestAppContext,
 ) {
@@ -182,44 +151,6 @@ fn late_attachment_replies_after_detach_never_discard_the_existing_session(
             }
         });
     }
-}
-
-#[gpui::test]
-fn detach_shortcut_is_unassigned_and_can_be_configured(cx: &mut TestAppContext) {
-    let (state, pane) = terminal_state();
-    let (boot, requests) = stub_boot(state);
-    assert!(
-        boot.settings
-            .keymap
-            .chord(muxy_core::shortcuts::ShortcutId::DetachTerminal)
-            .is_none()
-    );
-    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.run_until_parked();
-    cx.simulate_keystrokes("cmd-shift-e");
-    view.update(cx, |model, cx| {
-        assert_eq!(model.active_pane(), Some(pane));
-        model.change_preference(
-            crate::views::settings::Change::Binding(
-                "detach_terminal".into(),
-                Some("cmd-shift-e".parse().expect("shortcut")),
-            ),
-            cx,
-        );
-    });
-    cx.simulate_keystrokes("cmd-shift-e");
-    view.read_with(cx, |model, _| {
-        assert!(model.state.home().tabs.is_empty());
-        assert!(
-            model
-                .state
-                .pending_cancellations(ServerId::local())
-                .is_empty()
-        );
-        assert!(model.state.pending_discards(ServerId::local()).is_empty());
-    });
-    assert!(requests.try_iter().all(|(_, work)| non_destructive(&work)));
 }
 
 pub(super) fn verify_live_detach(

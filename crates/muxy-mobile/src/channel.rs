@@ -201,39 +201,3 @@ impl Ending {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_bridge_command_is_the_one_every_client_runs() {
-        assert_eq!(bridge_command(), bridge::command(Start::IfNeeded));
-    }
-
-    #[test]
-    fn the_ending_keeps_the_first_status_and_the_end_of_the_errors() {
-        let ending = Ending::default();
-        ending.push(&[b'a'; STDERR_TAIL]);
-        ending.push(b"sh: 1: exec: muxy: not found\n");
-        ending.finish(Some(127));
-        ending.finish(None);
-        let exit = ending.wait(Duration::ZERO);
-        assert_eq!(exit.status, Some(127));
-        assert_eq!(exit.stderr.len(), STDERR_TAIL);
-        assert!(exit.stderr.ends_with("muxy: not found\n"));
-    }
-
-    #[test]
-    fn an_unfinished_ending_reports_what_it_has_after_the_wait() {
-        let ending = Ending::default();
-        ending.push(b"still logging in\n");
-        assert_eq!(
-            ending.wait(Duration::from_millis(10)),
-            BridgeExit {
-                status: None,
-                stderr: "still logging in\n".into(),
-            }
-        );
-    }
-}

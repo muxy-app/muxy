@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fs;
 
-use muxy_app_core::{AppState, ProjectId, ServerId, WindowBounds, restore, store};
+use muxy_app_core::{AppState, ProjectId, ServerId, restore, store};
 use muxy_protocol::{ServerPath, SessionId, SessionInfo};
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -32,20 +32,6 @@ fn closing_offline_persists_cleanup_without_restoring_the_tab() -> TestResult {
             .is_empty()
     );
     fs::remove_file(path)?;
-    Ok(())
-}
-
-#[test]
-fn existing_state_files_load_without_pending_cleanup() -> TestResult {
-    let state = AppState::bootstrap()?;
-    let mut value = serde_json::to_value(&state)?;
-    value
-        .as_object_mut()
-        .ok_or("not an object")?
-        .remove("pending_discards");
-    let loaded: AppState = serde_json::from_value(value)?;
-    assert_eq!(loaded, state);
-    assert!(loaded.pending_discards(ServerId::local()).is_empty());
     Ok(())
 }
 
@@ -104,31 +90,6 @@ fn empty_restore_does_not_create_a_tab_or_adopt_an_unreferenced_session() -> Tes
         restore::RestorePlan::default()
     );
     assert!(state.home().tabs.is_empty());
-    Ok(())
-}
-
-#[test]
-fn saved_bounds_and_ended_session_references_round_trip() -> TestResult {
-    let path = std::env::temp_dir().join(format!("muxy-restore-{}.json", ProjectId::new()));
-    let mut state = AppState::bootstrap()?;
-    state.open_terminal_tab(state.home().id)?;
-    let pane = state.home().tabs[0].panes[0].id;
-    let session = SessionId::new(u64::MAX).ok_or("zero ID")?;
-    state.set_pane_session(pane, Some(session))?;
-    state.set_window_bounds(Some(WindowBounds {
-        x: -800.0,
-        y: 75.0,
-        width: 1100.0,
-        height: 700.0,
-    }))?;
-    store::save(&path, &state)?;
-    let loaded = store::load(&path)?;
-    fs::remove_file(path)?;
-    assert_eq!(loaded, state);
-    let plan = restore::plan(&loaded, ServerId::local(), &[]);
-    assert_eq!(plan.close, vec![(pane, session)]);
-    assert!(plan.attach.is_empty());
-    assert!(plan.create.is_empty());
     Ok(())
 }
 

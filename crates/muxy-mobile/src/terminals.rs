@@ -299,18 +299,4 @@ mod tests {
         let (view, _) = terminals.install(session, attachment(channel));
         assert!(view.lock().input.mouse_tracking);
     }
-
-    #[test]
-    fn only_mode_changes_the_screen_shows_are_reported() {
-        let terminals = Terminals::default();
-        let channel = ChannelId(1);
-        let session = SessionId::new(7).unwrap();
-        terminals.install(session, attachment(channel));
-        assert_eq!(terminals.metadata(channel, modes(false, true)), None);
-        assert_eq!(
-            terminals.metadata(channel, modes(true, true)),
-            Some(session)
-        );
-        assert_eq!(terminals.metadata(channel, modes(true, true)), None);
-    }
 }

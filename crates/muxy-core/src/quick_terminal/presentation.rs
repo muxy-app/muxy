@@ -62,9 +62,9 @@ pub fn should_restore_focus(requested: bool, panel_is_key: bool) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::float_cmp)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    use super::{PresentationPhase, PresentationState, should_capture_focus, should_restore_focus};
+    use super::{PresentationPhase, PresentationState};
 
     #[test]
     fn quick_terminal_presentation_generations_ignore_stale_completions() {
@@ -78,15 +78,5 @@ mod tests {
         assert!(state.complete(second_show));
         assert_eq!(state.phase, PresentationPhase::Visible);
         assert!(state.request_visibility(true).is_none());
-    }
-
-    #[test]
-    fn quick_terminal_focus_policy_matches_retained_behavior() {
-        assert!(should_capture_focus(false, true));
-        assert!(should_capture_focus(true, false));
-        assert!(!should_capture_focus(true, true));
-        assert!(should_restore_focus(true, true));
-        assert!(!should_restore_focus(true, false));
-        assert!(!should_restore_focus(false, true));
     }
 }

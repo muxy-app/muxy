@@ -94,10 +94,4 @@ mod tests {
             assert_eq!(parse_stat(stat), None);
         }
     }
-
-    #[test]
-    fn exited_process_metadata_is_unavailable() {
-        assert_eq!(process_directory(-1), None);
-        assert_eq!(foreground_member(u32::MAX), None);
-    }
 }

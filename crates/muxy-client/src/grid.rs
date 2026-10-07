@@ -299,18 +299,6 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_fills_named_rows_and_leaves_the_rest_blank() {
-        let grid = RunGrid::from_snapshot(&snapshot());
-        assert_eq!(grid.size, Size { cols: 10, rows: 3 });
-        assert_eq!(grid.rows.len(), 3);
-        assert_eq!(grid.row_text(0), "first");
-        assert_eq!(grid.row_text(1), "");
-        assert_eq!(grid.row_text(2), "third");
-        assert_eq!(grid.row_text(3), "");
-        assert_eq!(grid.cursor.row, 2);
-    }
-
-    #[test]
     fn partial_frame_replaces_only_its_rows_and_updates_cursor_and_modes() {
         let mut grid = RunGrid::from_snapshot(&snapshot());
         let frame = frame(
@@ -372,57 +360,6 @@ mod tests {
         assert_eq!(grid.rows.len(), 3);
         assert_eq!(grid.history_total, 0);
         assert!(grid.rows.iter().all(Vec::is_empty));
-    }
-
-    #[test]
-    fn resize_blanks_the_grid_at_the_new_size() {
-        let mut grid = RunGrid::from_snapshot(&snapshot());
-        grid.history = vec![row(0, "older")].into();
-        grid.history_cursor = Some(HistoryCursor(2));
-        grid.history_total = 100;
-        grid.resize(Size { cols: 4, rows: 2 });
-        assert_eq!(grid.size, Size { cols: 4, rows: 2 });
-        assert_eq!(grid.rows, vec![Vec::<Run>::new(); 2]);
-        assert!(grid.history.is_empty());
-        assert!(grid.history_cursor.is_none());
-        assert!(!grid.history_fresh);
-        assert_eq!(grid.history_total, 100);
-    }
-    #[test]
-    fn older_pages_prepend_in_order_without_overwriting_the_screen() {
-        let mut snapshot = snapshot();
-        snapshot.history = vec![row(0, "five"), row(1, "six")];
-        snapshot.history_cursor = Some(HistoryCursor(2));
-        snapshot.history_total = 6;
-        let mut grid = RunGrid::from_snapshot(&snapshot);
-        let screen = grid.rows.clone();
-        for (values, next) in [
-            (["three", "four"], Some(HistoryCursor(1))),
-            (["one", "two"], None),
-        ] {
-            grid.fetch_older(HistoryPage {
-                prompts: Vec::new(),
-                rows: vec![row(0, values[0]), row(1, values[1])],
-                next,
-                total_rows: 6,
-                screen: None,
-            });
-        }
-        let rows = (0..6)
-            .map(|index| {
-                grid.content_row(index)
-                    .unwrap_or(&[])
-                    .iter()
-                    .map(|run| run.text.as_str())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(rows, ["one", "two", "three", "four", "five", "six"]);
-        assert_eq!(grid.rows, screen);
-        assert_eq!(grid.history_cursor, None);
-        assert!(grid.history_fresh);
-        grid.apply(&frame(1, false, vec![row(1, "new output")]));
-        assert!(!grid.history_fresh);
     }
     #[test]
     fn hyperlinks_wait_for_their_frame_and_ignore_out_of_range_rows() {

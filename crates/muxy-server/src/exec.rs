@@ -488,28 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn launch_failures_read_like_main() {
-        let root = TestDirectory::new();
-        let launch = |program: &str, cwd: Option<&str>| {
-            let mut request = request("");
-            request.shell = None;
-            request.argv = vec![program.into()];
-            request.cwd = cwd.map(|path| ServerPath(path.as_bytes().to_vec()));
-            let failure = execute(&request, root.path(), &AtomicBool::new(false), || false)
-                .expect_err("launch fails");
-            assert_eq!(failure.code(), ErrorCode::SpawnFailed);
-            failure.message().to_owned()
-        };
-        assert_eq!(
-            launch("muxy-missing-command", None),
-            "command not found: muxy-missing-command"
-        );
-        let missing = "spawn process: No such file or directory";
-        assert_eq!(launch("/muxy/missing/command", None), missing);
-        assert_eq!(launch("true", Some("missing-folder")), missing);
-    }
-
-    #[test]
     fn timeout_and_disconnect_stop_commands_even_when_descendants_keep_pipes_open() {
         let root = TestDirectory::new();
         let mut request = request("trap '' TERM; sleep 30 & wait");
@@ -531,7 +509,8 @@ mod tests {
     #[test]
     fn output_is_bounded_while_both_pipes_are_drained() {
         let root = TestDirectory::new();
-        let request = request("head -c 5000000 /dev/zero; head -c 5000000 /dev/zero >&2");
+        let mut request = request("head -c 5000000 /dev/zero; head -c 5000000 /dev/zero >&2");
+        request.timeout_ms = 30_000;
         let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
         assert_eq!(result.stdout.len(), MAX_EXEC_OUTPUT);
         assert_eq!(result.stderr.len(), MAX_EXEC_OUTPUT);

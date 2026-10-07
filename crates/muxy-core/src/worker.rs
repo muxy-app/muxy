@@ -60,28 +60,3 @@ impl WorkerPool {
             })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn saturated_work_is_rejected_without_blocking_the_caller() -> io::Result<()> {
-        let pool = WorkerPool::new("bounded-test", 1, 1)?;
-        let (started, running) = mpsc::channel();
-        let (release, gate) = mpsc::channel();
-        pool.try_spawn(move || {
-            let _ = started.send(());
-            let _ = gate.recv();
-        })?;
-        running
-            .recv_timeout(Duration::from_secs(2))
-            .map_err(io::Error::other)?;
-        pool.try_spawn(|| {})?;
-        let rejected = pool.try_spawn(|| {}).err().map(|error| error.kind());
-        let _ = release.send(());
-        assert_eq!(rejected, Some(io::ErrorKind::WouldBlock));
-        Ok(())
-    }
-}

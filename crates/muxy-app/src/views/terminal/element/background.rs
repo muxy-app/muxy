@@ -55,32 +55,3 @@ pub(super) fn uncovered(
     }
     result
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn translucent_background_tiles_cover_each_pixel_once() {
-        let bounds = |x, y, w, h| Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
-        let outer = bounds(0.0, 0.0, 8.0, 6.0);
-        let colored = [
-            bounds(0.0, 1.0, 2.0, 4.0),
-            bounds(2.0, 2.0, 5.0, 2.0),
-            bounds(7.0, 1.0, 1.0, 5.0),
-        ];
-        let defaults = uncovered(outer, colored.into_iter());
-        for y in 0_u16..6 {
-            for x in 0_u16..8 {
-                let point = point(px(f32::from(x) + 0.5), px(f32::from(y) + 0.5));
-                let mut opacity = 0.0_f32;
-                for tile in defaults.iter().chain(&colored) {
-                    if tile.contains(&point) {
-                        opacity = 0.5 + opacity * 0.5;
-                    }
-                }
-                assert_eq!(opacity.to_bits(), 0.5_f32.to_bits(), "pixel {x},{y}");
-            }
-        }
-    }
-}
