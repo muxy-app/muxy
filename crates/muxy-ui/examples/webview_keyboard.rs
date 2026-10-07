@@ -207,7 +207,6 @@ mod probe {
     }
 
     struct Probe {
-        _page: Rc<NativeWebview>,
         focus: gpui::FocusHandle,
         modifiers: Rc<RefCell<Vec<gpui::Modifiers>>>,
     }
@@ -287,6 +286,77 @@ mod probe {
                 );
             }
         }
+    }
+
+    fn first_responder_in(window: &NSWindow, view: &NSView) -> bool {
+        window.firstResponder().is_some_and(|responder| {
+            responder
+                .downcast_ref::<NSView>()
+                .is_some_and(|responder| responder.isDescendantOf(view))
+        })
+    }
+
+    fn first_responder_is(window: &NSWindow, view: &NSView) -> bool {
+        window
+            .firstResponder()
+            .is_some_and(|responder| ptr::eq(Retained::as_ptr(&responder).cast::<NSView>(), view))
+    }
+
+    async fn check_focus_owner(
+        window: &HiddenKeyWindow,
+        native: &NativeWebview,
+        page: &WKWebView,
+        parent: &NSView,
+        cx: &AsyncApp,
+    ) {
+        let typing = NSEventModifierFlags::empty();
+        native.set_focused(false);
+        assert!(window.window.makeFirstResponder(Some(parent)));
+        evaluate(page, "editor.blur(); resetNavigationProbe()", cx).await;
+        cx.background_executor()
+            .timer(Duration::from_millis(200))
+            .await;
+        assert!(
+            first_responder_in(&window.window, page),
+            "a script focusing an element takes the native focus"
+        );
+        window.key_down("q", 12, typing, false, cx).await;
+        assert_eq!(
+            evaluate(page, "probeText()", cx).await,
+            "alpha\nbravo\ncharlie",
+            "a page Muxy doesn't show focused doesn't get keys"
+        );
+        assert!(
+            first_responder_is(&window.window, parent),
+            "keys go on to Muxy"
+        );
+
+        let frame = page.convertRect_toView(page.bounds(), None);
+        let editor = NSPoint::new(
+            frame.origin.x + 20.0,
+            frame.origin.y + frame.size.height - 20.0,
+        );
+        for kind in [NSEventType::LeftMouseDown, NSEventType::LeftMouseUp] {
+            let click = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                kind, editor, typing, 0.0, window.window.windowNumber(), None, 0, 1, 1.0,
+            ).expect("mouse event");
+            window.app.sendEvent(&click);
+        }
+        window.key_down("x", 7, typing, false, cx).await;
+        assert_eq!(
+            evaluate(page, "probeText()", cx).await.matches('x').count(),
+            1,
+            "a click into the page gives it the keyboard before Muxy hears of it"
+        );
+
+        native.set_focused(true);
+        assert!(first_responder_in(&window.window, page));
+        native.set_visible(false);
+        assert!(
+            first_responder_is(&window.window, parent),
+            "hiding the focused page gives the keyboard to Muxy"
+        );
+        native.set_visible(true);
     }
 
     async fn receive<T>(receiver: &async_channel::Receiver<T>, cx: &AsyncApp) -> T {
@@ -501,6 +571,7 @@ mod probe {
                         gpui::Bounds::new(point(px(0.0), px(0.0)), size(px(400.0), px(300.0)));
                     page.sync(bounds, bounds, gpui::rgb(0x00ff_ffff), 0.0);
                     page.set_visible(true);
+                    page.set_focused(true);
                     page.focus();
                     let view = parent
                         .subviews()
@@ -532,17 +603,14 @@ mod probe {
                         receive(&ready, cx).await.expect("page loaded");
                         check_modifiers(&native, &view, &parent, &delivered, cx).await;
                         check(&native, &view, cx).await;
+                        check_focus_owner(&native, &page, &view, &parent, cx).await;
                         drop(native);
                         cx.update(|cx| cx.quit()).expect("quit");
                     })
                     .detach();
                     let focus = cx.focus_handle();
                     focus.focus(window);
-                    cx.new(|_| Probe {
-                        _page: page,
-                        focus,
-                        modifiers,
-                    })
+                    cx.new(|_| Probe { focus, modifiers })
                 },
             )
             .expect("window");

@@ -335,6 +335,7 @@ impl Webview {
         cx: &mut Context<Self>,
     ) {
         let focus_change = self.presentation.update_focus(visible, blocked, focused);
+        self.native.set_focused(self.presentation.focused);
         if focus_change.is_some()
             || self.presentation.visible != visible
             || self.presentation.blocked != blocked
