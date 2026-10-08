@@ -91,24 +91,32 @@ fn every_default_binding_round_trips_and_resolves_both_directions() -> Result {
 }
 
 #[test]
-fn ghostty_defaults_seed_once_and_existing_config_is_preserved() -> Result {
+fn ghostty_defaults_are_created_once_and_existing_config_is_preserved() -> Result {
     let fixture = Fixture::new()?;
     let path = fixture.0.join("ghostty.conf");
-    assert_eq!(
-        TerminalSettings::load_with_seed(&path, None)?,
-        TerminalSettings::default()
-    );
+    assert_eq!(TerminalSettings::load(&path)?, TerminalSettings::default());
     let source = "font-family = Monaco\nfont-size = 16\n";
-    let seed = fixture.write("seed", source)?;
-    assert_eq!(
-        TerminalSettings::load_with_seed(&path, Some(&seed))?,
-        TerminalSettings::default()
-    );
-    fs::remove_file(&path)?;
-    let settings = TerminalSettings::load_with_seed(&path, Some(&seed))?;
+    fs::write(&path, source)?;
+    let settings = TerminalSettings::load(&path)?;
     assert_eq!(settings.font_size, 16.0);
     assert_eq!(settings.font_families, ["Monaco"]);
     assert_eq!(fs::read_to_string(path)?, source);
+    Ok(())
+}
+
+#[test]
+fn ghostty_theme_is_ignored_because_the_settings_theme_colors_terminals() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("ghostty.conf", "theme = \"Cursor Dark\"\nfont-size = 16\n")?;
+    let settings = TerminalSettings::load(&path)?;
+    assert_eq!(settings.font_size, 16.0);
+    assert_eq!(settings.options, TerminalSettings::default().options);
+    assert!(
+        settings
+            .diagnostics
+            .iter()
+            .any(|warning| warning.contains("theme is not supported by Muxy"))
+    );
     Ok(())
 }
 
@@ -182,7 +190,7 @@ fn terminal_save_preserves_comments_unknown_keys_and_includes_and_returns_effect
         "# keep this comment\r\nunknown-option = keep\r\nconfig-file = included.conf\r\n"
     ));
     assert_eq!(source.matches("font-size =").count(), 1);
-    assert_eq!(TerminalSettings::load_with_seed(&path, None)?, effective);
+    assert_eq!(TerminalSettings::load(&path)?, effective);
     Ok(())
 }
 
@@ -257,7 +265,7 @@ fn editing_terminal_values_does_not_copy_included_fonts_into_the_root() -> Resul
         "ghostty.conf",
         "font-family = Menlo\nfont-size = 13\nconfig-file = included.conf\n",
     )?;
-    let mut settings = TerminalSettings::load_with_seed(&path, None)?;
+    let mut settings = TerminalSettings::load(&path)?;
     assert_eq!(settings.font_families, ["Menlo", "Monaco"]);
     let keys = TerminalSettings::included_keys(&path)?;
     assert!(keys.contains("font-family") && keys.contains("font-size"));
@@ -278,8 +286,7 @@ fn ghostty_terminal_options_bindings_and_diagnostics_round_trip() -> Result {
     let fixture = Fixture::new()?;
     let path = fixture.write(
         "ghostty.conf",
-        r#"# keep this comment
-theme = dark:"Muxy",light:"Muxy Light"
+        r"# keep this comment
 background = #123456
 foreground = abcdef
 palette = 1=111111,196=234567
@@ -308,9 +315,9 @@ keybind = alt+arrow_left=csi:1;3D
 keybind = super+c=ignore
 keybind = global:super+a=new_window
 window-save-state = always
-"#,
+",
     )?;
-    let mut settings = TerminalSettings::load_with_seed(&path, None)?;
+    let mut settings = TerminalSettings::load(&path)?;
     let options = &settings.options;
     assert_eq!(options.background, Some(0x12_34_56));
     assert_eq!(options.palette[&196], 0x23_45_67);

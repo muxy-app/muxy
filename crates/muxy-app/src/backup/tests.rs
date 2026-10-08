@@ -245,8 +245,7 @@ fn recovery_archive_resolves_includes_and_keeps_original_files_for_rollback() {
     let import = prepare(target.path(), &recovery.join("recovery.muxy")).unwrap();
     stage(target.path(), &import).unwrap();
     assert!(apply_pending(target.path()).unwrap().is_none());
-    let terminal =
-        TerminalSettings::load_with_seed(&target.path().join("ghostty.conf"), None).unwrap();
+    let terminal = TerminalSettings::load(&target.path().join("ghostty.conf")).unwrap();
     assert_eq!(terminal.font_size.to_bits(), 21.0_f32.to_bits());
 }
 
