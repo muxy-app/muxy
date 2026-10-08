@@ -203,21 +203,7 @@ impl TerminalSettings {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let seed =
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/ghostty/config"));
-        Self::load_with_seed(path, seed.as_deref())
-    }
-
-    pub fn load_with_seed(path: &Path, seed: Option<&Path>) -> Result<Self> {
-        if !path.exists() {
-            let source = seed.map(fs::read_to_string).transpose();
-            let defaults = match source {
-                Ok(source) => source.unwrap_or_else(|| DEFAULT_CONFIG.into()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => DEFAULT_CONFIG.into(),
-                Err(error) => return Err(Error::new("Ghostty seed config", error)),
-            };
-            read_or_create(path, &defaults)?;
-        }
+        read_or_create(path, DEFAULT_CONFIG)?;
         Self::resolve(path).map(|(settings, _)| settings)
     }
 
@@ -322,7 +308,7 @@ impl TerminalSettings {
                 .trim();
             let optional = key == "config-file" && value.starts_with('?');
             let value = if optional { &value[1..] } else { value };
-            let value = if matches!(key, "font-feature" | "theme") {
+            let value = if key == "font-feature" {
                 value
             } else {
                 config_value(value).map_err(|error| Error::new(&context, error))?
@@ -518,9 +504,9 @@ impl TerminalSettings {
         ));
         crate::settings::appearance::atomic_write(&temporary, &updated)
             .map_err(|error| Error::new("ghostty.conf", error))?;
-        let result = Self::load_with_seed(&temporary, None).and_then(|_| {
+        let result = Self::load(&temporary).and_then(|_| {
             fs::rename(&temporary, path).map_err(|error| Error::new("ghostty.conf", error))?;
-            Self::load_with_seed(path, None)
+            Self::load(path)
         });
         if result.is_err() {
             let _ = fs::remove_file(&temporary);

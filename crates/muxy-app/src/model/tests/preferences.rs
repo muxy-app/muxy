@@ -20,7 +20,7 @@ pub(super) fn settings_window(
 ) -> (Entity<AppModel>, &mut VisualTestContext) {
     let config = boot.state_path.with_file_name("ghostty.conf");
     if !config.exists() {
-        muxy_app_core::settings::TerminalSettings::load_with_seed(&config, None)
+        muxy_app_core::settings::TerminalSettings::load(&config)
             .expect("isolated terminal configuration");
     }
     let (model, main) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));

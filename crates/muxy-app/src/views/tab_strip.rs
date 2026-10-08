@@ -395,7 +395,6 @@ fn tab_cell(
     let pane = tab.displayed_pane(model.state.shown_pane(tab));
     let active = model.visible_tabs().contains(&tab.id);
     let grouped = model.state.current_project().groups().is_some();
-    let focused = grouped && model.active_tab() == Some(tab.id);
     let bell = tab.panes.iter().any(|pane| {
         model
             .terminal(&pane.id)
@@ -444,18 +443,6 @@ fn tab_cell(
                 .when(!model.tab_drag.is_active(), |cell| {
                     cell.hover(|style| style.bg(color.opacity(if active { 0.18 } else { 0.08 })))
                 })
-        })
-        .when(focused, |cell| {
-            cell.child(
-                div()
-                    .debug_selector(|| "focused-group-tab".into())
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .bottom_0()
-                    .h(px(2.0))
-                    .bg(theme.accent),
-            )
         })
         .on_mouse_down(
             MouseButton::Right,
