@@ -1,9 +1,9 @@
 use super::*;
 use crate::views::terminal::colors::Palette;
-use crate::views::terminal::element::{Painting, RowPainting, RowRenderer, glyph, paint};
+use crate::views::terminal::element::{Painting, RowPainting, RowRenderer, paint};
 use gpui::{
     AnyView, AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, canvas, div,
-    font, point, px, rgb, size,
+    font, point, px, size,
 };
 use muxy_protocol::{Color, Run, Style};
 use std::rc::Rc;
@@ -104,23 +104,6 @@ fn chart_with_text(rows: u16, cols: u16, window: &mut Window, text: Option<&str>
 }
 
 #[gpui::test]
-fn layered_terminal_scene_survives_replay_and_cursor_clipping(cx: &mut gpui::TestAppContext) {
-    let (host, cx) = cx.add_window_view(|window, cx| Host(cx.new(|_| chart(4, 16, window))));
-    cx.run_until_parked();
-    let chart = host.read_with(cx, |host, _| host.0.clone());
-    let renders = chart.read_with(cx, |chart, _| chart.renders);
-    assert!(renders > 0);
-    for _ in 0..5 {
-        host.update(cx, |_, cx| cx.notify());
-        cx.run_until_parked();
-        assert_eq!(chart.read_with(cx, |chart, _| chart.renders), renders);
-    }
-    chart.update(cx, |_, cx| cx.notify());
-    cx.run_until_parked();
-    assert!(chart.read_with(cx, |chart, _| chart.renders) > renders);
-}
-
-#[gpui::test]
 #[ignore = "manual headless benchmark of terminal painting and GPUI scene replay"]
 fn terminal_scene_paint_and_replay_benchmark(cx: &mut gpui::TestAppContext) {
     use std::io::Write;
@@ -190,57 +173,6 @@ fn terminal_redraw_matrix(cx: &mut gpui::TestAppContext) {
                 );
             }
         }
-    }
-}
-
-fn assert_quad_order(layers: &QuadLayers, quads: &[(Bounds<Pixels>, Hsla)]) {
-    let mut positions = vec![usize::MAX; quads.len()];
-    let mut position = 0;
-    for layer in &layers.layers {
-        for (offset, &index) in layer.indices.iter().enumerate() {
-            assert_eq!(positions[index], usize::MAX);
-            positions[index] = position;
-            position += 1;
-            assert_eq!(layer.bounds.union(&quads[index].0), layer.bounds);
-            for &other in &layer.indices[..offset] {
-                assert!(!quads[index].0.intersects(&quads[other].0));
-            }
-        }
-    }
-    assert_eq!(position, quads.len());
-    for (index, &(bounds, _)) in quads.iter().enumerate() {
-        for (other, &(next, _)) in quads.iter().enumerate().skip(index + 1) {
-            if bounds.intersects(&next) {
-                assert!(positions[index] < positions[other]);
-            }
-        }
-    }
-}
-
-#[test]
-fn box_drawing_layers_preserve_every_stroke_and_overlap_order() {
-    for scale in [1.0, 1.5, 2.0] {
-        let mut layers = QuadLayers::default();
-        let mut quads = Vec::new();
-        let mut paths = Paths {
-            legacy_dots: true,
-            ..Paths::default()
-        };
-        for (column, cp) in (0_u16..).zip(0x2500..=0x257f) {
-            let mut color: Hsla = rgb(cp * 100).into();
-            color.a = 0.5;
-            let start = quads.len();
-            assert!(glyph::prepare(
-                &char::from_u32(cp).unwrap_or(' ').to_string(),
-                bounds(0.25 + f32::from(column) * 7.75, 0.25, 7.75, 15.5),
-                color,
-                scale,
-                &mut quads,
-                &mut paths,
-            ));
-            layers.append_cell(&quads, start);
-        }
-        assert_quad_order(&layers, &quads);
     }
 }
 

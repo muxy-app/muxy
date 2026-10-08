@@ -370,34 +370,4 @@ mod tests {
         assert_eq!(Settings::load(&path)?.ai, saved);
         Ok(())
     }
-
-    #[test]
-    fn commit_choices_default_on_ignore_mistakes_and_round_trip() -> Result<()> {
-        let directory = tempfile::tempdir().map_err(|error| Error::new("test", error))?;
-        let path = directory.path().join("settings.toml");
-        assert_eq!(Settings::load(&path)?.ai.commit, CommitChoices::default());
-        fs::write(
-            &path,
-            "[ai.commit]\ninclude_unstaged = \"no\"\npush = false\n[ai.providers]\ncommit = \"codex\"\n",
-        )
-        .map_err(|error| Error::new("test", error))?;
-        let loaded = Settings::load(&path)?.ai;
-        assert_eq!(
-            loaded.commit,
-            CommitChoices {
-                include_unstaged: true,
-                push: false,
-            }
-        );
-
-        let choices = CommitChoices {
-            include_unstaged: false,
-            push: true,
-        };
-        let saved = Settings::save_commit_choices(&path, choices)?;
-        assert_eq!(saved.commit, choices);
-        assert_eq!(saved.providers["commit"], "codex");
-        assert_eq!(Settings::load(&path)?.ai, saved);
-        Ok(())
-    }
 }

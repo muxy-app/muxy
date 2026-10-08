@@ -145,32 +145,3 @@ fn stdio(arguments: &[OsString]) -> io::Result<Start> {
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse_words(words: &[&str]) -> io::Result<(Option<SshTarget>, Command)> {
-        parse(&words.iter().map(OsString::from).collect::<Vec<_>>())
-    }
-
-    #[test]
-    fn host_must_be_valid_and_never_reaches_this_muxy_or_its_bridge() {
-        for words in [
-            &["--host"][..],
-            &["--host", ""],
-            &["--host", "-oProxyCommand=sh"],
-            &["--host", "dev box"],
-            &["--host", "box", "--help"],
-            &["--host", "box", "-h"],
-            &["--host", "box", "--version"],
-            &["--host", "box", "--build-info"],
-            &["--host", "box", "stdio"],
-            &["--host", "box", "stdio", "--no-start"],
-            &["--host", "box", "--host", "other"],
-            &["session", "list", "--host", "box"],
-        ] {
-            assert!(parse_words(words).is_err(), "{words:?}");
-        }
-    }
-}

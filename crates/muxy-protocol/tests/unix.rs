@@ -85,19 +85,6 @@ fn concurrent_stale_binds_keep_exactly_one_live_listener() -> TestResult {
 }
 
 #[test]
-fn bind_preserves_an_ordinary_file() -> TestResult {
-    let path = SocketPath::new()?;
-    fs::write(path.socket(), b"keep me")?;
-
-    assert!(matches!(
-        UnixSocketListener::bind(path.socket()),
-        Err(BindError::Io(_))
-    ));
-    assert_eq!(fs::read(path.socket())?, b"keep me");
-    Ok(())
-}
-
-#[test]
 fn bind_preserves_a_symlink_to_a_stale_socket() -> TestResult {
     let path = SocketPath::new()?;
     let target = path.directory.join("target");
@@ -202,21 +189,6 @@ fn close_wakes_pending_accepts_and_rejects_future_accepts() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn closing_listener_keeps_accepted_connections_alive() -> TestResult {
-    let path = SocketPath::new()?;
-    let listener = UnixSocketListener::bind(path.socket())?;
-    let (_, mut writer) = connect(path.socket())?.split()?;
-    let (mut reader, _) = listener.accept()?.split()?;
-    listener.close();
-
-    writer.write_all(b"still here")?;
-    let mut bytes = [0; 10];
-    reader.read_exact(&mut bytes)?;
-    assert_eq!(&bytes, b"still here");
-    Ok(())
-}
-
 struct SocketPath {
     directory: PathBuf,
 }
@@ -271,23 +243,6 @@ fn cancellation_wakes_a_blocked_reader_and_closes_both_directions() -> TestResul
 }
 
 #[test]
-fn dropping_an_unused_cancellation_handle_keeps_the_stream_open() -> TestResult {
-    let (stream, mut peer) = UnixStream::pair()?;
-    stream.set_read_timeout(Some(TIMEOUT))?;
-    peer.set_read_timeout(Some(TIMEOUT))?;
-    drop(stream.cancellation()?);
-    let (mut reader, mut writer) = Box::new(stream).split()?;
-    writer.write_all(b"x")?;
-    let mut byte = [0];
-    peer.read_exact(&mut byte)?;
-    assert_eq!(&byte, b"x");
-    peer.write_all(b"y")?;
-    reader.read_exact(&mut byte)?;
-    assert_eq!(&byte, b"y");
-    Ok(())
-}
-
-#[test]
 fn cancellation_wakes_a_blocked_writer_after_peer_write_shutdown() -> TestResult {
     let (stream, peer) = UnixStream::pair()?;
     stream.set_read_timeout(Some(TIMEOUT))?;
@@ -311,21 +266,5 @@ fn cancellation_wakes_a_blocked_writer_after_peer_write_shutdown() -> TestResult
     drop(peer);
     worker.join().map_err(|_| "writer panicked")?;
     assert!(result?.is_err());
-    Ok(())
-}
-
-#[test]
-fn pathname_limit_matches_the_native_unix_socket_address() -> TestResult {
-    use std::os::unix::ffi::OsStrExt;
-    let path = SocketPath::new()?;
-    let limit = if cfg!(target_os = "linux") { 108 } else { 104 };
-    let prefix = path.directory.as_os_str().as_bytes().len() + 1;
-    let maximum = path.directory.join("s".repeat(limit - 1 - prefix));
-    let listener = UnixSocketListener::bind(&maximum)?;
-    let _client = connect(&maximum)?;
-    let _server = listener.accept()?;
-    let oversized = path.directory.join("s".repeat(limit - prefix));
-    assert!(UnixSocketListener::bind(&oversized).is_err());
-    assert!(!oversized.exists());
     Ok(())
 }

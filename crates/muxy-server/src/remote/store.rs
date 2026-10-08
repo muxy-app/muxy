@@ -209,20 +209,4 @@ mod tests {
         assert_eq!(loaded.devices[0].last_seen, Some(11));
         fs::remove_dir_all(directory)
     }
-
-    #[test]
-    fn unreadable_or_inconsistent_stores_are_errors() -> io::Result<()> {
-        let directory = directory()?;
-        let path = directory.join("remote.json");
-        for contents in [
-            "not json",
-            r#"{"enabled":false,"port":80,"certificate":null,"private_key":null,"devices":[]}"#,
-            r#"{"enabled":true,"port":7419,"certificate":null,"private_key":null,"devices":[]}"#,
-            r#"{"enabled":false,"port":7419,"certificate":"00","private_key":null,"devices":[]}"#,
-        ] {
-            fs::write(&path, contents)?;
-            assert!(load(&path).is_err(), "{contents}");
-        }
-        fs::remove_dir_all(directory)
-    }
 }

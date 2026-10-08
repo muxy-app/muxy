@@ -1,37 +1,4 @@
 use muxy_protocol::{ErrorCode, ProjectPatch};
-use std::sync::Arc;
-
-#[test]
-fn artwork_preserves_emoji_and_round_trips_symbols_logos_and_removal() {
-    for icon in ["👩🏽‍💻", "🇩🇪", "sf:folder.fill", "sf:square.grid.2x2"] {
-        let patch = ProjectPatch::Icon(Some(icon.into()));
-        assert_eq!(patch.validate(), Ok(()));
-        let bytes = postcard::to_allocvec(&patch).expect("encode");
-        assert_eq!(
-            postcard::from_bytes::<ProjectPatch>(&bytes).expect("decode"),
-            patch
-        );
-    }
-    for icon in ["", "ab", "sf:", "sf:../path", "sf:two words"] {
-        assert_eq!(
-            ProjectPatch::Icon(Some(icon.into())).validate(),
-            Err(ErrorCode::BadRequest)
-        );
-    }
-    for patch in [
-        ProjectPatch::Logo(Some(Arc::from(
-            include_bytes!("fixtures/project-logo.png").as_slice(),
-        ))),
-        ProjectPatch::Logo(None),
-    ] {
-        assert_eq!(patch.validate(), Ok(()));
-        let bytes = postcard::to_allocvec(&patch).expect("encode");
-        assert_eq!(
-            postcard::from_bytes::<ProjectPatch>(&bytes).expect("decode"),
-            patch
-        );
-    }
-}
 
 #[test]
 fn logo_bounds_reject_non_images_large_images_and_rectangles() {

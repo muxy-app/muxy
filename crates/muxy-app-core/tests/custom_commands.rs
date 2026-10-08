@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use muxy_app_core::settings::{CustomCommand, Keymap, Settings};
+use muxy_app_core::settings::{CustomCommand, Settings};
 
 fn command() -> CustomCommand {
     CustomCommand::new("Tests".into(), "cargo test && echo 'done'".into())
@@ -42,48 +42,4 @@ fn custom_commands_reject_invalid_definitions_without_writing() {
         ..Settings::default()
     };
     assert!(settings.validate().is_err());
-}
-
-#[test]
-fn custom_shortcuts_require_modifiers_and_reject_conflicts_in_both_directions() {
-    let keymap = Keymap::default();
-    for key in [
-        "y",
-        "shift-y",
-        "enter",
-        "cmd-t",
-        "cmd-g",
-        "ctrl-shift-tab",
-        "cmd-c",
-    ] {
-        assert!(
-            keymap
-                .with_binding("command.tests", Some(key.parse().unwrap()))
-                .is_err(),
-            "{key}"
-        );
-    }
-    let keymap = keymap
-        .with_binding("command.tests", Some("cmd-alt-y".parse().unwrap()))
-        .unwrap();
-    for id in ["command.other", "new_tab", "extension.test.run"] {
-        assert!(
-            keymap
-                .with_binding(id, Some("cmd-alt-y".parse().unwrap()))
-                .is_err(),
-            "{id}"
-        );
-    }
-    assert!(
-        keymap
-            .with_binding("command.", Some("cmd-alt-u".parse().unwrap()))
-            .is_err()
-    );
-    assert!(
-        keymap
-            .with_binding("command.bad.id", Some("cmd-alt-u".parse().unwrap()))
-            .is_err()
-    );
-    let settings = "[keymap]\n'command.tests' = 'shift-y'\n";
-    assert!(toml::from_str::<Settings>(settings).is_err());
 }

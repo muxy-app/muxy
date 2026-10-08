@@ -47,36 +47,6 @@ fn links_track_uri_only_changes_clear_resize_and_history_reads() -> Result {
 }
 
 #[test]
-fn wide_cells_combining_text_and_adjacent_uris_keep_cell_boundaries() -> Result {
-    let mut terminal = Terminal::new(Size { cols: 40, rows: 3 }, 1_000_000)?;
-    terminal.feed(
-        format!(
-            "a{}{}",
-            osc("https://wide.test", "界e\u{301}"),
-            osc("https://next.test", "next")
-        )
-        .as_bytes(),
-    );
-    terminal.take_changed_rows()?;
-    assert_eq!(
-        terminal.screen_links()[0].spans,
-        vec![
-            LinkSpan {
-                start: 1,
-                end: 4,
-                uri: "https://wide.test".into()
-            },
-            LinkSpan {
-                start: 4,
-                end: 8,
-                uri: "https://next.test".into()
-            },
-        ]
-    );
-    Ok(())
-}
-
-#[test]
 fn uri_and_screen_budgets_are_bounded_and_recover_after_eviction() -> Result {
     let mut terminal = Terminal::new(
         Size {

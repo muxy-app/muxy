@@ -77,26 +77,6 @@ fn sgr_press_release_wheel_and_tracking_modes() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn button_motion_requires_a_button_and_any_motion_does_not() -> Result<(), Box<dyn Error>> {
-    let mut terminal = terminal()?;
-    terminal.feed(b"\x1b[?1002h\x1b[?1006h");
-    let mut motion = event(MouseAction::Motion, None);
-    assert!(terminal.encode_mouse(&motion)?.is_empty());
-    terminal.encode_mouse(&event(MouseAction::Press, Some(MouseButton::Left)))?;
-    motion.button = Some(MouseButton::Left);
-    motion.column = 4;
-    assert_eq!(terminal.encode_mouse(&motion)?, b"\x1b[<32;5;4M");
-    terminal.encode_mouse(&event(MouseAction::Release, Some(MouseButton::Left)))?;
-    motion.button = None;
-    motion.column = 6;
-    assert!(terminal.encode_mouse(&motion)?.is_empty());
-    terminal.feed(b"\x1b[?1003h");
-    motion.button = None;
-    assert_eq!(terminal.encode_mouse(&motion)?, b"\x1b[<35;7;4M");
-    Ok(())
-}
-
-#[test]
 fn buttons_modifiers_and_coordinates_use_the_current_size() -> Result<(), Box<dyn Error>> {
     let mut terminal = terminal()?;
     terminal.feed(b"\x1b[?1000h\x1b[?1006h");

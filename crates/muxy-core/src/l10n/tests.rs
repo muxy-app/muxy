@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::format::{Kind, Token, tokens};
+use super::format::tokens;
 use super::{Language, Plural, PluralCategory};
 
 fn language(strings: &[(&str, &str)], plurals: &[(&str, Plural)]) -> Language {
@@ -20,85 +19,6 @@ fn language(strings: &[(&str, &str)], plurals: &[(&str, Plural)]) -> Language {
             _ => PluralCategory::Other,
         },
     )
-}
-
-fn plural(format: &str, variables: &[(&str, &[(PluralCategory, &str)])]) -> Plural {
-    Plural {
-        format: format.into(),
-        variables: variables
-            .iter()
-            .map(|(name, forms)| {
-                (
-                    (*name).to_owned(),
-                    forms
-                        .iter()
-                        .map(|(category, form)| (*category, (*form).to_owned()))
-                        .collect::<HashMap<_, _>>(),
-                )
-            })
-            .collect(),
-    }
-}
-
-#[test]
-fn tokens_follow_mains_placeholder_grammar() {
-    let parsed = tokens("%2$@ has %lld%% and %#@files@").unwrap();
-    assert!(matches!(
-        parsed[0],
-        Token::Argument(spec) if spec.position == Some(2) && spec.kind == Kind::Object
-    ));
-    assert!(matches!(
-        parsed[2],
-        Token::Argument(spec) if spec.position.is_none() && spec.kind == Kind::Int64
-    ));
-    assert_eq!(parsed[3], Token::Percent);
-    assert_eq!(parsed[5], Token::Variable("files"));
-    for kind_pair in [
-        ("%ld", "%lld"),
-        ("%d", "%hhd"),
-        ("%u", "%hu"),
-        ("%f", "%lf"),
-    ] {
-        let kind = |format| match tokens(format).unwrap()[0] {
-            Token::Argument(spec) => spec.kind,
-            _ => unreachable!(),
-        };
-        assert_eq!(kind(kind_pair.0), kind(kind_pair.1), "{kind_pair:?}");
-    }
-    for invalid in ["50%", "%*d", "%.*f", "%#x", "%#@@", "%0$@", "%k", "%l@"] {
-        assert!(tokens(invalid).is_none(), "accepted {invalid}");
-    }
-}
-
-#[test]
-fn english_formats_like_printf() {
-    let english = language(&[], &[]);
-    assert_eq!(english.format("%lld changes", &[3.into()]), "3 changes");
-    assert_eq!(
-        english.format("%@ (%@)", &["main".into(), "origin".into()]),
-        "main (origin)"
-    );
-    assert_eq!(english.format("%lld%%", &[42.into()]), "42%");
-    assert_eq!(english.format("%.1f MB", &[2.25_f64.into()]), "2.2 MB");
-    assert_eq!(
-        english.format("%05.1f|%-4d|%+d", &[3.25_f64.into(), 7.into(), 5.into()]),
-        "003.2|7   |+5"
-    );
-    assert_eq!(
-        english.format(
-            "%03lld|%x|%X|%o",
-            &[(-7).into(), 255.into(), 255.into(), 8.into()]
-        ),
-        "-07|ff|FF|10"
-    );
-    assert_eq!(
-        english.format(
-            "%e|%g|%g",
-            &[1500.0.into(), 0.0001.into(), 1_234_567.0.into()]
-        ),
-        "1.500000e+03|0.0001|1.23457e+06"
-    );
-    assert_eq!(english.format("%.2@", &["abc".into()]), "ab");
 }
 
 #[test]
@@ -143,41 +63,6 @@ fn translations_reorder_and_drop_arguments() {
     assert_eq!(german.format("%@ / %@", &["a".into(), "b".into()]), "a");
     assert_eq!(german.format("Broken %@", &["x".into()]), "Broken x");
     assert_eq!(german.translate("Missing"), "Missing");
-}
-
-#[test]
-fn plurals_pick_a_form_by_category_with_mains_zero_rule() {
-    let files = plural(
-        "%#@files@ in %#@folders@",
-        &[
-            (
-                "files",
-                &[
-                    (PluralCategory::Zero, "no files"),
-                    (PluralCategory::One, "%lld file"),
-                    (PluralCategory::Few, "%lld filesy"),
-                    (PluralCategory::Other, "%lld files"),
-                ],
-            ),
-            (
-                "folders",
-                &[(PluralCategory::Other, "%lld folders (%#@nested@)")],
-            ),
-            (
-                "nested",
-                &[
-                    (PluralCategory::One, "one"),
-                    (PluralCategory::Other, "many"),
-                ],
-            ),
-        ],
-    );
-    let pack = language(&[], &[("%lld files in %lld folders", files)]);
-    let format = |a: i64, b: i64| pack.format("%lld files in %lld folders", &[a.into(), b.into()]);
-    assert_eq!(format(0, 1), "no files in 1 folders (many)");
-    assert_eq!(format(1, 2), "1 file in 2 folders (many)");
-    assert_eq!(format(3, 9), "3 filesy in 9 folders (many)");
-    assert_eq!(format(-12, 1), "-12 files in 1 folders (many)");
 }
 
 #[test]

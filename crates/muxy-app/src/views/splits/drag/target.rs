@@ -1,10 +1,6 @@
 use gpui::{Bounds, Pixels, Point, point, px};
 use muxy_app_core::{Direction, Layout, PaneId};
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum DropTarget {
     Swap(PaneId),

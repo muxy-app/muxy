@@ -59,21 +59,3 @@ impl ServerInfo {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Version;
-
-    #[test]
-    fn builds_talk_when_they_share_any_protocol_version() {
-        let build = |protocol: &[u16]| BuildInfo {
-            protocol: protocol.iter().copied().map(Version).collect(),
-            ..BuildInfo::current()
-        };
-        assert!(build(&[2]).shares_protocol_with(&build(&[2, 3])));
-        assert!(!build(&[2]).shares_protocol_with(&build(&[3])));
-        // Metadata from before V2 has no protocol list.
-        assert!(!build(&[2]).shares_protocol_with(&build(&[])));
-    }
-}

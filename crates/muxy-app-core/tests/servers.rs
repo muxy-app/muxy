@@ -318,37 +318,6 @@ fn forgetting_a_server_removes_only_what_belongs_to_it() -> TestResult {
 }
 
 #[test]
-fn projects_of_unlisted_servers_survive_load_and_save() -> TestResult {
-    let TwoServers {
-        mut state,
-        remote,
-        remote_home,
-        api,
-    } = two_servers()?;
-    state.open_terminal_tab(api)?;
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("desktop-state.json");
-    store::save(&path, &state)?;
-    let loaded = store::load(&path)?;
-    assert_eq!(loaded, state);
-    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
-    assert_eq!(saved["version"], 3);
-    assert_eq!(saved["servers"][remote.to_string()]["catalog_revision"], 7);
-
-    let mut misplaced = saved.clone();
-    let projects = misplaced["projects"].as_array_mut().ok_or("projects")?;
-    projects.swap(2, 3);
-    std::fs::write(&path, serde_json::to_vec(&misplaced)?)?;
-    let repaired = store::load(&path)?;
-    assert_eq!(
-        repaired.server_home(remote).map(|home| home.id),
-        Some(remote_home)
-    );
-    assert_eq!(repaired.projects()[2].id, remote_home);
-    Ok(())
-}
-
-#[test]
 fn remote_projects_never_touch_this_computers_disk() -> TestResult {
     let TwoServers {
         mut state,

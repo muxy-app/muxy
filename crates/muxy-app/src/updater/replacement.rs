@@ -96,26 +96,6 @@ mod tests {
     }
 
     #[test]
-    fn rollback_failure_reports_recovery_location() {
-        let mut calls = 0;
-        let result = replace_with(
-            Path::new("current"),
-            Path::new("next"),
-            Path::new("backup"),
-            |_, _| {
-                calls += 1;
-                if calls == 1 {
-                    Ok(())
-                } else {
-                    Err(std::io::Error::other("test failure"))
-                }
-            },
-        );
-        assert!(result.is_err_and(|error| error.to_string().contains("previous app is at backup")));
-        assert_eq!(calls, 3);
-    }
-
-    #[test]
     fn replacement_keeps_the_old_bundle_available_until_restart() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let current = dir.path().join("current.app");

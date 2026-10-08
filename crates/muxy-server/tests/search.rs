@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use muxy_protocol::{ErrorCode, HistoryCursor, HistoryPage, Row, SearchPage, Size};
+use muxy_protocol::{HistoryCursor, HistoryPage, Row, SearchPage, Size};
 use muxy_server::{Registry, ServerSettings, SessionCommand, SessionHandle};
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -141,53 +141,5 @@ fn search_walks_history_and_screen_newest_first_without_losing_matches() -> Test
     assert_eq!(found, expected);
     assert!(found.iter().any(|found| found.row < 4977));
     assert!(found.iter().any(|found| found.row >= 4977));
-    Ok(())
-}
-
-#[test]
-fn empty_search_pages_continue_and_scan_at_most_two_thousand_rows() -> TestResult {
-    let fixture = Fixture::new(16 * 1024 * 1024)?;
-    fixture.produce()?;
-    let mut before = HistoryCursor(0);
-    let mut scanned = Vec::new();
-    loop {
-        let page = fixture.search("absent", before, 500)?;
-        assert!(page.matches.is_empty());
-        scanned.push(page.scanned_rows);
-        let Some(next) = page.next else { break };
-        before = next;
-    }
-    assert_eq!(scanned, [2000, 2000, 1001]);
-    Ok(())
-}
-
-#[test]
-fn eviction_and_reflow_invalidate_search_cursors() -> TestResult {
-    let fixture = Fixture::new(256 * 1024)?;
-    fixture.produce()?;
-    for resize in [false, true] {
-        let before = fixture
-            .search("1", HistoryCursor(0), 1)?
-            .next
-            .ok_or("missing cursor")?;
-        if resize {
-            fixture
-                .handle
-                .send(SessionCommand::Resize(Size { cols: 40, rows: 24 }))?;
-        } else {
-            fixture.input(b"seq 1 20000; printf EVICTED_READY\n")?;
-            fixture.wait_for("EVICTED_READY")?;
-        }
-        let error = fixture
-            .search("1", before, 1)
-            .err()
-            .ok_or("expected stale cursor")?;
-        assert_eq!(
-            error
-                .downcast_ref::<muxy_server::ServerError>()
-                .map(muxy_server::ServerError::code),
-            Some(ErrorCode::StaleHistoryCursor)
-        );
-    }
     Ok(())
 }

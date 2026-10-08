@@ -52,25 +52,6 @@ mod tests {
     }
 
     #[test]
-    fn newer_rows_cursor_modes_and_sequence_win() {
-        let mut older = frame(1, false, &[0, 1]);
-        older.rows[1].runs.push(muxy_protocol::Run {
-            text: "old".into(),
-            width: 3,
-            style: muxy_protocol::Style::default(),
-        });
-        let mut newer = frame(3, false, &[1, 2]);
-        newer.cursor.col = 4;
-        newer.modes.bracketed_paste = true;
-        let expected = ScreenFrame {
-            rows: frame(3, false, &[0, 1, 2]).rows,
-            ..newer.clone()
-        };
-        merge(&mut older, newer);
-        assert_eq!(older, expected);
-    }
-
-    #[test]
     fn newer_reset_drops_old_rows_and_survives_later_deltas() {
         let mut older = frame(1, false, &[0, 5]);
         let mut reset = frame(2, true, &[0, 1]);

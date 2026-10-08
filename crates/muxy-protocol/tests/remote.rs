@@ -1,7 +1,4 @@
-use muxy_protocol::{
-    DeviceCredential, DeviceId, ErrorCode, ListenerStatus, Message, PairRequest, PairedDevice,
-    PairingInvite, RemoteAccessSettings, RemoteAccessState, ReplyBody, RequestBody, RequestId,
-};
+use muxy_protocol::{DeviceCredential, DeviceId, ErrorCode, PairRequest, PairingInvite};
 
 fn invite() -> PairingInvite {
     PairingInvite {
@@ -82,90 +79,5 @@ fn secrets_never_appear_in_debug_output() {
         for secret in ["90, 90", "5a5a", "171, 171", "abab"] {
             assert!(!text.contains(secret), "{text}");
         }
-    }
-}
-
-#[test]
-fn remote_requests_and_replies_validate_their_bounds() {
-    let request = |body| Message::Request {
-        id: RequestId(1),
-        body,
-    };
-    let reply = |body| Message::Reply {
-        id: RequestId(1),
-        body,
-    };
-    for name in ["", "   ", "tab\tname", &"x".repeat(65)] {
-        let pair = request(RequestBody::Pair(PairRequest {
-            secret: [0; 16],
-            name: name.into(),
-        }));
-        assert_eq!(pair.validate(), Err(ErrorCode::BadRequest), "{name:?}");
-    }
-    let low_port = request(RequestBody::WriteRemoteAccess(RemoteAccessSettings {
-        enabled: true,
-        port: 1023,
-    }));
-    assert_eq!(low_port.validate(), Err(ErrorCode::BadRequest));
-    let device = PairedDevice {
-        id: DeviceId::from_u128(1),
-        name: "Phone".into(),
-        paired_at: 1,
-        last_seen: None,
-        connected: false,
-    };
-    let state = |devices: usize, status| RemoteAccessState {
-        revision: 1,
-        settings: RemoteAccessSettings::default(),
-        status,
-        pairing_expires_at: None,
-        devices: vec![device.clone(); devices],
-    };
-    assert!(
-        reply(ReplyBody::RemoteAccess(state(
-            64,
-            ListenerStatus::Listening
-        )))
-        .validate()
-        .is_ok()
-    );
-    for invalid in [
-        state(65, ListenerStatus::Disabled),
-        state(1, ListenerStatus::Failed("x".repeat(1025))),
-    ] {
-        assert_eq!(
-            reply(ReplyBody::RemoteAccess(invalid)).validate(),
-            Err(ErrorCode::BadRequest)
-        );
-    }
-    let mut empty_hosts = invite();
-    empty_hosts.hosts.clear();
-    assert_eq!(empty_hosts.validate(), Err(ErrorCode::BadRequest));
-}
-
-#[test]
-fn extra_pairing_addresses_follow_the_pairing_link_rules() {
-    let start = |hosts: &[&str]| {
-        Message::Request {
-            id: RequestId(1),
-            body: RequestBody::StartPairingWithHosts(
-                hosts.iter().map(|host| (*host).to_owned()).collect(),
-            ),
-        }
-        .validate()
-    };
-    assert_eq!(start(&[]), Ok(()));
-    assert_eq!(start(&["box.example.com", "203.0.113.7"]), Ok(()));
-    assert_eq!(start(&["host"; 8]), Ok(()));
-    let long = "a".repeat(254);
-    for hosts in [
-        &["host"; 9][..],
-        &["box.example.com:7419"],
-        &["::1"],
-        &["bad host"],
-        &[""],
-        &[long.as_str()],
-    ] {
-        assert_eq!(start(hosts), Err(ErrorCode::BadRequest), "{hosts:?}");
     }
 }

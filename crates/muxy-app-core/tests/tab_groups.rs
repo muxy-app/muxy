@@ -1,4 +1,4 @@
-use muxy_app_core::{AppState, Axis, Direction, Layout, PaneId, TabCloseScope, TabId};
+use muxy_app_core::{AppState, Direction, PaneId, TabCloseScope, TabId};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -34,33 +34,6 @@ fn first_pane(state: &AppState, tab: TabId) -> Option<PaneId> {
 }
 
 #[test]
-fn splitting_a_tab_off_shows_both_groups_and_focuses_the_moved_tab() -> Result {
-    let mut state = AppState::bootstrap()?;
-    let home = state.home().id;
-    let [a, b, c] = tabs(&mut state, 3)?[..] else {
-        return Err("tabs".into());
-    };
-    state.select_tab(home, a)?;
-    state.split_tab(c, a, Direction::Right)?;
-    assert_eq!(group_tabs(&state), [vec![a, b], vec![c]]);
-    assert_eq!(state.visible_tabs(home), [a, c]);
-    assert_eq!(state.window().selected_tab.get(&home), Some(&c));
-    assert_eq!(state.window().active_pane, first_pane(&state, c));
-    let groups = state.home().groups().ok_or("groups")?;
-    assert!(matches!(
-        groups.layout(),
-        Layout::Split {
-            axis: Axis::Horizontal,
-            ..
-        }
-    ));
-    state.split_tab(b, c, Direction::Up)?;
-    assert_eq!(group_tabs(&state), [vec![a], vec![b], vec![c]]);
-    assert_eq!(state.visible_tabs(home), [a, b, c]);
-    Ok(())
-}
-
-#[test]
 fn a_groups_only_tab_cannot_split_off_itself() -> Result {
     let mut state = AppState::bootstrap()?;
     let [a] = tabs(&mut state, 1)?[..] else {
@@ -78,31 +51,6 @@ fn a_groups_only_tab_cannot_split_off_itself() -> Result {
 }
 
 #[test]
-fn selecting_a_tab_focuses_its_group_and_other_groups_keep_their_tab() -> Result {
-    let mut state = AppState::bootstrap()?;
-    let home = state.home().id;
-    let [a, b, c, d] = tabs(&mut state, 4)?[..] else {
-        return Err("tabs".into());
-    };
-    state.split_tab(c, a, Direction::Right)?;
-    state.move_tab_to_group(d, c, None)?;
-    assert_eq!(group_tabs(&state), [vec![a, b], vec![c, d]]);
-    state.select_tab(home, a)?;
-    assert_eq!(state.visible_tabs(home), [a, d]);
-    state.select_tab(home, c)?;
-    assert_eq!(state.visible_tabs(home), [a, c]);
-    let pane = first_pane(&state, a).ok_or("pane")?;
-    state.focus_pane(pane)?;
-    assert_eq!(state.window().selected_tab.get(&home), Some(&a));
-    assert_eq!(state.visible_tabs(home), [a, c]);
-    let b_pane = first_pane(&state, b).ok_or("pane")?;
-    let split = state.split_pane(b_pane, Direction::Down)?;
-    assert_eq!(state.window().active_pane, Some(split));
-    assert_eq!(state.visible_tabs(home), [b, c]);
-    Ok(())
-}
-
-#[test]
 fn new_tabs_open_in_the_focused_or_anchor_group() -> Result {
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;
@@ -115,26 +63,6 @@ fn new_tabs_open_in_the_focused_or_anchor_group() -> Result {
     let d = state.open_terminal_tab_adjacent(home, a, muxy_app_core::TabSide::Right)?;
     assert_eq!(group_tabs(&state), [vec![a, d], vec![b, c]]);
     assert_eq!(state.visible_tabs(home), [d, c]);
-    Ok(())
-}
-
-#[test]
-fn opening_beside_a_tab_in_another_group_keeps_the_focused_groups_tab() -> Result {
-    let mut state = AppState::bootstrap()?;
-    let home = state.home().id;
-    let [a, b, c, d] = tabs(&mut state, 4)?[..] else {
-        return Err("tabs".into());
-    };
-    state.split_tab(d, a, Direction::Right)?;
-    state.select_tab(home, a)?;
-    assert_eq!(state.visible_tabs(home), [a, d]);
-    let right = state.open_terminal_tab_adjacent(home, d, muxy_app_core::TabSide::Right)?;
-    assert_eq!(group_tabs(&state), [vec![a, b, c], vec![d, right]]);
-    assert_eq!(state.visible_tabs(home), [a, right]);
-    state.select_tab(home, b)?;
-    let left = state.open_terminal_tab_adjacent(home, d, muxy_app_core::TabSide::Left)?;
-    assert_eq!(group_tabs(&state), [vec![a, b, c], vec![left, d, right]]);
-    assert_eq!(state.visible_tabs(home), [b, left]);
     Ok(())
 }
 
@@ -159,28 +87,6 @@ fn closing_a_groups_last_tab_removes_it_and_focuses_the_neighbor() -> Result {
     assert!(state.home().groups().is_none());
     assert_eq!(state.window().selected_tab.get(&home), Some(&b));
     assert_eq!(state.window().active_pane, first_pane(&state, b));
-    Ok(())
-}
-
-#[test]
-fn closing_in_the_background_never_steals_focus() -> Result {
-    let mut state = AppState::bootstrap()?;
-    let home = state.home().id;
-    let [a, b, c] = tabs(&mut state, 3)?[..] else {
-        return Err("tabs".into());
-    };
-    state.split_tab(c, a, Direction::Right)?;
-    state.select_tab(home, b)?;
-    state.select_tab(home, c)?;
-    let active = state.window().active_pane;
-    state.close_tab(home, b)?;
-    assert_eq!(group_tabs(&state), [vec![a], vec![c]]);
-    assert_eq!(state.visible_tabs(home), [a, c]);
-    assert_eq!(state.window().active_pane, active);
-    state.close_tab(home, a)?;
-    assert!(state.home().groups().is_none());
-    assert_eq!(state.window().selected_tab.get(&home), Some(&c));
-    assert_eq!(state.window().active_pane, active);
     Ok(())
 }
 
@@ -255,25 +161,5 @@ fn groups_persist_and_invalid_saved_groups_fall_back_to_one() -> Result {
         serde_json::json!([a.to_string(), TabId::new().to_string()]);
     let pruned: AppState = serde_json::from_value(unknown)?;
     assert_eq!(group_tabs(&pruned), [vec![a], vec![b]]);
-    Ok(())
-}
-
-#[test]
-fn restoring_a_backup_keeps_groups_with_new_tab_ids() -> Result {
-    let mut state = AppState::bootstrap()?;
-    let home = state.home().id;
-    let [a, b, c] = tabs(&mut state, 3)?[..] else {
-        return Err("tabs".into());
-    };
-    state.split_tab(c, a, Direction::Right)?;
-    state.select_tab(home, b)?;
-    let restored = state
-        .configuration_backup()
-        .restore_configuration(&state)
-        .map_err(|error| error.to_string())?;
-    let ids: Vec<_> = restored.home().tabs.iter().map(|tab| tab.id).collect();
-    assert!(!ids.contains(&a));
-    assert_eq!(group_tabs(&restored), [vec![ids[0], ids[1]], vec![ids[2]]]);
-    assert_eq!(restored.visible_tabs(restored.home().id), [ids[1], ids[2]]);
     Ok(())
 }

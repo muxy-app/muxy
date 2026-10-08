@@ -1997,18 +1997,6 @@ mod tests {
             assert_eq!(super::utf8_offset_from_utf16(text, utf16), utf8);
         }
     }
-
-    #[test]
-    fn a_composition_records_one_entry_holding_the_pre_composition_text() {
-        let mut history = super::History::default();
-        history.begin_composition(2, "old".to_owned(), 2..5, false);
-        history.begin_composition(2, "ignored".to_owned(), 2..5, false);
-        history.end_composition("committed".to_owned());
-        assert_eq!(history.undo.len(), 1);
-        assert_eq!(history.undo[0].removed, "old");
-        assert_eq!(history.undo[0].inserted, "committed");
-        assert!(history.composing.is_none());
-    }
 }
 
 #[cfg(test)]

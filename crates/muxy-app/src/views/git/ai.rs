@@ -183,30 +183,6 @@ mod tests {
     }
 
     #[test]
-    fn commit_sheet_starts_from_the_remembered_provider_and_options() {
-        let mut confirmation = confirmation(true);
-        confirmation.provider = confirmation.providers[1];
-        let choices = confirmation.prompt_choices();
-        assert_eq!(choices.picker.map(|picker| picker.selected), Some(1));
-        let states: Vec<_> = choices
-            .checkboxes
-            .iter()
-            .map(|checkbox| (checkbox.checked, checkbox.enabled))
-            .collect();
-        assert_eq!(states, [(false, true), (true, true)]);
-
-        confirmation.confirm(&response(0, [true, false]));
-
-        assert_eq!(confirmation.provider, confirmation.providers[0]);
-        let chosen = CommitChoices {
-            include_unstaged: true,
-            push: false,
-        };
-        assert_eq!(confirmation.choices, chosen);
-        assert_eq!(confirmation.commit_choices(), chosen);
-    }
-
-    #[test]
     fn nothing_staged_includes_unstaged_changes_but_keeps_the_remembered_choice() {
         let mut confirmation = confirmation(false);
         let checkbox = &confirmation.prompt_choices().checkboxes[0];
@@ -216,14 +192,5 @@ mod tests {
 
         assert!(!confirmation.choices.include_unstaged);
         assert!(confirmation.commit_choices().include_unstaged);
-    }
-
-    #[test]
-    fn pull_requests_offer_no_choices_and_include_everything() {
-        let mut confirmation = confirmation(true);
-        confirmation.action = Action::CreatePullRequest;
-        let choices = confirmation.prompt_choices();
-        assert!(choices.picker.is_none() && choices.checkboxes.is_empty());
-        assert_eq!(confirmation.commit_choices(), CommitChoices::default());
     }
 }

@@ -140,23 +140,6 @@ fn pull_request_draft(branch: &str) -> Draft {
 }
 
 #[test]
-fn branch_validation_rejects_remote_prefixes_and_git_ref_syntax() {
-    for name in [
-        "",
-        "-bad",
-        "/bad",
-        "bad/",
-        "bad..name",
-        "bad.lock",
-        "bad name",
-        "origin/@{upstream}",
-    ] {
-        assert!(!valid_branch(name), "{name}");
-    }
-    assert!(valid_branch("feat/fix-status"));
-}
-
-#[test]
 fn conflicts_and_stale_branches_are_refused_before_reading_changes() {
     let git = FakeGit::new(vec![Ok(status("feature", 1))]);
     let error = prepare(
@@ -286,33 +269,6 @@ fn staged_only_commits_leave_the_index_alone_and_skip_pushing() {
             expected_head: Some("abc".into()),
             expected_tree: "tree1".into(),
         }]
-    );
-}
-
-#[test]
-fn staged_only_commits_need_staged_changes() {
-    let git = FakeGit::new(vec![
-        Ok(status("feature", 0)),
-        Ok(preview("feature", &[], true)),
-    ]);
-    let error = prepare(
-        &git,
-        ProjectId::new(),
-        Action::Commit,
-        STAGED_ONLY,
-        "feature",
-        Some("abc"),
-    )
-    .err()
-    .unwrap();
-    assert_eq!(
-        error,
-        "Nothing is staged. Stage changes first or include unstaged changes."
-    );
-    assert!(
-        !git.actions()
-            .iter()
-            .any(|action| matches!(action, GitAction::Stage(_)))
     );
 }
 

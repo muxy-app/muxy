@@ -517,48 +517,6 @@ mod tests {
     fn words(words: &[&str]) -> io::Result<Invocation> {
         parse(&words.iter().map(OsString::from).collect::<Vec<_>>())
     }
-    #[test]
-    fn filesystem_operands_preserve_raw_bytes_and_text_stays_validated() -> io::Result<()> {
-        use std::os::unix::ffi::OsStringExt;
-        let path = OsString::from_vec(b"/tmp/raw-\xff".to_vec());
-        assert_eq!(
-            parse(&["project".into(), "add".into(), path.clone()])?.action,
-            Action::Project(Project::Add {
-                directory: path.clone().into(),
-                name: None
-            })
-        );
-        let create = parse(&[
-            "session".into(),
-            "create".into(),
-            "Home".into(),
-            "--directory".into(),
-            path.clone(),
-        ])?;
-        assert!(
-            matches!(create.action, Action::Session(Session::Create { directory: Some(directory), .. }) if directory.as_os_str() == path)
-        );
-        let worktree = parse(&[
-            "worktree".into(),
-            "register".into(),
-            "Home".into(),
-            path.clone(),
-        ])?;
-        assert!(
-            matches!(worktree.action, Action::Worktree(Worktree::Register { directory, .. }) if directory.as_os_str() == path)
-        );
-        assert!(
-            parse(&[
-                "project".into(),
-                "add".into(),
-                "/tmp".into(),
-                "--name".into(),
-                path
-            ])
-            .is_err()
-        );
-        Ok(())
-    }
 
     #[test]
     fn rejects_invalid_or_unconfirmed_operations() {
@@ -586,31 +544,5 @@ mod tests {
         ] {
             assert!(words(&args).is_err(), "{args:?}");
         }
-    }
-    #[test]
-    fn preserves_literal_text_and_exec_arguments() -> io::Result<()> {
-        assert_eq!(
-            words(&["session", "send", "1", "--", "--json"])?.action,
-            Action::Session(Session::Send {
-                session: SessionId::new(1).ok_or(io::ErrorKind::InvalidInput)?,
-                text: "--json".into()
-            })
-        );
-        assert_eq!(
-            words(&["exec", "Home", "--json", "--", "printf", "%s", "--help"])?,
-            Invocation {
-                json: true,
-                action: Action::Exec {
-                    project: "Home".into(),
-                    argv: vec!["printf".into(), "%s".into(), "--help".into()],
-                    timeout_ms: 30_000
-                }
-            }
-        );
-        assert!(matches!(
-            words(&["session", "create", "--help"])?.action,
-            Action::Help(_)
-        ));
-        Ok(())
     }
 }

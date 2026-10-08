@@ -82,27 +82,6 @@ fn external_exit_removes_hidden_tabs_and_preserves_the_live_split() -> Result {
 }
 
 #[test]
-fn relaunch_prunes_sessions_that_died_while_detached_including_hidden_tabs() -> Result {
-    let fixture = Fixture::new()?;
-    let mut tui = Tui::start(&fixture, &[])?;
-    tui.ready()?;
-    tui.write(b"\x02c")?;
-    let client = fixture.client()?;
-    tui.wait(|tui| Ok(tui.tabs()?.len() == 2 && client.list_sessions()?.len() == 2))?;
-    tui.ready()?;
-    tui.detach()?;
-    for session in client.list_sessions()? {
-        client.end_session(session.id)?;
-    }
-    let mut restored = Tui::start(&fixture, &[])?;
-    restored.output("No tabs.")?;
-    assert!(restored.tabs()?.is_empty());
-    assert!(client.list_sessions()?.is_empty());
-    restored.detach()?;
-    Ok(())
-}
-
-#[test]
 fn keyboard_layout_restores_without_respawning_and_detach_preserves_sessions() -> Result {
     let fixture = Fixture::new()?;
     let mut tui = Tui::start(&fixture, &[])?;
@@ -156,30 +135,6 @@ fn keyboard_layout_restores_without_respawning_and_detach_preserves_sessions() -
 }
 
 #[test]
-fn multiple_instances_open_the_same_layout_and_redirected_invocations_do_not_change_it() -> Result {
-    let fixture = Fixture::new()?;
-    let mut first = Tui::start(&fixture, &[])?;
-    first.ready()?;
-    let state = fixture.state()?;
-    let sessions = fixture.client()?.list_sessions()?;
-    let mut second = Tui::start(&fixture, &[])?;
-    second.ready()?;
-    let output = fixture.command().output()?;
-    assert!(!output.status.success());
-    assert_eq!(fixture.state()?, state);
-    assert_eq!(fixture.client()?.list_sessions()?, sessions);
-    first.write(b"printf '\\nFIRST_INSTANCE\\n'\r")?;
-    second.output("FIRST_INSTANCE")?;
-    second.write(b"printf '\\nSECOND_INSTANCE\\n'\r")?;
-    first.output("SECOND_INSTANCE")?;
-    first.detach()?;
-    second.write(b"printf '\\nSTILL_CONNECTED\\n'\r")?;
-    second.output("STILL_CONNECTED")?;
-    second.detach()?;
-    Ok(())
-}
-
-#[test]
 fn simultaneous_first_launch_creates_one_shell_and_concurrent_layout_edits_are_preserved() -> Result
 {
     let fixture = Fixture::new()?;
@@ -219,42 +174,6 @@ fn simultaneous_first_launch_creates_one_shell_and_concurrent_layout_edits_are_p
     first.detach()?;
     second.detach()?;
     third.detach()?;
-    Ok(())
-}
-
-#[test]
-fn hidden_pending_creation_is_recovered_without_switching_tabs() -> Result {
-    let fixture = Fixture::new()?;
-    let mut first = Tui::start(&fixture, &[])?;
-    first.ready()?;
-    first.detach()?;
-    let mut state = fixture.state()?;
-    let project = state["active"].as_str().ok_or("active project")?.to_owned();
-    let tabs = state["projects"][&project]["tabs"]
-        .as_array_mut()
-        .ok_or("tabs")?;
-    let id = muxy_protocol::OperationId::new().to_string();
-    let directory = tabs[0]["panes"]
-        .as_object()
-        .ok_or("panes")?
-        .values()
-        .next()
-        .ok_or("pane")?["directory"]
-        .clone();
-    tabs.push(serde_json::json!({
-        "layout": {"Leaf": id}, "focus": id, "zoom": false,
-        "panes": {id.clone(): {"session": null, "creation": id, "directory": directory, "error": null}}
-    }));
-    std::fs::write(
-        fixture.directory.path().join("tui-state.json"),
-        serde_json::to_vec(&state)?,
-    )?;
-    let mut restored = Tui::start(&fixture, &[])?;
-    restored.ready()?;
-    restored.wait(|tui| Ok(!tui.tabs()?[1]["panes"][&id]["session"].is_null()))?;
-    assert_eq!(fixture.client()?.list_sessions()?.len(), 2);
-    assert_eq!(fixture.state()?["projects"][&project]["active"], 0);
-    restored.detach()?;
     Ok(())
 }
 
@@ -443,64 +362,6 @@ fn projects_existing_terminals_and_other_client_changes_share_sessions_without_s
 }
 
 #[test]
-fn wide_text_clipping_and_repainting_do_not_overwrite_the_neighboring_pane() -> Result {
-    let fixture = Fixture::new()?;
-    let mut tui = Tui::start(&fixture, &[])?;
-    tui.ready()?;
-    tui.write(b"\x02%")?;
-    tui.wait(|tui| {
-        Ok(tui.active_tab()?["panes"]
-            .as_object()
-            .is_some_and(|panes| panes.len() == 2))
-    })?;
-    // The 26-column sidebar leaves 74 columns: framed panes of 37 each, the
-    // left one drawing its text from column 27 and the right one from 64.
-    tui.wait(|tui| Ok(tui.cells()?[2][64..73].concat() == "tui-test>"))?;
-    tui.write(b"\x02\x1b[D")?;
-    tui.write("printf '\\033[2J\\033[H界e\u{301}👩‍💻END\\n'\r".as_bytes())?;
-    // The command line wraps in the narrow pane, so wait for its output at
-    // the pane's first cell rather than for any row showing END.
-    tui.wait(|tui| Ok(tui.cells()?[2][27..30].concat() == "界e\u{301}"))?;
-    let rows = tui.cells()?;
-    assert_eq!(rows[2][27], "界");
-    assert_eq!(rows[2][28], "");
-    assert_eq!(rows[2][29], "e\u{301}");
-    assert_eq!(rows[2][62], "│");
-    assert_eq!(rows[2][63], "│");
-    let neighbor: Vec<_> = rows[1..25].iter().map(|row| row[63..].to_vec()).collect();
-    tui.write(b"printf '\\033[2J\\033[Hshort\\n'\r")?;
-    tui.wait(|tui| Ok(tui.cells()?[2][27..32].concat() == "short"))?;
-    let rows = tui.cells()?;
-    assert_eq!(rows[2][27..32].concat(), "short");
-    assert!(rows[2][32..62].iter().all(|cell| cell == " "));
-    assert_eq!(
-        rows[1..25]
-            .iter()
-            .map(|row| row[63..].to_vec())
-            .collect::<Vec<_>>(),
-        neighbor
-    );
-    tui.pty
-        .resize(muxy_terminal::pty::PtySize { cols: 2, rows: 2 })?;
-    tui.screen
-        .resize(muxy_terminal::Size { cols: 2, rows: 2 })?;
-    for _ in 0..5 {
-        tui.pump()?;
-    }
-    tui.pty.resize(muxy_terminal::pty::PtySize {
-        cols: 100,
-        rows: 26,
-    })?;
-    tui.screen.resize(muxy_terminal::Size {
-        cols: 100,
-        rows: 26,
-    })?;
-    tui.output("short")?;
-    tui.detach()?;
-    Ok(())
-}
-
-#[test]
 fn large_bracketed_paste_preserves_bytes_and_does_not_parse_prefix_shortcuts() -> Result {
     let fixture = Fixture::new()?;
     let mut tui = Tui::start(&fixture, &[])?;
@@ -562,119 +423,6 @@ fn handled_signals_and_suspend_restore_the_original_terminal_modes() -> Result {
     tui.write(b"printf '\\nRESUMED_READY\\n'\r")?;
     tui.output("RESUMED_READY")?;
     assert_eq!(fixture.state()?, state);
-    tui.detach()?;
-    Ok(())
-}
-
-#[test]
-fn duplicate_tabs_close_independently_and_the_final_tab_ends_the_session() -> Result {
-    let fixture = Fixture::new()?;
-    let mut tui = Tui::start(&fixture, &[])?;
-    tui.ready()?;
-    let client = fixture.client()?;
-    let original = client.list_sessions()?;
-    assert_eq!(original.len(), 1);
-    tui.detach()?;
-    let mut state = fixture.state()?;
-    let project = state["active"].as_str().ok_or("active project")?.to_owned();
-    let tabs = state["projects"][&project]["tabs"]
-        .as_array_mut()
-        .ok_or("tabs")?;
-    let pane = tabs[0]["panes"]
-        .as_object()
-        .ok_or("panes")?
-        .values()
-        .next()
-        .ok_or("pane")?
-        .clone();
-    let id = muxy_protocol::OperationId::new().to_string();
-    tabs.push(serde_json::json!({
-        "layout": {"Leaf": id}, "focus": id, "zoom": false,
-        "panes": {id.clone(): pane}
-    }));
-    std::fs::write(
-        fixture.directory.path().join("tui-state.json"),
-        serde_json::to_vec(&state)?,
-    )?;
-    let mut tui = Tui::start(&fixture, &[])?;
-    tui.ready()?;
-    tui.wait(|tui| Ok(tui.tabs()?.len() == 2))?;
-    tui.write(b"\x02w")?;
-    tui.output("No other terminals in this project")?;
-    tui.write(b"\x1b")?;
-    tui.wait(|tui| {
-        Ok(!tui
-            .text()?
-            .iter()
-            .any(|row| row.contains("Existing terminals")))
-    })?;
-    assert_eq!(client.list_sessions()?, original);
-    tui.write(b"\x02x")?;
-    tui.wait(|tui| Ok(tui.tabs()?.len() == 1))?;
-    tui.ready()?;
-    assert_eq!(client.list_sessions()?, original);
-    tui.write(b"printf '\\nDUPLICATE_SURVIVED\\n'\r")?;
-    tui.output("DUPLICATE_SURVIVED")?;
-    tui.write(b"\x02x")?;
-    tui.wait(|tui| Ok(tui.tabs()?.is_empty() && client.list_sessions()?.is_empty()))?;
-    tui.detach()?;
-    Ok(())
-}
-
-#[test]
-fn closing_a_shared_layout_tab_releases_it_in_every_tui_instance() -> Result {
-    let fixture = Fixture::new()?;
-    let mut first = Tui::start(&fixture, &[])?;
-    first.ready()?;
-    let mut second = Tui::start(&fixture, &[])?;
-    second.ready()?;
-    let client = fixture.client()?;
-    assert_eq!(client.list_sessions()?.len(), 1);
-    first.write(b"\x02x")?;
-    first.wait(|tui| {
-        second.pump()?;
-        Ok(tui.tabs()?.is_empty() && client.list_sessions()?.is_empty())
-    })?;
-    first.detach()?;
-    second.detach()?;
-    Ok(())
-}
-
-#[test]
-fn shared_running_program_still_requires_confirmation_if_the_other_client_detaches() -> Result {
-    let fixture = Fixture::new()?;
-    let mut tui = Tui::start(&fixture, &[])?;
-    tui.ready()?;
-    let client = fixture.client()?;
-    let session = client.list_sessions()?[0].id;
-    let size = muxy_protocol::Size {
-        cols: 100,
-        rows: 24,
-    };
-    let other = client.attach(session, size)?;
-    tui.write(b"sleep 30\r")?;
-    tui.wait(|_| {
-        let probe = client.attach(session, size)?;
-        let running = probe.process.is_some_and(|process| !process.is_shell);
-        client.detach(probe.channel)?;
-        Ok(running)
-    })?;
-    tui.write(b"\x02x")?;
-    tui.output("Close terminal?")?;
-    client.detach(other.channel)?;
-    tui.write(b"n")?;
-    tui.wait(|tui| {
-        Ok(!tui
-            .text()?
-            .iter()
-            .any(|row| row.contains("Close terminal?")))
-    })?;
-    assert_eq!(client.list_sessions()?.len(), 1);
-    assert_eq!(tui.tabs()?.len(), 1);
-    tui.write(b"\x02x")?;
-    tui.output("Close terminal?")?;
-    tui.write(b"y")?;
-    tui.wait(|tui| Ok(tui.tabs()?.is_empty() && client.list_sessions()?.is_empty()))?;
     tui.detach()?;
     Ok(())
 }

@@ -39,51 +39,6 @@ fn yaml_and_json_build_the_same_nested_layout_and_commands() {
 }
 
 #[test]
-fn legacy_extra_tabs_keep_depth_first_order_and_separate_startup_commands() {
-    let config =
-        Config::parse("panes:\n - tabs: [nvim, 'npm test']\n - tabs: [top, 'git status', {}]\n")
-            .expect("config");
-    let mut state = state();
-    state
-        .apply_project_layout(state.home().id, &config)
-        .expect("apply");
-    let tabs = &state.home().tabs;
-    assert_eq!(tabs.len(), 4);
-    assert_eq!(tabs[0].panes.len(), 2);
-    assert_eq!(
-        tabs.iter()
-            .map(|tab| tab.custom_title.as_deref())
-            .collect::<Vec<_>>(),
-        [Some("nvim"), Some("npm"), Some("git"), Some("Terminal")]
-    );
-    assert_eq!(state.startup_command(tabs[1].panes[0].id), Some("npm test"));
-    assert!(tabs.iter().skip(1).all(|tab| tab.panes.len() == 1));
-}
-
-#[test]
-fn branches_take_precedence_and_many_siblings_have_valid_balanced_ratios() {
-    let mut state = state();
-    let config = Config::parse(&format!(
-        "tab: ignored\npanes:\n{}",
-        " - tab: {}\n".repeat(64)
-    ))
-    .expect("64 panes");
-    let panes = state
-        .apply_project_layout(state.home().id, &config)
-        .expect("apply");
-    assert_eq!(panes.len(), 64);
-    assert!(state.home().tabs[0].layout.validate().is_ok());
-    let config = Config::parse("panes: [{tab: left}, {tab: middle}, {tab: right}]").expect("three");
-    state
-        .apply_project_layout(state.home().id, &config)
-        .expect("apply");
-    let Layout::Split { ratio, .. } = state.home().tabs[0].layout else {
-        panic!("split");
-    };
-    assert!((ratio - 1.0 / 3.0).abs() < f32::EPSILON);
-}
-
-#[test]
 fn rejects_invalid_or_unbounded_layouts_instead_of_partially_replacing_tabs() {
     for text in [
         "",

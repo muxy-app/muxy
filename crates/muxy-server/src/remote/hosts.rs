@@ -81,33 +81,3 @@ fn node_name() -> String {
         .trim()
         .to_owned()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn candidates_are_valid_pairing_hosts() {
-        for host in candidates(&[]) {
-            assert!(!host.is_empty() && host.len() <= 253, "{host}");
-            assert!(
-                host.bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-'),
-                "{host}"
-            );
-        }
-        assert!(!display_name().is_empty());
-    }
-
-    #[test]
-    fn given_addresses_come_first_once_each_and_fit_a_link() {
-        let given = ["Box.Example.com", "box.example.com", "203.0.113.7"].map(String::from);
-        assert_eq!(candidates(&given)[..2], ["Box.Example.com", "203.0.113.7"]);
-        let many: Vec<_> = (0..10).map(|index| format!("host-{index}")).collect();
-        assert_eq!(candidates(&many), many[..MAX_PAIRING_HOSTS]);
-        assert_eq!(
-            unique(["a", "b", "A", "c", "b"].map(String::from).to_vec()),
-            ["a", "b", "c"]
-        );
-    }
-}

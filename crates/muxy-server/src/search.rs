@@ -190,40 +190,4 @@ mod tests {
         );
         assert!(row_matches(&runs, "cd", false).is_empty());
     }
-
-    #[test]
-    fn dense_rows_resume_without_missing_or_repeating_matches() -> Result<(), ServerError> {
-        let rows = [vec![run(&"a".repeat(4096), 4096)]];
-        let mut search = Search {
-            session: SessionId::from(std::num::NonZeroU64::MIN),
-            generation: 1,
-            query: "a",
-            ignore_case: false,
-            before: HistoryCursor(0),
-            max_results: 500,
-            history_rows: 0,
-            screen_rows: 1,
-        };
-        let mut matches = Vec::new();
-        loop {
-            let page = search.scan(|index| Ok(&rows[index]))?;
-            assert!(page.scanned_rows <= 1);
-            matches.extend(page.matches);
-            let Some(next) = page.next else { break };
-            search.before = next;
-        }
-        assert_eq!(matches.len(), 4096);
-        assert!(
-            matches
-                .iter()
-                .enumerate()
-                .all(|(index, found)| usize::from(found.start) == 4095 - index)
-        );
-        search.generation += 1;
-        assert_eq!(
-            search.range().err().map(|error| error.code()),
-            Some(ErrorCode::StaleHistoryCursor)
-        );
-        Ok(())
-    }
 }

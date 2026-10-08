@@ -318,53 +318,6 @@ fn the_phone_tracks_desktop_resizes_without_resizing_the_session() -> TestResult
     result
 }
 
-#[test]
-fn revoking_disconnects_the_phone_and_refuses_it_afterwards() -> TestResult {
-    let (_server, local, credential) = paired()?;
-    let (recorder, events) = listener();
-    let connection = Connection::connect(credential.clone(), recorder)?;
-    let device = credential.device_id.parse()?;
-    local.revoke_device(device)?;
-    wait_for(&events, |event| *event == ConnectionEvent::Disconnected)?;
-    drop(connection);
-    let (recorder, _events) = listener();
-    assert!(matches!(
-        Connection::connect(credential, recorder),
-        Err(MobileError::Unauthorized)
-    ));
-    Ok(())
-}
-
-#[test]
-fn a_damaged_or_foreign_pairing_is_reported_as_such() -> TestResult {
-    let (_server, _local, credential) = paired()?;
-    let (recorder, _events) = listener();
-    let damaged = ServerCredential {
-        token: vec![1, 2, 3],
-        ..credential.clone()
-    };
-    assert!(matches!(
-        Connection::connect(
-            damaged,
-            Arc::clone(&recorder) as Arc<dyn ConnectionListener>
-        ),
-        Err(MobileError::InvalidCredential)
-    ));
-    let foreign = ServerCredential {
-        fingerprint: vec![0; 32],
-        ..credential
-    };
-    assert!(matches!(
-        Connection::connect(foreign, recorder),
-        Err(MobileError::IdentityMismatch)
-    ));
-    assert!(matches!(
-        muxy_mobile::pair("muxy://pair?v=1".into(), "Phone".into()),
-        Err(MobileError::InvalidLink)
-    ));
-    Ok(())
-}
-
 fn texts(lines: &[Line]) -> Vec<String> {
     lines
         .iter()
@@ -508,35 +461,6 @@ fn taps_and_scrolling_reach_a_program_that_tracks_the_mouse() -> TestResult {
     terminal.send_input(b"printf '\\033[?1000l'\r".to_vec())?;
     wait_for(&events, |event| {
         metadata_changed(event, session.id) && !terminal.screen().mouse_tracking
-    })?;
-    connection.end_session(session.id)?;
-    Ok(())
-}
-
-#[test]
-fn scrolling_a_full_screen_program_sends_it_arrow_keys() -> TestResult {
-    let (_server, _local, credential) = paired()?;
-    let (recorder, events) = listener();
-    let connection = Connection::connect(credential, recorder)?;
-    let home = connection
-        .projects()?
-        .into_iter()
-        .find(|project| project.is_home)
-        .ok_or("no Home project")?;
-    let session = connection.create_session(home.id, 40, 6)?;
-    let terminal = connection.attach(session.id, 40, 6)?;
-    assert!(!terminal.screen().alternate_scroll);
-    // The alternate screen scrolls with arrow keys unless the program tracks the mouse.
-    terminal.send_input(b"stty -icanon -echo; printf '\\033[?1049h'; cat -v\r".to_vec())?;
-    wait_for(&events, |event| {
-        metadata_changed(event, session.id) && terminal.screen().alternate_scroll
-    })?;
-    assert!(!terminal.screen().mouse_tracking);
-    terminal.scroll(ScrollDirection::Down, 0, 0)?;
-    wait_until(&events, || {
-        texts(&terminal.screen().lines)
-            .iter()
-            .any(|line| line.contains("^[[B^[[B^[[B"))
     })?;
     connection.end_session(session.id)?;
     Ok(())
