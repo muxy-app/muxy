@@ -175,7 +175,8 @@ def update_metadata(version, repository, directory):
 
 def check_build(version, executable):
     channel(version)
-    metadata = json.loads(subprocess.check_output([str(executable), "--build-info"], timeout=5))
+    # The first run of an x86_64 build on Apple silicon waits for Rosetta to translate it.
+    metadata = json.loads(subprocess.check_output([str(executable), "--build-info"], timeout=60))
     if metadata != {"version": version, **build_metadata()}:
         raise ValueError("Packaged executable build metadata does not match this release")
 
