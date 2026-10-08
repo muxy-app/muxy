@@ -835,13 +835,13 @@ impl AppModel {
 
     pub(crate) fn webview_title<'a>(&'a self, tab: &'a Tab, cx: &'a gpui::App) -> &'a str {
         if tab.custom_title.is_none()
-            && let Some(pane) = tab.displayed_pane(self.state.window().active_pane)
+            && let Some(pane) = tab.displayed_pane(self.state.shown_pane(tab))
             && let Some(surface) = self.webviews.panes.get(&pane.id)
             && let Some(title) = &surface.view.read(cx).title
         {
             return title;
         }
-        tab.title(self.state.window().active_pane)
+        tab.title(self.state.shown_pane(tab))
     }
 }
 
@@ -1075,7 +1075,7 @@ impl AppModel {
         cx: &gpui::App,
     ) -> Option<gpui::AnyElement> {
         use gpui::{IntoElement, Styled};
-        let pane = tab.displayed_pane(self.state.window().active_pane)?;
+        let pane = tab.displayed_pane(self.state.shown_pane(tab))?;
         if !matches!(pane.content, PaneContent::Webview(_)) || tab.pinned {
             return None;
         }

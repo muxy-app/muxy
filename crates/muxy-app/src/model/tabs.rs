@@ -2,6 +2,7 @@ use gpui::{Context, Pixels, Point, Window};
 use muxy_app_core::{AppError, AppState, ProjectStatus, Tab, TabCloseScope, TabId, TabSide};
 
 use super::{AppModel, ConnectionState, Quitting};
+use crate::views::tab_strip::TabDrop;
 
 impl AppModel {
     pub(crate) fn apply_layout_drop(
@@ -20,6 +21,48 @@ impl AppModel {
                 crate::views::splits::drag::DropTarget::Dock { pane, edge, level } => {
                     state.dock_pane(intent.source, pane, edge, level)
                 }
+            },
+            cx,
+        ) {
+            self.changed(cx);
+            self.focus_requested = true;
+        }
+    }
+
+    /// Applies a tab drop. `previous` was shown before pressing `tab` selected
+    /// it, so the group `tab` leaves goes back to showing it.
+    pub(crate) fn drop_tab(
+        &mut self,
+        tab: TabId,
+        drop: TabDrop,
+        previous: Option<TabId>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.close_request.is_some() {
+            return;
+        }
+        let Some(project) = self.tab_project(tab).map(|project| project.id) else {
+            return;
+        };
+        if self.edit_tab(
+            |state| {
+                match drop {
+                    TabDrop::Split { beside, edge } => {
+                        state.split_tab(tab, beside, edge)?;
+                    }
+                    TabDrop::Into { group, before } => {
+                        state.move_tab_to_group(tab, group, before)?;
+                    }
+                }
+                if let Some(previous) = previous.filter(|previous| {
+                    state
+                        .project(project)
+                        .is_some_and(|project| !project.group_tabs(tab).contains(previous))
+                }) {
+                    state.select_tab(project, previous)?;
+                    state.select_tab(project, tab)?;
+                }
+                Ok(())
             },
             cx,
         ) {

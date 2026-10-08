@@ -466,7 +466,7 @@ impl AppModel {
                     .enumerate()
                     .map(|(index, tab)| {
                         let webview = tab
-                            .displayed_pane(self.state.window().active_pane)
+                            .displayed_pane(self.state.shown_pane(tab))
                             .is_some_and(|pane| matches!(pane.content, PaneContent::Webview(_)));
                         json!({
                             "index": index,

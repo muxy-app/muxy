@@ -1,14 +1,14 @@
 use muxy_core::shortcuts::ShortcutId;
 pub(super) mod drag;
 
-pub(crate) use drag::TabDragState;
+pub(crate) use drag::{TabDragState, TabDrop};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
-use muxy_app_core::{Tab, TabId};
+use muxy_app_core::{Tab, TabGroup, TabId, TabSide};
 
 use super::titlebar;
 use crate::model::AppModel;
@@ -33,7 +33,6 @@ pub(crate) fn tab_strip(
     if model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing {
         return strip.justify_end().child(settings).into_any_element();
     }
-    let theme = &model.theme;
     let zoom_tab = model
         .state
         .current_project()
@@ -57,38 +56,9 @@ pub(crate) fn tab_strip(
     let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
     let ideal_width = available / f32::from(count.max(1));
     let width = ideal_width.clamp(44.0, 200.0);
-    let targets = drag::TabBounds::default();
-    let mut cells = div().flex().flex_none().h_full();
-    for (index, tab) in model.state.current_project().tabs.iter().enumerate() {
-        cells = cells.child(tab_cell(tab, index, width, model, cx));
-    }
-    let mut cells = drag::measure_tabs(cells, targets.clone(), model);
-    let tooltip = tr!("New Tab (⌘T)");
-    let new_button = div()
-        .debug_selector(|| "new-tab-button".into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .pl(px(4.0))
-        .w(px(28.0))
-        .h_full()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            IconButton::new(
-                "new-tab",
-                Icon::Plus,
-                px(13.0),
-                px(24.0),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
-            .on_click(cx.listener(|model, _, _, cx| {
-                cx.stop_propagation();
-                model.new_tab(cx);
-            })),
-        );
+    let tabs: Vec<_> = model.state.current_project().tabs.iter().collect();
+    let mut cells = tab_cells(&tabs, width, true, model, cx);
+    let new_button = new_tab_button(None, model, cx);
     let pinned_button = if ideal_width < 44.0 {
         Some(new_button)
     } else {
@@ -116,8 +86,121 @@ pub(crate) fn tab_strip(
         .children(has_layouts.then(|| super::project_layouts::button(model, cx)))
         .child(model.extension_toolbar(cx))
         .child(settings)
-        .child(drag::track_pointer(targets, drag::Source::Titlebar, cx))
         .into_any_element()
+}
+
+/// The strip above a group's panes: its tabs and a button for a new tab in
+/// the group.
+pub(crate) fn group_strip(
+    group: &TabGroup,
+    width: f32,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let project = model.state.current_project();
+    let tabs: Vec<_> = group
+        .tabs()
+        .iter()
+        .filter_map(|id| project.tabs.iter().find(|tab| tab.id == *id))
+        .collect();
+    let focused = model
+        .active_tab()
+        .is_some_and(|tab| group.tabs().contains(&tab));
+    let count = u16::try_from(tabs.len()).unwrap_or(u16::MAX).max(1);
+    let cell_width = ((width - 28.0) / f32::from(count)).clamp(44.0, 200.0);
+    let cells = tab_cells(&tabs, cell_width, focused, model, cx).child(new_tab_button(
+        group.tabs().last().copied(),
+        model,
+        cx,
+    ));
+    let shown = group.selected();
+    let strips = model.tab_drag.strips.clone();
+    div()
+        .debug_selector(move || format!("group-strip-{shown}"))
+        .relative()
+        .flex()
+        .items_center()
+        .h(px(32.0))
+        .flex_none()
+        .bg(model.theme.bg)
+        .child(
+            div()
+                .id(SharedString::from(format!("group-tabs-{}", group.id())))
+                .flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .h_full()
+                .overflow_x_scroll()
+                .child(cells),
+        )
+        .child(
+            gpui::canvas(
+                move |bounds, _, _| strips.borrow_mut().push((shown, bounds)),
+                |_, (), _, _| {},
+            )
+            .absolute()
+            .inset_0(),
+        )
+        .into_any_element()
+}
+
+/// Tab cells for `tabs`, measured for dragging. `shortcuts` shows ⌘1–9 hints.
+fn tab_cells(
+    tabs: &[&Tab],
+    width: f32,
+    shortcuts: bool,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> gpui::Div {
+    let mut cells = div().flex().flex_none().h_full();
+    for (index, tab) in tabs.iter().enumerate() {
+        cells = cells.child(tab_cell(tab, index, width, shortcuts, model, cx));
+    }
+    drag::measure_tabs(
+        cells,
+        tabs.iter().map(|tab| tab.id).collect(),
+        model.tab_drag.cells.clone(),
+    )
+}
+
+/// Opens a tab after `anchor` in its group, or at the end of the focused one.
+fn new_tab_button(
+    anchor: Option<TabId>,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> gpui::Div {
+    let theme = &model.theme;
+    let id = anchor.map_or_else(
+        || SharedString::from("new-tab"),
+        |anchor| SharedString::from(format!("new-tab-{anchor}")),
+    );
+    div()
+        .debug_selector(|| "new-tab-button".into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .pl(px(4.0))
+        .w(px(28.0))
+        .h_full()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            IconButton::new(id, Icon::Plus, px(13.0), px(24.0), theme.fg_muted, theme.fg)
+                .tooltip(
+                    tr!("New Tab (⌘T)"),
+                    theme.raised(),
+                    theme.fg,
+                    theme.border,
+                    theme.bg,
+                )
+                .on_click(cx.listener(move |model, _, _, cx| {
+                    cx.stop_propagation();
+                    match anchor {
+                        Some(anchor) => model.new_tab_adjacent(anchor, TabSide::Right, cx),
+                        None => model.new_tab(cx),
+                    }
+                })),
+        )
 }
 
 pub(super) fn existing_terminals_button(
@@ -304,12 +387,15 @@ fn tab_cell(
     tab: &Tab,
     index: usize,
     width: f32,
+    shortcuts: bool,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let theme = &model.theme;
-    let pane = tab.displayed_pane(model.state.window().active_pane);
-    let active = model.active_tab() == Some(tab.id);
+    let pane = tab.displayed_pane(model.state.shown_pane(tab));
+    let active = model.visible_tabs().contains(&tab.id);
+    let grouped = model.state.current_project().groups().is_some();
+    let focused = grouped && model.active_tab() == Some(tab.id);
     let bell = tab.panes.iter().any(|pane| {
         model
             .terminal(&pane.id)
@@ -330,7 +416,13 @@ fn tab_cell(
     let foreground = if active { theme.fg } else { theme.fg_muted };
     div()
         .id(group.clone())
-        .debug_selector(move || format!("tab-cell-{index}"))
+        .debug_selector(move || {
+            if grouped {
+                format!("group-tab-{id}")
+            } else {
+                format!("tab-cell-{index}")
+            }
+        })
         .when(!model.tab_drag.is_active(), |cell| {
             cell.group(group.clone())
         })
@@ -353,6 +445,18 @@ fn tab_cell(
                     cell.hover(|style| style.bg(color.opacity(if active { 0.18 } else { 0.08 })))
                 })
         })
+        .when(focused, |cell| {
+            cell.child(
+                div()
+                    .debug_selector(|| "focused-group-tab".into())
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(px(2.0))
+                    .bg(theme.accent),
+            )
+        })
         .on_mouse_down(
             MouseButton::Right,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
@@ -364,7 +468,7 @@ fn tab_cell(
             MouseButton::Left,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 cx.stop_propagation();
-                model.begin_tab_drag(id, event.position, drag::Source::Titlebar, cx);
+                model.begin_tab_drag(id, event.position, drag::Source::Strip, cx);
                 model.select_tab(id, cx);
                 model.focus_active(window, cx);
             }),
@@ -390,6 +494,7 @@ fn tab_cell(
             tab.pinned,
             ShortcutId::TABS
                 .get(index)
+                .filter(|_| shortcuts)
                 .and_then(|id| model.shortcut_hints.label(*id, &model.settings.keymap))
                 .map_or_else(
                     || {

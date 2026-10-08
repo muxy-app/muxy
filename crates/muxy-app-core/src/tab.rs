@@ -20,11 +20,13 @@ impl Project {
         let Some(index) = self.tabs.iter().position(|tab| tab.id == anchor) else {
             return Vec::new();
         };
+        let group = self.group_tabs(anchor);
         self.tabs
             .iter()
             .enumerate()
             .filter(|(candidate, tab)| {
                 !tab.pinned
+                    && group.contains(&tab.id)
                     && match scope {
                         TabCloseScope::Other => *candidate != index,
                         TabCloseScope::Left => *candidate < index,

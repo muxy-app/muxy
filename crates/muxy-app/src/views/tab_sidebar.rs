@@ -88,6 +88,12 @@ impl AppModel {
     }
 
     pub(crate) fn navigation_tabs(&self) -> Vec<TabId> {
+        let project = self.state.current_project();
+        if project.groups().is_some()
+            && let Some(tab) = self.active_tab()
+        {
+            return project.group_tabs(tab);
+        }
         if self.appearance.layout != AppLayout::TabFocused {
             return self
                 .state
@@ -560,11 +566,11 @@ fn tab_row(
             MouseButton::Left,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 cx.stop_propagation();
+                model.begin_tab_drag(id, event.position, tab_strip::drag::Source::Sidebar, cx);
                 model.select_tab(id, cx);
                 if let Some(pane) = agent_pane {
                     model.focus_pane(pane, cx);
                 }
-                model.begin_tab_drag(id, event.position, tab_strip::drag::Source::Sidebar, cx);
                 model.focus_active(window, cx);
             }),
         )
@@ -652,7 +658,7 @@ pub(super) fn titlebar(
                 .text_color(theme.fg_muted)
                 .child(project.name.clone()),
         )
-        .when(available, |bar| {
+        .when(available && project.groups().is_none(), |bar| {
             bar.child(
                 div()
                     .debug_selector(|| "new-tab-button".into())

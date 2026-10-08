@@ -98,6 +98,9 @@ Deleting always asks first and explains what will end.
 - A project can have any number of tabs, including none.
 - A tab splits into panes, side by side or stacked, as deep as you like.
   Closing its last pane closes the tab.
+- Drag a tab to an edge of the content to show it beside the others in a new
+  group. Each group has its own tab strip.
+- Closing a group's last tab removes the group.
 - Tabs can have a custom title and color, and can be pinned. Pinned tabs stay
   first and can't be closed until unpinned.
 - A terminal's title is the one its program sets, otherwise the running

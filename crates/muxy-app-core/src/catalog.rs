@@ -248,6 +248,7 @@ impl AppState {
                 kind: None,
                 parent_id: None,
                 tabs: Vec::new(),
+                groups: None,
                 status: ProjectStatus::Available,
             };
             project.with_descriptor(&descriptor)?;

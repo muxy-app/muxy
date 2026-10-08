@@ -76,6 +76,14 @@ impl AppState {
                 self.window.selected_tab.entry(project.id).or_insert(tab.id);
             }
         }
+        for project in self
+            .projects
+            .iter()
+            .map(|project| project.id)
+            .collect::<Vec<_>>()
+        {
+            self.sync_groups(project);
+        }
         Ok(())
     }
 
@@ -117,6 +125,7 @@ fn new_home(directory: PathBuf) -> Project {
         kind: None,
         parent_id: None,
         tabs: Vec::new(),
+        groups: None,
         status: ProjectStatus::Available,
     }
 }

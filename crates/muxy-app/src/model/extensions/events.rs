@@ -87,7 +87,7 @@ pub(in crate::model) fn root_of(project: &Project) -> ProjectId {
 impl AppModel {
     fn tab_context(&self, project: &Project, tab: &Tab, cx: &gpui::App) -> Value {
         let pane = tab
-            .displayed_pane(self.state.window().active_pane)
+            .displayed_pane(self.state.shown_pane(tab))
             .or_else(|| tab.panes.first());
         let mut payload = Map::new();
         let mut put = |key: &str, value: String| {
@@ -127,7 +127,7 @@ impl AppModel {
     /// A tab's title as events report it: a terminal's own title only once it
     /// has settled.
     fn event_title(&self, tab: &Tab, cx: &gpui::App) -> String {
-        tab.displayed_pane(self.state.window().active_pane)
+        tab.displayed_pane(self.state.shown_pane(tab))
             .filter(|pane| {
                 tab.custom_title.is_none() && matches!(pane.content, PaneContent::Terminal { .. })
             })
