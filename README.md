@@ -39,6 +39,9 @@ Download the latest release from the [releases page](https://github.com/muxy-app
 
 Homebrew installs Muxy 1.x. To try Muxy 2, see [Getting started](docs/user-guide/getting-started.md).
 
+For the standalone CLI and server on macOS or Linux, see
+[CLI and server installation](docs/user-guide/getting-started.md#cli-and-server-only).
+
 ## Documentation
 
 See [docs](docs/README.md).
