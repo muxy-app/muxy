@@ -133,7 +133,18 @@ CLI_ARCHIVE="$STAGING/artifacts/muxy-${VERSION}-macos-${ARCH}.zip"
 
 ln -s /Applications "$STAGING/dmg/Applications"
 DMG="$STAGING/artifacts/Muxy-${VERSION}-${ARCH}.dmg"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING/dmg" -format UDZO -fs HFS+ "$DMG"
+# CI runners intermittently fail with "hdiutil: create failed - Resource busy".
+for ATTEMPT in 1 2 3 4 5; do
+    rm -f "$DMG"
+    if hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING/dmg" -format UDZO -fs HFS+ "$DMG"; then
+        break
+    fi
+    if [[ "$ATTEMPT" == 5 ]]; then
+        echo "Error: hdiutil create failed after $ATTEMPT attempts" >&2
+        exit 1
+    fi
+    sleep $((ATTEMPT * 5))
+done
 codesign "${SIGN_ARGS[@]}" "$DMG"
 codesign --verify --strict --verbose=2 "$DMG"
 ditto -c -k --sequesterRsrc --keepParent "$STAGING/symbols" \

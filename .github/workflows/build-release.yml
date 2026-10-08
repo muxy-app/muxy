@@ -44,11 +44,12 @@ jobs:
             arch: arm64
             target: aarch64-apple-darwin
             runner: macos-15
+          # Cross-compiled and verified through Rosetta: Intel runners are far slower.
           - platform: macos
             directory: x86_64
             arch: x86_64
             target: x86_64-apple-darwin
-            runner: macos-15-intel
+            runner: macos-15
           - platform: linux
             directory: linux-x86_64
             arch: x86_64
@@ -73,6 +74,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
+          targets: ${{ matrix.target }}
+      - name: Install Rosetta to run the x86_64 build on Apple silicon
+        if: runner.os == 'macOS' && matrix.arch == 'x86_64'
+        run: arch -x86_64 /usr/bin/true || sudo softwareupdate --install-rosetta --agree-to-license
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
@@ -139,8 +144,10 @@ jobs:
         run: bash scripts/notarize-release.sh "$PACKAGE_DIR/muxy-$VERSION-macos-$ARCH.zip"
       - name: Verify packaged pair, desktop bytes and standalone installation
         if: runner.os == 'macOS'
+        # The universal system Python runs as the packaged architecture, so the
+        # x86_64 pair is installed and exercised under Rosetta.
         run: >-
-          python3 scripts/verify-release-package.py
+          arch "-$ARCH" /usr/bin/python3 scripts/verify-release-package.py
           "$PACKAGE_DIR/muxy-$VERSION-macos-$ARCH.zip"
           --version "$VERSION" --dmg "$PACKAGE_DIR/Muxy-$VERSION-$ARCH.dmg"
           --notarized
