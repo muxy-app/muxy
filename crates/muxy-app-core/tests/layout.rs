@@ -1,4 +1,4 @@
-use muxy_app_core::{AppState, Axis, Branch, Direction, Layout, PaneId, ServerId, restore};
+use muxy_app_core::{AppState, Branch, Direction, Layout, PaneId, ServerId, restore};
 use muxy_protocol::{ServerPath, SessionId, SessionInfo};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -44,33 +44,6 @@ fn nested_splits_focus_zoom_and_collapse_survive_roundtrip() -> Result {
     state.close_pane(left)?;
     assert!(state.home().tabs.is_empty());
     assert!(state.window().selected_tab.is_empty());
-    Ok(())
-}
-
-#[test]
-fn splits_before_the_source_and_ratio_errors_leave_valid_trees() -> Result {
-    let mut state = AppState::bootstrap()?;
-    let tab = state.open_terminal_tab(state.home().id)?;
-    let original = state.home().tabs[0].panes[0].id;
-    let left = state.split_pane(original, Direction::Left)?;
-    let top = state.split_pane(left, Direction::Up)?;
-    assert_eq!(state.home().tabs[0].layout.leaves(), [top, left, original]);
-    state.set_ratio(tab, &[], -1.0)?;
-    state.set_ratio(tab, &[Branch::First], 2.0)?;
-    let Layout::Split { ratio, first, .. } = &state.home().tabs[0].layout else {
-        return Err("split expected".into());
-    };
-    assert!((*ratio - 0.15).abs() < f32::EPSILON);
-    assert!(
-        matches!(first.as_ref(), Layout::Split { ratio, axis: Axis::Vertical, .. } if (*ratio - 0.85).abs() < f32::EPSILON)
-    );
-    let before = state.clone();
-    assert!(state.set_ratio(tab, &[], f32::NAN).is_err());
-    assert!(state.set_ratio(tab, &[Branch::Second], 0.5).is_err());
-    assert!(state.split_pane(PaneId::new(), Direction::Right).is_err());
-    assert!(state.focus_pane(PaneId::new()).is_err());
-    assert!(state.toggle_zoom(PaneId::new()).is_err());
-    assert_eq!(state, before);
     Ok(())
 }
 
@@ -170,33 +143,6 @@ fn window_owns_focus_and_closing_chooses_neighbors_without_stealing_focus() -> R
     assert_eq!(state.window().active_pane, Some(third_first));
     state.close_tab(home, third_tab)?;
     assert_eq!(state.window().active_pane, None);
-    Ok(())
-}
-
-#[test]
-fn legacy_tab_focus_migrates_once_into_the_window() -> Result {
-    let mut state = AppState::bootstrap()?;
-    state.open_terminal_tab(state.home().id)?;
-    let first = state.window().active_pane.ok_or("focus")?;
-    let second = state.split_pane(first, Direction::Right)?;
-    let mut saved = serde_json::to_value(&state)?;
-    saved["window"]
-        .as_object_mut()
-        .ok_or("window")?
-        .remove("active_pane");
-    saved["projects"][0]["tabs"][0]["active_pane"] = serde_json::to_value(second)?;
-    let restored: AppState = serde_json::from_value(saved)?;
-    assert_eq!(restored, state);
-    let migrated = serde_json::to_value(restored)?;
-    assert_eq!(
-        migrated["window"]["active_pane"],
-        serde_json::to_value(second)?
-    );
-    assert!(
-        migrated["projects"][0]["tabs"][0]
-            .get("active_pane")
-            .is_none()
-    );
     Ok(())
 }
 

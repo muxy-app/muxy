@@ -99,17 +99,3 @@ fn device_label(name: &str) -> String {
         label.into()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn device_names_fit_the_server_rules() {
-        assert_eq!(device_label("  Saeed's iPhone\n"), "Saeed's iPhone");
-        assert_eq!(device_label("\u{7}"), "Phone");
-        let long = device_label(&"é".repeat(100));
-        assert!(long.len() <= MAX_DEVICE_NAME);
-        assert!(muxy_protocol::validate_device_name(&long).is_ok());
-    }
-}

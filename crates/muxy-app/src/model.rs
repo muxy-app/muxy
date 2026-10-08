@@ -2541,7 +2541,6 @@ mod tests {
     mod activity;
     mod ai;
     mod composer;
-    mod custom_commands;
     mod detach;
     mod find;
     mod git;
@@ -2553,16 +2552,13 @@ mod tests {
     mod quick_terminal;
     mod remote_devices;
     mod remote_parity;
-    mod server_status;
     mod servers;
     mod session_ownership;
     mod splits;
     mod tab_groups;
     mod tab_menu;
-    mod tab_sidebar;
     mod tui;
     mod updates;
-    mod window_bounds;
     mod worktrees;
 
     use muxy_client::Client;

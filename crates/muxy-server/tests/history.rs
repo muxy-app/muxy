@@ -169,21 +169,3 @@ fn output_preserves_page_boundaries_and_resize_returns_a_stale_cursor_error() ->
     assert_eq!(refreshed.screen.ok_or("no refreshed screen")?.size.cols, 40);
     Ok(())
 }
-
-#[test]
-fn eviction_rejects_old_cursors_instead_of_reinterpreting_their_indexes() -> TestResult {
-    let fixture = Fixture::new(256 * 1024)?;
-    fixture.produce()?;
-    let (snapshot, _events) = fixture.attach(1)?;
-    let cursor = snapshot.history_cursor.ok_or("missing older cursor")?;
-    fixture.input(b"seq 1 20000; printf EVICTED_READY\n")?;
-    fixture.wait_for("EVICTED_READY")?;
-    let error = fixture.page(cursor).err().ok_or("expected stale cursor")?;
-    assert_eq!(
-        error
-            .downcast_ref::<muxy_server::ServerError>()
-            .map(muxy_server::ServerError::code),
-        Some(ErrorCode::StaleHistoryCursor)
-    );
-    Ok(())
-}

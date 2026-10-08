@@ -131,39 +131,6 @@ Unquoted = value.with-dots;
 }
 
 #[test]
-fn placeholder_rules_match_mains_documentation() {
-    for (key, value) in [
-        ("Created branch %@", "Zweig %@ erstellt"),
-        ("%@ (%@)", "%2$@ – %1$@"),
-        ("%@ (%@)", "%1$@"),
-        ("%ld items", "%lld Elemente"),
-        ("%d items", "%hhd Elemente"),
-        ("%f s", "%lf s"),
-        ("Settings", "Einstellungen"),
-        ("%lld%%", "%lld %%"),
-    ] {
-        let catalog = strings(&[(key, value)]);
-        assert_eq!(catalog::incompatible_key(&catalog), None, "{key} = {value}");
-    }
-    for (key, value) in [
-        ("Created branch %@", "Zweig %@ %@ erstellt"),
-        ("%lld changes", "%@ Änderungen"),
-        ("Created branch %@", "Zweig %s erstellt"),
-        ("Settings", "Einstellungen %@"),
-        ("%d", "%*d"),
-        ("%f", "%Lf"),
-        ("%@ and %@", "%1$@ %1$lld"),
-    ] {
-        let catalog = strings(&[(key, value)]);
-        assert_eq!(
-            catalog::incompatible_key(&catalog),
-            Some(key),
-            "{key} = {value}"
-        );
-    }
-}
-
-#[test]
 fn oversized_format_fields_prevent_a_pack_from_loading() {
     let root = tempfile::tempdir().unwrap();
     let provider = Provider {

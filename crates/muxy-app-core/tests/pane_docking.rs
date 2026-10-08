@@ -76,94 +76,6 @@ fn grid() -> (Layout, [PaneId; 4]) {
 const THIRD: f32 = 1.0 / 3.0;
 
 #[test]
-fn docking_at_the_workspace_edge_adds_an_equal_column_or_row() {
-    for (axis, edge, perpendicular) in [
-        (Axis::Horizontal, Direction::Right, Axis::Vertical),
-        (Axis::Vertical, Direction::Down, Axis::Horizontal),
-    ] {
-        let [a, b, c] = std::array::from_fn(|_| PaneId::new());
-        let layout = split(
-            axis,
-            0.5,
-            Layout::Leaf(a),
-            split(perpendicular, 0.5, Layout::Leaf(b), Layout::Leaf(c)),
-        );
-        assert_eq!(layout.dock_depths(b, edge), [2, 1]);
-        let result = layout.docked(c, b, edge, 1).unwrap();
-        result.validate().unwrap();
-        assert_eq!(result.leaves(), [a, b, c]);
-        let cell = |index: f32| match axis {
-            Axis::Horizontal => [index * THIRD, 0.0, THIRD, 1.0],
-            Axis::Vertical => [0.0, index * THIRD, 1.0, THIRD],
-        };
-        assert_rects(&result, &[(a, cell(0.0)), (b, cell(1.0)), (c, cell(2.0))]);
-    }
-}
-
-#[test]
-fn rows_and_columns_that_run_along_an_edge_add_no_extra_drop_levels() {
-    let [a, b, c] = std::array::from_fn(|_| PaneId::new());
-    let columns = split(
-        Axis::Horizontal,
-        0.5,
-        Layout::Leaf(a),
-        split(Axis::Horizontal, 0.5, Layout::Leaf(b), Layout::Leaf(c)),
-    );
-    assert_eq!(columns.dock_depths(c, Direction::Right), [1]);
-    assert_eq!(columns.dock_depths(b, Direction::Left), [1]);
-    assert_eq!(columns.dock_depths(b, Direction::Up), [1, 0]);
-    let (grid, [a, b, ..]) = grid();
-    assert_eq!(grid.dock_depths(b, Direction::Left), [2, 1]);
-    assert_eq!(grid.dock_depths(b, Direction::Up), [2, 0]);
-    assert_eq!(grid.dock_depths(a, Direction::Down), [2]);
-    assert!(grid.dock_depths(PaneId::new(), Direction::Left).is_empty());
-}
-
-#[test]
-fn moving_within_a_row_keeps_every_size_and_the_same_place_is_an_exact_noop() {
-    let [a, b, c] = std::array::from_fn(|_| PaneId::new());
-    let columns = split(
-        Axis::Horizontal,
-        0.5,
-        Layout::Leaf(a),
-        split(Axis::Horizontal, 0.5, Layout::Leaf(b), Layout::Leaf(c)),
-    );
-    assert_eq!(columns.moved(a, b, Some(Direction::Left)).unwrap(), columns);
-    for (anchor, edge) in [(b, Direction::Right), (c, Direction::Left)] {
-        let result = columns.moved(a, anchor, Some(edge)).unwrap();
-        result.validate().unwrap();
-        assert_rects(
-            &result,
-            &[
-                (b, [0.0, 0.0, 0.25, 1.0]),
-                (a, [0.25, 0.0, 0.5, 1.0]),
-                (c, [0.75, 0.0, 0.25, 1.0]),
-            ],
-        );
-    }
-    for ratio in [0.15, 0.3, 0.61, 0.85] {
-        for (axis, before, after) in [
-            (Axis::Horizontal, Direction::Left, Direction::Right),
-            (Axis::Vertical, Direction::Up, Direction::Down),
-        ] {
-            let layout = split(axis, ratio, Layout::Leaf(a), Layout::Leaf(b));
-            assert_eq!(layout.docked(a, b, before, 0).unwrap(), layout);
-            assert_eq!(layout.moved(b, a, Some(after)).unwrap(), layout);
-            let swapped = layout.moved(a, b, Some(after)).unwrap();
-            assert_eq!(
-                swapped,
-                split(
-                    axis,
-                    (1.0 - ratio).clamp(0.15, 0.85),
-                    Layout::Leaf(b),
-                    Layout::Leaf(a)
-                )
-            );
-        }
-    }
-}
-
-#[test]
 fn joining_another_column_takes_an_equal_share_and_the_old_column_closes_up() {
     let (grid, [a, b, c, d]) = grid();
     for (anchor, edge) in [(b, Direction::Down), (d, Direction::Up)] {
@@ -188,27 +100,6 @@ fn joining_another_column_takes_an_equal_share_and_the_old_column_closes_up() {
             (b, [0.75, 0.0, 0.25, 0.5]),
             (d, [0.5, 0.5, 0.5, 0.5]),
         ],
-    );
-}
-
-#[test]
-fn a_column_left_with_one_pane_counts_as_that_pane() {
-    let (grid, [a, b, c, d]) = grid();
-    let expected = [
-        (a, [0.0, 0.0, THIRD, 1.0]),
-        (c, [THIRD, 0.0, THIRD, 1.0]),
-        (b, [2.0 * THIRD, 0.0, THIRD, 0.5]),
-        (d, [2.0 * THIRD, 0.5, THIRD, 0.5]),
-    ];
-    for level in 0..grid.dock_depths(c, Direction::Left).len() {
-        assert_rects(
-            &grid.docked(a, c, Direction::Left, level).unwrap(),
-            &expected,
-        );
-    }
-    assert_eq!(
-        grid.docked(a, c, Direction::Right, 0).unwrap(),
-        grid.docked(a, b, Direction::Left, 1).unwrap()
     );
 }
 

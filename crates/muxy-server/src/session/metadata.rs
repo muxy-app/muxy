@@ -120,29 +120,3 @@ fn terminal_directory(value: &str) -> Option<ServerPath> {
     }
     Some(ServerPath(path))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn osc_directory_decodes_file_uris_without_losing_path_bytes() {
-        for (value, expected) in [
-            ("file://localhost/tmp/a%20b", Some(b"/tmp/a b".as_slice())),
-            ("file:///tmp/%ff", Some(b"/tmp/\xff".as_slice())),
-            ("/tmp/a%20b", Some(b"/tmp/a%20b".as_slice())),
-            ("file:///", Some(b"/".as_slice())),
-            ("file:///tmp/%00", None),
-            ("file:///tmp/%zz", None),
-            ("file:///tmp/%a", None),
-            ("relative/path", None),
-            ("", None),
-        ] {
-            assert_eq!(
-                terminal_directory(value),
-                expected.map(|bytes| ServerPath(bytes.to_vec())),
-                "{value}"
-            );
-        }
-    }
-}

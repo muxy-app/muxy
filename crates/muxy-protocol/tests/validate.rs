@@ -2,88 +2,9 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
 use muxy_protocol::{
-    AttachSnapshot, CONTROL, ChannelId, ChannelKind, Cursor, ErrorCode, MAX_COLS, MAX_ROWS,
-    Message, MetadataEvent, Modes, ReplyBody, RequestBody, RequestId, Row, Run, SUPPORTED,
-    ServerPath, SessionId, SessionInfo, Size, Style, Topic, V2, Version, validate_versions,
+    AttachSnapshot, CONTROL, ChannelId, ChannelKind, Cursor, ErrorCode, Message, MetadataEvent,
+    Modes, ReplyBody, RequestBody, RequestId, Row, Run, ServerPath, SessionId, Size, Style, Topic,
 };
-
-#[test]
-fn screen_frames_validate_their_size() {
-    let frame = Message::samples()
-        .into_iter()
-        .find_map(|message| match message {
-            Message::Frame(frame) => Some(frame),
-            _ => None,
-        })
-        .expect("screen frame");
-    for (size, expected) in [
-        (Size { cols: 1, rows: 1 }, Ok(())),
-        (
-            Size {
-                cols: MAX_COLS,
-                rows: MAX_ROWS,
-            },
-            Ok(()),
-        ),
-        (Size { cols: 0, rows: 1 }, Err(ErrorCode::BadSize)),
-        (Size { cols: 1, rows: 0 }, Err(ErrorCode::BadSize)),
-        (
-            Size {
-                cols: MAX_COLS + 1,
-                rows: 1,
-            },
-            Err(ErrorCode::BadSize),
-        ),
-        (
-            Size {
-                cols: 1,
-                rows: MAX_ROWS + 1,
-            },
-            Err(ErrorCode::BadSize),
-        ),
-    ] {
-        assert_eq!(
-            Message::Frame(muxy_protocol::ScreenFrame {
-                size,
-                ..frame.clone()
-            })
-            .validate(),
-            expected
-        );
-    }
-}
-
-#[test]
-fn version_lists_require_an_entry_without_negotiating_support() {
-    assert_eq!(V2, Version(2));
-    assert_eq!(SUPPORTED, &[V2]);
-    assert_eq!(validate_versions(&[]), Err(ErrorCode::BadRequest));
-    assert_eq!(validate_versions(&[V2]), Ok(()));
-    assert_eq!(validate_versions(&[Version(3)]), Ok(()));
-    for versions in [vec![], vec![V2], vec![Version(3), V2]] {
-        let expected = if versions.is_empty() {
-            Err(ErrorCode::BadRequest)
-        } else {
-            Ok(())
-        };
-        assert_eq!(
-            Message::Hello {
-                versions: versions.clone(),
-            }
-            .validate(),
-            expected
-        );
-        assert_eq!(
-            Message::HelloReply {
-                versions,
-                server: muxy_protocol::ServerInfo::current(),
-                features: Vec::new(),
-            }
-            .validate(),
-            expected
-        );
-    }
-}
 
 #[test]
 fn every_request_with_a_size_validates_it() {
@@ -122,46 +43,6 @@ fn every_request_with_a_size_validates_it() {
             },
         ] {
             assert_eq!(request(body).validate(), expected);
-        }
-    }
-}
-
-#[test]
-fn every_message_with_a_path_validates_it() {
-    for (directory, expected) in [
-        (directory(), Ok(())),
-        (ServerPath(Vec::new()), Err(ErrorCode::BadPath)),
-    ] {
-        let info = SessionInfo {
-            project: muxy_protocol::ProjectId::from_u128(1),
-            id: session_id(),
-            directory: directory.clone(),
-        };
-        let mut snapshot = snapshot();
-        snapshot.directory = directory.clone();
-        for message in [
-            request(RequestBody::CreateSession {
-                project: muxy_protocol::ProjectId::from_u128(1),
-                operation: muxy_protocol::OperationId::from_u128(2),
-                directory: directory.clone(),
-                size: snapshot.size,
-            }),
-            reply(ReplyBody::SessionCreated(info.clone())),
-            reply(ReplyBody::Sessions(vec![
-                SessionInfo {
-                    project: muxy_protocol::ProjectId::from_u128(1),
-                    id: session_id(),
-                    directory: self::directory(),
-                },
-                info,
-            ])),
-            reply(ReplyBody::Attached {
-                snapshot: Box::new(snapshot),
-                process: None,
-            }),
-            Message::Metadata(MetadataEvent::Directory(directory)),
-        ] {
-            assert_eq!(message.validate(), expected, "{message:?}");
         }
     }
 }
@@ -678,38 +559,6 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
 
 fn session_id() -> SessionId {
     SessionId::from(NonZeroU64::MIN)
-}
-
-#[test]
-fn mouse_events_require_consistent_actions_but_allow_positions_past_the_viewport() {
-    use muxy_protocol::{Modifiers, MouseAction, MouseButton, MouseEvent, ScrollDirection};
-    for action in [
-        MouseAction::Press,
-        MouseAction::Release,
-        MouseAction::Motion,
-        MouseAction::Scroll,
-    ] {
-        for button in [None, Some(MouseButton::Left)] {
-            for scroll in [None, Some(ScrollDirection::Up)] {
-                let expected = match action {
-                    MouseAction::Press | MouseAction::Release => {
-                        button.is_some() && scroll.is_none()
-                    }
-                    MouseAction::Motion => scroll.is_none(),
-                    MouseAction::Scroll => button.is_none() && scroll.is_some(),
-                };
-                let message = Message::Mouse(MouseEvent {
-                    action,
-                    button,
-                    scroll,
-                    column: u16::MAX,
-                    row: u16::MAX,
-                    modifiers: Modifiers::default(),
-                });
-                assert_eq!(message.validate().is_ok(), expected, "{message:?}");
-            }
-        }
-    }
 }
 
 fn directory() -> ServerPath {

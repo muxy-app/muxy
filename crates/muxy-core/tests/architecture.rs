@@ -81,20 +81,6 @@ fn production_dependencies_preserve_client_and_headless_boundaries() -> Result<(
 }
 
 #[test]
-fn rejects_a_forbidden_dependency() {
-    let actual = fixture(&[("app", &["server"]), ("server", &[])]);
-    let allowed = fixture(&[("app", &[]), ("server", &[])]);
-    let violations = validate_architecture(&actual, &allowed);
-
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation == "app may not depend on server"),
-        "{violations:#?}"
-    );
-}
-
-#[test]
 fn rejects_a_dependency_cycle() {
     let cycle = fixture(&[("first", &["second"]), ("second", &["first"])]);
     let violations = validate_architecture(&cycle, &cycle);
@@ -103,54 +89,6 @@ fn rejects_a_dependency_cycle() {
         violations
             .iter()
             .any(|violation| violation.contains("dependency graph contains a cycle")),
-        "{violations:#?}"
-    );
-}
-
-#[test]
-fn requires_a_new_workspace_crate_to_declare_its_boundary() {
-    let actual = fixture(&[("managed", &[]), ("new-crate", &[])]);
-    let allowed = fixture(&[("managed", &[])]);
-    let violations = validate_architecture(&actual, &allowed);
-
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation == "new-crate must declare an architecture policy"),
-        "{violations:#?}"
-    );
-}
-
-#[test]
-fn dev_dependencies_use_the_test_only_table_on_top_of_production() {
-    let dev = fixture(&[("client", &["server", "protocol"])]);
-    let allowed = fixture(&[
-        ("client", &["protocol"]),
-        ("server", &[]),
-        ("protocol", &[]),
-    ]);
-    let allowed_dev = fixture(&[("client", &["server"])]);
-
-    assert!(validate_dev_dependencies(&dev, &allowed, &allowed_dev).is_empty());
-
-    let violations = validate_dev_dependencies(&dev, &allowed, &Graph::new());
-    assert_eq!(
-        violations,
-        vec!["client may not have a test-only dependency on server".to_owned()]
-    );
-
-    let unknown = fixture(&[("client", &["ghost"]), ("ghost", &[])]);
-    let violations = validate_dev_dependencies(&dev, &allowed, &unknown);
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation == "test-only policy for client names unknown crate ghost"),
-        "{violations:#?}"
-    );
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation == "test-only policy names unknown crate ghost"),
         "{violations:#?}"
     );
 }

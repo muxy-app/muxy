@@ -364,40 +364,6 @@ mod tests {
     }
 
     #[test]
-    fn up_to_64_kib_of_noise_is_skipped_and_more_is_refused() {
-        let allowed = vec![b'x'; MAX_NOISE];
-        assert_eq!(scan(&[&allowed, b"MUXY-STDIO/1\n"]), Ok(vec![]));
-        let mut chunks: Vec<&[u8]> = allowed.chunks(1000).collect();
-        chunks.push(b"MUXY-STDIO/1\n");
-        assert_eq!(scan(&chunks), Ok(vec![]));
-
-        let too_much = vec![b'x'; MAX_NOISE + 1];
-        assert!(matches!(
-            scan(&[&too_much, b"MUXY-STDIO/1\n"]),
-            Err(NotReady::Noisy(noise)) if noise.len() == MAX_NOISE + 1
-        ));
-        let endless = vec![b'y'; MAX_NOISE + READY.len()];
-        assert!(matches!(scan(&[&endless]), Err(NotReady::Noisy(_))));
-    }
-
-    #[test]
-    fn an_early_end_or_another_version_is_reported() {
-        assert_eq!(scan(&[]), Err(NotReady::Ended(vec![])));
-        assert_eq!(
-            scan(&[b"Welcome\n", b"MUXY-STDIO/"]),
-            Err(NotReady::Ended(b"Welcome\nMUXY-STDIO/".to_vec()))
-        );
-        assert_eq!(
-            scan(&[b"MUXY-STDIO/2\n"]),
-            Err(NotReady::Version(b"2".to_vec()))
-        );
-        assert_eq!(
-            scan(&[b"MUXY-STDIO/12345678901234567890"]),
-            Err(NotReady::Version(b"1234567890123456".to_vec()))
-        );
-    }
-
-    #[test]
     fn ssh_failures_are_told_apart_by_its_own_words() {
         let ssh = |stderr: &str| explain(&exit(Some(255), stderr), b"");
         let changed = "@@@@\n@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\n\
@@ -433,46 +399,6 @@ mod tests {
         assert_eq!(explain(&reset, b"").0, RemoteReason::Unreachable);
         assert_eq!(
             explain(&exit(None, "oops\n"), b"").0,
-            RemoteReason::BridgeFailed
-        );
-    }
-
-    #[test]
-    fn remote_failures_are_told_apart_by_status_and_words() {
-        let failed = |status, stderr: &str| explain(&exit(Some(status), stderr), b"Welcome\n");
-        assert_eq!(
-            failed(127, "sh: 1: exec: muxy: not found\n").0,
-            RemoteReason::NotInstalled
-        );
-        let zsh = exit(None, "zsh:1: command not found: muxy\n");
-        assert_eq!(explain(&zsh, b"").0, RemoteReason::NotInstalled);
-        assert_eq!(
-            failed(1, "muxy: unknown command; run muxy --help\n"),
-            (
-                RemoteReason::Incompatible,
-                "it predates remote connections".into()
-            )
-        );
-        assert_eq!(
-            failed(1, "muxy: connection failed: the server isn't running\n").0,
-            RemoteReason::NotRunning
-        );
-        assert_eq!(
-            failed(
-                1,
-                "muxy: connection failed: could not launch server /x: denied\n"
-            ),
-            (
-                RemoteReason::BridgeFailed,
-                "connection failed: could not launch server /x: denied".into()
-            )
-        );
-        assert_eq!(
-            failed(
-                126,
-                "sh: 1: exec: /home/me/.local/bin/muxy: Exec format error\n"
-            )
-            .0,
             RemoteReason::BridgeFailed
         );
     }

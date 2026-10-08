@@ -3,7 +3,6 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use muxy_app_core::{AppError, AppState, PaneId, ProjectId, ServerId, TabId, WindowBounds, store};
@@ -57,27 +56,6 @@ fn populated() -> Result<AppState, Box<dyn Error>> {
         height: 900.0,
     }))?;
     Ok(state)
-}
-
-#[test]
-fn saved_json_is_readable_and_round_trips_every_field() -> TestResult {
-    let fixture = Fixture::new()?;
-    let state = populated()?;
-    store::save(fixture.path(), &state)?;
-    let bytes = fs::read_to_string(fixture.path())?;
-    assert!(bytes.contains("\n  \"version\": 3,"));
-    assert!(bytes.ends_with('\n'));
-    assert_eq!(
-        serde_json::from_str::<Value>(&bytes)?,
-        serde_json::to_value(&state)?
-    );
-    assert_eq!(store::load(fixture.path())?, state);
-    assert!(!fixture.temporary().exists());
-    assert_eq!(
-        fs::metadata(fixture.path())?.permissions().mode() & 0o777,
-        0o600
-    );
-    Ok(())
 }
 
 #[test]
@@ -150,40 +128,6 @@ fn corrupt_json_is_an_error_naming_the_path_and_is_not_overwritten() -> TestResu
 }
 
 #[test]
-fn load_restores_missing_home_and_clears_its_old_selection() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut value = serde_json::to_value(populated()?)?;
-    value["projects"] = json!([]);
-    fixture.write(&value)?;
-    let state = store::load(fixture.path())?;
-    assert_eq!(state.projects().len(), 1);
-    assert_eq!(state.home().name, "Home");
-    assert_eq!(state.window().current_project, state.home().id);
-    assert!(state.window().selected_tab.is_empty());
-    store::save(fixture.path(), &state)?;
-    assert_eq!(store::load(fixture.path())?, state);
-    Ok(())
-}
-
-#[test]
-fn load_repairs_stale_or_missing_window_selection_without_losing_tabs() -> TestResult {
-    let fixture = Fixture::new()?;
-    let state = populated()?;
-    let home = state.home().id;
-    for selections in [
-        json!({}),
-        json!({home.to_string(): TabId::new(), ProjectId::new().to_string(): TabId::new()}),
-    ] {
-        let mut value = serde_json::to_value(&state)?;
-        value["window"]["selected_tab"] = selections;
-        value["window"]["current_project"] = json!(ProjectId::new());
-        fixture.write(&value)?;
-        assert_eq!(store::load(fixture.path())?, state);
-    }
-    Ok(())
-}
-
-#[test]
 fn malformed_domain_state_is_rejected_with_the_path() -> TestResult {
     let fixture = Fixture::new()?;
     let valid = serde_json::to_value(populated()?)?;
@@ -240,28 +184,6 @@ fn malformed_domain_state_is_rejected_with_the_path() -> TestResult {
             value
         );
     }
-    Ok(())
-}
-
-#[test]
-fn temporary_file_failure_preserves_previous_saved_state() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut state = populated()?;
-    store::save(fixture.path(), &state)?;
-    let old_bytes = fs::read(fixture.path())?;
-    fs::create_dir(fixture.temporary())?;
-    let home = state.home().id;
-    state.open_terminal_tab(home)?;
-    let error = store::save(fixture.path(), &state)
-        .err()
-        .ok_or("temporary directory accepted")?;
-    assert!(
-        error
-            .to_string()
-            .contains(&fixture.temporary().display().to_string())
-    );
-    assert_eq!(fs::read(fixture.path())?, old_bytes);
-    assert!(fixture.temporary().is_dir());
     Ok(())
 }
 

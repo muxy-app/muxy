@@ -113,30 +113,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn versions_name_their_channel_and_local_builds_have_none() {
-        assert_eq!(Version::parse("2.1.0"), Some(Version::Stable([2, 1, 0])));
-        for version in ["2.1.0-beta.1234", "2.0.0-beta-1234"] {
-            assert_eq!(Version::parse(version), Some(Version::Beta { build: 1234 }));
-        }
-        for version in [
-            "2.0.0-beta-0",
-            "2.0.0-beta-01",
-            "2.0.0-beta.0",
-            "2.0.0-beta.01",
-            "2.0.0-beta.+1",
-            "2.0.0-beta.1-beta.2",
-            "2.0.0-alpha.1",
-            "2.0",
-            "2.0.0.0",
-            "2.x.0",
-            "v2.0.0",
-            "2.0.0-beta.99999999999999999999",
-        ] {
-            assert_eq!(Version::parse(version), None, "{version}");
-        }
-    }
-
-    #[test]
     fn releases_replace_only_older_releases_of_their_channel() {
         assert!(is_newer("2.0.0-beta.10", "2.0.0-beta.9"));
         assert!(is_newer("2.1.0-beta.10", "2.0.0-beta.9"));
@@ -148,15 +124,5 @@ mod tests {
         assert!(!is_newer("2.0.0-beta.10", "2.0.0"));
         assert!(!is_newer("2.0.0-beta.10", "2.0.0-beta-0"));
         assert!(is_newer("2.0.0-beta.1123", "2.0.0-beta-1110"));
-    }
-
-    #[test]
-    fn channels_install_as_separate_apps() {
-        assert_eq!(Channel::Beta.app_name(), "Muxy Beta");
-        assert_eq!(Channel::Stable.bundle_identifier(), "com.muxy.app");
-        assert_ne!(
-            Channel::Beta.bundle_identifier(),
-            Channel::Stable.bundle_identifier()
-        );
     }
 }

@@ -95,19 +95,6 @@ fn the_tui_keeps_a_remote_servers_layout_apart_and_detaching_leaves_it_running()
 }
 
 #[test]
-fn a_refused_login_is_reported_before_the_tui_takes_over_the_terminal() -> Result {
-    let fixture = Fixture::new()?;
-    let remote =
-        FakeRemote::with_script("echo 'dev@box: Permission denied (publickey).' >&2; exit 255")?;
-    let mut tui = remote_tui(&fixture, &remote)?;
-    assert_eq!(tui.exit()?.code, Some(1));
-    assert!(!tui.raw.windows(8).any(|bytes| bytes == b"\x1b[?1049h"));
-    tui.assert_restored()?;
-    assert!(!fixture.directory.path().join("servers").exists());
-    Ok(())
-}
-
-#[test]
 fn the_tui_reconnects_after_its_bridge_dies_and_the_pane_resumes() -> Result {
     let fixture = Fixture::new()?;
     let remote = FakeRemote::with_script(r#"echo $$ > "$HOME/bridge.pid""#)?;

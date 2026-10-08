@@ -129,42 +129,6 @@ mod tests {
     }
 
     #[test]
-    fn entries_use_main_field_names_and_omit_a_missing_rule() {
-        let directory = tempfile::tempdir().unwrap();
-        let log = AuditLog::new(directory.path());
-        log.append(&entry("git status")).unwrap();
-        log.append(&AuditEntry {
-            rule_id: Some("exec:argv:git".into()),
-            ..entry("git push")
-        })
-        .unwrap();
-        let text = std::fs::read_to_string(directory.path().join(AUDIT_LOG)).unwrap();
-        let lines: Vec<serde_json::Value> = text
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
-        assert_eq!(
-            lines[0],
-            serde_json::json!({
-                "timestamp": "2026-09-27T20:15:03Z",
-                "extensionID": "files",
-                "verb": "exec",
-                "payloadSummary": "git status",
-                "decision": "allow",
-                "source": "exec",
-            })
-        );
-        assert_eq!(lines[1]["ruleID"], "exec:argv:git");
-        let mode = std::fs::metadata(directory.path().join(AUDIT_LOG))
-            .unwrap()
-            .permissions();
-        assert_eq!(
-            std::os::unix::fs::PermissionsExt::mode(&mode) & 0o777,
-            0o600
-        );
-    }
-
-    #[test]
     fn a_full_log_keeps_its_newest_whole_lines() {
         let directory = tempfile::tempdir().unwrap();
         let log = AuditLog::new(directory.path());

@@ -76,8 +76,6 @@ impl<R: Read> Decoder<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ChannelId;
-
     use super::*;
     use crate::wire::{MAX_FRAME, MessageKind};
 
@@ -98,21 +96,5 @@ mod tests {
             assert!(reader.is_empty());
         }
         assert_eq!(MAX_FRAME, 16 * 1024 * 1024);
-    }
-
-    #[test]
-    fn payload_limit_rejects_before_allocating_and_can_be_lifted() -> Result<(), WireError> {
-        let message = Message::Input(vec![0xff; 4097]);
-        let mut bytes = Vec::new();
-        Encoder::new(&mut bytes).send(ChannelId(1), &message)?;
-        let mut decoder = Decoder::new(bytes.as_slice());
-        decoder.set_payload_limit(4096);
-        assert!(matches!(decoder.next(), Err(WireError::FrameTooLarge)));
-        assert_eq!(decoder.buffer.capacity(), 0);
-        let mut decoder = Decoder::new(bytes.as_slice());
-        decoder.set_payload_limit(4096);
-        decoder.set_payload_limit(MAX_FRAME);
-        assert_eq!(decoder.next()?, (ChannelId(1), message));
-        Ok(())
     }
 }

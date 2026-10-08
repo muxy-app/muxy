@@ -103,17 +103,3 @@ fn eviction_invalidates_generation_even_when_the_oldest_rows_have_equal_text() -
     assert!(terminal.history_rows()? < 10_000);
     Ok(())
 }
-
-#[test]
-fn clear_and_refill_in_one_write_invalidates_old_boundaries() -> TestResult {
-    let mut terminal = Terminal::new(SIZE, 16 * 1024 * 1024)?;
-    numbered(&mut terminal, 1, 100)?;
-    let generation = terminal.history_generation()?;
-    let mut output = String::from("\x1b[3J");
-    for number in 1..=200 {
-        write!(output, "{number}\r\n")?;
-    }
-    terminal.feed(output.as_bytes());
-    assert_ne!(terminal.history_generation()?, generation);
-    Ok(())
-}

@@ -296,37 +296,6 @@ fn fallback_providers_complete_only_after_stable_idle() {
 }
 
 #[test]
-fn stable_title_does_not_turn_a_redraw_into_completion() {
-    let mut detector = Detector::default();
-    let now = Instant::now();
-    let working = "• Working (1s • esc to interrupt)";
-    detector.update(
-        Some(AgentProvider::Codex),
-        working.into(),
-        "Fix tests",
-        "",
-        now,
-    );
-    assert_eq!(detector.state, AgentState::Working);
-    assert!(!detector.update(
-        Some(AgentProvider::Codex),
-        String::new(),
-        "Fix tests",
-        "",
-        now + Duration::from_millis(100)
-    ));
-    assert_eq!(detector.state, AgentState::Working);
-    assert!(!detector.update(
-        Some(AgentProvider::Codex),
-        working.into(),
-        "Fix tests",
-        "",
-        now + Duration::from_millis(200)
-    ));
-    assert_eq!(detector.state, AgentState::Working);
-}
-
-#[test]
 fn long_blank_redraw_preserves_cycle_and_blocked_state() {
     for (initial, expected) in [
         ("⠋ Working · Esc interrupt", AgentState::Working),

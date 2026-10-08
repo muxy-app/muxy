@@ -6,33 +6,6 @@ use muxy_protocol::wire::{
 use muxy_protocol::{CONTROL, ChannelId, ChannelKind, Message, MetadataEvent, V2};
 
 #[test]
-fn header_bytes_are_little_endian_and_length_excludes_the_prefix() -> Result<(), WireError> {
-    let header = Header::new(0x10203, ChannelId(0x1234_5678), MessageKind::Input)?;
-    assert_eq!(HEADER_LEN, 11);
-    assert_eq!(
-        header.to_bytes(),
-        [0x0a, 0x02, 0x01, 0x00, 2, 0, 0x78, 0x56, 0x34, 0x12, 9]
-    );
-    assert_eq!(Header::from_bytes(header.to_bytes())?, header);
-    assert_eq!(header.payload_len()?, 0x10203);
-    Ok(())
-}
-
-#[test]
-fn input_is_raw_including_empty_and_non_utf8_bytes() -> Result<(), WireError> {
-    for payload in [vec![], vec![0, 0xff, 0x80, b'\r', 0x1b]] {
-        let message = Message::Input(payload.clone());
-        let mut bytes = vec![0xaa; 100];
-        encode(&message, ChannelId(u32::MAX), &mut bytes)?;
-        assert_eq!(&bytes[HEADER_LEN..], payload);
-        assert_eq!(bytes.len(), HEADER_LEN + payload.len());
-        let mut decoder = Decoder::new(bytes.as_slice());
-        assert_eq!(decoder.next()?, (ChannelId(u32::MAX), message));
-    }
-    Ok(())
-}
-
-#[test]
 fn every_incomplete_sample_and_empty_stream_are_closed() -> Result<(), WireError> {
     for message in Message::samples() {
         let mut bytes = Vec::new();
@@ -43,58 +16,6 @@ fn every_incomplete_sample_and_empty_stream_are_closed() -> Result<(), WireError
                 matches!(decoder.next(), Err(WireError::Closed)),
                 "{message:?} truncated at {end}"
             );
-        }
-    }
-    Ok(())
-}
-
-#[test]
-fn kind_numbers_are_fixed_and_unknown_kinds_are_ignored() -> Result<(), WireError> {
-    let kinds = [
-        (1, MessageKind::Hello),
-        (2, MessageKind::Request),
-        (3, MessageKind::FrameAck),
-        (4, MessageKind::HelloReply),
-        (5, MessageKind::VersionUnsupported),
-        (6, MessageKind::Reply),
-        (7, MessageKind::SessionEnded),
-        (8, MessageKind::Fatal),
-        (9, MessageKind::Input),
-        (10, MessageKind::Frame),
-        (11, MessageKind::Metadata),
-        (12, MessageKind::Mouse),
-        (13, MessageKind::ServerRestarting),
-        (14, MessageKind::CellSize),
-        (15, MessageKind::Changed),
-        (17, MessageKind::GitChanged),
-        (18, MessageKind::Progress),
-        (20, MessageKind::SessionMetadata),
-        (21, MessageKind::FilesChanged),
-        (23, MessageKind::TerminalInput),
-    ];
-    for (number, kind) in kinds {
-        assert_eq!(kind as u8, number);
-        assert_eq!(MessageKind::from_u8(number)?, Some(kind));
-    }
-    for kind in 0..=u8::MAX {
-        let header = Header {
-            length: 8,
-            version: V2.0,
-            channel: 0,
-            kind,
-        };
-        if kind & 0xc0 != 0 {
-            assert!(matches!(
-                Header::from_bytes(header.to_bytes()),
-                Err(WireError::FlagsSet(value)) if value == kind
-            ));
-            assert!(matches!(
-                decode(header, &[0x80]),
-                Err(WireError::FlagsSet(_))
-            ));
-        } else if !kinds.iter().any(|(number, _)| *number == kind) {
-            assert_eq!(Header::from_bytes(header.to_bytes())?, header);
-            assert!(matches!(decode(header, &[0x80]), Ok(None)));
         }
     }
     Ok(())

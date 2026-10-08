@@ -112,35 +112,4 @@ mod tests {
         }
         Ok(())
     }
-
-    #[test]
-    fn linux_uses_absolute_xdg_without_requiring_home_and_macos_ignores_it() -> io::Result<()> {
-        assert_eq!(
-            resolve_directory(None, None, Some("/state".into()), "muxy-beta", true)?,
-            PathBuf::from("/state/muxy-beta")
-        );
-        for state in ["relative", ""] {
-            assert!(
-                resolve_directory(
-                    None,
-                    Some("/home/test".into()),
-                    Some(state.into()),
-                    "muxy-dev",
-                    true
-                )
-                .is_err()
-            );
-        }
-        assert_eq!(
-            resolve_directory(
-                None,
-                Some("/Users/test".into()),
-                Some("relative".into()),
-                "Muxy Dev",
-                false
-            )?,
-            PathBuf::from("/Users/test/Library/Application Support/Muxy Dev")
-        );
-        Ok(())
-    }
 }

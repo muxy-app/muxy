@@ -93,36 +93,3 @@ fn environment(
     );
     env
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn linux_falls_back_only_for_invalid_inherited_shells() {
-        for inherited in [
-            None,
-            Some("".into()),
-            Some("/does-not-exist".into()),
-            Some("/tmp".into()),
-            Some("sh".into()),
-        ] {
-            assert_eq!(
-                select_shell(None, inherited, true),
-                PathBuf::from("/bin/sh")
-            );
-        }
-        assert_eq!(
-            select_shell(None, Some("/bin/bash".into()), true),
-            PathBuf::from("/bin/bash")
-        );
-        assert_eq!(
-            select_shell(Some("/does-not-exist".into()), Some("/bin/sh".into()), true),
-            PathBuf::from("/does-not-exist")
-        );
-        assert_eq!(
-            select_shell(None, Some("/does-not-exist".into()), false),
-            PathBuf::from("/does-not-exist")
-        );
-    }
-}

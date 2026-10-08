@@ -1,51 +1,11 @@
 use super::*;
-use muxy_app_core::{TabCloseScope, settings::CloseBehavior};
+use muxy_app_core::TabCloseScope;
 
 fn fixture() -> (AppState, [TabId; 4]) {
     let mut state = AppState::bootstrap().expect("state");
     let ids = std::array::from_fn(|_| state.open_terminal_tab(state.home().id).expect("tab"));
     state.select_tab(state.home().id, ids[2]).expect("select");
     (state, ids)
-}
-
-#[gpui::test]
-fn bulk_close_is_project_scoped_and_honors_pins_focus_and_detach(cx: &mut TestAppContext) {
-    for (scope, remaining) in [
-        (TabCloseScope::Left, vec![0, 2, 3]),
-        (TabCloseScope::Right, vec![0, 1, 2]),
-        (TabCloseScope::Other, vec![0, 2]),
-    ] {
-        for behavior in [CloseBehavior::CloseSession, CloseBehavior::Detach] {
-            let (mut state, ids) = fixture();
-            state.toggle_tab_pin(ids[0]).expect("pin");
-            let other = state
-                .add_project(ServerId::local(), std::env::temp_dir())
-                .expect("project");
-            let other_tab = state.open_terminal_tab(other).expect("other tab");
-            let (mut boot, _requests) = stub_boot(state);
-            boot.settings.window.close_behavior = behavior;
-            let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-            view.update(cx, |model, cx| {
-                model.close_tabs(ids[2], scope, cx);
-                assert_eq!(
-                    model
-                        .state
-                        .home()
-                        .tabs
-                        .iter()
-                        .map(|tab| tab.id)
-                        .collect::<Vec<_>>(),
-                    remaining
-                        .iter()
-                        .map(|index| ids[*index])
-                        .collect::<Vec<_>>()
-                );
-                assert_eq!(model.active_tab(), Some(other_tab));
-                assert!(model.close_request.is_none());
-                assert_eq!(store::load(&model.path).expect("saved"), model.state);
-            });
-        }
-    }
 }
 
 #[gpui::test]

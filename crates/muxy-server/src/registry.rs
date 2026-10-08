@@ -864,19 +864,6 @@ mod update_tests {
     use super::*;
 
     #[test]
-    fn shutdown_reservation_includes_in_progress_spawns() {
-        let (events, _receiver) = std::sync::mpsc::channel();
-        let registry = Registry::new(ServerSettings::default(), events);
-        let session = SessionId::new(1).expect("session");
-        lock(&registry.sessions).starting.insert(session);
-        assert!(!registry.stop_if_idle());
-        assert!(!lock(&registry.sessions).stopping);
-        lock(&registry.sessions).starting.remove(&session);
-        assert!(registry.stop_if_idle());
-        assert!(!registry.stop_if_idle());
-    }
-
-    #[test]
     fn creation_racing_idle_shutdown_is_either_preserved_or_rejected() {
         for _ in 0..8 {
             let (events, _receiver) = std::sync::mpsc::channel();

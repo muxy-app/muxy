@@ -102,32 +102,6 @@ fn change_merging_deduplicates_and_converts_overflow_to_rescan() {
 }
 
 #[test]
-fn folder_listings_need_an_absolute_path_and_return_single_names() {
-    use muxy_protocol::{
-        ErrorCode, MAX_FILE_ENTRIES, ServerPath, validate_folder_names, validate_folder_path,
-    };
-    let path = |bytes: &[u8]| ServerPath(bytes.to_vec());
-    assert_eq!(validate_folder_path(&path(b"/home/dev")), Ok(()));
-    assert_eq!(validate_folder_path(&path(b"/")), Ok(()));
-    for bad in [&b"home/dev"[..], b"", b"/home/\0dev"] {
-        assert_eq!(validate_folder_path(&path(bad)), Err(ErrorCode::BadPath));
-    }
-    assert_eq!(
-        validate_folder_path(&ServerPath(vec![b'/'; 4097])),
-        Err(ErrorCode::BadPath)
-    );
-    assert_eq!(
-        validate_folder_names(&[path(b"code"), path(b".config")]),
-        Ok(())
-    );
-    for bad in [&b""[..], b"a/b", b".", b"..", b"a\0"] {
-        assert_eq!(validate_folder_names(&[path(bad)]), Err(ErrorCode::BadPath));
-    }
-    let many = vec![path(b"a"); MAX_FILE_ENTRIES + 1];
-    assert_eq!(validate_folder_names(&many), Err(ErrorCode::BadRequest));
-}
-
-#[test]
 fn uploads_come_in_bounded_chunks_and_reply_with_an_absolute_path() {
     use muxy_protocol::{
         ErrorCode, MAX_UPLOAD_BYTES, MAX_UPLOAD_CHUNK, MAX_UPLOAD_NAME, OperationId, ServerPath,

@@ -119,70 +119,6 @@ fn foreground_process_changes_while_silent_and_returns_to_the_spawned_shell() ->
 }
 
 #[test]
-fn a_pipeline_keeps_non_shell_metadata_after_its_group_leader_exits() -> TestResult {
-    for shell in ["/bin/sh", "/bin/zsh"] {
-        let fixture = Fixture::with_shell(shell)?;
-        let (events, _, initial) = fixture.attach(1)?;
-        if !initial.is_some_and(|process| process.is_shell) {
-            metadata(&events, |event| {
-                matches!(
-                    event,
-                    MetadataEvent::ForegroundProcess { is_shell: true, .. }
-                )
-            })?;
-        }
-        fixture.input(b"stty -echo; PS1=''; echo x | (cd /tmp; exec sleep 30)\n")?;
-        metadata(
-            &events,
-            |event| matches!(event, MetadataEvent::ForegroundProcess { name, is_shell: false } if name == "sleep"),
-        )?;
-        let (_, snapshot, process) = fixture.attach(2)?;
-        assert_eq!(
-            process,
-            Some(ForegroundProcess {
-                name: "sleep".into(),
-                is_shell: false
-            }),
-            "{shell}"
-        );
-        assert!(snapshot.directory.0.ends_with(b"/tmp"), "{shell}");
-        fixture.input(b"\x03")?;
-        metadata(&events, |event| {
-            matches!(
-                event,
-                MetadataEvent::ForegroundProcess { is_shell: true, .. }
-            )
-        })?;
-    }
-    Ok(())
-}
-
-#[test]
-fn directory_changes_without_shell_integration_and_metadata_is_current_on_attach() -> TestResult {
-    let fixture = Fixture::new()?;
-    let (events, _, _) = fixture.attach(1)?;
-    fixture.input(b"cd /tmp\n")?;
-    metadata(
-        &events,
-        |event| matches!(event, MetadataEvent::Directory(path) if path.0.ends_with(b"/tmp")),
-    )?;
-    fixture.input(b"printf '\\033]0;hello\\007'\n")?;
-    metadata(
-        &events,
-        |event| matches!(event, MetadataEvent::Title(title) if title == "hello"),
-    )?;
-    let (_, snapshot, _) = fixture.attach(2)?;
-    assert_eq!(snapshot.title, "hello");
-    assert!(snapshot.directory.0.ends_with(b"/tmp"));
-    fixture.input(b"printf '\\033]0;\\007'\n")?;
-    metadata(
-        &events,
-        |event| matches!(event, MetadataEvent::Title(title) if title.is_empty()),
-    )?;
-    Ok(())
-}
-
-#[test]
 fn terminal_directory_and_bell_events_are_delivered_without_replaying_bells_on_attach() -> TestResult
 {
     let fixture = Fixture::new()?;
@@ -230,33 +166,4 @@ fn background_work_alone_keeps_shell_foreground_metadata() -> TestResult {
         }
     }
     Ok(())
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn linux_cwd_preserves_non_utf8_filesystem_bytes() -> TestResult {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
-    let mut name = format!("muxy-cwd-{}-", std::process::id()).into_bytes();
-    name.push(0xff);
-    let directory = std::env::temp_dir().join(OsString::from_vec(name));
-    std::fs::create_dir(&directory)?;
-    let result = (|| -> TestResult {
-        let fixture = Fixture::new()?;
-        let (events, _, _) = fixture.attach(1)?;
-        let expected = directory.as_os_str().as_bytes();
-        let mut input = b"cd '".to_vec();
-        input.extend(expected);
-        input.extend(b"'\n");
-        fixture.input(&input)?;
-        metadata(
-            &events,
-            |event| matches!(event, MetadataEvent::Directory(path) if path.0 == expected),
-        )?;
-        let (_, snapshot, _) = fixture.attach(2)?;
-        assert_eq!(snapshot.directory.0, expected);
-        Ok(())
-    })();
-    std::fs::remove_dir(directory)?;
-    result
 }

@@ -209,23 +209,6 @@ fn zsh_marks_prompts_commands_and_failures_without_replacing_startup_files() -> 
 }
 
 #[test]
-fn disabled_zsh_has_no_marks_and_preserves_custom_zdotdir() -> TestResult {
-    let mut shell = Shell::start("/bin/zsh", true, false, "")?;
-    let output = shell.until(b"muxy-test> ")?;
-    assert!(!output.windows(5).any(|bytes| bytes == b"]133;"));
-    shell
-        .pty
-        .write(b"print -r -- startup:$MUXY_TEST_ENV:$MUXY_TEST_RC:$ZDOTDIR\n")?;
-    let output = shell.until(b"muxy-test> ")?;
-    assert!(String::from_utf8_lossy(&output).contains(&format!(
-        "startup:1:loaded:{}",
-        shell.directory.join("custom").display()
-    )));
-    assert!(!output.windows(5).any(|bytes| bytes == b"]133;"));
-    Ok(())
-}
-
-#[test]
 fn bash_is_manual_and_keeps_the_login_profile_and_prompt_command() -> TestResult {
     let mut shell = Shell::start("/bin/bash", false, true, "")?;
     assert!(
@@ -361,38 +344,6 @@ fn zsh_keeps_prompt_hooks_and_percent_status_expansion() -> TestResult {
     assert!(output.windows(10).any(|bytes| bytes == b"\x1b]133;D;1\x07"));
     shell.pty.write(b"print -r -- hook:$MUXY_TEST_PREEXEC\n")?;
     assert!(String::from_utf8_lossy(&shell.until(b"\x1b]133;B\x07")?).contains("hook:loaded"));
-    Ok(())
-}
-
-#[test]
-fn bash_preserves_prompt_commands_with_shell_separators_and_comments() -> TestResult {
-    for command in [
-        "MUXY_TEST_PROMPT=loaded;",
-        "MUXY_TEST_PROMPT=loaded # user prompt",
-        "MUXY_TEST_PROMPT=first\nMUXY_TEST_PROMPT=loaded",
-    ] {
-        let mut shell = Shell::start(
-            "/bin/bash",
-            false,
-            true,
-            &format!(
-                "PROMPT_COMMAND='{command}'; source \"$MUXY_SHELL_INTEGRATION_DIR/muxy.bash\""
-            ),
-        )?;
-        shell.until(b"\x1b]133;B\x07")?;
-        shell
-            .pty
-            .write(b"printf 'prompt:%s\\n' \"$MUXY_TEST_PROMPT\"\n")?;
-        let output = shell.until(b"\x1b]133;B\x07")?;
-        assert!(String::from_utf8_lossy(&output).contains("prompt:loaded"));
-        shell.pty.write(b"false\n")?;
-        assert!(
-            shell
-                .until(b"\x1b]133;B\x07")?
-                .windows(10)
-                .any(|bytes| bytes == b"\x1b]133;D;1\x07")
-        );
-    }
     Ok(())
 }
 

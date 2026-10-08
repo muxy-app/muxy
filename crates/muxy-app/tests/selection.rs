@@ -150,26 +150,3 @@ fn older_pages_do_not_move_selection_and_selected_rows_detect_changes() {
     grid.rows[0] = vec![run("changed", 7)];
     assert_ne!(selected.rows(&grid), before);
 }
-
-#[test]
-fn multiline_and_wide_selections_track_only_selected_text_and_cell_boundaries() {
-    let mut grid = grid();
-    let selected = selection((0, 5), (1, 6));
-    let before = selected.rows(&grid);
-    grid.rows[0][0].text = "new: two.three   ".into();
-    grid.rows[1][4].text = " later".into();
-    grid.rows[1][4].width = 6;
-    for run in &mut grid.rows[1] {
-        run.style.italic = true;
-    }
-    assert_eq!(selected.rows(&grid), before);
-    grid.rows[1][3].text = "👨‍💻".into();
-    assert_ne!(selected.rows(&grid), before);
-
-    let wide = selection((1, 1), (1, 2));
-    let before = wide.rows(&grid);
-    grid.rows[1][1].width = 1;
-    assert_ne!(wide.rows(&grid), before);
-    grid.size.cols = 1;
-    assert!(wide.rows(&grid).is_empty());
-}

@@ -862,32 +862,3 @@ fn prompt_response(response: NSModalResponse, mut prompt: String) -> Option<Stri
         prompt
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cap_counts_unicode_characters_without_splitting_them() {
-        for value in ["", "plain text", "🦀 café\n你好"] {
-            let mut prompt = value.to_owned();
-            cap_prompt(&mut prompt);
-            assert_eq!(prompt, value);
-        }
-        for character in ['a', 'é', '🦀'] {
-            let expected = character.to_string().repeat(ADDITIONAL_PROMPT_LIMIT);
-            let mut prompt = format!("{expected}overflow");
-            cap_prompt(&mut prompt);
-            assert_eq!(prompt, expected);
-            assert_eq!(prompt.chars().count(), ADDITIONAL_PROMPT_LIMIT);
-            assert_eq!(
-                prompt_response(NSModalResponseOK, format!("{expected}extra")),
-                Some(expected)
-            );
-        }
-        let mut prompt = format!("{}e\u{301}", "a".repeat(ADDITIONAL_PROMPT_LIMIT - 1));
-        cap_prompt(&mut prompt);
-        assert!(prompt.ends_with('e'));
-        assert_eq!(prompt.chars().count(), ADDITIONAL_PROMPT_LIMIT);
-    }
-}

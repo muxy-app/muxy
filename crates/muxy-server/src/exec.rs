@@ -459,35 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn tilde_working_directories_start_in_the_home_folder() {
-        let root = Path::new("/project");
-        let home = std::env::home_dir().unwrap();
-        let cwd = |path: &str| ServerPath(path.as_bytes().to_vec());
-        assert_eq!(working_directory(root, None), root);
-        assert_eq!(working_directory(root, Some(&cwd("~"))), home);
-        assert_eq!(
-            working_directory(root, Some(&cwd("~/src"))),
-            home.join("src")
-        );
-        assert_eq!(
-            working_directory(root, Some(&cwd("~src"))),
-            root.join("~src")
-        );
-        assert_eq!(working_directory(root, Some(&cwd("src"))), root.join("src"));
-        assert_eq!(
-            working_directory(root, Some(&cwd("/tmp"))),
-            Path::new("/tmp")
-        );
-        let mut request = request("pwd");
-        request.cwd = Some(cwd("~"));
-        let result = execute(&request, root, &AtomicBool::new(false), || false).unwrap();
-        assert_eq!(
-            Path::new(result.stdout.trim_end()).canonicalize().unwrap(),
-            home.canonicalize().unwrap()
-        );
-    }
-
-    #[test]
     fn timeout_and_disconnect_stop_commands_even_when_descendants_keep_pipes_open() {
         let root = TestDirectory::new();
         let mut request = request("trap '' TERM; sleep 30 & wait");

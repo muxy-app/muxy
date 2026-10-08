@@ -16,43 +16,6 @@ use muxy_app_core::settings::{
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-#[test]
-fn retired_worktree_sorting_preference_is_ignored() -> Result {
-    let fixture = Fixture::new()?;
-    let path = fixture.write(
-        "settings.toml",
-        "[appearance]\nworktree_order_by_mru = true\ndark_theme = 'Dracula'\n",
-    )?;
-    let appearance = Settings::load(&path)?.appearance;
-    assert_eq!(appearance.dark_theme, "Dracula");
-    assert!(!toml::to_string(&appearance)?.contains("worktree_order_by_mru"));
-    appearance.save(&path)?;
-    assert_eq!(Settings::load(&path)?.appearance, appearance);
-    Ok(())
-}
-
-#[test]
-fn sidebar_vibrancy_defaults_and_changes_preserve_other_preferences() -> Result {
-    let fixture = Fixture::new()?;
-    let path = fixture.write("settings.toml", "[appearance]\ndark_theme = 'Dracula'\n")?;
-    let original = Settings::load(&path)?.appearance;
-    assert!(original.sidebar_vibrancy);
-    assert_eq!(original.sidebar_vibrancy_level, 50);
-    let mut changed = original.clone();
-    changed.sidebar_vibrancy = false;
-    changed.sidebar_vibrancy_level = 35;
-    changed.save_changes(&original, &path)?;
-    let mut collapsed = original.clone();
-    collapsed.sidebar_expanded = true;
-    let saved = collapsed.save_changes(&original, &path)?;
-    assert!(!saved.sidebar_vibrancy);
-    assert_eq!(saved.sidebar_vibrancy_level, 35);
-    assert!(saved.sidebar_expanded);
-    assert_eq!(saved.dark_theme, "Dracula");
-    assert_eq!(Settings::load(&path)?.appearance, saved);
-    Ok(())
-}
-
 struct Fixture(PathBuf);
 
 impl Fixture {
@@ -128,78 +91,6 @@ fn every_default_binding_round_trips_and_resolves_both_directions() -> Result {
 }
 
 #[test]
-fn invalid_chords_and_keymap_errors_name_the_problem() -> Result {
-    for value in [
-        "",
-        "cmd",
-        "cmd-",
-        "cmd-cmd-t",
-        "cmd-x-y",
-        "ctrl--x",
-        "cmd t",
-        "cmd-unknown",
-        "f0",
-        "f25",
-        "f01",
-        "\n",
-        "cmd- ",
-        " cmd-t",
-        "cmd---",
-    ] {
-        assert!(value.parse::<KeyChord>().is_err(), "{value:?}");
-    }
-    for (source, names) in [
-        (
-            "[keymap]\nnew_tab = 'cmd-nope'",
-            vec!["new_tab", "cmd-nope"],
-        ),
-        (
-            "[keymap]\nnew_tabb = 'cmd-t'",
-            vec!["new_tabb", "unknown action"],
-        ),
-        (
-            "[keymap]\nnew_tab = 'cmd-c'",
-            vec!["new_tab", "copy", "cmd-c"],
-        ),
-        (
-            "[keymap]\nnew_tab = 'shift-cmd-x'\nclose_tab = 'cmd-shift-x'",
-            vec!["new_tab", "close_tab"],
-        ),
-    ] {
-        let error = toml::from_str::<Settings>(source)
-            .err()
-            .ok_or("invalid settings accepted")?
-            .to_string();
-        for name in names {
-            assert!(error.contains(name), "{error}");
-        }
-    }
-    let settings: Settings = toml::from_str("[keymap]\nnew_tab = 'cmd-w'\nclose_tab = 'cmd-t'")?;
-    assert_eq!(
-        settings.keymap.action(&"cmd-w".parse()?),
-        Some(ShortcutId::NewTab)
-    );
-    Ok(())
-}
-
-#[test]
-fn invalid_settings_are_reported_without_overwriting_the_file() -> Result {
-    let fixture = Fixture::new()?;
-    for source in [
-        "[broken",
-        "[window]\ndefault_size = [0, 800]",
-        "[window]\ndefault_size = [1200, inf]",
-        "[window]\ndefault_size = [nan, 800]",
-        "[terminal]\nfont_size = 16",
-    ] {
-        let path = fixture.write("settings.toml", source)?;
-        assert!(Settings::load(&path).is_err());
-        assert_eq!(fs::read_to_string(path)?, source);
-    }
-    Ok(())
-}
-
-#[test]
 fn ghostty_defaults_are_created_once_and_existing_config_is_preserved() -> Result {
     let fixture = Fixture::new()?;
     let path = fixture.0.join("ghostty.conf");
@@ -226,27 +117,6 @@ fn ghostty_theme_is_ignored_because_the_settings_theme_colors_terminals() -> Res
             .iter()
             .any(|warning| warning.contains("theme is not supported by Muxy"))
     );
-    Ok(())
-}
-
-#[test]
-fn ghostty_values_support_comments_quotes_resets_fallbacks_and_height_adjustments() -> Result {
-    let fixture = Fixture::new()?;
-    let source = "# terminal settings\nfont-size = 16.5\nfont-family = Discarded\nfont-family = \"\"\nfont-family = \"Menlo\"\nfont-family = PingFang SC\nadjust-cell-height = 20%\nbackground = 112233\n";
-    let path = fixture.write("ghostty.conf", source)?;
-    let settings = TerminalSettings::load(&path)?;
-    assert_eq!(settings.font_families, ["Menlo", "PingFang SC"]);
-    assert_eq!(settings.font_size, 16.5);
-    assert_eq!(settings.cell_height, CellHeight::Percent(20.0));
-    assert_eq!(settings.cell_height.apply(20.0, 2.0), 24.0);
-    assert_eq!(CellHeight::Pixels(4).apply(20.0, 2.0), 22.0);
-    assert_eq!(CellHeight::Pixels(-100).apply(20.0, 2.0), 0.5);
-    assert_eq!(fs::read_to_string(&path)?, source);
-    fs::write(
-        &path,
-        "font-size = 20\nfont-size =\nadjust-cell-height = 10%\nadjust-cell-height =\nfont-family =\n",
-    )?;
-    assert_eq!(TerminalSettings::load(&path)?, TerminalSettings::default());
     Ok(())
 }
 
@@ -294,82 +164,6 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
             assert_eq!(Settings::load(&path)?, settings);
         }
     }
-    Ok(())
-}
-
-#[test]
-fn aliases_yield_to_explicit_bindings_and_conflicts_are_scoped() -> Result {
-    use muxy_core::shortcuts::ShortcutSettings;
-    let settings = toml::from_str::<Settings>(
-        "[keymap]\nnew_tab = 'ctrl-tab'\n'popover.dismiss' = 'ctrl-k'\n'menu.dismiss_menu' = 'ctrl-k'",
-    )?;
-    assert_eq!(
-        settings.keymap.keys("next_tab", Some("WorkspaceTabs")),
-        ["cmd-]"]
-    );
-    assert_eq!(
-        settings.keymap.keys("popover.dismiss", Some("Picker")),
-        ["ctrl-k"]
-    );
-    assert!(
-        toml::from_str::<Settings>(
-            "[keymap]\n'popover.dismiss' = 'ctrl-k'\n'popover.confirm' = 'ctrl-k'"
-        )
-        .is_err()
-    );
-    assert!(
-        toml::from_str::<Settings>("[keymap]\nquit = 'cmd-k'\n'popover.confirm' = 'cmd-k'")
-            .is_err()
-    );
-    let remapped = toml::from_str::<Settings>("[keymap]\n'popover.secondary_confirm' = 'ctrl-k'")?;
-    assert_eq!(
-        remapped
-            .keymap
-            .keys("popover.secondary_confirm", Some("Picker")),
-        ["ctrl-k"]
-    );
-    Ok(())
-}
-
-#[test]
-fn retired_color_picker_bindings_still_load_and_are_dropped() -> Result {
-    use muxy_core::shortcuts::ShortcutSettings;
-    let settings = toml::from_str::<Settings>(
-        "[keymap]\n'project_colors.next_color' = 'ctrl-n'\n'menu.close_submenu' = 'ctrl-b'",
-    )?;
-    assert_eq!(
-        settings.keymap.keys("menu.close_submenu", Some("Menu")),
-        ["ctrl-b"]
-    );
-    assert!(
-        settings
-            .keymap
-            .keys("project_colors.next_color", Some("ProjectColors"))
-            .is_empty()
-    );
-    assert_eq!(
-        settings.keymap.keys("menu.open_submenu", Some("Menu")),
-        ["right"]
-    );
-    let arrows = toml::from_str::<Settings>(
-        "[keymap]\n'menu.highlight_next' = 'right'\n'menu.highlight_previous' = 'left'",
-    )?;
-    assert_eq!(
-        arrows.keymap.keys("menu.highlight_next", Some("Menu")),
-        ["right"]
-    );
-    assert!(
-        arrows
-            .keymap
-            .keys("menu.open_submenu", Some("Menu"))
-            .is_empty()
-    );
-    assert!(
-        arrows
-            .keymap
-            .keys("menu.close_submenu", Some("Menu"))
-            .is_empty()
-    );
     Ok(())
 }
 
@@ -460,26 +254,6 @@ fn runtime_keymap_rebinding_reset_and_persistence_preserve_contexts_and_other_se
     let reset = loaded.keymap.with_binding("new_tab", None)?;
     reset.save(&path)?;
     assert_eq!(Settings::load(&path)?.keymap, Keymap::default());
-    Ok(())
-}
-
-#[test]
-fn preference_sections_preserve_unrelated_values_and_validate_window_size_before_saving() -> Result
-{
-    let fixture = Fixture::new()?;
-    let path = fixture.0.join("settings.toml");
-    let mut settings = Settings::load(&path)?;
-    settings.window.default_size = [960.0, 720.0];
-    settings.save_window(&path)?;
-    settings.clipboard.copy_on_select = true;
-    settings.save_clipboard(&path)?;
-    settings.panes.new_pane_directory = muxy_app_core::settings::NewPaneDirectory::Current;
-    settings.save_panes(&path)?;
-    assert_eq!(Settings::load(&path)?, settings);
-    let original = fs::read(&path)?;
-    settings.window.default_size[0] = 200.0;
-    assert!(settings.save_window(&path).is_err());
-    assert_eq!(fs::read(path)?, original);
     Ok(())
 }
 

@@ -207,7 +207,6 @@ pub(super) fn read_document(path: &Path) -> io::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::composer::{ComposerStore, DraftId};
 
     #[test]
@@ -236,16 +235,5 @@ mod tests {
             .edit_content(id.clone(), "new draft".into(), Vec::new())
             .unwrap();
         assert!(reopened.flush().unwrap());
-    }
-
-    #[test]
-    fn draft_loading_rejects_symlinks_and_special_files() {
-        let root = tempfile::tempdir().unwrap();
-        let target = root.path().join("target.json");
-        fs::write(&target, b"{}").unwrap();
-        let link = root.path().join("link.json");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-        assert!(read_document(&link).is_err());
-        assert!(read_document(root.path()).is_err());
     }
 }

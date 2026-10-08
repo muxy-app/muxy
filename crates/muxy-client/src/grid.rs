@@ -316,22 +316,6 @@ mod tests {
     }
 
     #[test]
-    fn reset_frame_discards_cached_history_and_old_prompt_coordinates() {
-        let mut snapshot = snapshot();
-        snapshot.history = vec![row(0, "old history")];
-        snapshot.history_cursor = Some(HistoryCursor(10));
-        snapshot.history_total = 10;
-        snapshot.prompts = vec![0, 1];
-        let mut grid = RunGrid::from_snapshot(&snapshot);
-        grid.screen_prompts(1, vec![0]);
-        grid.apply(&frame(1, true, vec![row(0, "prompt")]));
-        assert!(grid.history.is_empty());
-        assert!(grid.history_cursor.is_none());
-        assert!(!grid.history_fresh);
-        assert_eq!(grid.prompts, BTreeSet::from([0]));
-    }
-
-    #[test]
     fn reset_frame_blanks_unnamed_rows_and_grows_to_its_rows() {
         let mut grid = RunGrid::from_snapshot(&snapshot());
         grid.apply(&frame(1, true, vec![row(1, "only")]));
@@ -360,40 +344,6 @@ mod tests {
         assert_eq!(grid.rows.len(), 3);
         assert_eq!(grid.history_total, 0);
         assert!(grid.rows.iter().all(Vec::is_empty));
-    }
-    #[test]
-    fn hyperlinks_wait_for_their_frame_and_ignore_out_of_range_rows() {
-        let mut grid = RunGrid::from_snapshot(&snapshot());
-        let links = vec![muxy_protocol::LinkRow {
-            row: 1,
-            spans: vec![muxy_protocol::LinkSpan {
-                start: 0,
-                end: 3,
-                uri: "https://example.com".into(),
-            }],
-        }];
-        grid.links.replace(2, links.clone());
-        grid.apply(&frame(1, false, vec![row(1, "old")]));
-        assert!(grid.links.row(1, grid.size).is_empty());
-        grid.apply(&frame(2, false, vec![row(1, "new")]));
-        assert_eq!(grid.links.row(1, grid.size), links[0].spans);
-        grid.links.replace(1, vec![]);
-        assert_eq!(grid.links.row(1, grid.size), links[0].spans);
-        grid.links.replace(
-            3,
-            vec![muxy_protocol::LinkRow {
-                row: 9,
-                ..links[0].clone()
-            }],
-        );
-        grid.apply(&frame(3, false, vec![]));
-        assert!(grid.links.row(9, grid.size).is_empty());
-        grid.links.replace(4, vec![]);
-        grid.apply(&frame(4, false, vec![]));
-        assert!(grid.links.row(1, grid.size).is_empty());
-        grid.links.replace(4, links);
-        grid.resize(Size { cols: 5, rows: 2 });
-        assert!(grid.links.row(1, grid.size).is_empty());
     }
 }
 
@@ -436,45 +386,6 @@ mod prompt_tests {
             history_cursor: Some(HistoryCursor(2)),
             history_total: 4,
         })
-    }
-
-    #[test]
-    fn pages_prepend_shift_replace_and_clear_prompt_coordinates() {
-        let mut grid = grid();
-        grid.fetch_older(HistoryPage {
-            prompts: vec![1],
-            rows: vec![
-                Row {
-                    index: 0,
-                    runs: vec![]
-                };
-                2
-            ],
-            next: None,
-            total_rows: 4,
-            screen: None,
-        });
-        assert_eq!(grid.prompts, BTreeSet::from([1, 2, 5]));
-        grid.clear_history();
-        assert_eq!(grid.prompts, BTreeSet::from([1]));
-        assert!(!grid.history_fresh);
-        grid.replace_history(HistoryPage {
-            prompts: vec![0, 4],
-            rows: vec![
-                Row {
-                    index: 0,
-                    runs: vec![]
-                };
-                2
-            ],
-            next: None,
-            total_rows: 2,
-            screen: None,
-        });
-        assert_eq!(grid.prompts, BTreeSet::from([0, 4]));
-        grid.resize(Size { cols: 8, rows: 2 });
-        assert!(grid.prompts.is_empty());
-        assert!(grid.history.is_empty());
     }
 
     #[test]

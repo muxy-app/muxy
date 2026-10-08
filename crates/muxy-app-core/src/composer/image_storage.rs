@@ -74,10 +74,6 @@ impl ImageStorage {
         Ok(removed)
     }
 
-    pub fn regular_file_names(&self) -> std::io::Result<Vec<String>> {
-        self.directory.regular_file_names()
-    }
-
     fn write_with_extension(&self, extension: &str, contents: &[u8]) -> std::io::Result<String> {
         if !ALLOWED_EXTENSIONS.contains(&extension) {
             return Err(std::io::Error::new(

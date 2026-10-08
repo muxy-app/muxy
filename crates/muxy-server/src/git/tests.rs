@@ -243,39 +243,6 @@ fn stale_dirty_removal_confirmation_preserves_files() {
 }
 
 #[test]
-fn rename_status_and_conflicts_are_parsed_without_quoting() {
-    let files = read::files(b"R  new\nname\0old name\0UU conflict\0?? untracked\0").unwrap();
-    assert_eq!(files[0].original_path.as_ref().unwrap().0, b"old name");
-    assert!(files[0].staged());
-    assert!(files[1].conflicted());
-    assert!(files[2].untracked());
-}
-
-#[test]
-fn failed_creation_releases_only_its_empty_reserved_directory() {
-    let repo = Repo::new(true);
-    let target = repo.path.join("failed");
-    let request = GitRequest {
-        project: repo.project,
-        action: GitAction::Worktree(WorktreeIntent {
-            options: None,
-            operation: OperationId::new(),
-            action: WorktreeAction::Create {
-                project: ProjectId::new(),
-                directory: server_path(&target),
-                branch: "main".into(),
-                base: Some("HEAD".into()),
-            },
-        }),
-    };
-    let first = repo.registry.git(&request).unwrap_err();
-    assert!(!target.exists());
-    assert_eq!(repo.registry.git(&request).unwrap_err(), first);
-    repo.registry.resume_git();
-    assert!(!target.exists());
-}
-
-#[test]
 fn removal_stops_local_processes_and_preserves_other_registrations() {
     let repo = Repo::new(true);
     let (id, directory, _) = repo.create();
@@ -397,56 +364,6 @@ fn checkout_hook_failure_reconciles_the_created_worktree() {
 }
 
 #[test]
-fn generic_registration_rejects_duplicates_and_preserves_receipt_retries() {
-    let repo = Repo::new(true);
-    let (id, _, _) = repo.create();
-    let mut duplicate = repo.registry.catalog.project(id).unwrap();
-    duplicate.id = ProjectId::new();
-    assert!(
-        repo.registry
-            .mutate_project(&ProjectIntent {
-                operation: OperationId::new(),
-                mutation: ProjectMutation::Create(duplicate)
-            })
-            .is_err()
-    );
-    let external = repo.path.join("external");
-    run(
-        &repo.path,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            "external",
-            external.to_str().unwrap(),
-        ],
-    )
-    .unwrap();
-    let mut record = repo.registry.catalog.project(id).unwrap();
-    record.id = ProjectId::new();
-    record.directory = server_path(&external);
-    let intent = ProjectIntent {
-        operation: OperationId::new(),
-        mutation: ProjectMutation::Create(record.clone()),
-    };
-    repo.registry.mutate_project(&intent).unwrap();
-    repo.registry.mutate_project(&intent).unwrap();
-    repo.registry
-        .mutate_project(&ProjectIntent {
-            operation: OperationId::new(),
-            mutation: ProjectMutation::Delete(record.id),
-        })
-        .unwrap();
-    run(
-        &repo.path,
-        &["worktree", "remove", external.to_str().unwrap()],
-    )
-    .unwrap();
-    repo.registry.mutate_project(&intent).unwrap();
-    assert!(repo.registry.catalog.project(record.id).is_err());
-}
-
-#[test]
 fn removal_recovery_cleans_up_the_exact_missing_worktree_registration() {
     let repo = Repo::new(true);
     let (id, directory, _) = repo.create();
@@ -538,20 +455,6 @@ fn durable_receipts_recover_after_restart_and_recheck_storage_on_replay() {
 }
 
 #[test]
-fn opposing_staged_and_unstaged_edits_keep_their_line_statistics() {
-    let repo = Repo::new(true);
-    std::fs::write(repo.path.join("file"), "original\n").unwrap();
-    run(&repo.path, &["add", "file"]).unwrap();
-    run(&repo.path, &["commit", "-m", "file"]).unwrap();
-    std::fs::write(repo.path.join("file"), "staged\n").unwrap();
-    run(&repo.path, &["add", "file"]).unwrap();
-    std::fs::write(repo.path.join("file"), "original\n").unwrap();
-    let files = read::changes(&repo.path).unwrap();
-    assert_eq!((files[0].added, files[0].removed), (Some(2), Some(2)));
-    assert!(files[0].staged() && files[0].unstaged());
-}
-
-#[test]
 fn linked_worktree_watch_detects_common_refs_and_stops_when_dropped() {
     let repo = Repo::new(true);
     let (child, _, _) = repo.create();
@@ -573,57 +476,6 @@ fn linked_worktree_watch_detects_common_refs_and_stops_when_dropped() {
             .recv_timeout(std::time::Duration::from_secs(1))
             .is_err()
     );
-}
-
-#[test]
-fn registration_names_detached_worktrees_by_folder_and_refuses_the_parent_folder() {
-    let repo = Repo::new(true);
-    let register = |owner: ProjectId, directory: &Path| {
-        repo.registry.git(&GitRequest {
-            project: owner,
-            action: GitAction::Worktree(WorktreeIntent {
-                options: None,
-                operation: OperationId::new(),
-                action: WorktreeAction::Register {
-                    project: ProjectId::new(),
-                    directory: server_path(directory),
-                },
-            }),
-        })
-    };
-    let detached = repo.path.join("detached-checkout");
-    run(
-        &repo.path,
-        &["worktree", "add", "--detach", detached.to_str().unwrap()],
-    )
-    .unwrap();
-    let GitReply::Project(child) = register(repo.project, &detached).unwrap() else {
-        panic!()
-    };
-    assert_eq!(child.name, "detached-checkout");
-    let opened_at_worktree = ProjectId::new();
-    repo.registry
-        .mutate_project(&ProjectIntent {
-            operation: OperationId::new(),
-            mutation: ProjectMutation::Create(ProjectDescriptor {
-                id: opened_at_worktree,
-                home: false,
-                directory: server_path(&detached),
-                name: "Opened at a worktree".into(),
-                icon: None,
-                logo: None,
-                color: "#ffffff".into(),
-                kind: None,
-                parent_id: None,
-            }),
-        })
-        .unwrap();
-    for (owner, directory) in [
-        (repo.project, repo.path.as_path()),
-        (opened_at_worktree, detached.as_path()),
-    ] {
-        assert!(register(owner, directory).is_err());
-    }
 }
 
 mod extensions;

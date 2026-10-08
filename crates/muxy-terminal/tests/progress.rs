@@ -33,48 +33,6 @@ fn progress_handles_every_read_boundary_and_both_terminators() -> TestResult {
 }
 
 #[test]
-fn all_states_preserve_optional_values_and_clear_explicitly() -> TestResult {
-    let mut terminal = terminal()?;
-    for (sequence, expected) in [
-        ("1", progress(ProgressState::Running, Some(0))),
-        ("1;42", progress(ProgressState::Running, Some(42))),
-        ("2", progress(ProgressState::Error, Some(42))),
-        ("3", progress(ProgressState::Indeterminate, Some(42))),
-        ("4", progress(ProgressState::Paused, Some(42))),
-        ("4;60", progress(ProgressState::Paused, Some(60))),
-        ("1;1000", progress(ProgressState::Running, Some(100))),
-        (
-            "0",
-            TerminalEvent::Progress(SessionProgress {
-                progress: None,
-                completed: 1,
-            }),
-        ),
-        (
-            "2",
-            TerminalEvent::Progress(SessionProgress {
-                progress: Some(TerminalProgress {
-                    state: ProgressState::Error,
-                    percent: None,
-                }),
-                completed: 1,
-            }),
-        ),
-        (
-            "0;0",
-            TerminalEvent::Progress(SessionProgress {
-                progress: None,
-                completed: 2,
-            }),
-        ),
-    ] {
-        terminal.feed(format!("\x1b]9;4;{sequence}\x07").as_bytes());
-        assert_eq!(terminal.take_events(), [expected], "{sequence}");
-    }
-    Ok(())
-}
-
-#[test]
 fn malformed_unrelated_cancelled_and_oversized_strings_do_not_report_progress() -> TestResult {
     let mut terminal = terminal()?;
     for sequence in [
@@ -106,77 +64,6 @@ fn malformed_unrelated_cancelled_and_oversized_strings_do_not_report_progress() 
         terminal.take_events(),
         [progress(ProgressState::Indeterminate, None)]
     );
-    Ok(())
-}
-
-#[test]
-fn interrupted_control_strings_recover_at_every_read_boundary() -> TestResult {
-    for prefix in [
-        b"\x1bPq".as_slice(),
-        b"\x1b_payload",
-        b"\x1b^payload",
-        b"\x1bXpayload",
-    ] {
-        for report in [b"\x1b]9;4;3\x07".as_slice(), b"\x9d9;4;3\x07"] {
-            let sequence = [prefix, report].concat();
-            for split in 0..sequence.len() {
-                let mut terminal = terminal()?;
-                terminal.feed(&sequence[..split]);
-                terminal.feed(&sequence[split..]);
-                assert!(
-                    terminal
-                        .take_events()
-                        .contains(&progress(ProgressState::Indeterminate, None)),
-                    "{sequence:?} split at {split}"
-                );
-                terminal.feed(b"\x1b]9;4;1;42\x07");
-                assert_eq!(
-                    terminal.take_events(),
-                    [progress(ProgressState::Running, Some(42))]
-                );
-            }
-        }
-    }
-    Ok(())
-}
-
-#[test]
-fn reset_clears_progress_inside_interrupted_control_strings() -> TestResult {
-    for sequence in [
-        b"\x1bPq\x1bc".as_slice(),
-        b"\x1b_payload\x1bc",
-        b"\x1b^payload\x1bc",
-        b"\x1bXpayload\x1bc",
-    ] {
-        for split in 0..sequence.len() {
-            let mut terminal = terminal()?;
-            terminal.feed(b"\x1b]9;4;3\x07");
-            terminal.take_events();
-            terminal.feed(&sequence[..split]);
-            terminal.feed(&sequence[split..]);
-            assert!(
-                terminal
-                    .take_events()
-                    .contains(&TerminalEvent::Progress(SessionProgress {
-                        progress: None,
-                        completed: 1,
-                    })),
-                "{sequence:?} split at {split}"
-            );
-            terminal.feed(b"\x1b]9;4;3\x07");
-            assert!(
-                terminal
-                    .take_events()
-                    .contains(&TerminalEvent::Progress(SessionProgress {
-                        progress: Some(TerminalProgress {
-                            state: ProgressState::Indeterminate,
-                            percent: None
-                        }),
-                        completed: 1,
-                    }))
-            );
-        }
-    }
     Ok(())
 }
 

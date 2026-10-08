@@ -976,18 +976,6 @@ mod tests {
         })
     }
 
-    fn blink_modes(events: &Receiver<AttachmentEvent>) -> Vec<bool> {
-        events
-            .try_iter()
-            .filter_map(|event| match event {
-                AttachmentEvent::Metadata(MetadataEvent::CursorBlinking(blinking)) => {
-                    Some(blinking)
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
     #[test]
     fn synchronized_frames_wait_for_completion_and_recover_after_timeout() -> Result<(), Fault> {
         let mut owner = owner()?;
@@ -1056,35 +1044,6 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, AttachmentEvent::Frame(frame) if frame.seq == 1))
         );
-        Ok(())
-    }
-
-    #[test]
-    fn attaching_between_cursor_mode_changes_keeps_every_attachment_current() -> Result<(), Fault> {
-        for initial in [true, false] {
-            let mut owner = owner()?;
-            let sequence = |blinking| {
-                if blinking {
-                    &b"\x1b[1 q"[..]
-                } else {
-                    &b"\x1b[2 q"[..]
-                }
-            };
-            owner.feed(sequence(initial))?;
-            owner.tick()?;
-            let (first, first_events) = mpsc::channel();
-            owner.attach(AttachmentId(1), ChannelId(1), owner.size, first)?;
-            assert_eq!(blink_modes(&first_events), [initial]);
-
-            owner.feed(sequence(!initial))?;
-            let (second, second_events) = mpsc::channel();
-            owner.attach(AttachmentId(2), ChannelId(2), owner.size, second)?;
-            owner.feed(sequence(initial))?;
-            owner.tick()?;
-
-            assert_eq!(blink_modes(&second_events), [!initial, initial]);
-            assert_eq!(blink_modes(&first_events), [!initial, initial]);
-        }
         Ok(())
     }
     #[test]

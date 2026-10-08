@@ -55,12 +55,6 @@ impl Fixture {
         ]
     }
 
-    pub(super) fn command(&self) -> Command {
-        let mut command = Command::new(super::support::binary());
-        command.envs(self.environment());
-        command
-    }
-
     pub(super) fn client(&self) -> Result<Client> {
         let actual = self.directory.path().join("actual.sock");
         Ok(Client::connect(&if actual.exists() {

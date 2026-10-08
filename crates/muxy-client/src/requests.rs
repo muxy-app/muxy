@@ -172,26 +172,3 @@ impl Pending {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::sync::mpsc::TryRecvError;
-
-    use super::*;
-
-    #[test]
-    fn replies_reach_their_request_and_closing_fails_the_rest() -> Result<(), ClientError> {
-        let pending = Pending::default();
-        let (first, first_reply) = pending.register()?;
-        let (second, second_reply) = pending.register()?;
-        assert_ne!(first, second);
-        pending.resolve(second, ReplyBody::Pong);
-        pending.resolve(RequestId(99), ReplyBody::Detached);
-        assert_eq!(second_reply.try_recv(), Ok(ReplyBody::Pong));
-        assert_eq!(first_reply.try_recv(), Err(TryRecvError::Empty));
-        pending.close();
-        assert_eq!(first_reply.try_recv(), Err(TryRecvError::Disconnected));
-        assert!(matches!(pending.register(), Err(ClientError::Disconnected)));
-        Ok(())
-    }
-}

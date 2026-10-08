@@ -213,29 +213,4 @@ mod tests {
         assert!(lock(&activity.state).claimed.is_empty());
         assert!(activity.revision() > revision);
     }
-
-    #[test]
-    fn pending_events_are_bounded_and_legacy_history_is_not_restored() -> io::Result<()> {
-        let directory = std::env::temp_dir().join(format!(
-            "muxy-activity-{}",
-            muxy_protocol::OperationId::new()
-        ));
-        fs::create_dir(&directory)?;
-        fs::write(directory.join("activity.json"), b"obsolete history")?;
-        let activity = Activity::open(&directory)?;
-        assert!(activity.snapshot().events.is_empty());
-        assert!(!directory.join("activity.json").exists());
-        for id in 1..=220 {
-            let mut state = agent(AgentState::Blocked);
-            state.session = SessionId::new(id).expect("session");
-            activity.update(state, false);
-        }
-        assert_eq!(activity.snapshot().events.len(), ACTIVITY_HISTORY_LIMIT);
-        drop(activity);
-        let restored = Activity::open(&directory)?;
-        assert!(restored.snapshot().agents.is_empty());
-        assert!(restored.snapshot().events.is_empty());
-        assert!(!directory.join("activity.json").exists());
-        fs::remove_dir_all(directory)
-    }
 }

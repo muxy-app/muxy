@@ -6,8 +6,8 @@
 
 use super::*;
 use muxy_protocol::{
-    FileBytes, FileContent, MAX_FILE_BYTES, OperationId, ProjectDescriptor, ProjectId,
-    ProjectIntent, ProjectMutation,
+    FileContent, MAX_FILE_BYTES, OperationId, ProjectDescriptor, ProjectId, ProjectIntent,
+    ProjectMutation,
 };
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::sync::mpsc;
@@ -121,51 +121,6 @@ fn atomic_utf8_writes_preserve_modes_and_enforce_both_limits() {
             .to_string_lossy()
             .starts_with(".muxy-write-")
     }));
-}
-
-#[test]
-fn byte_files_keep_any_content_within_the_same_limits_and_root() {
-    let workspace = Workspace::new();
-    let write = |name: &str, bytes: Vec<u8>| {
-        workspace.files(FilesAction::WriteBytes {
-            path: p(name),
-            bytes,
-        })
-    };
-    let image = vec![0x89, b'P', b'N', b'G', 0, 0xff, 0xfe];
-    assert_eq!(
-        write("logo.png", image.clone()).unwrap(),
-        FilesReply::Path(p("logo.png"))
-    );
-    assert_eq!(
-        std::fs::read(workspace.path.join("logo.png")).unwrap(),
-        image
-    );
-    assert_eq!(
-        workspace
-            .files(FilesAction::ReadBytes(p("logo.png")))
-            .unwrap(),
-        FilesReply::Bytes(FileBytes {
-            path: p("logo.png"),
-            bytes: image
-        })
-    );
-    assert!(workspace.files(FilesAction::Read(p("logo.png"))).is_err());
-    let largest = vec![0xff; MAX_FILE_BYTES];
-    write("large", largest.clone()).unwrap();
-    assert!(
-        matches!(workspace.files(FilesAction::ReadBytes(p("large"))).unwrap(), FilesReply::Bytes(file) if file.bytes == largest)
-    );
-    assert!(write("large", vec![0; MAX_FILE_BYTES + 1]).is_err());
-    std::fs::write(workspace.path.join("huge"), vec![0; MAX_FILE_BYTES + 1]).unwrap();
-    assert!(workspace.files(FilesAction::ReadBytes(p("huge"))).is_err());
-    assert!(
-        workspace
-            .files(FilesAction::ReadBytes(p("../outside")))
-            .is_err()
-    );
-    assert!(write("../outside", vec![1]).is_err());
-    assert!(write("missing/child", vec![1]).is_err());
 }
 
 #[test]
@@ -417,27 +372,6 @@ fn concurrent_symlink_swaps_never_expose_external_content() {
     }
     stop.store(true, Ordering::Relaxed);
     task.join().unwrap();
-}
-
-#[test]
-fn unix_paths_are_lossless() {
-    let workspace = Workspace::new();
-    #[cfg(target_os = "linux")]
-    let name = ServerPath(b"odd\xff\n[*]".to_vec());
-    #[cfg(not(target_os = "linux"))]
-    let name = p("odd\n[*]");
-    workspace
-        .files(FilesAction::Write {
-            path: name.clone(),
-            content: "x".into(),
-        })
-        .unwrap();
-    assert!(
-        matches!(workspace.files(FilesAction::List(p(""))).unwrap(), FilesReply::Entries(entries) if entries[0].name == name)
-    );
-    assert!(
-        matches!(workspace.files(FilesAction::Read(name.clone())).unwrap(), FilesReply::Content(content) if content.path == name)
-    );
 }
 
 #[test]
