@@ -15,9 +15,9 @@ flowchart LR
 - SSH access to the computer with your keys, agent, or certificates. The
   desktop app also supports password logins.
 - A trusted host key. Run `ssh <host>` once to accept it.
-- Muxy installed there, on `PATH` or in `~/.local/bin`, at a version that speaks
-  the same protocol as yours.
-- macOS, or Linux with glibc 2.35 or newer, on x86_64 or ARM64.
+- Muxy [installed there](../user-guide/getting-started.md#cli-and-server-only),
+  on `PATH` or in `~/.local/bin`, at a version that speaks the same protocol as yours.
+- macOS 14 or newer, or Linux with glibc 2.35 or newer, on x86_64 or ARM64.
 
 On Linux hosts that end your processes when you log out, run
 `loginctl enable-linger` so the server keeps running after SSH disconnects.
@@ -68,13 +68,6 @@ arguments must be absolute paths on that computer.
 ## Updating
 
 Muxy never updates a remote computer by itself. When versions can't talk, the
-app shows the command to run there. To update by hand:
-
-```bash
-VERSION=2.0.0-beta-N
-curl -fsSL "https://github.com/muxy-app/muxy/releases/download/v$VERSION/install-muxy.sh" \
-  | sh -s -- --version "$VERSION" --replace
-```
-
-The old server keeps running until it stops. To switch now, stop it on that
-computer, which ends its terminals: `pkill -x muxy-server`.
+app shows the command to run there. To update by hand, follow
+the [installation instructions](../user-guide/getting-started.md#cli-and-server-only)
+on that computer with `--replace`, choosing the same channel and a compatible version.

@@ -79,10 +79,10 @@ Every terminal gets `TERM=xterm-256color`, `COLORTERM=truecolor`,
 
 Everything lives in one profile folder:
 
-| Platform | Folder |
-| --- | --- |
-| macOS | `~/Library/Application Support/Muxy Beta` |
-| Linux | `$XDG_STATE_HOME/muxy-beta`, or `~/.local/state/muxy-beta` |
+| Platform | Stable | Beta |
+| --- | --- | --- |
+| macOS | `~/Library/Application Support/Muxy 2` | `~/Library/Application Support/Muxy Beta` |
+| Linux | `$XDG_STATE_HOME/muxy`, or `~/.local/state/muxy` | `$XDG_STATE_HOME/muxy-beta`, or `~/.local/state/muxy-beta` |
 
 | File | What it holds |
 | --- | --- |
