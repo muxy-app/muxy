@@ -67,7 +67,7 @@ impl AppModel {
         let Some(tab) = self.tab(id) else {
             return;
         };
-        let text = tab.title(self.state.window().active_pane).to_owned();
+        let text = tab.title(self.state.shown_pane(tab)).to_owned();
         self.open_metadata_editor(Target::Tab(id), text, position, window, cx);
     }
 

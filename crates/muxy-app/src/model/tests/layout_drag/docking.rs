@@ -30,7 +30,9 @@ fn outer_edge_gesture_makes_three_columns_instead_of_splitting_one_pane(cx: &mut
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1001.0), px(701.0)));
     cx.run_until_parked();
-    let bounds = view.read_with(cx, |model, _| model.layout_drag.geometry.get().0);
+    let bounds = view.read_with(cx, |model, _| {
+        model.layout_drag.geometry.get(tab).expect("geometry").0
+    });
     drag_to(
         &view,
         c,

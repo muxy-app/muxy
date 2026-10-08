@@ -626,16 +626,20 @@ impl AppModel {
         self.state.window().active_pane
     }
 
+    /// The tab each of the current project's groups shows.
+    pub(crate) fn visible_tabs(&self) -> Vec<TabId> {
+        if self.active_tab().is_none() {
+            return Vec::new();
+        }
+        self.state.visible_tabs(self.state.current_project().id)
+    }
+
     pub(crate) fn visible_panes(&self) -> Vec<PaneId> {
-        self.active_tab()
-            .and_then(|id| {
-                self.state
-                    .current_project()
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.id == id)
-            })
-            .map_or_else(Vec::new, muxy_app_core::Tab::visible_panes)
+        self.visible_tabs()
+            .into_iter()
+            .filter_map(|id| self.tab(id))
+            .flat_map(muxy_app_core::Tab::visible_panes)
+            .collect()
     }
 
     pub(crate) fn split_pane(&mut self, edge: Direction, cx: &mut Context<Self>) {
@@ -689,7 +693,9 @@ impl AppModel {
 
     pub(crate) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle
-            || self.pane_tab(pane) != self.active_tab()
+            || self
+                .pane_tab(pane)
+                .is_none_or(|tab| !self.visible_tabs().contains(&tab))
             || self.active_pane() == Some(pane)
         {
             return;
@@ -700,12 +706,24 @@ impl AppModel {
         }
     }
 
+    /// Moves focus to the neighboring pane, or into the neighboring group.
     pub(crate) fn focus_direction(&mut self, direction: Direction, cx: &mut Context<Self>) {
-        if let Some(neighbor) = self
-            .active_pane()
-            .and_then(|pane| self.state.neighbor(pane, direction))
-        {
+        let Some(pane) = self.active_pane() else {
+            return;
+        };
+        if let Some(neighbor) = self.state.neighbor(pane, direction) {
             self.focus_pane(neighbor, cx);
+            return;
+        }
+        let project = self.state.current_project();
+        if let Some(tab) = project.groups().and_then(|groups| {
+            let group = groups.group_of(self.active_tab()?)?.id();
+            let neighbor = groups.layout().neighbor(group, direction)?;
+            groups
+                .group(neighbor)
+                .map(muxy_app_core::TabGroup::selected)
+        }) {
+            self.select_tab(tab, cx);
         }
     }
 
@@ -1600,7 +1618,7 @@ impl AppModel {
                 _subscription: subscription,
             },
         );
-        if !self.is_quick_terminal(id) {
+        if !self.is_quick_terminal(id) && self.pane_tab(id) == self.active_tab() {
             self.focus_requested = true;
         }
     }
@@ -2579,6 +2597,7 @@ mod tests {
     mod servers;
     mod session_ownership;
     mod splits;
+    mod tab_groups;
     mod tab_menu;
     mod tab_sidebar;
     mod tui;

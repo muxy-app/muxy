@@ -148,7 +148,8 @@ impl AppState {
         let tab = Tab::with_content(PaneContent::Webview(descriptor), title);
         let id = tab.id;
         let pane = tab.panes[0].id;
-        self.project_mut(project)?.tabs.push(tab);
+        let focused = self.window.selected_tab.get(&project).copied();
+        self.add_tab(project, tab, focused)?;
         self.select_project(project)?;
         self.select_tab(project, id)?;
         Ok((id, pane))

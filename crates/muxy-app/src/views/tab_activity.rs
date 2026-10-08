@@ -154,7 +154,7 @@ fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel)
 
 pub(super) fn icon(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElement) -> AnyElement {
     let provider = tab
-        .displayed_pane(model.state.window().active_pane)
+        .displayed_pane(model.state.shown_pane(tab))
         .and_then(|pane| model.pane_agent(pane.id))
         .map(|agent| agent.provider);
     let id = tab.id;

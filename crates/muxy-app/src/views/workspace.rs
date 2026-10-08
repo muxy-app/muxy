@@ -472,13 +472,11 @@ impl AppModel {
         if let Some(active) = active {
             self.completions.remove(&active);
         }
-        let zoomed = self
-            .state
-            .current_project()
-            .tabs
-            .iter()
-            .find(|tab| Some(tab.id) == self.active_tab())
-            .and_then(|tab| tab.zoomed);
+        let zoomed: Vec<_> = self
+            .visible_tabs()
+            .into_iter()
+            .filter_map(|tab| self.tab(tab)?.zoomed)
+            .collect();
         let split = self.visible_panes().len() > 1;
         if self.overlay.is_some() || self.close_prompt.is_some() {
             self.split_resize.end();
@@ -490,7 +488,7 @@ impl AppModel {
             pane.view.update(cx, |pane, cx| {
                 pane.set_focused(Some(*id) == active, cx);
                 let border = (pane.focused && split).then_some(self.theme.accent);
-                let radius = if Some(*id) == zoomed {
+                let radius = if zoomed.contains(id) {
                     (self.metrics.radius_lg() - px(1.0)).max(px(0.0))
                 } else {
                     px(0.0)
@@ -551,6 +549,8 @@ impl AppModel {
         }
         self.validate_layout_drag(cx);
         self.sync_tab_sidebar(cx);
+        self.layout_drag.geometry.clear();
+        self.tab_drag.clear_bounds();
     }
 }
 
@@ -569,8 +569,9 @@ impl Render for AppModel {
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused
             && !self.extension_sidebar_active();
+        let grouped = self.state.current_project().groups().is_some();
         let sidebar_width = self.sidebar_width();
-        let content = super::splits::render(self, cx).unwrap_or_else(|| empty(self, cx));
+        let content = super::splits::render(self, window, cx).unwrap_or_else(|| empty(self, cx));
         let content = self.webview_panel_content(content, window, cx);
         let content = self.composer_content(content, window, cx);
         let workspace = action_handlers(cx)
@@ -607,7 +608,7 @@ impl Render for AppModel {
                             .flex_col()
                             .flex_none()
                             .bg(theme.bg)
-                            .child(if tab_focused {
+                            .child(if tab_focused || grouped {
                                 super::tab_sidebar::titlebar(self, sidebar_width, cx)
                             } else {
                                 tab_strip::tab_strip(self, sidebar_width, window, cx)

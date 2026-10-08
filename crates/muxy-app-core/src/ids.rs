@@ -43,6 +43,7 @@ macro_rules! id {
 id!(ServerId);
 pub use muxy_protocol::ProjectId;
 id!(TabId);
+id!(GroupId);
 id!(PaneId);
 id!(WorkspaceId);
 

@@ -34,32 +34,58 @@ pub enum Branch {
     Second,
 }
 
+/// A split tree. Tabs split into panes; a project's tab groups split the same
+/// way.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Layout {
-    Leaf(PaneId),
+pub enum Layout<L = PaneId> {
+    Leaf(L),
     Split {
         axis: Axis,
         ratio: f32,
-        first: Box<Layout>,
-        second: Box<Layout>,
+        first: Box<Layout<L>>,
+        second: Box<Layout<L>>,
     },
 }
 
 impl Layout {
-    pub fn leaves(&self) -> Vec<PaneId> {
+    pub fn moved(&self, pane: PaneId, target: PaneId, edge: Option<Direction>) -> Option<Self> {
+        if pane == target || !self.contains(pane) || !self.contains(target) {
+            return None;
+        }
+        if let Some(edge) = edge {
+            return self.docked(pane, target, edge, 0);
+        }
+        let mut layout = self.clone();
+        layout.swap(pane, target);
+        Some(layout)
+    }
+}
+
+impl<L: Copy + Eq> Layout<L> {
+    pub fn leaves(&self) -> Vec<L> {
         let mut leaves = Vec::new();
         self.visit(&mut |pane, _| leaves.push(pane), [0.0, 0.0, 1.0, 1.0]);
         leaves
     }
 
-    pub fn contains(&self, pane: PaneId) -> bool {
+    /// Each leaf with its share of the whole as `[x, y, width, height]`.
+    pub fn rects(&self) -> Vec<(L, [f32; 4])> {
+        let mut rects = Vec::new();
+        self.visit(
+            &mut |leaf, rect| rects.push((leaf, rect)),
+            [0.0, 0.0, 1.0, 1.0],
+        );
+        rects
+    }
+
+    pub fn contains(&self, pane: L) -> bool {
         match self {
             Self::Leaf(id) => *id == pane,
             Self::Split { first, second, .. } => first.contains(pane) || second.contains(pane),
         }
     }
 
-    pub fn split(&mut self, pane: PaneId, new: PaneId, edge: Direction) {
+    pub fn split(&mut self, pane: L, new: L, edge: Direction) {
         match self {
             Self::Leaf(id) if *id == pane => {
                 let (first, second) = if matches!(edge, Direction::Left | Direction::Up) {
@@ -82,19 +108,7 @@ impl Layout {
         }
     }
 
-    pub fn moved(&self, pane: PaneId, target: PaneId, edge: Option<Direction>) -> Option<Self> {
-        if pane == target || !self.contains(pane) || !self.contains(target) {
-            return None;
-        }
-        if let Some(edge) = edge {
-            return self.docked(pane, target, edge, 0);
-        }
-        let mut layout = self.clone();
-        layout.swap(pane, target);
-        Some(layout)
-    }
-
-    fn swap(&mut self, pane: PaneId, target: PaneId) {
+    fn swap(&mut self, pane: L, target: L) {
         match self {
             Self::Leaf(id) if *id == pane => *id = target,
             Self::Leaf(id) if *id == target => *id = pane,
@@ -106,7 +120,7 @@ impl Layout {
         }
     }
 
-    pub fn remove(&mut self, pane: PaneId) {
+    pub fn remove(&mut self, pane: L) {
         if let Self::Split { first, second, .. } = self {
             if matches!(first.as_ref(), Self::Leaf(id) if *id == pane) {
                 *self = *second.clone();
@@ -159,7 +173,7 @@ impl Layout {
         Ok(())
     }
 
-    pub fn neighbor(&self, pane: PaneId, direction: Direction) -> Option<PaneId> {
+    pub fn neighbor(&self, pane: L, direction: Direction) -> Option<L> {
         let mut rectangles = Vec::new();
         self.visit(
             &mut |id, rect| rectangles.push((id, rect)),
@@ -200,7 +214,7 @@ impl Layout {
             .map(|(id, _)| id)
     }
 
-    fn visit(&self, visitor: &mut impl FnMut(PaneId, [f32; 4]), rect: [f32; 4]) {
+    fn visit(&self, visitor: &mut impl FnMut(L, [f32; 4]), rect: [f32; 4]) {
         match self {
             Self::Leaf(id) => visitor(*id, rect),
             Self::Split {

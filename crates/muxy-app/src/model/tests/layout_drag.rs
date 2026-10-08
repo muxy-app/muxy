@@ -100,7 +100,7 @@ fn cmd_drag_previews_match_final_pane_bounds_for_every_edge_and_center(cx: &mut 
             model.layout_drag.preview.clone().unwrap_or_else(|| {
                 panic!(
                     "missing preview: geometry={:?}, tab_drag={}, pane_drag={}",
-                    model.layout_drag.geometry.get(),
+                    model.layout_drag.geometry,
                     model.tab_drag.is_active(),
                     model.layout_drag.active()
                 )

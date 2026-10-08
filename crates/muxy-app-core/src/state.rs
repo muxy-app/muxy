@@ -299,6 +299,7 @@ impl AppState {
             kind: None,
             parent_id: None,
             tabs: Vec::new(),
+            groups: None,
             status: ProjectStatus::Available,
         };
         self.queue_project(
@@ -424,13 +425,24 @@ impl AppState {
     }
 
     pub fn open_terminal_tab(&mut self, project: ProjectId) -> Result<TabId, AppError> {
+        let focused = self.window.selected_tab.get(&project).copied();
+        self.open_terminal_tab_near(project, focused)
+    }
+
+    /// Opens a terminal tab at the end of `project`, in `near`'s group.
+    fn open_terminal_tab_near(
+        &mut self,
+        project: ProjectId,
+        near: Option<TabId>,
+    ) -> Result<TabId, AppError> {
         self.project_mut(project)?.require_available()?;
         let tab = Tab::terminal();
         let id = tab.id;
         self.window.activate(tab.layout.leaves().first().copied());
-        self.project_mut(project)?.tabs.push(tab);
+        self.add_tab(project, tab, near)?;
         self.window.selected_tab.insert(project, id);
         self.window.current_project = project;
+        self.sync_groups(project);
         Ok(id)
     }
 
@@ -455,12 +467,13 @@ impl AppState {
                 })?;
         let boundary = target.tabs.iter().take_while(|tab| tab.pinned).count();
         let index = (index + usize::from(side == crate::TabSide::Right)).max(boundary);
-        let id = self.open_terminal_tab(project)?;
+        let id = self.open_terminal_tab_near(project, Some(anchor))?;
         let tabs = &mut self.project_mut(project)?.tabs;
         let tab = tabs
             .pop()
             .ok_or(AppError::UnknownTab { project, tab: id })?;
         tabs.insert(index, tab);
+        self.sync_groups(project);
         Ok(id)
     }
 
@@ -496,6 +509,8 @@ impl AppState {
         let tab = project.tabs.remove(index);
         let boundary = project.tabs.iter().take_while(|tab| tab.pinned).count();
         project.tabs.insert(boundary, tab);
+        let project = project.id;
+        self.sync_groups(project);
         Ok(())
     }
 
@@ -515,24 +530,35 @@ impl AppState {
             self.cancel_pending_creation(pane);
         }
         let active = self.window.active_pane;
-        let tabs = &mut self.project_mut(project)?.tabs;
+        let history = self.window.focus_history.clone();
+        let target = self.project_mut(project)?;
+        let next = target.tab_after_close(tab);
+        let grouped = target.groups.is_some();
+        let tabs = &mut target.tabs;
         let index = tabs
             .iter()
             .position(|candidate| candidate.id == tab)
             .ok_or(AppError::UnknownTab { project, tab })?;
         let removed_active = active.is_some_and(|pane| tabs[index].layout.contains(pane));
         let removed = tabs.remove(index);
-        let next_index = index.min(tabs.len().saturating_sub(1));
-        let next = tabs.get_mut(next_index);
-        let next_pane = next
-            .as_ref()
-            .and_then(|tab| tab.layout.leaves().first().copied());
-        let next = next.map(|tab| {
-            if removed_active {
-                tab.zoomed = None;
-            }
-            tab.id
+        let next = next.and_then(|next| tabs.iter_mut().find(|tab| tab.id == next));
+        let next_pane = next.as_ref().and_then(|next| {
+            let shown = |pane: &&PaneId| next.layout.contains(**pane);
+            let previous = history.iter().rev().find(shown);
+            grouped
+                .then(|| next.zoomed.or(previous.copied()))
+                .flatten()
+                .or_else(|| next.layout.leaves().first().copied())
         });
+        let next = next.map(|next| {
+            if removed_active && !grouped {
+                next.zoomed = None;
+            }
+            next.id
+        });
+        if let Some(groups) = &mut target.groups {
+            groups.remove(tab);
+        }
         self.window
             .focus_history
             .retain(|pane| !removed.layout.contains(*pane));
@@ -546,6 +572,7 @@ impl AppState {
         if removed_active {
             self.window.activate(next_pane);
         }
+        self.sync_groups(project);
         Ok(())
     }
 
@@ -720,6 +747,7 @@ impl AppState {
         self.window.current_project = project;
         self.window.selected_tab.insert(project, tab);
         self.window.activate(Some(pane));
+        self.sync_groups(project);
         Ok(())
     }
 
@@ -788,6 +816,7 @@ impl AppState {
         self.window.selected_tab.insert(project, tab);
         self.window.current_project = project;
         self.focus_selected_tab();
+        self.sync_groups(project);
         Ok(())
     }
 
@@ -816,6 +845,16 @@ impl AppState {
         self.window.activate(pane);
     }
 
+    /// The pane `tab` shows as its own: the active pane, or the one last
+    /// focused in it.
+    pub fn shown_pane(&self, tab: &Tab) -> Option<PaneId> {
+        self.window
+            .active_pane
+            .into_iter()
+            .chain(self.window.focus_history.iter().rev().copied())
+            .find(|pane| tab.layout.contains(*pane))
+    }
+
     pub fn move_tab(&mut self, project: ProjectId, from: usize, to: usize) -> Result<(), AppError> {
         self.project_mut(project)?.require_available()?;
         let tabs = &mut self.project_mut(project)?.tabs;
@@ -835,6 +874,7 @@ impl AppState {
         };
         let tab = tabs.remove(from);
         tabs.insert(to, tab);
+        self.sync_groups(project);
         Ok(())
     }
 
@@ -845,6 +885,7 @@ impl AppState {
         to: TabId,
         visible: &[TabId],
     ) -> Result<(), AppError> {
+        let id = project;
         let project = self.project_mut(project)?;
         project.require_available()?;
         let tabs = &mut project.tabs;
@@ -873,6 +914,7 @@ impl AppState {
                 tabs.swap(pair[0], pair[1]);
             }
         }
+        self.sync_groups(id);
         Ok(())
     }
 
@@ -975,6 +1017,13 @@ impl AppState {
                         pane.id
                     )));
                 }
+            }
+        }
+
+        for project in &self.projects {
+            if let Some(groups) = &project.groups {
+                let order: Vec<_> = project.tabs.iter().map(|tab| tab.id).collect();
+                groups.validate(&order, self.window.selected_tab.get(&project.id).copied())?;
             }
         }
 

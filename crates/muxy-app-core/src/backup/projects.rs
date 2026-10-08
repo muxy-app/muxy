@@ -115,9 +115,12 @@ impl AppState {
                 project.kind = existing.kind;
                 project.parent_id = existing.parent_id;
             }
+            let mut tabs = BTreeMap::new();
             for tab in &mut project.tabs {
                 let selected = selected_tab == Some(&tab.id);
-                tab.id = TabId::new();
+                let id = TabId::new();
+                tabs.insert(tab.id, id);
+                tab.id = id;
                 if selected {
                     restored.window.selected_tab.insert(project.id, tab.id);
                 }
@@ -132,6 +135,9 @@ impl AppState {
                 }
                 remap_layout(&mut tab.layout, &panes);
                 tab.zoomed = tab.zoomed.map(|id| panes[&id]);
+            }
+            if let Some(groups) = &mut project.groups {
+                groups.remap_tabs(&tabs);
             }
             if let Some(tab) = project.tabs.first() {
                 restored
@@ -330,6 +336,7 @@ pub fn import_projects(
             kind: None,
             parent_id: None,
             tabs: Vec::new(),
+            groups: None,
             status: ProjectStatus::Available,
         });
         if let Some(prompt) = value["pullRequestPrompt"].as_str() {
@@ -480,6 +487,7 @@ fn import_worktrees(
                 kind: Some(crate::ProjectKind::Worktree),
                 parent_id: Some(parent),
                 tabs: Vec::new(),
+                groups: None,
                 status: ProjectStatus::Available,
             });
             report.imported += 1;

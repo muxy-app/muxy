@@ -77,6 +77,8 @@ pub struct Project {
     pub kind: Option<ProjectKind>,
     pub parent_id: Option<ProjectId>,
     pub tabs: Vec<Tab>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) groups: Option<crate::TabGroups>,
     #[serde(skip)]
     pub(crate) status: ProjectStatus,
 }

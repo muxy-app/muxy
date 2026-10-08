@@ -7,6 +7,7 @@ pub mod backup;
 pub mod composer;
 mod error;
 pub mod extensions;
+mod groups;
 mod home;
 mod ids;
 mod layout;
@@ -28,7 +29,8 @@ mod window;
 mod workspace;
 
 pub use error::AppError;
-pub use ids::{PaneId, ProjectId, ServerId, TabId, WorkspaceId};
+pub use groups::{TabGroup, TabGroups};
+pub use ids::{GroupId, PaneId, ProjectId, ServerId, TabId, WorkspaceId};
 pub use layout::{Axis, Branch, Direction, Layout};
 pub use pane::{Pane, PaneContent};
 pub use project::{Color, PROJECT_COLORS, Project, ProjectKind, ProjectStatus};

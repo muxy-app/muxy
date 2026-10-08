@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
@@ -14,9 +14,45 @@ use crate::model::AppModel;
 
 #[derive(Default)]
 pub(crate) struct LayoutDragState {
-    pub(crate) geometry: Rc<Cell<(Bounds<Pixels>, f32)>>,
+    pub(crate) geometry: TabGeometry,
     pane: Option<PaneDrag>,
     pub(crate) preview: Option<Preview>,
+}
+
+/// Where each shown tab's panes were laid out in the last frame, with the
+/// scale factor. Cleared on every render.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TabGeometry(Rc<RefCell<Vec<Placement>>>);
+
+type Placement = (TabId, Bounds<Pixels>, f32);
+
+impl TabGeometry {
+    pub(crate) fn clear(&self) {
+        self.0.borrow_mut().clear();
+    }
+
+    pub(crate) fn set(&self, tab: TabId, bounds: Bounds<Pixels>, scale: f32) {
+        let mut entries = self.0.borrow_mut();
+        entries.retain(|(id, ..)| *id != tab);
+        entries.push((tab, bounds, scale));
+    }
+
+    pub(crate) fn get(&self, tab: TabId) -> Option<(Bounds<Pixels>, f32)> {
+        self.0
+            .borrow()
+            .iter()
+            .find(|(id, ..)| *id == tab)
+            .map(|(_, bounds, scale)| (*bounds, *scale))
+    }
+
+    /// The tab whose panes are under `position`.
+    pub(crate) fn at(&self, position: Point<Pixels>) -> Option<Placement> {
+        self.0
+            .borrow()
+            .iter()
+            .copied()
+            .find(|(_, bounds, _)| bounds.contains(&position))
+    }
 }
 
 struct PaneDrag {
@@ -137,7 +173,7 @@ impl AppModel {
             || self.layout_drag.pane.as_ref().is_some_and(|drag| {
                 drag.project != self.state.current_project().id
                     || !self.visible_panes().contains(&drag.pane)
-                    || self.layout_drag.geometry.get() != drag.geometry
+                    || self.layout_drag.geometry.get(drag.tab) != Some(drag.geometry)
                     || self
                         .tab(drag.tab)
                         .is_none_or(|tab| tab.zoomed.is_some() || tab.layout != drag.layout)
@@ -166,10 +202,14 @@ impl AppModel {
         if event.button != MouseButton::Left || !event.modifiers.platform || self.drag_blocked() {
             return;
         }
-        let Some(tab) = self.active_tab() else {
+        let Some((tab, bounds, scale)) = self
+            .layout_drag
+            .geometry
+            .at(event.position)
+            .filter(|(tab, ..)| self.visible_tabs().contains(tab))
+        else {
             return;
         };
-        let (bounds, scale) = self.layout_drag.geometry.get();
         let Some(descriptor) = self
             .tab(tab)
             .filter(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
@@ -327,30 +367,38 @@ pub(crate) fn track_pointer(cx: &Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
+/// Paints the drop preview of a pane or tab drag.
 pub(crate) fn overlay(model: &AppModel) -> AnyElement {
-    let preview = model
+    let pane_preview = model
         .layout_drag
         .preview
         .as_ref()
         .map(|preview| preview.bounds);
-    let expected = model.layout_drag.pane.as_ref().map(|drag| drag.geometry);
+    let expected = model
+        .layout_drag
+        .pane
+        .as_ref()
+        .map(|drag| (drag.tab, drag.geometry));
     let geometry = model.layout_drag.geometry.clone();
-    let painted_geometry = geometry.clone();
+    let tab_preview = model.tab_drag.preview();
+    let preview = move || {
+        expected
+            .filter(|(tab, expected)| geometry.get(*tab) == Some(*expected))
+            .and(pane_preview)
+            .or(tab_preview)
+    };
+    let painted = preview.clone();
     let accent = model.theme.accent;
     let fill = accent.opacity(0.18);
     let occlusions = model.webviews.occlusions.clone();
     canvas(
         move |_, _, _| {
-            if expected == Some(geometry.get())
-                && let Some(bounds) = preview
-            {
+            if let Some(bounds) = preview() {
                 occlusions.borrow_mut().push((None, bounds));
             }
         },
         move |_, (), window, _| {
-            if expected == Some(painted_geometry.get())
-                && let Some(bounds) = preview
-            {
+            if let Some(bounds) = painted() {
                 window.paint_quad(gpui::fill(bounds, fill));
                 window.paint_quad(
                     gpui::outline(bounds, accent.opacity(0.8), gpui::BorderStyle::Solid)
