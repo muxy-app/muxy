@@ -81,7 +81,8 @@
 "AI" = "AI";
 "AI CLI that drafts commit messages. Auto uses the first installed provider." = "AI CLI that drafts commit messages. Auto uses the first installed provider.";
 "AI CLI that drafts pull requests. Auto uses the first installed provider." = "AI CLI that drafts pull requests. Auto uses the first installed provider.";
-"AI drafts only the commit message. You review it before Muxy commits every change and pushes. An empty prompt uses the default. Do not include secrets." = "AI drafts only the commit message. You review it before Muxy commits every change and pushes. An empty prompt uses the default. Do not include secrets.";
+"AI Provider" = "AI Provider";
+"AI drafts only the commit message. Muxy commits, and pushes when you choose to. An empty prompt uses the default. Do not include secrets." = "AI drafts only the commit message. Muxy commits, and pushes when you choose to. An empty prompt uses the default. Do not include secrets.";
 "AI drafts the title, summary, branch name, and target branch. You review them before Muxy commits, pushes, and opens the pull request. An empty prompt uses the default." = "AI drafts the title, summary, branch name, and target branch. You review them before Muxy commits, pushes, and opens the pull request. An empty prompt uses the default.";
 "AI output pipe unavailable" = "AI output pipe unavailable";
 "AI prompt exceeds the 256 KB limit" = "AI prompt exceeds the 256 KB limit";
@@ -283,10 +284,9 @@
 "Commands and file or Git changes ask for permission when used." = "Commands and file or Git changes ask for permission when used.";
 "Commands run in the new worktree. Review project commands before enabling them." = "Commands run in the new worktree. Review project commands before enabling them.";
 "Commit" = "Commit";
-"Commit and Push" = "Commit and Push";
-"Commit and push to \"%@\"?" = "Commit and push to \"%@\"?";
 "Commit prompt" = "Commit prompt";
 "Commit provider" = "Commit provider";
+"Commit to \"%@\"?" = "Commit to \"%@\"?";
 "Committed %@ on %@, but couldn't push" = "Committed %@ on %@, but couldn't push";
 "Committed and pushed" = "Committed and pushed";
 "Committed locally" = "Committed locally";
@@ -403,7 +403,6 @@
 "Could not write clipboard data" = "Could not write clipboard data";
 "Couldn't close PR #%lld" = "Couldn't close PR #%lld";
 "Couldn't commit" = "Couldn't commit";
-"Couldn't commit and push" = "Couldn't commit and push";
 "Couldn't create %@" = "Couldn't create %@";
 "Couldn't create pull request" = "Couldn't create pull request";
 "Couldn't merge PR #%lld" = "Couldn't merge PR #%lld";
@@ -568,9 +567,10 @@
 "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings." = "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings.";
 "Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped." = "Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped.";
 "Imported %lld supported 1.x items." = "Imported %lld supported 1.x items.";
-"In a Git project, click Commit in the status bar. After you confirm, your AI CLI writes the message and Muxy stages all changes, commits, and pushes. Choose the CLI in Settings → AI." = "In a Git project, click Commit in the status bar. After you confirm, your AI CLI writes the message and Muxy stages all changes, commits, and pushes. Choose the CLI in Settings → AI.";
+"In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits." = "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits.";
 "In a Git project, right-click the project and choose Worktrees → Show Worktrees, then New Worktree…, to work on a branch in its own folder with its own tabs." = "In a Git project, right-click the project and choose Worktrees → Show Worktrees, then New Worktree…, to work on a branch in its own folder with its own tabs.";
 "Inactive" = "Inactive";
+"Include unstaged changes" = "Include unstaged changes";
 "Increase Font Size" = "Increase Font Size";
 "Indigo" = "Indigo";
 "Inline file path" = "Inline file path";
@@ -699,10 +699,10 @@
 "Muxy recognizes AI agents like Claude Code and Codex, marks panes, tabs, and projects when they're working or need you, and notifies you when they're in the background." = "Muxy recognizes AI agents like Claude Code and Codex, marks panes, tabs, and projects when they're working or need you, and notifies you when they're in the background.";
 "Muxy updates" = "Muxy updates";
 "Muxy uses your SSH config, keys, and agent. A password is never saved." = "Muxy uses your SSH config, keys, and agent. A password is never saved.";
+"Muxy will ask the AI provider for a commit message, then commit." = "Muxy will ask the AI provider for a commit message, then commit.";
 "Muxy will create \"%@\" and add it as a project." = "Muxy will create \"%@\" and add it as a project.";
 "Muxy will create \"%@\" on %@ and add it as a project." = "Muxy will create \"%@\" on %@ and add it as a project.";
 "Muxy will stage all changes, ask %@ for a branch name, title, and summary, then create the branch, commit, push, and open the pull request on GitHub." = "Muxy will stage all changes, ask %@ for a branch name, title, and summary, then create the branch, commit, push, and open the pull request on GitHub.";
-"Muxy will stage all changes, ask %@ for a commit message, then commit and push to \"%@\"." = "Muxy will stage all changes, ask %@ for a commit message, then commit and push to \"%@\".";
 "Muxy will update and restart when all %lld terminal session end, including idle and detached sessions. Keep Muxy open to finish the update." = "Muxy will update and restart when all %lld terminal session end, including idle and detached sessions. Keep Muxy open to finish the update.";
 "Muxy will update and restart when all %lld terminal sessions end, including idle and detached sessions. Keep Muxy open to finish the update." = "Muxy will update and restart when all %lld terminal sessions end, including idle and detached sessions. Keep Muxy open to finish the update.";
 "Name" = "Name";
@@ -764,6 +764,7 @@
 "Not assigned" = "Not assigned";
 "Not connected" = "Not connected";
 "Not listening: %@" = "Not listening: %@";
+"Nothing is staged. Stage changes first or include unstaged changes." = "Nothing is staged. Stage changes first or include unstaged changes.";
 "OK" = "OK";
 "Off" = "Off";
 "On-device speech recognition is unavailable for this language. Choose another dictation language." = "On-device speech recognition is unavailable for this language. Choose another dictation language.";
@@ -840,6 +841,7 @@
 "Pull request prompt" = "Pull request prompt";
 "Pull request provider" = "Pull request provider";
 "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI." = "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.";
+"Push after committing" = "Push after committing";
 "Put the user and port either in the host or in their own fields" = "Put the user and port either in the host or in their own fields";
 "Query is too long" = "Query is too long";
 "Quick Terminal" = "Quick Terminal";
@@ -1043,7 +1045,7 @@
 "Stopping…" = "Stopping…";
 "Switch Project…" = "Switch Project…";
 "Switch Workspace…" = "Switch Workspace…";
-"Switch to a branch before committing and pushing" = "Switch to a branch before committing and pushing";
+"Switch to a branch before committing" = "Switch to a branch before committing";
 "Switch to a branch before creating a pull request" = "Switch to a branch before creating a pull request";
 "Switched to %@ and brought it up to date." = "Switched to %@ and brought it up to date.";
 "System editor exited with %@" = "System editor exited with %@";

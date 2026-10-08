@@ -20,7 +20,7 @@ impl Category {
                 tr_key!("Appearance"),
             ],
             Self::Composer => &[tr_key!("Behavior"), tr_key!("Text"), tr_key!("Voice")],
-            Self::Ai => &[tr_key!("Commit and Push"), tr_key!("Create Pull Request")],
+            Self::Ai => &[tr_key!("Commit"), tr_key!("Create Pull Request")],
             Self::General => &[
                 tr_key!("Closing terminals"),
                 tr_key!("Files"),

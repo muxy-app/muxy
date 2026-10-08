@@ -458,6 +458,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                     GitAction::BranchDiff { .. } => "GitBranchDiff",
                     GitAction::ChangesPreview { .. } => "GitChangesPreview",
                     GitAction::CommitAll { .. } => "GitCommitAll",
+                    GitAction::StagedPreview { .. } => "GitStagedPreview",
+                    GitAction::CommitStaged { .. } => "GitCommitStaged",
                     GitAction::PublishBranch { .. } => "GitPublishBranch",
                     GitAction::SwitchToBase(_) => "GitSwitchToBase",
                     GitAction::PullRequest(GitPullRequestAction::UpdateBranch { .. }) => {
@@ -582,6 +584,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "GitChangesPreview",
             "GitChangesPreviewReply",
             "GitCommitAll",
+            "GitStagedPreview",
+            "GitCommitStaged",
             "GitPublishBranch",
             "GitSwitchToBase",
             "GitBaseSwitchReply",

@@ -125,6 +125,69 @@ fn commit_all_commits_the_previewed_tree_and_refuses_later_edits() {
     );
 }
 
+fn staged_preview(repo: &Repo) -> GitChangesPreview {
+    let GitReply::ChangesPreview(preview) = repo
+        .git(GitAction::StagedPreview {
+            line_limit: Some(800),
+        })
+        .unwrap()
+    else {
+        panic!()
+    };
+    *preview
+}
+
+fn commit_staged(repo: &Repo, preview: &GitChangesPreview) -> Result<GitReply> {
+    repo.git(GitAction::CommitStaged {
+        message: "Staged change".into(),
+        expected_head: preview.head.clone(),
+        expected_tree: preview.tree.clone(),
+    })
+}
+
+#[test]
+fn staged_commit_includes_only_the_reviewed_index() {
+    let repo = Repo::new(true);
+    std::fs::write(repo.path.join("tracked"), "one\n").unwrap();
+    commit(&repo, "tracked");
+    std::fs::write(repo.path.join("tracked"), "one\ntwo\n").unwrap();
+    std::fs::write(repo.path.join("staged"), "staged\n").unwrap();
+    run(&repo.path, &["add", "staged"]).unwrap();
+    std::fs::write(repo.path.join("untracked"), "new\n").unwrap();
+    let before = porcelain(&repo);
+
+    let stale = staged_preview(&repo);
+
+    assert_eq!(porcelain(&repo), before);
+    let files: Vec<_> = stale
+        .files
+        .iter()
+        .map(|file| String::from_utf8_lossy(&file.path.0).into_owned())
+        .collect();
+    assert_eq!(files, ["staged"]);
+    assert!(stale.diff.diff.contains("+staged") && !stale.diff.diff.contains("+two"));
+    run(&repo.path, &["add", "tracked"]).unwrap();
+    let error = commit_staged(&repo, &stale).unwrap_err();
+    assert!(error.message().contains("review the changes again"));
+    run(&repo.path, &["restore", "--staged", "tracked"]).unwrap();
+
+    let reviewed = staged_preview(&repo);
+    let GitReply::Commit(hash) = commit_staged(&repo, &reviewed).unwrap() else {
+        panic!()
+    };
+
+    assert_eq!(repo.summary().head.as_deref(), Some(hash.as_str()));
+    assert_eq!(
+        text(&run(&repo.path, &["rev-parse", "HEAD^{tree}"]).unwrap()).unwrap(),
+        reviewed.tree
+    );
+    let summary = repo.summary();
+    assert_eq!(
+        (summary.staged, summary.unstaged, summary.untracked),
+        (0, 1, 1)
+    );
+}
+
 #[test]
 fn failed_commit_keeps_what_the_user_had_staged() {
     let repo = Repo::new(true);

@@ -54,16 +54,16 @@ pub(super) const SETTINGS: &[Setting] = &[
             "AI CLI that drafts commit messages. Auto uses the first installed provider."
         ),
         category: Category::Ai,
-        section: tr_key!("Commit and Push"),
+        section: tr_key!("Commit"),
     },
     Setting {
         id: "ai-commit-prompt",
         label: tr_key!("Commit prompt"),
         description: tr_key!(
-            "AI drafts only the commit message. You review it before Muxy commits every change and pushes. An empty prompt uses the default. Do not include secrets."
+            "AI drafts only the commit message. Muxy commits, and pushes when you choose to. An empty prompt uses the default. Do not include secrets."
         ),
         category: Category::Ai,
-        section: tr_key!("Commit and Push"),
+        section: tr_key!("Commit"),
     },
     Setting {
         id: "ai-create-pr-provider",

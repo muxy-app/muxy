@@ -105,7 +105,7 @@ fn confirming_a_stale_branch_does_not_start_work(cx: &mut TestAppContext) {
         );
     });
     requests.try_iter().for_each(drop);
-    cx.simulate_prompt_answer("Commit and Push");
+    cx.simulate_prompt_answer("Commit");
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert!(!model.ai.running(project));

@@ -89,6 +89,7 @@ pub(crate) fn is_read(action: &GitAction) -> bool {
             | GitAction::Diff(_)
             | GitAction::BranchDiff { .. }
             | GitAction::ChangesPreview { .. }
+            | GitAction::StagedPreview { .. }
             | GitAction::PullRequest(Pr::Info | Pr::Number | Pr::Diff { .. } | Pr::List { .. })
     )
 }
@@ -196,7 +197,9 @@ impl Registry {
                 diff::branch(directory, base, *line_limit)
             }
             GitAction::ChangesPreview { .. }
+            | GitAction::StagedPreview { .. }
             | GitAction::CommitAll { .. }
+            | GitAction::CommitStaged { .. }
             | GitAction::PublishBranch { .. }
             | GitAction::SwitchToBase(_) => review(directory, action),
             GitAction::PullRequest(action) => self.git.github.apply(directory, action),
@@ -260,13 +263,26 @@ impl Registry {
 fn review(directory: &Path, action: &GitAction) -> Result<GitReply> {
     match action {
         GitAction::ChangesPreview { line_limit } => Ok(GitReply::ChangesPreview(Box::new(
-            snapshot::preview(directory, *line_limit)?,
+            snapshot::preview(directory, *line_limit, false)?,
+        ))),
+        GitAction::StagedPreview { line_limit } => Ok(GitReply::ChangesPreview(Box::new(
+            snapshot::preview(directory, *line_limit, true)?,
         ))),
         GitAction::CommitAll {
             message,
             expected_head,
             expected_tree,
         } => Ok(GitReply::Commit(snapshot::commit_all(
+            directory,
+            message,
+            expected_head.as_deref(),
+            expected_tree,
+        )?)),
+        GitAction::CommitStaged {
+            message,
+            expected_head,
+            expected_tree,
+        } => Ok(GitReply::Commit(snapshot::commit_staged(
             directory,
             message,
             expected_head.as_deref(),

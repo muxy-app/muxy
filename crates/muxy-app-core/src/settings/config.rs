@@ -38,6 +38,24 @@ pub struct AiSettings {
     pub prompts: BTreeMap<String, String>,
     #[serde(deserialize_with = "text_entries")]
     pub project_pr_prompts: BTreeMap<String, String>,
+    #[serde(deserialize_with = "commit_choices")]
+    pub commit: CommitChoices,
+}
+
+/// The options last chosen for an AI commit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CommitChoices {
+    pub include_unstaged: bool,
+    pub push: bool,
+}
+
+impl Default for CommitChoices {
+    fn default() -> Self {
+        Self {
+            include_unstaged: true,
+            push: true,
+        }
+    }
 }
 
 fn text_entries<'de, D: serde::Deserializer<'de>>(
@@ -50,6 +68,18 @@ fn text_entries<'de, D: serde::Deserializer<'de>>(
         .flatten()
         .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
         .collect())
+}
+
+fn commit_choices<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<CommitChoices, D::Error> {
+    let value = toml::Value::deserialize(deserializer)?;
+    let flag = |key| value.get(key).and_then(toml::Value::as_bool);
+    let defaults = CommitChoices::default();
+    Ok(CommitChoices {
+        include_unstaged: flag("include_unstaged").unwrap_or(defaults.include_unstaged),
+        push: flag("push").unwrap_or(defaults.push),
+    })
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -107,7 +137,27 @@ impl Settings {
         key: &str,
         value: Option<&str>,
     ) -> Result<AiSettings> {
-        crate::settings::appearance::save_entry(path, "ai", table, key, value)
+        Self::save_ai_entries(path, table, vec![(key, value.map(Into::into))])
+    }
+
+    /// Saves the options last chosen for an AI commit.
+    pub fn save_commit_choices(path: &Path, choices: CommitChoices) -> Result<AiSettings> {
+        Self::save_ai_entries(
+            path,
+            "commit",
+            vec![
+                ("include_unstaged", Some(choices.include_unstaged.into())),
+                ("push", Some(choices.push.into())),
+            ],
+        )
+    }
+
+    fn save_ai_entries(
+        path: &Path,
+        table: &str,
+        entries: Vec<(&str, Option<toml::Value>)>,
+    ) -> Result<AiSettings> {
+        crate::settings::appearance::save_entries(path, "ai", table, entries)
             .and_then(|saved| saved.try_into().map_err(Into::into))
             .map_err(|error| Error::new("ai", error))
     }
@@ -317,6 +367,36 @@ mod tests {
             saved.project_pr_prompts["project-id"],
             "Project instructions"
         );
+        assert_eq!(Settings::load(&path)?.ai, saved);
+        Ok(())
+    }
+
+    #[test]
+    fn commit_choices_default_on_ignore_mistakes_and_round_trip() -> Result<()> {
+        let directory = tempfile::tempdir().map_err(|error| Error::new("test", error))?;
+        let path = directory.path().join("settings.toml");
+        assert_eq!(Settings::load(&path)?.ai.commit, CommitChoices::default());
+        fs::write(
+            &path,
+            "[ai.commit]\ninclude_unstaged = \"no\"\npush = false\n[ai.providers]\ncommit = \"codex\"\n",
+        )
+        .map_err(|error| Error::new("test", error))?;
+        let loaded = Settings::load(&path)?.ai;
+        assert_eq!(
+            loaded.commit,
+            CommitChoices {
+                include_unstaged: true,
+                push: false,
+            }
+        );
+
+        let choices = CommitChoices {
+            include_unstaged: false,
+            push: true,
+        };
+        let saved = Settings::save_commit_choices(&path, choices)?;
+        assert_eq!(saved.commit, choices);
+        assert_eq!(saved.providers["commit"], "codex");
         assert_eq!(Settings::load(&path)?.ai, saved);
         Ok(())
     }

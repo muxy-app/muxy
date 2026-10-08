@@ -24,8 +24,8 @@ pub use chord::KeyChord;
 pub use commands::CustomCommand;
 pub use composer::{ComposerPosition, ComposerPresentation, ComposerSettings};
 pub use config::{
-    ClipboardSettings, CloseBehavior, NewPaneDirectory, OpenerSettings, PaneSettings,
-    ProjectSettings, Settings, WindowSettings,
+    ClipboardSettings, CloseBehavior, CommitChoices, NewPaneDirectory, OpenerSettings,
+    PaneSettings, ProjectSettings, Settings, WindowSettings,
 };
 pub use error::{Error, Result};
 pub use ghostty::{

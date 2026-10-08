@@ -13,7 +13,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const FILE_LIMIT: usize = 4096;
 
-pub(super) fn preview(repository: &Path, line_limit: Option<u32>) -> Result<GitChangesPreview> {
+/// Previews every change, or with `staged` only what the index holds.
+pub(super) fn preview(
+    repository: &Path,
+    line_limit: Option<u32>,
+    staged: bool,
+) -> Result<GitChangesPreview> {
     let summary = read::summary(repository)?;
     if summary.conflicted > 0 {
         return Err(error("Resolve merge conflicts before committing"));
@@ -23,7 +28,11 @@ pub(super) fn preview(repository: &Path, line_limit: Option<u32>) -> Result<GitC
         .filter(muxy_protocol::GitFile::untracked)
         .map(|file| file.path.0)
         .collect();
-    let tree = snapshot(repository)?;
+    let tree = if staged {
+        staged_snapshot(repository)?
+    } else {
+        snapshot(repository)?
+    };
     let base = match &summary.head {
         Some(head) => head.clone(),
         None => text(&run(
@@ -68,18 +77,7 @@ pub(super) fn commit_all(
     expected_head: Option<&str>,
     expected_tree: &str,
 ) -> Result<String> {
-    let summary = read::summary(repository)?;
-    if summary.branch.is_none() {
-        return Err(error("Switch to a branch before committing"));
-    }
-    if summary.head.as_deref() != expected_head {
-        return Err(error(
-            "The branch moved after the draft was made; review the changes again",
-        ));
-    }
-    if summary.conflicted > 0 {
-        return Err(error("Resolve merge conflicts before committing"));
-    }
+    ensure_committable(repository, expected_head)?;
     if snapshot(repository)? != expected_tree {
         return Err(error(
             "Files changed after the draft was made; review the changes again",
@@ -94,6 +92,38 @@ pub(super) fn commit_all(
         });
     }
     text(&run(repository, &["rev-parse", "HEAD"])?)
+}
+
+pub(super) fn commit_staged(
+    repository: &Path,
+    message: &str,
+    expected_head: Option<&str>,
+    expected_tree: &str,
+) -> Result<String> {
+    ensure_committable(repository, expected_head)?;
+    if staged_snapshot(repository)? != expected_tree {
+        return Err(error(
+            "Staged changes changed after the draft was made; review the changes again",
+        ));
+    }
+    commit_index(repository, message, expected_tree)?;
+    text(&run(repository, &["rev-parse", "HEAD"])?)
+}
+
+fn ensure_committable(repository: &Path, expected_head: Option<&str>) -> Result<()> {
+    let summary = read::summary(repository)?;
+    if summary.branch.is_none() {
+        return Err(error("Switch to a branch before committing"));
+    }
+    if summary.head.as_deref() != expected_head {
+        return Err(error(
+            "The branch moved after the draft was made; review the changes again",
+        ));
+    }
+    if summary.conflicted > 0 {
+        return Err(error("Resolve merge conflicts before committing"));
+    }
+    Ok(())
 }
 
 fn commit_index(repository: &Path, message: &str, expected_tree: &str) -> Result<()> {
@@ -201,6 +231,15 @@ fn config(repository: &Path, key: &str) -> Option<String> {
 fn snapshot(repository: &Path) -> Result<String> {
     let index = TemporaryIndex::copy(repository)?;
     command::run_with_index(repository, &index.path, &["add", "-A"])?;
+    text(&command::run_with_index(
+        repository,
+        &index.path,
+        &["write-tree"],
+    )?)
+}
+
+fn staged_snapshot(repository: &Path) -> Result<String> {
+    let index = TemporaryIndex::copy(repository)?;
     text(&command::run_with_index(
         repository,
         &index.path,
