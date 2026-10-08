@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ $# -ne 2 ]]; then
     echo "Usage: $0 <X.Y.Z | X.Y.Z-beta.N> <artifact-directory>" >&2
     echo "A stable release also needs BETA_TAG, the beta it promotes, and DRAFT=true to stay a draft." >&2
+    echo "RELEASE_NOTES, when set, replaces the generated release notes." >&2
     exit 1
 fi
 VERSION="$1"
@@ -93,8 +94,9 @@ if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
         exit 0
     fi
 else
-    # Like Muxy 1.x: GitHub's generated changes, cleaned. A beta lists the changes since the
-    # previous beta; a stable release lets GitHub choose the previous release.
+    # RELEASE_NOTES, when given, replaces the generated notes. Otherwise, like Muxy 1.x: GitHub's
+    # generated changes, cleaned. A beta lists the changes since the previous beta; a stable
+    # release lets GitHub choose the previous release.
     NOTES_ARGS=(-f "tag_name=$TAG" -f "target_commitish=$SOURCE")
     : > release-notes.md
     if [[ "$CHANNEL" == beta ]]; then
@@ -106,8 +108,12 @@ else
             printf '%s\n\n' "Betas numbered \`2.0.0-beta-N\` can't update to this numbering on their own: install this release over them once, and later betas update automatically." > release-notes.md
         fi
     fi
-    gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${NOTES_ARGS[@]}" --jq .body \
-        | bash "$ROOT/scripts/clean-changelog.sh" >> release-notes.md
+    if [[ "${RELEASE_NOTES:-}" =~ [^[:space:]] ]]; then
+        printf '%s\n' "$RELEASE_NOTES" >> release-notes.md
+    else
+        gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${NOTES_ARGS[@]}" --jq .body \
+            | bash "$ROOT/scripts/clean-changelog.sh" >> release-notes.md
+    fi
     DRAFT_FLAGS=(--draft --latest=false)
     if [[ "$CHANNEL" == beta ]]; then
         DRAFT_FLAGS+=(--prerelease)

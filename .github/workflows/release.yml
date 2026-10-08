@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      changelog:
+        description: "Markdown release notes; leave empty to generate them from merged pull requests"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -68,6 +73,17 @@ jobs:
             exit 1
           fi
           echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+      # The release job runs the promoted beta's publish script, which may predate the changelog input.
+      - name: Check the beta can publish the changelog
+        if: inputs.changelog != ''
+        env:
+          BETA_TAG: ${{ inputs.from_beta_tag }}
+          SOURCE: ${{ steps.promote.outputs.source }}
+        run: |
+          if ! git show "$SOURCE:scripts/publish-release.sh" | grep -q RELEASE_NOTES; then
+            echo "Error: $BETA_TAG predates the changelog input; release a new beta and promote it" >&2
+            exit 1
+          fi
 
   build:
     needs: prepare
@@ -102,6 +118,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           BETA_TAG: ${{ inputs.from_beta_tag }}
           DRAFT: ${{ inputs.draft }}
+          RELEASE_NOTES: ${{ inputs.changelog }}
         run: bash scripts/publish-release.sh "$VERSION" artifacts
 
   # Runs main's script: the promoted beta's checkout may predate it.

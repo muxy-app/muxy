@@ -2,6 +2,12 @@ name: Release (Beta)
 
 on:
   workflow_dispatch:
+    inputs:
+      changelog:
+        description: "Markdown release notes; leave empty to generate them from merged pull requests"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -70,6 +76,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_NOTES: ${{ inputs.changelog }}
         run: bash scripts/publish-release.sh "$VERSION" artifacts
       - name: Notify Discord
         continue-on-error: true
