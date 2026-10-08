@@ -444,16 +444,26 @@ fn zsh_consumes_alt_vertical_arrows_and_preserves_custom_bindings() -> TestResul
 
 #[test]
 fn bash_integration_consumes_alt_arrows_without_replacing_user_bindings() -> TestResult {
-    for custom in [false, true] {
+    for (mode, custom) in [
+        ("emacs", false),
+        ("emacs", true),
+        ("vi", false),
+        ("vi", true),
+    ] {
         let binding = if custom {
             r#"bind '"\e[1;3A": backward-char'"#
         } else {
             ":"
         };
         let startup =
-            format!("set -o emacs; {binding}; source \"$MUXY_SHELL_INTEGRATION_DIR/muxy.bash\"");
+            format!("set -o {mode}; {binding}; source \"$MUXY_SHELL_INTEGRATION_DIR/muxy.bash\"");
         let mut shell = Shell::start("/bin/bash", false, true, &startup)?;
-        shell.until(b"\x1b]133;B\x07")?;
+        let prompt = shell.until(b"\x1b]133;B\x07")?;
+        assert!(
+            !String::from_utf8_lossy(&prompt).contains("bind:"),
+            "{}",
+            String::from_utf8_lossy(&prompt)
+        );
         shell
             .pty
             .write(b"printf 'RESULT:<%s>\\n' ab\x1b[1;3A\x1b[1;3BX\n")?;

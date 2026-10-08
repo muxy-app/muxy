@@ -63,7 +63,7 @@ fi
 
 _muxy_bind_keys() {
     local keymap sequence bindings
-    for keymap in emacs-standard vi-insertion vi-command; do
+    for keymap in emacs-standard vi-insert vi-command; do
         bindings=$(bind -m "$keymap" -p; bind -m "$keymap" -s)
         for sequence in '\e[1;3A' '\e[1;3B'; do
             if [[ $bindings != *"\"$sequence\":"* ]]; then
