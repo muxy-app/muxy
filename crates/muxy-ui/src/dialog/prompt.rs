@@ -9,11 +9,11 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_clas
 use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua,
     NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions, NSBackingStoreType, NSBezelStyle,
-    NSBorderType, NSButton, NSButtonCell, NSColor, NSEvent, NSEventModifierFlags, NSFont,
-    NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold, NSModalResponse,
-    NSModalResponseCancel, NSModalResponseOK, NSPanel, NSScrollView, NSTextAlignment,
-    NSTextDelegate, NSTextField, NSTextView, NSTextViewDelegate, NSView, NSWindow,
-    NSWindowStyleMask,
+    NSBorderType, NSButton, NSButtonCell, NSColor, NSControlStateValueOff, NSControlStateValueOn,
+    NSEvent, NSEventModifierFlags, NSFont, NSFontWeightMedium, NSFontWeightRegular,
+    NSFontWeightSemibold, NSModalResponse, NSModalResponseCancel, NSModalResponseOK, NSPanel,
+    NSPopUpButton, NSScrollView, NSTextAlignment, NSTextDelegate, NSTextField, NSTextView,
+    NSTextViewDelegate, NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRange, NSRect, NSSize, NSString,
@@ -25,6 +25,38 @@ use crate::theme::Metrics;
 use crate::tr;
 
 pub const ADDITIONAL_PROMPT_LIMIT: usize = 2000;
+
+/// Choices shown between a prompt sheet's message and its buttons.
+#[derive(Clone, Debug, Default)]
+pub struct PromptChoices {
+    pub picker: Option<PromptPicker>,
+    pub checkboxes: Vec<PromptCheckbox>,
+}
+
+/// A labelled pop-up menu and the item selected first.
+#[derive(Clone, Debug)]
+pub struct PromptPicker {
+    pub label: String,
+    pub items: Vec<String>,
+    pub selected: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct PromptCheckbox {
+    pub label: String,
+    pub checked: bool,
+    pub enabled: bool,
+}
+
+/// What a prompt sheet was confirmed with.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PromptResponse {
+    pub prompt: String,
+    /// The picker's selected item, when the sheet had a picker.
+    pub picked: Option<usize>,
+    /// Each checkbox's final state, in order.
+    pub checked: Vec<bool>,
+}
 
 /// A native prompt sheet. Dropping it dismisses the sheet as a cancellation.
 #[derive(Debug)]
@@ -115,6 +147,8 @@ struct PromptState {
     scroll: Retained<NSScrollView>,
     input: Retained<NSTextView>,
     helper: Retained<NSTextField>,
+    picker: Option<(Retained<NSTextField>, Retained<NSPopUpButton>)>,
+    checkboxes: Vec<Retained<NSButton>>,
     collapsed: PromptLayout,
     expanded: PromptLayout,
 }
@@ -201,11 +235,16 @@ define_class!(
 );
 
 impl PromptTarget {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Builds and measures every control of the sheet together"
+    )]
     fn new(
         panel: &PromptPanel,
         title: &str,
         message: &str,
         confirm_label: &str,
+        choices: &PromptChoices,
         style: Style<'_>,
         main_thread: MainThreadMarker,
     ) -> Retained<Self> {
@@ -253,6 +292,22 @@ impl PromptTarget {
             main_thread,
         );
         let (scroll, input) = prompt_input(style, width, main_thread);
+        let picker = choices
+            .picker
+            .as_ref()
+            .map(|picker| prompt_picker(picker, style, main_thread));
+        let checkboxes: Vec<_> = choices
+            .checkboxes
+            .iter()
+            .map(|checkbox| prompt_checkbox(checkbox, *metrics, main_thread))
+            .collect();
+        if let Some((label, popup)) = &picker {
+            content.addSubview(label);
+            content.addSubview(popup);
+        }
+        for checkbox in &checkboxes {
+            content.addSubview(checkbox);
+        }
         for view in [
             &*heading as &NSView,
             &body,
@@ -272,9 +327,14 @@ impl PromptTarget {
             editor_header: label.frame().size.height.max(count_size.height),
             count_width: count_size.width,
             helper: helper.frame().size.height,
-            buttons: buttons
-                .each_ref()
-                .map(|button| button.alignmentRectForFrame(button.frame()).size),
+            buttons: buttons.each_ref().map(|button| aligned_size(button)),
+            picker: picker
+                .as_ref()
+                .map(|(label, popup)| (label.frame().size, aligned_size(popup))),
+            checkboxes: checkboxes
+                .iter()
+                .map(|checkbox| aligned_size(checkbox))
+                .collect(),
         };
         let collapsed = PromptLayout::new(*metrics, &measurements, false);
         let expanded = PromptLayout::new(*metrics, &measurements, true);
@@ -289,6 +349,8 @@ impl PromptTarget {
             scroll,
             input,
             helper,
+            picker,
+            checkboxes,
             collapsed,
             expanded,
         });
@@ -339,18 +401,43 @@ impl PromptState {
         self.count.setHidden(!expanded);
         self.scroll.setHidden(!expanded);
         self.helper.setHidden(!expanded);
+        if let Some((label, popup)) = &self.picker {
+            label.setFrame(layout.picker_label);
+            popup.setFrame(popup.frameForAlignmentRect(layout.picker));
+        }
+        for (checkbox, rect) in self.checkboxes.iter().zip(&layout.checkboxes) {
+            checkbox.setFrame(checkbox.frameForAlignmentRect(*rect));
+        }
+    }
+
+    fn response(&self, response: NSModalResponse) -> Option<PromptResponse> {
+        let prompt = prompt_response(response, self.input.string().to_string())?;
+        Some(PromptResponse {
+            prompt,
+            picked: self
+                .picker
+                .as_ref()
+                .and_then(|(_, popup)| usize::try_from(popup.indexOfSelectedItem()).ok()),
+            checked: self
+                .checkboxes
+                .iter()
+                .map(|checkbox| checkbox.state() == NSControlStateValueOn)
+                .collect(),
+        })
     }
 }
 
-/// Confirms an action, optionally expanding a plain-text prompt in the same sheet.
-/// Only the confirmation button returns `Some`, including an empty prompt.
+/// Confirms an action with `choices`, optionally expanding a plain-text prompt
+/// in the same sheet. Only the confirmation button returns `Some`, including
+/// an empty prompt.
 pub fn confirm_with_prompt(
     window: &gpui::Window,
     title: &str,
     message: &str,
     confirm_label: &str,
+    choices: &PromptChoices,
     style: Style<'_>,
-    on_complete: impl FnOnce(Option<String>) + 'static,
+    on_complete: impl FnOnce(Option<PromptResponse>) + 'static,
 ) -> io::Result<PromptConfirmation> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
@@ -380,7 +467,16 @@ pub fn confirm_with_prompt(
         }
     });
     panel.setAppearance(appearance.as_deref());
-    let target = PromptTarget::new(&panel, title, message, confirm_label, style, main_thread);
+    let target = PromptTarget::new(
+        &panel,
+        title,
+        message,
+        confirm_label,
+        choices,
+        style,
+        main_thread,
+    );
+    panel.setAutorecalculatesKeyViewLoop(true);
     let default_cell = target.ivars().buttons[2]
         .cell()
         .and_then(|cell| cell.downcast::<NSButtonCell>().ok());
@@ -399,7 +495,7 @@ pub fn confirm_with_prompt(
             callback(if cancelled {
                 None
             } else {
-                prompt_response(response, target.ivars().input.string().to_string())
+                target.ivars().response(response)
             });
         }
     });
@@ -418,6 +514,9 @@ struct PromptMeasurements {
     count_width: f64,
     helper: f64,
     buttons: [NSSize; 3],
+    /// The picker's label and pop-up.
+    picker: Option<(NSSize, NSSize)>,
+    checkboxes: Vec<NSSize>,
 }
 
 #[derive(Debug)]
@@ -430,6 +529,9 @@ struct PromptLayout {
     count: NSRect,
     editor: NSRect,
     helper: NSRect,
+    picker_label: NSRect,
+    picker: NSRect,
+    checkboxes: Vec<NSRect>,
 }
 
 impl PromptLayout {
@@ -480,6 +582,33 @@ impl PromptLayout {
         if expanded {
             y = header_y + measured.editor_header + gap;
         }
+        let choices_start = y;
+        let mut checkboxes = vec![NSRect::ZERO; measured.checkboxes.len()];
+        for (rect, size) in checkboxes.iter_mut().zip(&measured.checkboxes).rev() {
+            *rect = frame(padding, y, size.width.min(content_width), size.height);
+            y += size.height + spacing;
+        }
+        let (mut picker_label, mut picker) = (NSRect::ZERO, NSRect::ZERO);
+        if let Some((label, popup)) = measured.picker {
+            let height = label.height.max(popup.height);
+            picker_label = frame(
+                padding,
+                y + (height - label.height) / 2.0,
+                label.width,
+                label.height,
+            );
+            let popup_x = padding + label.width + spacing;
+            picker = frame(
+                popup_x,
+                y + (height - popup.height) / 2.0,
+                popup.width.min(width - padding - popup_x),
+                popup.height,
+            );
+            y += height + spacing;
+        }
+        if y > choices_start {
+            y += gap - spacing;
+        }
         let body = frame(padding, y, content_width, measured.body);
         y += measured.body + gap;
         let heading = frame(padding, y, content_width, measured.heading);
@@ -492,6 +621,9 @@ impl PromptLayout {
             count,
             editor,
             helper,
+            picker_label,
+            picker,
+            checkboxes,
         }
     }
 }
@@ -615,6 +747,63 @@ fn prompt_input(
     }
     scroll.setDocumentView(Some(&input));
     (scroll, input)
+}
+
+fn prompt_picker(
+    picker: &PromptPicker,
+    style: Style<'_>,
+    main_thread: MainThreadMarker,
+) -> (Retained<NSTextField>, Retained<NSPopUpButton>) {
+    let Style { theme, metrics } = style;
+    let label = NSTextField::labelWithString(&NSString::from_str(&picker.label), main_thread);
+    label.setFont(Some(&NSFont::systemFontOfSize_weight(
+        points(metrics.font_footnote()),
+        unsafe { NSFontWeightMedium },
+    )));
+    label.setTextColor(Some(&color(theme.fg_muted)));
+    label.sizeToFit();
+    let popup = NSPopUpButton::initWithFrame_pullsDown(
+        NSPopUpButton::alloc(main_thread),
+        NSRect::ZERO,
+        false,
+    );
+    for item in &picker.items {
+        popup.addItemWithTitle(&NSString::from_str(item));
+    }
+    popup.selectItemAtIndex(isize::try_from(picker.selected).unwrap_or(0));
+    popup.setFont(Some(&NSFont::systemFontOfSize(points(metrics.font_body()))));
+    popup.setAccessibilityLabel(Some(&NSString::from_str(&picker.label)));
+    popup.sizeToFit();
+    (label, popup)
+}
+
+fn prompt_checkbox(
+    checkbox: &PromptCheckbox,
+    metrics: Metrics,
+    main_thread: MainThreadMarker,
+) -> Retained<NSButton> {
+    // SAFETY: The checkbox has no target or action; the sheet reads its state when it closes.
+    let button = unsafe {
+        NSButton::checkboxWithTitle_target_action(
+            &NSString::from_str(&checkbox.label),
+            None,
+            None,
+            main_thread,
+        )
+    };
+    button.setFont(Some(&NSFont::systemFontOfSize(points(metrics.font_body()))));
+    button.setState(if checkbox.checked {
+        NSControlStateValueOn
+    } else {
+        NSControlStateValueOff
+    });
+    button.setEnabled(checkbox.enabled);
+    button.sizeToFit();
+    button
+}
+
+fn aligned_size(view: &NSView) -> NSSize {
+    view.alignmentRectForFrame(view.frame()).size
 }
 
 fn button(

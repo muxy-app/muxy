@@ -169,12 +169,12 @@ pub(crate) fn save_section(path: &Path, section: &str, values: &impl Serialize) 
     write_document(path, &document)
 }
 
-pub(crate) fn save_entry(
+/// Sets or removes each key of `section.table`, keeping everything else.
+pub(crate) fn save_entries(
     path: &Path,
     section: &str,
     table: &str,
-    key: &str,
-    value: Option<&str>,
+    entries: Vec<(&str, Option<toml::Value>)>,
 ) -> Result<toml::Value> {
     let mut document = read_document(path)?;
     let values = document
@@ -183,19 +183,21 @@ pub(crate) fn save_entry(
     let values = values
         .as_table_mut()
         .ok_or_else(|| io::Error::other(format!("{section} must be a table")))?;
-    let entries = values
+    let target = values
         .entry(table)
         .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-    if !entries.is_table() {
-        *entries = toml::Value::Table(toml::Table::new());
+    if !target.is_table() {
+        *target = toml::Value::Table(toml::Table::new());
     }
-    if let Some(entries) = entries.as_table_mut() {
-        match value {
-            Some(value) => {
-                entries.insert(key.into(), value.into());
-            }
-            None => {
-                entries.remove(key);
+    if let Some(target) = target.as_table_mut() {
+        for (key, value) in entries {
+            match value {
+                Some(value) => {
+                    target.insert(key.into(), value);
+                }
+                None => {
+                    target.remove(key);
+                }
             }
         }
     }

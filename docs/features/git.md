@@ -12,8 +12,10 @@ tool you already have.
 
 ## Commit and push
 
-**Commit** stages everything, asks the AI for a commit message, commits, and
-pushes. You can add one-off instructions for the AI first.
+**Commit** asks the AI for a commit message, then commits. Before it starts,
+pick the AI tool, whether to include unstaged changes or only what's staged,
+and whether to push. Muxy remembers these choices for next time. You can also
+add one-off instructions for the AI.
 
 ## Create a pull request
 

@@ -48,7 +48,7 @@ pub(crate) const TIPS: &[&str] = &[
         "Muxy recognizes AI agents like Claude Code and Codex, marks panes, tabs, and projects when they're working or need you, and notifies you when they're in the background."
     ),
     tr_key!(
-        "In a Git project, click Commit in the status bar. After you confirm, your AI CLI writes the message and Muxy stages all changes, commits, and pushes. Choose the CLI in Settings → AI."
+        "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits."
     ),
     tr_key!(
         "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it."

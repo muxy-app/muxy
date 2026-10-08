@@ -118,6 +118,7 @@ fn plan(action: Action, mode: Mode, branch: &str, files: &[(&str, bool)]) -> Pla
         project: ProjectId::new(),
         action,
         mode,
+        choices: CommitChoices::default(),
         branch: branch.into(),
         default_branch: Some("main".into()),
         preview: preview_of(branch, files, true),
@@ -162,6 +163,7 @@ fn conflicts_and_stale_branches_are_refused_before_reading_changes() {
         &git,
         ProjectId::new(),
         Action::Commit,
+        CommitChoices::default(),
         "feature",
         Some("abc"),
     )
@@ -175,6 +177,7 @@ fn conflicts_and_stale_branches_are_refused_before_reading_changes() {
         &git,
         ProjectId::new(),
         Action::Commit,
+        CommitChoices::default(),
         "feature",
         Some("abc"),
     )
@@ -228,6 +231,91 @@ fn commit_uses_the_reviewed_tree_then_pushes_to_its_destination() {
     );
 }
 
+const STAGED_ONLY: CommitChoices = CommitChoices {
+    include_unstaged: false,
+    push: false,
+};
+
+#[test]
+fn staged_only_commits_leave_the_index_alone_and_skip_pushing() {
+    let git = FakeGit::new(vec![
+        Ok(status("feature", 0)),
+        Ok(preview("feature", &[("staged", false)], true)),
+        Ok(log()),
+    ]);
+    let plan = prepare(
+        &git,
+        ProjectId::new(),
+        Action::Commit,
+        STAGED_ONLY,
+        "feature",
+        Some("abc"),
+    )
+    .unwrap();
+    assert_eq!(
+        git.actions()[1],
+        GitAction::StagedPreview {
+            line_limit: Some(DIFF_LINES),
+        }
+    );
+
+    let git = FakeGit::new(vec![
+        Ok(status("feature", 0)),
+        Ok(GitReply::Commit("deadbeef00".into())),
+    ]);
+    let outcome = apply(
+        &git,
+        &plan,
+        &Draft::Commit {
+            message: "Explain the change".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        Outcome::Committed {
+            hash: "deadbeef00".into(),
+            branch: "feature".into(),
+            pushed: None,
+        }
+    );
+    assert_eq!(
+        git.actions()[1..],
+        [GitAction::CommitStaged {
+            message: "Explain the change".into(),
+            expected_head: Some("abc".into()),
+            expected_tree: "tree1".into(),
+        }]
+    );
+}
+
+#[test]
+fn staged_only_commits_need_staged_changes() {
+    let git = FakeGit::new(vec![
+        Ok(status("feature", 0)),
+        Ok(preview("feature", &[], true)),
+    ]);
+    let error = prepare(
+        &git,
+        ProjectId::new(),
+        Action::Commit,
+        STAGED_ONLY,
+        "feature",
+        Some("abc"),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(
+        error,
+        "Nothing is staged. Stage changes first or include unstaged changes."
+    );
+    assert!(
+        !git.actions()
+            .iter()
+            .any(|action| matches!(action, GitAction::Stage(_)))
+    );
+}
+
 #[test]
 fn repository_changes_before_apply_are_refused_without_mutating() {
     let plan = plan(Action::Commit, Mode::Commit, "feature", &[("file", false)]);
@@ -275,6 +363,7 @@ fn pull_requests_from_the_default_branch_move_changes_to_a_new_branch() {
         &git,
         ProjectId::new(),
         Action::CreatePullRequest,
+        CommitChoices::default(),
         "main",
         Some("abc"),
     )

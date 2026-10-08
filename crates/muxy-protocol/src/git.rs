@@ -143,6 +143,22 @@ pub enum GitAction {
         #[n(0)]
         teardown: bool,
     },
+    /// Snapshot only the staged changes without touching the index.
+    #[n(35)]
+    StagedPreview {
+        #[n(0)]
+        line_limit: Option<u32>,
+    },
+    /// Commit the index only while it still matches its staged preview.
+    #[n(36)]
+    CommitStaged {
+        #[n(0)]
+        message: String,
+        #[n(1)]
+        expected_head: Option<String>,
+        #[n(2)]
+        expected_tree: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -483,8 +499,15 @@ impl GitRequest {
                 text(base)?;
                 validate_line_limit(*line_limit)
             }
-            GitAction::ChangesPreview { line_limit } => validate_line_limit(*line_limit),
+            GitAction::ChangesPreview { line_limit } | GitAction::StagedPreview { line_limit } => {
+                validate_line_limit(*line_limit)
+            }
             GitAction::CommitAll {
+                message,
+                expected_head,
+                expected_tree,
+            }
+            | GitAction::CommitStaged {
                 message,
                 expected_head,
                 expected_tree,

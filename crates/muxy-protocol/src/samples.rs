@@ -690,6 +690,26 @@ fn git_review_samples() -> Vec<Message> {
             }),
         },
         Message::Request {
+            id: RequestId(107),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::StagedPreview {
+                    line_limit: Some(800),
+                },
+            }),
+        },
+        Message::Request {
+            id: RequestId(108),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::CommitStaged {
+                    message: "Message".into(),
+                    expected_head: Some("abc123".into()),
+                    expected_tree: "def456".into(),
+                },
+            }),
+        },
+        Message::Request {
             id: RequestId(105),
             body: RequestBody::Git(crate::GitRequest {
                 project: crate::ProjectId::from_u128(1),

@@ -18,7 +18,10 @@ use crate::tr;
     reason = "AppKit text delegates and target/action use Objective-C FFI."
 )]
 mod prompt;
-pub use prompt::{ADDITIONAL_PROMPT_LIMIT, PromptConfirmation, confirm_with_prompt};
+pub use prompt::{
+    ADDITIONAL_PROMPT_LIMIT, PromptCheckbox, PromptChoices, PromptConfirmation, PromptPicker,
+    PromptResponse, confirm_with_prompt,
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ConfirmationResponse {

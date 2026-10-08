@@ -214,9 +214,7 @@ impl AppModel {
         }
         let Some(_) = &summary.branch else {
             return Availability::Disabled(match action {
-                Action::Commit => {
-                    tr!("Switch to a branch before committing and pushing").to_string()
-                }
+                Action::Commit => tr!("Switch to a branch before committing").to_string(),
                 Action::CreatePullRequest => {
                     tr!("Switch to a branch before creating a pull request").to_string()
                 }
@@ -269,10 +267,17 @@ impl AppModel {
         let Some(branch) = summary.branch else {
             return;
         };
+        let providers = match action {
+            Action::Commit => self.ai.installed.clone(),
+            Action::CreatePullRequest => Vec::new(),
+        };
         let confirmation = AiConfirmation {
             project,
             action,
             provider,
+            providers,
+            choices: self.settings.ai.commit,
+            staged: summary.staged > 0,
             branch,
             head: summary.head,
         };
@@ -288,10 +293,15 @@ impl AppModel {
                     metrics: &metrics,
                 };
                 let response = confirmation.prompt(window, style, cx).await;
+                let mut confirmation = confirmation;
                 let _ = model.update(cx, |model, cx| {
                     model.ai.confirmation = None;
                     match response {
-                        Ok(Some(prompt)) => model.advance_ai_action(confirmation, &prompt, cx),
+                        Ok(Some(response)) => {
+                            confirmation.confirm(&response);
+                            model.remember_commit_choices(&confirmation, cx);
+                            model.advance_ai_action(confirmation, &response.prompt, cx);
+                        }
                         Ok(None) => {}
                         Err(error) => model.fail_detail(
                             tr!("Couldn't start %@", &translate(action.settings_title()))
@@ -303,6 +313,29 @@ impl AppModel {
                 });
             }),
         });
+    }
+
+    /// Keeps a confirmed commit's provider and options for the next commit.
+    fn remember_commit_choices(&mut self, confirmation: &AiConfirmation, cx: &mut Context<Self>) {
+        if confirmation.action != Action::Commit {
+            return;
+        }
+        if self.ai.provider(&self.settings, Action::Commit).ok() != Some(confirmation.provider) {
+            self.set_ai_provider(Action::Commit, confirmation.provider.id, cx);
+        }
+        if self.settings.ai.commit == confirmation.choices {
+            return;
+        }
+        match muxy_app_core::settings::Settings::save_commit_choices(
+            &self.path.with_file_name("settings.toml"),
+            confirmation.choices,
+        ) {
+            Ok(saved) => self.settings.ai = saved,
+            Err(error) => self.fail(
+                tr!("Could not save AI settings: %@", error.to_string()).to_string(),
+                cx,
+            ),
+        }
     }
 
     /// Runs `operation` with the client of `project`'s server.
@@ -396,12 +429,14 @@ impl AppModel {
         additional: &str,
         cx: &mut Context<Self>,
     ) {
+        let choices = confirmation.commit_choices();
         let AiConfirmation {
             project,
             action,
             provider,
             branch,
             head,
+            ..
         } = confirmation;
         let valid = project == self.state.current_project().id
             && matches!(self.ai_availability(action), Availability::Available(_))
@@ -438,6 +473,7 @@ impl AppModel {
                     &client,
                     project,
                     action,
+                    choices,
                     &branch,
                     head.as_deref(),
                 )?;
@@ -510,7 +546,7 @@ impl AppModel {
             }
             Err(error) => self.fail_detail(
                 match action {
-                    Action::Commit => tr!("Couldn't commit and push"),
+                    Action::Commit => tr!("Couldn't commit"),
                     Action::CreatePullRequest => tr!("Couldn't create pull request"),
                 }
                 .to_string(),

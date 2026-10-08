@@ -1,5 +1,6 @@
 //! Confirmed Git workflows using AI only to generate commit and pull request text.
 
+use muxy_app_core::settings::CommitChoices;
 use muxy_client::Client;
 use muxy_protocol::{
     FilesAction, FilesReply, FilesRequest, GitAction, GitChangesPreview, GitPullRequestAction,
@@ -63,7 +64,7 @@ impl Action {
 
     pub(crate) fn settings_title(self) -> &'static str {
         match self {
-            Self::Commit => tr_key!("Commit and Push"),
+            Self::Commit => tr_key!("Commit"),
             Self::CreatePullRequest => tr_key!("Create Pull Request"),
         }
     }
@@ -92,6 +93,8 @@ pub(crate) struct Plan {
     pub(crate) project: ProjectId,
     pub(crate) action: Action,
     pub(crate) mode: Mode,
+    /// Pull requests always include every change and push.
+    pub(crate) choices: CommitChoices,
     pub(crate) branch: String,
     pub(crate) default_branch: Option<String>,
     pub(crate) preview: GitChangesPreview,
@@ -189,11 +192,13 @@ fn status(git: &impl Git, project: ProjectId) -> Result<GitStatus, String> {
     }
 }
 
-/// Stages all changes after confirmation and reads the provider context.
+/// Stages all changes when `choices` include unstaged ones, then reads the
+/// provider context.
 pub(crate) fn prepare(
     git: &impl Git,
     project: ProjectId,
     action: Action,
+    choices: CommitChoices,
     branch: &str,
     head: Option<&str>,
 ) -> Result<Plan, String> {
@@ -218,14 +223,14 @@ pub(crate) fn prepare(
     if status.summary.changed == 0 {
         return Err(tr!("The working tree is clean").into());
     }
-    git.call(project, GitAction::Stage(vec![]))?;
-    let GitReply::ChangesPreview(preview) = git.call(
-        project,
-        GitAction::ChangesPreview {
-            line_limit: Some(DIFF_LINES),
-        },
-    )?
-    else {
+    let line_limit = Some(DIFF_LINES);
+    let preview = if choices.include_unstaged {
+        git.call(project, GitAction::Stage(vec![]))?;
+        GitAction::ChangesPreview { line_limit }
+    } else {
+        GitAction::StagedPreview { line_limit }
+    };
+    let GitReply::ChangesPreview(preview) = git.call(project, preview)? else {
         return Err(tr!("Unexpected changes preview reply").into());
     };
     let preview = *preview;
@@ -235,7 +240,14 @@ pub(crate) fn prepare(
     let changes = !preview.files.is_empty();
     let mode = match action {
         Action::Commit if changes => Mode::Commit,
-        Action::Commit => return Err(tr!("The working tree is clean").into()),
+        Action::Commit if choices.include_unstaged => {
+            return Err(tr!("The working tree is clean").into());
+        }
+        Action::Commit => {
+            return Err(
+                tr!("Nothing is staged. Stage changes first or include unstaged changes.").into(),
+            );
+        }
         Action::CreatePullRequest if changes => Mode::NewBranch,
         Action::CreatePullRequest => {
             return Err(tr!("There are no changes to include in a pull request").into());
@@ -258,6 +270,7 @@ pub(crate) fn prepare(
         project,
         action,
         mode,
+        choices,
         branch: branch.to_owned(),
         default_branch: status.default_branch,
         preview,
@@ -542,14 +555,23 @@ fn steps(done: &[String], failed: &str) -> String {
 }
 
 fn commit(git: &impl Git, plan: &Plan, message: &str) -> Result<String, String> {
-    match git.call(
-        plan.project,
+    let message = message.to_owned();
+    let expected_head = plan.preview.head.clone();
+    let expected_tree = plan.preview.tree.clone();
+    let action = if plan.choices.include_unstaged {
         GitAction::CommitAll {
-            message: message.to_owned(),
-            expected_head: plan.preview.head.clone(),
-            expected_tree: plan.preview.tree.clone(),
-        },
-    )? {
+            message,
+            expected_head,
+            expected_tree,
+        }
+    } else {
+        GitAction::CommitStaged {
+            message,
+            expected_head,
+            expected_tree,
+        }
+    };
+    match git.call(plan.project, action)? {
         GitReply::Commit(hash) => Ok(hash),
         _ => Err(tr!("Unexpected Git commit reply").into()),
     }
@@ -578,13 +600,16 @@ fn publish(
 )]
 pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcome, Failure> {
     let not_committed = |error: String| {
-        Failure::new(
-            tr!("No commit was created"),
+        let detail = if plan.choices.include_unstaged {
             tr!(
                 "%@\n\nChanges were staged before generating AI metadata.",
                 error
-            ),
-        )
+            )
+            .into()
+        } else {
+            error
+        };
+        Failure::new(tr!("No commit was created"), detail)
     };
     validate(plan, draft).map_err(not_committed)?;
     let current = status(git, plan.project).map_err(not_committed)?;
@@ -597,6 +622,13 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
         Draft::Commit { message } => {
             let hash = commit(git, plan, message)
                 .map_err(|error| Failure::new(tr!("Couldn't commit"), error))?;
+            if !plan.choices.push {
+                return Ok(Outcome::Committed {
+                    hash,
+                    branch: plan.branch.clone(),
+                    pushed: None,
+                });
+            }
             let destination = plan.destination(&plan.branch);
             publish(git, plan, &plan.branch, &destination).map_err(|error| {
                 Failure::new(
