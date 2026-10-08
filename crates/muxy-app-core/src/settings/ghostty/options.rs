@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use crate::settings::{Error, Result};
 
 pub(super) const KEYS: &[&str] = &[
-    "theme",
     "background",
     "foreground",
     "palette",
@@ -57,7 +56,6 @@ pub enum PaddingColor {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerminalOptions {
-    pub theme: Option<String>,
     pub background: Option<u32>,
     pub foreground: Option<u32>,
     pub palette: BTreeMap<u8, u32>,
@@ -88,7 +86,6 @@ pub struct TerminalOptions {
 impl Default for TerminalOptions {
     fn default() -> Self {
         Self {
-            theme: None,
             background: None,
             foreground: None,
             palette: BTreeMap::new(),
@@ -133,7 +130,6 @@ impl TerminalOptions {
             None => String::new(),
         };
         BTreeMap::from([
-            ("theme", self.theme.clone().unwrap_or_default()),
             ("background", rgb(self.background)),
             ("foreground", rgb(self.foreground)),
             (
@@ -257,7 +253,6 @@ impl TerminalOptions {
     )]
     pub(super) fn read(&mut self, key: &str, value: &str) -> Result<bool> {
         match key {
-            "theme" => self.theme = (!value.is_empty()).then(|| value.to_owned()),
             "background" => self.background = optional(value, rgb)?,
             "foreground" => self.foreground = optional(value, rgb)?,
             "palette" if value.is_empty() => self.palette.clear(),
