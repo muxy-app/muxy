@@ -107,7 +107,10 @@ impl Pty {
         })
     }
 
-    pub fn start_reader(&self, sink: Sender<PtyEvent>) -> Result<ReaderHandle, PtyError> {
+    pub fn start_reader<T>(&self, sink: Sender<T>) -> Result<ReaderHandle, PtyError>
+    where
+        T: From<PtyEvent> + Send + 'static,
+    {
         let reader = self
             .master
             .try_clone_reader()

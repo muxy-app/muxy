@@ -316,7 +316,12 @@ impl Outbox {
         if let Some(colors) = &state.colors {
             handle.send(SessionCommand::SetColors(colors.clone()))?;
         }
-        handle.send(command)?;
+        if let Err(undelivered) = handle.try_send(command) {
+            // Its sink reports back to this outbox when dropped, which takes the lock.
+            drop(state);
+            drop(undelivered);
+            return Err(ServerError::unknown_session(session));
+        }
         state.references.released.remove(&session);
         state.attachments.insert(
             channel,
@@ -338,11 +343,12 @@ impl Outbox {
         channel: ChannelId,
         snapshot: AttachSnapshot,
         process: Option<ForegroundProcess>,
-    ) {
+    ) -> bool {
         let mut state = self.lock();
-        if let Some(attachment) = state.attachments.get_mut(&channel)
-            && let Some(id) = attachment.waiting.take()
-        {
+        let Some(attachment) = state.attachments.get_mut(&channel) else {
+            return false;
+        };
+        if let Some(id) = attachment.waiting.take() {
             state.control.push_back(Message::Reply {
                 id,
                 body: ReplyBody::Attached {
@@ -352,6 +358,7 @@ impl Outbox {
             });
             self.ready.notify_one();
         }
+        true
     }
 
     pub(super) fn attach_failed(&self, channel: ChannelId, error: &ServerError) {
@@ -386,11 +393,12 @@ impl Outbox {
         Ok(())
     }
 
-    pub(super) fn resized(&self, channel: ChannelId, frame: ScreenFrame) {
+    pub(super) fn resized(&self, channel: ChannelId, frame: ScreenFrame) -> bool {
         let mut state = self.lock();
-        if let Some(attachment) = state.attachments.get_mut(&channel)
-            && let Some(id) = attachment.resizes.pop_front()
-        {
+        let Some(attachment) = state.attachments.get_mut(&channel) else {
+            return false;
+        };
+        if let Some(id) = attachment.resizes.pop_front() {
             state.pending.insert(channel, frame);
             state.control.push_back(Message::Reply {
                 id,
@@ -398,6 +406,7 @@ impl Outbox {
             });
             self.ready.notify_one();
         }
+        true
     }
 
     pub(super) fn detach(&self, channel: ChannelId) -> Result<(), ServerError> {
@@ -447,10 +456,10 @@ impl Outbox {
         self.ready.notify_one();
     }
 
-    pub(super) fn push_frame(&self, channel: ChannelId, frame: ScreenFrame) {
+    pub(super) fn push_frame(&self, channel: ChannelId, frame: ScreenFrame) -> bool {
         let mut state = self.lock();
         if !state.credit.contains_key(&channel) || state.closed {
-            return;
+            return false;
         }
         match state.pending.entry(channel) {
             std::collections::hash_map::Entry::Occupied(mut entry) => merge(entry.get_mut(), frame),
@@ -459,12 +468,13 @@ impl Outbox {
             }
         }
         self.ready.notify_one();
+        true
     }
 
-    pub(super) fn push_metadata(&self, channel: ChannelId, event: MetadataEvent) {
+    pub(super) fn push_metadata(&self, channel: ChannelId, event: MetadataEvent) -> bool {
         let mut state = self.lock();
         if !state.credit.contains_key(&channel) || state.closed {
-            return;
+            return false;
         }
         let pending = state.metadata.entry(channel).or_default();
         if let Some(previous) = pending
@@ -476,6 +486,7 @@ impl Outbox {
             pending.push(event);
         }
         self.ready.notify_one();
+        true
     }
 
     pub(super) fn ack(&self, channel: ChannelId, seq: u64) {

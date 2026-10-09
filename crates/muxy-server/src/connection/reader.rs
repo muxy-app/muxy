@@ -3,9 +3,8 @@ use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 
 use muxy_core::worker::WorkerPool;
@@ -17,9 +16,9 @@ use muxy_protocol::{
 };
 
 use crate::archive::SearchCache;
-use crate::{AttachmentEvent, AttachmentId, Registry, ServerError, SessionCommand};
+use crate::{AttachmentId, AttachmentSink, Registry, ServerError, SessionCommand};
 
-use super::{POLL, handshake::fatal, outbox::Outbox, policy};
+use super::{OutboxSink, handshake::fatal, outbox::Outbox, policy};
 
 static NEXT_ATTACHMENT: AtomicU64 = AtomicU64::new(1);
 
@@ -611,7 +610,10 @@ fn attach(
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| ServerError::new(ErrorCode::BadRequest, "attachment IDs exhausted"))?,
     );
-    let (sink, events) = mpsc::channel();
+    // The session replies straight to the outbox, and the client may use the
+    // channel as soon as it reads that reply.
+    last_channel.store(channel.0, Ordering::Release);
+    let sink = AttachmentSink::outbox(OutboxSink::new(outbox, channel, session));
     outbox.attach(
         channel,
         id,
@@ -626,32 +628,7 @@ fn attach(
             },
             None => SessionCommand::AttachWithoutResize { id, channel, sink },
         },
-    )?;
-    last_channel.store(channel.0, Ordering::Release);
-    let output = Arc::clone(outbox);
-    let spawned = thread::Builder::new()
-        .name(format!("attachment-{}", id.0))
-        .spawn(move || {
-            while output.handle(channel).is_some() {
-                match events.recv_timeout(POLL) {
-                    Ok(AttachmentEvent::Snapshot { snapshot, process }) => {
-                        output.snapshot(channel, snapshot, process);
-                    }
-                    Ok(AttachmentEvent::Metadata(event)) => output.push_metadata(channel, event),
-                    Ok(AttachmentEvent::Frame(frame)) => output.push_frame(channel, frame),
-                    Ok(AttachmentEvent::Resized(frame)) => output.resized(channel, frame),
-                    Ok(AttachmentEvent::Ended(_)) | Err(RecvTimeoutError::Disconnected) => {
-                        output.attach_failed(channel, &ServerError::unknown_session(session));
-                        break;
-                    }
-                    Err(RecvTimeoutError::Timeout) => {}
-                }
-            }
-        });
-    if let Err(error) = spawned {
-        outbox.attach_failed(channel, &ServerError::spawn_failed(error));
-    }
-    Ok(())
+    )
 }
 
 #[cfg(test)]

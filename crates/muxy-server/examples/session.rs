@@ -43,7 +43,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         id: AttachmentId(1),
         channel: ChannelId(1),
         size,
-        sink,
+        sink: sink.into(),
     })?;
     let input = handle.clone();
     thread::spawn(move || forward_stdin(&input));

@@ -4,6 +4,7 @@ mod merge;
 mod outbox;
 mod policy;
 mod reader;
+mod sink;
 #[cfg(test)]
 mod tests;
 mod writer;
@@ -20,6 +21,7 @@ use muxy_protocol::{CONTROL, Message, Topic};
 
 use crate::{Admission, Registry, ServerEvent};
 pub(crate) use outbox::{Outbox, References};
+pub(crate) use sink::OutboxSink;
 
 const POLL: Duration = Duration::from_millis(50);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
