@@ -426,3 +426,31 @@ fn handled_signals_and_suspend_restore_the_original_terminal_modes() -> Result {
     tui.detach()?;
     Ok(())
 }
+
+#[test]
+fn a_folder_opens_in_the_terminal_ui_over_ssh_and_keeps_its_project() -> Result {
+    let fixture = Fixture::new()?;
+    let folder = fixture.directory.path().join("app");
+    std::fs::create_dir(&folder)?;
+    let folder = folder.canonicalize()?;
+    let path = folder.to_str().ok_or("folder path")?;
+    let ssh = [("SSH_CONNECTION", "192.0.2.1 50000 192.0.2.2 22")];
+    let projects = || -> Result<Vec<muxy_protocol::ProjectDescriptor>> {
+        Ok(fixture
+            .client()?
+            .catalog()?
+            .projects
+            .into_iter()
+            .filter(|project| project.directory.0 == path.as_bytes())
+            .collect())
+    };
+    for _ in 0..2 {
+        let mut tui = Tui::launch(&fixture, &ssh, &[path])?;
+        tui.ready()?;
+        let project = serde_json::to_value(projects()?.first().ok_or("project")?.id)?;
+        tui.wait(|_| Ok(fixture.state()?["active"] == project))?;
+        tui.detach()?;
+    }
+    assert_eq!(projects()?.len(), 1);
+    Ok(())
+}

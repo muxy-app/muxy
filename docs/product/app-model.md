@@ -58,7 +58,7 @@ flowchart LR
 - The terminal UI opens one shell in Home the first time, then restores its
   layout.
 - `muxy <folder>` opens the folder in the desktop app, selecting its project or
-  adding one.
+  adding one. Without the desktop app, or over SSH, it opens in the terminal UI.
 - **Existing Terminals** lists a project's terminals that this app isn't
   showing, and which app owns each one. Opening one adds it to your layout.
 
@@ -76,10 +76,11 @@ Optional setup and teardown commands come from the source project's
 { "setup": ["npm ci"], "teardown": ["docker compose down"] }
 ```
 
-Review and enable commands when creating or removing a worktree. Setup runs
-per-machine commands first; teardown runs project commands first. Commands run
-in the worktree, with `MUXY_PROJECT_PATH` and `MUXY_WORKTREE_ID`,
-`MUXY_WORKTREE_PATH`, `MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH` available.
+Review and enable commands when creating or removing a worktree; `muxy worktree`
+runs them only with `--hooks`. Setup runs per-machine commands first; teardown
+runs project commands first. Commands run in the worktree, with
+`MUXY_PROJECT_PATH` and `MUXY_WORKTREE_ID`, `MUXY_WORKTREE_PATH`,
+`MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH` available.
 A setup failure keeps the new worktree; a teardown failure stops removal.
 
 ## When things go away

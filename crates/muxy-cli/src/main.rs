@@ -9,6 +9,7 @@ mod open;
 mod projects;
 mod scroll;
 mod selection;
+mod skills;
 mod state;
 mod target;
 mod terminal;
@@ -41,9 +42,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::BuildInfo => {
             serde_json::to_writer(io::stdout().lock(), &muxy_protocol::BuildInfo::current())?;
         }
-        Command::Interactive => tui::run(host).map_err(io::Error::other)?,
+        Command::Interactive => tui::run(host, None).map_err(io::Error::other)?,
         Command::Manage(command) => manage::run(*command, host)?,
         Command::Open(folder) => open::run(&folder)?,
+        Command::InstallSkills(directories) => {
+            let home = std::env::home_dir().ok_or("the home folder is unknown")?;
+            let mut stdout = io::stdout().lock();
+            for file in skills::install(&home, &directories)? {
+                writeln!(stdout, "{}", file.display())?;
+            }
+        }
         Command::Mobile(command) => {
             let _lease = muxy_client::local::bundle::acquire_runtime(
                 &muxy_core::executable::current_path()?,

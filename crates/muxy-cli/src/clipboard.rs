@@ -14,19 +14,13 @@ pub(crate) enum Copied {
 }
 
 pub(crate) fn copy(text: &str) -> io::Result<Copied> {
-    if !over_ssh() && system(text) {
+    if !crate::terminal::over_ssh() && system(text) {
         return Ok(Copied::System);
     }
     let mut stdout = io::stdout();
     stdout.write_all(sequence(text).as_bytes())?;
     stdout.flush()?;
     Ok(Copied::Terminal)
-}
-
-fn over_ssh() -> bool {
-    ["SSH_CONNECTION", "SSH_TTY"]
-        .iter()
-        .any(|name| std::env::var_os(name).is_some())
 }
 
 /// Hands `text` to the platform's clipboard tool, if it has one.

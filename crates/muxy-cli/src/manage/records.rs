@@ -22,6 +22,33 @@ pub(super) fn activity(snapshot: &ActivitySnapshot) -> Value {
     json!({"revision":snapshot.revision, "agents":agents, "events":events})
 }
 
+/// One row per session with an agent or an event: the agent's state and the
+/// session's latest unread event.
+pub(super) fn activity_rows(snapshot: &ActivitySnapshot) -> Vec<Value> {
+    let mut rows: Vec<Value> = snapshot
+        .agents
+        .iter()
+        .map(|agent| {
+            json!({"session":agent.session.get().to_string(), "project":agent.project,
+                "provider":agent.provider, "state":agent.state, "event":null, "kind":null})
+        })
+        .collect();
+    for event in snapshot.events.iter().filter(|event| !event.read) {
+        let session = event.session.get().to_string();
+        let index = rows
+            .iter()
+            .position(|row| row["session"] == session)
+            .unwrap_or_else(|| {
+                rows.push(json!({"session":session, "project":event.project,
+                    "provider":event.provider, "state":null}));
+                rows.len() - 1
+            });
+        rows[index]["event"] = json!(event.id.to_string());
+        rows[index]["kind"] = json!(event.kind);
+    }
+    rows
+}
+
 pub(super) fn history(page: &HistoryPage) -> Value {
     json!({"prompts":page.prompts, "rows":page.rows, "next":page.next.map(|c| c.0.to_string()),
         "total_rows":page.total_rows, "screen":page.screen})
@@ -98,7 +125,7 @@ mod tests {
                 ])?
                 .action,
                 Action::Session(Session::History {
-                    session: SessionId::new(1).ok_or("session")?,
+                    session: SessionId::new(1),
                     before: HistoryCursor(id),
                     limit: 200,
                     saved: false,

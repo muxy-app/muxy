@@ -20,6 +20,8 @@ pub(crate) enum Command {
     /// Joins stdin and stdout to the server, for clients on other computers.
     Stdio(Start),
     Open(PathBuf),
+    /// Installs the agent skill into agent folders and these folders.
+    InstallSkills(Vec<PathBuf>),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -51,7 +53,8 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     | Command::Version
                     | Command::BuildInfo
                     | Command::Stdio(_)
-                    | Command::Open(_),
+                    | Command::Open(_)
+                    | Command::InstallSkills(_),
                     [word, ..],
                 ) => Err(invalid(&format!(
                     "--host can't be combined with {}",
@@ -79,6 +82,14 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
         }
         [command, rest @ ..] if command == "mobile" => mobile(rest).map(Command::Mobile),
         [command, rest @ ..] if command == "stdio" => stdio(rest).map(Command::Stdio),
+        [command, .., flag]
+            if command == "install-skills" && (flag == "--help" || flag == "-h") =>
+        {
+            Ok(Command::Usage(help::INSTALL_SKILLS))
+        }
+        [command, rest @ ..] if command == "install-skills" => {
+            install_skills(rest).map(Command::InstallSkills)
+        }
         [word] if names_folder(word) => Ok(Command::Open(word.into())),
         _ => {
             crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
@@ -134,6 +145,18 @@ fn pair(options: &[Option<&str>]) -> io::Result<Mobile> {
     Ok(Mobile::Pair { addresses })
 }
 
+fn install_skills(arguments: &[OsString]) -> io::Result<Vec<PathBuf>> {
+    arguments
+        .chunks(2)
+        .map(|option| match option {
+            [flag, directory] if flag == "--dir" && !directory.is_empty() => {
+                Ok(PathBuf::from(directory))
+            }
+            _ => Err(invalid("usage: muxy install-skills [--dir DIR]...")),
+        })
+        .collect()
+}
+
 fn stdio(arguments: &[OsString]) -> io::Result<Start> {
     match arguments {
         [] => Ok(Start::IfNeeded),
@@ -144,4 +167,37 @@ fn stdio(arguments: &[OsString]) -> io::Result<Start> {
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(words: &[&str]) -> io::Result<(Option<SshTarget>, Command)> {
+        parse(&words.iter().map(OsString::from).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn install_skills_takes_folders_but_no_host() -> io::Result<()> {
+        assert_eq!(
+            words(&["install-skills"])?.1,
+            Command::InstallSkills(Vec::new())
+        );
+        assert_eq!(
+            words(&["install-skills", "--dir", "a", "--dir", "b"])?.1,
+            Command::InstallSkills(vec!["a".into(), "b".into()])
+        );
+        assert_eq!(
+            words(&["install-skills", "--help"])?.1,
+            Command::Usage(help::INSTALL_SKILLS)
+        );
+        for args in [
+            vec!["install-skills", "--dir"],
+            vec!["install-skills", "a"],
+            vec!["--host", "example", "install-skills"],
+        ] {
+            assert!(words(&args).is_err(), "{args:?}");
+        }
+        Ok(())
+    }
 }
