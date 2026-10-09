@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use muxy_core::tr_key;
+use muxy_protocol::PROJECT_COLORS as PALETTE;
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -61,6 +62,11 @@ impl fmt::Display for Color {
     }
 }
 
+/// The first character of a name, which stands for it on a project's tile.
+pub fn initial(name: &str) -> &str {
+    name.graphemes(true).next().unwrap_or("?")
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub id: ProjectId,
@@ -90,20 +96,21 @@ pub enum ProjectStatus {
     Missing,
 }
 
-/// Names are English keys, translated where shown.
+/// The shared palette, by name. Names are English keys, translated where
+/// shown.
 pub const PROJECT_COLORS: [(&str, &str); 12] = [
-    (tr_key!("Red"), "#e5484d"),
-    (tr_key!("Orange"), "#f76b15"),
-    (tr_key!("Amber"), "#f5a623"),
-    (tr_key!("Yellow"), "#ebcb00"),
-    (tr_key!("Lime"), "#9bcd1e"),
-    (tr_key!("Green"), "#30a46c"),
-    (tr_key!("Teal"), "#12a594"),
-    (tr_key!("Cyan"), "#05a2c2"),
-    (tr_key!("Blue"), "#3e63dd"),
-    (tr_key!("Indigo"), "#5b5bd6"),
-    (tr_key!("Violet"), "#8e4ec6"),
-    (tr_key!("Pink"), "#d6409f"),
+    (tr_key!("Red"), PALETTE[0]),
+    (tr_key!("Orange"), PALETTE[1]),
+    (tr_key!("Amber"), PALETTE[2]),
+    (tr_key!("Yellow"), PALETTE[3]),
+    (tr_key!("Lime"), PALETTE[4]),
+    (tr_key!("Green"), PALETTE[5]),
+    (tr_key!("Teal"), PALETTE[6]),
+    (tr_key!("Cyan"), PALETTE[7]),
+    (tr_key!("Blue"), PALETTE[8]),
+    (tr_key!("Indigo"), PALETTE[9]),
+    (tr_key!("Violet"), PALETTE[10]),
+    (tr_key!("Pink"), PALETTE[11]),
 ];
 
 impl Project {
@@ -111,8 +118,9 @@ impl Project {
         self.status
     }
 
-    pub fn initial(&self) -> &str {
-        self.name.graphemes(true).next().unwrap_or("?")
+    /// Another computer's Home, which stands for its server.
+    pub fn is_remote_home(&self) -> bool {
+        self.home && !self.server_id.is_local()
     }
 
     /// Only this computer's folders can be checked here. Another computer's

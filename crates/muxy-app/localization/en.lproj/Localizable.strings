@@ -711,6 +711,7 @@
 "New Home Tab" = "New Home Tab";
 "New Tab" = "New Tab";
 "New Tab (⌘T)" = "New Tab (⌘T)";
+"New Tab in Project…" = "New Tab in Project…";
 "New Tab to the Left" = "New Tab to the Left";
 "New Tab to the Right" = "New Tab to the Right";
 "New Terminal Tab" = "New Terminal Tab";
@@ -1310,6 +1311,7 @@
 "navigate forward" = "navigate forward";
 "new home tab" = "new home tab";
 "new tab" = "new tab";
+"new tab in project" = "new tab in project";
 "next project" = "next project";
 "next prompt" = "next prompt";
 "next tab" = "next tab";

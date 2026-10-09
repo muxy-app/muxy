@@ -89,6 +89,7 @@ pub enum ShortcutId {
     IncreaseFontSize,
     DecreaseFontSize,
     NewHomeTab,
+    NewTabInProject,
     ToggleSidebar,
     ToggleFullScreen,
     ToggleThemePicker,
@@ -490,6 +491,12 @@ pub const ALL: &[Shortcut] = &[
     Shortcut {
         id: "new_home_tab",
         keys: &["cmd-n"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "new_tab_in_project",
+        keys: &["cmd-shift-n"],
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[&[Some("WorkspaceTabs")]],
     },

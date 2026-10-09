@@ -19,15 +19,23 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
         Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
         Item::action(tr!("Existing Terminals…"), Command::ExistingSessions(id)),
         Item::action(tr!("Apply Layout…"), Command::ProjectLayouts(id)),
-        Item::action(tr!("Rename…"), Command::EditProject(id, Field::Name)).separated(),
-        Item::submenu(tr!("Icon"), icon_items(project)),
-        Item::submenu(
-            tr!("Color"),
-            color_items(Some(project.color.as_str()), |index| {
-                Command::ProjectColor(id, index)
-            }),
-        ),
     ];
+    let icon = Item::submenu(tr!("Icon"), icon_items(project));
+    // Another computer's Home goes by its server's name.
+    if project.is_remote_home() {
+        items.push(icon.separated());
+    } else {
+        items.extend([
+            Item::action(tr!("Rename…"), Command::EditProject(id, Field::Name)).separated(),
+            icon,
+        ]);
+    }
+    items.push(Item::submenu(
+        tr!("Color"),
+        color_items(Some(project.color.as_str()), |index| {
+            Command::ProjectColor(id, index)
+        }),
+    ));
     if !project.home {
         items.push(Item::submenu(tr!("Workspaces"), workspace_items(state, id)));
         if let Some(visible) = worktrees {

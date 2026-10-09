@@ -100,7 +100,12 @@ fn portable_restore_clears_sessions_and_queues_projects_before_catalog_reconcili
     let current = AppState::bootstrap().unwrap();
     let mut restored = portable.restore_configuration(&current).unwrap();
     assert_ne!(restored.project(project).unwrap().tabs[0].panes[0].id, pane);
-    assert_eq!(restored.project_intents(ServerId::local()).len(), 1);
+    let creates = restored
+        .project_intents(ServerId::local())
+        .iter()
+        .filter(|intent| matches!(intent.mutation, muxy_protocol::ProjectMutation::Create(_)))
+        .count();
+    assert_eq!(creates, 1);
     assert_eq!(restored.project(project).unwrap().tabs[0].panes.len(), 2);
     restored
         .apply_catalog(

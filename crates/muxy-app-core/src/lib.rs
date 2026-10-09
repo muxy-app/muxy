@@ -33,7 +33,7 @@ pub use groups::{TabGroup, TabGroups};
 pub use ids::{GroupId, PaneId, ProjectId, ServerId, TabId, WorkspaceId};
 pub use layout::{Axis, Branch, Direction, Layout};
 pub use pane::{Pane, PaneContent};
-pub use project::{Color, PROJECT_COLORS, Project, ProjectKind, ProjectStatus};
+pub use project::{Color, PROJECT_COLORS, Project, ProjectKind, ProjectStatus, initial};
 pub use state::AppState;
 pub use tab::{Tab, TabCloseScope, TabSide};
 pub use window::{WindowBounds, WindowState};

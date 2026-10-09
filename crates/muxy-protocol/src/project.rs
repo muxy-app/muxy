@@ -108,7 +108,60 @@ pub struct ProjectDescriptor {
     pub parent_id: Option<ProjectId>,
 }
 
+/// The colors a new project picks from.
+pub const PROJECT_COLORS: [&str; 12] = [
+    "#e5484d", "#f76b15", "#f5a623", "#ebcb00", "#9bcd1e", "#30a46c", "#12a594", "#05a2c2",
+    "#3e63dd", "#5b5bd6", "#8e4ec6", "#d6409f",
+];
+
 impl ProjectDescriptor {
+    /// A new project, named after its folder, in a random color that none of
+    /// `taken` uses, while one is left.
+    pub fn new<'a>(directory: ServerPath, taken: impl IntoIterator<Item = &'a str>) -> Self {
+        let name = directory
+            .0
+            .rsplit(|byte| *byte == b'/')
+            .find(|part| !part.is_empty())
+            .unwrap_or(&directory.0);
+        let name = String::from_utf8_lossy(name).into_owned();
+        Self::create(false, name, directory, taken)
+    }
+
+    /// A server's Home, in the user's home folder, in a random color.
+    pub fn home(directory: ServerPath) -> Self {
+        Self::create(true, "Home".into(), directory, [])
+    }
+
+    /// Every app and server makes new projects here.
+    fn create<'a>(
+        home: bool,
+        name: String,
+        directory: ServerPath,
+        taken: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
+        let id = ProjectId::new();
+        let taken: Vec<_> = taken.into_iter().collect();
+        let mut colors: Vec<_> = PROJECT_COLORS
+            .into_iter()
+            .filter(|color| !taken.iter().any(|used| used.eq_ignore_ascii_case(color)))
+            .collect();
+        if colors.is_empty() {
+            colors = PROJECT_COLORS.to_vec();
+        }
+        let color = colors[usize::from(id.0.as_bytes()[15]) % colors.len()];
+        Self {
+            id,
+            home,
+            directory,
+            name,
+            icon: None,
+            logo: None,
+            color: color.into(),
+            kind: None,
+            parent_id: None,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), ErrorCode> {
         validate_name(&self.name)?;
         validate_icon(self.icon.as_deref())?;

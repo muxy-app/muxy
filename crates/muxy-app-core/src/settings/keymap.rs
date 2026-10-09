@@ -27,9 +27,10 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 58] = [
+    pub const ACTIONS: [ShortcutId; 59] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
+        ShortcutId::NewTabInProject,
         ShortcutId::ToggleSidebar,
         ShortcutId::ToggleFullScreen,
         ShortcutId::ToggleThemePicker,
@@ -121,9 +122,20 @@ impl Keymap {
         Self::from_overrides(overrides)
     }
 
+    /// A command can't take a key a built-in action uses now. One that had its
+    /// key before a built-in default claimed it keeps it, and that default yields.
     pub fn with_binding(&self, id: &str, chord: Option<KeyChord>) -> Result<Self> {
         if shortcuts::find(id).is_none() && !extension_action(id) && !command_action(id) {
             return Err(Error::new("keymap", "unknown action"));
+        }
+        if command_action(id)
+            && let Some(chord) = &chord
+            && let Some(other) = self.builtin_keys().get(chord.as_str())
+        {
+            return Err(Error::new(
+                format!("keymap.{id}"),
+                format!("{chord} is also bound to keymap.{other}"),
+            ));
         }
         let reset = chord.is_none();
         let mut overrides = self.1.clone();
@@ -184,6 +196,7 @@ impl Keymap {
         for action in [
             ShortcutId::OpenSettings,
             ShortcutId::NewHomeTab,
+            ShortcutId::NewTabInProject,
             ShortcutId::ToggleSidebar,
             ShortcutId::ToggleFullScreen,
             ShortcutId::ToggleThemePicker,
@@ -225,9 +238,7 @@ impl Keymap {
         ] {
             if !explicit.contains_key(action.name())
                 && explicit.iter().any(|(id, chord)| {
-                    !command_action(id)
-                        && Some(chord) == keymap.chord(action)
-                        && same_scope(id, action.name())
+                    Some(chord) == keymap.chord(action) && same_scope(id, action.name())
                 })
             {
                 keymap.0.remove(action.name());
@@ -257,14 +268,7 @@ impl Keymap {
         if !self.0.keys().any(|id| command_action(id)) {
             return Ok(());
         }
-        let mut builtins = BTreeMap::new();
-        for shortcut in shortcuts::ALL {
-            for context in shortcut.contexts {
-                for key in self.keys(shortcut.id, *context) {
-                    builtins.insert(key, shortcut.id);
-                }
-            }
-        }
+        let builtins = self.builtin_keys();
         for (id, chord) in &self.0 {
             if command_action(id)
                 && let Some(other) = builtins.get(chord.as_str())
@@ -276,6 +280,19 @@ impl Keymap {
             }
         }
         Ok(())
+    }
+
+    /// Each key a built-in action uses in some context, and that action.
+    fn builtin_keys(&self) -> BTreeMap<String, &'static str> {
+        let mut builtins = BTreeMap::new();
+        for shortcut in shortcuts::ALL {
+            for context in shortcut.contexts {
+                for key in self.keys(shortcut.id, *context) {
+                    builtins.insert(key, shortcut.id);
+                }
+            }
+        }
+        builtins
     }
 }
 

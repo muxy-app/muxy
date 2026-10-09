@@ -438,7 +438,11 @@ impl AppModel {
                 .parent_id
                 .and_then(|id| self.state.project(id))
                 .unwrap_or(project);
-            view.context_label = format!("{} / {}", parent.name, project.name);
+            view.context_label = format!(
+                "{} / {}",
+                self.project_title(parent),
+                self.project_title(project)
+            );
         });
         if self.settings.composer.presentation
             == muxy_app_core::settings::ComposerPresentation::Floating

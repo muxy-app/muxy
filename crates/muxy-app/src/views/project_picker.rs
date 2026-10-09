@@ -1,5 +1,5 @@
 use super::overlays::Overlay;
-use crate::model::AppModel;
+use crate::model::{AppModel, PendingRemote, RemoteIntent};
 use crate::picker::path_service::{self, DirectoryItem, TypedPathState};
 use crate::picker::remote::RemoteFolders;
 use crate::picker::search::{SearchService, Snapshot};
@@ -594,7 +594,7 @@ impl AppModel {
         let (Some((project, home)), true, true, Some(client)) =
             (home, ready, self.confirmed(server), client)
         else {
-            self.pending_remote_picker = Some((server, std::time::Instant::now()));
+            self.pending_remote = Some(PendingRemote::new(server, RemoteIntent::AddProject));
             if ready && self.extensions.client(server).is_none() {
                 self.extension_client(server, cx);
             } else {
@@ -603,7 +603,7 @@ impl AppModel {
             cx.notify();
             return;
         };
-        self.pending_remote_picker = None;
+        self.pending_remote = None;
         let folders = RemoteFolders::through(client, name, project, &home);
         let paths = self.project_paths(server);
         let picker = cx
@@ -611,30 +611,17 @@ impl AppModel {
         self.show_project_picker(server, picker, cx);
     }
 
-    /// Opens the remote picker that waited for `server` to be ready. It is
-    /// dropped once the user moved on: something else is open, or the wait
-    /// was long.
-    pub(crate) fn resume_remote_picker(&mut self, server: ServerId, cx: &mut Context<Self>) {
-        const PATIENCE: Duration = Duration::from_secs(60);
-        let Some((pending, asked)) = self.pending_remote_picker else {
-            return;
-        };
-        if pending != server {
-            return;
-        }
-        if self.overlay.is_some() || asked.elapsed() > PATIENCE {
-            self.pending_remote_picker = None;
-            return;
-        }
-        self.open_remote_project_picker(server, cx);
-    }
-
-    /// The folders of the projects the sidebar lists on `server`.
+    /// The folders of the projects the sidebar lists on `server`, besides
+    /// another computer's Home, which is where its picker starts.
     fn project_paths(&self, server: ServerId) -> Vec<String> {
         self.state
             .projects()
             .iter()
-            .filter(|project| project.server_id == server && self.project_listed(project))
+            .filter(|project| {
+                project.server_id == server
+                    && self.project_listed(project)
+                    && !project.is_remote_home()
+            })
             .map(|project| project.directory.to_string_lossy().into_owned())
             .collect()
     }
