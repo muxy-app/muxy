@@ -20,7 +20,7 @@ Usually `settings.toml` has an error or an unknown key. Start the app from a
 terminal to see why:
 
 ```bash
-"/Applications/Muxy Beta.app/Contents/MacOS/muxy-app"
+"/Applications/Muxy.app/Contents/MacOS/muxy-app"
 ```
 
 Fix the line it names, or move `settings.toml` out of the profile folder to
@@ -32,12 +32,13 @@ If `muxy` reports `request timed out`, run the server in the foreground to see
 the error, often a typo in `server.toml`:
 
 ```bash
-"/Applications/Muxy Beta.app/Contents/MacOS/muxy-server"   # or ~/.local/bin/muxy-server
+"/Applications/Muxy.app/Contents/MacOS/muxy-server"   # or muxy-server, if installed on its own
 ```
 
 ## `muxy` is not found, or is the wrong version
 
-The CLI installs into `~/.local/bin`. Add it to your `PATH`:
+The desktop app and the install script put `muxy` in `~/.local/bin`. Add it to
+your `PATH`:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -67,7 +68,7 @@ If `muxy --version` shows 1.x, Muxy 1.x's CLI comes first on your `PATH`.
 
 ## No agent notifications
 
-- Allow notifications in **System Settings → Notifications → Muxy Beta**.
+- Allow notifications in **System Settings → Notifications → Muxy**.
 - Muxy doesn't notify for the pane you're looking at, or for detached
   terminals.
 - Recognition is best effort. `muxy activity list` shows what the server sees.

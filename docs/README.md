@@ -1,6 +1,6 @@
 # Muxy Docs
 
-Documentation for Muxy 2, currently in beta.
+Documentation for Muxy 2.
 
 | Section | Pages |
 | --- | --- |

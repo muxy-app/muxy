@@ -67,7 +67,7 @@ screen and sends input.
 
 ## Getting the SDK
 
-Every beta release publishes the SDK next to the desktop app, on the
+Every release publishes the SDK next to the desktop app, on the
 [releases page](https://github.com/muxy-app/muxy/releases):
 
 | File | Contents |
@@ -82,8 +82,8 @@ for [Project setup](#project-setup):
 
 ```sh
 set -euo pipefail
-VERSION=2.0.0-beta-1234
-SHA256=<the ios zip's sha256 from muxy-mobile-2.0.0-beta-1234.json>
+VERSION=2.1.0
+SHA256=<the ios zip's sha256 from muxy-mobile-2.1.0.json>
 ZIP=muxy-mobile-$VERSION-ios.zip
 curl -fsSLO "https://github.com/muxy-app/muxy/releases/download/v$VERSION/$ZIP"
 echo "$SHA256  $ZIP" | shasum -a 256 -c
@@ -115,7 +115,7 @@ export ANDROID_NDK_HOME=~/Library/Android/sdk/ndk/<version>
 scripts/build-mobile-sdk.sh
 
 # Package a full build into the release files, as CI does
-python3 scripts/package-mobile-sdk.py 2.0.0-beta-1234 target/mobile-sdk ~/muxy-sdk-release
+python3 scripts/package-mobile-sdk.py 2.1.0 target/mobile-sdk ~/muxy-sdk-release
 ```
 
 ```text
