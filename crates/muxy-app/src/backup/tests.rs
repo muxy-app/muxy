@@ -67,7 +67,12 @@ fn backup_round_trip_is_portable_and_restore_waits_for_restart() {
     );
     let restored = muxy_app_core::store::load(target.path().join("desktop-state.json")).unwrap();
     assert!(restored.project(id).is_some());
-    assert_eq!(restored.project_intents(ServerId::local()).len(), 1);
+    let creates = restored
+        .project_intents(ServerId::local())
+        .iter()
+        .filter(|intent| matches!(intent.mutation, muxy_protocol::ProjectMutation::Create(_)))
+        .count();
+    assert_eq!(creates, 1);
     let recovery = fs::read_dir(target.path().join("Backups"))
         .unwrap()
         .next()

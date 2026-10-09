@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use muxy_protocol::SessionId;
@@ -6,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::servers::ServerState;
 use crate::{
-    AppError, Branch, Color, Direction, PROJECT_COLORS, Pane, PaneContent, PaneId, Project,
-    ProjectId, ProjectStatus, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
+    AppError, Branch, Color, Direction, Pane, PaneContent, PaneId, Project, ProjectId,
+    ProjectStatus, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
 };
 
 /// The layout this build writes. Versions 1 and 2 kept one server's catalog
@@ -279,33 +280,16 @@ impl AppState {
                 "connect to the server before adding projects to it".into(),
             ));
         }
-        let id = ProjectId::new();
-        let name = directory.file_name().map_or_else(
-            || directory.to_string_lossy().into_owned(),
-            |name| name.to_string_lossy().into_owned(),
+        let descriptor = muxy_protocol::ProjectDescriptor::new(
+            muxy_protocol::ServerPath(directory.into_os_string().into_vec()),
+            self.projects
+                .iter()
+                .filter(|project| project.server_id == server)
+                .map(|project| project.color.as_str()),
         );
-        let color = PROJECT_COLORS[(self.projects.len() - 1) % PROJECT_COLORS.len()]
-            .1
-            .parse()?;
-        let project = Project {
-            id,
-            home: false,
-            name,
-            icon: None,
-            logo: None,
-            color,
-            server_id: server,
-            directory,
-            kind: None,
-            parent_id: None,
-            tabs: Vec::new(),
-            groups: None,
-            status: ProjectStatus::Available,
-        };
-        self.queue_project(
-            server,
-            muxy_protocol::ProjectMutation::Create(project.descriptor()),
-        )?;
+        let project = Project::from_descriptor(server, &descriptor)?;
+        let id = project.id;
+        self.queue_project(server, muxy_protocol::ProjectMutation::Create(descriptor))?;
         self.projects.push(project);
         self.join_active_workspace(id);
         self.window.current_project = id;
