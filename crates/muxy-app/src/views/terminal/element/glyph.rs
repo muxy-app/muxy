@@ -30,7 +30,7 @@ pub(super) fn prepare(
         dots::prepare(cp - 0x2800, bounds, pixel, color, paths);
         return true;
     }
-    if (0xe0b0..=0xe0b3).contains(&cp) {
+    if (0xe0b0..=0xe0b7).contains(&cp) {
         powerline(cp, bounds, pixel, color, paths);
         return true;
     }
@@ -114,7 +114,7 @@ fn braille(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths: &
 }
 fn powerline(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths: &mut Paths) {
     let center = bounds.center();
-    let right = cp < 0xe0b2;
+    let right = matches!(cp, 0xe0b0 | 0xe0b1 | 0xe0b4 | 0xe0b5);
     let (edge, tip) = if right {
         (bounds.left(), bounds.right())
     } else {
@@ -126,8 +126,28 @@ fn powerline(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths:
         PathBuilder::stroke(pixel)
     };
     path.move_to(point(edge, bounds.top()));
-    path.line_to(point(tip, center.y));
-    path.line_to(point(edge, bounds.bottom()));
+    if cp < 0xe0b4 {
+        path.line_to(point(tip, center.y));
+        path.line_to(point(edge, bounds.bottom()));
+    } else {
+        let radius = bounds.size.width.min(bounds.size.height / 2.0);
+        let side = edge + if right { radius } else { -radius };
+        path.arc_to(
+            point(radius, radius),
+            px(0.0),
+            false,
+            right,
+            point(side, bounds.top() + radius),
+        );
+        path.line_to(point(side, bounds.bottom() - radius));
+        path.arc_to(
+            point(radius, radius),
+            px(0.0),
+            false,
+            right,
+            point(edge, bounds.bottom()),
+        );
+    }
     if cp.is_multiple_of(2) {
         path.close();
     }
