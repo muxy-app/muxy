@@ -195,6 +195,45 @@ fn matching_project_directories_keep_local_identity_and_remap_project_preference
 }
 
 #[test]
+fn one_x_icons_migrate_to_sf_symbols_and_drop_unrepresentable_ones() {
+    let symbol = "01000000-0000-0000-0000-000000000001";
+    let invalid = "01000000-0000-0000-0000-000000000002";
+    let emoji = "01000000-0000-0000-0000-000000000003";
+    let projects = json!([
+        {"id":symbol,"name":"Symbol","path":"/symbol","sortOrder":0,"icon":"chart.pie.fill"},
+        {"id":invalid,"name":"Invalid","path":"/invalid","sortOrder":1,"icon":"not a symbol!"},
+        {"id":emoji,"name":"Emoji","path":"/emoji","sortOrder":2,"icon":"🚀"}
+    ]);
+    let (state, report) = backup::import_projects(
+        &serde_json::to_vec(&projects).unwrap(),
+        None,
+        None,
+        &BTreeMap::new(),
+        &mut Settings::default(),
+    )
+    .unwrap();
+    assert_eq!(state.projects().len(), 4);
+    assert_eq!(
+        state
+            .project(symbol.parse().unwrap())
+            .unwrap()
+            .icon
+            .as_deref(),
+        Some("sf:chart.pie.fill")
+    );
+    assert_eq!(
+        state
+            .project(emoji.parse().unwrap())
+            .unwrap()
+            .icon
+            .as_deref(),
+        Some("🚀")
+    );
+    assert_eq!(state.project(invalid.parse().unwrap()).unwrap().icon, None);
+    assert!(report.skipped.iter().any(|item| item.contains("Invalid")));
+}
+
+#[test]
 fn one_x_worktrees_keep_parent_relationships_and_terminal_layouts() {
     let project = "01000000-0000-0000-0000-000000000001";
     let worktree = "01000000-0000-0000-0000-000000000002";

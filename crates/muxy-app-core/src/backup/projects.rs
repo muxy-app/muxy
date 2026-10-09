@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use muxy_protocol::{ProjectMutation, ProjectPatch};
 use serde_json::Value;
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use super::{ImportReport, Result};
 use crate::{
     AppState, Axis, Layout, Pane, PaneContent, PaneId, Project, ProjectId, ProjectStatus, ServerId,
@@ -323,7 +325,11 @@ pub fn import_projects(
             home: false,
             name: value["name"].as_str().ok_or("Missing project name")?.into(),
             directory: value["path"].as_str().ok_or("Missing project path")?.into(),
-            icon: value["icon"].as_str().map(Into::into),
+            icon: migrate_icon(
+                &value,
+                value["name"].as_str().unwrap_or("unknown"),
+                &mut report,
+            ),
             logo: value["logo"]
                 .as_str()
                 .and_then(|name| assets.get(&format!("logos/{name}")))
@@ -441,6 +447,24 @@ pub fn import_projects(
     state.ensure_home()?;
     state.validate()?;
     Ok((state, report))
+}
+
+/// 1.x stored bare SF Symbol names (`chart.pie.fill`), while 2.0 keeps
+/// single-grapheme icons or `sf:`-prefixed symbol names only. Migrate bare
+/// names to the tagged form, keep emoji and already-tagged names, and drop
+/// anything the 2.0 project metadata would reject so one stale icon cannot
+/// fail the whole import.
+fn migrate_icon(value: &Value, name: &str, report: &mut ImportReport) -> Option<String> {
+    let icon = value["icon"].as_str()?;
+    if icon.graphemes(true).count() == 1 || muxy_protocol::is_project_symbol(icon) {
+        return Some(icon.into());
+    }
+    let tagged = format!("sf:{icon}");
+    if muxy_protocol::is_project_symbol(&tagged) {
+        return Some(tagged);
+    }
+    report.skipped.push(format!("Project icon for {name}"));
+    None
 }
 
 fn import_worktrees(
