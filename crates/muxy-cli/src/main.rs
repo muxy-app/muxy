@@ -46,9 +46,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Manage(command) => manage::run(*command, host)?,
         Command::Open(folder) => open::run(&folder)?,
         Command::InstallSkills(directories) => {
-            let home = std::env::home_dir().ok_or("the home folder is unknown")?;
+            let home = std::env::home_dir();
             let mut stdout = io::stdout().lock();
-            for file in skills::install(&home, &directories)? {
+            for file in skills::install(home.as_deref(), &directories)? {
                 writeln!(stdout, "{}", file.display())?;
             }
         }

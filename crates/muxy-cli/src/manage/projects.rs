@@ -87,7 +87,7 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 }
             }
             let projects = client.catalog()?.projects;
-            if reuse && let Some(existing) = existing(&projects, &directory) {
+            if reuse && let Some(existing) = existing(&projects, &directory, paths) {
                 return output.record(&record(existing), &["id", "name"]);
             }
             let mut project = ProjectDescriptor::new(
@@ -122,7 +122,7 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
 /// The project for this computer's `folder`: one already there, or a new one.
 pub(crate) fn folder_project(client: &Client, folder: &Path) -> Result<ProjectId> {
     let projects = client.catalog()?.projects;
-    if let Some(project) = existing(&projects, folder) {
+    if let Some(project) = existing(&projects, folder, Paths::Local) {
         return Ok(project.id);
     }
     let project = ProjectDescriptor::new(
@@ -170,12 +170,14 @@ fn make_directory(client: &Client, directory: &Path, paths: Paths) -> Result {
 fn existing<'a>(
     projects: &'a [ProjectDescriptor],
     directory: &Path,
+    paths: Paths,
 ) -> Option<&'a ProjectDescriptor> {
     projects
         .iter()
         .filter(|project| {
             let path = local_path(&project.directory);
-            path == directory || path.canonicalize().ok().as_deref() == Some(directory)
+            path == directory
+                || (paths == Paths::Local && path.canonicalize().ok().as_deref() == Some(directory))
         })
         .min_by_key(|project| project.parent_id.is_some())
 }
@@ -512,6 +514,28 @@ mod tests {
             requested_name(&create, Some("login".into())),
             Some("login".into())
         );
+    }
+
+    #[test]
+    fn remote_project_reuse_does_not_follow_local_symlinks() -> Result {
+        let directory = tempfile::tempdir()?;
+        let target = directory.path().canonicalize()?;
+        let alias = directory.path().join("alias");
+        std::os::unix::fs::symlink(&target, &alias)?;
+        let projects = [
+            project("Alias", alias.to_str().ok_or("alias path")?),
+            project("Target", target.to_str().ok_or("target path")?),
+        ];
+        assert_eq!(
+            existing(&projects, &target, Paths::Remote),
+            Some(&projects[1])
+        );
+        assert_eq!(
+            existing(&projects[..1], &target, Paths::Local),
+            Some(&projects[0])
+        );
+        assert!(existing(&projects[..1], &target, Paths::Remote).is_none());
+        Ok(())
     }
 
     #[test]

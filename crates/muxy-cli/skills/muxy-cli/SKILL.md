@@ -35,7 +35,7 @@ the new terminal, followed by Return. Capture the ID; never guess one.
 
 ```bash
 WEB=$(muxy session create -- npm run dev)
-TESTS=$(muxy session create MyProject --directory ./packages/api -- npm test)
+TESTS=$(muxy session create MyProject --directory ./packages/api -- exec npm test)
 ```
 
 Outside a Muxy terminal, name the project: an ID, a unique name, or its folder.
@@ -59,6 +59,10 @@ muxy session wait "$TESTS" --exit                              # prints how it e
 visible screen, not scrollback. Don't wait on your own terminal: it is busy
 running `muxy`.
 
+`--exit` waits for the terminal's shell to end. Use `exec` for a one-shot command,
+as in the test example, so the program replaces the shell and its exit ends the
+session. Without `exec`, the shell stays open after the program finishes.
+
 ## Read output
 
 ```bash
@@ -75,9 +79,10 @@ After a terminal ends, add `--saved` to read its last saved output.
 (Enter, Tab, Escape, Backspace, Ctrl+C, Ctrl+D, Ctrl+Z).
 
 ```bash
-muxy session send "$TESTS" "npm test -- --watch"
-muxy session send-keys "$TESTS" Enter
 muxy session send-keys "$WEB" Ctrl+C
+muxy session read-screen "$WEB"
+muxy session send "$WEB" "npm run dev"
+muxy session send-keys "$WEB" Enter
 ```
 
 You are typing into a live terminal. Read the screen first if you are unsure
@@ -110,5 +115,9 @@ the user before using it. `worktree remove` refuses uncommitted changes unless
 
 ## Other computers
 
-Put `--host user@computer` before any command to use the server on another
-computer over SSH. Directories are then absolute paths on that computer.
+Put `--host user@computer` before a server-backed command, such as `project`,
+`session`, or `worktree`, to use another computer's server over SSH. Directories
+are then absolute paths on that computer.
+
+Folder-opening commands and `install-skills` do not support `--host`.
+`install-skills --dir DIR` always installs into a local directory.

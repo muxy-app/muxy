@@ -76,10 +76,13 @@ pub(crate) const SESSION: &str = "Usage: muxy session <action> [--json]
   discard [id] --yes               End the process and delete saved output
 
 Create prints the new session ID and types COMMAND into it, then Return.
+COMMAND words are joined with spaces without shell quoting; quote the whole
+command to preserve its quotes and shell syntax.
 Sessions outlive this command; the apps list them under Existing Terminals.
 Inside a Muxy terminal, the ID defaults to that terminal and the project to its
 project. Wait prints the first visible line containing TEXT, or how the session
 ended; it fails after the timeout (default 30000ms, maximum 3600000ms).
+Use exec in COMMAND when --exit should wait for that program to finish.
 Input/output commands briefly attach to a live terminal; --saved reads its last
 checkpoint instead and also works after it ends. They never close UI panes.
 Ended sessions and their saved output are automatically removed after 7 days.

@@ -12,10 +12,10 @@ const AGENTS: [&str; 3] = [".claude", ".codex", ".agents"];
 
 /// Writes the skill into every agent folder in `home` and into each of
 /// `directories`, replacing an older copy, and returns the files written.
-pub(crate) fn install(home: &Path, directories: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
-    let mut roots: Vec<PathBuf> = AGENTS
-        .iter()
-        .map(|agent| home.join(agent))
+pub(crate) fn install(home: Option<&Path>, directories: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
+    let mut roots: Vec<PathBuf> = home
+        .into_iter()
+        .flat_map(|home| AGENTS.iter().map(move |agent| home.join(agent)))
         .filter(|agent| agent.is_dir())
         .map(|agent| agent.join("skills"))
         .collect();
@@ -47,10 +47,10 @@ mod tests {
     #[test]
     fn installs_into_agent_folders_that_exist_and_chosen_folders() -> io::Result<()> {
         let home = tempfile::tempdir()?;
-        assert!(install(home.path(), &[]).is_err());
+        assert!(install(Some(home.path()), &[]).is_err());
         fs::create_dir(home.path().join(".claude"))?;
         let chosen = home.path().join("chosen");
-        let written = install(home.path(), std::slice::from_ref(&chosen))?;
+        let written = install(Some(home.path()), std::slice::from_ref(&chosen))?;
         assert_eq!(
             written,
             [
@@ -60,6 +60,19 @@ mod tests {
         );
         assert!(!home.path().join(".codex").exists());
         assert_eq!(fs::read_to_string(&written[0])?, SKILL);
+        Ok(())
+    }
+
+    #[test]
+    fn installs_into_a_chosen_folder_without_a_home() -> io::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let chosen = directory.path().join("skills");
+        let written = install(None, std::slice::from_ref(&chosen))?;
+        assert_eq!(written, [chosen.join("muxy-cli/SKILL.md")]);
+        assert_eq!(fs::read_to_string(&written[0])?, SKILL);
+        assert!(
+            matches!(install(None, &[]), Err(error) if error.kind() == io::ErrorKind::NotFound)
+        );
         Ok(())
     }
 

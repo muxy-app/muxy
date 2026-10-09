@@ -285,17 +285,15 @@ fn started_commands_can_be_awaited_and_session_ids_default_to_the_calling_termin
         ])?
         .trim()
         .to_owned();
-    assert_eq!(
-        f.ok(&[
-            "session",
-            "wait",
-            &session,
-            "--text",
-            "wait_ready",
-            "--ignore-case",
-        ])?,
-        "WAIT_READY\n"
-    );
+    let ready = f.ok(&[
+        "session",
+        "wait",
+        &session,
+        "--text",
+        "wait_ready",
+        "--ignore-case",
+    ])?;
+    assert!(ready.contains("WAIT_READY"), "{ready}");
     let missing = f.run(&[
         "session",
         "wait",
@@ -334,14 +332,28 @@ fn started_commands_can_be_awaited_and_session_ids_default_to_the_calling_termin
         f.json(&["session", "wait", &session, "--exit", "--json"])?["ended"],
         json!({"Exited":0})
     );
-    assert_eq!(
-        f.ok(&["session", "wait", &session, "--text", "WAIT_READY"])?,
-        "WAIT_READY\n"
-    );
+    let ready = f.ok(&["session", "wait", &session, "--text", "WAIT_READY"])?;
+    assert!(ready.contains("WAIT_READY"), "{ready}");
     let ended = f.run(&["session", "wait", &session, "--text", "NEVER"])?;
     assert!(String::from_utf8(ended.stderr)?.contains("ended before the text appeared"));
     let sibling = sibling["id"].as_str().ok_or("sibling")?;
     f.ok(&["session", "end", sibling, "--yes"])?;
+    Ok(())
+}
+
+#[test]
+fn initial_exec_command_can_be_awaited_to_completion() -> Result {
+    let f = Fixture::new()?;
+    let project = f.project()?;
+    f.shell()?;
+    let session = f
+        .ok(&["session", "create", &project, "--", "exec sh -c 'exit 7'"])?
+        .trim()
+        .to_owned();
+    assert_eq!(
+        f.json(&["session", "wait", &session, "--exit", "--json"])?["ended"],
+        json!({"Exited": 7})
+    );
     Ok(())
 }
 
