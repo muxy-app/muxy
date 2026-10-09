@@ -63,9 +63,10 @@ Once stable Muxy 2 is available, Homebrew users on either OS can instead run
 
 ## Coming from Muxy 1.x
 
-Open **Settings → Backup & Restore** and choose **Import installed 1.x**. It
-brings over supported settings, shortcuts, local projects, workspaces, and
-terminal tabs, and lists what it skipped.
+The first launch imports your installed 1.x: supported settings, shortcuts,
+local projects, workspaces, terminal tabs, the default shell, and extensions.
+Anything left out is listed. To import again later, open **Settings → Backup &
+Restore** and choose **Import installed 1.x**; it adds to what you already have.
 
 Some 1.x features work differently or are not in 2.x yet. Extensions keep
 working; see [Coming from 1.x](../extensions/get-started.md#coming-from-1x).

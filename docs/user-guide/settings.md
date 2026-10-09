@@ -81,7 +81,9 @@ colors the app and its terminals.
 **Import installed 1.x** reads Muxy 1.x's settings from this Mac. **Choose
 file…** takes a 1.x `.muxy` backup or `settings.json`. Muxy imports supported
 settings, shortcuts, custom commands, local projects, workspaces, worktrees, and
-terminal tabs, and lists what it skipped.
+terminal tabs, and lists what it skipped. Projects, tabs, and workspaces you
+already have are kept. **Import installed 1.x** also brings the default shell
+and extensions.
 
 ## Extensions
 

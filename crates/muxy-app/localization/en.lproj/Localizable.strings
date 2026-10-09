@@ -102,6 +102,7 @@
 "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"" = "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"";
 "Additional Prompt" = "Additional Prompt";
 "Additional prompt" = "Additional prompt";
+"Adds %lld extensions from Muxy 1.x." = "Adds %lld extensions from Muxy 1.x.";
 "Agents Focused" = "Agents Focused";
 "All Projects" = "All Projects";
 "All extensions are up to date." = "All extensions are up to date.";
@@ -202,6 +203,7 @@
 "Cell height adjustment (pixels or %%)" = "Cell height adjustment (pixels or %%)";
 "Change Theme…" = "Change Theme…";
 "Changes apply immediately. Press Return or leave a field to save text." = "Changes apply immediately. Press Return or leave a field to save text.";
+"Check after import:" = "Check after import:";
 "Check for Updates…" = "Check for Updates…";
 "Check for updates" = "Check for updates";
 "Check the marketplace for a newer version." = "Check the marketplace for a newer version.";
@@ -563,6 +565,7 @@
 "Import from Muxy 1.x" = "Import from Muxy 1.x";
 "Import installed 1.x" = "Import installed 1.x";
 "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings." = "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings.";
+"Import settings and %lld projects with their layouts on the next launch. Projects you already have keep their details and tabs, and workspaces with the same name are combined. A recovery copy is saved in the profile’s Backups folder." = "Import settings and %lld projects with their layouts on the next launch. Projects you already have keep their details and tabs, and workspaces with the same name are combined. A recovery copy is saved in the profile’s Backups folder.";
 "Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped." = "Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped.";
 "Imported %lld supported 1.x items." = "Imported %lld supported 1.x items.";
 "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits." = "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits.";
@@ -683,6 +686,8 @@
 "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there." = "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there.";
 "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain." = "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain.";
 "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions." = "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions.";
+"Muxy 1.x was imported. Check these items:" = "Muxy 1.x was imported. Check these items:";
+"Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@" = "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@";
 "Muxy Quick Terminal" = "Muxy Quick Terminal";
 "Muxy Settings" = "Muxy Settings";
 "Muxy Update" = "Muxy Update";
@@ -760,6 +765,7 @@
 "No update for this platform" = "No update for this platform";
 "Not Now" = "Not Now";
 "Not assigned" = "Not assigned";
+"Not available in Muxy 2 (%lld): %@" = "Not available in Muxy 2 (%lld): %@";
 "Not connected" = "Not connected";
 "Not listening: %@" = "Not listening: %@";
 "Nothing is staged. Stage changes first or include unstaged changes." = "Nothing is staged. Stage changes first or include unstaged changes.";
@@ -903,6 +909,7 @@
 "Restart server…" = "Restart server…";
 "Restart the Server on %@?" = "Restart the Server on %@?";
 "Restart the app to install the update. Your terminal sessions will keep running. You can update the server afterward." = "Restart the app to install the update. Your terminal sessions will keep running. You can update the server afterward.";
+"Restart the server from Settings to use the imported default shell." = "Restart the server from Settings to use the imported default shell.";
 "Restarting or stopping this server ends all terminal sessions on %@, including sessions in other projects and clients." = "Restarting or stopping this server ends all terminal sessions on %@, including sessions in other projects and clients.";
 "Restarting or stopping this server ends all terminal sessions on this device, including sessions in other projects and clients." = "Restarting or stopping this server ends all terminal sessions on this device, including sessions in other projects and clients.";
 "Restarting server…" = "Restarting server…";
@@ -1015,7 +1022,6 @@
 "Sidebar vibrancy" = "Sidebar vibrancy";
 "Sidebar vibrancy level" = "Sidebar vibrancy level";
 "Size" = "Size";
-"Skipped %lld unsupported or invalid items:\n%@" = "Skipped %lld unsupported or invalid items:\n%@";
 "Space" = "Space";
 "Speech permission request did not complete. Try again." = "Speech permission request did not complete. Try again.";
 "Speech recognition access is disabled. Enable Muxy in System Settings → Privacy & Security → Speech Recognition." = "Speech recognition access is disabled. Enable Muxy in System Settings → Privacy & Security → Speech Recognition.";
@@ -1419,4 +1425,5 @@
 "zoom" = "zoom";
 "· active pane" = "· active pane";
 "“Remember” saves the rule: %@" = "“Remember” saves the rule: %@";
+"…and %lld more" = "…and %lld more";
 "● LIVE" = "● LIVE";
