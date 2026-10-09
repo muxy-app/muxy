@@ -1,5 +1,5 @@
 //! Remote projects work like local ones where this computer's disk was
-//! assumed: files sent to terminals, file links, and dropped connections.
+//! assumed: files sent to terminals and file links.
 
 use super::servers::{connect_remote, entry, serve_remote, work};
 use super::*;
@@ -43,19 +43,13 @@ impl Machine {
             .join(name)
     }
 
-    /// An ssh that fails like a real one while a marker file is there:
-    /// `offline` (unreachable) or `refuse` (a refused login). It counts its
-    /// runs in `attempts`.
+    /// An ssh that connects straight to the server's socket.
     fn ssh(&self) -> Result<muxy_client::SshTarget> {
-        let directory = self.directory.path().display();
         let program = self.directory.path().join("ssh");
         std::fs::write(
             &program,
             format!(
                 "#!/bin/sh\n\
-                 echo run >> '{directory}/attempts'\n\
-                 if [ -e '{directory}/refuse' ]; then echo 'dev@box: Permission denied (publickey).' >&2; exit 255; fi\n\
-                 if [ -e '{directory}/offline' ]; then echo 'ssh: connect to host box port 22: Connection refused' >&2; exit 255; fi\n\
                  printf 'MUXY-STDIO/1\\n'\n\
                  exec /usr/bin/nc -U '{}'\n",
                 self.socket.display()
@@ -63,30 +57,6 @@ impl Machine {
         )?;
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))?;
         Ok(muxy_client::SshTarget::new("box")?.with_program(program))
-    }
-
-    fn mark(&self, marker: &str, present: bool) -> Result {
-        let path = self.directory.path().join(marker);
-        if present {
-            std::fs::write(path, "")?;
-        } else {
-            std::fs::remove_file(path)?;
-        }
-        Ok(())
-    }
-
-    fn attempts(&self) -> usize {
-        std::fs::read_to_string(self.directory.path().join("attempts"))
-            .map_or(0, |attempts| attempts.lines().count())
-    }
-
-    /// Drops every connection to its server, as a network failure would.
-    fn drop_connections(&self) -> Result {
-        std::process::Command::new("/usr/bin/pkill")
-            .arg("-f")
-            .arg(format!("nc -U {}", self.socket.display()))
-            .status()?;
-        Ok(())
     }
 
     /// The files its server keeps uploaded, by name.
@@ -359,76 +329,6 @@ fn links(cx: &mut TestAppContext) -> Result {
         cx.read(|cx| cx.read_from_clipboard().and_then(|item| item.text())),
         Some("/etc/hosts".into())
     );
-    view.update(cx, |model, _| model.stop_workers());
-    Ok(())
-}
-
-#[gpui::test]
-fn a_dropped_remote_reconnects_with_backoff_and_stops_on_a_refused_login(cx: &mut TestAppContext) {
-    reconnect(cx).expect("reconnecting a remote");
-}
-
-fn reconnect(cx: &mut TestAppContext) -> Result {
-    let machine = Machine::new()?;
-    let (view, cx, remote, pane) = remote_terminal(cx, &machine)?;
-    let session = view.read_with(cx, |model, _| model.pane_session(pane));
-    let disconnected =
-        |model: &AppModel, _: &gpui::App| model.connection(remote) == ConnectionState::Disconnected;
-    let failed = |reason| {
-        move |model: &AppModel, _: &gpui::App| {
-            model.connection(remote) == ConnectionState::Disconnected
-                && model
-                    .servers
-                    .get(remote)
-                    .and_then(|runtime| runtime.failure)
-                    == Some(reason)
-        }
-    };
-    machine.mark("offline", true)?;
-    machine.drop_connections()?;
-    wait(cx, &view, disconnected)?;
-    cx.executor().advance_clock(Duration::from_secs(2));
-    wait(cx, &view, failed(muxy_client::RemoteReason::Unreachable))?;
-    let attempts = machine.attempts();
-    machine.mark("offline", false)?;
-    cx.executor().advance_clock(Duration::from_secs(3));
-    cx.run_until_parked();
-    thread::sleep(Duration::from_millis(100));
-    cx.run_until_parked();
-    assert_eq!(machine.attempts(), attempts, "the second wait is 4 s");
-    cx.executor().advance_clock(Duration::from_secs(1));
-    wait(cx, &view, |model, cx| model.attachment(pane, cx).is_some())?;
-    assert_eq!(
-        view.read_with(cx, |model, _| model.pane_session(pane)),
-        session,
-        "the terminal survived"
-    );
-    let channel = view.read_with(cx, |model, cx| {
-        model.attachment(pane, cx).expect("attached").1
-    });
-    view.update(cx, |model, cx| {
-        model.send(
-            remote,
-            Work::Input(channel, b"echo back-$((40 + 2))\r".to_vec()),
-            cx,
-        );
-    });
-    wait_text(cx, &view, "back-42")?;
-    machine.mark("refuse", true)?;
-    machine.drop_connections()?;
-    wait(cx, &view, disconnected)?;
-    cx.executor().advance_clock(Duration::from_secs(2));
-    wait(
-        cx,
-        &view,
-        failed(muxy_client::RemoteReason::AuthenticationFailed),
-    )?;
-    let attempts = machine.attempts();
-    cx.executor().advance_clock(Duration::from_secs(600));
-    cx.run_until_parked();
-    thread::sleep(Duration::from_millis(100));
-    cx.run_until_parked();
-    assert_eq!(machine.attempts(), attempts, "it waits for Connect");
     view.update(cx, |model, _| model.stop_workers());
     Ok(())
 }

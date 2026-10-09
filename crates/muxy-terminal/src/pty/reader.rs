@@ -25,10 +25,10 @@ impl ReaderHandle {
     }
 }
 
-pub(crate) fn spawn_reader(
-    mut reader: Box<dyn Read + Send>,
-    sink: Sender<PtyEvent>,
-) -> ReaderHandle {
+pub(crate) fn spawn_reader<T>(mut reader: Box<dyn Read + Send>, sink: Sender<T>) -> ReaderHandle
+where
+    T: From<PtyEvent> + Send + 'static,
+{
     let thread = thread::spawn(move || {
         let mut buffer = vec![0; READ_BUFFER_SIZE];
         loop {
@@ -36,7 +36,7 @@ pub(crate) fn spawn_reader(
                 Ok(0) => break,
                 Ok(count) => {
                     if sink
-                        .send(PtyEvent::Output(buffer[..count].to_vec()))
+                        .send(PtyEvent::Output(buffer[..count].to_vec()).into())
                         .is_err()
                     {
                         return;
@@ -46,7 +46,7 @@ pub(crate) fn spawn_reader(
                 Err(_) => break,
             }
         }
-        let _ = sink.send(PtyEvent::Closed);
+        let _ = sink.send(PtyEvent::Closed.into());
     });
     ReaderHandle { thread }
 }
