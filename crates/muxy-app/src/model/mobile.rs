@@ -143,7 +143,7 @@ impl AppModel {
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = crate::views::confirm::prompt_revoke(window, &name, cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 match response {
                     Ok(true)
                         if generation == model.servers.local.generation

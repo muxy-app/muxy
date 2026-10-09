@@ -29,6 +29,12 @@ pub(crate) struct Repository {
     post_merge: Option<(u64, String)>,
     removal: Option<muxy_protocol::WorktreeRemoval>,
     merge_removal: MergeRemoval,
+    removal_confirmation: Option<RemovalConfirmation>,
+}
+
+struct RemovalConfirmation {
+    expected: muxy_protocol::WorktreeRemoval,
+    hooks: Result<Vec<muxy_protocol::WorktreeHook>, String>,
 }
 
 /// Removing a worktree once its pull request merges.
@@ -86,6 +92,7 @@ impl Repository {
         self.post_merge = None;
         self.removal = None;
         self.merge_removal = MergeRemoval::None;
+        self.removal_confirmation = None;
     }
 
     pub(crate) fn busy(&self) -> bool {
@@ -130,6 +137,48 @@ impl GitState {
     }
 }
 impl AppModel {
+    fn queue_worktree_removal_confirmation(
+        &mut self,
+        project: ProjectId,
+        expected: muxy_protocol::WorktreeRemoval,
+        hooks: Result<Vec<muxy_protocol::WorktreeHook>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.git
+            .projects
+            .entry(project)
+            .or_default()
+            .removal_confirmation = Some(RemovalConfirmation { expected, hooks });
+        self.resume_worktree_removal_confirmation(cx);
+    }
+
+    pub(crate) fn resume_worktree_removal_confirmation(&mut self, cx: &mut Context<Self>) {
+        if self.close_prompt.is_some() || self.quitting != super::Quitting::Idle {
+            return;
+        }
+        while let Some((project, confirmation)) =
+            self.git
+                .projects
+                .iter_mut()
+                .find_map(|(project, repository)| {
+                    repository
+                        .removal_confirmation
+                        .take()
+                        .map(|confirmation| (*project, confirmation))
+                })
+        {
+            let Some(server) = self.state.project_server(project) else {
+                continue;
+            };
+            if !self.ready(server) {
+                continue;
+            }
+            self.confirm_worktree_removal(project, confirmation.expected, confirmation.hooks, cx);
+            cx.notify();
+            return;
+        }
+    }
+
     pub(super) fn git_invalidated(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         if self.git.current != Some(project) || !self.session_listing_ready() {
             return;
@@ -409,7 +458,12 @@ impl AppModel {
             {
                 repository.merge_removal = MergeRemoval::None;
                 if let Some(expected) = repository.removal.take() {
-                    self.confirm_worktree_removal(request.project, expected, Ok(hooks), cx);
+                    self.queue_worktree_removal_confirmation(
+                        request.project,
+                        expected,
+                        Ok(hooks),
+                        cx,
+                    );
                 }
             }
             Ok(GitReply::WorktreeHooks(hooks)) if context_matches => {
@@ -547,7 +601,7 @@ impl AppModel {
                     {
                         if teardown {
                             if let Some(expected) = repository.removal.take() {
-                                self.confirm_worktree_removal(
+                                self.queue_worktree_removal_confirmation(
                                     request.project,
                                     expected,
                                     Err(error.to_string()),

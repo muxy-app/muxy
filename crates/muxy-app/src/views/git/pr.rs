@@ -229,7 +229,7 @@ impl AppModel {
                 false
             };
             let _ = this.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 if !confirmed {
                     return;
                 }

@@ -515,7 +515,7 @@ impl AppModel {
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = crate::views::confirm::prompt_forget_server(window, &name, cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 let result = match response {
                     Ok(true) => model.forget_remote_server(server, cx),
                     Ok(false) => Ok(()),
@@ -571,7 +571,7 @@ impl AppModel {
             let response =
                 crate::views::confirm::prompt_install_server(window, &name, &source, cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 match response {
                     Ok(true) => model.install_server(server, version, cx),
                     Ok(false) => {}

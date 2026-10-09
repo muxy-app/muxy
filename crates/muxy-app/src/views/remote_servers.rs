@@ -770,7 +770,7 @@ impl AppModel {
             let response =
                 super::confirm::prompt_install_server(window, &destination, &source, cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 let current = matches!(&model.overlay, Some(Overlay::ServerForm(form))
                     if form.host == host && form.submitted(cx) == submitted);
                 if current {

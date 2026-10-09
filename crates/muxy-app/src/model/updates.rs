@@ -499,7 +499,7 @@ impl AppModel {
             )
             .await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 if model.servers.local.generation != generation
                     || model
                         .updates

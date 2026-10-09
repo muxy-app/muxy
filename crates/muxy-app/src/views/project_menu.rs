@@ -259,7 +259,7 @@ impl AppModel {
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = prompt(window, title, message, action, cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 model.focus_requested = true;
                 match response {
                     Ok(ConfirmationResponse::Confirmed { .. }) => confirmed(model, cx),

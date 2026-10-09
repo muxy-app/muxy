@@ -1,5 +1,6 @@
 mod ai;
 mod ai_provider;
+mod confirmation;
 mod form;
 pub(crate) use form::field as form_field;
 mod pr;
@@ -364,32 +365,7 @@ impl AppModel {
         let window = self.window;
         let context = self.git.interaction;
         self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let (send, receive) = async_channel::bounded(1);
-            let dialog = window.update(cx, |_, window, _| {
-                muxy_ui::dialog::confirm(
-                    window,
-                    &tr!("Confirm Git Operation"),
-                    &message,
-                    &tr!("Confirm"),
-                    has_hooks
-                        .then(|| tr!("Run the teardown commands shown above"))
-                        .as_ref()
-                        .map(gpui::SharedString::as_str),
-                    move |answer| {
-                        let _ = send.try_send(answer);
-                    },
-                )
-            });
-            let confirmed = if let Ok(Ok(_dialog)) = dialog {
-                match receive.recv().await {
-                    Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { dont_ask_again }) => {
-                        Some(dont_ask_again)
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            };
+            let confirmed = confirmation::prompt(window, &message, has_hooks, cx).await;
             if confirmed == Some(false)
                 && let GitAction::Worktree(intent) = &mut action
                 && let Some(options) = &mut intent.options
@@ -397,7 +373,7 @@ impl AppModel {
                 options.hooks = None;
             }
             let _ = this.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 if confirmed.is_some()
                     && model.git.interaction == context
                     && model.state.project(project).is_some()
