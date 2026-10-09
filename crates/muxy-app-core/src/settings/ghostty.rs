@@ -276,12 +276,17 @@ impl TerminalSettings {
         mut included_keys: Option<&mut HashSet<String>>,
     ) -> Result<Vec<(PathBuf, bool)>> {
         let mut includes = Vec::new();
+        let file = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
         for (index, line) in source.lines().enumerate() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
             let context = format!("{}:{}", path.display(), index + 1);
+            let note = format!("{file}:{}", index + 1);
             let (key, value) = line
                 .split_once('=')
                 .map_or((line, None), |(key, value)| (key, Some(value)));
@@ -305,7 +310,7 @@ impl TerminalSettings {
                 && key != "keybind"
             {
                 self.diagnostics
-                    .push(format!("{context}: {key} is not supported by Muxy"));
+                    .push(format!("{note}: {key} is not supported by Muxy"));
                 continue;
             }
             if key != "config-file"
@@ -348,7 +353,7 @@ impl TerminalSettings {
                         .read(value)
                         .map_err(|error| Error::new(&context, error))?
                     {
-                        self.diagnostics.push(format!("{context}: {warning}"));
+                        self.diagnostics.push(format!("{note} {key}: {warning}"));
                     }
                 }
                 "font-family" if value.is_empty() => families.clear(),

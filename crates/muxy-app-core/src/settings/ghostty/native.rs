@@ -296,6 +296,7 @@ impl TerminalSettings {
                 next.options.cursor_opacity = percent / 100.0;
             }
             "keybind-clear-defaults" => next.keybindings.clear_defaults = flag()?,
+            "dismiss-import-notes" => next.diagnostics.clear(),
             "adjust-cursor-thickness" => next.options.cursor_thickness = value.parse()?,
             "window-padding-balance" => next.options.padding_balance = flag()?,
             "copy-on-select" => next.options.copy_on_select = Some(flag()?),

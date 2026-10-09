@@ -875,6 +875,7 @@ fn change_id(change: &Change) -> &str {
         Change::Directory(_) => "directory",
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
+        Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",
         Change::Terminal(id, _) | Change::Composer(id, _) | Change::Field(id, _) => id,
         Change::TerminalEdit(edit) => match edit {
             TerminalEdit::Fallbacks(_) => "font-fallbacks",

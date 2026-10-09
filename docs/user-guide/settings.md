@@ -78,7 +78,8 @@ in **Settings → Server**. Quick Terminal opacity combines with terminal opacit
 On the first launch without `terminal.toml`, Muxy imports the supported values
 from its old `ghostty.conf`, including included files and custom terminal key
 bindings. The original files stay intact. Later edits to those old files have
-no effect. Any unsupported legacy options appear under **Imported settings**.
+no effect. Any unsupported legacy options appear under **Imported settings**
+until you dismiss them.
 Older backups and 1.x imports are converted to native preferences too. Legacy blur
 and glass presets become native background vibrancy.
 

@@ -105,7 +105,17 @@ fn legacy_font_names_with_quotes_migrate_without_blocking_startup_or_import() ->
     assert_eq!(migrated.font.codepoints.len(), 1);
     assert_eq!(migrated.font.codepoints[0].family, "Symbols Nerd Font");
     assert_eq!(migrated.diagnostics.len(), 5);
+    assert!(
+        migrated
+            .diagnostics
+            .iter()
+            .all(|note| note.starts_with("ghostty.conf:"))
+    );
     assert_eq!(TerminalSettings::load_native(&path)?, migrated);
+    let mut dismissed = migrated.clone();
+    dismissed.set_preference("dismiss-import-notes", "")?;
+    dismissed.save_native(&path)?;
+    assert!(TerminalSettings::load_native(&path)?.diagnostics.is_empty());
     assert_eq!(std::fs::read_to_string(legacy)?, source);
     assert_eq!(TerminalSettings::from_legacy_source(source)?, migrated);
     assert_eq!(

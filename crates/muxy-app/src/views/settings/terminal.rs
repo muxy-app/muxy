@@ -34,6 +34,8 @@ pub(super) const PICKERS: &[&str] = &[
     "window-padding-color",
     BINDING_ACTION,
 ];
+const PERCENT_RANGE: (f32, f32) = (-50.0, 200.0);
+const PIXEL_RANGE: (f32, f32) = (-5.0, 20.0);
 const COLORS: [&str; 6] = [
     "background",
     "foreground",
@@ -374,9 +376,12 @@ pub(super) fn choice_change(pane: &SettingsView, id: &'static str, value: &str) 
         return Change::Terminal(
             id,
             if value == "percent" {
-                format!("{}%", amount.clamp(-99.0, 1000.0))
+                format!("{}%", amount.clamp(PERCENT_RANGE.0, PERCENT_RANGE.1))
             } else {
-                amount.round().to_string()
+                amount
+                    .round()
+                    .clamp(PIXEL_RANGE.0, PIXEL_RANGE.1)
+                    .to_string()
             },
         );
     }
@@ -454,9 +459,9 @@ fn adjustment_slider(
         CellHeight::Percent(value) => (value, "%"),
     };
     let range = if suffix == "%" {
-        (-50.0, 200.0)
+        PERCENT_RANGE
     } else {
-        (-5.0, 20.0)
+        PIXEL_RANGE
     };
     div()
         .flex()
@@ -635,7 +640,22 @@ pub(super) fn rows(
                         .gap(px(8.0))
                         .children(messages.map(|text| div().min_w(px(0.0)).child(text.to_owned())))
                         .into_any_element();
-                    rows.push(pane.row_with_description(id, setting.label, None, notes, true));
+                    let control = div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.0))
+                        .child(notes)
+                        .child(div().flex().child(change_button(
+                            pane,
+                            "dismiss-import-notes",
+                            &tr!("Dismiss"),
+                            true,
+                            Change::Terminal("dismiss-import-notes", String::new()),
+                            cx,
+                        )))
+                        .into_any_element();
+                    rows.push(pane.row_with_description(id, setting.label, None, control, true));
                     continue;
                 }
                 _ => continue,
