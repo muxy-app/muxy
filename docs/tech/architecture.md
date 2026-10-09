@@ -130,7 +130,7 @@ flowchart LR
 - Hidden panes hold nothing. They attach again when shown, displaying cached
   content first, even while offline.
 - The UI is built from `muxy-ui` components. Every app shortcut comes from one
-  catalog, resolved through the keymap. Terminal preferences and migrated key
+  catalog, resolved through the keymap. Terminal preferences and key
   bindings live in `terminal.toml`, and the Quick Terminal's global shortcut is its own setting.
 
 ## Extensions and web views

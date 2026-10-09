@@ -100,7 +100,12 @@ impl SettingsWindow {
             cx.notify();
         });
         let focus_lost = cx.on_focus_lost(window, |root, window, cx| root.focus(window, cx));
-        let mut subscriptions = vec![events, appearance, focus_lost];
+        let activation = cx.observe_window_activation(window, |root, window, cx| {
+            if window.is_window_active() {
+                root.reload_terminal(cx);
+            }
+        });
+        let mut subscriptions = vec![events, appearance, focus_lost, activation];
         if let Some(model) = model.upgrade() {
             subscriptions.push(cx.observe(&model, |root: &mut Self, model, cx| {
                 let error = model.read(cx).error.clone();
@@ -151,31 +156,20 @@ impl SettingsWindow {
         let theme = self.view.read(cx).theme.clone();
         let metrics = self.view.read(cx).metrics;
         match request.kind {
-            super::PickerKind::FontFamily => {
-                let active = self
-                    .view
-                    .read(cx)
-                    .snapshot
-                    .terminal
-                    .font_families
-                    .first()
-                    .cloned()
-                    .unwrap_or_default();
+            super::PickerKind::Font(slot) => {
+                let active = self.view.read(cx).active_font(slot);
                 let picker = cx.new(|cx| FontPicker::new(active, theme, metrics, cx));
-                self.overlay_subscription =
-                    Some(
-                        cx.subscribe_in(&picker, window, |root, _, event, window, cx| {
-                            if let FontEvent::Selected(name) = event {
-                                let _ = root.model.update(cx, |model, cx| {
-                                    model.change_preference(
-                                        Change::Field("font-family", name.clone()),
-                                        cx,
-                                    );
-                                });
-                            }
-                            root.dismiss_overlay(window, cx);
-                        }),
-                    );
+                self.overlay_subscription = Some(cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |root, _, event, window, cx| {
+                        if let FontEvent::Selected(name) = event {
+                            root.view
+                                .update(cx, |view, cx| view.select_font(slot, name.clone(), cx));
+                        }
+                        root.dismiss_overlay(window, cx);
+                    },
+                ));
                 self.overlay = Some(SettingsOverlay::Fonts {
                     picker,
                     source: request,
@@ -273,11 +267,9 @@ impl SettingsWindow {
             window,
             move |root, _, event, window, cx| match event {
                 PickerEvent::Confirmed(selection) => {
-                    let change =
-                        super::terminal::choice_change(root.view.read(cx), id, &selection.id);
-                    let _ = root
-                        .model
-                        .update(cx, |model, cx| model.change_preference(change, cx));
+                    root.view.update(cx, |view, cx| {
+                        view.choose_terminal_option(id, &selection.id, cx);
+                    });
                     root.dismiss_overlay(window, cx);
                 }
                 PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
@@ -601,6 +593,19 @@ impl SettingsWindow {
             SettingsEvent::OpenConfiguration(filename) => {
                 self.open_configuration(filename, cx);
             }
+        }
+    }
+
+    fn reload_terminal(&self, cx: &mut Context<Self>) {
+        if let Ok(Some(error)) = self.model.update(cx, |model, cx| {
+            model.configuration_path("terminal.toml").exists().then(|| {
+                model.reload_configuration(cx);
+                model.configuration_error.clone()
+            })
+        }) {
+            self.view.update(cx, |view, cx| {
+                view.set_error("configuration", error.as_deref(), cx);
+            });
         }
     }
 

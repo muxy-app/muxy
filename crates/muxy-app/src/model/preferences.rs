@@ -3,6 +3,7 @@ use gpui::{
     WindowOptions, point, px, size,
 };
 use muxy_app_core::ServerId;
+use muxy_app_core::settings::TerminalEdit;
 use muxy_ui::tr;
 
 use super::{AppModel, Quitting};
@@ -452,7 +453,13 @@ impl AppModel {
                 | "scroll-discrete"),
                 value,
             ) => {
-                self.save_terminal_preference(id, &value, cx)?;
+                self.save_terminal(cx, |terminal| terminal.set_preference(id, &value))?;
+            }
+            Change::Field(id, value) if terminal_field(id) => {
+                self.save_terminal(cx, |terminal| terminal.set_preference(id, &value))?;
+            }
+            Change::TerminalEdit(edit) => {
+                self.save_terminal(cx, |terminal| terminal.edit(edit))?;
             }
             _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
@@ -594,16 +601,17 @@ impl AppModel {
         self.apply_terminal_preferences(next, false, cx);
     }
 
-    fn save_terminal_preference(
+    fn save_terminal(
         &mut self,
-        id: &str,
-        value: &str,
         cx: &mut Context<Self>,
+        edit: impl FnOnce(
+            &mut muxy_app_core::settings::TerminalSettings,
+        ) -> muxy_app_core::settings::Result<()>,
     ) -> Result<()> {
         let result = (|| {
             let path = self.path.with_file_name("terminal.toml");
             let mut requested = muxy_app_core::settings::TerminalSettings::load_native(&path)?;
-            requested.set_preference(id, value)?;
+            edit(&mut requested)?;
             self.settings.validate_command_shortcuts(&requested)?;
             requested.save_native(&path)?;
             Ok(requested)
@@ -834,6 +842,19 @@ impl AppModel {
     }
 }
 
+fn terminal_field(id: &str) -> bool {
+    matches!(
+        id,
+        "font-feature"
+            | "background"
+            | "foreground"
+            | "cursor-color"
+            | "cursor-text"
+            | "selection-foreground"
+            | "selection-background"
+    ) || id.starts_with("palette-")
+}
+
 fn change_id(change: &Change) -> &str {
     match change {
         Change::Command(_) | Change::RemoveCommand(_) => "commands",
@@ -855,6 +876,11 @@ fn change_id(change: &Change) -> &str {
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
         Change::Terminal(id, _) | Change::Composer(id, _) | Change::Field(id, _) => id,
+        Change::TerminalEdit(edit) => match edit {
+            TerminalEdit::Fallbacks(_) => "font-fallbacks",
+            TerminalEdit::CodepointMap { .. } => "font-codepoint-map",
+            TerminalEdit::Binding { .. } => "terminal-keybindings",
+        },
         Change::Binding(id, _) | Change::Unassign(id) => id,
         Change::ShellIntegration(_) => "shell-integration",
         Change::MobileAccess(_) => "mobile-access",

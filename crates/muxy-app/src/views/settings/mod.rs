@@ -14,6 +14,7 @@ mod quick_terminal;
 mod results;
 mod server;
 mod terminal;
+mod terminal_lists;
 pub(crate) mod window;
 
 pub(crate) use ai::prompt_action;
@@ -118,6 +119,7 @@ pub(crate) enum Change {
     ConfirmProcess(bool),
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
     Terminal(&'static str, String),
+    TerminalEdit(muxy_app_core::settings::TerminalEdit),
     /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
     FileOpener(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
@@ -179,6 +181,8 @@ pub(crate) struct SettingsView {
     content_view: Entity<super::cached::CachedView<Self>>,
     quick_recording: Option<(muxy_ui::quick_terminal::ShortcutRecording, gpui::Task<()>)>,
     terminal_slider: Option<terminal::Drag>,
+    codepoint_editor: Option<terminal_lists::CodepointEditor>,
+    binding_editor: Option<terminal_lists::BindingEditor>,
     quick_slider: Option<(&'static str, gpui::Bounds<gpui::Pixels>)>,
     pub(crate) focus: FocusHandle,
     snapshot: Snapshot,
@@ -246,6 +250,8 @@ impl SettingsView {
             content_view: super::cached::CachedView::new(|view, _, cx| view.content(cx), cx),
             quick_recording: None,
             terminal_slider: None,
+            codepoint_editor: None,
+            binding_editor: None,
             quick_slider: None,
             focus,
             snapshot,
@@ -271,7 +277,6 @@ impl SettingsView {
             focus_initialized: false,
             compact: false,
             picker_anchors: [
-                PickerKind::FontFamily,
                 PickerKind::Language,
                 PickerKind::Theme(false),
                 PickerKind::Theme(true),
@@ -282,6 +287,7 @@ impl SettingsView {
                 PickerKind::AppLanguage,
             ]
             .into_iter()
+            .chain(pickers::FontSlot::ALL.map(PickerKind::Font))
             .chain(terminal::PICKERS.iter().copied().map(PickerKind::Terminal))
             .map(|kind| (kind, PickerAnchor::default()))
             .collect(),
@@ -315,6 +321,8 @@ impl SettingsView {
             "mobile-port",
         ]
         .into_iter()
+        .chain(terminal::fields())
+        .chain(terminal_lists::EDITOR_FIELDS)
         .map(|id| (id, false))
         .chain(ai::PROMPTS.iter().map(|(_, id)| (*id, true)))
         {
@@ -330,6 +338,14 @@ impl SettingsView {
                         InputEvent::Changed => {
                             cx.notify();
                         }
+                    }
+                    return;
+                }
+                if terminal_lists::EDITOR_FIELDS.contains(&id) {
+                    match event {
+                        InputEvent::Submitted => pane.save_terminal_editor(id, cx),
+                        InputEvent::Cancelled => pane.cancel_terminal_editor(id, cx),
+                        InputEvent::Changed => cx.notify(),
                     }
                     return;
                 }
@@ -414,6 +430,7 @@ impl SettingsView {
             ("mobile-port", mobile_port),
         ]
         .into_iter()
+        .chain(terminal::field_values(&self.snapshot.terminal))
         .chain(ai::PROMPTS.iter().map(|(action, id)| {
             (
                 *id,
@@ -487,8 +504,11 @@ impl SettingsView {
             self.errors.insert(id.into(), error.to_owned());
         } else {
             self.errors.remove(id);
-            if id == "commands" {
-                self.command_editor = None;
+            match id {
+                "commands" => self.command_editor = None,
+                "font-codepoint-map" => self.codepoint_editor = None,
+                "terminal-keybindings" => self.binding_editor = None,
+                _ => (),
             }
         }
         self.results.dirty = true;
@@ -550,7 +570,8 @@ impl SettingsView {
     fn configuration_file(&self) -> Option<&'static str> {
         match self.category {
             Category::Server => Some("server.toml"),
-            Category::Terminal | Category::Mobile => None,
+            Category::Terminal => Some("terminal.toml"),
+            Category::Mobile => None,
             _ => Some("settings.toml"),
         }
     }

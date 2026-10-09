@@ -42,7 +42,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "backup-files",
         label: tr_key!("Configuration files"),
         description: tr_key!(
-            "Open configuration files in the system editor. Restart Muxy after editing app settings, or reload terminal configuration from Terminal settings."
+            "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active."
         ),
         category: Category::Backup,
         section: tr_key!("Configuration"),
@@ -345,6 +345,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Font"),
     },
     Setting {
+        id: "font-fallbacks",
+        label: tr_key!("Fallback fonts"),
+        description: tr_key!("Fonts used, in order, for characters the main font lacks."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
         id: "font-size",
         label: tr_key!("Font size (points)"),
         description: tr_key!(
@@ -370,6 +377,38 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Font"),
     },
     Setting {
+        id: "font-family-bold",
+        label: tr_key!("Bold font"),
+        description: tr_key!("Font for bold text. Default uses the main font's bold style."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-family-italic",
+        label: tr_key!("Italic font"),
+        description: tr_key!("Font for italic text. Default uses the main font's italic style."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-family-bold-italic",
+        label: tr_key!("Bold italic font"),
+        description: tr_key!(
+            "Font for bold italic text. Default uses the main font's bold italic style."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-feature",
+        label: tr_key!("Font features"),
+        description: tr_key!(
+            "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
         id: "font-ligatures",
         label: tr_key!("Font ligatures"),
         description: tr_key!(
@@ -379,9 +418,25 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Font"),
     },
     Setting {
+        id: "font-codepoint-map",
+        label: tr_key!("Codepoint fonts"),
+        description: tr_key!(
+            "Use a specific font for a Unicode range, such as U+E000-U+F8FF for icons."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
         id: "font-thicken",
         label: tr_key!("Thicken font"),
         description: tr_key!("Draw terminal text with a heavier stroke."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-thicken-strength",
+        label: tr_key!("Thicken strength"),
+        description: tr_key!("How much heavier text is drawn when Thicken font is on."),
         category: Category::Terminal,
         section: tr_key!("Font"),
     },
@@ -439,6 +494,76 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Background"),
     },
     Setting {
+        id: "window-padding-color",
+        label: tr_key!("Padding color"),
+        description: tr_key!(
+            "Fill padding with the background color, or extend the color of the nearest cells."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "background",
+        label: tr_key!("Background color"),
+        description: tr_key!(
+            "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "foreground",
+        label: tr_key!("Text color"),
+        description: tr_key!(
+            "Replaces the theme's terminal text color. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "cursor-color",
+        label: tr_key!("Cursor color"),
+        description: tr_key!(
+            "A color, cell-foreground, or cell-background. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "cursor-text",
+        label: tr_key!("Cursor text color"),
+        description: tr_key!(
+            "Color of the character under a block cursor. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "selection-foreground",
+        label: tr_key!("Selection text color"),
+        description: tr_key!(
+            "A color, cell-foreground, or cell-background. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "selection-background",
+        label: tr_key!("Selection color"),
+        description: tr_key!(
+            "A color, cell-foreground, or cell-background. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "palette",
+        label: tr_key!("ANSI colors"),
+        description: tr_key!("Replaces the 16 ANSI colors. Leave a color empty to use the theme."),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
         id: "cursor-style",
         label: tr_key!("Cursor shape"),
         description: tr_key!("Choose the initial cursor shape. Terminal programs can change it."),
@@ -458,6 +583,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "Thicken bar, underline, and outlined cursors. Use 1 for one extra physical pixel, or 100%% to double thickness."
         ),
+        category: Category::Terminal,
+        section: tr_key!("Cursor"),
+    },
+    Setting {
+        id: "cursor-opacity",
+        label: tr_key!("Cursor opacity"),
+        description: tr_key!("How opaque the cursor is."),
         category: Category::Terminal,
         section: tr_key!("Cursor"),
     },
@@ -538,6 +670,24 @@ pub(super) const SETTINGS: &[Setting] = &[
         ),
         category: Category::Terminal,
         section: tr_key!("Input"),
+    },
+    Setting {
+        id: "terminal-keybindings",
+        label: tr_key!("Key bindings"),
+        description: tr_key!(
+            "Keys the terminal handles while it is focused. They take precedence over app shortcuts."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Key bindings"),
+    },
+    Setting {
+        id: "keybind-clear-defaults",
+        label: tr_key!("Disable built-in bindings"),
+        description: tr_key!(
+            "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Key bindings"),
     },
     Setting {
         id: "terminal-import-notes",

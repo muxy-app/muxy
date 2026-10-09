@@ -1,6 +1,23 @@
 use std::path::Path;
 
-use super::{CellHeight, Error, Result, TerminalBindings, TerminalColor, TerminalSettings};
+use super::{
+    CellHeight, Error, FontMap, FontOptions, Result, TerminalBindings, TerminalColor,
+    TerminalSettings,
+};
+use crate::settings::KeyChord;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TerminalEdit {
+    Fallbacks(Vec<String>),
+    CodepointMap {
+        previous: Option<FontMap>,
+        map: Option<(String, String)>,
+    },
+    Binding {
+        previous: Option<KeyChord>,
+        binding: Option<(KeyChord, String)>,
+    },
+}
 
 impl TerminalSettings {
     pub fn load_native(path: &Path) -> Result<Self> {
@@ -9,7 +26,9 @@ impl TerminalSettings {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let legacy = path.with_file_name("ghostty.conf");
                 let settings = if legacy.try_exists().map_err(|e| Error::new("terminal", e))? {
-                    Self::resolve(&legacy)?.0
+                    let mut settings = Self::resolve(&legacy)?.0;
+                    settings.skip_invalid_font_names();
+                    settings
                 } else {
                     Self::default()
                 };
@@ -61,8 +80,31 @@ impl TerminalSettings {
         if !families.is_empty() {
             settings.font_families = families;
         }
+        settings.skip_invalid_font_names();
         settings.validate_native()?;
         Ok(settings)
+    }
+
+    fn skip_invalid_font_names(&mut self) {
+        let mut skipped = Vec::new();
+        let mut keep = |name: &String| {
+            let valid = valid_font_name(name);
+            if !valid {
+                skipped.push(format!(
+                    "ghostty.conf: skipped font {name:?}; font names cannot be blank or contain quotes or control characters"
+                ));
+            }
+            valid
+        };
+        self.font_families.retain(&mut keep);
+        self.font.bold.retain(&mut keep);
+        self.font.italic.retain(&mut keep);
+        self.font.bold_italic.retain(&mut keep);
+        self.font.codepoints.retain(|map| keep(&map.family));
+        if self.font_families.is_empty() {
+            self.font_families = Self::default().font_families;
+        }
+        self.diagnostics.extend(skipped);
     }
 
     pub fn legacy_source(&self) -> String {
@@ -113,7 +155,7 @@ impl TerminalSettings {
             .chain(&self.font.bold_italic)
             .chain(self.font.codepoints.iter().map(|map| &map.family))
         {
-            if name.trim().is_empty() || name.chars().any(|ch| ch.is_control() || ch == '"') {
+            if !valid_font_name(name) {
                 return Err(Error::new(
                     "font family",
                     "enter a font name without quotes or control characters",
@@ -178,12 +220,16 @@ impl TerminalSettings {
         let flag = || value.parse::<bool>().map_err(|e| Error::new(id, e));
         let number = || value.parse::<f32>().map_err(|e| Error::new(id, e));
         match id {
-            "font-family" => {
-                if let Some(family) = next.font_families.first_mut() {
-                    *family = value.into();
-                } else {
-                    next.font_families.push(value.into());
-                }
+            "font-family" => replace_first(&mut next.font_families, value),
+            "font-family-bold" => replace_first_or_clear(&mut next.font.bold, value),
+            "font-family-italic" => replace_first_or_clear(&mut next.font.italic, value),
+            "font-family-bold-italic" => replace_first_or_clear(&mut next.font.bold_italic, value),
+            "font-feature" => {
+                next.font.features.clear();
+                next.font.read(id, value)?;
+            }
+            "font-thicken-strength" => {
+                next.font.thicken_strength = value.parse().map_err(|e| Error::new(id, e))?;
             }
             "font-size" => next.font_size = number()?,
             "adjust-cell-height" => next.cell_height = value.parse()?,
@@ -218,9 +264,38 @@ impl TerminalSettings {
                 next.options.background_opacity = Some(percent / 100.0);
             }
             "background-opacity-cells" => next.options.background_opacity_cells = flag()?,
-            "cursor-style" | "cursor-style-blink" | "window-padding-x" | "window-padding-y" => {
+            "cursor-style"
+            | "cursor-style-blink"
+            | "window-padding-x"
+            | "window-padding-y"
+            | "window-padding-color"
+            | "background"
+            | "foreground"
+            | "cursor-color"
+            | "cursor-text"
+            | "selection-foreground"
+            | "selection-background" => {
                 next.options.read(id, value)?;
             }
+            palette if palette.starts_with("palette-") => {
+                let index = palette
+                    .trim_start_matches("palette-")
+                    .parse::<u8>()
+                    .map_err(|e| Error::new(id, e))?;
+                if value.is_empty() {
+                    next.options.palette.remove(&index);
+                } else {
+                    next.options
+                        .palette
+                        .insert(index, super::options::rgb(value)?);
+                }
+            }
+            "cursor-opacity" => {
+                let percent = number()?;
+                bounded(id, percent, 0.0, 100.0)?;
+                next.options.cursor_opacity = percent / 100.0;
+            }
+            "keybind-clear-defaults" => next.keybindings.clear_defaults = flag()?,
             "adjust-cursor-thickness" => next.options.cursor_thickness = value.parse()?,
             "window-padding-balance" => next.options.padding_balance = flag()?,
             "copy-on-select" => next.options.copy_on_select = Some(flag()?),
@@ -240,6 +315,61 @@ impl TerminalSettings {
         Ok(())
     }
 
+    pub fn edit(&mut self, edit: TerminalEdit) -> Result<()> {
+        let mut next = self.clone();
+        match edit {
+            TerminalEdit::Fallbacks(names) => {
+                next.font_families.truncate(1);
+                next.font_families.extend(names);
+            }
+            TerminalEdit::CodepointMap { previous, map } => {
+                let maps = match map {
+                    Some((range, family)) => {
+                        let mut font = FontOptions::default();
+                        font.read(
+                            "font-codepoint-map",
+                            &format!("{}={}", range.trim(), family.trim()),
+                        )?;
+                        font.codepoints
+                    }
+                    None => Vec::new(),
+                };
+                let replaced = match previous {
+                    Some(previous) => {
+                        let index = next
+                            .font
+                            .codepoints
+                            .iter()
+                            .position(|map| *map == previous)
+                            .ok_or_else(|| {
+                                Error::new("font-codepoint-map", "this map was changed elsewhere")
+                            })?;
+                        index..index + 1
+                    }
+                    None => next.font.codepoints.len()..next.font.codepoints.len(),
+                };
+                next.font.codepoints.splice(replaced, maps);
+            }
+            TerminalEdit::Binding { previous, binding } => {
+                if let Some(previous) = &previous {
+                    next.keybindings.bindings.remove(previous);
+                }
+                if let Some((chord, action)) = binding {
+                    if next.keybindings.bindings.contains_key(&chord) {
+                        return Err(Error::new(
+                            "keybind",
+                            format!("{chord} already has a terminal binding"),
+                        ));
+                    }
+                    next.keybindings.bindings.insert(chord, action.parse()?);
+                }
+            }
+        }
+        next.validate_native()?;
+        *self = next;
+        Ok(())
+    }
+
     pub fn ligatures_enabled(&self) -> bool {
         !self
             .font
@@ -247,6 +377,26 @@ impl TerminalSettings {
             .iter()
             .any(|(name, value)| matches!(name.as_str(), "calt" | "liga" | "dlig") && *value == 0)
     }
+}
+
+fn replace_first(families: &mut Vec<String>, name: &str) {
+    if let Some(family) = families.first_mut() {
+        *family = name.into();
+    } else {
+        families.push(name.into());
+    }
+}
+
+fn replace_first_or_clear(families: &mut Vec<String>, name: &str) {
+    if name.is_empty() {
+        families.clear();
+    } else {
+        replace_first(families, name);
+    }
+}
+
+fn valid_font_name(name: &str) -> bool {
+    !name.trim().is_empty() && !name.chars().any(|ch| ch.is_control() || ch == '"')
 }
 
 fn bounded(name: &str, value: f32, min: f32, max: f32) -> Result<()> {

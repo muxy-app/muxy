@@ -251,3 +251,127 @@ fn terminal_preview_preserves_concurrent_edits_and_rolls_back_failed_saves(
         );
     });
 }
+
+#[gpui::test]
+fn terminal_key_bindings_apply_atomically_and_never_take_a_command_shortcut(
+    cx: &mut TestAppContext,
+) {
+    use muxy_app_core::settings::{CustomCommand, TerminalAction, TerminalEdit, TerminalSettings};
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let (boot, _) = stub_boot(state);
+    let path = boot.state_path.with_file_name("terminal.toml");
+    let (model, cx) = settings_window(boot, cx);
+    model.update(cx, |model, cx| {
+        let pane = model.grids.values().next().expect("pane").view.clone();
+        let command = CustomCommand::new("Build".into(), "cargo build".into());
+        let id = command.shortcut_id();
+        model.change_preference(Change::Command(command), cx);
+        model.change_preference(
+            Change::Binding(id, Some("ctrl-alt-c".parse().expect("chord"))),
+            cx,
+        );
+        let chord = |value: &str| value.parse().expect("chord");
+        let edit = |previous: Option<&str>, binding: Option<(&str, &str)>| {
+            Change::TerminalEdit(TerminalEdit::Binding {
+                previous: previous.map(chord),
+                binding: binding.map(|(key, action)| (chord(key), action.to_owned())),
+            })
+        };
+        model.change_preference(edit(None, Some(("ctrl-alt-x", "text:\\e[A"))), cx);
+        let saved = TerminalSettings::load_native(&path).expect("saved");
+        assert_eq!(saved, model.terminal);
+        assert_eq!(
+            pane.read(cx)
+                .terminal
+                .keybindings
+                .action(&chord("ctrl-alt-x")),
+            Some(&TerminalAction::Text(b"\x1b[A".to_vec()))
+        );
+
+        model.change_preference(
+            edit(
+                Some("ctrl-alt-x"),
+                Some(("ctrl-alt-c", "copy_to_clipboard")),
+            ),
+            cx,
+        );
+        assert!(
+            settings_view(model)
+                .read(cx)
+                .errors
+                .contains_key("terminal-keybindings")
+        );
+        assert_eq!(model.terminal, saved);
+        assert_eq!(TerminalSettings::load_native(&path).expect("kept"), saved);
+
+        model.change_preference(
+            edit(
+                Some("ctrl-alt-x"),
+                Some(("ctrl-alt-y", "paste_from_clipboard")),
+            ),
+            cx,
+        );
+        let bindings = &model.terminal.keybindings;
+        assert_eq!(bindings.action(&chord("ctrl-alt-x")), None);
+        assert_eq!(
+            bindings.action(&chord("ctrl-alt-y")),
+            Some(&TerminalAction::Paste)
+        );
+        model.change_preference(edit(Some("ctrl-alt-y"), None), cx);
+        assert!(model.terminal.keybindings.bindings.is_empty());
+        assert_eq!(
+            TerminalSettings::load_native(&path).expect("saved"),
+            model.terminal
+        );
+    });
+}
+
+#[gpui::test]
+fn hand_edits_to_terminal_settings_load_when_settings_regains_focus(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::TerminalSettings;
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let (boot, _) = stub_boot(state);
+    let path = boot.state_path.with_file_name("terminal.toml");
+    let (model, settings) = settings_window(boot, cx);
+    let main = model.read_with(settings, |model, _| model.window);
+    let focus_main = |settings: &mut VisualTestContext| {
+        settings.update(|_, cx| {
+            let _ = main.update(cx, |_, window, _| window.activate_window());
+        });
+        settings.run_until_parked();
+    };
+    let focus_settings = |settings: &mut VisualTestContext| {
+        settings.update(|window, _| window.activate_window());
+        settings.run_until_parked();
+    };
+
+    focus_main(settings);
+    let mut edited = TerminalSettings::load_native(&path).expect("stored");
+    edited.set_preference("font-size", "19").expect("size");
+    edited
+        .set_preference("background", "#102030")
+        .expect("color");
+    edited.save_native(&path).expect("hand edit");
+    focus_settings(settings);
+    model.read_with(settings, |model, cx| {
+        assert_eq!(model.terminal, edited);
+        let pane = model.grids.values().next().expect("pane").view.read(cx);
+        assert_eq!(pane.terminal.font_size, 19.0);
+        assert_eq!(model.palette.background, 0x10_2030);
+    });
+
+    focus_main(settings);
+    std::fs::write(&path, "font_size = 'broken'").expect("broken hand edit");
+    focus_settings(settings);
+    model.read_with(settings, |model, cx| {
+        assert_eq!(model.terminal, edited);
+        assert!(
+            settings_view(model)
+                .read(cx)
+                .errors
+                .contains_key("configuration")
+        );
+    });
+}

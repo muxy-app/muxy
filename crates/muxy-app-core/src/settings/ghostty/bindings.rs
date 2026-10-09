@@ -84,49 +84,11 @@ impl TerminalBindings {
         } else {
             String::new()
         }];
-        for (chord, action) in &self.bindings {
-            let mut rest = chord.as_str();
-            let mut trigger = String::new();
-            while let Some((part, tail)) = rest.split_once('-') {
-                if !matches!(part, "cmd" | "ctrl" | "alt" | "shift") {
-                    break;
-                }
-                trigger.push_str(part);
-                trigger.push('+');
-                rest = tail;
-            }
-            trigger.push_str(match rest {
-                "=" => "equal",
-                "+" => "plus",
-                "-" => "minus",
-                other => other,
-            });
-            let action = match action {
-                TerminalAction::Text(bytes) => {
-                    use std::fmt::Write as _;
-                    let mut text = String::from("text:");
-                    for byte in bytes {
-                        let _ = write!(text, "\\x{byte:02x}");
-                    }
-                    text
-                }
-                TerminalAction::Ignore => "ignore".into(),
-                TerminalAction::Unbind => "unbind".into(),
-                TerminalAction::Copy => "copy_to_clipboard".into(),
-                TerminalAction::Paste => "paste_from_clipboard".into(),
-                TerminalAction::SelectAll => "select_all".into(),
-                TerminalAction::Reload => "reload_config".into(),
-                TerminalAction::ClearScreen => "clear_screen".into(),
-                TerminalAction::ScrollTop => "scroll_to_top".into(),
-                TerminalAction::ScrollBottom => "scroll_to_bottom".into(),
-                TerminalAction::ScrollPageUp => "scroll_page_up".into(),
-                TerminalAction::ScrollPageDown => "scroll_page_down".into(),
-                TerminalAction::IncreaseFontSize(amount) => format!("increase_font_size:{amount}"),
-                TerminalAction::DecreaseFontSize(amount) => format!("decrease_font_size:{amount}"),
-                TerminalAction::ResetFontSize => "reset_font_size".into(),
-            };
-            lines.push(format!("{trigger}={action}"));
-        }
+        lines.extend(
+            self.bindings
+                .iter()
+                .map(|(chord, action)| format!("{}={action}", trigger(chord))),
+        );
         lines
     }
 
@@ -146,44 +108,131 @@ impl TerminalBindings {
             ));
         }
         let key = chord(trigger.trim())?;
-        let (name, parameter) = action.trim().split_once(':').unwrap_or((action.trim(), ""));
-        if !parameter.is_empty()
-            && !matches!(
-                name,
-                "text" | "esc" | "csi" | "increase_font_size" | "decrease_font_size"
-            )
-        {
-            return Ok(Some(format!(
-                "keybind action {name:?} with parameters is not supported by Muxy"
+        match parse_action(action)? {
+            ParsedAction::Supported(action) => {
+                self.bindings.insert(key, action);
+                Ok(None)
+            }
+            ParsedAction::Unsupported(warning) => Ok(Some(warning)),
+        }
+    }
+}
+
+impl std::str::FromStr for TerminalAction {
+    type Err = Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        match parse_action(value)? {
+            ParsedAction::Supported(action) => Ok(action),
+            ParsedAction::Unsupported(warning) => Err(Error::new("keybind", warning)),
+        }
+    }
+}
+
+impl std::fmt::Display for TerminalAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Text(bytes) => write!(f, "text:{}", escape(bytes)),
+            Self::Ignore => f.write_str("ignore"),
+            Self::Unbind => f.write_str("unbind"),
+            Self::Copy => f.write_str("copy_to_clipboard"),
+            Self::Paste => f.write_str("paste_from_clipboard"),
+            Self::SelectAll => f.write_str("select_all"),
+            Self::Reload => f.write_str("reload_config"),
+            Self::ClearScreen => f.write_str("clear_screen"),
+            Self::ScrollTop => f.write_str("scroll_to_top"),
+            Self::ScrollBottom => f.write_str("scroll_to_bottom"),
+            Self::ScrollPageUp => f.write_str("scroll_page_up"),
+            Self::ScrollPageDown => f.write_str("scroll_page_down"),
+            Self::IncreaseFontSize(amount) => write!(f, "increase_font_size:{amount}"),
+            Self::DecreaseFontSize(amount) => write!(f, "decrease_font_size:{amount}"),
+            Self::ResetFontSize => f.write_str("reset_font_size"),
+        }
+    }
+}
+
+enum ParsedAction {
+    Supported(TerminalAction),
+    Unsupported(String),
+}
+
+fn parse_action(action: &str) -> Result<ParsedAction> {
+    let (name, parameter) = action.split_once(':').unwrap_or((action, ""));
+    let name = name.trim();
+    if !parameter.trim().is_empty()
+        && !matches!(
+            name,
+            "text" | "esc" | "csi" | "increase_font_size" | "decrease_font_size"
+        )
+    {
+        return Ok(ParsedAction::Unsupported(format!(
+            "keybind action {name:?} with parameters is not supported by Muxy"
+        )));
+    }
+    Ok(ParsedAction::Supported(match name {
+        "text" => TerminalAction::Text(unescape(parameter)?),
+        "esc" => TerminalAction::Text([b"\x1b".as_slice(), parameter.as_bytes()].concat()),
+        "csi" => TerminalAction::Text([b"\x1b[".as_slice(), parameter.as_bytes()].concat()),
+        "ignore" => TerminalAction::Ignore,
+        "unbind" => TerminalAction::Unbind,
+        "copy_to_clipboard" => TerminalAction::Copy,
+        "paste_from_clipboard" => TerminalAction::Paste,
+        "select_all" => TerminalAction::SelectAll,
+        "reload_config" => TerminalAction::Reload,
+        "clear_screen" => TerminalAction::ClearScreen,
+        "scroll_to_top" => TerminalAction::ScrollTop,
+        "scroll_to_bottom" => TerminalAction::ScrollBottom,
+        "scroll_page_up" => TerminalAction::ScrollPageUp,
+        "scroll_page_down" => TerminalAction::ScrollPageDown,
+        "increase_font_size" => TerminalAction::IncreaseFontSize(font_amount(parameter.trim())?),
+        "decrease_font_size" => TerminalAction::DecreaseFontSize(font_amount(parameter.trim())?),
+        "reset_font_size" => TerminalAction::ResetFontSize,
+        _ => {
+            return Ok(ParsedAction::Unsupported(format!(
+                "keybind action {name:?} is not supported by Muxy"
             )));
         }
-        let action = match name {
-            "text" => TerminalAction::Text(unescape(parameter)?),
-            "esc" => TerminalAction::Text([b"\x1b".as_slice(), parameter.as_bytes()].concat()),
-            "csi" => TerminalAction::Text([b"\x1b[".as_slice(), parameter.as_bytes()].concat()),
-            "ignore" => TerminalAction::Ignore,
-            "unbind" => TerminalAction::Unbind,
-            "copy_to_clipboard" => TerminalAction::Copy,
-            "paste_from_clipboard" => TerminalAction::Paste,
-            "select_all" => TerminalAction::SelectAll,
-            "reload_config" => TerminalAction::Reload,
-            "clear_screen" => TerminalAction::ClearScreen,
-            "scroll_to_top" => TerminalAction::ScrollTop,
-            "scroll_to_bottom" => TerminalAction::ScrollBottom,
-            "scroll_page_up" => TerminalAction::ScrollPageUp,
-            "scroll_page_down" => TerminalAction::ScrollPageDown,
-            "increase_font_size" => TerminalAction::IncreaseFontSize(font_amount(parameter)?),
-            "decrease_font_size" => TerminalAction::DecreaseFontSize(font_amount(parameter)?),
-            "reset_font_size" => TerminalAction::ResetFontSize,
-            _ => {
-                return Ok(Some(format!(
-                    "keybind action {name:?} is not supported by Muxy"
-                )));
-            }
-        };
-        self.bindings.insert(key, action);
-        Ok(None)
+    }))
+}
+
+fn trigger(chord: &KeyChord) -> String {
+    let mut rest = chord.as_str();
+    let mut trigger = String::new();
+    while let Some((part, tail)) = rest.split_once('-') {
+        if !matches!(part, "cmd" | "ctrl" | "alt" | "shift") {
+            break;
+        }
+        trigger.push_str(part);
+        trigger.push('+');
+        rest = tail;
     }
+    trigger.push_str(match rest {
+        "=" => "equal",
+        "+" => "plus",
+        "-" => "minus",
+        other => other,
+    });
+    trigger
+}
+
+fn escape(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::new();
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte {
+            b'\n' => text.push_str("\\n"),
+            b'\r' => text.push_str("\\r"),
+            b'\t' => text.push_str("\\t"),
+            0x1b => text.push_str("\\e"),
+            b'\\' => text.push_str("\\\\"),
+            b' ' if index + 1 < bytes.len() => text.push(' '),
+            b'!'..=b'~' => text.push(char::from(byte)),
+            _ => {
+                let _ = write!(text, "\\x{byte:02x}");
+            }
+        }
+    }
+    text
 }
 
 fn font_amount(value: &str) -> Result<f32> {

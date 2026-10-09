@@ -87,9 +87,9 @@ and transparency settings. `Cmd+W` ends its terminal.
 
 ## Appearance and configuration
 
-Fonts, transparency, vibrancy, cursor, padding, selection, and scrolling have native controls
-in **Settings → Terminal**. Themes are in **Settings → Appearance**. Existing
-terminal key bindings are migrated automatically. See
+Fonts, colors, transparency, vibrancy, cursor, padding, selection, scrolling,
+and key bindings are in **Settings → Terminal**, saved to `terminal.toml`.
+Themes are in **Settings → Appearance**. See
 [Settings](../user-guide/settings.md#terminal-configuration).
 
 - `Cmd+=` and `Cmd+-` change the focused pane's font size. `Cmd+0` resets it.

@@ -103,7 +103,7 @@ stop.
 - App preferences live in `settings.toml`, terminal preferences in
   `terminal.toml`, and custom themes in `themes/`.
 - Every app shortcut can be changed in Settings → Keyboard. Terminal key
-  bindings include migrated overrides in `terminal.toml`, and the Quick Terminal
+  bindings are set in Settings → Terminal, and the Quick Terminal
   shortcut has its own setting. Normal keystrokes in a terminal always go to
   the terminal.
 - **Settings → Appearance → App language** picks the interface language. English

@@ -1,8 +1,13 @@
+use super::pickers::FontSlot;
+use super::terminal_lists::{self, BINDING_ACTION};
 use super::{Category, Change, PickerKind, SettingsEvent, SettingsView, catalog};
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
 };
-use muxy_app_core::settings::{CellHeight, NewPaneDirectory, TerminalSettings};
+use muxy_app_core::settings::{
+    CellHeight, NewPaneDirectory, PaddingColor, TerminalColor, TerminalSettings,
+};
 use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
@@ -10,10 +15,12 @@ use muxy_ui::tr;
 pub(super) const SECTIONS: &[&str] = &[
     tr_key!("Font"),
     tr_key!("Background"),
+    tr_key!("Colors"),
     tr_key!("Cursor"),
     tr_key!("Selection"),
     tr_key!("Scrolling"),
     tr_key!("Input"),
+    tr_key!("Key bindings"),
     tr_key!("Migration"),
 ];
 pub(super) const PICKERS: &[&str] = &[
@@ -24,7 +31,214 @@ pub(super) const PICKERS: &[&str] = &[
     "adjust-cell-height",
     "adjust-cell-width",
     "adjust-cursor-thickness",
+    "window-padding-color",
+    BINDING_ACTION,
 ];
+const COLORS: [&str; 6] = [
+    "background",
+    "foreground",
+    "cursor-color",
+    "cursor-text",
+    "selection-foreground",
+    "selection-background",
+];
+const PALETTE: [&str; 16] = [
+    "palette-0",
+    "palette-1",
+    "palette-2",
+    "palette-3",
+    "palette-4",
+    "palette-5",
+    "palette-6",
+    "palette-7",
+    "palette-8",
+    "palette-9",
+    "palette-10",
+    "palette-11",
+    "palette-12",
+    "palette-13",
+    "palette-14",
+    "palette-15",
+];
+
+pub(super) fn fields() -> impl Iterator<Item = &'static str> {
+    std::iter::once("font-feature").chain(COLORS).chain(PALETTE)
+}
+
+pub(super) fn field_values(
+    terminal: &TerminalSettings,
+) -> impl Iterator<Item = (&'static str, String)> + '_ {
+    std::iter::once(("font-feature", terminal.font.feature_list()))
+        .chain(
+            COLORS
+                .into_iter()
+                .map(|id| (id, color(terminal, id).map_or_else(String::new, color_text))),
+        )
+        .chain(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
+            (
+                id,
+                terminal
+                    .options
+                    .palette
+                    .get(&index)
+                    .map_or_else(String::new, |rgb| format!("#{rgb:06x}")),
+            )
+        }))
+}
+
+fn color(terminal: &TerminalSettings, id: &str) -> Option<TerminalColor> {
+    let options = &terminal.options;
+    match id {
+        "background" => options.background.map(TerminalColor::Rgb),
+        "foreground" => options.foreground.map(TerminalColor::Rgb),
+        "cursor-color" => options.cursor_color,
+        "cursor-text" => options.cursor_text,
+        "selection-foreground" => options.selection_foreground,
+        _ => options.selection_background,
+    }
+}
+
+fn color_text(color: TerminalColor) -> String {
+    match color {
+        TerminalColor::Rgb(rgb) => format!("#{rgb:06x}"),
+        other => String::from(other),
+    }
+}
+
+fn swatch(pane: &SettingsView, color: Option<TerminalColor>) -> AnyElement {
+    div()
+        .size(px(16.0))
+        .flex_none()
+        .rounded(px(3.0))
+        .border_1()
+        .border_color(pane.theme.border)
+        .when_some(
+            color.and_then(|color| match color {
+                TerminalColor::Rgb(rgb) => Some(rgb),
+                _ => None,
+            }),
+            |swatch, rgb| swatch.bg(gpui::rgb(rgb)),
+        )
+        .into_any_element()
+}
+
+pub(super) fn change_button(
+    pane: &SettingsView,
+    id: &str,
+    label: &str,
+    enabled: bool,
+    change: Change,
+    cx: &mut Context<SettingsView>,
+) -> AnyElement {
+    controls::button(
+        pane.style(),
+        id,
+        label,
+        enabled,
+        cx.listener(move |pane, _, _, cx| {
+            pane.recording = None;
+            cx.emit(SettingsEvent::Change(change.clone()));
+        }),
+    )
+    .into_any_element()
+}
+
+fn color_control(
+    pane: &SettingsView,
+    id: &'static str,
+    cx: &mut Context<SettingsView>,
+) -> AnyElement {
+    let color = color(&pane.snapshot.terminal, id);
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(swatch(pane, color))
+        .child(pane.field(id))
+        .child(change_button(
+            pane,
+            &format!("{id}-theme"),
+            &tr!("Use Theme"),
+            color.is_some(),
+            Change::Terminal(id, String::new()),
+            cx,
+        ))
+        .into_any_element()
+}
+
+fn palette_control(pane: &SettingsView) -> AnyElement {
+    let palette = &pane.snapshot.terminal.options.palette;
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(8.0))
+                .children(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .w(px(18.0))
+                                .text_size(px(12.0))
+                                .text_color(pane.theme.fg_muted)
+                                .child(index.to_string()),
+                        )
+                        .child(swatch(
+                            pane,
+                            palette.get(&index).copied().map(TerminalColor::Rgb),
+                        ))
+                        .child(controls::text_field(
+                            pane.style(),
+                            id,
+                            &pane.fields[id],
+                            Some(84.0),
+                        ))
+                })),
+        )
+        .children(
+            PALETTE
+                .into_iter()
+                .filter_map(|id| pane.errors.get(id).map(|error| pane.note(error, true))),
+        )
+        .into_any_element()
+}
+
+fn style_font(pane: &SettingsView, slot: FontSlot, cx: &mut Context<SettingsView>) -> AnyElement {
+    let font = &pane.snapshot.terminal.font;
+    let current = match slot {
+        FontSlot::Bold => font.bold.first(),
+        FontSlot::Italic => font.italic.first(),
+        _ => font.bold_italic.first(),
+    };
+    let default = tr!("Default");
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(8.0))
+        .child(pane.picker(
+            PickerKind::Font(slot),
+            current.map_or(default.as_ref(), String::as_str),
+            cx,
+        ))
+        .when(current.is_some(), |row| {
+            row.child(change_button(
+                pane,
+                &format!("{}-default", slot.id()),
+                &tr!("Use Default"),
+                true,
+                Change::Terminal(slot.id(), String::new()),
+                cx,
+            ))
+        })
+        .into_any_element()
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct Slider {
@@ -110,6 +324,20 @@ pub(super) fn choices(pane: &SettingsView, id: &str) -> (String, Vec<(&'static s
                 ("current", tr!("Current pane")),
             ],
         ),
+        "window-padding-color" => (
+            match terminal.options.padding_color {
+                PaddingColor::Background => "background",
+                PaddingColor::Extend => "extend",
+                PaddingColor::ExtendAlways => "extend-always",
+            }
+            .to_owned(),
+            vec![
+                ("background", tr!("Background")),
+                ("extend", tr!("Extend")),
+                ("extend-always", tr!("Extend always")),
+            ],
+        ),
+        BINDING_ACTION => return terminal_lists::action_choices(pane),
         _ => (
             (if matches!(adjustment(terminal, id), CellHeight::Percent(_)) {
                 "percent"
@@ -275,6 +503,7 @@ pub(super) fn rows(
             "scroll-on-keystroke" => Some(options.scroll_on_keystroke),
             "scroll-on-output" => Some(options.scroll_on_output),
             "mouse-reporting" => Some(options.mouse_reporting),
+            "keybind-clear-defaults" => Some(terminal.keybindings.clear_defaults),
             _ => None,
         };
         let control = if let Some(value) = toggle {
@@ -282,7 +511,7 @@ pub(super) fn rows(
         } else {
             match id {
                 "font-family" => pane.picker(
-                    PickerKind::FontFamily,
+                    PickerKind::Font(FontSlot::Regular),
                     terminal
                         .font_families
                         .first()
@@ -290,6 +519,44 @@ pub(super) fn rows(
                     cx,
                 ),
                 "font-size" => slider(pane, id, terminal.font_size, (6.0, 48.0), 0.5, "", cx),
+                "font-family-bold" => style_font(pane, FontSlot::Bold, cx),
+                "font-family-italic" => style_font(pane, FontSlot::Italic, cx),
+                "font-family-bold-italic" => style_font(pane, FontSlot::BoldItalic, cx),
+                "font-feature" => pane.field(id),
+                "font-thicken-strength" => slider(
+                    pane,
+                    id,
+                    f32::from(terminal.font.thicken_strength),
+                    (0.0, 255.0),
+                    1.0,
+                    "",
+                    cx,
+                ),
+                "cursor-opacity" => slider(
+                    pane,
+                    id,
+                    options.cursor_opacity * 100.0,
+                    (0.0, 100.0),
+                    1.0,
+                    "%",
+                    cx,
+                ),
+                "background"
+                | "foreground"
+                | "cursor-color"
+                | "cursor-text"
+                | "selection-foreground"
+                | "selection-background" => color_control(pane, id, cx),
+                "font-fallbacks" | "font-codepoint-map" | "palette" | "terminal-keybindings" => {
+                    let control = match id {
+                        "font-fallbacks" => terminal_lists::fallbacks(pane, cx),
+                        "font-codepoint-map" => terminal_lists::codepoint_maps(pane, cx),
+                        "palette" => palette_control(pane),
+                        _ => terminal_lists::bindings(pane, cx),
+                    };
+                    rows.push(pane.row_with(id, setting.label, control, true));
+                    continue;
+                }
                 "background-transparency" => slider(
                     pane,
                     id,
@@ -350,9 +617,11 @@ pub(super) fn rows(
                         }))
                         .into_any_element()
                 }
-                "cursor-style" | "cursor-style-blink" | "macos-option-as-alt" | "directory" => {
-                    picker(pane, id, cx)
-                }
+                "cursor-style"
+                | "cursor-style-blink"
+                | "macos-option-as-alt"
+                | "directory"
+                | "window-padding-color" => picker(pane, id, cx),
                 "terminal-import-notes" if !terminal.diagnostics.is_empty() => {
                     let messages = terminal.diagnostics.iter().map(|note| {
                         note.split_once(": ")
@@ -378,6 +647,44 @@ pub(super) fn rows(
 }
 
 impl SettingsView {
+    pub(super) fn active_font(&self, slot: FontSlot) -> String {
+        let terminal = &self.snapshot.terminal;
+        match slot {
+            FontSlot::Regular => terminal.font_families.first(),
+            FontSlot::Fallback => None,
+            FontSlot::Bold => terminal.font.bold.first(),
+            FontSlot::Italic => terminal.font.italic.first(),
+            FontSlot::BoldItalic => terminal.font.bold_italic.first(),
+            FontSlot::Codepoint => self
+                .codepoint_editor
+                .as_ref()
+                .map(terminal_lists::CodepointEditor::family),
+        }
+        .cloned()
+        .unwrap_or_default()
+    }
+
+    pub(super) fn select_font(&mut self, slot: FontSlot, name: String, cx: &mut Context<Self>) {
+        match slot {
+            FontSlot::Fallback => self.add_fallback(name, cx),
+            FontSlot::Codepoint => self.choose_codepoint_font(name, cx),
+            slot => cx.emit(SettingsEvent::Change(Change::Terminal(slot.id(), name))),
+        }
+    }
+
+    pub(super) fn choose_terminal_option(
+        &mut self,
+        id: &'static str,
+        value: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if id == BINDING_ACTION {
+            self.choose_binding_action(value, cx);
+        } else {
+            cx.emit(SettingsEvent::Change(choice_change(self, id, value)));
+        }
+    }
+
     pub(super) fn move_terminal_slider(
         &mut self,
         position: gpui::Point<gpui::Pixels>,

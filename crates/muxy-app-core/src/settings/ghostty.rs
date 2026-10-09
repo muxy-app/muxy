@@ -11,6 +11,7 @@ mod native;
 mod options;
 pub use bindings::{TerminalAction, TerminalBindings};
 pub use fonts::{FontMap, FontOptions};
+pub use native::TerminalEdit;
 pub use options::{PaddingColor, TerminalColor, TerminalOptions};
 
 const DEFAULT_CONFIG: &str = "font-family = Menlo\nfont-size = 13\nadjust-cell-height = 0\n";
@@ -323,10 +324,14 @@ impl TerminalSettings {
                 .trim();
             let optional = key == "config-file" && value.starts_with('?');
             let value = if optional { &value[1..] } else { value };
-            let value = if key == "font-feature" {
-                value
-            } else {
-                config_value(value).map_err(|error| Error::new(&context, error))?
+            let value = match key {
+                "font-feature" => value,
+                "font-family"
+                | "font-family-bold"
+                | "font-family-italic"
+                | "font-family-bold-italic"
+                | "font-codepoint-map" => config_value(value).unwrap_or(value),
+                _ => config_value(value).map_err(|error| Error::new(&context, error))?,
             };
             match key {
                 key if self

@@ -87,8 +87,8 @@ If `muxy --version` shows 1.x, Muxy 1.x's CLI comes first on your `PATH`.
 
 - `Option` acts as `Alt` in terminals. Choose **Neither** under
   **Settings → Terminal → Option as Alt** to type special characters.
-- Imported custom terminal key bindings win over app shortcuts while a terminal
-  is focused. They are preserved in `terminal.toml`.
+- Key bindings in **Settings → Terminal → Key bindings** win over app
+  shortcuts while a terminal is focused.
 
 ## Start fresh
 

@@ -64,7 +64,7 @@ A line feed is a new line in many AI tools, but shells treat it like Return.
 - Changes are saved to `settings.toml` under `[keymap]`, for example
   `split_right = "cmd-alt-d"`.
 - Terminal keys such as clear screen, line editing, and scrolling have built-in
-  bindings. Existing custom bindings are migrated into `terminal.toml` and
-  still take precedence while a terminal is focused.
+  bindings. Add your own in **Settings → Terminal → Key bindings**; they take
+  precedence while a terminal is focused.
 - Commands from **Settings → Commands** and extensions can have shortcuts too.
 - The Quick Terminal shortcut is set in **Settings → Quick Terminal**.
