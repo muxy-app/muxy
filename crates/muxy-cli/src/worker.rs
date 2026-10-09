@@ -80,8 +80,13 @@ pub(crate) struct Worker {
 
 impl Worker {
     /// Starts serving `target`, beginning with `first` if it is already
-    /// connected.
-    pub(crate) fn start(target: Target, first: Option<Client>, viewport: Rect) -> Result<Self> {
+    /// connected, and showing the project `open` once connected.
+    pub(crate) fn start(
+        target: Target,
+        first: Option<Client>,
+        viewport: Rect,
+        open: Option<ProjectId>,
+    ) -> Result<Self> {
         let mut initial = Shared::default();
         target.describe().clone_into(&mut initial.server);
         let shared = Arc::new(Mutex::new(initial));
@@ -100,6 +105,7 @@ impl Worker {
             stop: Arc::clone(&stop),
             connection: Arc::clone(&connection),
             store: None,
+            opening: open,
             references: None,
             acknowledged: BTreeSet::new(),
             input: Arc::clone(&input),
@@ -211,6 +217,8 @@ struct Core {
     stop: Arc<AtomicBool>,
     connection: Arc<Mutex<Option<Client>>>,
     store: Option<Store>,
+    /// The project to show once the layout is loaded.
+    opening: Option<ProjectId>,
     references: Option<(u64, Vec<SessionId>)>,
     /// Activity events already marked as seen.
     acknowledged: BTreeSet<u64>,
@@ -347,6 +355,10 @@ impl Core {
         self.load_layout(&catalog)?;
         self.store_mut()?
             .change(|state| state.reconcile(&catalog))?;
+        if let Some(project) = self.opening.take() {
+            self.store_mut()?
+                .change(|state| state.open(project, &catalog))?;
+        }
         let references = self.store_mut()?.state.session_references();
         let live = client.list_sessions().map_err(|error| error.to_string())?;
         let ended: Vec<_> = references

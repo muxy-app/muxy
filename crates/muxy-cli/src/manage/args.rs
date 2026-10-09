@@ -54,6 +54,8 @@ pub(crate) enum Project {
     Add {
         directory: PathBuf,
         name: Option<String>,
+        create: bool,
+        reuse: bool,
     },
     Rename {
         project: String,
@@ -70,6 +72,8 @@ pub(crate) enum Project {
     Delete(String),
 }
 
+/// Session commands. A missing session or project means the terminal this
+/// command runs in.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Session {
     List {
@@ -77,39 +81,53 @@ pub(crate) enum Session {
         all: bool,
     },
     Create {
-        project: String,
+        project: Option<String>,
         directory: Option<PathBuf>,
         size: Size,
+        /// Typed into the new terminal, followed by Return.
+        command: Option<String>,
     },
-    End(SessionId),
-    Discard(SessionId),
+    End(Option<SessionId>),
+    Discard(Option<SessionId>),
     Send {
-        session: SessionId,
+        session: Option<SessionId>,
         text: String,
     },
     Key {
-        session: SessionId,
+        session: Option<SessionId>,
         bytes: Vec<u8>,
     },
     Screen {
-        session: SessionId,
+        session: Option<SessionId>,
         lines: usize,
         saved: bool,
     },
     History {
-        session: SessionId,
+        session: Option<SessionId>,
         before: HistoryCursor,
         limit: u16,
         saved: bool,
     },
     Search {
-        session: SessionId,
+        session: Option<SessionId>,
         query: String,
         before: HistoryCursor,
         limit: u16,
         ignore_case: bool,
         saved: bool,
     },
+    Wait {
+        session: Option<SessionId>,
+        until: Until,
+        timeout_ms: u32,
+    },
+}
+
+/// What `session wait` waits for.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum Until {
+    Text { text: String, ignore_case: bool },
+    Exit,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -117,15 +135,28 @@ pub(crate) enum Worktree {
     List(String),
     Create {
         project: String,
-        directory: PathBuf,
+        name: String,
         branch: String,
         base: Option<String>,
+        directory: Option<PathBuf>,
+        hooks: bool,
+    },
+    CheckoutPullRequest {
+        project: String,
+        number: u64,
+        name: Option<String>,
+        directory: Option<PathBuf>,
+        hooks: bool,
     },
     Register {
         project: String,
         directory: PathBuf,
     },
-    Remove(String),
+    Remove {
+        worktree: String,
+        force: bool,
+        hooks: bool,
+    },
 }
 
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
@@ -141,21 +172,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
     }
     let verb = arguments.get(1).map_or(Ok(""), |s| text(s))?;
     let rest = arguments.get(2..).unwrap_or_default();
-    let (values, flags): (&[&str], &[&str]) = match (group, verb) {
-        ("project", "add") => (&["--name"], &[]),
-        ("project", "delete") | ("session", "end" | "discard") | ("worktree", "remove") => {
-            (&[], &["--yes"])
-        }
-        ("server", "stop") => (&[], &["--force"]),
-        ("session", "list") => (&["--project"], &["--all"]),
-        ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
-        ("session", "read-screen") => (&["--lines"], &["--saved"]),
-        ("session", "history") => (&["--before", "--limit"], &["--saved"]),
-        ("session", "search") => (&["--before", "--limit"], &["--saved", "--ignore-case"]),
-        ("worktree", "create") => (&["--branch", "--base"], &["--existing"]),
-        ("exec", _) => (&["--timeout-ms"], &[]),
-        _ => (&[], &[]),
-    };
+    let (values, flags) = options(group, verb);
     let mut options = Options::parse(rest, values, flags)?;
     let action = match group {
         "server" => Action::Server(server(verb, &mut options)?),
@@ -228,6 +245,29 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
     })
 }
 
+/// The options that take a value, and the flags, of `group verb`.
+fn options(group: &str, verb: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match (group, verb) {
+        ("project", "add") => (&["--name"], &["--create", "--reuse"]),
+        ("project", "delete") | ("session", "end" | "discard") => (&[], &["--yes"]),
+        ("worktree", "remove") => (&[], &["--yes", "--force", "--hooks"]),
+        ("server", "stop") => (&[], &["--force"]),
+        ("session", "list") => (&["--project"], &["--all"]),
+        ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
+        ("session", "read-screen") => (&["--lines"], &["--saved"]),
+        ("session", "history") => (&["--before", "--limit"], &["--saved"]),
+        ("session", "search") => (&["--before", "--limit"], &["--saved", "--ignore-case"]),
+        ("session", "wait") => (&["--text", "--timeout-ms"], &["--exit", "--ignore-case"]),
+        ("worktree", "create") => (
+            &["--branch", "--base", "--directory"],
+            &["--existing", "--hooks"],
+        ),
+        ("worktree", "checkout-pr") => (&["--name", "--directory"], &["--hooks"]),
+        ("exec", _) => (&["--timeout-ms"], &[]),
+        _ => (&[], &[]),
+    }
+}
+
 fn server(verb: &str, options: &mut Options<'_>) -> io::Result<Server> {
     options.count(0)?;
     match verb {
@@ -251,6 +291,8 @@ fn project(verb: &str, o: &mut Options<'_>) -> io::Result<Project> {
             Ok(Project::Add {
                 directory: o.words[0].into(),
                 name: o.value("--name")?.map(str::to_owned),
+                create: o.flag("--create"),
+                reuse: o.flag("--reuse"),
             })
         }
         "rename" | "set-color" => {
@@ -293,27 +335,32 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
         });
     }
     if verb == "create" {
-        o.count(1)?;
-        return Ok(Session::Create {
-            project: o.word(0)?.into(),
-            directory: o.values.get("--directory").map(PathBuf::from),
-            size: Size {
-                cols: o.number("--cols", 80, 1, muxy_protocol::MAX_COLS)?,
-                rows: o.number("--rows", 24, 1, muxy_protocol::MAX_ROWS)?,
-            },
-        });
+        return create_session(o);
     }
-    o.count(if matches!(verb, "send" | "send-keys" | "search") {
-        2
+    let arguments = match verb {
+        "send" | "send-keys" | "search" => 1,
+        "end" | "discard" | "read-screen" | "history" | "wait" => 0,
+        _ => return Err(invalid(help::SESSION)),
+    };
+    // The session ID comes first and may be left out inside a Muxy terminal.
+    let given = o
+        .words
+        .len()
+        .checked_sub(arguments)
+        .filter(|given| *given <= 1)
+        .ok_or_else(|| invalid("wrong number of arguments; run muxy <command> --help"))?;
+    let session = if given == 1 {
+        Some(
+            o.word(0)?
+                .parse::<u64>()
+                .ok()
+                .and_then(SessionId::new)
+                .ok_or_else(|| invalid("session ID must be a nonzero decimal integer"))?,
+        )
     } else {
-        1
-    })?;
-    let session = o
-        .word(0)?
-        .parse::<u64>()
-        .ok()
-        .and_then(SessionId::new)
-        .ok_or_else(|| invalid("session ID must be a nonzero decimal integer"))?;
+        None
+    };
+    let argument = || o.word(given);
     let saved = o.flag("--saved");
     match verb {
         "end" => {
@@ -326,11 +373,16 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
         }
         "send" => Ok(Session::Send {
             session,
-            text: o.word(1)?.into(),
+            text: argument()?.into(),
         }),
         "send-keys" => Ok(Session::Key {
             session,
-            bytes: key(o.word(1)?)?.to_vec(),
+            bytes: key(argument()?)?.to_vec(),
+        }),
+        "wait" => Ok(Session::Wait {
+            session,
+            until: until(o)?,
+            timeout_ms: o.number("--timeout-ms", 30_000, 1, 3_600_000)?,
         }),
         "read-screen" => Ok(Session::Screen {
             session,
@@ -344,7 +396,7 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
             saved,
         }),
         "search" => {
-            let query = o.word(1)?.to_owned();
+            let query = argument()?.to_owned();
             let limit = o.number("--limit", 100, 1, 500)?;
             muxy_protocol::validate_search(&query, limit)
                 .map_err(|_| invalid("search query must contain 1 to 256 bytes"))?;
@@ -358,6 +410,46 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
             })
         }
         _ => Err(invalid(help::SESSION)),
+    }
+}
+
+/// `session create [project] [options] [-- COMMAND...]`.
+fn create_session(o: &Options<'_>) -> io::Result<Session> {
+    let (project, command) = o.words.split_at(o.literal.unwrap_or(o.words.len()));
+    if project.len() > 1 {
+        return Err(invalid(help::SESSION));
+    }
+    let command = command
+        .iter()
+        .map(|word| text(word))
+        .collect::<io::Result<Vec<_>>>()?
+        .join(" ");
+    if o.literal.is_some() && command.trim().is_empty() {
+        return Err(invalid("missing command after --"));
+    }
+    Ok(Session::Create {
+        project: project
+            .first()
+            .map(|word| text(word))
+            .transpose()?
+            .map(str::to_owned),
+        directory: o.values.get("--directory").map(PathBuf::from),
+        size: Size {
+            cols: o.number("--cols", 80, 1, muxy_protocol::MAX_COLS)?,
+            rows: o.number("--rows", 24, 1, muxy_protocol::MAX_ROWS)?,
+        },
+        command: o.literal.map(|_| command),
+    })
+}
+
+fn until(o: &Options<'_>) -> io::Result<Until> {
+    match (o.value("--text")?, o.flag("--exit")) {
+        (Some(text), false) => Ok(Until::Text {
+            text: text.into(),
+            ignore_case: o.flag("--ignore-case"),
+        }),
+        (None, true) if !o.flag("--ignore-case") => Ok(Until::Exit),
+        _ => Err(invalid("use either --text TEXT [--ignore-case] or --exit")),
     }
 }
 
@@ -376,28 +468,50 @@ fn worktree(verb: &str, o: &mut Options<'_>) -> io::Result<Worktree> {
         }
         "create" => {
             o.count(2)?;
-            let branch = o
-                .value("--branch")?
-                .ok_or_else(|| invalid("--branch is required"))?
-                .into();
+            let name = o.word(1)?.trim();
+            if name.is_empty() {
+                return Err(invalid("worktree name must not be empty"));
+            }
             if o.flag("--existing") && o.value("--base")?.is_some() {
                 return Err(invalid("--base and --existing cannot be combined"));
             }
             Ok(Worktree::Create {
                 project: o.word(0)?.into(),
-                directory: o.words[1].into(),
-                branch,
+                name: name.into(),
+                branch: o.value("--branch")?.unwrap_or(name).into(),
                 base: if o.flag("--existing") {
                     None
                 } else {
                     Some(o.value("--base")?.unwrap_or("HEAD").into())
                 },
+                directory: o.values.get("--directory").map(PathBuf::from),
+                hooks: o.flag("--hooks"),
+            })
+        }
+        "checkout-pr" => {
+            o.count(2)?;
+            Ok(Worktree::CheckoutPullRequest {
+                project: o.word(0)?.into(),
+                number: o
+                    .word(1)?
+                    .trim_start_matches('#')
+                    .parse()
+                    .ok()
+                    .filter(|number| *number > 0)
+                    .ok_or_else(|| invalid("pull request number must be a positive integer"))?,
+                name: o.value("--name")?.map(str::to_owned),
+                directory: o.values.get("--directory").map(PathBuf::from),
+                hooks: o.flag("--hooks"),
             })
         }
         "remove" => {
             o.count(1)?;
             o.confirm()?;
-            Ok(Worktree::Remove(o.word(0)?.into()))
+            Ok(Worktree::Remove {
+                worktree: o.word(0)?.into(),
+                force: o.flag("--force"),
+                hooks: o.flag("--hooks"),
+            })
         }
         _ => Err(invalid(help::WORKTREE)),
     }
@@ -422,6 +536,8 @@ struct Options<'a> {
     words: Vec<&'a OsStr>,
     values: BTreeMap<&'a str, &'a OsStr>,
     flags: BTreeSet<&'a str>,
+    /// How many words came before `--`, if it was given.
+    literal: Option<usize>,
 }
 impl<'a> Options<'a> {
     fn parse(words: &'a [OsString], values: &[&str], flags: &[&str]) -> io::Result<Self> {
@@ -429,10 +545,12 @@ impl<'a> Options<'a> {
             words: Vec::new(),
             values: BTreeMap::new(),
             flags: BTreeSet::new(),
+            literal: None,
         };
         let mut words = words.iter().map(OsString::as_os_str);
         while let Some(word) = words.next() {
             if word == "--" {
+                result.literal = Some(result.words.len());
                 result.words.extend(words);
                 break;
             }
@@ -541,8 +659,161 @@ mod tests {
                 "--existing",
             ],
             vec!["session", "history", "1", "--limit", "501"],
+            vec!["session", "create", "Home", "Other"],
+            vec!["session", "create", "Home", "--"],
+            vec!["session", "send", "1", "two", "three"],
+            vec!["session", "wait", "1"],
+            vec!["session", "wait", "--text", "a", "--exit"],
+            vec!["session", "wait", "--exit", "--ignore-case"],
+            vec!["session", "wait", "--exit", "--timeout-ms", "3600001"],
+            vec!["worktree", "create", "Home", " "],
+            vec!["worktree", "checkout-pr", "Home", "0"],
+            vec!["worktree", "checkout-pr", "Home", "twelve"],
         ] {
             assert!(words(&args).is_err(), "{args:?}");
         }
+    }
+
+    fn action(arguments: &[&str]) -> io::Result<Action> {
+        words(arguments).map(|invocation| invocation.action)
+    }
+
+    #[test]
+    fn session_commands_default_to_the_calling_terminal() -> io::Result<()> {
+        let id = SessionId::new(5);
+        assert_eq!(
+            action(&["session", "send", "hello"])?,
+            Action::Session(Session::Send {
+                session: None,
+                text: "hello".into()
+            })
+        );
+        assert_eq!(
+            action(&["session", "send", "5", "hello"])?,
+            Action::Session(Session::Send {
+                session: id,
+                text: "hello".into()
+            })
+        );
+        assert_eq!(
+            action(&["session", "end", "--yes"])?,
+            Action::Session(Session::End(None))
+        );
+        assert_eq!(
+            action(&["session", "search", "5", "error"])?,
+            action(&["session", "search", "5", "error", "--limit", "100"])?
+        );
+        assert_eq!(
+            action(&[
+                "session",
+                "create",
+                "--rows",
+                "30",
+                "--",
+                "npm",
+                "run",
+                "dev --watch"
+            ])?,
+            Action::Session(Session::Create {
+                project: None,
+                directory: None,
+                size: Size { cols: 80, rows: 30 },
+                command: Some("npm run dev --watch".into()),
+            })
+        );
+        assert_eq!(
+            action(&["session", "create", "Home"])?,
+            Action::Session(Session::Create {
+                project: Some("Home".into()),
+                directory: None,
+                size: Size { cols: 80, rows: 24 },
+                command: None,
+            })
+        );
+        assert_eq!(
+            action(&["session", "wait", "5", "--text", "ready", "--ignore-case"])?,
+            Action::Session(Session::Wait {
+                session: id,
+                until: Until::Text {
+                    text: "ready".into(),
+                    ignore_case: true
+                },
+                timeout_ms: 30_000,
+            })
+        );
+        assert_eq!(
+            action(&["session", "wait", "--exit", "--timeout-ms", "500"])?,
+            Action::Session(Session::Wait {
+                session: None,
+                until: Until::Exit,
+                timeout_ms: 500,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn worktree_and_project_options() -> io::Result<()> {
+        assert_eq!(
+            action(&["worktree", "create", "App", "login"])?,
+            Action::Worktree(Worktree::Create {
+                project: "App".into(),
+                name: "login".into(),
+                branch: "login".into(),
+                base: Some("HEAD".into()),
+                directory: None,
+                hooks: false,
+            })
+        );
+        assert_eq!(
+            action(&[
+                "worktree",
+                "create",
+                "App",
+                "fix",
+                "--branch",
+                "fix/x",
+                "--existing",
+                "--directory",
+                "/tmp/fix",
+                "--hooks",
+            ])?,
+            Action::Worktree(Worktree::Create {
+                project: "App".into(),
+                name: "fix".into(),
+                branch: "fix/x".into(),
+                base: None,
+                directory: Some("/tmp/fix".into()),
+                hooks: true,
+            })
+        );
+        assert_eq!(
+            action(&["worktree", "checkout-pr", "App", "#12"])?,
+            Action::Worktree(Worktree::CheckoutPullRequest {
+                project: "App".into(),
+                number: 12,
+                name: None,
+                directory: None,
+                hooks: false,
+            })
+        );
+        assert_eq!(
+            action(&["worktree", "remove", "login", "--yes", "--force", "--hooks"])?,
+            Action::Worktree(Worktree::Remove {
+                worktree: "login".into(),
+                force: true,
+                hooks: true,
+            })
+        );
+        assert_eq!(
+            action(&["project", "add", ".", "--create", "--reuse"])?,
+            Action::Project(Project::Add {
+                directory: ".".into(),
+                name: None,
+                create: true,
+                reuse: true,
+            })
+        );
+        Ok(())
     }
 }

@@ -18,6 +18,13 @@ pub(crate) fn require_interactive() -> io::Result<()> {
     }
 }
 
+/// Whether this runs in a login over SSH, away from the computer's screen.
+pub(crate) fn over_ssh() -> bool {
+    ["SSH_CONNECTION", "SSH_TTY"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
+}
+
 pub(crate) type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>;
 
 pub(crate) struct Events {

@@ -5,6 +5,7 @@ mod menu;
 mod mouse;
 
 use std::io;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 
 use muxy_app_core::PaneId;
@@ -27,28 +28,35 @@ use crate::{
     worker::{Shared, Worker, lock},
 };
 
-/// Runs the TUI against this computer's server, or the one on `remote`.
+/// Runs the TUI against this computer's server, or the one on `remote`,
+/// showing the project for `folder` if one is given and adding it if needed.
 /// Another computer is reached before the terminal is taken over, so an
 /// unreachable host or a refused login reports to the shell.
-pub(crate) fn run(remote: Option<SshTarget>) -> Result {
+pub(crate) fn run(remote: Option<SshTarget>, folder: Option<&Path>) -> Result {
     terminal::require_interactive().map_err(|error| error.to_string())?;
     let target = Target::new(remote).map_err(|error| error.to_string())?;
     let executable = muxy_core::executable::current_path().map_err(|error| error.to_string())?;
     let _lease = muxy_client::local::bundle::acquire_runtime(&executable)
         .map_err(|error| error.to_string())?;
-    let first = match target {
-        Target::Local { .. } => None,
-        Target::Ssh { .. } => Some(
+    let first = match (&target, folder) {
+        (Target::Local { .. }, None) => None,
+        _ => Some(
             target
                 .connect(Start::IfNeeded)
                 .map_err(|error| target.explain(error).to_string())?,
         ),
     };
+    let open = match (folder, &first) {
+        (Some(folder), Some(client)) => {
+            Some(crate::manage::folder_project(client, folder).map_err(|error| error.to_string())?)
+        }
+        _ => None,
+    };
     let mut host = Host::enter().map_err(|error| error.to_string())?;
     let size = host.terminal.size().map_err(|error| error.to_string())?;
     let ui = Ui::default();
     let body = Chrome::new(Rect::new(0, 0, size.width, size.height), ui.sidebar()).body;
-    let worker = Worker::start(target, first, body)?;
+    let worker = Worker::start(target, first, body, open)?;
     let result = events(&mut host, &worker, ui);
     drop(host);
     drop(worker);

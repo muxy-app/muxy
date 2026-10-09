@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 
 use crate::target::Target;
 use args::{Action, Invocation, Server};
+pub(crate) use projects::folder_project;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -98,7 +99,15 @@ fn execute(invocation: Invocation, client: &Client, paths: Paths) -> Result {
             output.ok()
         }
         Action::Activity(events) if events.is_empty() => {
-            Output::json(&records::activity(&client.activity()?))
+            let snapshot = client.activity()?;
+            if output.json {
+                Output::json(&records::activity(&snapshot))
+            } else {
+                output.list(
+                    &records::activity_rows(&snapshot),
+                    &["session", "project", "provider", "state", "event", "kind"],
+                )
+            }
         }
         Action::Activity(events) => {
             client.acknowledge_activity(events)?;

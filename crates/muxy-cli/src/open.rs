@@ -1,53 +1,51 @@
-use std::io;
+use std::error::Error;
 use std::path::Path;
 
-pub(crate) fn run(word: &Path) -> io::Result<()> {
+/// Opens `word`, a folder, in the desktop app. Without it, or over SSH, the
+/// folder opens in the terminal UI instead.
+pub(crate) fn run(word: &Path) -> Result<(), Box<dyn Error>> {
     let folder = word
         .canonicalize()
         .ok()
         .filter(|path| path.is_dir())
         .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "{} is not a command or a folder; run muxy --help",
-                    word.display()
-                ),
+            format!(
+                "{} is not a command or a folder; run muxy --help",
+                word.display()
             )
         })?;
-    open(&folder)
+    if crate::terminal::over_ssh() || !desktop(&folder) {
+        crate::tui::run(None, Some(&folder))?;
+    }
+    Ok(())
 }
 
+/// Opens `folder` in the desktop app, returning false if it can't.
 #[cfg(target_os = "macos")]
-fn open(folder: &Path) -> io::Result<()> {
+fn desktop(folder: &Path) -> bool {
     use std::process::{Command, Stdio};
-    let channel = muxy_core::release::Channel::current();
-    let mut open = Command::new("/usr/bin/open");
-    match containing_app(&muxy_core::executable::current_path()?) {
-        Some(app) => open.arg("-a").arg(app),
-        None => open.args(["-b", channel.bundle_identifier()]),
+    let Ok(executable) = muxy_core::executable::current_path() else {
+        return false;
     };
-    let status = open
-        .arg(folder)
+    let mut open = Command::new("/usr/bin/open");
+    match containing_app(&executable) {
+        Some(app) => open.arg("-a").arg(app),
+        None => open.args([
+            "-b",
+            muxy_core::release::Channel::current().bundle_identifier(),
+        ]),
+    };
+    open.arg(folder)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "could not open the Muxy desktop app; install {}.app",
-            channel.app_name()
-        )))
-    }
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 #[cfg(not(target_os = "macos"))]
-fn open(_: &Path) -> io::Result<()> {
-    Err(io::Error::other(
-        "opening a folder needs the Muxy desktop app, which runs on macOS",
-    ))
+fn desktop(_: &Path) -> bool {
+    false
 }
 
 #[cfg(target_os = "macos")]

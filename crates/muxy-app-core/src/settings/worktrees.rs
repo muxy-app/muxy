@@ -64,6 +64,27 @@ impl WorktreeSettings {
         branch: &str,
         home: Option<&Path>,
     ) -> Result<PathBuf> {
+        self.directory_in(
+            &project.name,
+            &project.directory,
+            location,
+            name,
+            branch,
+            home,
+        )
+    }
+
+    /// [`Self::directory`] for the project named `project_name` in
+    /// `project_directory`.
+    pub fn directory_in(
+        &self,
+        project_name: &str,
+        project_directory: &Path,
+        location: &WorktreeLocation,
+        name: &str,
+        branch: &str,
+        home: Option<&Path>,
+    ) -> Result<PathBuf> {
         let inherited = location.is_default();
         let location = if inherited {
             &self.default_location
@@ -73,8 +94,7 @@ impl WorktreeSettings {
         location.validate()?;
         let slug = sanitized_component(name, "name");
         if !location.path_template.trim().is_empty() {
-            let base = project
-                .directory
+            let base = project_directory
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy();
@@ -83,19 +103,19 @@ impl WorktreeSettings {
                 .trim()
                 .replace(
                     "{project-name}",
-                    &sanitized_component(&project.name, "project"),
+                    &sanitized_component(project_name, "project"),
                 )
                 .replace("{base-dir}", &sanitized_component(&base, "project"))
                 .replace("{branch}", &sanitized_component(branch, "branch"));
-            return resolve(&project.directory, &template, home);
+            return resolve(project_directory, &template, home);
         }
         let folder = match location.parent_path.trim() {
             "" => DEFAULT_WORKTREE_FOLDER,
             folder => folder,
         };
-        let mut parent = resolve(&project.directory, folder, home)?;
+        let mut parent = resolve(project_directory, folder, home)?;
         if inherited {
-            parent.push(sanitized_component(&project.name, "project"));
+            parent.push(sanitized_component(project_name, "project"));
         }
         Ok(parent.join(slug))
     }
