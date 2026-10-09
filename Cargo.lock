@@ -4093,6 +4093,7 @@ dependencies = [
 name = "muxy-client"
 version = "2.0.0-beta-0"
 dependencies = [
+ "libc",
  "muxy-core",
  "muxy-protocol",
  "muxy-server",

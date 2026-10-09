@@ -13,16 +13,20 @@ pub fn lock_replacement(directory: &Path) -> io::Result<File> {
     crate::file_lock::try_lock(&directory.join(".muxy-beta-update.lock"))
 }
 
-pub fn acquire_runtime(
-    executable: &Path,
-    expected_metadata: &[u8],
-) -> io::Result<Option<BundleLease>> {
-    let Some(bundle) = executable
+/// The app bundle whose `Contents/MacOS` holds `executable`.
+pub fn containing(executable: &Path) -> Option<&Path> {
+    executable
         .parent()
         .and_then(Path::parent)
         .and_then(Path::parent)
         .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
-    else {
+}
+
+pub fn acquire_runtime(
+    executable: &Path,
+    expected_metadata: &[u8],
+) -> io::Result<Option<BundleLease>> {
+    let Some(bundle) = containing(executable) else {
         return Ok(None);
     };
     let identity = identity(bundle)?;
@@ -90,6 +94,15 @@ fn lease_file(directory: &Path, identity: &str) -> io::Result<File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_executables_inside_an_app_bundle_have_one() {
+        assert_eq!(
+            containing(Path::new("/Applications/Muxy.app/Contents/MacOS/muxy-app")),
+            Some(Path::new("/Applications/Muxy.app"))
+        );
+        assert_eq!(containing(Path::new("/repo/target/debug/muxy-app")), None);
+    }
 
     #[test]
     fn leases_follow_bundle_identity_through_replacement_without_holding_installation_lock()

@@ -20,6 +20,11 @@ On Linux hosts that end a user's processes at logout, run
 Turning on mobile access may show a macOS firewall prompt for `muxy-server`, and
 the iOS app needs local network permission.
 
+macOS charges a process's privacy permissions, such as Local Network, to the app
+process that started it. The desktop app starts the server through a small copy
+of itself that lives as long as the server, so terminals keep Muxy's permissions
+after the app quits.
+
 ## Terminal engine
 
 - Ghostty's terminal isn't thread-safe, so one thread owns each terminal.

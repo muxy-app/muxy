@@ -88,6 +88,13 @@ use views::workspace::{
 };
 
 fn main() -> ExitCode {
+    #[cfg(target_os = "macos")]
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == muxy_client::local::host::FLAG)
+    {
+        return muxy_client::local::host::run(std::env::args_os().skip(2));
+    }
     if let Some(socket) = std::env::var_os(askpass::SOCKET) {
         let prompt = std::env::args_os()
             .nth(1)
