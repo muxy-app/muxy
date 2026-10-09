@@ -229,6 +229,7 @@ impl SettingsWindow {
                     source: request,
                 });
             }
+            super::PickerKind::Terminal(id) => self.open_terminal_picker(id, request, window, cx),
             super::PickerKind::Language => self.open_language_picker(request, window, cx),
             super::PickerKind::AiProvider(action) => {
                 self.open_provider_picker(action, request, window, cx);
@@ -238,6 +239,56 @@ impl SettingsWindow {
             super::PickerKind::AppLanguage => self.open_app_language_picker(request, window, cx),
         }
         cx.notify();
+    }
+
+    fn open_terminal_picker(
+        &mut self,
+        id: &'static str,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let (selected, choices) = super::terminal::choices(view, id);
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover(id, tr!("Search options…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = choices
+            .into_iter()
+            .map(|(id, label)| {
+                let mut row = PickerRow::new(id, label);
+                row.current = id == selected;
+                PickerItem::Row(row)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let change =
+                        super::terminal::choice_change(root.view.read(cx), id, &selection.id);
+                    let _ = root
+                        .model
+                        .update(cx, |model, cx| model.change_preference(change, cx));
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
     }
 
     /// Chooses between the built-in sidebar and enabled extension sidebars.
@@ -497,6 +548,11 @@ impl SettingsWindow {
     fn handle_event(&mut self, event: &SettingsEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             SettingsEvent::Backup(action) => self.backup_action(*action, cx),
+            SettingsEvent::PreviewTerminal(id, value) => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.preview_terminal_preference(id, value, cx);
+                });
+            }
             SettingsEvent::Change(change) => {
                 let _ = self
                     .model
@@ -544,16 +600,6 @@ impl SettingsWindow {
             }
             SettingsEvent::OpenConfiguration(filename) => {
                 self.open_configuration(filename, cx);
-            }
-            SettingsEvent::ReloadConfiguration => {
-                if let Ok(error) = self.model.update(cx, |model, cx| {
-                    model.reload_configuration(cx);
-                    model.configuration_error.clone()
-                }) {
-                    self.view.update(cx, |view, cx| {
-                        view.set_error("configuration", error.as_deref(), cx);
-                    });
-                }
             }
         }
     }

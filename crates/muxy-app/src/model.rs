@@ -140,6 +140,8 @@ pub(crate) struct AppModel {
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
     pending_extension_updates: Option<Entity<crate::views::settings::extensions::ExtensionsView>>,
     font_sizes: HashMap<PaneId, f32>,
+    terminal_preview: Option<preferences::TerminalPreview>,
+    terminal_background: preferences::TerminalBackground,
     initial_directories: HashMap<PaneId, PathBuf>,
     pub(crate) theme: Theme,
     pub(crate) themes: crate::theme::Catalog,
@@ -249,8 +251,11 @@ impl AppModel {
     }
 
     pub(crate) fn reload_configuration(&mut self, cx: &mut Context<Self>) {
-        let result = muxy_app_core::settings::TerminalSettings::load(
-            &self.path.with_file_name("ghostty.conf"),
+        if self.terminal_preview.is_some() {
+            return;
+        }
+        let result = muxy_app_core::settings::TerminalSettings::load_native(
+            &self.path.with_file_name("terminal.toml"),
         )
         .and_then(|terminal| {
             self.settings.validate_command_shortcuts(&terminal)?;
@@ -376,7 +381,7 @@ impl AppModel {
         cx.notify();
         self.acknowledge_focused_activity(cx);
         if window.is_window_active() {
-            if self.path.with_file_name("ghostty.conf").exists() {
+            if self.path.with_file_name("terminal.toml").exists() {
                 self.reload_configuration(cx);
             }
             self.refresh_git(cx);
@@ -493,6 +498,8 @@ impl AppModel {
             settings_window: None,
             pending_extension_updates: None,
             font_sizes: HashMap::new(),
+            terminal_preview: None,
+            terminal_background: preferences::TerminalBackground::default(),
             initial_directories: HashMap::new(),
             project_layouts: project_layouts::ProjectLayouts::default(),
             theme,
@@ -1527,6 +1534,8 @@ impl AppModel {
         let state = self.pane_state(id);
         let view = cx.new(|cx| {
             let mut pane = TerminalPane::new(self.palette, terminal, cx);
+            pane.native_vibrancy =
+                self.terminal_background.available && !self.is_quick_terminal(id);
             pane.configured_font_size = self.terminal.font_size;
             pane.copy_on_select = self.settings.clipboard.copy_on_select;
             pane.open_context = open_context;

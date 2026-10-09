@@ -112,6 +112,7 @@ pub(crate) struct TerminalPane {
     viewport: Option<Size>,
     pub(crate) palette: Palette,
     pub(crate) background_opacity: f32,
+    pub(crate) native_vibrancy: bool,
     pub(crate) terminal: muxy_app_core::settings::TerminalSettings,
     pub(crate) state: PaneState,
     pub(crate) process: Option<ForegroundProcess>,
@@ -126,6 +127,15 @@ pub(crate) struct TerminalPane {
 impl EventEmitter<PaneEvent> for TerminalPane {}
 
 impl TerminalPane {
+    pub(super) fn background_alpha(&self) -> f32 {
+        let tint = if self.native_vibrancy {
+            1.0 - f32::from(self.terminal.options.background_vibrancy.min(100)) / 100.0
+        } else {
+            1.0
+        };
+        self.background_opacity * self.terminal.options.background_opacity.unwrap_or(1.0) * tint
+    }
+
     #[allow(
         clippy::large_types_passed_by_value,
         reason = "Each pane owns its palette snapshot"
@@ -195,6 +205,7 @@ impl TerminalPane {
             viewport: None,
             palette,
             background_opacity: 1.0,
+            native_vibrancy: false,
             terminal,
             state: PaneState::Connecting,
             process: None,
@@ -1608,8 +1619,7 @@ impl Render for TerminalPane {
                 a: if self.terminal.options.background_opacity_cells {
                     0.0
                 } else {
-                    self.background_opacity
-                        * self.terminal.options.background_opacity.unwrap_or(1.0)
+                    self.background_alpha()
                 },
                 ..gpui::rgb(palette.background)
             })

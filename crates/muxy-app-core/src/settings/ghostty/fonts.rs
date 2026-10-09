@@ -1,6 +1,7 @@
 use super::{CellHeight, Error, Result, parse_height};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct FontOptions {
     pub bold: Vec<String>,
     pub italic: Vec<String>,
@@ -27,7 +28,8 @@ impl Default for FontOptions {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FontMap {
     pub start: u32,
     pub end: u32,

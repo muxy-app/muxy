@@ -3,7 +3,7 @@ use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSAutoresizingMaskOptions, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectView, NSWindowOrderingMode,
+    NSVisualEffectState, NSVisualEffectView, NSWindowOrderingMode,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -73,6 +73,38 @@ impl SidebarVibrancy {
 impl Drop for SidebarVibrancy {
     fn drop(&mut self) {
         self.view.removeFromSuperview();
+    }
+}
+
+#[derive(Debug)]
+pub struct TerminalVibrancy {
+    effect: SidebarVibrancy,
+    offset: f32,
+}
+
+impl TerminalVibrancy {
+    pub fn new(window: &Window, offset: f32, width: f32, background: Hsla) -> Option<Self> {
+        let effect = SidebarVibrancy::new(window, width, background)?;
+        effect
+            .view
+            .setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
+        effect.view.setState(NSVisualEffectState::Active);
+        effect.view.setWantsLayer(true);
+        effect
+            .view
+            .setFrameOrigin(NSPoint::new(f64::from(offset), 0.0));
+        Some(Self { effect, offset })
+    }
+
+    pub fn update(&mut self, offset: f32, width: f32, background: Hsla) {
+        self.effect.set_width(width);
+        self.effect.set_appearance(background);
+        if self.offset.to_bits() != offset.to_bits() {
+            self.offset = offset;
+            self.effect
+                .view
+                .setFrameOrigin(NSPoint::new(f64::from(offset), 0.0));
+        }
     }
 }
 

@@ -7,6 +7,7 @@ use crate::settings::{Error, Result, config::read_or_create};
 
 mod bindings;
 mod fonts;
+mod native;
 mod options;
 pub use bindings::{TerminalAction, TerminalBindings};
 pub use fonts::{FontMap, FontOptions};
@@ -14,7 +15,8 @@ pub use options::{PaddingColor, TerminalColor, TerminalOptions};
 
 const DEFAULT_CONFIG: &str = "font-family = Menlo\nfont-size = 13\nadjust-cell-height = 0\n";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct TerminalSettings {
     pub font_families: Vec<String>,
     pub font_size: f32,
@@ -26,7 +28,8 @@ pub struct TerminalSettings {
     pub diagnostics: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OptionAsAlt {
     #[default]
     True,
@@ -74,7 +77,8 @@ impl std::fmt::Display for OptionAsAlt {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub enum CellHeight {
     #[default]
     Natural,
@@ -255,10 +259,21 @@ impl TerminalSettings {
         &mut self,
         path: &Path,
         families: &mut Vec<String>,
-        mut included_keys: Option<&mut HashSet<String>>,
+        included_keys: Option<&mut HashSet<String>>,
     ) -> Result<Vec<(PathBuf, bool)>> {
         let source = fs::read_to_string(path)
             .map_err(|error| Error::new(path.display().to_string(), error))?;
+        self.read_source(&source, path, families, included_keys)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn read_source(
+        &mut self,
+        source: &str,
+        path: &Path,
+        families: &mut Vec<String>,
+        mut included_keys: Option<&mut HashSet<String>>,
+    ) -> Result<Vec<(PathBuf, bool)>> {
         let mut includes = Vec::new();
         for (index, line) in source.lines().enumerate() {
             let line = line.trim();

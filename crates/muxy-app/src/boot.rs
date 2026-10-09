@@ -59,8 +59,8 @@ impl Boot {
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
-        let terminal = muxy_app_core::settings::TerminalSettings::load(
-            &state_path.with_file_name("ghostty.conf"),
+        let terminal = muxy_app_core::settings::TerminalSettings::load_native(
+            &state_path.with_file_name("terminal.toml"),
         )?;
         settings.validate_command_shortcuts(&terminal)?;
         let (sender, updates) = async_channel::unbounded();

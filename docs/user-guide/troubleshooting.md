@@ -85,10 +85,10 @@ If `muxy --version` shows 1.x, Muxy 1.x's CLI comes first on your `PATH`.
 
 ## Keys don't work as expected
 
-- `Option` acts as `Alt` in terminals. Set `macos-option-as-alt = false` in
-  `ghostty.conf` to type special characters.
-- A `keybind` in `ghostty.conf` wins over app shortcuts while a terminal is
-  focused.
+- `Option` acts as `Alt` in terminals. Choose **Neither** under
+  **Settings → Terminal → Option as Alt** to type special characters.
+- Imported custom terminal key bindings win over app shortcuts while a terminal
+  is focused. They are preserved in `terminal.toml`.
 
 ## Start fresh
 

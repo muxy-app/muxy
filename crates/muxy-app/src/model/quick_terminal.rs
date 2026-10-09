@@ -80,6 +80,7 @@ impl QuickTerminalRuntime {
                     match mutation {
                         SystemMutation::Accessibility => {
                             model.quick.accessibility = Self::accessibility();
+                            cx.notify();
                         }
                         SystemMutation::KeyboardLayout => {
                             if let Some(shortcut) = model
@@ -118,6 +119,11 @@ impl QuickTerminalRuntime {
 }
 
 impl AppModel {
+    #[cfg(all(target_os = "macos", not(test)))]
+    pub(crate) fn terminal_effects_allowed(&self) -> bool {
+        !self.quick.accessibility.reduce_transparency && !self.quick.accessibility.increase_contrast
+    }
+
     pub(crate) fn is_quick_terminal(&self, pane: PaneId) -> bool {
         self.state
             .quick_terminal()

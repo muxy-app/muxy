@@ -55,8 +55,11 @@ fn backup_round_trip_is_portable_and_restore_waits_for_restart() {
     );
     apply_pending(target.path()).unwrap();
     assert_eq!(
-        fs::read_to_string(target.path().join("ghostty.conf")).unwrap(),
-        "font-size = 17\n"
+        TerminalSettings::load_native(&target.path().join("terminal.toml"))
+            .unwrap()
+            .font_size
+            .to_bits(),
+        17.0_f32.to_bits()
     );
     assert!(target.path().join("themes/custom").exists());
     assert!(
@@ -217,9 +220,16 @@ fn ghostty_includes_are_resolved_and_untrusted_imports_cannot_read_external_file
     let archive = directory.path().join("test.muxy");
     export(directory.path(), &archive, &AppState::bootstrap().unwrap()).unwrap();
     let (mut files, _, _) = archive::read(&archive).unwrap();
-    let source = String::from_utf8_lossy(&files["ghostty.conf"]);
+    let source = String::from_utf8_lossy(&files["terminal.toml"]);
     assert!(!source.contains("config-file"));
-    assert!(source.contains("font-size = 21"));
+    assert_eq!(
+        TerminalSettings::from_native_source(&source)
+            .unwrap()
+            .font_size
+            .to_bits(),
+        21.0_f32.to_bits()
+    );
+    files.remove("terminal.toml");
     files.insert("ghostty.conf".into(), b"config-file = /etc/passwd".to_vec());
     archive::write(&archive, &files, Restore::Complete).unwrap();
     assert!(prepare(directory.path(), &archive).is_err());
@@ -250,7 +260,7 @@ fn recovery_archive_resolves_includes_and_keeps_original_files_for_rollback() {
     let import = prepare(target.path(), &recovery.join("recovery.muxy")).unwrap();
     stage(target.path(), &import).unwrap();
     assert!(apply_pending(target.path()).unwrap().is_none());
-    let terminal = TerminalSettings::load(&target.path().join("ghostty.conf")).unwrap();
+    let terminal = TerminalSettings::load_native(&target.path().join("terminal.toml")).unwrap();
     assert_eq!(terminal.font_size.to_bits(), 21.0_f32.to_bits());
 }
 
@@ -309,29 +319,125 @@ fn failed_rollback_still_prevents_loading_a_partially_restored_profile() {
 }
 
 #[test]
+fn native_backup_ignores_stale_legacy_includes_and_old_backups_replace_native_settings() {
+    let source = profile();
+    let target = profile();
+    let native = source.path().join("terminal.toml");
+    let mut terminal = TerminalSettings::load_native(&native).unwrap();
+    terminal
+        .set_preference("adjust-cursor-thickness", "2")
+        .unwrap();
+    terminal.set_preference("background-opacity", "65").unwrap();
+    terminal.save_native(&native).unwrap();
+    fs::write(
+        source.path().join("ghostty.conf"),
+        "config-file = missing.conf",
+    )
+    .unwrap();
+    let archive = source.path().join("native.muxy");
+    export(source.path(), &archive, &AppState::bootstrap().unwrap()).unwrap();
+    let (files, _, _) = archive::read(&archive).unwrap();
+    assert!(!files.contains_key("ghostty.conf"));
+    stage(target.path(), &prepare(target.path(), &archive).unwrap()).unwrap();
+    assert!(apply_pending(target.path()).unwrap().is_none());
+    assert_eq!(
+        TerminalSettings::load_native(&target.path().join("terminal.toml")).unwrap(),
+        terminal
+    );
+
+    let old = source.path().join("old.muxy");
+    let files = Files::from([
+        (
+            "settings.toml".into(),
+            fs::read(source.path().join("settings.toml")).unwrap(),
+        ),
+        (
+            "ghostty.conf".into(),
+            b"font-size = 24\nkeybind = ctrl+alt+x=text:hello\n".to_vec(),
+        ),
+    ]);
+    archive::write(&old, &files, Restore::Partial).unwrap();
+    stage(target.path(), &prepare(target.path(), &old).unwrap()).unwrap();
+    assert!(apply_pending(target.path()).unwrap().is_none());
+    let restored = TerminalSettings::load_native(&target.path().join("terminal.toml")).unwrap();
+    assert_eq!(restored.font_size.to_bits(), 24.0_f32.to_bits());
+    assert_eq!(
+        restored.keybindings.action(&"ctrl-alt-x".parse().unwrap()),
+        Some(&muxy_app_core::settings::TerminalAction::Text(
+            b"hello".to_vec()
+        ))
+    );
+}
+
+#[test]
+fn recovery_of_first_partial_terminal_migration_restores_legacy_preferences() {
+    let directory = profile();
+    let legacy = tempfile::tempdir().unwrap();
+    fs::write(legacy.path().join("ghostty.conf"), "font-size = 26\n").unwrap();
+    let import = prepare(directory.path(), legacy.path()).unwrap();
+    stage(directory.path(), &import).unwrap();
+    assert!(apply_pending(directory.path()).unwrap().is_none());
+    let recovery = fs::read_dir(directory.path().join("Backups"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("recovery.muxy");
+    let native = directory.path().join("terminal.toml");
+    assert_eq!(
+        TerminalSettings::load_native(&native)
+            .unwrap()
+            .font_size
+            .to_bits(),
+        26.0_f32.to_bits()
+    );
+    stage(
+        directory.path(),
+        &prepare(directory.path(), &recovery).unwrap(),
+    )
+    .unwrap();
+    assert!(apply_pending(directory.path()).unwrap().is_none());
+    assert_eq!(
+        TerminalSettings::load_native(&native)
+            .unwrap()
+            .font_size
+            .to_bits(),
+        17.0_f32.to_bits()
+    );
+}
+
+#[test]
 fn partial_terminal_import_preserves_unmentioned_preferences_and_replaces_lists() {
     let directory = profile();
     let legacy = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("ghostty.conf"), "font-family = Old Font\nfont-family = Old Fallback\nfont-size = 15\nkeybind = ctrl+alt+b=copy_to_clipboard\npalette = 0=#111111\n").unwrap();
     fs::write(legacy.path().join("ghostty.conf"), "font-size = 22\n").unwrap();
     let import = prepare(directory.path(), legacy.path()).unwrap();
-    let source = String::from_utf8_lossy(&import.files["ghostty.conf"]);
-    assert!(source.contains("font-family = Old Font"));
-    assert!(source.contains("keybind = ctrl+alt+b=copy_to_clipboard"));
-    assert!(source.contains("font-size = 22"));
-    assert!(!source.contains("font-size = 15"));
+    let terminal = TerminalSettings::from_native_source(&String::from_utf8_lossy(
+        &import.files["terminal.toml"],
+    ))
+    .unwrap();
+    assert_eq!(terminal.font_families, ["Old Font", "Old Fallback"]);
+    assert_eq!(
+        terminal.keybindings.action(&"ctrl-alt-b".parse().unwrap()),
+        Some(&muxy_app_core::settings::TerminalAction::Copy)
+    );
+    assert_eq!(terminal.font_size.to_bits(), 22.0_f32.to_bits());
+    TerminalSettings::load_native(&directory.path().join("terminal.toml")).unwrap();
     fs::write(
         legacy.path().join("ghostty.conf"),
         "font-family = New Font\nfont-family = New Fallback\npalette = 1=#222222\n",
     )
     .unwrap();
     let import = prepare(directory.path(), legacy.path()).unwrap();
-    let source = String::from_utf8_lossy(&import.files["ghostty.conf"]);
-    assert!(!source.contains("Old Font"));
-    assert!(!source.contains("Old Fallback"));
-    assert!(source.contains("New Font\nfont-family = New Fallback"));
-    assert!(source.contains("palette = 0=#111111"));
-    assert!(source.contains("palette = 1=#222222"));
+    let terminal = TerminalSettings::from_native_source(&String::from_utf8_lossy(
+        &import.files["terminal.toml"],
+    ))
+    .unwrap();
+    assert_eq!(terminal.font_families, ["New Font", "New Fallback"]);
+    assert_eq!(terminal.options.palette.get(&0), Some(&0x11_1111));
+    assert_eq!(terminal.options.palette.get(&1), Some(&0x22_2222));
     fs::write(
         legacy.path().join("ghostty.conf"),
         "unsupported-option = true\n",
@@ -343,7 +449,7 @@ fn partial_terminal_import_preserves_unmentioned_preferences_and_replaces_lists(
     )
     .unwrap();
     let import = prepare(directory.path(), legacy.path()).unwrap();
-    assert!(!import.files.contains_key("ghostty.conf"));
+    assert!(!import.files.contains_key("terminal.toml"));
 }
 
 #[test]

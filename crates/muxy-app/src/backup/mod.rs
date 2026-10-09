@@ -19,6 +19,7 @@ pub(crate) use transaction::{apply_pending, cancel_pending, stage};
 
 pub(super) const ROOTS: &[&str] = &[
     "settings.toml",
+    "terminal.toml",
     "ghostty.conf",
     "server.toml",
     "mobile-settings.json",
@@ -122,17 +123,24 @@ pub(crate) fn export(
     destination: &Path,
     state: &muxy_app_core::AppState,
 ) -> Result<()> {
-    let mut files = archive::collect(profile, ROOTS)?;
+    let native = profile.join("terminal.toml").try_exists()?;
+    let roots: Vec<_> = ROOTS
+        .iter()
+        .copied()
+        .filter(|root| !native || *root != "ghostty.conf")
+        .collect();
+    let mut files = archive::collect(profile, &roots)?;
     files.insert(
         "desktop-state.json".into(),
         serde_json::to_vec_pretty(&state.configuration_backup())?,
     );
-    if profile.join("ghostty.conf").exists() {
+    if !native && profile.join("ghostty.conf").exists() {
         files.insert(
             "ghostty.conf".into(),
             TerminalSettings::backup_source(&profile.join("ghostty.conf"))?.into_bytes(),
         );
     }
+    normalize_terminal(&mut files)?;
     files
         .entry("settings.toml".into())
         .or_insert(muxy_app_core::backup::settings_source(&Settings::default())?.into_bytes());
@@ -189,6 +197,7 @@ fn prepare_from(
     } else {
         (files, ImportReport::default())
     };
+    normalize_terminal(&mut files)?;
     let copies = match extensions {
         Some(extensions) => import_extensions(profile, extensions, &mut files, &mut report)?,
         None => None,
@@ -430,24 +439,48 @@ fn validate(files: &Files) -> Result<()> {
     Ok(())
 }
 
+fn normalize_terminal(files: &mut Files) -> Result<()> {
+    if files.contains_key("terminal.toml") {
+        files.remove("ghostty.conf");
+        return Ok(());
+    }
+    if let Some(source) = files.get("ghostty.conf") {
+        let terminal = TerminalSettings::from_legacy_source(std::str::from_utf8(source)?)?;
+        files.insert(
+            "terminal.toml".into(),
+            terminal.native_source()?.into_bytes(),
+        );
+        files.remove("ghostty.conf");
+    }
+    Ok(())
+}
+
 fn validate_effective(profile: &Path, files: &Files, restore: Restore) -> Result<()> {
     if restore == Restore::Complete
+        || files.contains_key("terminal.toml")
         || files.contains_key("ghostty.conf")
-        || !profile.join("ghostty.conf").exists()
     {
         return validate(files);
     }
     let mut effective = files.clone();
-    effective.insert(
-        "ghostty.conf".into(),
-        TerminalSettings::backup_source(&profile.join("ghostty.conf"))?.into_bytes(),
-    );
+    let native = profile.join("terminal.toml");
+    if native.try_exists()? {
+        effective.insert("terminal.toml".into(), archive::read_file(&native)?);
+    } else if profile.join("ghostty.conf").try_exists()? {
+        effective.insert(
+            "ghostty.conf".into(),
+            TerminalSettings::backup_source(&profile.join("ghostty.conf"))?.into_bytes(),
+        );
+    }
     validate(&effective)
 }
 
 fn merge_terminal(profile: &Path, imported: &str) -> Result<String> {
     let path = profile.join("ghostty.conf");
-    let current = if path.exists() {
+    let native = profile.join("terminal.toml");
+    let current = if native.try_exists()? {
+        TerminalSettings::from_native_source(&std::fs::read_to_string(native)?)?.legacy_source()
+    } else if path.exists() {
         TerminalSettings::backup_source(&path)?
     } else {
         String::new()

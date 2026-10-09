@@ -34,7 +34,6 @@ use muxy_ui::controls::{self, Style};
 use muxy_ui::form;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
-use muxy_ui::tr;
 
 pub(crate) fn register_commands(
     registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
@@ -118,7 +117,7 @@ pub(crate) enum Change {
     Tips(bool),
     ConfirmProcess(bool),
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
-    CopyOnSelect(bool),
+    Terminal(&'static str, String),
     /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
     FileOpener(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
@@ -135,6 +134,7 @@ pub(crate) enum Change {
 pub(crate) enum SettingsEvent {
     Backup(backup::Action),
     Change(Change),
+    PreviewTerminal(&'static str, String),
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
     ReadServer,
@@ -144,7 +144,6 @@ pub(crate) enum SettingsEvent {
     RevokeDevice(muxy_protocol::DeviceId),
     Connect,
     OpenConfiguration(&'static str),
-    ReloadConfiguration,
 }
 
 #[derive(Clone)]
@@ -179,6 +178,7 @@ pub(crate) struct SettingsView {
     navigation_view: Entity<super::cached::CachedView<Self>>,
     content_view: Entity<super::cached::CachedView<Self>>,
     quick_recording: Option<(muxy_ui::quick_terminal::ShortcutRecording, gpui::Task<()>)>,
+    terminal_slider: Option<terminal::Drag>,
     quick_slider: Option<(&'static str, gpui::Bounds<gpui::Pixels>)>,
     pub(crate) focus: FocusHandle,
     snapshot: Snapshot,
@@ -196,7 +196,6 @@ pub(crate) struct SettingsView {
     fields: HashMap<&'static str, Entity<TextInput>>,
     dirty: HashSet<&'static str>,
     pub(crate) errors: HashMap<String, String>,
-    pub(crate) notes: HashMap<String, String>,
     recording: Option<String>,
     command_editor: Option<muxy_app_core::settings::CustomCommand>,
     focus_initialized: bool,
@@ -246,6 +245,7 @@ impl SettingsView {
             navigation_view: super::cached::CachedView::new(|view, _, cx| view.navigation(cx), cx),
             content_view: super::cached::CachedView::new(|view, _, cx| view.content(cx), cx),
             quick_recording: None,
+            terminal_slider: None,
             quick_slider: None,
             focus,
             snapshot,
@@ -266,7 +266,6 @@ impl SettingsView {
             fields: HashMap::new(),
             dirty: HashSet::new(),
             errors: HashMap::new(),
-            notes: HashMap::new(),
             recording: None,
             command_editor: None,
             focus_initialized: false,
@@ -283,6 +282,7 @@ impl SettingsView {
                 PickerKind::AppLanguage,
             ]
             .into_iter()
+            .chain(terminal::PICKERS.iter().copied().map(PickerKind::Terminal))
             .map(|kind| (kind, PickerAnchor::default()))
             .collect(),
             subscriptions: vec![search_subscription, recorder],
@@ -310,8 +310,6 @@ impl SettingsView {
             "worktree-folder",
             "width",
             "height",
-            "font-size",
-            "adjust-cell-height",
             "default-shell",
             "history-budget",
             "mobile-port",
@@ -375,7 +373,6 @@ impl SettingsView {
 
     fn sync_fields(&self, cx: &mut Context<Self>) {
         let settings = &self.snapshot.settings;
-        let terminal = &self.snapshot.terminal;
         let server = self.snapshot.server.as_ref();
         let shell = server
             .and_then(|server| server.default_shell.as_ref())
@@ -412,8 +409,6 @@ impl SettingsView {
             ),
             ("width", settings.window.default_size[0].to_string()),
             ("height", settings.window.default_size[1].to_string()),
-            ("font-size", terminal.font_size.to_string()),
-            ("adjust-cell-height", terminal.cell_height.to_string()),
             ("default-shell", shell),
             ("history-budget", budget),
             ("mobile-port", mobile_port),
@@ -483,18 +478,8 @@ impl SettingsView {
         self.dirty
             .drain()
             .map(|id| Change::Field(id, self.fields[id].read(cx).text().trim().to_owned()))
+            .chain(self.terminal_slider.take().and_then(terminal::Drag::change))
             .collect()
-    }
-
-    pub(crate) fn set_included_keys(&mut self, keys: &HashSet<String>) {
-        self.results.dirty = true;
-        self.notes.clear();
-        let note = tr!(
-            "A config-file include supplies this setting. Edit the included file to change its value."
-        );
-        for key in keys {
-            self.notes.insert(key.clone(), note.to_string());
-        }
     }
 
     pub(crate) fn set_error(&mut self, id: &str, error: Option<&str>, cx: &mut Context<Self>) {
@@ -564,9 +549,8 @@ impl SettingsView {
     /// The file behind this category's settings; mobile access is managed only here.
     fn configuration_file(&self) -> Option<&'static str> {
         match self.category {
-            Category::Terminal => Some("ghostty.conf"),
             Category::Server => Some("server.toml"),
-            Category::Mobile => None,
+            Category::Terminal | Category::Mobile => None,
             _ => Some("settings.toml"),
         }
     }
@@ -669,9 +653,6 @@ impl SettingsView {
                         }),
                 )
             })
-            .when_some(self.notes.get(id), |row, note| {
-                row.child(self.note(note, false).pt_0())
-            })
             .child(
                 canvas(
                     move |bounds, window, cx| {
@@ -743,19 +724,22 @@ impl Render for SettingsView {
         div()
             .id("settings-view")
             .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
+                view.move_terminal_slider(event.position, cx);
                 if let Some((id, bounds)) = view.quick_slider {
                     view.move_quick_slider(id, bounds, event.position, cx);
                 }
             }))
             .on_mouse_up(
                 gpui::MouseButton::Left,
-                cx.listener(|view, _, _, _| {
+                cx.listener(|view, _, _, cx| {
+                    view.finish_terminal_slider(cx);
                     view.quick_slider = None;
                 }),
             )
             .on_mouse_up_out(
                 gpui::MouseButton::Left,
-                cx.listener(|view, _, _, _| {
+                cx.listener(|view, _, _, cx| {
+                    view.finish_terminal_slider(cx);
                     view.quick_slider = None;
                 }),
             )

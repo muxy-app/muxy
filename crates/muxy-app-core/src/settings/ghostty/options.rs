@@ -11,12 +11,14 @@ pub(super) const KEYS: &[&str] = &[
     "cursor-opacity",
     "cursor-style",
     "cursor-style-blink",
+    "adjust-cursor-thickness",
     "selection-foreground",
     "selection-background",
     "selection-clear-on-typing",
     "selection-clear-on-copy",
     "background-opacity",
     "background-opacity-cells",
+    "background-blur",
     "bold-is-bright",
     "copy-on-select",
     "mouse-reporting",
@@ -28,7 +30,8 @@ pub(super) const KEYS: &[&str] = &[
     "window-padding-color",
 ];
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub enum TerminalColor {
     Rgb(u32),
     CellForeground,
@@ -45,7 +48,8 @@ impl TerminalColor {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PaddingColor {
     Background,
     #[default]
@@ -54,7 +58,8 @@ pub enum PaddingColor {
 }
 
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct TerminalOptions {
     pub background: Option<u32>,
     pub foreground: Option<u32>,
@@ -64,12 +69,14 @@ pub struct TerminalOptions {
     pub cursor_opacity: f32,
     pub cursor_style: Option<muxy_protocol::CursorShape>,
     pub cursor_blink: Option<bool>,
+    pub cursor_thickness: super::CellHeight,
     pub selection_foreground: Option<TerminalColor>,
     pub selection_background: Option<TerminalColor>,
     pub selection_clear_on_typing: bool,
     pub selection_clear_on_copy: bool,
     pub background_opacity: Option<f32>,
     pub background_opacity_cells: bool,
+    pub background_vibrancy: u8,
     pub bold_is_bright: bool,
     pub copy_on_select: Option<bool>,
     pub mouse_reporting: bool,
@@ -94,12 +101,14 @@ impl Default for TerminalOptions {
             cursor_opacity: 1.0,
             cursor_style: None,
             cursor_blink: None,
+            cursor_thickness: super::CellHeight::Natural,
             selection_foreground: None,
             selection_background: None,
             selection_clear_on_typing: false,
             selection_clear_on_copy: false,
             background_opacity: None,
             background_opacity_cells: false,
+            background_vibrancy: 0,
             bold_is_bright: false,
             copy_on_select: None,
             mouse_reporting: true,
@@ -143,6 +152,7 @@ impl TerminalOptions {
             ("cursor-color", color(self.cursor_color)),
             ("cursor-text", color(self.cursor_text)),
             ("cursor-opacity", self.cursor_opacity.to_string()),
+            ("adjust-cursor-thickness", self.cursor_thickness.to_string()),
             (
                 "cursor-style",
                 self.cursor_style
@@ -180,6 +190,14 @@ impl TerminalOptions {
             (
                 "background-opacity-cells",
                 self.background_opacity_cells.to_string(),
+            ),
+            (
+                "background-blur",
+                if self.background_vibrancy == 1 {
+                    "0x1".into()
+                } else {
+                    self.background_vibrancy.to_string()
+                },
             ),
             ("bold-is-bright", self.bold_is_bright.to_string()),
             (
@@ -240,6 +258,7 @@ impl TerminalOptions {
                 | "selection-clear-on-typing"
                 | "selection-clear-on-copy"
                 | "background-opacity-cells"
+                | "background-blur"
                 | "bold-is-bright"
                 | "copy-on-select"
                 | "mouse-reporting"
@@ -292,6 +311,7 @@ impl TerminalOptions {
             "cursor-style-blink" => {
                 self.cursor_blink = optional(value, |value| boolean(value, true))?;
             }
+            "adjust-cursor-thickness" => self.cursor_thickness = value.parse()?,
             "selection-foreground" => self.selection_foreground = optional(value, color)?,
             "selection-background" => self.selection_background = optional(value, color)?,
             "selection-clear-on-typing" => self.selection_clear_on_typing = boolean(value, false)?,
@@ -301,6 +321,23 @@ impl TerminalOptions {
                     optional(value, |value| Ok(number(value)?.clamp(0.0, 1.0)))?;
             }
             "background-opacity-cells" => self.background_opacity_cells = boolean(value, false)?,
+            "background-blur" => {
+                self.background_vibrancy = match value {
+                    "1" | "t" | "T" | "true" | "macos-glass-regular" | "macos-glass-clear" => 70,
+                    "" | "0" | "f" | "F" | "false" => 0,
+                    _ => {
+                        let (digits, radix) = [("0x", 16), ("0o", 8), ("0b", 2)]
+                            .into_iter()
+                            .find_map(|(prefix, radix)| {
+                                value.strip_prefix(prefix).map(|digits| (digits, radix))
+                            })
+                            .unwrap_or((value, 10));
+                        u8::from_str_radix(&digits.replace('_', ""), radix)
+                            .map_err(|e| Error::new(key, e))?
+                            .min(100)
+                    }
+                };
+            }
             "bold-is-bright" => self.bold_is_bright = boolean(value, false)?,
             "copy-on-select" => {
                 self.copy_on_select = optional(value, |value| {
@@ -424,7 +461,7 @@ fn padding(value: &str) -> Result<[f32; 2]> {
     Ok(result)
 }
 
-fn color(value: &str) -> Result<TerminalColor> {
+pub(super) fn color(value: &str) -> Result<TerminalColor> {
     match value {
         "cell-foreground" => Ok(TerminalColor::CellForeground),
         "cell-background" => Ok(TerminalColor::CellBackground),

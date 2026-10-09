@@ -22,7 +22,8 @@ pub enum TerminalAction {
     ResetFontSize,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "Vec<String>", into = "Vec<String>")]
 pub struct TerminalBindings {
     pub bindings: BTreeMap<KeyChord, TerminalAction>,
     pub clear_defaults: bool,

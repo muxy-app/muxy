@@ -101,7 +101,7 @@ impl Settings {
                 return Err(Error::new(
                     format!("keymap.{id}"),
                     format!(
-                        "{chord} for command '{}' is also bound in ghostty.conf; choose a different shortcut",
+                        "{chord} for command '{}' is also bound in terminal settings; choose a different shortcut",
                         command.name
                     ),
                 ));

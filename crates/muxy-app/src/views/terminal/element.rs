@@ -52,6 +52,7 @@ struct Painting {
     decorations: Vec<(Bounds<Pixels>, Hsla)>,
     cursor: Option<Bounds<Pixels>>,
     cursor_shape: muxy_protocol::CursorShape,
+    cursor_thickness: muxy_app_core::settings::CellHeight,
     cursor_color: Hsla,
     cursor_text: Hsla,
     background_opacity: f32,
@@ -293,8 +294,9 @@ fn prepare(
     let _span = crate::profiler::span(crate::profiler::Metric::TerminalPrepare);
     let mut painting = Painting {
         cell,
+        cursor_thickness: view.terminal.options.cursor_thickness,
         background_opacity: if view.terminal.options.background_opacity_cells {
-            view.background_opacity * view.terminal.options.background_opacity.unwrap_or(1.0)
+            view.background_alpha()
         } else {
             1.0
         },
@@ -933,7 +935,16 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
     images::paint(&painting.images, 0..i64::MAX, window);
     if let Some(cursor) = painting.cursor {
         let color = painting.cursor_color;
-        let thickness = px(1.0 / window.scale_factor());
+        let natural = if painting.cursor_shape == muxy_protocol::CursorShape::Hollow {
+            1.0
+        } else {
+            1.0 / window.scale_factor()
+        };
+        let thickness = px(painting
+            .cursor_thickness
+            .apply(natural, window.scale_factor()))
+        .min(cursor.size.width)
+        .min(cursor.size.height);
         match painting.cursor_shape {
             muxy_protocol::CursorShape::Bar => window.paint_quad(fill(
                 Bounds::new(cursor.origin, size(thickness, cursor.size.height)),
@@ -947,7 +958,9 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
                 color,
             )),
             muxy_protocol::CursorShape::Hollow => {
-                window.paint_quad(gpui::outline(cursor, color, gpui::BorderStyle::Solid));
+                let mut quad = gpui::outline(cursor, color, gpui::BorderStyle::Solid);
+                quad.border_widths = gpui::Edges::all(thickness);
+                window.paint_quad(quad);
             }
             muxy_protocol::CursorShape::Block | muxy_protocol::CursorShape::Unrecognized(_) => {
                 window.paint_quad(fill(cursor, color));

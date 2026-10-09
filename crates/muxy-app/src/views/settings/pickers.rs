@@ -7,6 +7,7 @@ use super::{SettingsEvent, SettingsView};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum PickerKind {
     FontFamily,
+    Terminal(&'static str),
     Language,
     Theme(bool),
     AiProvider(crate::repository_actions::Action),
@@ -19,6 +20,7 @@ impl PickerKind {
     pub(super) fn id(self) -> &'static str {
         match self {
             Self::FontFamily => "font-family",
+            Self::Terminal(id) => id,
             Self::Language => "composer-language",
             Self::Theme(false) => "light-theme",
             Self::Theme(true) => "dark-theme",
@@ -53,7 +55,13 @@ impl SettingsView {
                 self.style(),
                 kind.id(),
                 value,
-                (!self.compact).then_some(controls::CONTROL_WIDTH),
+                (!self.compact).then_some(
+                    if matches!(kind, PickerKind::Terminal(id) if id.starts_with("adjust-")) {
+                        100.0
+                    } else {
+                        controls::CONTROL_WIDTH
+                    },
+                ),
                 false,
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
