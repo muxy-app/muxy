@@ -124,11 +124,11 @@ fn spawn(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
 
 fn spawn_hosted(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
     #[cfg(target_os = "macos")]
-    if let Some(app) = host::app_executable()? {
+    if let Some(app) = host::app_for(executable)? {
         // The host can't report a server that fails to start, so a missing
         // one fails here, as it would when started directly.
         std::fs::metadata(executable)?;
-        return host::spawn(&app, executable, arguments);
+        return host::spawn(&app, arguments);
     }
     spawn(executable, arguments)
 }

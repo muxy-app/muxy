@@ -16,17 +16,18 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::{ptr, thread};
 
-/// The first argument of an app started as a host. The server and its
-/// arguments follow.
+/// The first argument of an app started as a host. The server's arguments
+/// follow.
 pub const FLAG: &str = "--server-host";
 
-/// Runs the server named by `arguments` and returns once it exits.
+/// Runs the server beside this executable with `arguments` and returns once it
+/// exits. Anyone can start the app with [`FLAG`], so the host never runs a
+/// program named by its caller: that program would get the app's permissions.
 pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
-    let mut arguments = arguments.into_iter();
-    let Some(server) = arguments.next() else {
+    let Ok(executable) = muxy_core::executable::current_path() else {
         return ExitCode::FAILURE;
     };
-    let status = Command::new(server)
+    let status = Command::new(server_beside(&executable))
         .args(arguments)
         .process_group(0)
         .stdin(Stdio::null())
@@ -40,20 +41,25 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     }
 }
 
-/// This executable, when it runs from an app bundle. Without a bundle there is
-/// no app identity to keep.
-pub(super) fn app_executable() -> io::Result<Option<PathBuf>> {
+/// The app that can host `server`: this executable, when it runs from an app
+/// bundle and `server` is the one beside it. Without a bundle there is no app
+/// identity to keep.
+pub(super) fn app_for(server: &Path) -> io::Result<Option<PathBuf>> {
     let executable = muxy_core::executable::current_path()?;
-    Ok(muxy_core::bundle::containing(&executable)
-        .is_some()
-        .then_some(executable))
+    Ok((muxy_core::bundle::containing(&executable).is_some()
+        && server == server_beside(&executable))
+    .then_some(executable))
 }
 
-/// Starts `app` as the host of `server`, in its own process group and with
+fn server_beside(executable: &Path) -> PathBuf {
+    executable.with_file_name("muxy-server")
+}
+
+/// Starts `app` as the host of its server, in its own process group and with
 /// output discarded, like a server started directly.
-pub(super) fn spawn(app: &Path, server: &Path, arguments: &[OsString]) -> io::Result<()> {
+pub(super) fn spawn(app: &Path, arguments: &[OsString]) -> io::Result<()> {
     let argv = c_strings(
-        [app.as_os_str(), OsStr::new(FLAG), server.as_os_str()]
+        [app.as_os_str(), OsStr::new(FLAG)]
             .into_iter()
             .chain(arguments.iter().map(OsString::as_os_str)),
     )?;
@@ -223,11 +229,7 @@ mod tests {
             ),
         )?;
         std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o755))?;
-        spawn(
-            &app,
-            Path::new("/bin/muxy-server"),
-            &["--socket".into(), "/tmp/server.sock".into()],
-        )?;
+        spawn(&app, &["--socket".into(), "/tmp/server.sock".into()])?;
         let deadline = Instant::now() + Duration::from_secs(5);
         while !report.exists() && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(20));
@@ -235,26 +237,22 @@ mod tests {
         let report = std::fs::read_to_string(report)?;
         let lines: Vec<&str> = report.lines().collect();
         let home = std::env::var("HOME").unwrap_or_default();
-        assert_eq!(
-            lines[..5],
-            [
-                FLAG,
-                "/bin/muxy-server",
-                "--socket",
-                "/tmp/server.sock",
-                &home
-            ]
-        );
-        assert_eq!(lines[5], lines[6], "the host leads its own process group");
+        assert_eq!(lines[..4], [FLAG, "--socket", "/tmp/server.sock", &home]);
+        assert_eq!(lines[4], lines[5], "the host leads its own process group");
         Ok(())
     }
 
     #[test]
-    fn host_runs_the_server_and_reports_how_it_ended() {
-        let success = ["/bin/sh", "-c", "exit 0"].map(OsString::from);
-        let failure = ["/bin/sh", "-c", "exit 3"].map(OsString::from);
-        assert_eq!(run(success), ExitCode::SUCCESS);
-        assert_eq!(run(failure), ExitCode::FAILURE);
-        assert_eq!(run([]), ExitCode::FAILURE);
+    fn host_never_runs_a_program_its_caller_names() -> io::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let marker = directory.path().join("ran");
+        let command = format!("touch {}", marker.display());
+        assert_eq!(
+            run(["/bin/sh".into(), "-c".into(), command.into()]),
+            ExitCode::FAILURE,
+            "this test binary has no server beside it"
+        );
+        assert!(!marker.exists());
+        Ok(())
     }
 }
