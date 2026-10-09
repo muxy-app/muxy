@@ -573,6 +573,54 @@ fn passwords_are_asked_when_connecting_and_forgotten_when_refused(cx: &mut TestA
 }
 
 #[gpui::test]
+fn a_remote_home_tab_waits_for_the_password_and_opens_once_connected(cx: &mut TestAppContext) {
+    let (_directory, socket) = short_socket();
+    let remote = ServerId::new();
+    let mut server = entry(remote, "box");
+    server.password_login = true;
+    let (boot, _, remotes) = boot_with(vec![server]);
+    cx.update(|cx| {
+        crate::views::workspace::bind_keys(&boot.settings.keymap, cx);
+        cx.bind_keys(muxy_ui::text_input::key_bindings());
+    });
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let worker = remotes.borrow_mut().remove(&remote).expect("worker");
+    view.update(cx, |model, cx| {
+        model.servers.passwords.set_socket(socket);
+        connect_local(model, cx);
+        model.new_remote_home_tab(remote, cx);
+        assert!(matches!(model.overlay, Some(Overlay::Password(_))));
+    });
+    cx.run_until_parked();
+    cx.simulate_input("hunter2");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(
+        work(&worker)
+            .iter()
+            .any(|work| matches!(work, Work::Connect))
+    );
+    view.update(cx, |model, cx| {
+        let home = connect_remote(model, remote, vec![], &[], cx);
+        let current = model.state.current_project();
+        assert_eq!((current.id, current.tabs.len()), (home, 1));
+        assert!(model.project_listed(current));
+
+        let later = muxy_protocol::CatalogPage {
+            revision: 2,
+            ..page(2, home, &[])
+        };
+        model.receive((remote, 1, Update::Catalog(Ok(later))), cx);
+        let tabs = model.state.project(home).expect("Home").tabs.len();
+        assert_eq!(tabs, 1, "a later catalog opens no other tab");
+
+        model.forget_remote_server(remote, cx).expect("forgotten");
+        assert!(!model.state.remote_servers_selected());
+        assert!(model.project_listed(model.state.current_project()));
+    });
+}
+
+#[gpui::test]
 fn a_new_key_file_or_login_reconnects_through_a_new_worker(cx: &mut TestAppContext) {
     let (_directory, socket) = short_socket();
     let (boot, _, remotes) = boot_with(vec![]);

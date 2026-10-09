@@ -168,6 +168,29 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
 }
 
 #[test]
+fn a_command_keeps_a_key_a_newer_default_claims_but_cannot_take_one_in_use() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[keymap]\n\"command.tests\" = 'cmd-shift-n'\n",
+    )?;
+    let keymap = Settings::load(&path)?.keymap;
+    let chord: KeyChord = "cmd-shift-n".parse()?;
+    assert_eq!(keymap.binding("command.tests"), Some(&chord));
+    assert_eq!(keymap.chord(ShortcutId::NewTabInProject), None);
+    assert!(
+        keymap
+            .with_binding("command.other", Some("cmd-t".parse()?))
+            .is_err()
+    );
+
+    let moved = keymap.with_binding("command.tests", Some("ctrl-alt-t".parse()?))?;
+    assert_eq!(moved.chord(ShortcutId::NewTabInProject), Some(&chord));
+    assert!(moved.with_binding("command.tests", Some(chord)).is_err());
+    Ok(())
+}
+
+#[test]
 fn terminal_save_preserves_comments_unknown_keys_and_includes_and_returns_effective_values()
 -> Result {
     let fixture = Fixture::new()?;
