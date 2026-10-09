@@ -145,7 +145,8 @@ impl AppModel {
                 .view
                 .as_ref()
                 .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active());
-        self.spinners.set_blocked(blocked || resizing);
+        self.spinners
+            .set_blocked(resizing || composer_dialog || self.overlay_unmarked());
         let shortcuts = self.webview_shortcuts();
         for (id, surface) in &self.webviews.panes {
             surface
@@ -189,6 +190,14 @@ impl AppModel {
                 );
             });
         }
+    }
+
+    /// An overlay that doesn't mark where it is hides every spinner.
+    /// Confirmations are native sheets above the window, so they hide none.
+    fn overlay_unmarked(&self) -> bool {
+        self.overlay
+            .as_ref()
+            .is_some_and(|overlay| !overlay.marks_bounds())
     }
 
     fn pane_drag_available(&self, pane: PaneId) -> bool {
@@ -875,6 +884,8 @@ impl AppModel {
         }
     }
 
+    /// Marks app content drawn above native views: web views and spinners
+    /// under it are hidden.
     pub(crate) fn webview_occlusion(&self) -> gpui::AnyElement {
         self.webview_occlusion_except(None)
     }
@@ -937,7 +948,9 @@ impl AppModel {
             .map(|(view, pane)| (view.entity_id(), view.read(cx).native.clone(), pane))
             .collect();
         let occlusions = self.webviews.occlusions.clone();
+        let covers = self.webviews.occlusions.clone();
         let grips = self.webviews.grips.clone();
+        let spinners = self.spinners.clone();
         gpui::canvas(
             move |_, _, _| {
                 for (id, view, pane) in &views {
@@ -945,7 +958,11 @@ impl AppModel {
                     view.set_grips(&grips_for(*id, *pane, &grips.borrow()));
                 }
             },
-            |_, (), _, _| (),
+            // Painting starts after every element, overlays included, is laid out.
+            move |_, (), _, _| {
+                let covers: Vec<_> = covers.borrow().iter().map(|(_, bounds)| *bounds).collect();
+                spinners.present(&covers);
+            },
         )
         .absolute()
         .size_full()

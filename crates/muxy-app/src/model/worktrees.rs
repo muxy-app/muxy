@@ -4,6 +4,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use gpui::Context;
+use muxy_app_core::settings::WorktreeLocation;
 use muxy_app_core::{ProjectStatus, ServerId};
 use muxy_client::{Client, ClientError};
 use muxy_protocol::{
@@ -12,7 +13,28 @@ use muxy_protocol::{
 };
 use muxy_ui::tr;
 
-use super::{AppModel, Work};
+use super::{AppModel, Work, git::Repository};
+
+/// A worktree the server is creating, shown in the sidebar until it answers.
+pub(crate) struct Creation {
+    pub(crate) parent: ProjectId,
+    pub(crate) name: String,
+    operation: OperationId,
+    location: WorktreeLocation,
+    /// The new worktree is selected if this is still the current project.
+    from: ProjectId,
+}
+
+/// Whether `action` removes a worktree and its files.
+pub(crate) fn removes_worktree(action: &GitAction) -> bool {
+    matches!(
+        action,
+        GitAction::Worktree(WorktreeIntent {
+            action: WorktreeAction::Remove { .. },
+            ..
+        })
+    )
+}
 
 /// Brings Git worktrees made outside Muxy into each project, one project at a
 /// time so a long sidebar never floods the server.
@@ -188,10 +210,98 @@ fn folder_gone(
 }
 
 impl AppModel {
+    /// Asks the server to create a worktree under `parent`, closing the form
+    /// once the request is on its way.
+    pub(crate) fn create_worktree(
+        &mut self,
+        parent: ProjectId,
+        intent: WorktreeIntent,
+        location: WorktreeLocation,
+        cx: &mut Context<Self>,
+    ) {
+        let WorktreeAction::Create { branch, .. } = &intent.action else {
+            return;
+        };
+        let name = intent
+            .options
+            .as_ref()
+            .and_then(|options| options.name.clone())
+            .unwrap_or_else(|| branch.clone());
+        let operation = intent.operation;
+        if !self.git_request(parent, GitAction::Worktree(intent), cx) {
+            return;
+        }
+        self.dismiss_overlay(cx);
+        self.git.creations.push(Creation {
+            parent,
+            name,
+            operation,
+            location,
+            from: self.state.current_project().id,
+        });
+    }
+
+    /// Forgets the creation `request` started, once the server answered it.
+    pub(super) fn take_creation(&mut self, request: &GitRequest) -> Option<Creation> {
+        let GitAction::Worktree(intent) = &request.action else {
+            return None;
+        };
+        let index = self
+            .git
+            .creations
+            .iter()
+            .position(|creation| creation.operation == intent.operation)?;
+        Some(self.git.creations.remove(index))
+    }
+
+    /// Keeps the location the worktree was created with and shows the new
+    /// worktree, unless the user moved to another project meanwhile.
+    pub(super) fn worktree_created(
+        &mut self,
+        creation: Creation,
+        project: ProjectId,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_worktree_preference(creation.parent, creation.location, cx);
+        if self.state.current_project().id == creation.from {
+            let server = self.project_server_or_local(creation.parent);
+            self.git.select_after_catalog = Some((server, project, self.git.interaction));
+        }
+    }
+
+    pub(crate) fn worktree_creations(&self, parent: ProjectId) -> impl Iterator<Item = &Creation> {
+        self.git
+            .creations
+            .iter()
+            .filter(move |creation| creation.parent == parent)
+    }
+
+    pub(crate) fn worktree_removing(&self, project: ProjectId) -> bool {
+        self.git
+            .projects
+            .get(&project)
+            .and_then(Repository::mutation)
+            .is_some_and(removes_worktree)
+    }
+
+    /// Removing the worktree you are in moves you to its primary checkout.
+    pub(crate) fn leave_worktree(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        if self.state.current_project().id != project {
+            return;
+        }
+        if let Some(parent) = self
+            .state
+            .project(project)
+            .and_then(|record| record.parent_id)
+        {
+            self.select_project(parent, cx);
+        }
+    }
+
     pub(crate) fn save_worktree_preference(
         &mut self,
         project: ProjectId,
-        location: muxy_app_core::settings::WorktreeLocation,
+        location: WorktreeLocation,
         cx: &mut Context<Self>,
     ) {
         let mut settings = self.settings.clone();

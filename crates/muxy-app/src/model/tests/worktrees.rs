@@ -404,3 +404,114 @@ fn assert_cannot_open_tabs(state: &mut AppState, project: ProjectId) {
             .is_err()
     );
 }
+
+#[test]
+fn a_missing_worktree_kept_for_its_tabs_can_still_be_removed() {
+    let (mut state, _, [gone, _, _], _directory) = pruning_fixture();
+    state.open_terminal_tab(gone).expect("tab");
+    std::fs::remove_dir_all(&state.project(gone).expect("worktree").directory).expect("delete");
+    state.refresh_project_statuses();
+    let project = state.project(gone).expect("kept for its tab");
+    let commands: Vec<_> = crate::views::project_menu::worktree_items(project, false)
+        .iter()
+        .filter_map(crate::views::menu::Item::command)
+        .collect();
+    assert!(
+        matches!(commands.as_slice(), [crate::views::menu::Command::RemoveProject(id)] if *id == gone)
+    );
+}
+
+fn creation(name: &str) -> muxy_protocol::WorktreeIntent {
+    muxy_protocol::WorktreeIntent {
+        options: Some(muxy_protocol::WorktreeOptions {
+            name: Some(name.into()),
+            hooks: None,
+        }),
+        operation: muxy_protocol::OperationId::new(),
+        action: muxy_protocol::WorktreeAction::Create {
+            project: ProjectId::new(),
+            directory: ServerPath(format!("/tmp/{name}").into_bytes()),
+            branch: name.into(),
+            base: Some("HEAD".into()),
+        },
+    }
+}
+
+#[gpui::test]
+fn a_failed_worktree_creation_is_reported_after_moving_elsewhere_and_clears_its_row(
+    cx: &mut TestAppContext,
+) {
+    let (state, root) = registered_current_project();
+    let (view, cx, _sent) = connected(state, cx);
+    view.update(cx, |model, cx| {
+        let intent = creation("feature");
+        model.create_worktree(
+            root,
+            intent.clone(),
+            muxy_app_core::settings::WorktreeLocation::default(),
+            cx,
+        );
+        assert_eq!(model.worktree_creations(root).count(), 1);
+        model.select_project(model.state.home().id, cx);
+        model.receive_git(
+            &muxy_protocol::GitRequest {
+                project: root,
+                action: muxy_protocol::GitAction::Worktree(intent),
+            },
+            Err(muxy_client::ClientError::Disconnected),
+            cx,
+        );
+        assert_eq!(model.worktree_creations(root).count(), 0);
+        assert!(model.error.is_some());
+    });
+}
+
+#[gpui::test]
+fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
+    cx: &mut TestAppContext,
+) {
+    use muxy_protocol::{GitAction, GitPullRequestAction, GitReply, GitRequest};
+    let (mut state, _, [worktree, _, _], _directory) = pruning_fixture();
+    state.select_project(worktree).expect("worktree");
+    let (view, cx, mut sent) = connected(state, cx);
+    let merge = GitPullRequestAction::Merge {
+        number: 7,
+        method: muxy_protocol::GitMergeMethod::Squash,
+        delete_branch: false,
+        expected_head: Some("abc".into()),
+    };
+    let request = |action| GitRequest {
+        project: worktree,
+        action,
+    };
+    view.update(cx, |model, cx| {
+        model.merge_and_remove_worktree(worktree, merge.clone(), cx);
+        model.receive_git(&request(GitAction::PullRequest(merge)), Ok(GitReply::Done), cx);
+        assert!(sent.take().iter().any(|work| matches!(
+            work,
+            Work::Git(GitRequest { project, action: GitAction::InspectRemoval }) if *project == worktree
+        )));
+        model.dismiss_overlay(cx);
+        let expected = muxy_protocol::WorktreeRemoval {
+            directory: ServerPath(b"/unused".to_vec()),
+            device: 1,
+            inode: 1,
+            dirty: false,
+            status: vec![],
+            head: None,
+            branch: None,
+        };
+        model.receive_git(
+            &request(GitAction::InspectRemoval),
+            Ok(GitReply::Removal(expected)),
+            cx,
+        );
+        model.dismiss_overlay(cx);
+        model.receive_git(
+            &request(GitAction::WorktreeHooks { teardown: true }),
+            Ok(GitReply::WorktreeHooks(vec![])),
+            cx,
+        );
+        assert!(model.close_prompt.is_some(), "removal is confirmed first");
+    });
+}

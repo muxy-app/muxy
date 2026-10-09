@@ -8,7 +8,7 @@ use muxy_ui::tr;
 
 use super::{AppModel, Work, git::Presence};
 use crate::ai::{Cancellation, Provider};
-use crate::repository_actions::{self, Action, Outcome};
+use crate::repository_actions::{self, Action, Outcome, Step};
 use crate::views::git::AiConfirmation;
 use crate::views::overlays::Overlay;
 
@@ -29,6 +29,7 @@ pub(crate) struct PendingConfirmation {
 struct Run {
     id: u64,
     action: Action,
+    step: Step,
     cancellation: Cancellation,
 }
 
@@ -74,6 +75,10 @@ impl Runtime {
         self.runs.get(&project).map(|run| run.action)
     }
 
+    pub(crate) fn running_step(&self, project: ProjectId) -> Option<Step> {
+        self.runs.get(&project).map(|run| run.step)
+    }
+
     pub(crate) fn provider(
         &self,
         settings: &muxy_app_core::settings::Settings,
@@ -111,10 +116,17 @@ impl Runtime {
             Run {
                 id,
                 action,
+                step: Step::Reading,
                 cancellation: cancellation.clone(),
             },
         );
         cancellation
+    }
+
+    fn advance(&mut self, project: ProjectId, id: u64, step: Step) {
+        if let Some(run) = self.runs.get_mut(&project).filter(|run| run.id == id) {
+            run.step = step;
+        }
     }
 
     fn finish(&mut self, project: ProjectId, id: u64) {
@@ -465,10 +477,26 @@ impl AppModel {
         self.ai.next += 1;
         let id = self.ai.next;
         let cancellation = self.ai.start(project, id, action);
+        let (progress, steps) = async_channel::unbounded();
+        cx.spawn(async move |model, cx| {
+            while let Ok(step) = steps.recv().await {
+                let updated = model.update(cx, |model, cx| {
+                    model.ai.advance(project, id, step);
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         self.with_client(
             project,
             cx,
             move |client| {
+                let report = |step| {
+                    let _ = progress.try_send(step);
+                };
                 let plan = repository_actions::prepare(
                     &client,
                     project,
@@ -477,10 +505,11 @@ impl AppModel {
                     &branch,
                     head.as_deref(),
                 )?;
+                report(Step::Writing);
                 let prompt = repository_actions::prompt(&plan, &instructions);
                 let output = provider.generate(&prompt, &directory, &cancellation)?;
                 let draft = repository_actions::parse_draft(&plan, &output)?;
-                Ok(repository_actions::apply(&client, &plan, &draft))
+                Ok(repository_actions::apply(&client, &plan, &draft, report))
             },
             move |model, result, cx| model.ai_applied(id, project, action, result, cx),
         );

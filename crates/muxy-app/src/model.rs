@@ -30,6 +30,7 @@ mod voice;
 mod webviews;
 mod workspaces;
 mod worktrees;
+pub(crate) use worktrees::removes_worktree;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

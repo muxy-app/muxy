@@ -455,6 +455,10 @@ impl AppModel {
                 repository.disconnect();
             }
         }
+        let state = &self.state;
+        self.git
+            .creations
+            .retain(|creation| state.project_server(creation.parent) != Some(server));
         self.state.forget_remote_statuses(server);
         let Some(runtime) = self.servers.get_mut(server) else {
             return;

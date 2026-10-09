@@ -10,6 +10,7 @@ use muxy_app_core::{
 };
 use muxy_protocol::{AgentProvider, ProgressState, SessionId, TerminalProgress};
 use muxy_ui::components::Tooltip;
+use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::spinner::NativeSpinner;
 use muxy_ui::tr;
 use std::cell::{Cell, RefCell};
@@ -21,6 +22,8 @@ use gpui::InteractiveElement;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Status {
     None,
+    /// Muxy is creating or removing a worktree; the key describes it.
+    Busy(&'static str),
     Progress(TerminalProgress),
     Blocked,
     Unread(usize),
@@ -99,26 +102,53 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
 }
 
 pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
-    let expanded = match model.appearance.layout {
-        AppLayout::TabFocused | AppLayout::AgentsFocused => model.project_expanded(id),
-        AppLayout::ProjectFocused => {
-            model.appearance.sidebar_expanded
-                && model.expanded_worktrees.contains(&id)
-                && model
-                    .state
-                    .project(id)
-                    .is_some_and(|project| model.has_worktrees(project))
-        }
-    };
-    if expanded {
+    let include_children = model.appearance.layout == AppLayout::ProjectFocused;
+    let worktrees_shown = include_children
+        && model.appearance.sidebar_expanded
+        && model.expanded_worktrees.contains(&id)
+        && model
+            .state
+            .project(id)
+            .is_some_and(|project| model.has_worktrees(project));
+    // The worktree list shows its own rows' work.
+    if worktrees_shown {
         return Status::None;
     }
-    let include_children = model.appearance.layout == AppLayout::ProjectFocused;
+    if let Some(busy) = worktree_work(id, include_children, model) {
+        return busy;
+    }
+    if !include_children && model.project_expanded(id) {
+        return Status::None;
+    }
     project_scope_status(id, include_children, model)
 }
 
 pub(super) fn worktree_status(id: ProjectId, model: &AppModel) -> Status {
+    if model.worktree_removing(id) {
+        return Status::Busy(REMOVING);
+    }
     project_scope_status(id, false, model)
+}
+
+pub(super) const CREATING: &str = tr_key!("Creating worktree");
+const REMOVING: &str = tr_key!("Removing worktree");
+
+/// Worktrees `id` is creating, or the removal of `id` or, with
+/// `include_children`, of one of its worktrees.
+fn worktree_work(id: ProjectId, include_children: bool, model: &AppModel) -> Option<Status> {
+    let removing = model.worktree_removing(id)
+        || include_children
+            && model
+                .worktree_children(id)
+                .iter()
+                .any(|child| model.worktree_removing(child.id));
+    if removing {
+        Some(Status::Busy(REMOVING))
+    } else if model.worktree_creations(id).next().is_some() {
+        Some(Status::Busy(CREATING))
+    } else {
+        None
+    }
 }
 
 fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel) -> Status {
@@ -222,31 +252,35 @@ struct Registry {
 
 struct Native {
     spinner: Option<NativeSpinner>,
+    bounds: Cell<Option<Bounds<Pixels>>>,
     in_bounds: Cell<bool>,
     visible: Cell<bool>,
 }
 
-impl Native {
-    fn set_blocked(&self, blocked: bool) {
-        let visible = !blocked && self.in_bounds.get();
-        self.visible.set(visible);
-        if let Some(spinner) = &self.spinner {
-            spinner.set_visible(visible);
-        }
-    }
-}
-
 impl Spinners {
+    /// Hides every spinner, for when native views can't be placed reliably.
     pub(crate) fn set_blocked(&self, blocked: bool) {
+        self.0.borrow_mut().blocked = blocked;
+    }
+
+    /// Shows each spinner unless it is clipped, blocked, or under `covers`:
+    /// app content painted above native views, such as a menu.
+    pub(crate) fn present(&self, covers: &[Bounds<Pixels>]) {
         let mut registry = self.0.borrow_mut();
-        let changed = registry.blocked != blocked;
-        registry.blocked = blocked;
+        let blocked = registry.blocked;
         registry.natives.retain(|native| {
             let Some(native) = native.upgrade() else {
                 return false;
             };
-            if changed {
-                native.set_blocked(blocked);
+            let visible = !blocked
+                && native.in_bounds.get()
+                && native
+                    .bounds
+                    .get()
+                    .is_some_and(|bounds| !covers.iter().any(|cover| cover.intersects(&bounds)));
+            native.visible.set(visible);
+            if let Some(spinner) = &native.spinner {
+                spinner.set_visible(visible);
             }
             true
         });
@@ -267,6 +301,7 @@ impl Spinners {
                                 } else {
                                     NativeSpinner::new(window).ok()
                                 },
+                                bounds: Cell::new(None),
                                 in_bounds: Cell::new(false),
                                 visible: Cell::new(false),
                             });
@@ -275,13 +310,18 @@ impl Spinners {
                             native
                         });
                         let mask = window.content_mask().bounds;
+                        native.bounds.set(Some(bounds));
                         native.in_bounds.set(
                             mask.contains(&bounds.origin) && mask.contains(&bounds.bottom_right()),
                         );
-                        let visible = !registry.blocked && native.in_bounds.get();
-                        native.visible.set(visible);
+                        // `present` decides visibility once everything above is laid out.
                         if let Some(spinner) = &native.spinner {
-                            spinner.show(bounds, color.into(), visible, window.scale_factor());
+                            spinner.show(
+                                bounds,
+                                color.into(),
+                                native.visible.get(),
+                                window.scale_factor(),
+                            );
                         }
                         ((), native)
                     });
@@ -293,6 +333,11 @@ impl Spinners {
     }
 }
 
+/// An indeterminate spinner in the accent color.
+pub(super) fn spinner(id: impl Into<String>, size: Pixels, model: &AppModel) -> AnyElement {
+    model.spinners.glyph(id.into(), size, model.theme.accent)
+}
+
 pub(super) fn status_glyph(
     id: String,
     status: Status,
@@ -302,6 +347,11 @@ pub(super) fn status_glyph(
     let theme = &model.theme;
     let (kind, tooltip, glyph) = match status {
         Status::None => return div().into_any_element(),
+        Status::Busy(key) => (
+            "busy",
+            translate(key).to_string(),
+            model.spinners.glyph(id.clone(), size, theme.accent),
+        ),
         Status::Progress(progress) => {
             let tooltip = match progress.state {
                 ProgressState::Error => tr!("Work reported an error."),

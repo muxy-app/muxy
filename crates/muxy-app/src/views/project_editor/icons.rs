@@ -113,6 +113,7 @@ pub(crate) fn render(
             }
         }))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(model.webview_occlusion())
         .child(muxy_ui::popover::header(theme, m).child(tr!("Icon")))
         .child(
             muxy_ui::popover::body(m)

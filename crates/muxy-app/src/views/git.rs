@@ -66,7 +66,6 @@ pub(crate) struct Form {
     subscriptions: Vec<gpui::Subscription>,
     error: Option<String>,
     suggested_branch: String,
-    submitted_location: Option<(OperationId, muxy_app_core::settings::WorktreeLocation)>,
 }
 impl AppModel {
     pub(crate) fn open_git_picker(
@@ -302,7 +301,9 @@ impl AppModel {
         match &operation {
             GitAction::DeleteBranch(branch) => self.confirm_git_action(project, operation.clone(), tr!("Permanently delete branch “%@”? Unmerged commits may become unreachable.", branch).into(), cx),
             GitAction::Discard(paths) => self.confirm_git_action(project, operation.clone(), tr!("Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)).into(), cx),
-            _ => self.git_request(project, operation, cx),
+            _ => {
+                self.git_request(project, operation, cx);
+            }
         }
     }
 
@@ -401,7 +402,10 @@ impl AppModel {
                     && model.git.interaction == context
                     && model.state.project(project).is_some()
                 {
-                    model.git_request(project, action, cx);
+                    let removes = crate::model::removes_worktree(&action);
+                    if model.git_request(project, action, cx) && removes {
+                        model.leave_worktree(project, cx);
+                    }
                 }
             });
         }));
@@ -505,7 +509,6 @@ impl AppModel {
             subscriptions,
             error: None,
             suggested_branch: String::new(),
-            submitted_location: None,
         })));
         if worktree {
             self.git_request(project, GitAction::Branches, cx);
@@ -699,42 +702,38 @@ impl AppModel {
             return;
         }
         let project = form.project;
-        let action = if form.worktree {
-            let Ok(directory) = directory else {
-                return;
-            };
-            let base = form.base.read(cx).text().trim().to_owned();
-            GitAction::Worktree(WorktreeIntent {
-                options: Some(muxy_protocol::WorktreeOptions {
-                    name: Some(form.name.read(cx).text().trim().into()),
-                    hooks: form.run_setup.then(|| form.hooks.clone()).flatten(),
-                }),
-                operation: OperationId::new(),
-                action: WorktreeAction::Create {
-                    project: ProjectId::new(),
-                    directory: ServerPath(
-                        std::path::Path::new(&directory)
-                            .as_os_str()
-                            .as_bytes()
-                            .to_vec(),
-                    ),
-                    branch,
-                    base: (!form.existing).then_some(if base.is_empty() {
-                        "HEAD".into()
-                    } else {
-                        base
-                    }),
-                },
-            })
-        } else {
-            GitAction::CreateBranch(branch)
-        };
-        if let GitAction::Worktree(intent) = &action
-            && let Some(Overlay::GitForm(form)) = &mut self.overlay
-        {
-            form.submitted_location = Some((intent.operation, form.location(cx)));
+        if !form.worktree {
+            self.git_request(project, GitAction::CreateBranch(branch), cx);
+            return;
         }
-        self.git_request(project, action, cx);
+        let Ok(directory) = directory else {
+            return;
+        };
+        let base = form.base.read(cx).text().trim().to_owned();
+        let intent = WorktreeIntent {
+            options: Some(muxy_protocol::WorktreeOptions {
+                name: Some(form.name.read(cx).text().trim().into()),
+                hooks: form.run_setup.then(|| form.hooks.clone()).flatten(),
+            }),
+            operation: OperationId::new(),
+            action: WorktreeAction::Create {
+                project: ProjectId::new(),
+                directory: ServerPath(
+                    std::path::Path::new(&directory)
+                        .as_os_str()
+                        .as_bytes()
+                        .to_vec(),
+                ),
+                branch,
+                base: (!form.existing).then_some(if base.is_empty() {
+                    "HEAD".into()
+                } else {
+                    base
+                }),
+            },
+        };
+        let location = form.location(cx);
+        self.create_worktree(project, intent, location, cx);
     }
 }
 

@@ -1,6 +1,6 @@
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, canvas, div,
+    Styled, canvas, div,
 };
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
@@ -14,6 +14,8 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
     let m = model.metrics;
     let theme = &model.theme;
     Some(match model.tip_placement()? {
+        // A translucent fill reads on any sidebar background; an opaque
+        // border doesn't match it once the sidebar shows vibrancy.
         TipPlacement::Card => content(model, cx)
             .debug_selector(|| "sidebar-tip".into())
             .flex_none()
@@ -21,8 +23,6 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
             .mb(m.spacing3())
             .p(m.spacing6())
             .rounded(m.radius_lg())
-            .border_1()
-            .border_color(theme.border)
             .bg(theme.surface)
             .into_any_element(),
         TipPlacement::Button => {
@@ -141,7 +141,6 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
     let controls = div()
         .flex()
         .items_center()
-        .gap(m.spacing2())
         .child(
             div()
                 .debug_selector(|| "tip-position".into())
@@ -170,27 +169,24 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
 fn step_button(forward: bool, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
-    let (id, icon) = if forward {
-        ("next-tip", Icon::ChevronRight)
+    let (id, icon, tooltip) = if forward {
+        ("next-tip", Icon::ChevronRight, tr!("Next Tip"))
     } else {
-        ("previous-tip", Icon::ChevronLeft)
+        ("previous-tip", Icon::ChevronLeft, tr!("Previous Tip"))
     };
     div()
-        .id(id)
         .debug_selector(move || id.into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .w(m.control_medium())
-        .h(m.control_small())
-        .rounded(m.radius_sm())
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.hover)
-        .cursor_pointer()
-        .hover(|style| style.bg(theme.surface))
-        .on_click(cx.listener(move |model, _, _, cx| model.step_tip(forward, cx)))
-        .child(IconGlyph::new(icon, m.icon_xs(), theme.fg_muted))
+        .child(
+            IconButton::new(
+                id,
+                icon,
+                m.icon_xs(),
+                m.control_small(),
+                theme.fg_dim,
+                theme.fg,
+            )
+            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+            .on_click(cx.listener(move |model, _, _, cx| model.step_tip(forward, cx))),
+        )
         .into_any_element()
 }

@@ -156,6 +156,9 @@ pub(super) fn group(
         for child in model.worktree_children(project.id) {
             worktrees = worktrees.child(row(child, false, model, cx));
         }
+        for (index, creation) in model.worktree_creations(project.id).enumerate() {
+            worktrees = worktrees.child(creating_row(&creation.name, project.id, index, model));
+        }
         group = group.child(worktrees.child(new_worktree(project.id, model, cx)));
     }
     group.into_any_element()
@@ -172,6 +175,7 @@ fn row(
     let theme = &model.theme;
     let active = model.state.current_project().id == id;
     let missing = project.status() == ProjectStatus::Missing;
+    let unavailable = missing || model.worktree_removing(id);
     let activity = super::super::tab_activity::worktree_status(id, model);
     div()
         .id(SharedString::from(format!("worktree-{id}")))
@@ -185,9 +189,9 @@ fn row(
         .text_size(m.font_body())
         .text_color(theme.fg)
         .when(active, |row| row.bg(theme.hover))
-        .when(missing, |row| row.opacity(0.5))
+        .when(unavailable, |row| row.opacity(0.5))
         .hover(|style| style.bg(theme.hover))
-        .when(!missing, |row| {
+        .when(!unavailable, |row| {
             row.cursor_pointer()
                 .on_click(cx.listener(move |model, _, window, cx| {
                     model.select_project(id, cx);
@@ -242,6 +246,44 @@ fn row(
                             .child(tr!("PRIMARY")),
                     )
                 }),
+        )
+        .into_any_element()
+}
+
+/// A worktree the server is still creating.
+fn creating_row(name: &str, parent: ProjectId, index: usize, model: &AppModel) -> AnyElement {
+    let m = model.metrics;
+    let key = format!("worktree-creating-{parent}-{index}");
+    let selector = key.clone();
+    div()
+        .debug_selector(move || selector.clone())
+        .flex()
+        .items_center()
+        .gap(m.spacing4())
+        .px(m.spacing2())
+        .h(m.control_large())
+        .text_size(m.font_body())
+        .text_color(model.theme.fg_muted)
+        .child(
+            div()
+                .flex_none()
+                .w(m.icon_xxl())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(super::super::tab_activity::status_glyph(
+                    key,
+                    super::super::tab_activity::Status::Busy(super::super::tab_activity::CREATING),
+                    m.icon_sm(),
+                    model,
+                )),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .truncate()
+                .child(name.to_owned()),
         )
         .into_any_element()
 }

@@ -107,6 +107,13 @@ pub(crate) fn render(
                 .text_color(theme.fg_muted)
                 .child(tr!("Connect to the server to create.")),
         );
+    } else if busy && form.worktree {
+        view = view.child(
+            div()
+                .text_size(m.font_footnote())
+                .text_color(theme.fg_muted)
+                .child(tr!("Wait for the running Git action to finish.")),
+        );
     }
     view.child(
         div()
@@ -119,7 +126,7 @@ pub(crate) fn render(
                     style,
                     "git-cancel",
                     &tr!("Cancel"),
-                    !busy,
+                    true,
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )
                 .debug_selector(|| "git-cancel".into()),
@@ -148,7 +155,7 @@ pub(crate) fn render(
                                 cx.listener(|model, _, _, cx| model.submit_git_form(cx)),
                             )
                     })
-                    .child(if busy {
+                    .child(if busy && !form.worktree {
                         tr!("Creating…")
                     } else {
                         tr!("Create")
@@ -223,7 +230,12 @@ fn branch_picker(
                     .anchor(Corner::TopLeft)
                     .offset(point(px(0.0), m.control_medium() + m.spacing6()))
                     .snap_to_window_with_margin(px(8.0))
-                    .child(chooser.clone()),
+                    .child(
+                        div()
+                            .relative()
+                            .child(chooser.clone())
+                            .child(model.webview_occlusion()),
+                    ),
             )
             .with_priority(2),
         );

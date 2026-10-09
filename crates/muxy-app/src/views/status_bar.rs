@@ -1,9 +1,10 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, StatefulInteractiveElement, Styled, canvas, div, px,
+    MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, canvas, div, px,
 };
 use muxy_app_core::extensions::Side;
+use muxy_protocol::{GitAction, GitPullRequestAction, WorktreeAction, WorktreeIntent};
 use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph, Tooltip};
 use muxy_ui::icon::Icon;
 use muxy_ui::popover::PopoverAnchor;
@@ -248,6 +249,22 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
         controls.push(separator(model));
         controls.push(chip);
     }
+    // Removing a worktree moves you to its primary, which shows the removal.
+    let label = repository
+        .and_then(crate::model::git::Repository::mutation)
+        .and_then(progress_label)
+        .or_else(|| {
+            model
+                .worktree_children(project)
+                .iter()
+                .any(|child| model.worktree_removing(child.id))
+                .then(|| tr!("Removing worktree"))
+        });
+    if let Some(label) = label {
+        controls.push(separator(model));
+        controls.push(progress(label, model));
+        return controls;
+    }
     match repository.map_or(
         Presence::Loading,
         crate::model::git::Repository::pull_request_presence,
@@ -304,7 +321,11 @@ fn ai_action_chip(
     cx: &mut Context<AppModel>,
 ) -> Option<AnyElement> {
     let project = model.state.current_project().id;
-    let running = model.ai.running_action(project) == Some(action);
+    let step = model
+        .ai
+        .running_step(project)
+        .filter(|_| model.ai.running_action(project) == Some(action));
+    let running = step.is_some();
     let can_run = match model.ai_availability(action) {
         Availability::Hidden => return None,
         Availability::Available(_) => true,
@@ -312,11 +333,7 @@ fn ai_action_chip(
     };
     let m = model.metrics;
     let theme = &model.theme;
-    let label = if running {
-        action.running_title()
-    } else {
-        action.title()
-    };
+    let label = step.map_or_else(|| action.title(), |step| step.title(action));
     let id = match action {
         AiAction::Commit => "ai-commit-status",
         AiAction::CreatePullRequest => "ai-create-pr-status",
@@ -371,7 +388,16 @@ fn ai_action_chip(
                                 model.open_ai_action(action, window, cx);
                             }))
                     })
-                    .child(SymbolGlyph::new(action.symbol(), m.font_caption(), color))
+                    .child(if running {
+                        super::tab_activity::spinner(
+                            format!("{id}-progress"),
+                            m.font_caption(),
+                            model,
+                        )
+                    } else {
+                        SymbolGlyph::new(action.symbol(), m.font_caption(), color)
+                            .into_any_element()
+                    })
                     .child(
                         div()
                             .text_size(m.font_footnote())
@@ -405,6 +431,54 @@ fn ai_action_chip(
             )
             .into_any_element(),
     )
+}
+
+/// What a long Git change is doing; quick ones show nothing.
+fn progress_label(action: &GitAction) -> Option<SharedString> {
+    match action {
+        GitAction::PullRequest(GitPullRequestAction::Merge { number, .. }) => {
+            Some(tr!("Merging PR #%lld", *number))
+        }
+        GitAction::PullRequest(GitPullRequestAction::Close { number }) => {
+            Some(tr!("Closing PR #%lld", *number))
+        }
+        GitAction::PullRequest(GitPullRequestAction::UpdateBranch { number, .. }) => {
+            Some(tr!("Updating PR #%lld", *number))
+        }
+        GitAction::SwitchToBase(base) => Some(tr!("Updating %@", base)),
+        GitAction::Worktree(WorktreeIntent {
+            action: WorktreeAction::Create { .. },
+            ..
+        }) => Some(tr!("Creating worktree")),
+        GitAction::Worktree(WorktreeIntent {
+            action: WorktreeAction::Remove { .. },
+            ..
+        }) => Some(tr!("Removing worktree")),
+        _ => None,
+    }
+}
+
+fn progress(label: SharedString, model: &AppModel) -> AnyElement {
+    div()
+        .debug_selector(|| "git-progress".into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.0))
+        .h_full()
+        .text_color(model.theme.fg_muted)
+        .child(super::tab_activity::spinner(
+            "git-progress",
+            model.metrics.font_caption(),
+            model,
+        ))
+        .child(
+            div()
+                .text_size(model.metrics.font_footnote())
+                .font_weight(FontWeight::MEDIUM)
+                .child(label),
+        )
+        .into_any_element()
 }
 
 fn pull_request_chip(
