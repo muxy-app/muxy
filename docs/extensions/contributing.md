@@ -56,4 +56,4 @@ users install updates from **Settings → Extensions**.
 - Keep bundles small and the source readable. Minified or obfuscated code is
   flagged for review.
 - Use lowercase names (`a-z`, `0-9`, `.`, `-`) so pages load.
-- Test on the latest Muxy 2 beta.
+- Test on the latest Muxy 2 release.

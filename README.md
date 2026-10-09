@@ -5,7 +5,7 @@
 <h1 align="center">Muxy</h1>
 
 <p align="center">Lightweight and Memory efficient terminal multiplexer built with Rust, GPUI and libghostty.</p>
-<p align="center"><p align="center"><a href="#install">Mac</a> | <a href="https://apps.apple.com/de/app/muxy/id6762464046?l=en-GB">iOS</a> | <a href="https://play.google.com/store/apps/details?id=com.muxy.app">Android</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
+<p align="center"><a href="#install">Mac</a> | <a href="https://apps.apple.com/de/app/muxy/id6762464046?l=en-GB">iOS</a> | <a href="https://play.google.com/store/apps/details?id=com.muxy.app">Android</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
 
 ## Screenshots
 
@@ -25,16 +25,21 @@
 
 ## Install
 
-### Homebrew
+The desktop app runs on macOS 14 or newer, on Apple Silicon or Intel.
 
 ```bash
-brew tap muxy-app/tap
-brew install --cask muxy
+brew install --cask muxy-app/tap/muxy
 ```
 
-### Manual
+Or download the DMG for your Mac from the [latest release](https://github.com/muxy-app/muxy/releases/latest).
 
-Download the latest release from the [releases page](https://github.com/muxy-app/muxy/releases)
+The `muxy` CLI and server also run on their own, on macOS and Linux:
+
+```bash
+brew install muxy-app/tap/muxy-cli
+```
+
+See [Getting started](docs/user-guide/getting-started.md) for the install script, upgrading from 1.x, and beta builds.
 
 ## Documentation
 

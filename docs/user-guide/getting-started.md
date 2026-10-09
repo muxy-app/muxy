@@ -1,55 +1,93 @@
 # Getting Started
 
-Muxy 2 is in beta. It installs as **Muxy Beta**, next to Muxy 1.x, and keeps its
-own settings and data.
-
 ## Requirements
 
 | Part | Runs on |
 | --- | --- |
-| Desktop app | macOS 14 or newer. Beta builds are for Apple Silicon. |
-| `muxy` CLI and server on macOS | macOS 14 or newer, on Intel (x86_64) or Apple Silicon (ARM64) |
-| `muxy` CLI and server on Linux | glibc 2.35 or newer, on x86_64 or ARM64. musl is unsupported. |
+| Desktop app | macOS 14 or newer, on Apple Silicon or Intel |
+| `muxy` CLI and server | macOS 14 or newer, or Linux with glibc 2.35 or newer, on x86_64 or ARM64. musl is unsupported. |
 
-## Install the desktop app
+## Desktop app
 
-1. Download `Muxy-<version>-arm64.dmg` from the latest `v2.0.0-beta.*` release
-   on the [releases page](https://github.com/muxy-app/muxy/releases).
-2. Drag **Muxy Beta** to `/Applications` and open it.
-3. Optional: choose **Install Command Line Tool…** from the app menu to use
-   [`muxy`](../features/muxy-cli.md) in your shell. It links
-   `~/.local/bin/muxy`.
+Install with [Homebrew](https://brew.sh):
 
-The app updates itself. Running terminals keep going through most updates.
+```bash
+brew install --cask muxy-app/tap/muxy
+```
+
+Or download it yourself:
+
+1. From the [latest release](https://github.com/muxy-app/muxy/releases/latest),
+   download `Muxy-<version>-arm64.dmg` for Apple Silicon or
+   `Muxy-<version>-x86_64.dmg` for Intel.
+2. Drag **Muxy** to `/Applications` and open it.
+
+To use [`muxy`](../features/muxy-cli.md) in your shell, choose **Install Command
+Line Tool…** from the app menu. It links `~/.local/bin/muxy`.
+
+The app updates itself, also when installed with Homebrew. Running terminals
+keep going through most updates.
 
 ## CLI and server only
 
-Install `muxy` and `muxy-server` without the desktop app on macOS or Linux.
-Choose a published version from the [releases page](https://github.com/muxy-app/muxy/releases):
-`X.Y.Z` for stable or `X.Y.Z-beta.N` for beta, without the leading `v`.
-The release must include `install-muxy.sh` and the CLI/server archives.
-Muxy 1.x does not include this pair; use beta until a stable Muxy 2 is available.
+For Linux, or a Mac without the desktop app. This installs `muxy` and
+`muxy-server`.
 
-Set `VERSION` to your chosen release, then run the same commands on either OS:
+### Homebrew
 
 ```bash
-VERSION=2.0.0-beta.1123
+brew install muxy-app/tap/muxy-cli
+```
+
+Update with `brew upgrade muxy-cli`. On a computer you will reach as a
+[remote server](../features/remote-servers.md), use the install script instead:
+SSH sessions often don't have Homebrew on `PATH`.
+
+### Install script
+
+Set `VERSION` to the newest version on the
+[releases page](https://github.com/muxy-app/muxy/releases/latest), without the
+leading `v`:
+
+```bash
+VERSION=2.1.0
 curl -fsSL "https://github.com/muxy-app/muxy/releases/download/v$VERSION/install-muxy.sh" \
   | sh -s -- --version "$VERSION"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The installer detects your OS and architecture and installs both commands into
-`~/.local/bin`. Add the `export` line to your shell's startup file to keep them
-on `PATH`. Check both versions with `muxy --version` and `muxy-server --version`,
-then run `muxy` for the [terminal UI](../features/terminal-ui.md).
+The script picks the build for your OS and architecture, verifies its checksum,
+and installs both commands into `~/.local/bin`. Add the `export` line to your
+shell's startup file to keep them on `PATH`.
 
-Rerun the installer with `--replace` to update, or add `--install-dir PATH` to
-choose another directory. Updates do not restart a running
+- **Update:** run it again with the new version and `--replace`.
+- **Another folder:** add `--install-dir PATH`.
+
+### Check it
+
+Run `muxy --version` and `muxy-server --version`, then `muxy` to open the
+[terminal UI](../features/terminal-ui.md). Updates never restart a running
 [server](../features/server.md#lifetime).
 
-Once stable Muxy 2 is available, Homebrew users on either OS can instead run
-`brew install muxy-app/tap/muxy-cli`, and update with `brew upgrade muxy-cli`.
+## Upgrading from Muxy 1.x
+
+Muxy 1.x offers Muxy 2 as an update, or you can install Muxy 2 over it. The first
+launch imports your 1.x setup: supported settings, shortcuts, local projects,
+workspaces, terminal tabs, the default shell, and extensions. Anything left out
+is listed, and your 1.x data stays where it was. To import again later, open
+**Settings → Backup & Restore** and choose **Import installed 1.x**; it adds to
+what you already have.
+
+Some 1.x features work differently or are not in 2.x yet. Extensions keep
+working; see [Coming from 1.x](../extensions/get-started.md#coming-from-1x).
+
+## Beta
+
+The beta gets new features first. It installs as a separate app, **Muxy Beta**,
+next to Muxy, keeps its own settings and data, and updates to each new beta.
+Download it from the newest `v<version>-beta.<N>` pre-release on the
+[releases page](https://github.com/muxy-app/muxy/releases). For the CLI and
+server, give the install script a beta version, such as `2.1.0-beta.1143`.
 
 ## First steps
 
@@ -60,16 +98,6 @@ Once stable Muxy 2 is available, Homebrew users on either OS can instead run
 3. **Split it.** `Cmd+D` splits right, `Cmd+Shift+D` splits down.
 4. **Quit freely.** Terminals keep running in the background. Reopen Muxy and
    everything is where you left it.
-
-## Coming from Muxy 1.x
-
-The first launch imports your installed 1.x: supported settings, shortcuts,
-local projects, workspaces, terminal tabs, the default shell, and extensions.
-Anything left out is listed. To import again later, open **Settings → Backup &
-Restore** and choose **Import installed 1.x**; it adds to what you already have.
-
-Some 1.x features work differently or are not in 2.x yet. Extensions keep
-working; see [Coming from 1.x](../extensions/get-started.md#coming-from-1x).
 
 ## Next
 

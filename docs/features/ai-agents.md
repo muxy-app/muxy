@@ -33,7 +33,7 @@ or finishes working.
 - Looking at the terminal clears the alert in every app.
 - Clicking a notification jumps to its pane.
 - Only one app notifies, so alerts are never doubled.
-- Turn notifications off in **System Settings → Notifications → Muxy Beta**.
+- Turn notifications off in **System Settings → Notifications → Muxy**.
 
 Alerts live in memory on the server, at most one per terminal. Restarting the
 server clears them.
