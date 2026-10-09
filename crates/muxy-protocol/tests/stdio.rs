@@ -6,7 +6,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use muxy_protocol::transport::{ByteStream, ChildStream, relay};
 
@@ -178,7 +178,17 @@ fn relay_ends_normally_and_closes_the_stream_when_output_is_gone() -> TestResult
     drop(stdout);
     let relaying = thread::spawn(move || relay(Box::new(stream), input, output));
 
-    server.write_all(b"nobody reads this")?;
+    // A child forked by another test can hold the closed end open for a moment,
+    // so one write may still succeed; the relay must stop at the first that fails.
+    let deadline = Instant::now() + TIMEOUT;
+    while !relaying.is_finished() {
+        assert!(
+            Instant::now() < deadline,
+            "relay kept writing to a closed output"
+        );
+        let _ = server.write_all(b"nobody reads this");
+        thread::sleep(BLOCKED_INTERVAL);
+    }
     relaying.join().map_err(|_| "relay panicked")??;
     assert_eq!(server.read(&mut [0; 8])?, 0);
     Ok(())
