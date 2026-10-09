@@ -117,49 +117,60 @@ fn start(shared: &Arc<Shared>, state: &mut State) -> io::Result<()> {
     let worker = Arc::clone(shared);
     thread::Builder::new()
         .name(format!("{}-{}", shared.name, state.started))
-        .spawn(move || Live(worker).run())?;
+        .spawn(move || work(&worker))?;
     state.live += 1;
     state.started += 1;
     Ok(())
 }
 
-/// One running thread; counted in `State::live` until it exits, even by panic.
-struct Live(Arc<Shared>);
-
-impl Live {
-    fn run(self) {
-        let shared = &self.0;
-        let mut state = shared.lock();
-        loop {
-            if let Some(job) = state.queue.pop_front() {
-                drop(state);
+fn work(shared: &Arc<Shared>) {
+    let mut state = shared.lock();
+    loop {
+        if let Some(job) = state.queue.pop_front() {
+            drop(state);
+            {
+                let _unwind = Unwind(shared);
                 job();
-                state = shared.lock();
-                continue;
             }
-            if state.closed {
-                return;
-            }
-            state.idle += 1;
-            let (next, wait) = shared
-                .ready
-                .wait_timeout(state, shared.idle_timeout)
-                .unwrap_or_else(PoisonError::into_inner);
-            state = next;
-            state.idle -= 1;
-            if wait.timed_out() && state.queue.is_empty() {
-                return;
-            }
+            state = shared.lock();
+            continue;
+        }
+        if state.closed {
+            break;
+        }
+        state.idle += 1;
+        let (next, wait) = shared
+            .ready
+            .wait_timeout(state, shared.idle_timeout)
+            .unwrap_or_else(PoisonError::into_inner);
+        state = next;
+        state.idle -= 1;
+        if wait.timed_out() && state.queue.is_empty() {
+            break;
         }
     }
+    // Under the same lock as the decision to stop, so new work starts a new thread.
+    state.live -= 1;
 }
 
-impl Drop for Live {
+/// Takes a thread whose job panicked out of the count and replaces it.
+struct Unwind<'a>(&'a Arc<Shared>);
+
+impl Drop for Unwind<'_> {
     fn drop(&mut self) {
+        if !thread::panicking() {
+            return;
+        }
         let mut state = self.0.lock();
         state.live -= 1;
-        if thread::panicking() && !state.queue.is_empty() {
-            let _ = start(&self.0, &mut state);
+        if state.queue.is_empty() {
+            return;
+        }
+        if start(self.0, &mut state).is_err() && state.live == 0 {
+            // Nothing can run the queued jobs; dropping them releases whatever their callers wait on.
+            let stranded = std::mem::take(&mut state.queue);
+            drop(state);
+            drop(stranded);
         }
     }
 }
@@ -284,6 +295,21 @@ mod tests {
             .collect();
         assert_eq!(values, (0..10).collect::<Vec<_>>());
         wait_until(|| shared.lock().live == 0);
+        Ok(())
+    }
+
+    #[test]
+    fn work_submitted_while_a_thread_stops_still_runs() -> io::Result<()> {
+        let pool = WorkerPool::with_idle_timeout("stop-race-test", 1, 4, Duration::from_millis(1))?;
+        for attempt in 0..500 {
+            let (done, finished) = mpsc::channel();
+            pool.try_spawn(move || done.send(()).unwrap())?;
+            assert!(
+                finished.recv_timeout(Duration::from_secs(1)).is_ok(),
+                "job {attempt} was stranded"
+            );
+            thread::sleep(Duration::from_micros(900 + attempt % 200));
+        }
         Ok(())
     }
 
