@@ -33,7 +33,6 @@ pub(super) const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const PENDING: &str = "pending-import.muxy";
 type Files = BTreeMap<String, Vec<u8>>;
 
-/// How a staged import changes the profile.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Restore {
     /// Replaces every configuration file, resetting what the backup leaves out.
@@ -50,13 +49,12 @@ pub(crate) struct PreparedImport {
     pub(super) restore: Restore,
     pub(crate) summary: String,
     attention: Vec<String>,
-    extensions: Vec<PathBuf>,
+    extensions: Option<extensions::Copies>,
 }
 
 /// Where 1.x installed extensions, and whether it had one turned on.
 type LegacyExtensions<'a> = Option<(&'a Path, &'a dyn Fn(&str) -> bool)>;
 
-/// Prepares the installed 1.x configuration, with its extensions.
 pub(crate) fn prepare_installed(profile: &Path) -> Result<PreparedImport> {
     let root = extensions::legacy_root();
     prepare_from(
@@ -191,9 +189,9 @@ fn prepare_from(
     } else {
         (files, ImportReport::default())
     };
-    let packages = match extensions {
+    let copies = match extensions {
         Some(extensions) => import_extensions(profile, extensions, &mut files, &mut report)?,
-        None => Vec::new(),
+        None => None,
     };
     validate_effective(profile, &files, restore)?;
     let projects = files
@@ -219,11 +217,11 @@ fn prepare_from(
         )
     }
     .to_string();
-    if !packages.is_empty() {
+    if let Some(copies) = &copies {
         write!(
             summary,
             " {}",
-            tr!("Adds %lld extensions from Muxy 1.x.", packages.len())
+            tr!("Adds %lld extensions from Muxy 1.x.", copies.names.len())
         )?;
     }
     if restore == Restore::Merge && files.contains_key("server.toml") {
@@ -241,35 +239,29 @@ fn prepare_from(
         restore,
         summary,
         attention: report.attention,
-        extensions: packages,
+        extensions: copies,
     })
 }
 
-/// Adds the 1.x packages this profile lacks and turns on the ones 1.x had on.
 fn import_extensions(
     profile: &Path,
     (root, enabled): (&Path, &dyn Fn(&str) -> bool),
     files: &mut Files,
     report: &mut ImportReport,
-) -> Result<Vec<PathBuf>> {
-    let (packages, names) = extensions::find(profile, root, enabled, report)?;
-    if !names.is_empty() {
-        extensions::enable(profile, files, names)?;
+) -> Result<Option<extensions::Copies>> {
+    let Some(copies) = extensions::copy_legacy(profile, root, enabled, report)? else {
+        return Ok(None);
+    };
+    if !copies.enabled.is_empty() {
+        extensions::enable(profile, files, &copies.enabled)?;
     }
-    if !packages.is_empty() {
-        report.attention.push(format!(
-            "Settings of extensions from 1.x start from their defaults: {}",
-            packages
-                .iter()
-                .filter_map(|package| package.file_name()?.to_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    Ok(packages)
+    report.attention.push(format!(
+        "Settings of extensions from 1.x start from their defaults: {}",
+        copies.names.join(", ")
+    ));
+    Ok(Some(copies))
 }
 
-/// What came over, what to check, and the options Muxy 2 doesn't have.
 fn describe_legacy(summary: &mut String, report: &ImportReport) -> Result<()> {
     write!(
         summary,

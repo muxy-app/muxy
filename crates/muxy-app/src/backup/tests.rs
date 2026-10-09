@@ -412,7 +412,11 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
     let first_id = "01000000-0000-0000-0000-000000000001";
     let second_id = "01000000-0000-0000-0000-000000000002";
     let extensions = tempfile::tempdir().unwrap();
-    for (folder, name) in [("reader", "reader"), ("renamed", "other")] {
+    for (folder, name) in [
+        ("reader", "reader"),
+        ("renamed", "other"),
+        ("locked", "locked"),
+    ] {
         fs::create_dir(extensions.path().join(folder)).unwrap();
         fs::write(
             extensions.path().join(folder).join("package.json"),
@@ -420,7 +424,13 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
         )
         .unwrap();
     }
-    let enabled = |name: &str| name == "reader";
+    let reader = extensions.path().join("reader");
+    std::os::unix::fs::symlink("package.json", reader.join("inside")).unwrap();
+    std::os::unix::fs::symlink("/etc/hosts", reader.join("outside")).unwrap();
+    let secret = extensions.path().join("locked/secret.js");
+    fs::write(&secret, "").unwrap();
+    fs::set_permissions(&secret, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
+    let enabled = |name: &str| name == "reader" || name == "locked";
     let legacy_extensions = Some((extensions.path(), &enabled as &dyn Fn(&str) -> bool));
     let projects = |projects: serde_json::Value| {
         fs::write(
@@ -436,10 +446,14 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
     let notice = migrate_into_new_profile(directory.path(), legacy.path(), legacy_extensions)
         .unwrap()
         .unwrap();
-    assert!(notice.contains("Unmounted") && notice.contains("renamed"));
+    for item in ["Unmounted", "renamed", "locked", "reader (1 links"] {
+        assert!(notice.contains(item), "{item}");
+    }
     assert!(apply_pending(directory.path()).unwrap().is_none());
     let installed = directory.path().join("extensions/reader");
-    assert!(installed.join("package.json").exists());
+    assert!(installed.join("inside").exists());
+    assert!(fs::symlink_metadata(installed.join("outside")).is_err());
+    assert!(!directory.path().join("extensions/locked").exists());
     assert!(!directory.path().join("pending-extensions").exists());
     let enabled: Vec<String> =
         serde_json::from_slice(&fs::read(directory.path().join("extension-enabled.json")).unwrap())
@@ -468,10 +482,18 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
         serde_json::json!({"name":"other","version":"1.0.0","muxy":{}}).to_string(),
     )
     .unwrap();
+    let backups = directory.path().join("Backups");
+    fs::rename(&backups, directory.path().join("Backups.saved")).unwrap();
+    fs::write(&backups, "").unwrap();
     let import = prepare_from(directory.path(), legacy.path(), legacy_extensions).unwrap();
     stage(directory.path(), &import).unwrap();
+    assert!(apply_pending(directory.path()).unwrap().is_some());
+    assert!(!directory.path().join("extensions/other").exists());
     cancel_pending(directory.path()).unwrap();
     assert!(!directory.path().join("pending-extensions").exists());
+    fs::remove_file(&backups).unwrap();
+    fs::rename(directory.path().join("Backups.saved"), &backups).unwrap();
+    let import = prepare_from(directory.path(), legacy.path(), legacy_extensions).unwrap();
     stage(directory.path(), &import).unwrap();
     assert!(apply_pending(directory.path()).unwrap().is_none());
     assert!(installed.join("settings-made-in-2.json").exists());

@@ -9,7 +9,7 @@ use super::{PENDING, PreparedImport, ROOTS, Restore, archive, extensions, valida
 
 pub(crate) fn stage(profile: &Path, import: &PreparedImport) -> Result<()> {
     validate_effective(profile, &import.files, import.restore)?;
-    extensions::stage(profile, &import.extensions)?;
+    extensions::stage(profile, import.extensions.as_ref())?;
     archive::write(&profile.join(PENDING), &import.files, import.restore)
 }
 
@@ -68,7 +68,6 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
             serde_json::to_vec_pretty(&restored)?,
         );
     }
-    extensions::install(profile)?;
     let staging = tempfile::tempdir_in(profile)?;
     archive::materialize(staging.path(), &files)?;
     let roots: Vec<_> = ROOTS
@@ -118,6 +117,7 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
             fs::rename(staging.path().join(root), profile.join(root))?;
         }
     }
+    extensions::install(profile)?;
     fs::remove_file(pending)?;
     fs::remove_file(&marker)?;
     Ok(())

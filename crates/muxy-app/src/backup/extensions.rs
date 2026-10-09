@@ -8,25 +8,39 @@ use std::path::{Path, PathBuf};
 
 use muxy_app_core::backup::{ImportReport, Result};
 use muxy_app_core::extensions::Extension;
+use tempfile::TempDir;
 
 use super::{Files, archive};
 
 const PENDING: &str = "pending-extensions";
 
-/// Packages 1.x had that this profile lacks, and the names 1.x had turned on.
-pub(super) fn find(
+/// 1.x packages this profile lacks, copied beside it until the import is
+/// staged.
+pub(super) struct Copies {
+    folder: TempDir,
+    pub(super) names: Vec<String>,
+    pub(super) enabled: Vec<String>,
+}
+
+/// A package that can't be loaded or copied is reported and left out.
+pub(super) fn copy_legacy(
     profile: &Path,
     root: &Path,
     enabled: impl Fn(&str) -> bool,
     report: &mut ImportReport,
-) -> Result<(Vec<PathBuf>, Vec<String>)> {
+) -> Result<Option<Copies>> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Default::default()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let mut packages = Vec::new();
-    let mut names = Vec::new();
+    let mut copies = Copies {
+        folder: tempfile::Builder::new()
+            .prefix(".import-extensions-")
+            .tempdir_in(profile)?,
+        names: Vec::new(),
+        enabled: Vec::new(),
+    };
     for entry in entries {
         let path = entry?.path();
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -36,20 +50,36 @@ pub(super) fn find(
         {
             continue;
         }
-        match Extension::load(&path) {
-            Ok(extension) if extension.name == name => {
-                if enabled(name) {
-                    names.push(name.to_owned());
-                }
-                packages.push(path);
+        let destination = copies.folder.path().join(name);
+        match copy_package(&path, name, &destination) {
+            Ok(0) => (),
+            Ok(dropped) => report.attention.push(format!(
+                "Extension {name} ({dropped} links outside its folder were left out)"
+            )),
+            Err(error) => {
+                remove_dir(&destination)?;
+                report.attention.push(format!("Extension {name} ({error})"));
+                continue;
             }
-            Ok(_) => report
-                .attention
-                .push(format!("Extension {name} (name does not match its folder)")),
-            Err(error) => report.attention.push(format!("Extension {name} ({error})")),
         }
+        if enabled(name) {
+            copies.enabled.push(name.to_owned());
+        }
+        copies.names.push(name.to_owned());
     }
-    Ok((packages, names))
+    Ok((!copies.names.is_empty()).then_some(copies))
+}
+
+/// Returns how many links were left out because they leave the package.
+fn copy_package(package: &Path, name: &str, destination: &Path) -> Result<usize> {
+    if Extension::load(package)?.name != name {
+        return Err("name does not match its folder".into());
+    }
+    let root = fs::canonicalize(package)?;
+    let mut dropped = 0;
+    copy(&root, destination, &root, &mut dropped)?;
+    Extension::load(destination)?;
+    Ok(dropped)
 }
 
 pub(super) fn legacy_root() -> Option<PathBuf> {
@@ -63,15 +93,14 @@ pub(super) fn enabled_in_legacy(name: &str) -> bool {
         .is_ok_and(|output| output.status.success() && output.stdout.trim_ascii() == b"1")
 }
 
-/// Adds `names` to the extensions this profile has turned on.
-pub(super) fn enable(profile: &Path, files: &mut Files, names: Vec<String>) -> Result<()> {
+pub(super) fn enable(profile: &Path, files: &mut Files, names: &[String]) -> Result<()> {
     let path = profile.join("extension-enabled.json");
     let mut enabled: BTreeSet<String> = if path.exists() {
         serde_json::from_slice(&archive::read_file(&path)?)?
     } else {
         BTreeSet::new()
     };
-    enabled.extend(names);
+    enabled.extend(names.iter().cloned());
     files.insert(
         "extension-enabled.json".into(),
         serde_json::to_vec_pretty(&enabled)?,
@@ -79,23 +108,18 @@ pub(super) fn enable(profile: &Path, files: &mut Files, names: Vec<String>) -> R
     Ok(())
 }
 
-/// Copies `packages` beside the staged import, replacing earlier copies.
-pub(super) fn stage(profile: &Path, packages: &[PathBuf]) -> Result<()> {
+/// Moves the copies to where the next launch installs them from, replacing
+/// earlier ones.
+pub(super) fn stage(profile: &Path, copies: Option<&Copies>) -> Result<()> {
     cancel(profile)?;
-    let pending = profile.join(PENDING);
-    for package in packages {
-        let name = package.file_name().ok_or("Invalid extension folder")?;
-        if let Err(error) =
-            fs::create_dir_all(&pending).and_then(|()| copy(package, &pending.join(name)))
-        {
-            cancel(profile)?;
-            return Err(error.into());
-        }
+    if let Some(copies) = copies {
+        fs::rename(copies.folder.path(), profile.join(PENDING))?;
     }
     Ok(())
 }
 
-/// Moves staged packages in; an extension this profile already has stays.
+/// An extension this profile already has stays. When one move fails, the
+/// ones before it are moved back.
 pub(super) fn install(profile: &Path) -> Result<()> {
     let pending = profile.join(PENDING);
     let entries = match fs::read_dir(&pending) {
@@ -105,35 +129,61 @@ pub(super) fn install(profile: &Path) -> Result<()> {
     };
     let installed = profile.join("extensions");
     fs::create_dir_all(&installed)?;
+    let mut moved = Vec::new();
     for entry in entries {
-        let entry = entry?;
-        let destination = installed.join(entry.file_name());
-        if fs::symlink_metadata(&destination).is_err() {
-            fs::rename(entry.path(), destination)?;
+        let result = entry.and_then(|entry| {
+            let destination = installed.join(entry.file_name());
+            if fs::symlink_metadata(&destination).is_ok() {
+                return Ok(());
+            }
+            fs::rename(entry.path(), &destination)?;
+            moved.push((entry.path(), destination));
+            Ok(())
+        });
+        if let Err(error) = result {
+            for (from, to) in moved.into_iter().rev() {
+                fs::rename(to, from)?;
+            }
+            return Err(error.into());
         }
     }
     cancel(profile)
 }
 
 pub(super) fn cancel(profile: &Path) -> Result<()> {
-    match fs::remove_dir_all(profile.join(PENDING)) {
-        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
+    Ok(remove_dir(&profile.join(PENDING))?)
+}
+
+fn remove_dir(path: &Path) -> io::Result<()> {
+    match fs::remove_dir_all(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
     }
 }
 
-fn copy(from: &Path, to: &Path) -> io::Result<()> {
+/// Keeps only relative links that stay inside `root`, and only regular files.
+fn copy(from: &Path, to: &Path, root: &Path, dropped: &mut usize) -> io::Result<()> {
     let metadata = fs::symlink_metadata(from)?;
     if metadata.file_type().is_symlink() {
-        return std::os::unix::fs::symlink(fs::read_link(from)?, to);
+        let target = fs::read_link(from)?;
+        if target.is_relative()
+            && fs::canonicalize(from).is_ok_and(|resolved| resolved.starts_with(root))
+        {
+            return std::os::unix::fs::symlink(target, to);
+        }
+        *dropped += 1;
+        return Ok(());
+    }
+    if metadata.is_file() {
+        return fs::copy(from, to).map(|_| ());
     }
     if !metadata.is_dir() {
-        return fs::copy(from, to).map(|_| ());
+        return Ok(());
     }
     fs::create_dir(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
-        copy(&entry.path(), &to.join(entry.file_name()))?;
+        copy(&entry.path(), &to.join(entry.file_name()), root, dropped)?;
     }
     Ok(())
 }
