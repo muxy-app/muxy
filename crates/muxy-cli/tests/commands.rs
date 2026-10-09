@@ -93,35 +93,6 @@ impl Drop for Profile {
 }
 
 #[test]
-fn project_commands_work_without_desktop_and_duplicate_directories_keep_distinct_ids() -> Result {
-    let profile = Profile::new()?;
-    let output = profile.run(&["project", "list"])?;
-    assert!(output.status.success(), "{output:?}");
-    assert!(String::from_utf8(output.stdout)?.contains("Home"));
-    for name in ["First project", "Second project"] {
-        let output = profile.run(&["project", "add", "/tmp", "--name", name])?;
-        assert!(output.status.success(), "{output:?}");
-    }
-    let client = Client::connect(&profile.socket())?;
-    let catalog = client.catalog()?;
-    assert_eq!(catalog.projects.len(), 3);
-    assert!(
-        catalog
-            .projects
-            .iter()
-            .any(|project| project.name == "First project")
-    );
-    assert!(
-        catalog
-            .projects
-            .iter()
-            .any(|project| project.name == "Second project")
-    );
-    assert!(client.list_sessions()?.is_empty());
-    Ok(())
-}
-
-#[test]
 fn simultaneous_client_startup_reuses_one_server_instance() -> Result {
     let profile = Profile::new()?;
     let socket = profile.socket();

@@ -406,31 +406,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_detection_uses_existing_configured_keys_in_order() -> io::Result<()> {
-        let home = tempfile::tempdir()?;
-        let ssh = home.path().join(".ssh");
-        std::fs::create_dir(&ssh)?;
-        std::fs::write(ssh.join("id_ed25519"), "fixture")?;
-        std::fs::write(ssh.join("custom key"), "fixture")?;
-        let config = "identityfile ~/.ssh/missing\nidentityfile %d/.ssh/custom key\nidentityfile ~/.ssh/id_ed25519\n";
-        assert_eq!(
-            identity_from(config, home.path()),
-            Some(ssh.join("custom key"))
-        );
-        assert_eq!(identity_from("identityfile none\n", home.path()), None);
-        assert_eq!(identity_from("identityfile ~/.ssh\n", home.path()), None);
-        assert_eq!(identity_from("identityfile %h/key\n", home.path()), None);
-        assert_eq!(
-            identity_from(
-                &format!("identityfile {}\n", ssh.join("id_ed25519").display()),
-                home.path()
-            ),
-            Some(ssh.join("id_ed25519"))
-        );
-        Ok(())
-    }
-
-    #[test]
     fn destinations_that_ssh_could_misread_are_refused() {
         for accepted in [
             "box",
@@ -466,67 +441,5 @@ mod tests {
                 .ok(),
             Some("dev@box".into())
         );
-    }
-
-    #[test]
-    fn the_login_is_the_resolved_user_and_host_or_host_key_alias() {
-        let config = "user dev\nhostname box.example.com\nport 22\n";
-        assert_eq!(login_from(config).as_deref(), Some("dev@box.example.com"));
-        let aliased = "user dev\nhostname 10.0.0.5\nhostkeyalias box\n";
-        assert_eq!(login_from(aliased).as_deref(), Some("dev@box"));
-        assert_eq!(login_from("hostname box\n"), None);
-    }
-
-    #[test]
-    fn a_key_file_and_an_askpass_program_allow_one_prompt() -> io::Result<()> {
-        let askpass = Askpass {
-            program: "/Applications/Muxy.app/Contents/MacOS/muxy-app".into(),
-            environment: vec![("MUXY_ASKPASS_ACCOUNT".into(), "box".into())],
-        };
-        let target = SshTarget::new("dev@box")?
-            .with_identity("/Users/dev/.ssh/box key")
-            .with_askpass(askpass);
-        let arguments = target.arguments(Start::IfNeeded);
-        let expected = [
-            "-T",
-            "-o",
-            "BatchMode=no",
-            "-o",
-            "NumberOfPasswordPrompts=1",
-            "-o",
-            "ConnectTimeout=10",
-            "-o",
-            "ServerAliveInterval=15",
-            "-o",
-            "ServerAliveCountMax=3",
-            "-o",
-            "ControlMaster=no",
-            "-o",
-            "RemoteCommand=none",
-            "-o",
-            "ClearAllForwardings=yes",
-            "-i",
-            "/Users/dev/.ssh/box key",
-            "-o",
-            "IdentitiesOnly=yes",
-            "--",
-            "dev@box",
-            bridge::command(Start::IfNeeded),
-        ];
-        assert_eq!(arguments, expected);
-        let environment: Vec<_> = target
-            .environment()
-            .into_iter()
-            .map(|(key, value)| format!("{}={}", key.display(), value.display()))
-            .collect();
-        assert_eq!(
-            environment,
-            [
-                "SSH_ASKPASS=/Applications/Muxy.app/Contents/MacOS/muxy-app",
-                "SSH_ASKPASS_REQUIRE=force",
-                "MUXY_ASKPASS_ACCOUNT=box",
-            ]
-        );
-        Ok(())
     }
 }

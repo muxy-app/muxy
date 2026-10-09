@@ -245,8 +245,7 @@ fn recovery_archive_resolves_includes_and_keeps_original_files_for_rollback() {
     let import = prepare(target.path(), &recovery.join("recovery.muxy")).unwrap();
     stage(target.path(), &import).unwrap();
     assert!(apply_pending(target.path()).unwrap().is_none());
-    let terminal =
-        TerminalSettings::load_with_seed(&target.path().join("ghostty.conf"), None).unwrap();
+    let terminal = TerminalSettings::load(&target.path().join("ghostty.conf")).unwrap();
     assert_eq!(terminal.font_size.to_bits(), 21.0_f32.to_bits());
 }
 
@@ -402,28 +401,4 @@ fn mobile_preferences_exclude_credentials_and_apply_through_the_server() {
     );
     assert!(!target.path().join(mobile::FILE).exists());
     assert_eq!(fs::read(target.path().join("remote.json")).unwrap(), raw);
-}
-
-#[test]
-fn one_x_mobile_preferences_import_independently_and_validate_the_port() {
-    let directory = profile();
-    let json = directory.path().join("settings.json");
-    fs::write(&json, r#"{"app.muxy.mobile.serverEnabled":true,"app.muxy.mobile.serverPort":7421,"mobile.approvedDevices":["secret"]}"#).unwrap();
-    let import = prepare(directory.path(), &json).unwrap();
-    let settings = mobile::parse(&import.files[mobile::FILE]).unwrap();
-    assert!(settings.enabled);
-    assert_eq!(settings.port, 7421);
-    assert!(import.summary.contains("Skipped 1"));
-    fs::write(
-        &json,
-        r#"{"app.muxy.mobile.serverEnabled":true,"app.muxy.mobile.serverPort":80}"#,
-    )
-    .unwrap();
-    let import = prepare(directory.path(), &json).unwrap();
-    assert_eq!(
-        mobile::parse(&import.files[mobile::FILE]).unwrap().port,
-        muxy_protocol::DEFAULT_REMOTE_PORT
-    );
-    assert!(import.summary.contains("app.muxy.mobile.serverPort"));
-    assert!(mobile::parse(br#"{"enabled":true,"port":7420,"private_key":"secret"}"#).is_err());
 }

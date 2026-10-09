@@ -41,15 +41,14 @@ section opens its file.
 
 ## Terminal configuration
 
-`ghostty.conf` uses [Ghostty's format](https://ghostty.org/docs/config). On
-first launch Muxy copies `~/.config/ghostty/config` if you have one. Muxy reads
-these options and lists any others under **Settings → Terminal →
+`ghostty.conf` uses [Ghostty's format](https://ghostty.org/docs/config). Muxy
+reads these options and lists any others under **Settings → Terminal →
 Configuration warnings**:
 
 - **Fonts:** `font-family` (and bold, italic variants), `font-size`,
   `font-feature`, `font-codepoint-map`, `font-thicken`, `adjust-cell-height`,
   `adjust-cell-width`
-- **Colors:** `theme`, `background`, `foreground`, `palette`, `cursor-*`,
+- **Colors:** `background`, `foreground`, `palette`, `cursor-*`,
   `selection-*`, `bold-is-bright`, `background-opacity`
 - **Window:** `window-padding-x`, `window-padding-y`, `window-padding-balance`,
   `window-padding-color`
@@ -63,9 +62,8 @@ Muxy ships about 490 themes. Pick the app's light and dark themes in
 **Settings → Appearance**, or press `Cmd+Shift+K`. Muxy follows the macOS
 appearance.
 
-Themes from `~/.config/ghostty/themes` and the profile's `themes/` folder show
-up too. Set a terminal-only theme with `theme` in `ghostty.conf`, for example
-`theme = light:Muxy Light,dark:Muxy`.
+Custom themes in the profile's `themes/` folder show up too. The chosen theme
+colors the app and its terminals.
 
 ## Backup and restore
 

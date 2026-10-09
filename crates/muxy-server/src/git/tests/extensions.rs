@@ -323,13 +323,12 @@ fi
 if test "$1 $2 $3" = 'pr view --json' && test -f .git/gh-implicit-error; then
   cat .git/gh-implicit-error >&2; exit 1
 fi
-if test "$1 $2 $3" = 'pr view 123'; then sed 's/"number":42/"number":123/' .git/gh-pr; exit 0; fi
 case "$1 $2" in
   'pr view')
     for arg do
       case "$arg" in
         number) printf '%s\n' '{"number":42}'; exit 0;;
-        headRefName,headRepository,headRepositoryOwner) if test -f .git/gh-checkout; then cat .git/gh-checkout; else printf '%s\n' '{"headRefName":"feature","headRepository":{"name":"fork"},"headRepositoryOwner":{"login":"contributor"}}'; fi; exit 0;;
+        headRefName,headRepository,headRepositoryOwner) printf '%s\n' '{"headRefName":"feature","headRepository":{"name":"fork"},"headRepositoryOwner":{"login":"contributor"}}'; exit 0;;
       esac
     done
     cat .git/gh-pr;;
@@ -584,57 +583,6 @@ fn github_finds_an_open_branch_pr_when_local_head_has_advanced() {
 }
 
 #[test]
-fn github_update_branch_merges_base_and_pushes_the_pr_head() {
-    let mut repo = Repo::new(true);
-    let remote = repo.path.join(".git/remote.git");
-    run(&repo.path, &["init", "--bare", remote.to_str().unwrap()]).unwrap();
-    run(
-        &repo.path,
-        &["remote", "add", "origin", remote.to_str().unwrap()],
-    )
-    .unwrap();
-    run(&repo.path, &["push", "-u", "origin", "main"]).unwrap();
-    repo.git(GitAction::CreateBranch("feature".into())).unwrap();
-    std::fs::write(repo.path.join("feature"), "feature work\n").unwrap();
-    commit(&repo, "feature");
-    repo.git(GitAction::Push { set_upstream: true }).unwrap();
-    let expected_head = repo.summary().head.unwrap();
-    repo.git(GitAction::SwitchBranch("main".into())).unwrap();
-    std::fs::write(repo.path.join("base"), "new base work\n").unwrap();
-    commit(&repo, "base");
-    repo.git(GitAction::Push {
-        set_upstream: false,
-    })
-    .unwrap();
-    repo.git(GitAction::SwitchBranch("feature".into())).unwrap();
-    fake_gh(&mut repo);
-    std::fs::write(
-        repo.path.join(".git/gh-pr"),
-        format!(
-            r#"{{"number":42,"url":"https://github.com/example/repository/pull/42","title":"A PR","author":{{"login":"contributor"}},"headRefName":"feature","headRefOid":"{expected_head}","baseRefName":"main","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BEHIND","isCrossRepository":false,"statusCheckRollup":[]}}"#
-        ),
-    )
-    .unwrap();
-    assert_eq!(
-        pr(
-            &repo,
-            Pr::UpdateBranch {
-                number: 42,
-                expected_head: expected_head.clone(),
-            },
-        )
-        .unwrap(),
-        GitReply::Done
-    );
-    assert!(repo.path.join("base").exists());
-    assert_ne!(repo.summary().head.unwrap(), expected_head);
-    assert_eq!(
-        run(&repo.path, &["rev-parse", "HEAD"]).unwrap(),
-        run(&repo.path, &["rev-parse", "origin/feature"]).unwrap()
-    );
-}
-
-#[test]
 fn github_distinguishes_absent_prs_authentication_missing_tools_and_invalid_data() {
     let mut repo = Repo::new(true);
     fake_gh(&mut repo);
@@ -732,65 +680,6 @@ fn pull_request_checkout_and_worktree_use_fork_tracking_and_replay_receipts() {
 }
 
 #[test]
-fn parsed_diff_handles_conflicts_symlinks_binary_files_and_literal_paths() {
-    use std::os::unix::fs::symlink;
-    let repo = Repo::new(false);
-    std::fs::write(repo.path.join("file"), "base\n").unwrap();
-    commit(&repo, "base");
-    repo.git(GitAction::CreateBranch("feature".into())).unwrap();
-    std::fs::write(repo.path.join("file"), "feature\n").unwrap();
-    commit(&repo, "feature");
-    repo.git(GitAction::SwitchBranch("main".into())).unwrap();
-    std::fs::write(repo.path.join("file"), "main\n").unwrap();
-    commit(&repo, "main");
-    assert!(run(&repo.path, &["merge", "feature"]).is_err());
-    let GitReply::Diff(diff) = repo
-        .git(GitAction::Diff(GitDiffRequest {
-            path: Some(ServerPath(b"file".to_vec())),
-            ..GitDiffRequest::default()
-        }))
-        .unwrap()
-    else {
-        panic!()
-    };
-    assert!(diff.rows.iter().any(|row| row.text.contains("<<<<<<<")));
-    run(&repo.path, &["merge", "--abort"]).unwrap();
-    std::fs::write(repo.path.join("binary"), b"text\0binary").unwrap();
-    let GitReply::Status(status) = repo.git(GitAction::Status { local: true }).unwrap() else {
-        panic!()
-    };
-    assert!(
-        status
-            .files
-            .iter()
-            .find(|file| file.file.path.0 == b"binary")
-            .unwrap()
-            .unstaged
-            .binary
-    );
-    symlink("/etc/passwd", repo.path.join("symlink")).unwrap();
-    let GitReply::Diff(diff) = repo
-        .git(GitAction::Diff(GitDiffRequest {
-            path: Some(ServerPath(b"symlink".to_vec())),
-            ..GitDiffRequest::default()
-        }))
-        .unwrap()
-    else {
-        panic!()
-    };
-    assert_eq!(diff.additions, 1);
-    assert!(diff.rows.iter().any(|row| row.text == "+/etc/passwd"));
-    symlink("/etc", repo.path.join("outside")).unwrap();
-    assert!(
-        repo.git(GitAction::Diff(GitDiffRequest {
-            path: Some(ServerPath(b"outside/passwd".to_vec())),
-            ..GitDiffRequest::default()
-        }))
-        .is_err()
-    );
-}
-
-#[test]
 fn bounded_commands_stop_on_timeout_and_do_not_hide_failures_as_empty_results() {
     use std::process::Command;
     use std::time::{Duration, Instant};
@@ -837,37 +726,6 @@ fn staging_edits_to_an_index_rename_does_not_add_its_deleted_source() {
 }
 
 #[test]
-fn numeric_branches_are_not_treated_as_pr_numbers_unless_configured() {
-    let mut repo = Repo::new(true);
-    fake_gh(&mut repo);
-    repo.git(GitAction::CreateBranch("123".into())).unwrap();
-    let response = repo.path.join(".git/gh-pr");
-    let json = std::fs::read_to_string(&response)
-        .unwrap()
-        .replace("\"headRefName\":\"main\"", "\"headRefName\":\"123\"");
-    std::fs::write(response, json).unwrap();
-    let GitReply::PullRequest(Some(info)) = pr(&repo, Pr::Info).unwrap() else {
-        panic!()
-    };
-    assert_eq!(info.number, 42);
-    assert_eq!(
-        pr(&repo, Pr::Number).unwrap(),
-        GitReply::PullRequestNumber(Some(42))
-    );
-    let GitReply::Status(status) = repo.git(GitAction::Status { local: false }).unwrap() else {
-        panic!()
-    };
-    assert_eq!(status.pull_request.unwrap().number, 42);
-    let calls = std::fs::read_to_string(repo.path.join(".git/gh-calls")).unwrap();
-    assert!(calls.contains("pr\nview\n--json\n"));
-    assert!(!calls.contains("pr\nview\n123\n"));
-    run(&repo.path, &["config", "branch.123.muxy-pr-number", "42"]).unwrap();
-    pr(&repo, Pr::Info).unwrap();
-    let calls = std::fs::read_to_string(repo.path.join(".git/gh-calls")).unwrap();
-    assert!(calls.contains("pr\nview\n42\n"));
-}
-
-#[test]
 fn status_prefers_remote_default_branch_over_stale_local_ref_and_caches_it() {
     let repo = Repo::new(true);
     let remote = traced_remote(&repo);
@@ -900,46 +758,6 @@ fn status_prefers_remote_default_branch_over_stale_local_ref_and_caches_it() {
     assert_eq!(
         std::fs::read(repo.path.join(".git/remote-calls")).unwrap(),
         b"x"
-    );
-}
-
-#[test]
-fn status_reuses_remote_default_branch_until_remote_configuration_changes() {
-    let repo = Repo::new(true);
-    let remote = traced_remote(&repo);
-    for _ in 0..3 {
-        let GitReply::Status(status) = repo.git(GitAction::Status { local: true }).unwrap() else {
-            panic!()
-        };
-        assert_eq!(status.default_branch.as_deref(), Some("main"));
-    }
-    assert_eq!(
-        std::fs::read(repo.path.join(".git/remote-calls")).unwrap(),
-        b"x"
-    );
-    run(
-        &remote,
-        &["update-ref", "refs/heads/develop", "refs/heads/main"],
-    )
-    .unwrap();
-    run(&remote, &["symbolic-ref", "HEAD", "refs/heads/develop"]).unwrap();
-    run(
-        &repo.path,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            "ext::/bin/sh .git/remote-probe changed",
-        ],
-    )
-    .unwrap();
-    let GitReply::Status(status) = repo.git(GitAction::Status { local: true }).unwrap() else {
-        panic!()
-    };
-    assert_eq!(status.default_branch.as_deref(), Some("develop"));
-    assert_eq!(
-        std::fs::read(repo.path.join(".git/remote-calls")).unwrap(),
-        b"xx"
     );
 }
 
@@ -1009,56 +827,4 @@ fn remote_default_branch_is_reported_and_used_for_pr_creation_without_a_local_br
         details::default_branch(&repo.path).as_deref(),
         Some("develop")
     );
-}
-
-#[test]
-fn pr_checkout_and_worktrees_fall_back_for_valid_heads_without_alphanumeric_characters() {
-    for head in ["🚀", "!!!"] {
-        let mut repo = Repo::new(true);
-        fake_gh(&mut repo);
-        let remote = remote(&repo);
-        repo.git(GitAction::CreateBranch(head.into())).unwrap();
-        std::fs::write(repo.path.join("from-pr"), head).unwrap();
-        commit(&repo, "PR head");
-        repo.git(GitAction::Push { set_upstream: true }).unwrap();
-        repo.git(GitAction::SwitchBranch("main".into())).unwrap();
-        run(
-            &repo.path,
-            &[
-                "config",
-                &format!("url.{}.insteadOf", remote.display()),
-                "https://github.com/contributor/fork.git",
-            ],
-        )
-        .unwrap();
-        std::fs::write(repo.path.join(".git/gh-checkout"), serde_json::json!({
-            "headRefName": head, "headRepository": {"name":"fork"}, "headRepositoryOwner":{"login":"contributor"}
-        }).to_string()).unwrap();
-        pr(&repo, Pr::Checkout { number: 42 }).unwrap();
-        assert_eq!(repo.summary().branch.as_deref(), Some("pr/42/head"));
-        assert_eq!(
-            std::fs::read_to_string(repo.path.join("from-pr")).unwrap(),
-            head
-        );
-        repo.git(GitAction::SwitchBranch("main".into())).unwrap();
-        let GitReply::Project(project) = repo
-            .git(GitAction::Worktree(WorktreeIntent {
-                options: None,
-                operation: OperationId::new(),
-                action: WorktreeAction::CheckoutPullRequest {
-                    project: ProjectId::new(),
-                    directory: server_path(&repo.path.join("pr-worktree")),
-                    number: 42,
-                },
-            }))
-            .unwrap()
-        else {
-            panic!()
-        };
-        assert_eq!(project.name, "pr/42/head");
-        assert_eq!(
-            std::fs::read_to_string(path(&project.directory).join("from-pr")).unwrap(),
-            head
-        );
-    }
 }

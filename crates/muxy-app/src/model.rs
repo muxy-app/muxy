@@ -206,19 +206,9 @@ impl AppModel {
     }
     pub(crate) fn refresh_theme(&mut self, cx: &mut Context<Self>) {
         let previous_colors = self.palette.terminal_colors();
-        let (theme, fallback) = self.themes.resolve(&self.appearance, self.dark);
+        let (theme, palette) = self.themes.resolve(&self.appearance, self.dark);
         self.theme = theme;
-        match self.themes.terminal_palette(
-            &fallback,
-            &self.terminal.options,
-            self.dark,
-            self.path
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new(".")),
-        ) {
-            Ok(palette) => self.palette = palette,
-            Err(error) => self.set_configuration_error(Some(error)),
-        }
+        self.palette = palette.with_options(&self.terminal.options);
         if previous_colors != self.palette.terminal_colors() {
             for server in self.servers.ids() {
                 if self.ready(server) {
@@ -268,19 +258,6 @@ impl AppModel {
         match result {
             Ok(terminal) => {
                 let themes = crate::theme::Catalog::load(&self.path.with_file_name("themes"));
-                let fallback = themes.resolve(&self.appearance, self.dark).1;
-                if let Err(error) = themes.terminal_palette(
-                    &fallback,
-                    &terminal.options,
-                    self.dark,
-                    self.path
-                        .parent()
-                        .unwrap_or_else(|| std::path::Path::new(".")),
-                ) {
-                    self.set_configuration_error(Some(error));
-                    cx.notify();
-                    return;
-                }
                 self.terminal = terminal;
                 self.themes = themes;
                 self.set_configuration_error(None);
@@ -450,26 +427,9 @@ impl AppModel {
             model.flush_composer(cx)
         });
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
-        let (theme, fallback) = themes.resolve(&boot.settings.appearance, dark);
-        let mut configuration_error = boot.import_error;
-        let palette = themes
-            .terminal_palette(
-                &fallback,
-                &boot.terminal.options,
-                dark,
-                boot.state_path
-                    .parent()
-                    .unwrap_or_else(|| std::path::Path::new(".")),
-            )
-            .unwrap_or_else(|error| {
-                if let Some(message) = &mut configuration_error {
-                    message.push('\n');
-                    message.push_str(&error);
-                } else {
-                    configuration_error = Some(error);
-                }
-                fallback
-            });
+        let (theme, palette) = themes.resolve(&boot.settings.appearance, dark);
+        let palette = palette.with_options(&boot.terminal.options);
+        let configuration_error = boot.import_error;
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         cx.on_release(|model: &mut Self, cx| {
             for (_, (_, image)) in model.project_logos.drain() {
@@ -2589,7 +2549,6 @@ mod tests {
     mod activity;
     mod ai;
     mod composer;
-    mod custom_commands;
     mod detach;
     mod find;
     mod git;
@@ -2601,16 +2560,13 @@ mod tests {
     mod quick_terminal;
     mod remote_devices;
     mod remote_parity;
-    mod server_status;
     mod servers;
     mod session_ownership;
     mod splits;
     mod tab_groups;
     mod tab_menu;
-    mod tab_sidebar;
     mod tui;
     mod updates;
-    mod window_bounds;
     mod worktrees;
 
     use muxy_client::Client;

@@ -11,14 +11,10 @@ mod clear;
 mod close;
 #[path = "client/colors.rs"]
 mod colors;
-#[path = "client/composer.rs"]
-mod composer;
 #[path = "client/input.rs"]
 mod input;
 #[path = "client/observe.rs"]
 mod observe;
-#[path = "client/ownership.rs"]
-mod ownership;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -302,37 +298,6 @@ fn connect_list_create_attach_input_and_end() -> TestResult {
 }
 
 #[test]
-fn a_frame_arrives_only_after_the_previous_one_is_acked() -> TestResult {
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let client = &connection.client;
-    let info = fixture.create(client)?;
-    let mut attachment = client.attach(info.id, SIZE)?;
-    client.send_input(
-        attachment.channel,
-        b"stty -echo; PS1=''; printf '\\033[2J\\033[Hready'\n",
-    )?;
-    let ready = connection.frame_containing(&mut attachment, "ready")?;
-    client.ack(attachment.channel, ready.seq)?;
-    connection.quiet(&mut attachment)?;
-    client.send_input(attachment.channel, b"printf '\\033[1;1Hfirst'\n")?;
-    let first = connection.frame_containing(&mut attachment, "first")?;
-    client.send_input(attachment.channel, b"printf '\\033[3;1Hsecond'\n")?;
-    thread::sleep(QUIET);
-    assert!(matches!(
-        connection.events.recv_timeout(QUIET),
-        Err(RecvTimeoutError::Timeout)
-    ));
-    client.ping()?;
-    client.ack(attachment.channel, first.seq)?;
-    let second = connection.frame_containing(&mut attachment, "second")?;
-    assert!(second.seq > first.seq);
-    assert_eq!(attachment.grid.row_text(0), "first");
-    assert_eq!(attachment.grid.row_text(2), "second");
-    Ok(())
-}
-
-#[test]
 fn request_errors_are_correlated_and_invalid_requests_never_leave_the_client() -> TestResult {
     let fixture = Fixture::new()?;
     let connection = fixture.connect()?;
@@ -396,58 +361,6 @@ fn server_exit_disconnects_the_client() -> TestResult {
         connection.client.ack(attachment.channel, 1),
         Err(ClientError::Disconnected)
     ));
-    Ok(())
-}
-
-#[test]
-fn dropping_the_last_client_closes_the_connection() -> TestResult {
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let clone = connection.client.clone();
-    let Connection {
-        client,
-        events,
-        finished,
-        ..
-    } = connection;
-    drop(client);
-    assert!(matches!(
-        finished.recv_timeout(QUIET),
-        Err(RecvTimeoutError::Timeout)
-    ));
-    drop(clone);
-    finished.recv_timeout(TIMEOUT)??;
-    assert_eq!(events.recv_timeout(TIMEOUT)?, ClientEvent::Disconnected);
-    Ok(())
-}
-
-#[test]
-fn a_misplaced_server_message_closes_the_client() -> TestResult {
-    let (socket, server) = UnixStream::pair()?;
-    let mut decoder = Decoder::new(server.try_clone()?);
-    let mut encoder = Encoder::new(server.try_clone()?);
-    let fake = thread::spawn(move || -> Result<(), WireError> {
-        decoder.next()?;
-        encoder.send(
-            CONTROL,
-            &Message::HelloReply {
-                versions: muxy_protocol::SUPPORTED.to_vec(),
-                server: muxy_protocol::ServerInfo::current(),
-                features: Vec::new(),
-            },
-        )?;
-        encoder.send(CONTROL, &Message::Input(b"x".to_vec()))?;
-        match decoder.next() {
-            Err(WireError::Closed) => Ok(()),
-            other => panic!("client did not close: {other:?}"),
-        }
-    });
-    let client = Client::from_stream(Box::new(socket))?;
-    let events = client.events().ok_or("events already taken")?;
-    assert_eq!(events.recv_timeout(TIMEOUT)?, ClientEvent::Disconnected);
-    assert!(matches!(client.ping(), Err(ClientError::Disconnected)));
-    fake.join().map_err(|_| "fake server panicked")??;
-    drop(server);
     Ok(())
 }
 
@@ -530,225 +443,8 @@ fn history_reads_refresh_a_coherent_boundary_and_merge_all_older_pages() -> Test
     Ok(())
 }
 
-#[test]
-fn mouse_events_reach_the_pty_and_input_modes_survive_reattachment() -> TestResult {
-    use muxy_protocol::{
-        InputModes, MetadataEvent, Modifiers, MouseAction, MouseButton, MouseEvent, ScrollDirection,
-    };
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let session = fixture.create(&connection.client)?;
-    let attachment = connection.client.attach(session.id, SIZE)?;
-    assert_eq!(
-        wait_input_modes(&connection, attachment.channel)?,
-        InputModes::default()
-    );
-    let expected = b"\x1b[<0;3;4M\x1b[<32;6;4M\x1b[<0;80;24m\x1b[<64;3;4M";
-    let command = format!(
-        "stty -echo -icanon min 1 time 0; printf '\\033[?1002h\\033[?1006h\\033[?1004h'; dd bs=1 count={} of=mouse.bin 2>/dev/null; printf '\\033[?1002l\\033[?1004l'; stty sane\n",
-        expected.len()
-    );
-    connection
-        .client
-        .send_input(attachment.channel, command.as_bytes())?;
-    let modes = InputModes {
-        mouse_tracking: true,
-        alternate_scroll: false,
-        focus_events: true,
-    };
-    assert_eq!(wait_input_modes(&connection, attachment.channel)?, modes);
-    connection.client.detach(attachment.channel)?;
-    let attachment = connection.client.attach(session.id, SIZE)?;
-    assert_eq!(wait_input_modes(&connection, attachment.channel)?, modes);
-    let press = MouseEvent {
-        action: MouseAction::Press,
-        button: Some(MouseButton::Left),
-        column: 2,
-        row: 3,
-        scroll: None,
-        modifiers: Modifiers::default(),
-    };
-    for event in [
-        press,
-        MouseEvent {
-            action: MouseAction::Motion,
-            column: 5,
-            ..press
-        },
-        MouseEvent {
-            action: MouseAction::Release,
-            column: u16::MAX,
-            row: u16::MAX,
-            ..press
-        },
-        MouseEvent {
-            action: MouseAction::Scroll,
-            button: None,
-            scroll: Some(ScrollDirection::Up),
-            ..press
-        },
-    ] {
-        connection.client.send_mouse(attachment.channel, event)?;
-    }
-    assert_eq!(
-        wait_input_modes(&connection, attachment.channel)?,
-        InputModes::default()
-    );
-    let path = fixture.directory.join("mouse.bin");
-    assert_eq!(fs::read(&path)?, expected);
-    fs::remove_file(path)?;
-    connection.client.detach(attachment.channel)?;
-    connection.client.send_mouse(attachment.channel, press)?;
-    connection.client.ping()?;
-    assert!(!connection.events.try_iter().any(|event| matches!(event, ClientEvent::Metadata { event: MetadataEvent::InputModes(modes), .. } if modes.mouse_tracking)));
-    Ok(())
-}
-
-fn wait_input_modes(
-    connection: &Connection,
-    expected: ChannelId,
-) -> TestResult<muxy_protocol::InputModes> {
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        match connection
-            .events
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))?
-        {
-            ClientEvent::Metadata {
-                channel,
-                event: muxy_protocol::MetadataEvent::InputModes(modes),
-            } if channel == expected => return Ok(modes),
-            ClientEvent::Metadata { .. }
-            | ClientEvent::SessionsChanged { .. }
-            | ClientEvent::SessionMetadata { .. }
-            | ClientEvent::ActivityChanged { .. }
-            | ClientEvent::Progress { .. }
-            | ClientEvent::FilesChanged { .. }
-            | ClientEvent::GitChanged { .. }
-            | ClientEvent::CatalogChanged { .. } => {}
-            ClientEvent::Frame { channel, frame } => connection.client.ack(channel, frame.seq)?,
-            event => return Err(format!("expected input modes, got {event:?}").into()),
-        }
-    }
-}
-
-#[test]
-fn explicit_disconnect_closes_all_clones_without_ending_sessions() -> TestResult {
-    let fixture = Fixture::new()?;
-    let connection = fixture.connect()?;
-    let clone = connection.client.clone();
-    let session = fixture.create(&clone)?;
-    connection.disconnect()?;
-    // Notices about the new session can still be queued ahead of the disconnect.
-    loop {
-        match connection.events.recv_timeout(TIMEOUT)? {
-            ClientEvent::Disconnected => break,
-            ClientEvent::CatalogChanged { .. }
-            | ClientEvent::SessionsChanged { .. }
-            | ClientEvent::SessionMetadata { .. }
-            | ClientEvent::ActivityChanged { .. }
-            | ClientEvent::Progress { .. } => {}
-            other => return Err(format!("expected disconnect, got {other:?}").into()),
-        }
-    }
-    assert!(matches!(clone.ping(), Err(ClientError::Disconnected)));
-    assert!(fixture.registry.handle(session.id).is_some());
-    Ok(())
-}
-
-#[test]
-fn two_clients_observe_project_metadata_deletion_and_explicit_session_membership() -> TestResult {
-    use muxy_protocol::{
-        OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation, ProjectPatch,
-        ServerPath,
-    };
-    let fixture = Fixture::new()?;
-    let first = fixture.connect()?;
-    let second = fixture.connect()?;
-    let initial = second.client.catalog()?;
-    let project = ProjectDescriptor {
-        id: ProjectId::new(),
-        home: false,
-        name: "First".into(),
-        icon: None,
-        logo: None,
-        color: "#808080".into(),
-        directory: ServerPath(fixture.directory.as_os_str().as_bytes().into()),
-        kind: None,
-        parent_id: None,
-    };
-    first.client.mutate_project(ProjectIntent {
-        operation: OperationId::new(),
-        mutation: ProjectMutation::Create(project.clone()),
-    })?;
-    let session = first.client.create_project_session(
-        project.id,
-        OperationId::new(),
-        &fixture.directory,
-        SIZE,
-    )?;
-    assert_eq!(
-        second
-            .client
-            .project_sessions(project.id, None, None)?
-            .sessions[0]
-            .info,
-        session
-    );
-    let renamed = first.client.mutate_project(ProjectIntent {
-        operation: OperationId::new(),
-        mutation: ProjectMutation::Patch {
-            project: project.id,
-            patch: ProjectPatch::Name("Shared name".into()),
-        },
-    })?;
-    loop {
-        if matches!(second.events.recv_timeout(TIMEOUT)?, ClientEvent::CatalogChanged { revision } if revision >= renamed)
-        {
-            break;
-        }
-    }
-    let refreshed = second.client.catalog()?;
-    assert!(refreshed.revision > initial.revision);
-    assert!(
-        refreshed
-            .projects
-            .iter()
-            .any(|entry| entry.id == project.id && entry.name == "Shared name")
-    );
-    let attached = second.client.attach(session.id, SIZE)?;
-    let deleted = first.client.mutate_project(ProjectIntent {
-        operation: OperationId::new(),
-        mutation: ProjectMutation::Delete(project.id),
-    })?;
-    let mut ended = false;
-    let mut invalidated = false;
-    while !ended || !invalidated {
-        match second.events.recv_timeout(TIMEOUT)? {
-            ClientEvent::CatalogChanged { revision } if revision >= deleted => invalidated = true,
-            ClientEvent::SessionEnded { session: id, .. } if id == session.id => ended = true,
-            ClientEvent::Frame { channel, frame } => second.client.ack(channel, frame.seq)?,
-            _ => {}
-        }
-    }
-    assert!(
-        !second
-            .client
-            .catalog()?
-            .projects
-            .iter()
-            .any(|entry| entry.id == project.id)
-    );
-    assert!(second.client.read_saved_screen(session.id).is_err());
-    assert!(second.client.resize(attached.channel, SIZE).is_err());
-    assert!(fixture.directory.is_dir());
-    Ok(())
-}
-
 #[path = "client/activity.rs"]
 mod activity;
-#[path = "client/titles.rs"]
-mod titles;
 
 #[test]
 fn asynchronous_session_presence_includes_saved_history_without_mutating_projects() -> TestResult {

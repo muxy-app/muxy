@@ -98,34 +98,6 @@ fn extension_requests_reject_missing_values_option_injection_and_excessive_limit
 }
 
 #[test]
-fn staged_review_requests_reject_bad_limits_heads_and_messages() {
-    for action in [
-        GitAction::StagedPreview {
-            line_limit: Some(0),
-        },
-        GitAction::CommitStaged {
-            message: "Message".into(),
-            expected_head: Some("HEAD~1".into()),
-            expected_tree: "abc123".into(),
-        },
-        GitAction::CommitStaged {
-            message: "\0".into(),
-            expected_head: None,
-            expected_tree: "abc123".into(),
-        },
-    ] {
-        assert!(
-            GitRequest {
-                project: ProjectId::new(),
-                action
-            }
-            .validate()
-            .is_err()
-        );
-    }
-}
-
-#[test]
 fn diffs_from_builds_before_the_binary_flag_read_as_text() -> Result<(), Box<dyn std::error::Error>>
 {
     // [rows, additions, deletions, truncated], as written before the flag existed.

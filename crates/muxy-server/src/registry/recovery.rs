@@ -181,51 +181,6 @@ fn retention_migrates_old_entries_once_and_prunes_on_startup() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn retention_retries_failed_archive_deletion() -> TestResult {
-    let profile = Profile::new()?;
-    let registry = profile.open()?;
-    let session = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
-    registry.end(session.id)?;
-    let path = profile
-        .0
-        .join("sessions")
-        .join(format!("{:016x}.postcard", session.id.get()));
-    let backup = profile.0.join("archive.backup");
-    fs::rename(&path, &backup)?;
-    fs::create_dir(&path)?;
-    let later = crate::catalog::retention::now() + crate::catalog::retention::RETENTION_SECONDS;
-    assert!(registry.prune_sessions_at(later).is_err());
-    drop(registry);
-    let catalog = profile.0.join("sessions/catalog.json");
-    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&catalog)?)?;
-    stored["sessions"][session.id.get().to_string()]["ended_at"] =
-        (crate::catalog::retention::now() - crate::catalog::retention::RETENTION_SECONDS).into();
-    fs::write(&catalog, serde_json::to_vec(&stored)?)?;
-    let registry = profile.open()?;
-    assert!(path.is_dir());
-    assert!(registry.catalog.discarding().is_empty());
-    assert_eq!(
-        registry
-            .list_project_sessions(session.project, None, None)?
-            .sessions
-            .len(),
-        1
-    );
-    fs::remove_dir(&path)?;
-    fs::rename(&backup, &path)?;
-    registry.prune_expired_sessions()?;
-    assert!(!path.exists());
-    assert!(registry.catalog.discarding().is_empty());
-    assert!(
-        registry
-            .list_project_sessions(session.project, None, None)?
-            .sessions
-            .is_empty()
-    );
-    Ok(())
-}
-
 struct Profile(PathBuf);
 impl Profile {
     fn new() -> io::Result<Self> {

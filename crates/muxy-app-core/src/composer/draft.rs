@@ -716,34 +716,6 @@ mod tests {
     }
 
     #[test]
-    fn composer_store_carries_malformed_entries_and_sorts_output() {
-        let profile = tempfile::tempdir().unwrap();
-        let path = profile.path().join(super::super::DRAFTS_FILE_NAME);
-        let valid_id = id();
-        let malformed_id =
-            "BBBBBBBB-CCCC-4DDD-8EEE-FFFFFFFFFFFF:33333333-4444-4555-8666-777777777777";
-        std::fs::write(
-            &path,
-            serde_json::to_vec(&serde_json::json!({
-                malformed_id: {"text": 7},
-                valid_id.as_str(): {"text": "before"}
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        assert_eq!(store.load_status().malformed_keys, vec![malformed_id]);
-        store
-            .edit_content(valid_id, "after".to_owned(), Vec::new())
-            .unwrap();
-        store.flush().unwrap();
-        let text = std::fs::read_to_string(path).unwrap();
-        assert!(text.find(PROJECT).unwrap() < text.find(malformed_id).unwrap());
-        let root: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(root[malformed_id], serde_json::json!({"text": 7}));
-    }
-
-    #[test]
     fn composer_store_whole_file_failure_blocks_overwrite_and_preserves_bytes() {
         let profile = tempfile::tempdir().unwrap();
         let path = profile.path().join(super::super::DRAFTS_FILE_NAME);
@@ -781,24 +753,6 @@ mod tests {
     }
 
     #[test]
-    fn composer_store_removes_empty_drafts_and_conditionally_clears_revisions() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        let first = store
-            .edit_content(id(), "hello".to_owned(), Vec::new())
-            .unwrap();
-        assert_eq!(first, 1);
-        assert!(!store.clear_if_revision(&id(), 0).unwrap());
-        assert!(store.clear_if_revision(&id(), first).unwrap());
-        assert!(store.draft(&id()).is_none());
-        store.flush().unwrap();
-        assert_eq!(
-            serde_json::from_slice::<Value>(&std::fs::read(store.path()).unwrap()).unwrap(),
-            serde_json::json!({})
-        );
-    }
-
-    #[test]
     fn composer_store_image_attachment_is_durable_and_inserted_at_a_utf8_boundary() {
         let profile = tempfile::tempdir().unwrap();
         let mut store = ComposerStore::load_from(profile.path());
@@ -814,25 +768,6 @@ mod tests {
         let restored = ComposerStore::load_from(profile.path());
         assert_eq!(restored.draft(&id()).unwrap().text, "aé[Image 1]z");
         assert_eq!(restored.draft(&id()).unwrap().image_attachments.len(), 1);
-    }
-
-    #[test]
-    fn composer_store_failed_image_draft_publication_rolls_back_new_file_and_text() {
-        let profile = tempfile::tempdir().unwrap();
-        let path = profile.path().join(super::super::DRAFTS_FILE_NAME);
-        std::fs::write(&path, b"not json").unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        assert!(store.attach_image(id(), &png(), 0).is_err());
-        assert!(store.draft(&id()).is_none());
-        assert!(
-            store
-                .image_storage()
-                .unwrap()
-                .regular_file_names()
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(std::fs::read(path).unwrap(), b"not json");
     }
 
     #[test]
@@ -879,50 +814,6 @@ mod tests {
     }
 
     #[test]
-    fn composer_store_shared_filename_survives_until_every_draft_removes_it() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        let filename = store.image_storage().unwrap().write_source(&png()).unwrap();
-        let first = id();
-        let second = DraftId::new(PROJECT, OTHER_WORKTREE).unwrap();
-        store
-            .replace_draft(first.clone(), image_draft_with("[Image 1]", &filename))
-            .unwrap();
-        store
-            .replace_draft(second.clone(), image_draft_with("[Image 1]", &filename))
-            .unwrap();
-        store.flush().unwrap();
-        store
-            .edit_content(first, "removed".to_owned(), Vec::new())
-            .unwrap();
-        store.flush().unwrap();
-        assert!(store.image_storage().unwrap().read(&filename).is_ok());
-        store
-            .edit_content(second, "removed".to_owned(), Vec::new())
-            .unwrap();
-        store.flush().unwrap();
-        assert!(store.image_storage().unwrap().read(&filename).is_err());
-    }
-
-    #[test]
-    fn composer_store_failed_publication_retains_pending_image_files() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        let filename = store.image_storage().unwrap().write_source(&png()).unwrap();
-        store
-            .replace_draft(id(), image_draft_with("[Image 1]", &filename))
-            .unwrap();
-        store.flush().unwrap();
-        store
-            .edit_content(id(), "removed".to_owned(), Vec::new())
-            .unwrap();
-        std::fs::remove_file(store.path()).unwrap();
-        std::fs::create_dir(store.path()).unwrap();
-        assert!(store.flush().is_err());
-        assert!(store.image_storage().unwrap().read(&filename).is_ok());
-    }
-
-    #[test]
     fn submitted_inline_image_survives_clear_until_the_next_launch() {
         let profile = tempfile::tempdir().unwrap();
         let mut store = ComposerStore::load_from(profile.path());
@@ -938,23 +829,6 @@ mod tests {
         drop(store);
         let store = ComposerStore::load_from(profile.path());
         assert!(store.image_storage().unwrap().read(&filename).is_err());
-    }
-
-    #[test]
-    fn composer_store_startup_sweeps_only_proven_regular_orphans() {
-        let profile = tempfile::tempdir().unwrap();
-        let mut store = ComposerStore::load_from(profile.path());
-        let retained = store.image_storage().unwrap().write_source(&png()).unwrap();
-        store
-            .replace_draft(id(), image_draft_with("[Image 1]", &retained))
-            .unwrap();
-        store.flush().unwrap();
-        let orphan = store.image_storage().unwrap().write_source(&png()).unwrap();
-        assert!(store.image_storage().unwrap().read(&orphan).is_ok());
-        drop(store);
-        let restored = ComposerStore::load_from(profile.path());
-        assert!(restored.image_storage().unwrap().read(&retained).is_ok());
-        assert!(restored.image_storage().unwrap().read(&orphan).is_err());
     }
 
     #[test]

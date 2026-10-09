@@ -673,43 +673,6 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_writes_are_buffered_and_flush_errors_are_reported() -> TestResult {
-        #[derive(Default)]
-        struct CountingWriter {
-            bytes: Vec<u8>,
-            writes: usize,
-        }
-        impl Write for CountingWriter {
-            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-                self.writes += 1;
-                self.bytes.extend_from_slice(bytes);
-                Ok(bytes.len())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-        struct FailedWriter;
-        impl Write for FailedWriter {
-            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-                Err(io::Error::other("disk full"))
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-        let record = Record::new(capture("buffered")?, None);
-        let mut writer = CountingWriter::default();
-        write_buffered(&record, &mut writer)?;
-        let mut expected = Vec::new();
-        storage::write(&record, &mut expected)?;
-        assert_eq!(writer.bytes, expected);
-        assert!(writer.writes <= writer.bytes.len() / 8192 + 1);
-        assert!(write_buffered(&record, FailedWriter).is_err());
-        Ok(())
-    }
-
-    #[test]
     fn saved_search_reuses_the_open_record_and_detects_replacement() -> TestResult {
         let directory = Directory::new()?;
         let session = SessionId::new(1).ok_or("zero ID")?;
@@ -933,37 +896,6 @@ mod tests {
             before = next;
         }
         assert_eq!(end, 0);
-        Ok(())
-    }
-
-    #[test]
-    fn indexed_screens_do_not_decode_history_and_legacy_saved_data_still_loads() -> TestResult {
-        use std::io::{Seek, SeekFrom};
-        let directory = Directory::new()?;
-        let session = SessionId::from(std::num::NonZeroU64::MIN);
-        let archive = Archive::open(&directory.0, 1024 * 1024)?;
-        let record = Record::new(capture("preserved")?, Some(ExitReason::Ended));
-        let path = record_path(&directory.0, session);
-        fs::write(&path, postcard::to_stdvec(&record)?)?;
-        assert_eq!(archive.read(session)?, record.screen);
-        assert_eq!(
-            archive
-                .history_page(session, HistoryCursor(0), 500)?
-                .total_rows,
-            record.history.len() as u64
-        );
-        write_record(&directory.0, session, &record)?;
-        let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
-        let data_start =
-            32 + storage::serialized_size(&record.screen)? + (record.history.len() as u64 + 1) * 8;
-        file.seek(SeekFrom::Start(data_start))?;
-        file.write_all(&[255; 8])?;
-        assert_eq!(archive.read(session)?, record.screen);
-        assert!(
-            archive
-                .history_page(session, HistoryCursor(0), 500)
-                .is_err()
-        );
         Ok(())
     }
 

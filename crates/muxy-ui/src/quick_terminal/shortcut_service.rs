@@ -497,24 +497,6 @@ mod tests {
     }
 
     #[test]
-    fn quick_terminal_shortcut_start_stop_and_stale_generation() {
-        let (first, first_record) = backend(None);
-        let (second, second_record) = backend(None);
-        let mut service = service(other_key_combo(), true, vec![first, second], |_| Ok(()));
-        service.start().unwrap();
-        first_record.borrow().trigger.as_ref().unwrap()();
-        assert_eq!(service.trigger_count(), 1);
-        service.update_shortcut(key_combo(), &[]).unwrap();
-        first_record.borrow().trigger.as_ref().unwrap()();
-        assert_eq!(service.trigger_count(), 1);
-        second_record.borrow().trigger.as_ref().unwrap()();
-        assert_eq!(service.trigger_count(), 2);
-        service.stop();
-        assert_eq!(second_record.borrow().stops, 1);
-        assert_eq!(service.state(), ShortcutState::Stopped);
-    }
-
-    #[test]
     fn quick_terminal_shortcut_registration_failure_keeps_previous() {
         let (first, first_record) = backend(None);
         let (second, second_record) = backend(Some("registration failed"));

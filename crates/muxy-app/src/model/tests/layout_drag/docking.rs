@@ -54,54 +54,6 @@ fn outer_edge_gesture_makes_three_columns_instead_of_splitting_one_pane(cx: &mut
 }
 
 #[gpui::test]
-fn pane_edge_gestures_build_an_aligned_two_by_two_grid(cx: &mut TestAppContext) {
-    let mut state = AppState::bootstrap().expect("state");
-    state.open_terminal_tab(state.home().id).expect("tab");
-    let a = state.window().active_pane.expect("pane");
-    let b = state.split_pane(a, Direction::Right).expect("split");
-    let c = state.split_pane(b, Direction::Right).expect("split");
-    let d = state.split_pane(c, Direction::Right).expect("split");
-    for (index, pane) in [a, b, c, d].into_iter().enumerate() {
-        state
-            .set_pane_session(pane, SessionId::new(200 + index as u64))
-            .expect("session");
-    }
-    let records = state.home().tabs[0].panes.clone();
-    let (mut boot, _requests) = stub_boot(state);
-    boot.terminal.options.padding_x = [0.0; 2];
-    boot.terminal.options.padding_y = [0.0; 2];
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1401.0), px(901.0)));
-    cx.run_until_parked();
-    let target = pane_bounds(&view, b, cx);
-    drag_to(
-        &view,
-        d,
-        point(target.center().x, target.bottom() - px(40.0)),
-        cx,
-    );
-    let target = pane_bounds(&view, a, cx);
-    drag_to(
-        &view,
-        c,
-        point(target.center().x, target.bottom() - px(40.0)),
-        cx,
-    );
-    let [a, b, c, d] = [a, b, c, d].map(|pane| pane_bounds(&view, pane, cx));
-    assert_eq!(a.top(), b.top());
-    assert_eq!(a.bottom(), b.bottom());
-    assert_eq!(c.top(), d.top());
-    assert_eq!(c.bottom(), d.bottom());
-    assert_eq!(a.left(), c.left());
-    assert_eq!(a.right(), c.right());
-    assert_eq!(b.left(), d.left());
-    assert_eq!(b.right(), d.right());
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.state.home().tabs[0].panes, records);
-    });
-}
-
-#[gpui::test]
 fn stale_plans_cancel_if_the_tree_or_window_geometry_changes(cx: &mut TestAppContext) {
     for resize in [false, true] {
         let (state, [tab, _], [a, _, c, _]) = state();

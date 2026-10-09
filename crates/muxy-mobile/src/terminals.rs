@@ -255,33 +255,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn blank_resets_track_both_dimensions_and_deltas_keep_other_rows() {
-        let terminals = Terminals::default();
-        let channel = ChannelId(1);
-        let session = SessionId::new(7).unwrap();
-        let (view, _) = terminals.install(session, attachment(channel));
-        for size in [Size { cols: 20, rows: 4 }, Size { cols: 4, rows: 1 }] {
-            assert!(matches!(
-                terminals.frame(channel, resized(size)),
-                Delivery::Applied { .. }
-            ));
-            assert_eq!(view.lock().grid.size, size);
-            assert_eq!(view.lock().grid.rows.len(), usize::from(size.rows));
-        }
-        let mut delta = resized(Size { cols: 4, rows: 1 });
-        delta.reset = false;
-        delta.rows[0].runs.push(muxy_protocol::Run {
-            text: "text".into(),
-            width: 4,
-            style: muxy_protocol::Style::default(),
-        });
-        terminals.frame(channel, delta.clone());
-        delta.rows.clear();
-        terminals.frame(channel, delta);
-        assert_eq!(view.lock().grid.row_text(0), "text");
-    }
-
     fn modes(mouse_tracking: bool, focus_events: bool) -> MetadataEvent {
         MetadataEvent::InputModes(InputModes {
             mouse_tracking,

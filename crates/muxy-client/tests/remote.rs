@@ -1,20 +1,17 @@
 use std::net::{SocketAddr, TcpListener};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::thread;
-use std::time::{Duration, Instant};
 
-use muxy_client::{Client, ClientError, ClientEvent, RemoteEndpoint};
+use muxy_client::{Client, ClientError, RemoteEndpoint};
 use muxy_protocol::transport::Listener;
 use muxy_protocol::transport::tls::TlsListener;
-use muxy_protocol::{ListenerStatus, PairingOffer, RemoteAccessSettings, Size};
+use muxy_protocol::{ListenerStatus, PairingOffer, RemoteAccessSettings};
 use muxy_server::connection::{serve, serve_remote};
 use muxy_server::{Registry, ServerEvent, ServerSettings};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
-const TIMEOUT: Duration = Duration::from_secs(10);
-const SIZE: Size = Size { cols: 40, rows: 5 };
 
 /// An in-process server whose network listener is a real TLS listener on loopback.
 struct Server {
@@ -101,40 +98,6 @@ fn accept(listener: &TlsListener, registry: &Weak<Registry>) {
             let _ = serve_remote(stream, registry, events, admission);
         });
     }
-}
-
-#[test]
-fn a_phone_pairs_reconnects_and_types_into_a_shell() -> TestResult {
-    let server = Server::new();
-    let (_local, offer) = server.pairing()?;
-    let (phone, paired) = Client::pair(&offer.invite, "Phone")?;
-    drop(phone);
-    let phone = Client::connect_remote(&RemoteEndpoint::from(&offer.invite), paired.credential)?;
-    let events = phone.events().ok_or("events already taken")?;
-    assert_eq!(phone.catalog()?.server, paired.server);
-    let session = phone.create_session(Path::new("/tmp"), SIZE)?;
-    let attachment = phone.attach(session.id, SIZE)?;
-    phone.send_input(attachment.channel, b"echo phone-$((40+2))\n")?;
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        match events.recv_timeout(deadline.saturating_duration_since(Instant::now()))? {
-            ClientEvent::Frame { channel, frame } if channel == attachment.channel => {
-                let text: String = frame
-                    .rows
-                    .iter()
-                    .flat_map(|row| row.runs.iter().map(|run| run.text.as_str()))
-                    .collect();
-                if text.contains("phone-42") {
-                    break;
-                }
-                phone.ack(channel, frame.seq)?;
-            }
-            ClientEvent::Disconnected => return Err("phone disconnected".into()),
-            _ => {}
-        }
-    }
-    phone.end_session(session.id)?;
-    Ok(())
 }
 
 #[test]

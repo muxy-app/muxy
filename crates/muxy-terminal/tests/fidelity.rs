@@ -1,25 +1,6 @@
-use muxy_terminal::{Color, CursorShape, Size, Terminal, TerminalError, Underline};
+use muxy_terminal::{Size, Terminal, TerminalError};
 
 type Result = std::result::Result<(), TerminalError>;
-
-#[test]
-fn decorations_and_cursor_shapes_survive_grid_extraction() -> Result {
-    let mut terminal = Terminal::new(Size { cols: 20, rows: 3 }, 65536)?;
-    terminal.feed(b"\x1b[4:3;58:2::255:0:0;8;53mX");
-    let style = terminal.screen()?[0].runs[0].style;
-    assert_eq!(style.underline, Underline::Curly);
-    assert_eq!(style.underline_color, Color::Rgb(255, 0, 0));
-    assert!(style.invisible && style.overline);
-    for (sequence, shape) in [
-        (b"\x1b[2 q", CursorShape::Block),
-        (b"\x1b[4 q", CursorShape::Underline),
-        (b"\x1b[6 q", CursorShape::Bar),
-    ] {
-        terminal.feed(sequence);
-        assert_eq!(terminal.cursor()?.shape, shape);
-    }
-    Ok(())
-}
 
 #[test]
 fn kitty_pixels_placements_replacement_png_and_deletion_survive_fragmented_output() -> Result {

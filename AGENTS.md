@@ -7,6 +7,7 @@
 ## Main Guides
 
 - Don't run the app for visual testing. All visual testings must be done by user.
+- Only test real scenarios and risks (data loss, security, compatibility, concurrency, regressions). Don't test obvious code, defaults, or UI details like pixels, layout, colors, and titles.
 
 ## Third-party dependencies
 

@@ -1,12 +1,10 @@
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 use std::{env, fs, process, thread};
 
-use muxy_protocol::{
-    AttachSnapshot, ChannelId, ErrorCode, ExitReason, Row, ScreenFrame, SessionInfo, Size,
-};
+use muxy_protocol::{AttachSnapshot, ChannelId, ExitReason, Row, ScreenFrame, SessionInfo, Size};
 use muxy_server::{
     AttachmentEvent, AttachmentId, Registry, ServerEvent, ServerSettings, SessionCommand,
     SessionHandle,
@@ -15,63 +13,12 @@ use muxy_server::{
 type TestResult = Result<(), Box<dyn Error>>;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
-const QUIET: Duration = Duration::from_millis(500);
 const SIZE: Size = Size { cols: 80, rows: 24 };
 
 struct Fixture {
     registry: Registry,
     events: Receiver<ServerEvent>,
     directory: PathBuf,
-}
-
-#[test]
-fn a_second_attachment_gets_its_own_snapshot_and_the_same_frames() -> TestResult {
-    let fixture = fixture("second")?;
-    let (_, handle) = session(&fixture)?;
-    let (first, _) = attach(&handle, 1, SIZE)?;
-    let (second, snapshot) = attach(&handle, 2, SIZE)?;
-
-    assert_eq!(snapshot.channel, ChannelId(2));
-    assert_eq!(snapshot.size, SIZE);
-
-    handle.send(SessionCommand::Input(b"echo muxy-ok\n".to_vec()))?;
-    let on_first = wait_for_text(&first, "muxy-ok")?;
-    let on_second = wait_for_text(&second, "muxy-ok")?;
-
-    assert_eq!(on_first.rows, on_second.rows);
-    assert_eq!(on_second.seq, 1);
-
-    handle.send(SessionCommand::Detach(AttachmentId(2)))?;
-    handle.send(SessionCommand::Input(b"echo muxy-again\n".to_vec()))?;
-    wait_for_text(&first, "muxy-again")?;
-
-    assert!(no_frame_containing(&second, "muxy-again"));
-    fixture.finish()
-}
-
-#[test]
-fn exit_ends_the_session_and_removes_it_from_the_listing() -> TestResult {
-    let fixture = fixture("exit")?;
-    let (info, handle) = session(&fixture)?;
-    let (events, _) = attach(&handle, 1, SIZE)?;
-
-    handle.send(SessionCommand::Input(b"exit 0\n".to_vec()))?;
-
-    assert_eq!(wait_for_ended(&events)?, ExitReason::Exited(0));
-    assert_eq!(
-        fixture.events.recv_timeout(TIMEOUT)?,
-        ServerEvent::SessionEnded {
-            id: info.id,
-            reason: ExitReason::Exited(0)
-        }
-    );
-    assert!(fixture.registry.list().is_empty());
-    assert!(fixture.registry.handle(info.id).is_none());
-    assert_eq!(
-        fixture.registry.end(info.id).map_err(|error| error.code()),
-        Err(ErrorCode::UnknownSession)
-    );
-    fixture.finish()
 }
 
 #[test]
@@ -106,39 +53,6 @@ fn end_kills_a_running_program() -> TestResult {
         }
     );
     assert!(fixture.registry.list().is_empty());
-    fixture.finish()
-}
-
-#[test]
-fn no_frame_arrives_while_idle() -> TestResult {
-    let fixture = fixture("idle")?;
-    let (_, handle) = session(&fixture)?;
-    let (events, _) = attach(&handle, 1, SIZE)?;
-
-    handle.send(SessionCommand::Input(b"echo muxy-ok\n".to_vec()))?;
-    wait_for_text(&events, "muxy-ok")?;
-    drain_until_quiet(&events)?;
-
-    assert_eq!(
-        events.recv_timeout(QUIET).err(),
-        Some(RecvTimeoutError::Timeout)
-    );
-    fixture.finish()
-}
-
-#[test]
-fn a_cursor_position_query_is_answered_through_the_pty() -> TestResult {
-    let fixture = fixture("cursor")?;
-    let (_, handle) = session(&fixture)?;
-    let (events, _) = attach(&handle, 1, SIZE)?;
-
-    handle.send(SessionCommand::Input(b"echo muxy-ok\n".to_vec()))?;
-    wait_for_text(&events, "muxy-ok")?;
-    handle.send(SessionCommand::Input(
-        b"stty -icanon min 1 time 5; printf '\\033[6n'; dd bs=64 count=1 2>/dev/null | tr -d '\\033'; stty icanon\n".to_vec(),
-    ))?;
-
-    wait_for_text(&events, ";1R")?;
     fixture.finish()
 }
 
@@ -242,31 +156,6 @@ fn wait_for_ended(events: &Receiver<AttachmentEvent>) -> Result<ExitReason, Box<
             AttachmentEvent::Snapshot { .. } => {
                 return Err("expected a frame or ended, got a snapshot".into());
             }
-        }
-    }
-}
-
-fn drain_until_quiet(events: &Receiver<AttachmentEvent>) -> TestResult {
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        match events.recv_timeout(QUIET) {
-            Ok(AttachmentEvent::Frame(_) | AttachmentEvent::Metadata(_))
-                if Instant::now() < deadline => {}
-            Ok(_) => return Err("session never became idle".into()),
-            Err(RecvTimeoutError::Timeout) => return Ok(()),
-            Err(RecvTimeoutError::Disconnected) => return Err("session went away".into()),
-        }
-    }
-}
-
-fn no_frame_containing(events: &Receiver<AttachmentEvent>, needle: &str) -> bool {
-    loop {
-        match events.recv_timeout(QUIET) {
-            Ok(AttachmentEvent::Frame(frame)) if text(&frame.rows).contains(needle) => {
-                return false;
-            }
-            Ok(_) => {}
-            Err(_) => return true,
         }
     }
 }

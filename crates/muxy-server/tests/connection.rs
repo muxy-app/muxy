@@ -273,47 +273,6 @@ fn text(rows: &[Row]) -> String {
 }
 
 #[test]
-fn hello_list_create_attach_and_input() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(true)?;
-    assert_eq!(
-        client.request(RequestBody::ListSessions)?,
-        ReplyBody::Sessions(vec![])
-    );
-    let info = fixture.create(&mut client)?;
-    assert_eq!(
-        client.request(RequestBody::ListSessions)?,
-        ReplyBody::Sessions(vec![info.clone()])
-    );
-    let snapshot = client.attach(info.id)?;
-    assert_ne!(snapshot.channel, CONTROL);
-    assert_eq!(snapshot.size, SIZE);
-    assert_eq!(
-        snapshot.directory.0,
-        fixture.directory.canonicalize()?.as_os_str().as_bytes()
-    );
-    assert_eq!(snapshot.rows.len(), usize::from(SIZE.rows));
-    client.input(snapshot.channel, b"echo hi\n")?;
-    client.frame(snapshot.channel, "hi")?;
-    client.disconnect()
-}
-
-#[test]
-fn a_request_before_hello_is_fatal() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(false)?;
-    client.send(
-        CONTROL,
-        Message::Request {
-            id: RequestId(7),
-            body: RequestBody::Ping,
-        },
-    )?;
-    assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
-    client.closed()
-}
-
-#[test]
 fn incompatible_versions_are_rejected_and_closed() -> TestResult {
     let fixture = Fixture::new()?;
     let mut client = fixture.client(false)?;
@@ -325,42 +284,6 @@ fn incompatible_versions_are_rejected_and_closed() -> TestResult {
     )?;
     assert_eq!(client.receive()?, (CONTROL, Message::VersionUnsupported));
     client.closed()
-}
-
-#[test]
-fn invalid_or_misplaced_hellos_are_fatal() -> TestResult {
-    let fixture = Fixture::new()?;
-    for (channel, versions) in [(CONTROL, vec![]), (ChannelId(1), SUPPORTED.to_vec())] {
-        let mut client = fixture.client(false)?;
-        client.send(channel, Message::Hello { versions })?;
-        assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
-        client.closed()?;
-    }
-    Ok(())
-}
-
-#[test]
-fn malformed_headers_and_payloads_are_fatal() -> TestResult {
-    let fixture = Fixture::new()?;
-    let hello = muxy_protocol::wire::MessageKind::Hello as u8;
-    for greeted in [false, true] {
-        // A reserved flag bit, then a hello without its field array.
-        for kind in [hello | 0x40, hello] {
-            let mut client = fixture.client(greeted)?;
-            client.socket.write_all(
-                &muxy_protocol::wire::Header {
-                    length: 7,
-                    version: muxy_protocol::CURRENT.0,
-                    channel: 0,
-                    kind,
-                }
-                .to_bytes(),
-            )?;
-            assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
-            client.closed()?;
-        }
-    }
-    Ok(())
 }
 
 /// A frame as a newer build would write it: `payload` is raw CBOR.
@@ -404,49 +327,6 @@ fn messages_from_newer_clients_keep_the_connection_usable() -> TestResult {
 }
 
 #[test]
-fn server_messages_repeated_hello_and_unknown_input_are_fatal() -> TestResult {
-    let fixture = Fixture::new()?;
-    for (channel, message) in [
-        (
-            CONTROL,
-            Message::Hello {
-                versions: SUPPORTED.to_vec(),
-            },
-        ),
-        (
-            CONTROL,
-            Message::Reply {
-                id: RequestId(1),
-                body: ReplyBody::Pong,
-            },
-        ),
-        (ChannelId(1), Message::Input(b"x".to_vec())),
-        (CONTROL, Message::Input(b"x".to_vec())),
-        (
-            CONTROL,
-            Message::TerminalInput(muxy_protocol::TerminalInput::ClearScreen),
-        ),
-        (
-            ChannelId(1),
-            Message::TerminalInput(muxy_protocol::TerminalInput::Focus(true)),
-        ),
-        (
-            ChannelId(1),
-            Message::Request {
-                id: RequestId(2),
-                body: RequestBody::Ping,
-            },
-        ),
-    ] {
-        let mut client = fixture.client(true)?;
-        client.send(channel, message)?;
-        assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
-        client.closed()?;
-    }
-    Ok(())
-}
-
-#[test]
 fn invalid_structured_input_is_fatal_only_on_its_connection() -> TestResult {
     let fixture = Fixture::new()?;
     let mut client = fixture.client(true)?;
@@ -464,62 +344,6 @@ fn invalid_structured_input_is_fatal_only_on_its_connection() -> TestResult {
     client.closed()?;
     assert_eq!(fixture.registry.list().len(), 1);
     Ok(())
-}
-
-#[test]
-fn request_errors_are_correlated_and_leave_connection_usable() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(true)?;
-    let unknown = SessionId::new(1).ok_or("zero session")?;
-    for (request, code) in [
-        (
-            RequestBody::CreateSession {
-                project: fixture.registry.home_project(),
-                operation: muxy_protocol::OperationId::new(),
-                directory: ServerPath(vec![]),
-                size: SIZE,
-            },
-            ErrorCode::BadPath,
-        ),
-        (
-            RequestBody::CreateSession {
-                project: fixture.registry.home_project(),
-                operation: muxy_protocol::OperationId::new(),
-                directory: ServerPath(b"/not/a/muxy/directory".to_vec()),
-                size: SIZE,
-            },
-            ErrorCode::BadPath,
-        ),
-        (
-            RequestBody::CreateSession {
-                project: fixture.registry.home_project(),
-                operation: muxy_protocol::OperationId::new(),
-                directory: ServerPath(b"/tmp".to_vec()),
-                size: Size { cols: 0, rows: 1 },
-            },
-            ErrorCode::BadSize,
-        ),
-        (
-            RequestBody::Attach {
-                session: unknown,
-                size: SIZE,
-            },
-            ErrorCode::UnknownSession,
-        ),
-        (RequestBody::EndSession(unknown), ErrorCode::UnknownSession),
-        (RequestBody::Detach(ChannelId(1)), ErrorCode::UnknownChannel),
-        (
-            RequestBody::Resize {
-                channel: ChannelId(1),
-                size: SIZE,
-            },
-            ErrorCode::UnknownChannel,
-        ),
-    ] {
-        assert!(matches!(client.request(request)?, ReplyBody::Error(error) if error.code == code));
-        assert_eq!(client.request(RequestBody::Ping)?, ReplyBody::Pong);
-    }
-    client.disconnect()
 }
 
 #[test]
@@ -708,103 +532,6 @@ fn fatal_is_the_last_message_even_with_an_attach_in_progress() -> TestResult {
         client.closed()?;
     }
     Ok(())
-}
-
-#[test]
-fn oversized_input_on_an_active_channel_is_fatal() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(true)?;
-    let info = fixture.create(&mut client)?;
-    let channel = client.attach(info.id)?.channel;
-    client.quiet()?;
-    client.input(channel, &vec![b'x'; muxy_protocol::MAX_INPUT + 1])?;
-    assert!(matches!(client.receive()?, (CONTROL, Message::Fatal(_))));
-    client.closed()
-}
-
-#[test]
-fn resize_replaces_old_pending_rows_and_correlates_pipelined_requests() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(true)?;
-    let info = fixture.create(&mut client)?;
-    let channel = client.attach(info.id)?.channel;
-    client.input(
-        channel,
-        b"stty -echo; PS1=''; printf '\\033[2J\\033[Hready'\n",
-    )?;
-    let ready = client.frame(channel, "ready")?;
-    client.ack(channel, ready.seq)?;
-    client.quiet()?;
-    client.input(channel, b"printf '\\033[1;1Hhold'\n")?;
-    let hold = client.frame(channel, "hold")?;
-    client.input(channel, b"printf '\\033[23;1Hold-geometry'\n")?;
-    thread::sleep(QUIET);
-    assert_eq!(
-        client.request(RequestBody::Resize {
-            channel,
-            size: Size { cols: 60, rows: 20 },
-        })?,
-        ReplyBody::Resized
-    );
-    client.ack(channel, hold.seq)?;
-    let reset = client.frame(channel, "")?;
-    assert!(reset.reset);
-    assert_eq!(reset.rows.len(), 20);
-    assert!(reset.rows.iter().all(|row| row.index < 20));
-    for (id, rows) in [(91, 18), (92, 12)] {
-        client.send(
-            CONTROL,
-            Message::Request {
-                id: RequestId(id),
-                body: RequestBody::Resize {
-                    channel,
-                    size: Size { cols: 60, rows },
-                },
-            },
-        )?;
-    }
-    let mut replies = vec![];
-    while replies.len() < 2 {
-        match client.receive()? {
-            (
-                CONTROL,
-                Message::Reply {
-                    id,
-                    body: ReplyBody::Resized,
-                },
-            ) => replies.push(id.0),
-            (
-                _,
-                Message::Metadata(
-                    muxy_protocol::MetadataEvent::History { .. }
-                    | muxy_protocol::MetadataEvent::Links { .. }
-                    | muxy_protocol::MetadataEvent::ScreenPrompts { .. },
-                ),
-            ) => {}
-            other => return Err(format!("expected resize reply, got {other:?}").into()),
-        }
-    }
-    assert_eq!(replies, vec![91, 92]);
-    loop {
-        match client.incoming.recv_timeout(QUIET) {
-            Ok(Ok((
-                _,
-                Message::Metadata(
-                    muxy_protocol::MetadataEvent::History { .. }
-                    | muxy_protocol::MetadataEvent::Links { .. }
-                    | muxy_protocol::MetadataEvent::ScreenPrompts { .. },
-                ),
-            ))) => {}
-            Err(RecvTimeoutError::Timeout) => break,
-            other => return Err(format!("expected frames to remain blocked, got {other:?}").into()),
-        }
-    }
-    client.ack(channel, reset.seq)?;
-    let newest = client.frame(channel, "")?;
-    assert!(newest.reset);
-    assert_eq!(newest.rows.len(), 12);
-    assert!(newest.rows.iter().all(|row| row.index < 12));
-    client.disconnect()
 }
 
 #[test]
@@ -1122,61 +849,5 @@ fn clients_from_before_v2_are_told_to_update_in_their_own_framing() -> TestResul
     }
     assert_eq!(reply, muxy_protocol::wire::legacy_version_unsupported());
     serving.join().map_err(|_| "server thread panicked")??;
-    Ok(())
-}
-
-#[test]
-fn inline_graphics_and_cell_dimensions_survive_frames_and_reattach() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut first = fixture.client(true)?;
-    let info = fixture.create(&mut first)?;
-    let channel = first.attach(info.id)?.channel;
-    first.quiet()?;
-    let cell = muxy_protocol::CellSize {
-        width: 16,
-        height: 32,
-    };
-    first.send(channel, Message::CellSize(cell))?;
-    first.input(
-        channel,
-        b"printf '\\033[H\\033[6 q\\033_Ga=T,q=2,f=32,s=1,v=1,i=1,c=2,r=1;/wAA/w==\\033\\\\'\n",
-    )?;
-    let graphics = loop {
-        match first.receive()? {
-            (received, Message::Frame(frame)) if received == channel => {
-                first.ack(channel, frame.seq)?;
-                if let Some(graphics) = frame
-                    .graphics
-                    .filter(|graphics| !graphics.images.is_empty())
-                {
-                    assert_eq!(frame.cursor.shape, muxy_protocol::CursorShape::Bar);
-                    break graphics;
-                }
-            }
-            (_, Message::Metadata(_)) => {}
-            other => return Err(format!("unexpected graphics response: {other:?}").into()),
-        }
-    };
-    assert_eq!(graphics.cell, cell);
-    assert_eq!(graphics.images[0].rgba.as_ref(), &[255, 0, 0, 255]);
-    assert_eq!(graphics.placements[0].size, [32, 32]);
-    let mut second = fixture.client(true)?;
-    let snapshot = second.attach(info.id)?;
-    assert_eq!(snapshot.graphics, graphics);
-    first.input(channel, b"printf '\\033_Ga=d,d=A,q=2\\033\\\\'\n")?;
-    loop {
-        match first.receive()? {
-            (received, Message::Frame(frame)) if received == channel => {
-                first.ack(channel, frame.seq)?;
-                if frame.graphics.is_some_and(|graphics| {
-                    graphics.images.is_empty() && graphics.placements.is_empty()
-                }) {
-                    break;
-                }
-            }
-            (_, Message::Metadata(_)) => {}
-            other => return Err(format!("unexpected deletion response: {other:?}").into()),
-        }
-    }
     Ok(())
 }

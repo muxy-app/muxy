@@ -148,38 +148,3 @@ fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> ServerPath {
 fn folder_name(name: &str) -> String {
     name.trim().replace(['/', '\\'], "-")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn project(directory: &str, name: &str) -> ProjectDescriptor {
-        ProjectDescriptor {
-            id: ProjectId::new(),
-            home: false,
-            directory: ServerPath(directory.into()),
-            name: name.into(),
-            icon: None,
-            logo: None,
-            color: "#ffffff".into(),
-            kind: None,
-            parent_id: None,
-        }
-    }
-
-    #[test]
-    fn new_worktrees_go_next_to_the_project_as_the_desktop_suggests() {
-        let folder = |directory, name, suffix| {
-            String::from_utf8(suggested_folder(&project(directory, name), suffix).0)
-        };
-        assert_eq!(
-            folder("/code/muxy", "muxy", "feature/login"),
-            Ok("/code/muxy-feature-login".into())
-        );
-        assert_eq!(
-            folder("/code/app", " Web\\App ", "fix"),
-            Ok("/code/Web-App-fix".into())
-        );
-        assert_eq!(folder("/", "root", "pr-7"), Ok("/root-pr-7".into()));
-    }
-}

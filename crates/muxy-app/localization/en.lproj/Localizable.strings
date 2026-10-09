@@ -198,7 +198,6 @@
 "Cancel scheduled update" = "Cancel scheduled update";
 "Cancelled" = "Cancelled";
 "Cannot read the development build at %@: %@. Run scripts/build-linux-dev.sh in this checkout, then retry installation." = "Cannot read the development build at %@: %@. Run scripts/build-linux-dev.sh in this checkout, then retry installation.";
-"Cannot resolve theme without a home directory" = "Cannot resolve theme without a home directory";
 "Case" = "Case";
 "Cell height adjustment (pixels or %%)" = "Cell height adjustment (pixels or %%)";
 "Change Theme…" = "Change Theme…";
@@ -350,7 +349,6 @@
 "Could not load layout “%@”: %@" = "Could not load layout “%@”: %@";
 "Could not load logo: %@" = "Could not load logo: %@";
 "Could not load match" = "Could not load match";
-"Could not load terminal theme %@: %@" = "Could not load terminal theme %@: %@";
 "Could not load themes from %@: %@" = "Could not load themes from %@: %@";
 "Could not mark activity read: %@" = "Could not mark activity read: %@";
 "Could not observe microphone availability" = "Could not observe microphone availability";
@@ -605,7 +603,6 @@
 "Invalid recovery directory" = "Invalid recovery directory";
 "Invalid recovery entry" = "Invalid recovery entry";
 "Invalid restore path" = "Invalid restore path";
-"Invalid terminal theme name" = "Invalid terminal theme name";
 "Invalid update download size" = "Invalid update download size";
 "Invalid update version" = "Invalid update version";
 "It changed after you confirmed. Refresh and try again." = "It changed after you confirmed. Refresh and try again.";
@@ -1063,7 +1060,6 @@
 "Terminal %lld" = "Terminal %lld";
 "Terminal connection closed before delivery was confirmed" = "Terminal connection closed before delivery was confirmed";
 "Terminal size" = "Terminal size";
-"Terminal theme %@ needs valid background and foreground colors" = "Terminal theme %@ needs valid background and foreground colors";
 "Terminal transparency" = "Terminal transparency";
 "Test Connection" = "Test Connection";
 "Testing connection…" = "Testing connection…";
@@ -1406,7 +1402,6 @@
 "text input up" = "text input up";
 "text input word left" = "text input word left";
 "text input word right" = "text input word right";
-"theme needs a %@ entry" = "theme needs a %@ entry";
 "toggle command palette" = "toggle command palette";
 "toggle composer" = "toggle composer";
 "toggle full screen" = "toggle full screen";

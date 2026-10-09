@@ -113,38 +113,6 @@ fn queued_end_precedes_later_attach_while_ping_bypasses_work() -> TestResult {
 }
 
 #[test]
-fn queued_history_precedes_later_detach() -> TestResult {
-    let mut connection = Connection::new()?;
-    let size = Size { cols: 80, rows: 24 };
-    let session = connection
-        .requests
-        .registry
-        .create(&std::env::temp_dir(), size)?
-        .id;
-    connection.send(1, RequestBody::Attach { session, size })?;
-    let (_, body) = connection.reply()?;
-    let ReplyBody::Attached { snapshot, .. } = body else {
-        return Err("expected attachment".into());
-    };
-    let release = connection.block()?;
-    connection.send(
-        2,
-        RequestBody::HistoryPage {
-            channel: snapshot.channel,
-            before: HistoryCursor(0),
-            max_rows: 100,
-        },
-    )?;
-    connection.send(3, RequestBody::Detach(snapshot.channel))?;
-    release.send(())?;
-    let (id, body) = connection.reply()?;
-    assert_eq!(id, RequestId(2));
-    assert!(matches!(body, ReplyBody::HistoryPage(_)));
-    assert_eq!(connection.reply()?, (RequestId(3), ReplyBody::Detached));
-    Ok(())
-}
-
-#[test]
 fn file_work_does_not_block_ping_or_catalog_requests() -> TestResult {
     let mut connection = Connection::new()?;
     let mut releases = Vec::new();

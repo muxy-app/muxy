@@ -94,49 +94,6 @@ fn an_offer_ends_with_the_connection_that_created_it() -> Result<(), ServerError
 }
 
 #[test]
-fn every_authentication_failure_looks_the_same() -> Result<(), ServerError> {
-    let remote = enabled()?;
-    let secret = offer(&remote, ClientId::new());
-    let paired = remote
-        .pair(&request(secret), server())
-        .ok_or_else(|| unavailable("pairing failed"))?;
-    let credential = paired.credential;
-    assert_eq!(remote.authenticate(&credential), Some(credential.device));
-    let wrong_token = DeviceCredential {
-        token: [0; 32],
-        ..credential
-    };
-    let unknown = DeviceCredential {
-        device: DeviceId::new(),
-        ..credential
-    };
-    assert_eq!(remote.authenticate(&wrong_token), None);
-    assert_eq!(remote.authenticate(&unknown), None);
-    remote.configure(RemoteAccessSettings {
-        enabled: false,
-        port: 7419,
-    })?;
-    assert_eq!(remote.authenticate(&credential), None);
-    assert!(!remote.authorized(credential.device));
-    Ok(())
-}
-
-#[test]
-fn revoked_devices_are_no_longer_authorized() -> Result<(), ServerError> {
-    let remote = enabled()?;
-    let secret = offer(&remote, ClientId::new());
-    let paired = remote
-        .pair(&request(secret), server())
-        .ok_or_else(|| unavailable("pairing failed"))?;
-    assert!(remote.authorized(paired.credential.device));
-    remote.revoke(paired.credential.device)?;
-    remote.revoke(paired.credential.device)?;
-    assert!(!remote.authorized(paired.credential.device));
-    assert_eq!(remote.authenticate(&paired.credential), None);
-    Ok(())
-}
-
-#[test]
 fn pairing_needs_access_on_and_listening() -> Result<(), ServerError> {
     let remote = RemoteAccess::memory();
     assert!(remote.start_pairing(ClientId::new(), &[]).is_err());

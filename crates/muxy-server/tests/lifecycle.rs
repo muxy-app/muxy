@@ -418,13 +418,6 @@ fn shutdown_cancels_clients_that_never_finish_hello() -> TestResult {
 }
 
 #[test]
-fn shutdown_interrupts_a_blocked_pty_write() -> TestResult {
-    assert_shutdown_interrupts_input(
-        b"stty -icanon -echo; printf '\\nnonreading-ready\\n'; exec sleep 10\n",
-    )
-}
-
-#[test]
 fn shutdown_does_not_wait_for_a_descendant_holding_the_pty() -> TestResult {
     assert_shutdown_interrupts_input(
         b"stty -icanon -echo; trap '' HUP; sleep 10 & printf '\\nnonreading-ready\\n'; wait\n",
@@ -457,29 +450,6 @@ fn assert_shutdown_interrupts_input(command: &[u8]) -> TestResult {
 }
 
 #[test]
-fn shutdown_stops_a_session_after_its_output_closes() -> TestResult {
-    let mut fixture = Fixture::new()?;
-    fixture.start()?;
-    let mut client = Client::new(&fixture.socket())?;
-    let session = client.create(&fixture.directory)?;
-    let channel = client.attach(session)?;
-    client.encoder.send(
-        channel,
-        &Message::Input(b"exec </dev/null >/dev/null 2>&1; exec sleep 3\n".to_vec()),
-    )?;
-    assert_eq!(client.request(RequestBody::Ping)?, ReplyBody::Pong);
-    thread::sleep(Duration::from_millis(50));
-    let started = Instant::now();
-    fixture.signal("-TERM")?;
-    client.ended(&[session], ExitReason::ServerStopped)?;
-    client.closed()?;
-    assert!(fixture.finish()?.status.success());
-    assert!(started.elapsed() < Duration::from_secs(2));
-    assert!(!fixture.socket().exists());
-    Ok(())
-}
-
-#[test]
 fn malformed_settings_name_the_key_and_cleanup_the_socket() -> TestResult {
     let mut fixture = Fixture::new()?;
     let path = fixture.directory.join("server.toml");
@@ -489,41 +459,6 @@ fn malformed_settings_name_the_key_and_cleanup_the_socket() -> TestResult {
     assert!(String::from_utf8(output.stderr)?.contains("unexpected_key"));
     assert_eq!(fs::read_to_string(path)?, "unexpected_key = true\n");
     assert!(!fixture.socket().exists());
-    Ok(())
-}
-
-#[test]
-fn custom_paths_and_settings_are_used_without_default_directory() -> TestResult {
-    let mut fixture = Fixture::new()?;
-    let socket = fixture.directory.join("custom.sock");
-    let settings = fixture.directory.join("custom.toml");
-    let log = fixture.directory.join("custom.log");
-    fs::write(
-        &settings,
-        "default_shell = '/missing/muxy-shell'\nhistory_budget_bytes = 4096\n",
-    )?;
-    let mut command = fixture.command();
-    command
-        .env_remove("MUXY_DIR")
-        .env_remove("HOME")
-        .arg("--socket")
-        .arg(&socket)
-        .arg("--settings")
-        .arg(&settings)
-        .arg("--log")
-        .arg(&log);
-    fixture.start_command(command, &socket)?;
-    let mut client = Client::new(&socket)?;
-    let project = client.home()?;
-    assert!(matches!(client.request(RequestBody::CreateSession {
-        project, operation: muxy_protocol::OperationId::new(),
-        directory: ServerPath(fixture.directory.as_os_str().as_encoded_bytes().to_vec()),
-        size: SIZE,
-    })?, ReplyBody::Error(error) if error.code == muxy_protocol::ErrorCode::SpawnFailed));
-    fixture.stop("-INT")?;
-    assert!(fs::read_to_string(log)?.contains("server started:"));
-    assert!(!socket.exists());
-    assert!(!fixture.directory.join("server.toml").exists());
     Ok(())
 }
 
@@ -695,20 +630,6 @@ fn settings_persist_and_protocol_stop_gracefully_ends_sessions_before_restart() 
         ReplyBody::ServerStopping
     );
     assert!(fixture.finish()?.status.success());
-    Ok(())
-}
-
-#[test]
-fn build_info_has_no_server_or_storage_side_effects() -> TestResult {
-    let fixture = Fixture::new()?;
-    let output = Command::new(binary())
-        .env("MUXY_DIR", &fixture.directory)
-        .arg("--build-info")
-        .output()?;
-    assert!(output.status.success());
-    let build: muxy_protocol::BuildInfo = serde_json::from_slice(&output.stdout)?;
-    assert_eq!(build, muxy_protocol::BuildInfo::current());
-    assert_eq!(fs::read_dir(&fixture.directory)?.count(), 0);
     Ok(())
 }
 

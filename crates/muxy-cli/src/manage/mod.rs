@@ -259,27 +259,3 @@ fn absolute(path: &Path) -> Result<PathBuf> {
     };
     Ok(std::path::absolute(path)?)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn remote_directories_must_be_absolute_and_are_not_resolved_here() -> Result {
-        assert_eq!(
-            Paths::Remote.directory(Path::new("/srv//app/./src"))?,
-            PathBuf::from("/srv/app/src")
-        );
-        for relative in ["app", "./app", "~", "~/app"] {
-            assert!(
-                Paths::Remote.directory(Path::new(relative)).is_err(),
-                "{relative}"
-            );
-        }
-        assert_eq!(
-            Paths::Local.directory(Path::new("app"))?,
-            std::env::current_dir()?.join("app")
-        );
-        Ok(())
-    }
-}

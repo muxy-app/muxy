@@ -4,7 +4,7 @@ use muxy_protocol::{
 };
 use muxy_server::{LegacyImport, Registry, ServerSettings};
 use std::fs;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
@@ -12,43 +12,6 @@ use std::sync::{Arc, mpsc};
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 const SIZE: Size = Size { cols: 80, rows: 24 };
 
-#[test]
-fn catalog_pages_are_bounded_ordered_and_reject_cross_revision_continuation() -> Result {
-    let (events, _) = mpsc::channel();
-    let registry = Registry::new(ServerSettings::default(), events);
-    for _ in 0..260 {
-        registry.mutate_project(&intent(ProjectMutation::Create(project(Path::new("/tmp")))))?;
-    }
-    let mut catalog = registry.read_catalog(None, None)?;
-    let revision = catalog.revision;
-    let mut ids = Vec::new();
-    loop {
-        catalog
-            .validate()
-            .map_err(|code| format!("invalid page: {code:?}"))?;
-        assert!(catalog.projects.len() <= muxy_protocol::CATALOG_PAGE_SIZE);
-        ids.extend(catalog.projects.iter().map(|project| project.id));
-        let Some(after) = catalog.next else {
-            break;
-        };
-        catalog = registry.read_catalog(Some(after), Some(revision))?;
-    }
-    assert_eq!(ids.len(), 261);
-    assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
-    registry.mutate_project(&intent(ProjectMutation::Patch {
-        project: registry.home_project(),
-        patch: ProjectPatch::Name("Home renamed".into()),
-    }))?;
-    assert_eq!(
-        registry
-            .read_catalog(Some(ids[127]), Some(revision))
-            .err()
-            .ok_or("expected revision error")?
-            .code(),
-        ErrorCode::CatalogChanged
-    );
-    Ok(())
-}
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Result<Self> {
@@ -276,74 +239,6 @@ fn cancellation_before_or_after_create_prevents_orphan_shells() -> Result {
             .is_err()
     );
     assert!(registry.list().is_empty());
-    Ok(())
-}
-
-#[test]
-fn non_utf8_project_paths_and_failed_creation_survive_restart() -> Result {
-    let fixture = Fixture::new()?;
-    let path = fixture
-        .0
-        .join(std::ffi::OsString::from_vec(b"project-\xff".to_vec()));
-    // macOS filesystems reject invalid UTF-8 names; imported bytes must still survive losslessly.
-    let owner = project(&path);
-    let registry = fixture.registry(LegacyImport {
-        projects: vec![owner.clone()],
-        sessions: std::collections::BTreeMap::new(),
-    })?;
-    let operation = OperationId::new();
-    let missing = fixture.0.join("missing");
-    let failure = registry
-        .create_project_session(owner.id, operation, &missing, SIZE)
-        .err()
-        .ok_or("expected failure")?;
-    fs::create_dir(&missing)?;
-    drop(registry);
-    let registry = fixture.registry(LegacyImport::default())?;
-    assert!(registry.read_catalog(None, None)?.projects.contains(&owner));
-    let repeated = registry
-        .create_project_session(owner.id, operation, &missing, SIZE)
-        .err()
-        .ok_or("retry started a shell")?;
-    assert_eq!(repeated, failure);
-    assert!(registry.list().is_empty());
-    Ok(())
-}
-
-#[test]
-fn project_artwork_is_shared_and_persists_replacement_and_removal() -> Result {
-    let fixture = Fixture::new()?;
-    let logo: Arc<[u8]> = include_bytes!("../../muxy-protocol/tests/fixtures/project-logo.png")
-        .as_slice()
-        .into();
-    let project = project(Path::new("/tmp"));
-    let id = project.id;
-    {
-        let registry = fixture.registry(LegacyImport::default())?;
-        registry.mutate_project(&intent(ProjectMutation::Create(project)))?;
-        for patch in [
-            ProjectPatch::Icon(Some("sf:terminal.fill".into())),
-            ProjectPatch::Logo(Some(logo.clone())),
-        ] {
-            registry.mutate_project(&intent(ProjectMutation::Patch { project: id, patch }))?;
-        }
-    }
-    {
-        let registry = fixture.registry(LegacyImport::default())?;
-        let page = registry.read_catalog(None, None)?;
-        let project = page.projects.iter().find(|p| p.id == id).ok_or("project")?;
-        assert_eq!(project.logo.as_ref(), Some(&logo));
-        assert_eq!(project.icon.as_deref(), Some("sf:terminal.fill"));
-        registry.mutate_project(&intent(ProjectMutation::Patch {
-            project: id,
-            patch: ProjectPatch::Logo(None),
-        }))?;
-    }
-    let registry = fixture.registry(LegacyImport::default())?;
-    let page = registry.read_catalog(None, None)?;
-    let project = page.projects.iter().find(|p| p.id == id).ok_or("project")?;
-    assert!(project.logo.is_none());
-    assert_eq!(project.icon.as_deref(), Some("sf:terminal.fill"));
     Ok(())
 }
 

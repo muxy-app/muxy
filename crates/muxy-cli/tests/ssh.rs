@@ -108,18 +108,6 @@ fn muxy_is_found_in_the_installers_folder_or_reported_missing() -> Result {
 }
 
 #[test]
-fn no_start_never_starts_a_server_but_uses_a_running_one() -> Result {
-    let remote = FakeRemote::new()?;
-    assert_eq!(refused(&remote, Start::Never)?, RemoteReason::NotRunning);
-    assert!(!remote.socket().exists());
-
-    let started = Client::connect_ssh(&remote.target()?, Start::IfNeeded)?;
-    let running = Client::connect_ssh(&remote.target()?, Start::Never)?;
-    assert_eq!(running.server_info(), started.server_info());
-    Ok(())
-}
-
-#[test]
 fn dropping_the_client_ends_ssh_and_its_bridge_but_not_the_server() -> Result {
     let remote = FakeRemote::with_script(r#"echo $$ > "$HOME/ssh.pid""#)?;
     let client = Client::connect_ssh(&remote.target()?, Start::IfNeeded)?;

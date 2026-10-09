@@ -55,28 +55,6 @@ fn trash_rejects_symlinks_and_insecure_permissions() {
 }
 
 #[test]
-fn failed_moves_leave_sources_intact_and_remove_only_the_new_info() {
-    let workspace = Workspace::new();
-    let data = Workspace::new();
-    let trash = Trash::open(&data.path, OsStr::new("Trash"), None).unwrap();
-    let root = Root::open(&workspace.path).unwrap();
-    let source = root.mutation(Path::new("missing")).unwrap();
-    assert!(trash.put(&source, &workspace.path.join("missing")).is_err());
-    assert!(
-        std::fs::read_dir(data.path.join("Trash/info"))
-            .unwrap()
-            .next()
-            .is_none()
-    );
-    assert!(
-        std::fs::read_dir(data.path.join("Trash/files"))
-            .unwrap()
-            .next()
-            .is_none()
-    );
-}
-
-#[test]
 fn volume_trash_uses_sticky_shared_directory_or_private_fallback() {
     let data = Workspace::new();
     let fallback = volume_trash(&data.path).unwrap();

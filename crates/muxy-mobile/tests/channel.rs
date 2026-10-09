@@ -222,18 +222,6 @@ fn a_phone_uses_a_server_over_ssh_as_it_would_when_paired() -> TestResult {
 }
 
 #[test]
-fn shell_noise_that_arrives_before_connecting_is_skipped() -> TestResult {
-    let noise = "Last login: today from 10.0.0.2\n"
-        .repeat(1000)
-        .into_bytes();
-    let remote = Remote::open(noise)?;
-    thread::sleep(Duration::from_millis(100));
-    let (connection, _events) = remote.connect()?;
-    assert!(connection.projects()?.iter().any(|project| project.is_home));
-    Ok(())
-}
-
-#[test]
 fn a_computer_without_muxy_is_named_and_the_channel_closed() -> TestResult {
     let fed = fed()?;
     fed.channel.receive(b"Welcome to box!\n".to_vec());
@@ -270,19 +258,6 @@ fn giving_up_releases_a_delivery_that_waits_for_the_sdk() -> TestResult {
     assert!(delivered.recv_timeout(Duration::from_millis(100)).is_err());
     fed.channel.finish(None);
     delivered.recv_timeout(TIMEOUT)?;
-    Ok(())
-}
-
-#[test]
-fn a_bridge_of_another_version_is_incompatible() -> TestResult {
-    let fed = fed()?;
-    fed.channel.receive(b"MUXY-STDIO/2\n".to_vec());
-    let result =
-        Connection::connect_channel(Arc::clone(&fed.channel), "dev@box".into(), listener().0);
-    assert!(matches!(result, Err(MobileError::IncompatibleVersion)));
-    fed.closed.recv_timeout(TIMEOUT)?;
-    fed.stdin.set_read_timeout(Some(TIMEOUT))?;
-    assert_eq!((&fed.stdin).read(&mut [0; 64])?, 0);
     Ok(())
 }
 

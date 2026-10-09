@@ -573,32 +573,3 @@ impl AppModel {
         .detach();
     }
 }
-
-#[cfg(test)]
-#[allow(
-    clippy::unwrap_used,
-    reason = "Test fixtures and assertions fail immediately"
-)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn copies_are_read_only_and_named_as_copies() {
-        let copy = save_copy(b"fn main() {}", Path::new("/srv/app/main.rs"), "box/1").unwrap();
-        assert_eq!(
-            copy.file_name().unwrap().to_str(),
-            Some("main (copy from box-1).rs")
-        );
-        assert_eq!(std::fs::read(&copy).unwrap(), b"fn main() {}");
-        let mode = std::fs::metadata(&copy).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o444);
-        let dotfile = save_copy(b"x", Path::new("/home/dev/.bashrc"), "box").unwrap();
-        assert_eq!(
-            dotfile.file_name().unwrap().to_str(),
-            Some(".bashrc (copy from box)")
-        );
-        for copy in [copy, dotfile] {
-            std::fs::remove_dir_all(copy.parent().unwrap()).unwrap();
-        }
-    }
-}

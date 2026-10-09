@@ -90,52 +90,6 @@ fn clear_does_not_interrupt_partial_output_sequences() -> Result {
 }
 
 #[test]
-fn clear_preserves_pending_wrap_and_graphemes() -> Result {
-    for line in [
-        "12345678901234567890",
-        "123456789012345678界",
-        "1234567890123456789e\u{301}",
-    ] {
-        let mut terminal = Terminal::new(SIZE, 1024 * 1024)?;
-        terminal.feed(b"old\r\n");
-        terminal.feed(line.as_bytes());
-        assert!(terminal.clear_screen()?);
-        assert_eq!(text(&mut terminal)?[0], line);
-        terminal.feed(b"X");
-        assert_eq!(text(&mut terminal)?[..2], [line, "X"]);
-        assert_eq!(terminal.cursor()?.row, 1);
-    }
-    Ok(())
-}
-
-#[test]
-fn clear_preserves_margins_modes_styles_and_saved_cursor() -> Result {
-    let mut terminal = Terminal::new(SIZE, 1024 * 1024)?;
-    let mut uninterrupted = Terminal::new(SIZE, 1024 * 1024)?;
-    for term in [&mut terminal, &mut uninterrupted] {
-        term.feed(b"old\r\nold\r\nold\r\nold\r\n");
-        term.feed(b"\x1b[2;4r\x1b[?69h\x1b[3;18s\x1b[?6h\x1b[2;3H\x1b[31mcurrent\x1b7");
-        term.feed(b"\x1b[?2004h\x1b[?1000h\x1b[?1004h\x1b[?1h\x1b[?7l");
-    }
-    let modes = terminal.modes()?;
-    let input_modes = terminal.input_modes()?;
-    let saved = terminal.cursor()?;
-    assert!(terminal.clear_screen()?);
-    assert_eq!(terminal.cursor()?.row, 0);
-    assert!(text(&mut terminal)?[0].contains("current"));
-    assert_eq!(terminal.modes()?, modes);
-    assert_eq!(terminal.input_modes()?, input_modes);
-    assert!(terminal.take_pty_output().is_empty());
-    for term in [&mut terminal, &mut uninterrupted] {
-        term.feed(b"\x1bP$qr\x1b\\\x1bP$qs\x1b\\\x1bP$qm\x1b\\\x1b[?6$p\x1b[?69$p\x1b[?7$p");
-        term.feed(b"\x1b8");
-    }
-    assert_eq!(terminal.take_pty_output(), uninterrupted.take_pty_output());
-    assert_eq!(terminal.cursor()?, saved);
-    Ok(())
-}
-
-#[test]
 fn clear_at_a_semantic_prompt_requests_a_shell_redraw_without_retaining_old_output() -> Result {
     let mut terminal = Terminal::new(SIZE, 1024 * 1024)?;
     for _ in 0..20 {

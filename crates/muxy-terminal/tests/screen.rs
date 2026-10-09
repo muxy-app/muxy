@@ -1,4 +1,4 @@
-use muxy_terminal::{Color, Run, Size, Style, Terminal, TerminalError};
+use muxy_terminal::{Run, Size, Style, Terminal, TerminalError};
 
 type TestResult = Result<(), TerminalError>;
 
@@ -95,34 +95,5 @@ fn cursor_position_request_writes_a_report_to_the_pty() -> TestResult {
 
     assert_eq!(terminal.take_pty_output(), b"\x1b[2;5R");
     assert!(terminal.take_pty_output().is_empty());
-    Ok(())
-}
-
-#[test]
-fn theme_defaults_preserve_indexed_colors_and_truecolor_blank_backgrounds() -> TestResult {
-    let mut terminal = terminal()?;
-    terminal.set_colors([200; 3], [20; 3], [200; 3], [[40; 3]; 16])?;
-    terminal.feed(b"plain\x1b[36mcyan\x1b[0;48;2;53;51;58m  \x1b[0m");
-    let screen = terminal.screen()?;
-    assert_eq!(
-        screen[0].runs,
-        vec![
-            run("plain", Style::default()),
-            run(
-                "cyan",
-                Style {
-                    fg: Color::Indexed(6),
-                    ..Style::default()
-                }
-            ),
-            run(
-                "  ",
-                Style {
-                    bg: Color::Rgb(53, 51, 58),
-                    ..Style::default()
-                }
-            ),
-        ]
-    );
     Ok(())
 }

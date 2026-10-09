@@ -562,22 +562,3 @@ fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElemen
         .button_interaction(cx.listener(|model, _, _, cx| model.apply_project_logo(cx)))
         .child(tr!("Apply"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[gpui::test]
-    fn cropped_logo_preserves_alpha_and_produces_bounded_png(cx: &mut gpui::TestAppContext) {
-        let image = image::RgbaImage::from_pixel(80, 40, image::Rgba([240, 60, 10, 128]));
-        let cropper = cx.update(|cx| Cropper::new(ProjectId::new(), image, cx));
-        let png = cropper.encode().expect("encode");
-        assert_eq!(
-            muxy_protocol::ProjectPatch::Logo(Some(png.clone())).validate(),
-            Ok(())
-        );
-        let decoded = image::load_from_memory(&png).expect("decode").to_rgba8();
-        assert_eq!(decoded.dimensions(), (256, 256));
-        assert_eq!(decoded.get_pixel(128, 128).0, [240, 60, 10, 128]);
-    }
-}

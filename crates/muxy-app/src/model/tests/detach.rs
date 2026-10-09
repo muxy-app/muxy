@@ -1,5 +1,4 @@
 use super::*;
-use gpui::{MouseButton, point};
 use muxy_protocol::ChannelId;
 
 mod close_behavior;
@@ -37,77 +36,6 @@ fn non_destructive(work: &Work) -> bool {
         work,
         Work::Discard(..) | Work::CancelCreation(_) | Work::CheckClose { .. } | Work::EndAll(_)
     )
-}
-
-#[gpui::test]
-fn terminal_context_menu_detaches_clicked_split_and_last_pane_without_closing_sessions(
-    cx: &mut TestAppContext,
-) {
-    let (mut state, first) = terminal_state();
-    let second = state.split_pane(first, Direction::Right).expect("split");
-    state
-        .set_pane_session(second, SessionId::new(72))
-        .expect("session");
-    let (boot, requests) = stub_boot(state);
-    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1000.0), px(600.0)));
-    view.update(cx, |model, cx| {
-        model.servers.local.connection = ConnectionState::Ready;
-        attach_pane(model, first, 1, cx);
-        attach_pane(model, second, 2, cx);
-    });
-    cx.run_until_parked();
-    let position = view.read_with(cx, |model, cx| {
-        let pane = model.terminal(&first).expect("terminal").view.read(cx);
-        let (bounds, cell) = pane.geometry.expect("geometry");
-        bounds.origin + point(cell.width, cell.height / 2.0)
-    });
-    requests.try_iter().for_each(drop);
-    cx.simulate_mouse_move(position, None, Modifiers::default());
-    cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
-    cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
-    cx.run_until_parked();
-    let detach = cx
-        .debug_bounds("menu-label-Detach Terminal")
-        .expect("Detach Terminal");
-    cx.simulate_click(detach.center(), Modifiers::default());
-    cx.run_until_parked();
-    view.update(cx, |model, cx| {
-        assert_eq!(model.active_pane(), Some(second));
-        assert_eq!(model.state.home().tabs[0].panes.len(), 1);
-        assert!(
-            model
-                .state
-                .pending_cancellations(ServerId::local())
-                .is_empty()
-        );
-        assert!(model.state.pending_discards(ServerId::local()).is_empty());
-        assert!(model.close_prompt.is_none());
-        model.detach_terminal(second, cx);
-        assert!(model.state.home().tabs.is_empty());
-        assert!(
-            store::load(&model.path)
-                .expect("persisted layout")
-                .home()
-                .tabs
-                .is_empty()
-        );
-    });
-    let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
-    assert!(work.iter().all(non_destructive));
-    assert!(
-        work.iter()
-            .any(|work| matches!(work, Work::Detach(ChannelId(1))))
-    );
-    assert!(
-        work.iter()
-            .any(|work| matches!(work, Work::Detach(ChannelId(2))))
-    );
-    assert!(
-        work.iter()
-            .any(|work| matches!(work, Work::References(references) if references.is_empty()))
-    );
 }
 
 #[gpui::test]

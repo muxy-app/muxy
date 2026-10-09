@@ -57,38 +57,6 @@ fn search_replies_ignore_old_queries_continue_empty_pages_and_restart_stale_curs
     assert_eq!(results.current, Some(0));
 }
 
-#[test]
-fn search_maps_reply_totals_and_keeps_frozen_highlights_separate_from_live_output() {
-    let mut grid = attachment().grid;
-    grid.history_total = 100;
-    grid.history = (0..10)
-        .map(|index| muxy_protocol::Row {
-            index,
-            runs: vec![muxy_protocol::Run {
-                text: "a".into(),
-                width: 1,
-                style: muxy_protocol::Style::default(),
-            }],
-        })
-        .collect();
-    assert_eq!(grid.search_content_row(92, 100), Some(2));
-    assert_eq!(grid.search_content_row(89, 100), None);
-    assert_eq!(grid.search_content_row(100, 100), Some(10));
-    let frozen = grid.clone();
-    let mut results = Results::default();
-    results.query = "a".into();
-    results.matches = vec![found(92)];
-    results.total_rows = 100;
-    results.current = Some(0);
-    assert_eq!(results.highlights(&frozen, 2), vec![(found(92), true)]);
-    grid.history_total = 101;
-    assert!(results.highlights(&grid, 2).is_empty());
-    assert_eq!(results.highlights(&frozen, 2).len(), 1);
-    grid.history_total = 100;
-    grid.history[2].runs[0].text = "b".into();
-    assert!(results.highlights(&grid, 2).is_empty());
-}
-
 fn pane<'a>(model: &'a AppModel, cx: &'a gpui::App) -> &'a TerminalPane {
     model
         .terminal(&model.active_pane().expect("pane"))

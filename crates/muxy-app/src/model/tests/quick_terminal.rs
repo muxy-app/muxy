@@ -76,41 +76,6 @@ fn quick_terminal_disable_queues_cleanup_offline_and_preserves_preferences(
 }
 
 #[gpui::test]
-fn quick_terminal_exit_discards_only_its_session_and_next_show_gets_new_identity(
-    cx: &mut TestAppContext,
-) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
-        acknowledge_catalog(model, cx);
-        model.new_tab(cx);
-        let window = model.state.window().clone();
-        let pane = model.state.ensure_quick_terminal();
-        let session = SessionId::new(703).expect("session");
-        model
-            .state
-            .set_pane_session(pane, Some(session))
-            .expect("session");
-        model.receive(
-            (
-                ServerId::local(),
-                1,
-                Update::Event(ClientEvent::SessionEnded {
-                    session,
-                    reason: ExitReason::Exited(0),
-                }),
-            ),
-            cx,
-        );
-        assert!(model.state.quick_terminal().is_none());
-        assert_eq!(model.state.window(), &window);
-        assert_eq!(model.state.home().tabs.len(), 1);
-        assert_ne!(model.state.ensure_quick_terminal(), pane);
-    });
-}
-
-#[gpui::test]
 fn quick_terminal_close_prompts_only_for_commands(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));

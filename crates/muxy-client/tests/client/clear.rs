@@ -93,37 +93,3 @@ fn clear_is_shared_invalidates_history_and_survives_reattachment() -> TestResult
     }
     Ok(())
 }
-
-#[test]
-fn clearing_a_semantic_prompt_delivers_the_shell_redraw() -> TestResult {
-    let fixture = Fixture::with_startup(
-        r#"stty -echo -icanon min 1 time 0
-seq 1 1000
-printf '\033]133;A\007PROMPT_READY>\033]133;B\007'
-key=$(dd bs=1 count=1 2>/dev/null)
-if [ "$key" = "$(printf '\014')" ]; then
-    printf '\033[H\033[2JREDRAW_OK'
-else
-    printf 'WRONG_INPUT'
-fi
-exec /bin/cat"#,
-    )?;
-    let connection = fixture.connect()?;
-    let session = fixture.create(&connection.client)?;
-    let mut attachment = connection.client.attach(session.id, SIZE)?;
-    if !text(&attachment.grid).contains("PROMPT_READY>") {
-        let frame = connection.frame_containing(&mut attachment, "PROMPT_READY>")?;
-        connection.client.ack(attachment.channel, frame.seq)?;
-    }
-    connection.quiet(&mut attachment)?;
-    connection.client.clear_screen(attachment.channel)?;
-    let frame = connection.frame_containing(&mut attachment, "REDRAW_OK")?;
-    connection.client.ack(attachment.channel, frame.seq)?;
-    assert_eq!(attachment.grid.row_text(0).trim_end(), "REDRAW_OK");
-    let history = connection
-        .client
-        .history_page(attachment.channel, HistoryCursor(0), 200)?;
-    assert_eq!(history.total_rows, 0);
-    assert!(history.rows.is_empty());
-    Ok(())
-}

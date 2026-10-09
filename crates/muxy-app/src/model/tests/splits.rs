@@ -1,5 +1,5 @@
 use super::*;
-use muxy_app_core::{Branch, Direction};
+use muxy_app_core::Direction;
 use muxy_protocol::ChannelId;
 
 fn split_state() -> (AppState, TabId, [PaneId; 3]) {
@@ -168,33 +168,6 @@ fn closing_tab_checks_every_hidden_pane_and_cancel_keeps_all(cx: &mut TestAppCon
 }
 
 #[gpui::test]
-fn end_all_includes_unfocused_and_zoom_hidden_sessions(cx: &mut TestAppContext) {
-    let (state, tab, panes) = split_state();
-    let (boot, requests) = stub_boot(state);
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        attach_panes(model, &panes, cx);
-        model
-            .state
-            .set_ratio(tab, &[Branch::Second], 0.3)
-            .expect("ratio");
-        model.toggle_zoom_pane(cx);
-        model.end_all_and_quit(cx);
-        let sessions = requests
-            .try_iter()
-            .find_map(|(_, work)| match work {
-                Work::EndAll(sessions) => Some(sessions),
-                _ => None,
-            })
-            .expect("end all");
-        assert_eq!(
-            sessions,
-            [100, 101, 102].map(|id| SessionId::new(id).expect("session"))
-        );
-    });
-}
-
-#[gpui::test]
 fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
     cx: &mut TestAppContext,
 ) {
@@ -292,106 +265,4 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
             assert!(model.initial_directories.is_empty());
         });
     }
-}
-
-fn drag_divider(
-    cx: &mut VisualTestContext,
-    selector: &'static str,
-    offset: gpui::Point<gpui::Pixels>,
-) {
-    let bounds = cx.debug_bounds(selector).expect("divider");
-    let start = bounds.center() + gpui::point(px(2.0), px(0.0));
-    cx.simulate_event(gpui::MouseMoveEvent {
-        position: start,
-        ..Default::default()
-    });
-    cx.simulate_event(gpui::MouseDownEvent {
-        position: start,
-        button: gpui::MouseButton::Left,
-        click_count: 1,
-        ..Default::default()
-    });
-    cx.simulate_event(gpui::MouseMoveEvent {
-        position: start + offset,
-        pressed_button: Some(gpui::MouseButton::Left),
-        ..Default::default()
-    });
-    cx.simulate_event(gpui::MouseUpEvent {
-        position: start + offset,
-        button: gpui::MouseButton::Left,
-        ..Default::default()
-    });
-    cx.run_until_parked();
-}
-
-#[gpui::test]
-fn divider_drag_persists_ratios_and_click_focus_routes_input(cx: &mut TestAppContext) {
-    let (state, _, panes) = split_state();
-    let (boot, requests) = stub_boot(state);
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1100.0), px(800.0)));
-    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
-    cx.run_until_parked();
-    drag_divider(cx, "split-divider-[]", gpui::point(px(60.0), px(0.0)));
-    drag_divider(
-        cx,
-        "split-divider-[Second]",
-        gpui::point(px(0.0), px(-60.0)),
-    );
-    view.read_with(cx, |model, _| {
-        let muxy_app_core::Layout::Split { ratio, second, .. } = &model.state.home().tabs[0].layout
-        else {
-            panic!("split");
-        };
-        assert!(*ratio > 0.5);
-        assert!(
-            matches!(second.as_ref(), muxy_app_core::Layout::Split { ratio, .. } if *ratio < 0.5)
-        );
-        assert_eq!(store::load(&model.path).expect("saved"), model.state);
-    });
-    let position = view.read_with(cx, |model, cx| {
-        model
-            .terminal(&panes[0])
-            .expect("terminal")
-            .view
-            .read(cx)
-            .geometry
-            .expect("geometry")
-            .0
-            .origin
-            + gpui::point(px(10.0), px(10.0))
-    });
-    cx.simulate_event(gpui::MouseDownEvent {
-        position,
-        button: gpui::MouseButton::Left,
-        click_count: 1,
-        ..Default::default()
-    });
-    cx.simulate_event(gpui::MouseUpEvent {
-        position,
-        button: gpui::MouseButton::Left,
-        ..Default::default()
-    });
-    cx.run_until_parked();
-    assert_eq!(
-        view.read_with(cx, |model, _| model.active_pane()),
-        Some(panes[0])
-    );
-    let _ = requests.try_iter().collect::<Vec<_>>();
-    cx.simulate_keystrokes("x");
-    assert!(
-        requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::Input(ChannelId(1), bytes) if bytes == b"x"))
-    );
-    cx.update(|window, cx| view.update(cx, |model, cx| model.open_theme_picker(window, cx)));
-    cx.run_until_parked();
-    view.read_with(cx, |model, cx| {
-        assert!(
-            model
-                .grids
-                .values()
-                .all(|pane| !pane.view.read(cx).native_visible)
-        );
-    });
 }

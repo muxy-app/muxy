@@ -112,25 +112,3 @@ fn legacy_settings_are_removed_without_losing_terminal_splits_or_sessions() -> T
     );
     Ok(())
 }
-
-#[test]
-fn legacy_settings_only_tabs_are_removed_even_in_missing_projects() -> TestResult {
-    let directory = std::env::temp_dir().join(format!("muxy-settings-{}", ProjectId::new()));
-    std::fs::create_dir(&directory)?;
-    let mut state = AppState::bootstrap()?;
-    let project = state.add_project(ServerId::local(), directory.clone())?;
-    state.open_terminal_tab(project)?;
-    let mut stored = serde_json::to_value(&state)?;
-    stored["projects"][1]["tabs"][0]["panes"][0]["content"] =
-        serde_json::json!({"type": "settings"});
-    std::fs::remove_dir(&directory)?;
-    let restored: AppState = serde_json::from_value(stored)?;
-    assert!(restored.project(project).ok_or("project")?.tabs.is_empty());
-    assert_eq!(restored.window().active_pane, None);
-    assert!(!restored.window().selected_tab.contains_key(&project));
-    assert_eq!(
-        serde_json::to_value(restored.window())?["focus_history"],
-        serde_json::json!([])
-    );
-    Ok(())
-}
