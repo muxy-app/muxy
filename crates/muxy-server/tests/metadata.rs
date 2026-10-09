@@ -56,7 +56,7 @@ impl Fixture {
             id: AttachmentId(u64::from(id)),
             channel: ChannelId(id),
             size: SIZE,
-            sink,
+            sink: sink.into(),
         })?;
         match events.recv_timeout(TIMEOUT)? {
             AttachmentEvent::Snapshot { snapshot, process } => Ok((events, snapshot, process)),

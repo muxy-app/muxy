@@ -1,7 +1,7 @@
 use super::*;
 use std::error::Error;
 use std::sync::mpsc::Receiver;
-use std::thread::JoinHandle;
+use std::thread::{self, JoinHandle};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
