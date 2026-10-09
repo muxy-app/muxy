@@ -7,7 +7,7 @@ use muxy_client::{Client, ClientError};
 use muxy_ui::tr;
 
 pub(crate) fn ensure_server_running(socket: &Path) -> Result<Client, ClientError> {
-    muxy_client::local::ensure_running(socket, &server_executable()?)
+    muxy_client::local::ensure_running_hosted(socket, &server_executable()?)
 }
 
 pub(crate) fn reconnect_after_update(

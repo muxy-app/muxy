@@ -20,3 +20,6 @@ muxy-protocol = { path = "../muxy-protocol" }
 [dev-dependencies]
 muxy-server = { path = "../muxy-server" }
 tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"

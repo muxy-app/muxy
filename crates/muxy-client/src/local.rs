@@ -1,7 +1,14 @@
 pub mod bundle;
+#[cfg(target_os = "macos")]
+#[allow(
+    unsafe_code,
+    reason = "posix_spawn with a disclaimed responsible process"
+)]
+pub mod host;
 
 use crate::{Client, ClientError};
 use muxy_protocol::transport::ByteStream;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io;
 use std::os::unix::process::CommandExt;
@@ -24,7 +31,19 @@ pub fn server_executable() -> io::Result<PathBuf> {
 }
 
 pub fn ensure_running(socket: &Path, executable: &Path) -> Result<Client, ClientError> {
-    start_and_connect(socket, executable, Client::connect_with_timeout)
+    start_and_connect(socket, executable, spawn, Client::connect_with_timeout)
+}
+
+/// Like [`ensure_running`], but a packaged app starts the server through a
+/// `host`, so terminals keep the app's macOS privacy permissions after the
+/// app quits. Only for the app, whose `main` runs the host.
+pub fn ensure_running_hosted(socket: &Path, executable: &Path) -> Result<Client, ClientError> {
+    start_and_connect(
+        socket,
+        executable,
+        spawn_hosted,
+        Client::connect_with_timeout,
+    )
 }
 
 /// Like [`ensure_running`], but returns the socket without a handshake, so a
@@ -33,7 +52,7 @@ pub fn ensure_listening(
     socket: &Path,
     executable: &Path,
 ) -> Result<Box<dyn ByteStream>, ClientError> {
-    start_and_connect(socket, executable, |socket, _| {
+    start_and_connect(socket, executable, spawn, |socket, _| {
         Ok(muxy_protocol::transport::connect(socket)?)
     })
 }
@@ -42,6 +61,7 @@ pub fn ensure_listening(
 fn start_and_connect<T>(
     socket: &Path,
     executable: &Path,
+    launch: fn(&Path, &[OsString]) -> io::Result<()>,
     connect: impl Fn(&Path, Duration) -> Result<T, ClientError>,
 ) -> Result<T, ClientError> {
     let _startup = wait_for_startup_lock(socket)?;
@@ -51,29 +71,12 @@ fn start_and_connect<T>(
         Err(error) if unavailable(&error) => {}
         Err(error) => return Err(error),
     }
-    let mut child = Command::new(executable)
-        .arg("--socket")
-        .arg(socket)
-        .arg("--settings")
-        .arg(socket.with_file_name("server.toml"))
-        .arg("--log")
-        .arg(socket.with_file_name("server.log"))
-        .process_group(0)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!("could not launch server {}: {error}", executable.display()),
-            )
-        })?;
-    thread::Builder::new()
-        .name("muxy-server-wait".into())
-        .spawn(move || {
-            let _ = child.wait();
-        })?;
+    launch(executable, &server_arguments(socket)).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("could not launch server {}: {error}", executable.display()),
+        )
+    })?;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -90,6 +93,44 @@ fn start_and_connect<T>(
                 .min(Duration::from_millis(25)),
         );
     }
+}
+
+fn server_arguments(socket: &Path) -> [OsString; 6] {
+    [
+        "--socket".into(),
+        socket.into(),
+        "--settings".into(),
+        socket.with_file_name("server.toml").into(),
+        "--log".into(),
+        socket.with_file_name("server.log").into(),
+    ]
+}
+
+fn spawn(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
+    let mut child = Command::new(executable)
+        .args(arguments)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    thread::Builder::new()
+        .name("muxy-server-wait".into())
+        .spawn(move || {
+            let _ = child.wait();
+        })?;
+    Ok(())
+}
+
+fn spawn_hosted(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(app) = host::app_for(executable)? {
+        // The host can't report a server that fails to start, so a missing
+        // one fails here, as it would when started directly.
+        std::fs::metadata(executable)?;
+        return host::spawn(&app, arguments);
+    }
+    spawn(executable, arguments)
 }
 
 pub fn unavailable(error: &ClientError) -> bool {
