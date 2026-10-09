@@ -5,14 +5,16 @@ use std::path::Path;
 use muxy_app_core::backup::Result;
 use muxy_ui::tr;
 
-use super::{PENDING, PreparedImport, ROOTS, archive, validate_effective};
+use super::{PENDING, PreparedImport, ROOTS, Restore, archive, extensions, validate_effective};
 
 pub(crate) fn stage(profile: &Path, import: &PreparedImport) -> Result<()> {
-    validate_effective(profile, &import.files, import.complete)?;
-    archive::write(&profile.join(PENDING), &import.files, import.complete)
+    validate_effective(profile, &import.files, import.restore)?;
+    extensions::stage(profile, &import.extensions)?;
+    archive::write(&profile.join(PENDING), &import.files, import.restore)
 }
 
 pub(crate) fn cancel_pending(profile: &Path) -> Result<()> {
+    extensions::cancel(profile)?;
     match fs::remove_file(profile.join(PENDING)) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -40,17 +42,21 @@ pub(crate) fn apply_pending(profile: &Path) -> Result<Option<String>> {
 }
 
 fn restore(profile: &Path, pending: &Path) -> Result<()> {
-    let (mut files, legacy, complete) = archive::read(pending)?;
+    let (mut files, legacy, restore) = archive::read(pending)?;
     if legacy {
         return Err(tr!("Pending import must use the current backup format")
             .to_string()
             .into());
     }
-    validate_effective(profile, &files, complete)?;
+    validate_effective(profile, &files, restore)?;
     if let Some(bytes) = files.get("desktop-state.json") {
         let imported: muxy_app_core::AppState = serde_json::from_slice(bytes)?;
         let current = muxy_app_core::store::load(profile.join("desktop-state.json"))?;
-        let restored = imported.restore_configuration(&current)?;
+        let restored = if restore == Restore::Merge {
+            imported.merge_configuration(&current)?
+        } else {
+            imported.restore_configuration(&current)?
+        };
         let settings = muxy_app_core::backup::remap_settings(
             std::str::from_utf8(&files["settings.toml"])?,
             &imported,
@@ -62,12 +68,13 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
             serde_json::to_vec_pretty(&restored)?,
         );
     }
+    extensions::install(profile)?;
     let staging = tempfile::tempdir_in(profile)?;
     archive::materialize(staging.path(), &files)?;
     let roots: Vec<_> = ROOTS
         .iter()
         .copied()
-        .filter(|root| complete || staging.path().join(root).exists())
+        .filter(|root| restore == Restore::Complete || staging.path().join(root).exists())
         .collect();
     let original = archive::collect(profile, &roots)?;
     let backups = profile.join("Backups");
@@ -93,7 +100,12 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
             serde_json::to_vec_pretty(&super::mobile::current(profile)?)?,
         );
     }
-    archive::write(&recovery.join("recovery.muxy"), &portable, complete)?;
+    let recovery_restore = if restore == Restore::Complete {
+        Restore::Complete
+    } else {
+        Restore::Partial
+    };
+    archive::write(&recovery.join("recovery.muxy"), &portable, recovery_restore)?;
     fs::write(recovery.join("roots.json"), serde_json::to_vec(&roots)?)?;
     let marker = profile.join("restore-in-progress.json");
     let mut journal = tempfile::NamedTempFile::new_in(profile)?;

@@ -40,9 +40,9 @@ fn backup_round_trip_is_portable_and_restore_waits_for_restart() {
     .unwrap();
     let archive = source.path().join("test.muxy");
     export(source.path(), &archive, &state).unwrap();
-    let (files, legacy, complete) = archive::read(&archive).unwrap();
+    let (files, legacy, restore) = archive::read(&archive).unwrap();
     assert!(!legacy);
-    assert!(complete);
+    assert_eq!(restore, Restore::Complete);
     assert!(!files.contains_key("identity.pem"));
     let saved: AppState = serde_json::from_slice(&files["desktop-state.json"]).unwrap();
     assert!(saved.project_intents(ServerId::local()).is_empty());
@@ -100,7 +100,7 @@ fn invalid_archive_and_cancel_leave_current_configuration_untouched() {
         "settings.toml".into(),
         b"[window]\ndefault_size = [0, 0]".to_vec(),
     );
-    archive::write(&archive, &files, true).unwrap();
+    archive::write(&archive, &files, Restore::Complete).unwrap();
     let before = fs::read(directory.path().join("settings.toml")).unwrap();
     assert!(prepare(directory.path(), &archive).is_err());
     assert_eq!(
@@ -130,7 +130,7 @@ fn native_one_x_archive_and_manual_json_use_the_same_conversion() {
     let archive = directory.path().join("legacy.muxy");
     legacy_archive(&archive, "");
     let import = prepare(directory.path(), &archive).unwrap();
-    assert!(import.summary.contains("Skipped 1"));
+    assert!(import.summary.contains("Not available in Muxy 2 (1)"));
     stage(directory.path(), &import).unwrap();
     apply_pending(directory.path()).unwrap();
     let settings = Settings::load(&directory.path().join("settings.toml")).unwrap();
@@ -216,7 +216,7 @@ fn ghostty_includes_are_resolved_and_untrusted_imports_cannot_read_external_file
     assert!(!source.contains("config-file"));
     assert!(source.contains("font-size = 21"));
     files.insert("ghostty.conf".into(), b"config-file = /etc/passwd".to_vec());
-    archive::write(&archive, &files, true).unwrap();
+    archive::write(&archive, &files, Restore::Complete).unwrap();
     assert!(prepare(directory.path(), &archive).is_err());
 }
 
@@ -401,4 +401,86 @@ fn mobile_preferences_exclude_credentials_and_apply_through_the_server() {
     );
     assert!(!target.path().join(mobile::FILE).exists());
     assert_eq!(fs::read(target.path().join("remote.json")).unwrap(), raw);
+}
+
+#[test]
+fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge() {
+    let directory = profile();
+    let legacy = tempfile::tempdir().unwrap();
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let first_id = "01000000-0000-0000-0000-000000000001";
+    let second_id = "01000000-0000-0000-0000-000000000002";
+    let extensions = tempfile::tempdir().unwrap();
+    for (folder, name) in [("reader", "reader"), ("renamed", "other")] {
+        fs::create_dir(extensions.path().join(folder)).unwrap();
+        fs::write(
+            extensions.path().join(folder).join("package.json"),
+            serde_json::json!({"name":name,"version":"1.0.0","muxy":{}}).to_string(),
+        )
+        .unwrap();
+    }
+    let enabled = |name: &str| name == "reader";
+    let legacy_extensions = Some((extensions.path(), &enabled as &dyn Fn(&str) -> bool));
+    let projects = |projects: serde_json::Value| {
+        fs::write(
+            legacy.path().join("projects.json"),
+            serde_json::to_vec(&projects).unwrap(),
+        )
+        .unwrap();
+    };
+    projects(serde_json::json!([
+        {"id":first_id,"name":"First","path":first.path(),"sortOrder":0},
+        {"id":second_id,"name":"Unmounted","path":"/missing-muxy-project","sortOrder":1}
+    ]));
+    let notice = migrate_into_new_profile(directory.path(), legacy.path(), legacy_extensions)
+        .unwrap()
+        .unwrap();
+    assert!(notice.contains("Unmounted") && notice.contains("renamed"));
+    assert!(apply_pending(directory.path()).unwrap().is_none());
+    let installed = directory.path().join("extensions/reader");
+    assert!(installed.join("package.json").exists());
+    assert!(!directory.path().join("pending-extensions").exists());
+    let enabled: Vec<String> =
+        serde_json::from_slice(&fs::read(directory.path().join("extension-enabled.json")).unwrap())
+            .unwrap();
+    assert_eq!(enabled, ["reader"]);
+    fs::write(installed.join("settings-made-in-2.json"), "{}").unwrap();
+    let path = directory.path().join("desktop-state.json");
+    let mut state = muxy_app_core::store::load(&path).unwrap();
+    let first_id = first_id.parse().unwrap();
+    state.rename_project(first_id, "Renamed").unwrap();
+    state.open_terminal_tab(first_id).unwrap();
+    muxy_app_core::store::save(&path, &state).unwrap();
+    assert!(
+        migrate_into_new_profile(directory.path(), legacy.path(), legacy_extensions)
+            .unwrap()
+            .is_none()
+    );
+    assert!(!directory.path().join(PENDING).exists());
+    projects(serde_json::json!([
+        {"id":first_id,"name":"First","path":first.path(),"sortOrder":0},
+        {"id":second_id,"name":"Second","path":second.path(),"sortOrder":1}
+    ]));
+    fs::create_dir(extensions.path().join("other")).unwrap();
+    fs::write(
+        extensions.path().join("other/package.json"),
+        serde_json::json!({"name":"other","version":"1.0.0","muxy":{}}).to_string(),
+    )
+    .unwrap();
+    let import = prepare_from(directory.path(), legacy.path(), legacy_extensions).unwrap();
+    stage(directory.path(), &import).unwrap();
+    cancel_pending(directory.path()).unwrap();
+    assert!(!directory.path().join("pending-extensions").exists());
+    stage(directory.path(), &import).unwrap();
+    assert!(apply_pending(directory.path()).unwrap().is_none());
+    assert!(installed.join("settings-made-in-2.json").exists());
+    assert!(directory.path().join("extensions/other").exists());
+    let merged = muxy_app_core::store::load(&path).unwrap();
+    assert_eq!(merged.project(first_id).unwrap().name, "Renamed");
+    assert_eq!(
+        merged.project(first_id).unwrap().tabs,
+        state.project(first_id).unwrap().tabs
+    );
+    assert!(merged.project(second_id.parse().unwrap()).is_some());
 }

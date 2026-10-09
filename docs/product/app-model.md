@@ -116,6 +116,9 @@ stop.
   saved layouts. Server settings take effect after restarting the server.
 - Import supported 1.x settings and local projects from the installed app, a
   `.muxy` backup, or `settings.json`. Unsupported options are listed before import.
+  A 1.x import adds to what is already there: existing projects, tabs, and
+  workspaces are kept. On first launch, a new profile imports the installed 1.x
+  automatically, including its extensions.
   Config files open in the system editor. Backups exclude live terminal sessions,
   paired-device credentials, extension packages, and project files. They keep
   the list of remote servers but not remote projects, which come back from

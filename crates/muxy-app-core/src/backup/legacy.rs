@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use super::{ImportReport, Result, settings_source};
+use super::{ImportReport, Result, ServerSettings, settings_source};
 use crate::settings::{CustomCommand, KeyChord, Keymap, Settings};
 
 const MAPPINGS: &[(&str, &[&str])] = &[
@@ -226,7 +227,7 @@ fn import_bindings(
             settings.keymap = keymap;
             report.imported += imported.len();
         }
-        Err(_) => report.skipped.extend(
+        Err(_) => report.attention.extend(
             imported
                 .into_iter()
                 .map(|id| format!("shortcuts.app.{id} (conflicting shortcut)")),
@@ -282,7 +283,7 @@ fn import_commands(
                 *settings = candidate;
                 report.imported += 1;
             }
-            Err(_) => report.skipped.push(format!(
+            Err(_) => report.attention.push(format!(
                 "command {}",
                 value["name"].as_str().unwrap_or("unknown")
             )),
@@ -290,7 +291,7 @@ fn import_commands(
     }
     if prefix && !commands.is_empty() {
         report
-            .skipped
+            .attention
             .push("Custom command prefix shortcuts (commands imported without shortcuts)".into());
     }
     Ok(())
@@ -331,4 +332,47 @@ pub fn merge_legacy_files(
         );
     }
     Ok(serde_json::to_vec(&values)?)
+}
+
+/// 1.x terminals ran `command` from `ghostty.conf`; 2.x runs the server's
+/// default shell. A shell already chosen for this server wins. Returns the
+/// new `server.toml` when the shell changes.
+pub fn import_shell(
+    ghostty: &str,
+    server: Option<&str>,
+    report: &mut ImportReport,
+) -> Result<Option<String>> {
+    let Some(command) = ghostty
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .filter(|(key, _)| key.trim() == "command")
+        .map(|(_, value)| value.trim())
+        .next_back()
+    else {
+        return Ok(None);
+    };
+    let shell = command
+        .trim_matches('"')
+        .trim_start_matches("direct:")
+        .trim_start_matches("shell:");
+    if !is_executable(Path::new(shell)) {
+        report.attention.push(format!(
+            "Shell command {command} (choose Default shell in Settings → Server)"
+        ));
+        return Ok(None);
+    }
+    let mut settings: ServerSettings = server.map(toml::from_str).transpose()?.unwrap_or_default();
+    if settings.default_shell.is_some() {
+        return Ok(None);
+    }
+    settings.default_shell = Some(shell.into());
+    report.imported += 1;
+    Ok(Some(toml::to_string_pretty(&settings)?))
+}
+
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.is_absolute()
+        && std::fs::metadata(path)
+            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }

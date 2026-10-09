@@ -431,7 +431,7 @@ impl AppModel {
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
         let (theme, palette) = themes.resolve(&boot.settings.appearance, dark);
         let palette = palette.with_options(&boot.terminal.options);
-        let configuration_error = boot.import_error;
+        let configuration_error = boot.import_message;
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         cx.on_release(|model: &mut Self, cx| {
             for (_, (_, image)) in model.project_logos.drain() {
@@ -2667,7 +2667,7 @@ mod tests {
         };
         (
             Boot {
-                import_error: None,
+                import_message: None,
                 composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),
