@@ -25,7 +25,7 @@ pub(crate) type Updates = async_channel::Receiver<(ServerId, u64, Update)>;
 
 #[derive(Debug)]
 pub(crate) struct Boot {
-    pub(crate) import_error: Option<String>,
+    pub(crate) import_message: Option<String>,
     pub(crate) composer: muxy_app_core::composer::ComposerStore,
     pub(crate) state: AppState,
     pub(crate) state_path: PathBuf,
@@ -45,8 +45,17 @@ impl Boot {
                 .parent()
                 .unwrap_or_else(|| std::path::Path::new(".")),
         );
-        let import_error =
-            crate::backup::apply_pending(state_path.parent().ok_or("Missing profile directory")?)?;
+        let profile = state_path.parent().ok_or("Missing profile directory")?;
+        let migration = crate::backup::migrate_installed(profile).unwrap_or_else(|error| {
+            Some(
+                tr!(
+                    "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@",
+                    error.to_string()
+                )
+                .to_string(),
+            )
+        });
+        let import_message = crate::backup::apply_pending(profile)?.or(migration);
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -62,7 +71,7 @@ impl Boot {
         )?;
         work.send((1, Work::Connect))?;
         Ok(Self {
-            import_error,
+            import_message,
             composer: muxy_app_core::composer::ComposerStore::load_from(
                 state_path
                     .parent()

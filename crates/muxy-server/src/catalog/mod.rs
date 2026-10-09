@@ -80,18 +80,8 @@ pub(crate) struct Catalog {
 
 impl State {
     fn fresh(home: &Path) -> Self {
-        let id = ProjectId::new();
-        let project = ProjectDescriptor {
-            id,
-            home: true,
-            directory: ServerPath(home.as_os_str().as_bytes().into()),
-            name: "Home".into(),
-            icon: None,
-            logo: None,
-            color: "#808080".into(),
-            kind: None,
-            parent_id: None,
-        };
+        let project = ProjectDescriptor::home(ServerPath(home.as_os_str().as_bytes().into()));
+        let id = project.id;
         Self {
             git: BTreeMap::new(),
             version: 1,

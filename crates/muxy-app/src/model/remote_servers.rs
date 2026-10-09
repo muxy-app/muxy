@@ -26,6 +26,33 @@ pub(crate) struct RemoteServer {
     pub(crate) install: Option<Install>,
 }
 
+/// What waits for a remote server to be ready, if that happens soon after the
+/// user asked.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PendingRemote {
+    pub(crate) server: ServerId,
+    pub(crate) intent: RemoteIntent,
+    pub(crate) asked: std::time::Instant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RemoteIntent {
+    /// Add Project opens its folder picker.
+    AddProject,
+    /// A terminal tab opens in its Home.
+    HomeTab,
+}
+
+impl PendingRemote {
+    pub(crate) fn new(server: ServerId, intent: RemoteIntent) -> Self {
+        Self {
+            server,
+            intent,
+            asked: std::time::Instant::now(),
+        }
+    }
+}
+
 /// Installing Muxy on a remote server.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Install {
@@ -285,9 +312,13 @@ impl AppModel {
             .into_iter()
             .filter(|server| !server.is_local() && self.settings.server(*server).is_none())
             .collect();
+        let hidden = !unlisted.is_empty();
         for server in unlisted {
             self.disconnect(server, cx);
             self.servers.remove(server);
+        }
+        if hidden {
+            self.sync_visible(cx);
         }
         for entry in listed {
             let target = self.servers.target(&entry).ok();
@@ -514,7 +545,9 @@ impl AppModel {
             .map_err(|error| error.to_string())?;
         self.servers.passwords.forget(server);
         self.sync_servers(cx);
-        self.edit_project(|state| state.forget_server(server), cx);
+        if self.edit_project(|state| state.forget_server(server), cx) {
+            self.select_listed_project(cx);
+        }
         Ok(())
     }
 
@@ -648,6 +681,46 @@ impl AppModel {
         self.connect_remote_server(server, cx);
     }
 
+    /// Opens a terminal tab in another computer's Home. A server whose Home
+    /// isn't known yet connects first, asking for its password if needed, and
+    /// the tab opens once its catalog arrives.
+    pub(crate) fn new_remote_home_tab(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        if self.server_name(server).is_none() {
+            return;
+        }
+        if let Some(home) = self.state.server_home(server).map(|home| home.id) {
+            self.pending_remote = None;
+            self.new_tab_in(home, cx);
+            return;
+        }
+        self.pending_remote = Some(PendingRemote::new(server, RemoteIntent::HomeTab));
+        self.connect_remote_server(server, cx);
+        cx.notify();
+    }
+
+    /// Does what waited for `server` to be ready. It is dropped once the user
+    /// moved on: something else is open, or the wait was long.
+    pub(crate) fn resume_remote(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        const PATIENCE: std::time::Duration = std::time::Duration::from_secs(60);
+        let Some(pending) = self
+            .pending_remote
+            .filter(|pending| pending.server == server)
+        else {
+            return;
+        };
+        if self.overlay.is_some() || pending.asked.elapsed() > PATIENCE {
+            self.pending_remote = None;
+            return;
+        }
+        match pending.intent {
+            RemoteIntent::AddProject => self.open_remote_project_picker(server, cx),
+            RemoteIntent::HomeTab if self.state.server_home(server).is_some() => {
+                self.new_remote_home_tab(server, cx);
+            }
+            RemoteIntent::HomeTab => {}
+        }
+    }
+
     /// Keeps a typed password until Muxy quits, then connects with it.
     pub(crate) fn remember_password(
         &mut self,
@@ -655,10 +728,10 @@ impl AppModel {
         password: String,
         cx: &mut Context<Self>,
     ) {
-        if let Some((pending, asked)) = &mut self.pending_remote_picker
-            && *pending == server
+        if let Some(pending) = &mut self.pending_remote
+            && pending.server == server
         {
-            *asked = std::time::Instant::now();
+            pending.asked = std::time::Instant::now();
         }
         match self.servers.passwords.set(server, password) {
             Ok(()) => self.connect_remote_server(server, cx),

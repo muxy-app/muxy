@@ -25,6 +25,7 @@ actions!(
         ExistingTerminals,
         DetachTerminal,
         NewHomeTab,
+        NewTabInProject,
         CloseTab,
         SplitRight,
         SplitDown,
@@ -88,6 +89,7 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     let mut registry = muxy_ui::shortcuts::Registry::new(keymap);
     registry.register(ShortcutId::OpenSettings, &OpenSettings);
     registry.register(ShortcutId::NewHomeTab, &NewHomeTab);
+    registry.register(ShortcutId::NewTabInProject, &NewTabInProject);
     registry.register(ShortcutId::ToggleSidebar, &ToggleSidebar);
     registry.register(ShortcutId::ToggleFullScreen, &ToggleFullScreen);
     registry.register(ShortcutId::ToggleThemePicker, &ToggleThemePicker);
@@ -331,6 +333,9 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         .on_action(cx.listener(|model, _: &NewHomeTab, _, cx| {
             model.select_project(model.state.home().id, cx);
             model.new_tab(cx);
+        }))
+        .on_action(cx.listener(|model, _: &NewTabInProject, window, cx| {
+            model.toggle_new_tab_list(window, cx);
         }))
         .on_action(cx.listener(|model, _: &PreviousProject, _, cx| model.cycle_project(false, cx)))
         .on_action(cx.listener(|model, _: &NextProject, _, cx| model.cycle_project(true, cx)))

@@ -387,6 +387,14 @@ fn server_command(server: &RemoteServer, model: gpui::WeakEntity<AppModel>) -> C
             };
         actions.register(
             Command::new(
+                "new-tab",
+                tr!("New Tab"),
+                handler(|model, id, _, cx| model.new_remote_home_tab(id, cx)),
+            )
+            .keywords("New Tab"),
+        );
+        actions.register(
+            Command::new(
                 "add-project",
                 tr!("Add Project…"),
                 handler(|model, id, _, cx| model.open_remote_project_picker(id, cx)),
@@ -860,9 +868,9 @@ impl AppModel {
         if password.is_empty() {
             return;
         }
-        let pending = self.pending_remote_picker;
+        let pending = self.pending_remote;
         self.dismiss_overlay(cx);
-        self.pending_remote_picker = pending;
+        self.pending_remote = pending;
         self.remember_password(server, password, cx);
     }
 }

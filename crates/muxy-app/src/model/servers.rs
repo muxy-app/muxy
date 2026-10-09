@@ -288,10 +288,11 @@ impl AppModel {
             .and_then(|runtime| runtime.error.as_deref())
     }
 
-    /// Projects the sidebar and Switch Project list: shown ones, except
-    /// another computer's Home, which only backs browsing its folders.
+    /// Projects the sidebar and Switch Project list: shown ones, with another
+    /// computer's Home only under the Remote Servers workspace.
     pub(crate) fn project_listed(&self, project: &Project) -> bool {
-        self.project_shown(project) && (project.server_id.is_local() || !project.home)
+        self.project_shown(project)
+            && (!project.is_remote_home() || self.state.remote_servers_selected())
     }
 
     /// The name settings give another computer's server.

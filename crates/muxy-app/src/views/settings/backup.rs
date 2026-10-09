@@ -191,8 +191,7 @@ impl SettingsWindow {
                     let result = cx
                         .background_executor()
                         .spawn(async move {
-                            crate::backup::legacy_directory()
-                                .and_then(|path| crate::backup::prepare(&profile, &path))
+                            crate::backup::prepare_installed(&profile)
                                 .map(Some)
                                 .map_err(|error| error.to_string())
                         })

@@ -26,6 +26,7 @@ mod views {
     pub(crate) mod git;
     pub(crate) mod menu;
     pub(crate) mod native_modal;
+    pub(crate) mod new_tab;
     pub(crate) mod overlays;
     pub(crate) mod project_editor;
     pub(crate) mod project_layouts;
@@ -79,10 +80,11 @@ use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight, FocusPaneUp,
     HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize, NewHomeTab, NewTab,
-    NextProject, NextPrompt, NextTab, OpenConfiguration, OpenSettings, PreviousProject,
-    PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject, SelectTab, ShowAll,
-    SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
-    ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
+    NewTabInProject, NextProject, NextPrompt, NextTab, OpenConfiguration, OpenSettings,
+    PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject,
+    SelectTab, ShowAll, SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer,
+    ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom,
+    bind_keys,
 };
 
 fn main() -> ExitCode {
@@ -282,6 +284,7 @@ fn menus() -> Vec<Menu> {
             items: vec![
                 MenuItem::action(tr!("New Tab"), NewTab),
                 MenuItem::action(tr!("New Home Tab"), NewHomeTab),
+                MenuItem::action(tr!("New Tab in Project…"), NewTabInProject),
                 MenuItem::action(tr!("Open Project…"), AddProject),
                 MenuItem::separator(),
                 MenuItem::action(tr!("Close Tab"), CloseTab),

@@ -8,6 +8,70 @@ use gpui::{
 use muxy_protocol::{Color, Run, Style};
 use std::rc::Rc;
 
+#[gpui::test]
+fn powerline_caps_use_cell_drawing_unless_a_font_is_explicitly_mapped(
+    cx: &mut gpui::TestAppContext,
+) {
+    use muxy_app_core::settings::{CellHeight, FontMap, TerminalSettings};
+
+    let mut terminal = TerminalSettings {
+        cell_height: CellHeight::Percent(25.0),
+        ..TerminalSettings::default()
+    };
+    terminal.options.padding_balance = true;
+    let palette = Palette::new(true);
+    let base_font = font("Menlo");
+    let runs: Vec<_> = [
+        "\u{e0b6}", "prompt", "\u{e0b0}", "\u{f179}", "\u{e0b4}", "\u{e0b5}", "\u{e0b7}",
+    ]
+    .into_iter()
+    .map(|text| Run {
+        text: text.into(),
+        width: if text == "prompt" { 6 } else { 1 },
+        style: Style::default(),
+    })
+    .collect();
+    cx.add_empty_window().update(|window, _| {
+        let cell = size(
+            px(8.0),
+            px(terminal.cell_height.apply(16.0, window.scale_factor())),
+        );
+        let frame = super::super::padding::Frame::configured(
+            bounds(0.0, 0.0, 101.0, 51.0),
+            cell,
+            &terminal.options,
+        );
+        for mapped in [false, true] {
+            if mapped {
+                terminal.font.codepoints.push(FontMap {
+                    start: 0xe0b4,
+                    end: 0xe0b7,
+                    family: "Menlo".into(),
+                });
+            }
+            let mut renderer = RowRenderer {
+                settings: &terminal.font,
+                cell,
+                palette: &palette,
+                base_font: &base_font,
+                font_size: px(13.0),
+                metrics: (px(12.0), px(4.0)),
+                window,
+            };
+            let mut painting = RowPainting::default();
+            renderer.row(&runs, frame.content.origin, &mut painting, true);
+            let text = painting.lines.iter().map(|(_, line)| line.text.as_ref()).collect::<String>();
+            let expected = if mapped {
+                "\u{e0b6}\u{200c}prompt\u{200c}\u{f179}\u{200c}\u{e0b4}\u{200c}\u{e0b5}\u{200c}\u{e0b7}\u{200c}"
+            } else {
+                "prompt\u{200c}\u{f179}\u{200c}"
+            };
+            assert_eq!(text, expected, "mapped={mapped}");
+            assert_eq!(painting.paths.groups.len(), if mapped { 1 } else { 5 });
+        }
+    });
+}
+
 fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
     Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
 }

@@ -30,6 +30,7 @@ pub struct Command<A> {
     swatches: Vec<Hsla>,
     current: bool,
     keep_open: bool,
+    badge: Option<SharedString>,
     target: Target<A>,
 }
 
@@ -54,6 +55,7 @@ impl<A> Command<A> {
             swatches: Vec::new(),
             current: false,
             keep_open: false,
+            badge: None,
             target: Target::Action(action),
         }
     }
@@ -72,6 +74,7 @@ impl<A> Command<A> {
             swatches: Vec::new(),
             current: false,
             keep_open: false,
+            badge: None,
             target: Target::List(Rc::new(provider)),
         }
     }
@@ -112,8 +115,16 @@ impl<A> Command<A> {
         self
     }
 
+    /// A short label outlined at the row's right edge.
+    #[must_use]
+    pub fn badge(mut self, label: impl Into<SharedString>) -> Self {
+        self.badge = Some(label.into());
+        self
+    }
+
     fn matches(&self, query: &str) -> bool {
-        let searchable = format!("{} {}", self.title, self.keywords).to_lowercase();
+        let badge = self.badge.as_ref().map_or("", SharedString::as_ref);
+        let searchable = format!("{} {} {badge}", self.title, self.keywords).to_lowercase();
         query
             .split_whitespace()
             .all(|word| searchable.contains(word))
@@ -125,6 +136,7 @@ impl<A> Command<A> {
         row.disabled = self.disabled;
         row.swatches.clone_from(&self.swatches);
         row.current = self.current;
+        row.badge.clone_from(&self.badge);
         row.trailing = match self.target {
             Target::Action(_) => self.shortcut.clone(),
             Target::List(_) => Some("›".into()),

@@ -22,6 +22,11 @@ app offers to install the same version there; when its version can't talk to
 the app, the section explains how to update it. Removing a server only forgets
 its projects in this app.
 
+**New Tab in Project…** (⌘⇧N) lists local and remote projects. Picking one
+opens a tab there and switches workspace if needed; a remote server opens in
+its Home, connecting first if needed. Clicking a server in the Remote popover
+offers **New Tab** too.
+
 Files and images dropped or pasted on a remote terminal, or sent from the
 composer, are copied to that computer and its path is pasted. Clicking a file
 path in a remote terminal offers a read-only copy here, or its path.
@@ -116,6 +121,9 @@ stop.
   saved layouts. Server settings take effect after restarting the server.
 - Import supported 1.x settings and local projects from the installed app, a
   `.muxy` backup, or `settings.json`. Unsupported options are listed before import.
+  A 1.x import adds to what is already there: existing projects, tabs, and
+  workspaces are kept. On first launch, a new profile imports the installed 1.x
+  automatically, including its extensions.
   Config files open in the system editor. Backups exclude live terminal sessions,
   paired-device credentials, extension packages, and project files. They keep
   the list of remote servers but not remote projects, which come back from

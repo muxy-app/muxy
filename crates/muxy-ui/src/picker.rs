@@ -376,6 +376,8 @@ pub struct PickerRow {
     pub detail: Option<SharedString>,
     pub leading: Option<PickerLeading>,
     pub trailing: Option<SharedString>,
+    /// A short label outlined at the row's right edge.
+    pub badge: Option<SharedString>,
     pub actions: Vec<PickerAction>,
     pub swatches: Vec<Hsla>,
     pub current: bool,
@@ -392,6 +394,7 @@ impl PickerRow {
             detail: None,
             leading: None,
             trailing: None,
+            badge: None,
             actions: Vec::new(),
             swatches: Vec::new(),
             current: false,
@@ -1405,6 +1408,25 @@ impl Picker {
                             .text_size(self.metrics.font_footnote())
                             .text_color(self.theme.fg_muted)
                             .child(trailing),
+                    );
+                }
+                if let Some(badge) = row.badge {
+                    content = content.child(
+                        div()
+                            .debug_selector({
+                                let id = row.id.clone();
+                                move || format!("picker-badge-{id}")
+                            })
+                            .flex_none()
+                            .max_w(relative(0.4))
+                            .truncate()
+                            .px(self.metrics.spacing2())
+                            .rounded(self.metrics.radius_sm())
+                            .border_1()
+                            .border_color(self.theme.border)
+                            .text_size(self.metrics.font_caption())
+                            .text_color(self.theme.fg_muted)
+                            .child(badge),
                     );
                 }
                 if !row.actions.is_empty() {

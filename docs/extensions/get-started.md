@@ -100,7 +100,7 @@ the build. Only `dist/` is published.
 Most 1.x extensions work unchanged. The differences:
 
 - **Install folder.** Extensions live in Muxy 2's profile folder, not
-  `~/.config/muxy/extensions`. Reinstall them from **Browse**.
+  `~/.config/muxy/extensions`. Importing the installed 1.x copies them over.
 - **No scaffold.** There is no **Create** button or starter kit. Use
   **Load Unpacked…**.
 - **Lowercase names.** Pages only load for names made of `a-z`, `0-9`, `.`,

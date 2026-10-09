@@ -75,24 +75,14 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                     return Err("project directory must exist".into());
                 }
             }
-            let name = name.unwrap_or_else(|| {
-                directory
-                    .file_name()
-                    .unwrap_or(directory.as_os_str())
-                    .to_string_lossy()
-                    .into_owned()
-            });
-            let project = ProjectDescriptor {
-                id: ProjectId::new(),
-                home: false,
-                name: name.trim().into(),
-                icon: None,
-                logo: None,
-                color: "#808080".into(),
-                directory: server_path(&directory),
-                kind: None,
-                parent_id: None,
-            };
+            let projects = client.catalog()?.projects;
+            let mut project = ProjectDescriptor::new(
+                server_path(&directory),
+                projects.iter().map(|project| project.color.as_str()),
+            );
+            if let Some(name) = name {
+                project.name = name.trim().into();
+            }
             mutate(client, ProjectMutation::Create(project.clone()))?;
             output.record(&record(&project), &["id", "name"])
         }

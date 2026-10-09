@@ -243,7 +243,7 @@ impl AppModel {
                     model.extensions.clients.insert(server, client.clone());
                     model.extensions.installs.insert(server, install);
                     model.sync_extension_events(cx);
-                    model.resume_remote_picker(server, cx);
+                    model.resume_remote(server, cx);
                     model.check_remote_projects(server, cx);
                     Some(install)
                 })

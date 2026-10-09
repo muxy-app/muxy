@@ -21,6 +21,30 @@ impl Project {
             parent_id: self.parent_id,
         }
     }
+    /// `server`'s project as `descriptor` describes it, with no tabs yet.
+    pub(crate) fn from_descriptor(
+        server: ServerId,
+        descriptor: &ProjectDescriptor,
+    ) -> Result<Self, AppError> {
+        let mut project = Self {
+            id: descriptor.id,
+            home: descriptor.home,
+            name: String::new(),
+            icon: None,
+            logo: None,
+            color: crate::Color::default(),
+            server_id: server,
+            directory: PathBuf::new(),
+            kind: None,
+            parent_id: None,
+            tabs: Vec::new(),
+            groups: None,
+            status: ProjectStatus::Available,
+        };
+        project.with_descriptor(descriptor)?;
+        Ok(project)
+    }
+
     fn with_descriptor(&mut self, descriptor: &ProjectDescriptor) -> Result<(), AppError> {
         self.id = descriptor.id;
         self.home = descriptor.home;
@@ -236,23 +260,8 @@ impl AppState {
             }
         }
         for descriptor in descriptors.into_values() {
-            let mut project = Project {
-                id: descriptor.id,
-                home: descriptor.home,
-                name: String::new(),
-                icon: None,
-                logo: None,
-                color: crate::Color::default(),
-                server_id: server,
-                directory: PathBuf::new(),
-                kind: None,
-                parent_id: None,
-                tabs: Vec::new(),
-                groups: None,
-                status: ProjectStatus::Available,
-            };
-            project.with_descriptor(&descriptor)?;
-            self.projects.push(project);
+            self.projects
+                .push(Project::from_descriptor(server, &descriptor)?);
         }
         let home = self
             .projects

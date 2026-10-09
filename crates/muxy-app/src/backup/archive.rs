@@ -7,7 +7,7 @@ use muxy_app_core::backup::Result;
 use muxy_ui::tr;
 use serde_json::Value;
 
-use super::{Files, MAX_BYTES, MAX_FILE_BYTES, ROOTS};
+use super::{Files, MAX_BYTES, MAX_FILE_BYTES, ROOTS, Restore};
 
 const MAX_FILES: usize = 8192;
 
@@ -107,7 +107,7 @@ pub(super) fn collect(directory: &Path, roots: &[&str]) -> Result<Files> {
     Ok(files)
 }
 
-pub(super) fn write(destination: &Path, files: &Files, complete: bool) -> Result<()> {
+pub(super) fn write(destination: &Path, files: &Files, restore: Restore) -> Result<()> {
     let parent = destination
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -122,7 +122,8 @@ pub(super) fn write(destination: &Path, files: &Files, complete: bool) -> Result
         "schemaVersion": 2,
         "appVersion": env!("CARGO_PKG_VERSION"),
         "format": "muxy.configuration",
-        "complete": complete,
+        "complete": restore == Restore::Complete,
+        "merge": restore == Restore::Merge,
         "files": files.keys().collect::<Vec<_>>(),
     }))?)?;
     let mut size = 0;
@@ -140,7 +141,7 @@ pub(super) fn write(destination: &Path, files: &Files, complete: bool) -> Result
     Ok(())
 }
 
-pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
+pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
     let file = File::open(source)?;
     if file.metadata()?.len() > MAX_BYTES {
         return Err(failure(&tr!("Backup exceeds 64 MiB")));
@@ -227,11 +228,16 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, bool)> {
             return Err(failure(&tr!("Backup is missing %@", &name)));
         }
     }
-    Ok((
-        files,
-        legacy,
-        !legacy && manifest["complete"].as_bool().unwrap_or(false),
-    ))
+    let restore = if legacy {
+        Restore::Merge
+    } else if manifest["complete"].as_bool().unwrap_or(false) {
+        Restore::Complete
+    } else if manifest["merge"].as_bool().unwrap_or(false) {
+        Restore::Merge
+    } else {
+        Restore::Partial
+    };
+    Ok((files, legacy, restore))
 }
 
 pub(super) fn materialize(directory: &Path, files: &Files) -> Result<()> {

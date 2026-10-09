@@ -151,18 +151,9 @@ fn ensure_home(result: &mut LegacyImport, home: Option<ProjectId>) -> io::Result
     }
     let directory =
         std::env::home_dir().ok_or_else(|| io::Error::other("home directory unavailable"))?;
-    let id = ProjectId::new();
-    result.projects.push(ProjectDescriptor {
-        id,
-        home: true,
-        name: "Home".into(),
-        icon: None,
-        logo: None,
-        color: "#808080".into(),
-        directory: ServerPath(directory.as_os_str().as_bytes().into()),
-        kind: None,
-        parent_id: None,
-    });
+    let project = ProjectDescriptor::home(ServerPath(directory.as_os_str().as_bytes().into()));
+    let id = project.id;
+    result.projects.push(project);
     Ok(id)
 }
 

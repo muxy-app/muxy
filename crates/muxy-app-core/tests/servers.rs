@@ -275,6 +275,46 @@ fn the_same_server_under_two_entries_is_refused() -> TestResult {
 }
 
 #[test]
+fn remote_servers_lists_only_remote_homes_until_the_last_server_is_forgotten() -> TestResult {
+    let TwoServers {
+        mut state,
+        remote,
+        remote_home,
+        api,
+    } = two_servers()?;
+    let local_project = state.projects()[1].id;
+    let listed = |state: &AppState| {
+        state
+            .projects()
+            .iter()
+            .filter(|project| state.is_listed(project))
+            .map(|project| project.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(listed(&state), [state.home().id, local_project, api]);
+
+    state.open_terminal_tab(remote_home)?;
+    state.reveal_current_project();
+    assert!(state.remote_servers_selected());
+    assert_eq!(listed(&state), [remote_home]);
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    store::save(&path, &state)?;
+    assert!(store::load(&path)?.remote_servers_selected());
+
+    state.select_project(api)?;
+    state.reveal_current_project();
+    assert!(!state.remote_servers_selected());
+    assert!(state.is_listed(state.current_project()));
+
+    state.select_remote_servers();
+    state.forget_server(remote)?;
+    assert!(!state.remote_servers_selected());
+    assert!(state.is_listed(state.current_project()));
+    Ok(())
+}
+
+#[test]
 fn forgetting_a_server_removes_only_what_belongs_to_it() -> TestResult {
     let TwoServers {
         mut state,

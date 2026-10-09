@@ -16,8 +16,8 @@ mod reconnect;
 pub(crate) mod remote_files;
 mod remote_servers;
 pub(crate) use remote_servers::{
-    ConnectionTest, DeviceForm, Install, RemoteServer, join_destination, released_version,
-    split_destination,
+    ConnectionTest, DeviceForm, Install, PendingRemote, RemoteIntent, RemoteServer,
+    join_destination, released_version, split_destination,
 };
 mod server_status;
 mod servers;
@@ -132,9 +132,7 @@ pub(crate) struct AppModel {
     server_probe_generation: u64,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
-    /// Add Project waits for this server to be ready, then opens its picker,
-    /// if that happens soon after the user asked.
-    pub(crate) pending_remote_picker: Option<(ServerId, std::time::Instant)>,
+    pub(crate) pending_remote: Option<PendingRemote>,
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
@@ -431,7 +429,7 @@ impl AppModel {
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
         let (theme, palette) = themes.resolve(&boot.settings.appearance, dark);
         let palette = palette.with_options(&boot.terminal.options);
-        let configuration_error = boot.import_error;
+        let configuration_error = boot.import_message;
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         cx.on_release(|model: &mut Self, cx| {
             for (_, (_, image)) in model.project_logos.drain() {
@@ -487,7 +485,7 @@ impl AppModel {
             server_probe_generation: 0,
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
-            pending_remote_picker: None,
+            pending_remote: None,
             pending_folders: Vec::new(),
             remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
@@ -853,14 +851,20 @@ impl AppModel {
     }
 
     pub(crate) fn new_tab(&mut self, cx: &mut Context<Self>) {
+        self.new_tab_in(self.state.current_project().id, cx);
+    }
+
+    /// Opens a terminal tab in `project` and shows it, switching the sidebar's
+    /// workspace when it doesn't list the project.
+    pub(crate) fn new_tab_in(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle {
             return;
         }
-        match self
-            .state
-            .open_terminal_tab(self.state.current_project().id)
-        {
-            Ok(_) => self.changed(cx),
+        match self.state.open_terminal_tab(project) {
+            Ok(_) => {
+                self.changed(cx);
+                self.focus_requested = true;
+            }
             Err(error) => self.fail(error.to_string(), cx),
         }
         let server = self.state.current_project().server_id;
@@ -1416,13 +1420,17 @@ impl AppModel {
         }
     }
 
-    /// The project shown is always one the sidebar lists, never another
-    /// computer's Home or a removed server's project, so new tabs never open
-    /// somewhere the user can't see.
+    /// The project shown is always one the sidebar lists, never a removed
+    /// server's project or another computer's Home outside Remote Servers, so
+    /// new tabs never open somewhere the user can't see.
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
+        if self.state.remote_servers_selected() && !self.remote_servers_offered() {
+            let _ = self.state.select_workspace(None);
+        }
         if !self.project_listed(self.state.current_project()) {
             let home = self.state.home().id;
             let _ = self.state.select_project(home);
+            self.state.reveal_current_project();
         }
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
@@ -1994,10 +2002,10 @@ impl AppModel {
                 }
                 self.schedule_reconnect(server, reason, cx);
                 if self
-                    .pending_remote_picker
-                    .is_some_and(|(pending, _)| pending == server)
+                    .pending_remote
+                    .is_some_and(|pending| pending.server == server)
                 {
-                    self.pending_remote_picker = None;
+                    self.pending_remote = None;
                 }
                 self.resume_folders(server, cx);
                 self.sync_preferences(cx);
@@ -2667,7 +2675,7 @@ mod tests {
         };
         (
             Boot {
-                import_error: None,
+                import_message: None,
                 composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),

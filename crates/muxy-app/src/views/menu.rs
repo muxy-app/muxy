@@ -44,6 +44,7 @@ pub(crate) enum Command {
     Layout(muxy_app_core::settings::AppLayout),
     FocusProject(bool),
     SelectWorkspace(Option<muxy_app_core::WorkspaceId>),
+    SelectRemoteServers,
     NewWorkspace(Option<muxy_app_core::ProjectId>),
     RenameWorkspace(muxy_app_core::WorkspaceId),
     DeleteWorkspace(muxy_app_core::WorkspaceId),
@@ -535,6 +536,7 @@ impl AppModel {
             Command::Layout(layout) => self.set_layout(layout, cx),
             Command::FocusProject(focused) => self.set_project_focus(focused, cx),
             Command::SelectWorkspace(workspace) => self.select_workspace(workspace, cx),
+            Command::SelectRemoteServers => self.select_remote_servers(cx),
             Command::NewWorkspace(project) => {
                 self.open_new_workspace_editor(project, position, window, cx);
                 return;
