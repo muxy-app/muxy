@@ -116,7 +116,6 @@ pub(crate) fn start(
     activity: std::sync::Arc<crate::activity::Activity>,
     on_exit: impl FnOnce(ExitReason) + Send + 'static,
 ) -> Result<SessionHandle, ServerError> {
-    crate::detection::prepare();
     let id = info.id.get();
     let (sender, receiver) = mpsc::channel();
     let (pty_sender, pty_receiver) = mpsc::channel();

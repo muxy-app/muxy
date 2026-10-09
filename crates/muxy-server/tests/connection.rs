@@ -406,6 +406,8 @@ fn detach_ignores_late_input_and_ack_and_does_not_reuse_channel() -> TestResult 
     );
     let next = client.attach(info.id)?.channel;
     assert_ne!(next, channel);
+    // Hanging up while the new attachment's screen is still being written fails that write.
+    client.quiet()?;
     client.disconnect()
 }
 

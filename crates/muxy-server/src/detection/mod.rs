@@ -151,29 +151,20 @@ fn compile(source: &str) -> Result<Vec<CompiledRule>, String> {
         .collect()
 }
 
+/// Compiles a provider's rules the first time it runs, so a server holds only the
+/// regexes of agents it has seen. The largest set takes a few milliseconds.
 fn rules(provider: AgentProvider) -> &'static [CompiledRule] {
-    static RULES: OnceLock<Vec<(AgentProvider, Vec<CompiledRule>)>> = OnceLock::new();
-    let compiled = RULES.get_or_init(|| {
-        MANIFESTS
-            .iter()
-            .map(|(provider, source)| {
-                let rules = compile(source).unwrap_or_else(|error| {
-                    log::error!("{} detection: {error}", provider.name());
-                    Vec::new()
-                });
-                (*provider, rules)
-            })
-            .collect()
-    });
-    compiled
-        .iter()
-        .find(|(p, _)| *p == provider)
-        .map_or(&[], |(_, rules)| rules)
-}
-
-/// Call before starting session owners so regex compilation never stalls terminal I/O.
-pub(crate) fn prepare() {
-    let _ = rules(AgentProvider::Claude);
+    static RULES: [OnceLock<Vec<CompiledRule>>; MANIFESTS.len()] =
+        [const { OnceLock::new() }; MANIFESTS.len()];
+    let Some(index) = MANIFESTS.iter().position(|(p, _)| *p == provider) else {
+        return &[];
+    };
+    RULES[index].get_or_init(|| {
+        compile(MANIFESTS[index].1).unwrap_or_else(|error| {
+            log::error!("{} detection: {error}", provider.name());
+            Vec::new()
+        })
+    })
 }
 
 fn detect(provider: AgentProvider, input: DetectionInput<'_>) -> Option<(AgentState, bool)> {

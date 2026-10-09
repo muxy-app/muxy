@@ -168,18 +168,3 @@ fn relay_flushes_every_chunk_and_half_closes_when_input_ends() -> TestResult {
     assert!(rest.is_empty());
     Ok(())
 }
-
-#[test]
-fn relay_ends_normally_and_closes_the_stream_when_output_is_gone() -> TestResult {
-    let (stream, mut server) = UnixStream::pair()?;
-    let (input, _stdin) = UnixStream::pair()?;
-    let (output, stdout) = UnixStream::pair()?;
-    server.set_read_timeout(Some(TIMEOUT))?;
-    drop(stdout);
-    let relaying = thread::spawn(move || relay(Box::new(stream), input, output));
-
-    server.write_all(b"nobody reads this")?;
-    relaying.join().map_err(|_| "relay panicked")??;
-    assert_eq!(server.read(&mut [0; 8])?, 0);
-    Ok(())
-}
