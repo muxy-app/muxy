@@ -61,6 +61,11 @@ impl fmt::Display for Color {
     }
 }
 
+/// The first character of a name, which stands for it on a project's tile.
+pub fn initial(name: &str) -> &str {
+    name.graphemes(true).next().unwrap_or("?")
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub id: ProjectId,
@@ -111,8 +116,9 @@ impl Project {
         self.status
     }
 
-    pub fn initial(&self) -> &str {
-        self.name.graphemes(true).next().unwrap_or("?")
+    /// Another computer's Home, which stands for its server.
+    pub fn is_remote_home(&self) -> bool {
+        self.home && !self.server_id.is_local()
     }
 
     /// Only this computer's folders can be checked here. Another computer's

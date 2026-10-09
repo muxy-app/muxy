@@ -13,6 +13,7 @@ impl AppState {
             selected_tab: HashMap::new(),
             bounds: None,
             workspace: None,
+            remote_servers: false,
         };
         Ok(Self {
             servers: BTreeMap::new(),

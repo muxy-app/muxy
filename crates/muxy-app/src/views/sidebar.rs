@@ -47,7 +47,7 @@ pub(crate) fn register_commands(
         tr_key!("Open Project…"),
         super::workspace::AddProject,
     ));
-    let has_workspaces = !model.state.workspaces().is_empty();
+    let has_workspaces = !model.state.workspaces().is_empty() || model.remote_servers_offered();
     let model = cx.weak_entity();
     registry.register(
         Command::list("switch_project", tr!("Switch Project…"), move |cx| {
@@ -74,7 +74,7 @@ pub(crate) fn register_commands(
                             .find(|project| project.id == parent)
                     })
                     .map_or_else(
-                        || project.name.clone(),
+                        || model.project_title(project),
                         |parent| format!("{} / {}", parent.name, project.name),
                     );
                 projects.register(
@@ -113,6 +113,13 @@ pub(crate) fn register_commands(
                 } else {
                     command
                 });
+                if id.is_none() && model.remote_servers_offered() {
+                    let handler: Handler = Rc::new(|model, _, cx| model.select_remote_servers(cx));
+                    workspaces.register(
+                        Command::new("remote_servers", tr!("Remote Servers"), handler)
+                            .keywords("Remote Servers"),
+                    );
+                }
             }
             workspaces
         })
@@ -200,6 +207,15 @@ impl AppModel {
         );
     }
 
+    /// The name shown for a project: another computer's Home goes by its
+    /// server's name.
+    pub(crate) fn project_title(&self, project: &Project) -> String {
+        match self.server_name(project.server_id) {
+            Some(name) if project.home => name.to_owned(),
+            _ => project.name.clone(),
+        }
+    }
+
     /// Where another computer's project is, as `box · ~/code/app`.
     pub(crate) fn remote_location(&self, project: &Project) -> Option<String> {
         let name = self.server_name(project.server_id)?;
@@ -266,6 +282,9 @@ impl AppModel {
         if self.appearance.sidebar_focus {
             return tr!("Focused Project");
         }
+        if self.state.remote_servers_selected() {
+            return tr!("Remote Servers");
+        }
         self.state.active_workspace().map_or_else(
             || tr!("All Projects"),
             |workspace| workspace.name.clone().into(),
@@ -284,14 +303,16 @@ impl AppModel {
                     && self.project_listed(project)
             })
             .collect();
-        if self.appearance.sidebar_project_order == ProjectOrder::Name {
-            let server = |project: &Project| {
-                self.settings
-                    .servers
-                    .iter()
-                    .position(|entry| entry.id == project.server_id)
-                    .map_or(0, |index| index + 1)
-            };
+        let server = |project: &Project| {
+            self.settings
+                .servers
+                .iter()
+                .position(|entry| entry.id == project.server_id)
+                .map_or(0, |index| index + 1)
+        };
+        if self.state.remote_servers_selected() {
+            parents.sort_by_key(|project| server(project));
+        } else if self.appearance.sidebar_project_order == ProjectOrder::Name {
             parents.sort_by_cached_key(|project| {
                 (server(project), !project.home, project.name.to_lowercase())
             });
@@ -410,10 +431,17 @@ fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
 fn filter_items(model: &AppModel) -> Vec<Item> {
     let focused = model.appearance.sidebar_focus;
     let active = model.state.active_workspace().map(|workspace| workspace.id);
+    let remote = model.state.remote_servers_selected();
     let mut items = vec![
         Item::action(tr!("All Projects"), Command::SelectWorkspace(None))
-            .checked_if(!focused && active.is_none()),
+            .checked_if(!focused && !remote && active.is_none()),
     ];
+    if model.remote_servers_offered() {
+        items.push(
+            Item::action(tr!("Remote Servers"), Command::SelectRemoteServers)
+                .checked_if(!focused && remote),
+        );
+    }
     items.extend(model.state.workspaces().iter().map(|workspace| {
         Item::action(
             workspace.name.clone(),
@@ -698,7 +726,7 @@ fn project_row(
                             .truncate()
                             .text_size(m.font_emphasis())
                             .font_weight(FontWeight::MEDIUM)
-                            .child(project.name.clone()),
+                            .child(model.project_title(project)),
                     )
                     .when(has_worktrees, |label| {
                         let selected = model.state.project(model.preferred_worktree(id));
@@ -720,7 +748,9 @@ fn project_row(
                         )
                     })
                     .when_some(
-                        model.remote_location(project).filter(|_| !has_worktrees),
+                        model
+                            .remote_location(project)
+                            .filter(|_| !has_worktrees && !project.is_remote_home()),
                         |label, location| {
                             label.child(
                                 div()
@@ -781,6 +811,9 @@ fn project_row(
 
 /// Marks another computer's project, naming it in a tooltip.
 pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyElement> {
+    if project.is_remote_home() {
+        return None;
+    }
     let name = model.server_name(project.server_id)?;
     let id = project.id;
     let m = model.metrics;
@@ -865,7 +898,7 @@ pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -
 
 fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> AnyElement {
     let m = model.metrics;
-    let color = if project.home {
+    let color = if project.home && project.server_id.is_local() {
         model.theme.accent.to_rgb()
     } else {
         parse_hex(project.color.as_str()).unwrap_or(gpui::rgb(0x80_80_80))
@@ -887,14 +920,14 @@ fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> Any
                 .child(icon.clone())
                 .into_any_element()
         }
-    } else if project.home {
+    } else if project.home && project.server_id.is_local() {
         SymbolGlyph::new("house.fill", m.font_title_large(), foreground.into()).into_any_element()
     } else {
         div()
             .text_size(m.font_emphasis())
             .font_weight(FontWeight::BOLD)
             .text_color(foreground)
-            .child(project.initial().to_uppercase())
+            .child(muxy_app_core::initial(&model.project_title(project)).to_uppercase())
             .into_any_element()
     };
     div()

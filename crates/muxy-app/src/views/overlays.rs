@@ -53,7 +53,7 @@ impl AppModel {
         }
         self.git.interaction = self.git.interaction.wrapping_add(1);
         if matches!(self.overlay, Some(Overlay::Password(_))) {
-            self.pending_remote_picker = None;
+            self.pending_remote = None;
         }
         self.overlay = None;
         self.overlay_subscription = None;

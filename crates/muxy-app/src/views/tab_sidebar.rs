@@ -298,7 +298,7 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 .group_hover(group.clone(), |style| {
                     style.text_color(theme.fg).pr(m.control_small() * 2.0)
                 })
-                .child(project.name.clone()),
+                .child(model.project_title(project)),
         )
         .child(project_accessory(project, group, model, cx))
         .into_any_element()
@@ -656,7 +656,7 @@ pub(super) fn titlebar(
                 .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.fg_muted)
-                .child(project.name.clone()),
+                .child(model.project_title(project)),
         )
         .when(available && project.groups().is_none(), |bar| {
             bar.child(

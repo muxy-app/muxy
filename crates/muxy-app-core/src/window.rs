@@ -15,6 +15,9 @@ pub struct WindowState {
     pub bounds: Option<WindowBounds>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceId>,
+    /// The fixed Remote Servers workspace filters the sidebar instead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) remote_servers: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
