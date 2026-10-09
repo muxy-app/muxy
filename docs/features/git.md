@@ -26,7 +26,9 @@ changes and a GitHub remote named `origin`.
 
 When the branch has a pull request, the status bar shows its number, state,
 and checks. From there you can merge (merge commit, squash, or rebase), update
-it from its base branch, close it, or open it on GitHub.
+it from its base branch, close it, or open it on GitHub. In a worktree, you can
+also remove the worktree after merging: Muxy asks first, then switches to the
+primary checkout.
 
 Pull request features need the [`gh`](https://cli.github.com) CLI, installed and
 signed in on the project's server.

@@ -183,6 +183,7 @@ fn commit_uses_the_reviewed_tree_then_pushes_to_its_destination() {
         &Draft::Commit {
             message: "Explain the change".into(),
         },
+        |_| (),
     )
     .unwrap();
     assert_eq!(
@@ -252,6 +253,7 @@ fn staged_only_commits_leave_the_index_alone_and_skip_pushing() {
         &Draft::Commit {
             message: "Explain the change".into(),
         },
+        |_| (),
     )
     .unwrap();
     assert_eq!(
@@ -292,6 +294,7 @@ fn repository_changes_before_apply_are_refused_without_mutating() {
         &Draft::Commit {
             message: "Change".into(),
         },
+        |_| (),
     )
     .unwrap_err();
     assert_eq!(failure.title, "No commit was created");
@@ -348,7 +351,7 @@ fn pull_requests_from_the_default_branch_move_changes_to_a_new_branch() {
         Ok(GitReply::Done),
         Ok(pull_request("https://github.com/example/repo/pull/12")),
     ]);
-    let outcome = apply(&git, &plan, &draft).unwrap();
+    let outcome = apply(&git, &plan, &draft, |_| ()).unwrap();
     assert_eq!(
         outcome,
         Outcome::PullRequest("https://github.com/example/repo/pull/12".into())
@@ -411,7 +414,7 @@ fn reviewed_drafts_are_validated_before_any_change() {
         ),
     ] {
         let git = FakeGit::new(vec![]);
-        let failure = apply(&git, &plan, &draft).unwrap_err();
+        let failure = apply(&git, &plan, &draft, |_| ()).unwrap_err();
         assert_eq!(
             failure.detail,
             format!("{error}\n\nChanges were staged before generating AI metadata.")

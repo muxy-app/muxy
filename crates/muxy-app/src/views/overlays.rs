@@ -37,6 +37,29 @@ pub(crate) enum Overlay {
     Password(Box<super::remote_servers::PasswordPrompt>),
 }
 
+impl Overlay {
+    /// Whether the overlay marks the area it covers, so native views
+    /// elsewhere stay visible while it is open.
+    pub(crate) fn marks_bounds(&self) -> bool {
+        matches!(
+            self,
+            Self::Updates
+                | Self::Server
+                | Self::Tip
+                | Self::RemoteServers
+                | Self::Git(_)
+                | Self::GitForm(_)
+                | Self::AiProvider(_)
+                | Self::PullRequest(_)
+                | Self::Menu(_)
+                | Self::ProjectEditor(_)
+                | Self::ProjectIcons(_)
+                | Self::ServerForm(_)
+                | Self::Password(_)
+        )
+    }
+}
+
 impl AppModel {
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
         if matches!(self.overlay, Some(Overlay::Webview)) {
@@ -80,6 +103,15 @@ impl AppModel {
 
 pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
 
+/// `content` with a mark of the area it covers.
+fn marked(content: AnyElement, model: &AppModel) -> AnyElement {
+    div()
+        .relative()
+        .child(content)
+        .child(model.webview_occlusion())
+        .into_any_element()
+}
+
 fn centered(content: AnyElement) -> AnyElement {
     div()
         .absolute()
@@ -103,7 +135,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         Some(Overlay::Webview) => return super::webview::modal::render(model, window, cx),
         Some(Overlay::Popover) => super::webview::popover::render(model, cx),
         Some(Overlay::Server) => {
-            let content = super::server_status::render(model, window, cx);
+            let content = marked(super::server_status::render(model, window, cx), model);
             let anchor = model.server_anchor();
             if !model.appearance.status_bar_visible {
                 anchor.set(None);
@@ -114,7 +146,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             })
         }
         Some(Overlay::Updates) => {
-            let content = super::updates::render(model, window, cx);
+            let content = marked(super::updates::render(model, window, cx), model);
             let anchor = model.update_anchor();
             if !model.appearance.status_bar_visible {
                 anchor.set(None);
@@ -125,7 +157,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             })
         }
         Some(Overlay::Tip) => {
-            let content = super::sidebar::tips::popover_card(model, cx);
+            let content = marked(super::sidebar::tips::popover_card(model, cx), model);
             let anchor = model.tips.anchor.clone();
             if model.tip_placement() != Some(TipPlacement::Button) {
                 anchor.set(None);
@@ -136,18 +168,20 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             })
         }
         Some(Overlay::RemoteServers) => {
-            let content = super::remote_servers::popover(model, window, cx);
+            let content = marked(super::remote_servers::popover(model, window, cx), model);
             let anchor = model.remote_anchor.clone();
             let model = cx.entity().downgrade();
             muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
                 let _ = model.update(cx, AppModel::dismiss_overlay);
             })
         }
-        Some(Overlay::ServerForm(form)) => {
-            centered(super::remote_servers::render_form(form, model, window, cx))
-        }
-        Some(Overlay::Password(prompt)) => centered(super::remote_servers::render_password(
-            prompt, model, window, cx,
+        Some(Overlay::ServerForm(form)) => centered(marked(
+            super::remote_servers::render_form(form, model, window, cx),
+            model,
+        )),
+        Some(Overlay::Password(prompt)) => centered(marked(
+            super::remote_servers::render_password(prompt, model, window, cx),
+            model,
         )),
         Some(Overlay::Native(picker)) => picker.clone().into_any_element(),
         Some(Overlay::GitForm(form)) => div()
@@ -158,34 +192,37 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             .flex()
             .items_center()
             .justify_center()
-            .child(super::git::render_form(form, model, window, cx))
+            .child(marked(
+                super::git::render_form(form, model, window, cx),
+                model,
+            ))
             .into_any_element(),
         Some(Overlay::AiProvider(menu)) => {
             let entity = cx.entity().downgrade();
             muxy_ui::popover::anchored_popover_above(
                 model.ai.anchors[menu.action.index()].clone(),
-                super::git::render_provider_menu(menu, model, window, cx),
+                marked(
+                    super::git::render_provider_menu(menu, model, window, cx),
+                    model,
+                ),
                 move |_, cx| {
                     let _ = entity.update(cx, AppModel::dismiss_overlay);
                 },
             )
         }
         Some(Overlay::Git(picker)) => {
+            let content = marked(picker.picker.clone().into_any_element(), model);
             let model = cx.entity().downgrade();
             let dismiss = move |_: &mut Window, cx: &mut gpui::App| {
                 let _ = model.update(cx, AppModel::dismiss_overlay);
             };
-            muxy_ui::popover::anchored_popover_above(
-                picker.anchor.clone(),
-                picker.picker.clone().into_any_element(),
-                dismiss,
-            )
+            muxy_ui::popover::anchored_popover_above(picker.anchor.clone(), content, dismiss)
         }
         Some(Overlay::PullRequest(popover)) => {
             let model_entity = cx.entity().downgrade();
             muxy_ui::popover::anchored_popover_above(
                 model.git.pull_request_anchor.clone(),
-                super::git::render_pr(popover, model, cx),
+                marked(super::git::render_pr(popover, model, cx), model),
                 move |_, cx| {
                     let _ = model_entity.update(cx, AppModel::dismiss_overlay);
                 },

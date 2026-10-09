@@ -55,13 +55,6 @@ impl Action {
         }
     }
 
-    pub(crate) fn running_title(self) -> &'static str {
-        match self {
-            Self::Commit => tr_key!("Committing"),
-            Self::CreatePullRequest => tr_key!("Creating PR"),
-        }
-    }
-
     pub(crate) fn settings_title(self) -> &'static str {
         match self {
             Self::Commit => tr_key!("Commit"),
@@ -77,6 +70,33 @@ impl Action {
             Self::CreatePullRequest => {
                 "Write an accurate pull request title and a concise summary of the changes. Choose a short descriptive branch name and the appropriate target branch."
             }
+        }
+    }
+}
+
+/// What a running action is doing, shown while it works.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Step {
+    Reading,
+    Writing,
+    Branching,
+    Committing,
+    Pushing,
+    Opening,
+}
+
+impl Step {
+    pub(crate) fn title(self, action: Action) -> &'static str {
+        match self {
+            Self::Reading => tr_key!("Reading changes"),
+            Self::Writing => match action {
+                Action::Commit => tr_key!("Writing message"),
+                Action::CreatePullRequest => tr_key!("Writing PR"),
+            },
+            Self::Branching => tr_key!("Creating branch"),
+            Self::Committing => tr_key!("Committing"),
+            Self::Pushing => tr_key!("Pushing"),
+            Self::Opening => tr_key!("Opening PR"),
         }
     }
 }
@@ -593,12 +613,18 @@ fn publish(
     .map(|_| ())
 }
 
-/// Applies validated metadata, reporting completed steps if one fails.
+/// Applies validated metadata, reporting each step as it starts and the
+/// completed ones if a step fails.
 #[allow(
     clippy::too_many_lines,
     reason = "Each confirmed step reports what already happened if it fails"
 )]
-pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcome, Failure> {
+pub(crate) fn apply(
+    git: &impl Git,
+    plan: &Plan,
+    draft: &Draft,
+    report: impl Fn(Step),
+) -> Result<Outcome, Failure> {
     let not_committed = |error: String| {
         let detail = if plan.choices.include_unstaged {
             tr!(
@@ -620,6 +646,7 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
     }
     match draft {
         Draft::Commit { message } => {
+            report(Step::Committing);
             let hash = commit(git, plan, message)
                 .map_err(|error| Failure::new(tr!("Couldn't commit"), error))?;
             if !plan.choices.push {
@@ -630,6 +657,7 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
                 });
             }
             let destination = plan.destination(&plan.branch);
+            report(Step::Pushing);
             publish(git, plan, &plan.branch, &destination).map_err(|error| {
                 Failure::new(
                     tr!(
@@ -657,11 +685,13 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
         } => {
             let mut done = Vec::new();
             if plan.mode == Mode::NewBranch {
+                report(Step::Branching);
                 git.call(plan.project, GitAction::CreateBranch(branch.clone()))
                     .map_err(|error| Failure::new(tr!("Couldn't create %@", branch), error))?;
                 done.push(tr!("Created branch %@", branch).into());
             }
             if plan.has_changes() {
+                report(Step::Committing);
                 let hash = commit(git, plan, title).map_err(|error| {
                     Failure::new(
                         steps(&done, &tr!("couldn't commit")),
@@ -675,6 +705,7 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
                 done.push(tr!("committed %@", short(&hash)).into());
             }
             let destination = plan.destination(branch);
+            report(Step::Pushing);
             publish(git, plan, branch, &destination).map_err(|error| {
                 Failure::new(
                     steps(&done, &tr!("couldn't push")),
@@ -686,6 +717,7 @@ pub(crate) fn apply(git: &impl Git, plan: &Plan, draft: &Draft) -> Result<Outcom
                 )
             })?;
             done.push(tr!("pushed %@/%@", &destination.remote, &destination.branch).into());
+            report(Step::Opening);
             match git.call(
                 plan.project,
                 GitAction::PullRequest(GitPullRequestAction::Create {

@@ -210,12 +210,14 @@ fn worktree_form_reviews_hooks_validates_templates_and_saves_the_submitted_locat
         kind: Some(muxy_protocol::ProjectKind::Worktree),
         parent_id: Some(project),
     };
-    // Edits while the server works must not replace the location actually submitted.
-    click_form(cx, "settings-field-git-template");
-    cx.simulate_keystrokes("cmd-a");
-    cx.simulate_input("../not-submitted/{branch}");
     view.update(cx, |model, cx| {
+        assert!(
+            model.overlay.is_none(),
+            "the form closes while the server works"
+        );
+        assert_eq!(model.worktree_creations(project).count(), 1);
         model.receive_git(&request, Ok(GitReply::Project(record)), cx);
+        assert_eq!(model.worktree_creations(project).count(), 0);
     });
     let saved = muxy_app_core::settings::Settings::load(&settings_path).expect("settings");
     assert_eq!(

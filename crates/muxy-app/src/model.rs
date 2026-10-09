@@ -30,6 +30,7 @@ mod voice;
 mod webviews;
 mod workspaces;
 mod worktrees;
+pub(crate) use worktrees::removes_worktree;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -1114,13 +1115,22 @@ impl AppModel {
             .is_some_and(|request| request.tabs.len() > 1)
     }
 
+    pub(crate) fn finish_confirmation(&mut self, cx: &mut Context<Self>) {
+        self.close_prompt = None;
+        let model = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = model.update(cx, Self::resume_worktree_removal_confirmation);
+        });
+        cx.notify();
+    }
+
     pub(crate) fn finish_close_prompt(
         &mut self,
         tab: TabId,
         response: Result<muxy_ui::dialog::ConfirmationResponse, String>,
         cx: &mut Context<Self>,
     ) {
-        self.close_prompt = None;
+        self.finish_confirmation(cx);
         self.focus_requested = true;
         if self
             .close_request
@@ -2473,7 +2483,7 @@ impl AppModel {
         }) {
             self.close_request = None;
             self.pending_close = None;
-            self.close_prompt = None;
+            self.finish_confirmation(cx);
         }
         self.focus_requested |= active != self.active_pane();
         self.changed(cx);

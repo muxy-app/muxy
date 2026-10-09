@@ -119,10 +119,18 @@ pub(crate) fn workspace_items(state: &AppState, project: ProjectId) -> Vec<Item>
 }
 
 /// The menu of a row in a project's worktree list. `primary` is the project's own row.
+/// A worktree whose folder is gone can only be removed.
 pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
     let id = project.id;
     if project.status() != ProjectStatus::Available {
-        return Vec::new();
+        return if primary {
+            Vec::new()
+        } else {
+            vec![Item::action(
+                tr!("Remove Worktree…"),
+                Command::RemoveProject(id),
+            )]
+        };
     }
     let mut items = vec![
         Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
@@ -178,17 +186,32 @@ impl AppModel {
         let Some(record) = self.state.project(project).filter(|project| !project.home) else {
             return;
         };
-        let message = tr!(
-            "Remove “%@” from every client? All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded. The folder and its files will stay on disk.",
-            &record.name
-        )
+        let gone = record.parent_id.is_some() && record.status() != ProjectStatus::Available;
+        let message = if gone {
+            tr!(
+                "Remove “%@” from every client? Its folder is already gone. All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded.",
+                &record.name
+            )
+        } else {
+            tr!(
+                "Remove “%@” from every client? All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded. The folder and its files will stay on disk.",
+                &record.name
+            )
+        }
         .to_string();
         self.confirm(
-            tr_key!("Remove Project?"),
+            if gone {
+                tr_key!("Remove Worktree?")
+            } else {
+                tr_key!("Remove Project?")
+            },
             message,
             tr_key!("Remove"),
             cx,
             move |model, cx| {
+                if gone {
+                    model.leave_worktree(project, cx);
+                }
                 model.remove_project_confirmed(project, cx);
             },
         );
@@ -236,7 +259,7 @@ impl AppModel {
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = prompt(window, title, message, action, cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 model.focus_requested = true;
                 match response {
                     Ok(ConfirmationResponse::Confirmed { .. }) => confirmed(model, cx),

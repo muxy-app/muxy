@@ -137,7 +137,7 @@ impl Item {
         self
     }
 
-    fn command(&self) -> Option<Command> {
+    pub(crate) fn command(&self) -> Option<Command> {
         match self.kind {
             Kind::Action(command) => Some(command),
             Kind::Submenu(_) => None,

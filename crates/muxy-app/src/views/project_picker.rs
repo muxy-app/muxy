@@ -723,7 +723,7 @@ impl AppModel {
                 };
             }
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 if !current_picker(model, &picker, generation, cx) {
                     return;
                 }
@@ -809,7 +809,7 @@ impl AppModel {
                         .spawn(async move { std::fs::create_dir_all(created_path) })
                         .await;
                     let _ = model.update(cx, |model, cx| {
-                        model.close_prompt = None;
+                        model.finish_confirmation(cx);
                         match result {
                             Ok(()) => model.open_project_path(path, cx),
                             Err(error) => model.project_picker_error(
@@ -820,7 +820,7 @@ impl AppModel {
                     });
                 } else {
                     let _ = model.update(cx, |model, cx| {
-                        model.close_prompt = None;
+                        model.finish_confirmation(cx);
                         if let Err(error) = response {
                             model.project_picker_error(error, cx);
                         }
@@ -943,7 +943,7 @@ impl AppModel {
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = folder_prompt(window, directory.into(), search_location, cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 match response {
                     Ok(Some(path)) if search_location => model.save_project_search_root(path, cx),
                     Ok(Some(path)) => model.open_project_path(path, cx),

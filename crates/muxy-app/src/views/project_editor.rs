@@ -177,6 +177,7 @@ pub(crate) fn render(
         .w(m.scaled(320.0)
             .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(model.webview_occlusion())
         .child(
             muxy_ui::popover::header(theme, m).child(match editor.target {
                 Target::Tab(_) => tr!("Rename Tab"),

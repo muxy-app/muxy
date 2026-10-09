@@ -85,6 +85,17 @@ pub(crate) fn render(
         );
         items = children;
     }
+    for bounds in &panels {
+        layer = layer.child(
+            div()
+                .absolute()
+                .left(bounds.origin.x)
+                .top(bounds.origin.y)
+                .w(bounds.size.width)
+                .h(bounds.size.height)
+                .child(model.webview_occlusion()),
+        );
+    }
     *menu.panels.borrow_mut() = panels;
     layer.into_any_element()
 }

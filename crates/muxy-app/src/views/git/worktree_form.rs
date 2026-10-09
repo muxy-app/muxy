@@ -68,29 +68,6 @@ impl AppModel {
             .map_err(|e| e.to_string())
     }
 
-    pub(crate) fn save_worktree_location(
-        &mut self,
-        request: &muxy_protocol::GitRequest,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(Overlay::GitForm(form)) = &self.overlay else {
-            return;
-        };
-        if !form.worktree || form.project != request.project {
-            return;
-        }
-        let GitAction::Worktree(intent) = &request.action else {
-            return;
-        };
-        let Some((operation, location)) = &form.submitted_location else {
-            return;
-        };
-        if *operation != intent.operation {
-            return;
-        }
-        self.save_worktree_preference(request.project, location.clone(), cx);
-    }
-
     pub(crate) fn receive_worktree_hooks(
         &mut self,
         project: ProjectId,
@@ -122,10 +99,17 @@ impl AppModel {
         hooks: Result<Vec<WorktreeHook>, String>,
         cx: &mut Context<Self>,
     ) {
+        let Some(name) = self
+            .state
+            .project(project)
+            .map(|record| record.name.clone())
+        else {
+            return;
+        };
         let mut message = if expected.dirty {
-            tr!("Remove worktree and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted.")
+            tr!("Remove worktree “%@” and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted.", &name)
         } else {
-            tr!("Remove worktree and delete its files? Local processes running from this worktree will stop.")
+            tr!("Remove worktree “%@” and delete its files? Local processes running from this worktree will stop.", &name)
         }
         .to_string();
         let hooks = match hooks {

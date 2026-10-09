@@ -3,7 +3,7 @@ use crate::views::overlays::Overlay;
 use gpui::Context;
 use muxy_protocol::{
     GitAction, GitBaseSwitch, GitBranch, GitFile, GitPullRequest, GitPullRequestAction, GitReply,
-    GitRequest, GitSummary, ProjectId,
+    GitRequest, GitSummary, ProjectId, WorktreeAction, WorktreeIntent,
 };
 use muxy_ui::tr;
 use std::collections::{HashMap, VecDeque};
@@ -16,7 +16,8 @@ pub(crate) struct Repository {
     pub(crate) pull_request: Option<GitPullRequest>,
     pub(crate) error: Option<String>,
     pub(crate) pending: bool,
-    mutating: bool,
+    /// The change Git is making now.
+    mutation: Option<GitAction>,
     context: u64,
     pub(super) queued: Option<(GitAction, u64)>,
     pub(crate) loaded: bool,
@@ -27,6 +28,25 @@ pub(crate) struct Repository {
     /// The merged pull request number and base while the local base branch is updated.
     post_merge: Option<(u64, String)>,
     removal: Option<muxy_protocol::WorktreeRemoval>,
+    merge_removal: MergeRemoval,
+    removal_confirmation: Option<RemovalConfirmation>,
+}
+
+struct RemovalConfirmation {
+    expected: muxy_protocol::WorktreeRemoval,
+    hooks: Result<Vec<muxy_protocol::WorktreeHook>, String>,
+}
+
+/// Removing a worktree once its pull request merges.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum MergeRemoval {
+    #[default]
+    None,
+    /// The merge is running; removal follows if it succeeds.
+    Merging,
+    /// Removal is being prepared, so its confirmation shows even if the
+    /// interaction moved on.
+    Inspecting,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,16 +85,25 @@ impl Repository {
     }
     pub(super) fn disconnect(&mut self) {
         self.pending = false;
-        self.mutating = false;
+        self.mutation = None;
         self.queued = None;
         self.reading = None;
         self.refresh.clear();
         self.post_merge = None;
         self.removal = None;
+        self.merge_removal = MergeRemoval::None;
+        self.removal_confirmation = None;
     }
 
     pub(crate) fn busy(&self) -> bool {
-        self.mutating || self.queued.is_some()
+        self.mutation.is_some() || self.queued.is_some()
+    }
+
+    /// The change Git is making, or the one waiting for a read to finish.
+    pub(crate) fn mutation(&self) -> Option<&GitAction> {
+        self.mutation
+            .as_ref()
+            .or(self.queued.as_ref().map(|(action, _)| action))
     }
 
     pub(crate) fn pull_request_presence(&self) -> Presence {
@@ -100,6 +129,7 @@ pub(crate) struct GitState {
     pub(crate) select_after_catalog: Option<(muxy_app_core::ServerId, ProjectId, u64)>,
     pub(crate) interaction: u64,
     pub(super) worktrees: super::worktrees::WorktreeSync,
+    pub(super) creations: Vec<super::worktrees::Creation>,
 }
 impl GitState {
     pub(super) fn reset_context(&mut self) {
@@ -107,6 +137,48 @@ impl GitState {
     }
 }
 impl AppModel {
+    fn queue_worktree_removal_confirmation(
+        &mut self,
+        project: ProjectId,
+        expected: muxy_protocol::WorktreeRemoval,
+        hooks: Result<Vec<muxy_protocol::WorktreeHook>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.git
+            .projects
+            .entry(project)
+            .or_default()
+            .removal_confirmation = Some(RemovalConfirmation { expected, hooks });
+        self.resume_worktree_removal_confirmation(cx);
+    }
+
+    pub(crate) fn resume_worktree_removal_confirmation(&mut self, cx: &mut Context<Self>) {
+        if self.close_prompt.is_some() || self.quitting != super::Quitting::Idle {
+            return;
+        }
+        while let Some((project, confirmation)) =
+            self.git
+                .projects
+                .iter_mut()
+                .find_map(|(project, repository)| {
+                    repository
+                        .removal_confirmation
+                        .take()
+                        .map(|confirmation| (*project, confirmation))
+                })
+        {
+            let Some(server) = self.state.project_server(project) else {
+                continue;
+            };
+            if !self.ready(server) {
+                continue;
+            }
+            self.confirm_worktree_removal(project, confirmation.expected, confirmation.hooks, cx);
+            cx.notify();
+            return;
+        }
+    }
+
     pub(super) fn git_invalidated(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         if self.git.current != Some(project) || !self.session_listing_ready() {
             return;
@@ -121,13 +193,15 @@ impl AppModel {
         self.resync_worktrees(project, cx);
     }
 
+    /// Sends `action`, or queues it behind the running read. Returns whether
+    /// it will run.
     pub(crate) fn git_request(
         &mut self,
         project: ProjectId,
         action: GitAction,
         cx: &mut Context<Self>,
-    ) {
-        self.request_git_context(project, action, self.git.interaction, cx);
+    ) -> bool {
+        self.request_git_context(project, action, self.git.interaction, cx)
     }
 
     fn request_git_context(
@@ -136,21 +210,21 @@ impl AppModel {
         action: GitAction,
         context: u64,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let server = self.project_server_or_local(project);
         if !self.ready(server) {
-            return;
+            return false;
         }
         if read_slot(&action).is_none() && self.ai.running(project) {
             self.fail(
                 tr!("Wait for the AI repository action to finish").to_string(),
                 cx,
             );
-            return;
+            return false;
         }
         if action == GitAction::Watch && self.git.current != Some(project) {
             self.dispatch_git_refresh(project, cx);
-            return;
+            return false;
         }
         let read = read_slot(&action).is_some();
         if let Some(repository) = self.git.projects.get_mut(&project).filter(|r| r.pending) {
@@ -160,23 +234,25 @@ impl AppModel {
                 {
                     repository.refresh.push_back(action);
                 }
-            } else if !repository.mutating && repository.queued.is_none() {
+            } else if repository.mutation.is_none() && repository.queued.is_none() {
                 repository.queued = Some((action, context));
                 self.update_git_picker(cx);
                 cx.notify();
             } else {
                 self.fail(tr!("A Git action is already pending").to_string(), cx);
+                return false;
             }
-            return;
+            return true;
         }
         let request = GitRequest {
             project,
             action: action.clone(),
         };
-        if self.send(server, Work::Git(request), cx) {
+        let sent = self.send(server, Work::Git(request), cx);
+        if sent {
             let repository = self.git.projects.entry(project).or_default();
             repository.pending = true;
-            repository.mutating = !read;
+            repository.mutation = (!read).then(|| action.clone());
             repository.context = context;
             repository.reading = read.then_some(action.clone());
             if let Some(slot) = read_slot(&action) {
@@ -187,7 +263,22 @@ impl AppModel {
         }
         self.update_git_picker(cx);
         cx.notify();
+        sent
     }
+    /// Merges a worktree's pull request, then asks to remove the worktree.
+    pub(crate) fn merge_and_remove_worktree(
+        &mut self,
+        project: ProjectId,
+        merge: GitPullRequestAction,
+        cx: &mut Context<Self>,
+    ) {
+        if self.git_request(project, GitAction::PullRequest(merge), cx)
+            && let Some(repository) = self.git.projects.get_mut(&project)
+        {
+            repository.merge_removal = MergeRemoval::Merging;
+        }
+    }
+
     pub(super) fn sync_git(&mut self, cx: &mut Context<Self>) {
         let current = self.state.current_project().id;
         if self
@@ -292,9 +383,10 @@ impl AppModel {
         result: Result<GitReply, muxy_client::ClientError>,
         cx: &mut Context<Self>,
     ) {
+        let creation = self.take_creation(request);
         let repository = self.git.projects.entry(request.project).or_default();
         repository.pending = false;
-        repository.mutating = false;
+        repository.mutation = None;
         repository.reading = None;
         if let Some(slot) = read_slot(&request.action) {
             repository.read_loaded[slot] = true;
@@ -303,6 +395,7 @@ impl AppModel {
             }
         }
         let context_matches = repository.context == self.git.interaction;
+        let removing_after_merge = repository.merge_removal == MergeRemoval::Inspecting;
         let setup_error = match &result {
             Ok(GitReply::WorktreeSetupFailed { message, .. }) => Some(message.clone()),
             _ => None,
@@ -351,7 +444,7 @@ impl AppModel {
             }
             Ok(GitReply::Changes(files)) => repository.files = files,
             Ok(GitReply::PullRequest(pr)) => repository.pull_request = pr.map(|pr| *pr),
-            Ok(GitReply::Removal(expected)) if context_matches => {
+            Ok(GitReply::Removal(expected)) if context_matches || removing_after_merge => {
                 repository.removal = Some(expected);
                 self.git_request(
                     request.project,
@@ -359,22 +452,26 @@ impl AppModel {
                     cx,
                 );
             }
-            Ok(GitReply::WorktreeHooks(hooks)) if context_matches => {
-                if request.action == (GitAction::WorktreeHooks { teardown: true }) {
-                    if let Some(expected) = repository.removal.take() {
-                        self.confirm_worktree_removal(request.project, expected, Ok(hooks), cx);
-                    }
-                } else {
-                    self.receive_worktree_hooks(request.project, Ok(hooks), cx);
+            Ok(GitReply::WorktreeHooks(hooks))
+                if request.action == (GitAction::WorktreeHooks { teardown: true })
+                    && (context_matches || removing_after_merge) =>
+            {
+                repository.merge_removal = MergeRemoval::None;
+                if let Some(expected) = repository.removal.take() {
+                    self.queue_worktree_removal_confirmation(
+                        request.project,
+                        expected,
+                        Ok(hooks),
+                        cx,
+                    );
                 }
             }
+            Ok(GitReply::WorktreeHooks(hooks)) if context_matches => {
+                self.receive_worktree_hooks(request.project, Ok(hooks), cx);
+            }
             Ok(GitReply::Project(project) | GitReply::WorktreeSetupFailed { project, .. }) => {
-                if context_matches {
-                    self.save_worktree_location(request, cx);
-                    self.dismiss_overlay(cx);
-                    let server = self.project_server_or_local(request.project);
-                    self.git.select_after_catalog =
-                        Some((server, project.id, self.git.interaction));
+                if let Some(creation) = creation {
+                    self.worktree_created(creation, project.id, cx);
                 }
                 self.refresh_catalog(self.project_server_or_local(request.project), cx);
             }
@@ -387,7 +484,9 @@ impl AppModel {
                     }
                     _ => None,
                 };
-                let follow_up = merged.filter(|_| active).and_then(|number| {
+                let remove = merged.is_some()
+                    && std::mem::take(&mut repository.merge_removal) == MergeRemoval::Merging;
+                let follow_up = merged.filter(|_| active && !remove).and_then(|number| {
                     repository
                         .pull_request
                         .as_ref()
@@ -424,6 +523,12 @@ impl AppModel {
                         self.dismiss_overlay(cx);
                     }
                     self.refresh_catalog(self.project_server_or_local(request.project), cx);
+                }
+                if remove
+                    && self.git_request(request.project, GitAction::InspectRemoval, cx)
+                    && let Some(repository) = self.git.projects.get_mut(&request.project)
+                {
+                    repository.merge_removal = MergeRemoval::Inspecting;
                 }
                 if let Some((_, base)) = follow_up {
                     self.git_request(request.project, GitAction::SwitchToBase(base), cx);
@@ -472,6 +577,14 @@ impl AppModel {
             }
             Ok(_) => (),
             Err(error) => {
+                if matches!(
+                    request.action,
+                    GitAction::PullRequest(GitPullRequestAction::Merge { .. })
+                        | GitAction::InspectRemoval
+                        | GitAction::WorktreeHooks { teardown: true }
+                ) {
+                    repository.merge_removal = MergeRemoval::None;
+                }
                 if let Some(slot) = read_slot(&request.action) {
                     repository.read_errors[slot] = Some(error.to_string());
                     if matches!(request.action, GitAction::Summary) {
@@ -483,11 +596,12 @@ impl AppModel {
                     ) {
                         repository.pull_request = None;
                     }
-                    if context_matches && let GitAction::WorktreeHooks { teardown } = request.action
+                    if (context_matches || removing_after_merge)
+                        && let GitAction::WorktreeHooks { teardown } = request.action
                     {
                         if teardown {
                             if let Some(expected) = repository.removal.take() {
-                                self.confirm_worktree_removal(
+                                self.queue_worktree_removal_confirmation(
                                     request.project,
                                     expected,
                                     Err(error.to_string()),
@@ -520,12 +634,29 @@ impl AppModel {
                             number,
                             ..
                         }) => Some(tr!("Couldn't update PR #%lld", *number).to_string()),
+                        GitAction::InspectRemoval if removing_after_merge => {
+                            Some(tr!("Merged, but couldn't remove the worktree").to_string())
+                        }
+                        GitAction::Worktree(WorktreeIntent {
+                            action: WorktreeAction::Create { .. },
+                            ..
+                        }) => Some(tr!("Couldn't create worktree").to_string()),
+                        GitAction::Worktree(WorktreeIntent {
+                            action: WorktreeAction::Remove { .. },
+                            ..
+                        }) => Some(tr!("Couldn't remove worktree").to_string()),
                         _ => None,
                     };
                     repository.error = Some(failed.clone().unwrap_or_else(|| error.to_string()));
-                    let active = request.project == self.state.current_project().id;
+                    // Worktree work goes on while you move elsewhere, so its
+                    // failures are always shown.
+                    let shown = request.project == self.state.current_project().id
+                        || matches!(
+                            request.action,
+                            GitAction::Worktree(_) | GitAction::InspectRemoval
+                        ) && failed.is_some();
                     match failed {
-                        Some(title) if active => self.fail_detail(title, &error.to_string(), cx),
+                        Some(title) if shown => self.fail_detail(title, &error.to_string(), cx),
                         None if context_matches => self.fail(error.to_string(), cx),
                         _ => (),
                     }

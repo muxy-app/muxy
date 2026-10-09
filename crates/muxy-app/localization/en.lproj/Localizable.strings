@@ -130,6 +130,7 @@
 "Appearance" = "Appearance";
 "Appended after the configured prompt for this action only." = "Appended after the configured prompt for this action only.";
 "Apply" = "Apply";
+"Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy asks to remove this worktree and switches to the primary checkout." = "Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy asks to remove this worktree and switches to the primary checkout.";
 "Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy switches this repository to %@ and fast-forwards it, unless another worktree has it checked out." = "Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy switches this repository to %@ and fast-forwards it, unless another worktree has it checked out.";
 "Apply Layout" = "Apply Layout";
 "Apply Layout?" = "Apply Layout?";
@@ -270,6 +271,7 @@
 "Closed" = "Closed";
 "Closed PR #%lld" = "Closed PR #%lld";
 "Closed pane cleanup is pending: %@" = "Closed pane cleanup is pending: %@";
+"Closing PR #%lld" = "Closing PR #%lld";
 "Closing terminals" = "Closing terminals";
 "Collapse Composer" = "Collapse Composer";
 "Collapse Project" = "Collapse Project";
@@ -405,7 +407,9 @@
 "Couldn't commit" = "Couldn't commit";
 "Couldn't create %@" = "Couldn't create %@";
 "Couldn't create pull request" = "Couldn't create pull request";
+"Couldn't create worktree" = "Couldn't create worktree";
 "Couldn't merge PR #%lld" = "Couldn't merge PR #%lld";
+"Couldn't remove worktree" = "Couldn't remove worktree";
 "Couldn't start %@" = "Couldn't start %@";
 "Couldn't update PR #%lld" = "Couldn't update PR #%lld";
 "Create" = "Create";
@@ -418,7 +422,8 @@
 "Create a pull request from \"%@\"?" = "Create a pull request from \"%@\"?";
 "Create new branch" = "Create new branch";
 "Created branch %@" = "Created branch %@";
-"Creating PR" = "Creating PR";
+"Creating branch" = "Creating branch";
+"Creating worktree" = "Creating worktree";
 "Creating…" = "Creating…";
 "Crop Logo" = "Crop Logo";
 "Current device" = "Current device";
@@ -665,6 +670,8 @@
 "Merged PR #%lld" = "Merged PR #%lld";
 "Merged PR #%lld into %@" = "Merged PR #%lld into %@";
 "Merged PR #%lld, but couldn't update %@" = "Merged PR #%lld, but couldn't update %@";
+"Merged, but couldn't remove the worktree" = "Merged, but couldn't remove the worktree";
+"Merging PR #%lld" = "Merging PR #%lld";
 "Microphone access is disabled. Enable Muxy in System Settings → Privacy & Security → Microphone." = "Microphone access is disabled. Enable Muxy in System Settings → Privacy & Security → Microphone.";
 "Microphone recording stopped. Try again." = "Microphone recording stopped. Try again.";
 "Migration" = "Migration";
@@ -729,6 +736,7 @@
 "Next Project" = "Next Project";
 "Next Prompt" = "Next Prompt";
 "Next Tab" = "Next Tab";
+"Next Tip" = "Next Tip";
 "Next match" = "Next match";
 "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead." = "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.";
 "No Shortcut" = "No Shortcut";
@@ -790,6 +798,7 @@
 "Opener does not support this resource" = "Opener does not support this resource";
 "Opener exited with %@" = "Opener exited with %@";
 "Opener timed out" = "Opener timed out";
+"Opening PR" = "Opening PR";
 "Opens Settings" = "Opens Settings";
 "Opens files you click in a terminal. An extension opener opens only the files it supports; other files open in the project editor." = "Opens files you click in a terminal. An extension opener opens only the files it supports; other files open in the project editor.";
 "Option-Return inserts a new line." = "Option-Return inserts a new line.";
@@ -829,6 +838,7 @@
 "Previous Project" = "Previous Project";
 "Previous Prompt" = "Previous Prompt";
 "Previous Tab" = "Previous Tab";
+"Previous Tip" = "Previous Tip";
 "Previous match" = "Previous match";
 "Project" = "Project";
 "Project %lld" = "Project %lld";
@@ -846,6 +856,7 @@
 "Pull request provider" = "Pull request provider";
 "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI." = "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.";
 "Push after committing" = "Push after committing";
+"Pushing" = "Pushing";
 "Put the user and port either in the host or in their own fields" = "Put the user and port either in the host or in their own fields";
 "Query is too long" = "Query is too long";
 "Quick Terminal" = "Quick Terminal";
@@ -857,6 +868,7 @@
 "Quick Terminal status" = "Quick Terminal status";
 "Quit %@" = "Quit %@";
 "Quitting Muxy never ends your terminals. To keep them when closing tabs or panes too, set Settings → General → Closing terminals → When closing tabs or panes to Detach." = "Quitting Muxy never ends your terminals. To keep them when closing tabs or panes too, set Settings → General → Closing terminals → When closing tabs or panes to Detach.";
+"Reading changes" = "Reading changes";
 "Ready" = "Ready";
 "Rebase" = "Rebase";
 "Rebase and Merge" = "Rebase and Merge";
@@ -887,10 +899,15 @@
 "Remove Project?" = "Remove Project?";
 "Remove Project…" = "Remove Project…";
 "Remove Worktree and Files…" = "Remove Worktree and Files…";
-"Remove worktree and delete its files? Local processes running from this worktree will stop." = "Remove worktree and delete its files? Local processes running from this worktree will stop.";
-"Remove worktree and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted." = "Remove worktree and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted.";
+"Remove Worktree?" = "Remove Worktree?";
+"Remove Worktree…" = "Remove Worktree…";
+"Remove worktree after merge" = "Remove worktree after merge";
+"Remove worktree “%@” and delete its files? Local processes running from this worktree will stop." = "Remove worktree “%@” and delete its files? Local processes running from this worktree will stop.";
+"Remove worktree “%@” and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted." = "Remove worktree “%@” and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted.";
 "Remove “%@” from every client? All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded. The folder and its files will stay on disk." = "Remove “%@” from every client? All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded. The folder and its files will stay on disk.";
+"Remove “%@” from every client? Its folder is already gone. All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded." = "Remove “%@” from every client? Its folder is already gone. All of its terminal sessions will end, including those displayed in other clients, and their saved output will be discarded.";
 "Remove…" = "Remove…";
+"Removing worktree" = "Removing worktree";
 "Removing…" = "Removing…";
 "Rename Project" = "Rename Project";
 "Rename Tab" = "Rename Tab";
@@ -1201,7 +1218,9 @@
 "Updated branch for PR #%lld" = "Updated branch for PR #%lld";
 "Updates" = "Updates";
 "Updates apply only to this computer's server" = "Updates apply only to this computer's server";
+"Updating %@" = "Updating %@";
 "Updating %@ (%@ of %@)…" = "Updating %@ (%@ of %@)…";
+"Updating PR #%lld" = "Updating PR #%lld";
 "Updating app…" = "Updating app…";
 "Updating…" = "Updating…";
 "Use Command, Control, or Option with a supported key" = "Use Command, Control, or Option with a supported key";
@@ -1227,6 +1246,7 @@
 "Wait for the current AI action to finish" = "Wait for the current AI action to finish";
 "Wait for the current Git action to finish" = "Wait for the current Git action to finish";
 "Wait for the current mobile access change to finish" = "Wait for the current mobile access change to finish";
+"Wait for the running Git action to finish." = "Wait for the running Git action to finish.";
 "Wait for the server settings operation to finish before quitting" = "Wait for the server settings operation to finish before quitting";
 "Web content process terminated" = "Web content process terminated";
 "When closing tabs or panes" = "When closing tabs or panes";
@@ -1246,6 +1266,8 @@
 "Worktree created, but setup failed" = "Worktree created, but setup failed";
 "Worktrees" = "Worktrees";
 "Worktrees go in <folder>/<project>/<name>. Leave both location settings empty to use ~/.muxy/worktrees." = "Worktrees go in <folder>/<project>/<name>. Leave both location settings empty to use ~/.muxy/worktrees.";
+"Writing PR" = "Writing PR";
+"Writing message" = "Writing message";
 "Yellow" = "Yellow";
 "You can show tips again in Settings → Appearance → Interface by turning on Show tips." = "You can show tips again in Settings → Appearance → Interface by turning on Show tips.";
 "You’re running the latest version of %@." = "You’re running the latest version of %@.";

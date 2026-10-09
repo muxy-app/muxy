@@ -687,7 +687,7 @@ impl AppModel {
             let response =
                 crate::views::confirm::prompt_server(window, restart, name.as_deref(), cx).await;
             let _ = model.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 model.focus_requested = true;
                 if generation == model.generation(server) {
                     match response {

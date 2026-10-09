@@ -1,5 +1,6 @@
 mod ai;
 mod ai_provider;
+mod confirmation;
 mod form;
 pub(crate) use form::field as form_field;
 mod pr;
@@ -66,7 +67,6 @@ pub(crate) struct Form {
     subscriptions: Vec<gpui::Subscription>,
     error: Option<String>,
     suggested_branch: String,
-    submitted_location: Option<(OperationId, muxy_app_core::settings::WorktreeLocation)>,
 }
 impl AppModel {
     pub(crate) fn open_git_picker(
@@ -302,7 +302,9 @@ impl AppModel {
         match &operation {
             GitAction::DeleteBranch(branch) => self.confirm_git_action(project, operation.clone(), tr!("Permanently delete branch “%@”? Unmerged commits may become unreachable.", branch).into(), cx),
             GitAction::Discard(paths) => self.confirm_git_action(project, operation.clone(), tr!("Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)).into(), cx),
-            _ => self.git_request(project, operation, cx),
+            _ => {
+                self.git_request(project, operation, cx);
+            }
         }
     }
 
@@ -363,32 +365,7 @@ impl AppModel {
         let window = self.window;
         let context = self.git.interaction;
         self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let (send, receive) = async_channel::bounded(1);
-            let dialog = window.update(cx, |_, window, _| {
-                muxy_ui::dialog::confirm(
-                    window,
-                    &tr!("Confirm Git Operation"),
-                    &message,
-                    &tr!("Confirm"),
-                    has_hooks
-                        .then(|| tr!("Run the teardown commands shown above"))
-                        .as_ref()
-                        .map(gpui::SharedString::as_str),
-                    move |answer| {
-                        let _ = send.try_send(answer);
-                    },
-                )
-            });
-            let confirmed = if let Ok(Ok(_dialog)) = dialog {
-                match receive.recv().await {
-                    Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { dont_ask_again }) => {
-                        Some(dont_ask_again)
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            };
+            let confirmed = confirmation::prompt(window, &message, has_hooks, cx).await;
             if confirmed == Some(false)
                 && let GitAction::Worktree(intent) = &mut action
                 && let Some(options) = &mut intent.options
@@ -396,12 +373,15 @@ impl AppModel {
                 options.hooks = None;
             }
             let _ = this.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 if confirmed.is_some()
                     && model.git.interaction == context
                     && model.state.project(project).is_some()
                 {
-                    model.git_request(project, action, cx);
+                    let removes = crate::model::removes_worktree(&action);
+                    if model.git_request(project, action, cx) && removes {
+                        model.leave_worktree(project, cx);
+                    }
                 }
             });
         }));
@@ -505,7 +485,6 @@ impl AppModel {
             subscriptions,
             error: None,
             suggested_branch: String::new(),
-            submitted_location: None,
         })));
         if worktree {
             self.git_request(project, GitAction::Branches, cx);
@@ -699,42 +678,38 @@ impl AppModel {
             return;
         }
         let project = form.project;
-        let action = if form.worktree {
-            let Ok(directory) = directory else {
-                return;
-            };
-            let base = form.base.read(cx).text().trim().to_owned();
-            GitAction::Worktree(WorktreeIntent {
-                options: Some(muxy_protocol::WorktreeOptions {
-                    name: Some(form.name.read(cx).text().trim().into()),
-                    hooks: form.run_setup.then(|| form.hooks.clone()).flatten(),
-                }),
-                operation: OperationId::new(),
-                action: WorktreeAction::Create {
-                    project: ProjectId::new(),
-                    directory: ServerPath(
-                        std::path::Path::new(&directory)
-                            .as_os_str()
-                            .as_bytes()
-                            .to_vec(),
-                    ),
-                    branch,
-                    base: (!form.existing).then_some(if base.is_empty() {
-                        "HEAD".into()
-                    } else {
-                        base
-                    }),
-                },
-            })
-        } else {
-            GitAction::CreateBranch(branch)
-        };
-        if let GitAction::Worktree(intent) = &action
-            && let Some(Overlay::GitForm(form)) = &mut self.overlay
-        {
-            form.submitted_location = Some((intent.operation, form.location(cx)));
+        if !form.worktree {
+            self.git_request(project, GitAction::CreateBranch(branch), cx);
+            return;
         }
-        self.git_request(project, action, cx);
+        let Ok(directory) = directory else {
+            return;
+        };
+        let base = form.base.read(cx).text().trim().to_owned();
+        let intent = WorktreeIntent {
+            options: Some(muxy_protocol::WorktreeOptions {
+                name: Some(form.name.read(cx).text().trim().into()),
+                hooks: form.run_setup.then(|| form.hooks.clone()).flatten(),
+            }),
+            operation: OperationId::new(),
+            action: WorktreeAction::Create {
+                project: ProjectId::new(),
+                directory: ServerPath(
+                    std::path::Path::new(&directory)
+                        .as_os_str()
+                        .as_bytes()
+                        .to_vec(),
+                ),
+                branch,
+                base: (!form.existing).then_some(if base.is_empty() {
+                    "HEAD".into()
+                } else {
+                    base
+                }),
+            },
+        };
+        let location = form.location(cx);
+        self.create_worktree(project, intent, location, cx);
     }
 }
 

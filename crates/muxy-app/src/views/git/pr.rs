@@ -5,7 +5,7 @@ use gpui::{
 };
 use muxy_protocol::{GitAction, GitMergeMethod, GitPullRequest, GitPullRequestAction, ProjectId};
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
-use muxy_ui::controls::Style;
+use muxy_ui::controls::{self, Style};
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
@@ -17,6 +17,8 @@ pub(crate) struct PullRequestPopover {
     project: ProjectId,
     number: u64,
     merge_method: GitMergeMethod,
+    /// A worktree's pull request can remove the worktree once merged.
+    remove_worktree: bool,
 }
 
 fn can_merge(pr: &GitPullRequest) -> bool {
@@ -56,6 +58,7 @@ impl AppModel {
             project,
             number: pr.number,
             merge_method: GitMergeMethod::Squash,
+            remove_worktree: false,
         }));
         self.queue_git_refresh(
             project,
@@ -83,6 +86,15 @@ impl AppModel {
             && popover.project == project
         {
             popover.merge_method = method;
+            cx.notify();
+        }
+    }
+
+    fn toggle_merge_removal(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        if let Some(Overlay::PullRequest(popover)) = &mut self.overlay
+            && popover.project == project
+        {
+            popover.remove_worktree = !popover.remove_worktree;
             cx.notify();
         }
     }
@@ -133,6 +145,12 @@ impl AppModel {
         if !matches_current || reviewed_head.is_some_and(|head| *head != head_oid) {
             return;
         }
+        let remove_worktree = matches!(action, GitPullRequestAction::Merge { .. })
+            && matches!(
+                &self.overlay,
+                Some(Overlay::PullRequest(popover))
+                    if popover.project == project && popover.remove_worktree
+            );
         if self.ai.running(project)
             || self
                 .git
@@ -145,6 +163,17 @@ impl AppModel {
             return;
         }
         let (title, message, label) = match &action {
+            GitPullRequestAction::Merge { method, .. } if can_merge(pr) && remove_worktree => (
+                tr!("Merge pull request?"),
+                tr!(
+                    "Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy asks to remove this worktree and switches to the primary checkout.",
+                    &merge_action_label(*method),
+                    number,
+                    &pr.title,
+                    &pr.head_oid[..pr.head_oid.len().min(7)]
+                ),
+                merge_action_label(*method),
+            ),
             GitPullRequestAction::Merge { method, .. } if can_merge(pr) => (
                 tr!("Merge pull request?"),
                 tr!(
@@ -200,7 +229,7 @@ impl AppModel {
                 false
             };
             let _ = this.update(cx, |model, cx| {
-                model.close_prompt = None;
+                model.finish_confirmation(cx);
                 if !confirmed {
                     return;
                 }
@@ -220,7 +249,11 @@ impl AppModel {
                     );
                     return;
                 }
-                model.git_request(project, GitAction::PullRequest(action), cx);
+                if remove_worktree {
+                    model.merge_and_remove_worktree(project, action, cx);
+                } else {
+                    model.git_request(project, GitAction::PullRequest(action), cx);
+                }
             });
         }));
     }
@@ -374,6 +407,36 @@ fn merge_selector(
         );
     }
     selector.into_any_element()
+}
+
+fn merge_removal(
+    popover: &PullRequestPopover,
+    style: Style<'_>,
+    enabled: bool,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let Style { theme, metrics: m } = style;
+    let project = popover.project;
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(m.spacing3())
+        .text_size(m.font_footnote())
+        .text_color(theme.fg_muted)
+        .when(!enabled, |row| row.opacity(0.4))
+        .child(controls::toggle(
+            style,
+            "pr-remove-worktree",
+            popover.remove_worktree,
+            cx.listener(move |model, _, _, cx| {
+                if enabled {
+                    model.toggle_merge_removal(project, cx);
+                }
+            }),
+        ))
+        .child(tr!("Remove worktree after merge"))
+        .into_any_element()
 }
 
 fn merge_status(pr: &GitPullRequest, theme: &Theme) -> Option<(SharedString, Hsla)> {
@@ -587,6 +650,13 @@ pub(crate) fn render_pr(
                     },
                 )
                 .child(merge_selector(popover, style, !busy, cx))
+                .when(
+                    model
+                        .state
+                        .project(project)
+                        .is_some_and(|project| project.parent_id.is_some()),
+                    |surface| surface.child(merge_removal(popover, style, !busy, cx)),
+                )
                 .child(action_button(
                     style,
                     "pr-merge",
