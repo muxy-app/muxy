@@ -107,7 +107,7 @@ fn attach(
         id: AttachmentId(id),
         channel: ChannelId(u32::try_from(id)?),
         size,
-        sink,
+        sink: sink.into(),
     })?;
     match events.recv_timeout(TIMEOUT)? {
         AttachmentEvent::Snapshot { snapshot, .. } => Ok((events, snapshot)),

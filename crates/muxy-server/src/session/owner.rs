@@ -16,7 +16,9 @@ use crate::archive::{Archive, bound_history_page, history_range};
 use crate::error::ServerError;
 use crate::search::Search;
 use crate::session::metadata::Metadata;
-use crate::session::{AttachmentEvent, AttachmentId, SessionCommand, SessionHandle};
+use crate::session::{
+    AttachmentEvent, AttachmentId, AttachmentSink, SessionCommand, SessionHandle,
+};
 
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
@@ -43,6 +45,12 @@ pub(crate) enum OwnerEvent {
     WriteFailed(io::Error),
 }
 
+impl From<PtyEvent> for OwnerEvent {
+    fn from(event: PtyEvent) -> Self {
+        Self::Pty(event)
+    }
+}
+
 enum Wake {
     Event(OwnerEvent),
     Tick,
@@ -58,7 +66,7 @@ enum OutputState {
 }
 
 struct Attachment {
-    sink: Sender<AttachmentEvent>,
+    sink: AttachmentSink,
     seq: u64,
 }
 
@@ -118,21 +126,8 @@ pub(crate) fn start(
 ) -> Result<SessionHandle, ServerError> {
     let id = info.id.get();
     let (sender, receiver) = mpsc::channel();
-    let (pty_sender, pty_receiver) = mpsc::channel();
     let (ready_sender, ready) = mpsc::channel();
-    pty.start_reader(pty_sender)
-        .map_err(ServerError::spawn_failed)?;
-
-    let forward = sender.clone();
-    thread::Builder::new()
-        .name(format!("session-{id}-pty"))
-        .spawn(move || {
-            for event in pty_receiver {
-                if forward.send(OwnerEvent::Pty(event)).is_err() {
-                    return;
-                }
-            }
-        })
+    pty.start_reader(sender.clone())
         .map_err(ServerError::spawn_failed)?;
 
     let progress = super::SharedProgress::default();
@@ -266,8 +261,8 @@ impl Owner {
         self.update_metadata();
         self.activity.remove(self.info.id);
         self.checkpoint(Some(reason));
-        for attachment in self.attachments.values() {
-            let _ = attachment.sink.send(AttachmentEvent::Ended(reason));
+        for attachment in self.attachments.values_mut() {
+            attachment.sink.send(AttachmentEvent::Ended(reason));
         }
         reason
     }
@@ -483,7 +478,7 @@ impl Owner {
         id: AttachmentId,
         channel: ChannelId,
         size: Size,
-        sink: Sender<AttachmentEvent>,
+        mut sink: AttachmentSink,
     ) -> Result<(), Fault> {
         if self.attachments.is_empty() && size != self.size {
             self.resize(size)?;
@@ -520,20 +515,17 @@ impl Owner {
             history_cursor: history.next,
             history_total: history.total_rows,
         };
-        if sink
-            .send(AttachmentEvent::Snapshot {
-                snapshot,
-                process: self.metadata.process.clone(),
-            })
-            .is_ok()
-        {
-            let _ = sink.send(AttachmentEvent::Metadata(MetadataEvent::InputModes(
+        if sink.send(AttachmentEvent::Snapshot {
+            snapshot,
+            process: self.metadata.process.clone(),
+        }) {
+            sink.send(AttachmentEvent::Metadata(MetadataEvent::InputModes(
                 self.terminal.input_modes()?,
             )));
-            let _ = sink.send(AttachmentEvent::Metadata(MetadataEvent::CursorBlinking(
+            sink.send(AttachmentEvent::Metadata(MetadataEvent::CursorBlinking(
                 self.cursor_blinking,
             )));
-            let _ = sink.send(AttachmentEvent::Metadata(MetadataEvent::Links {
+            sink.send(AttachmentEvent::Metadata(MetadataEvent::Links {
                 seq: 0,
                 rows: self.links.clone(),
             }));
@@ -603,7 +595,6 @@ impl Owner {
                     .send(AttachmentEvent::Metadata(MetadataEvent::CursorBlinking(
                         blinking,
                     )))
-                    .is_ok()
             });
         }
         Ok(())
@@ -627,7 +618,6 @@ impl Owner {
                 attachment
                     .sink
                     .send(AttachmentEvent::Metadata(MetadataEvent::InputModes(modes)))
-                    .is_ok()
             });
         }
         self.update_cursor_blinking()?;
@@ -730,7 +720,6 @@ impl Owner {
                 attachment
                     .sink
                     .send(AttachmentEvent::Metadata(event.clone()))
-                    .is_ok()
             });
         }
         if self.metadata.agent != self.detector.provider {
@@ -794,7 +783,6 @@ impl Owner {
                     .send(AttachmentEvent::Metadata(MetadataEvent::History {
                         total_rows,
                     }))
-                    .is_ok()
             });
         }
         let graphics = self.terminal.graphics()?;
@@ -832,16 +820,15 @@ impl Owner {
                 ..frame.clone()
             };
             if prompts_changed || frame.reset {
-                let _ =
-                    attachment
-                        .sink
-                        .send(AttachmentEvent::Metadata(MetadataEvent::ScreenPrompts {
-                            seq: frame.seq,
-                            rows: self.prompts.clone(),
-                        }));
+                attachment
+                    .sink
+                    .send(AttachmentEvent::Metadata(MetadataEvent::ScreenPrompts {
+                        seq: frame.seq,
+                        rows: self.prompts.clone(),
+                    }));
             }
             if links_changed || frame.reset {
-                let _ = attachment
+                attachment
                     .sink
                     .send(AttachmentEvent::Metadata(MetadataEvent::Links {
                         seq: frame.seq,
@@ -854,7 +841,7 @@ impl Owner {
             } else {
                 AttachmentEvent::Frame(frame)
             };
-            attachment.sink.send(event).is_ok()
+            attachment.sink.send(event)
         });
         Ok(())
     }
@@ -979,7 +966,7 @@ mod tests {
     fn synchronized_frames_wait_for_completion_and_recover_after_timeout() -> Result<(), Fault> {
         let mut owner = owner()?;
         let (sink, events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink)?;
+        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
         events.try_iter().for_each(drop);
         owner.feed(b"\x1b[?2026hpartial")?;
         owner.tick()?;
@@ -1019,7 +1006,7 @@ mod tests {
         }
         owner.terminal.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07");
         let (sink, events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink)?;
+        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
         let AttachmentEvent::Snapshot { snapshot, .. } = events.recv()? else {
             return Err("expected snapshot".into());
         };
@@ -1050,12 +1037,12 @@ mod tests {
         let mut owner = owner()?;
         owner.feed(b"\x1b[1;1HA")?;
         let (first, first_events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, first)?;
+        owner.attach(AttachmentId(1), ChannelId(1), owner.size, first.into())?;
         owner.tick()?;
         first_events.try_iter().for_each(drop);
         owner.feed(b"\x1b[1;1HB")?;
         let (second, second_events) = mpsc::channel();
-        owner.attach(AttachmentId(2), ChannelId(2), owner.size, second)?;
+        owner.attach(AttachmentId(2), ChannelId(2), owner.size, second.into())?;
         let mut displayed = match second_events.recv()? {
             AttachmentEvent::Snapshot { snapshot, .. } => snapshot.rows,
             other => return Err(format!("expected snapshot, got {other:?}").into()),
@@ -1084,9 +1071,9 @@ mod tests {
         let burst = |label: &str| format!("{}\x1b[2J\x1b[H", format!("{label}\r\n").repeat(10));
         owner.feed(burst("old").as_bytes())?;
         let (first, _first_events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, first)?;
+        owner.attach(AttachmentId(1), ChannelId(1), owner.size, first.into())?;
         let (second, second_events) = mpsc::channel();
-        owner.attach(AttachmentId(2), ChannelId(2), owner.size, second)?;
+        owner.attach(AttachmentId(2), ChannelId(2), owner.size, second.into())?;
         let previous = match second_events.recv()? {
             AttachmentEvent::Snapshot { snapshot, .. } => snapshot,
             other => return Err(format!("expected snapshot, got {other:?}").into()),
@@ -1112,7 +1099,7 @@ mod tests {
     fn cursor_only_mode_only_and_reset_frames_are_not_suppressed() -> Result<(), Fault> {
         let mut owner = owner()?;
         let (sink, events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink)?;
+        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
         events.try_iter().for_each(drop);
         for sequence in [b"\x1b[1;2H".as_slice(), b"\x1b[?2004h", b"\x1b[?1h"] {
             owner.feed(sequence)?;
@@ -1141,7 +1128,7 @@ mod tests {
         let mut owner = owner()?;
         let (sink, events) = mpsc::channel();
         owner.feed(b"\x1b[1;1HA")?;
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink)?;
+        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
         events.try_iter().for_each(drop);
         let mut frames = 0;
         for _ in 0..10_000 {

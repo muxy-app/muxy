@@ -1,7 +1,8 @@
 mod metadata;
 mod owner;
 
-use std::sync::mpsc::Sender;
+use std::fmt;
+use std::sync::mpsc::{SendError, Sender};
 
 use muxy_protocol::{
     AttachSnapshot, ChannelId, ExitReason, ForegroundProcess, HistoryCursor, HistoryPage,
@@ -40,12 +41,12 @@ pub enum SessionCommand {
         id: AttachmentId,
         channel: ChannelId,
         size: Size,
-        sink: Sender<AttachmentEvent>,
+        sink: AttachmentSink,
     },
     AttachWithoutResize {
         id: AttachmentId,
         channel: ChannelId,
-        sink: Sender<AttachmentEvent>,
+        sink: AttachmentSink,
     },
     Detach(AttachmentId),
     HistoryPage {
@@ -74,6 +75,43 @@ pub enum AttachmentEvent {
     Frame(ScreenFrame),
     Resized(ScreenFrame),
     Ended(ExitReason),
+}
+
+/// Where a session delivers one attachment's events.
+pub struct AttachmentSink(Target);
+
+enum Target {
+    Channel(Sender<AttachmentEvent>),
+    Outbox(crate::connection::OutboxSink),
+}
+
+impl AttachmentSink {
+    pub(crate) fn outbox(sink: crate::connection::OutboxSink) -> Self {
+        Self(Target::Outbox(sink))
+    }
+
+    /// Returns false once nobody receives this attachment's events.
+    pub(crate) fn send(&mut self, event: AttachmentEvent) -> bool {
+        match &mut self.0 {
+            Target::Channel(sender) => sender.send(event).is_ok(),
+            Target::Outbox(outbox) => outbox.send(event),
+        }
+    }
+}
+
+impl From<Sender<AttachmentEvent>> for AttachmentSink {
+    fn from(sender: Sender<AttachmentEvent>) -> Self {
+        Self(Target::Channel(sender))
+    }
+}
+
+impl fmt::Debug for AttachmentSink {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Target::Channel(_) => formatter.write_str("AttachmentSink::Channel"),
+            Target::Outbox(_) => formatter.write_str("AttachmentSink::Outbox"),
+        }
+    }
 }
 
 pub(super) type SharedMetadata = std::sync::Arc<std::sync::Mutex<muxy_protocol::SessionMetadata>>;
@@ -126,8 +164,34 @@ impl SessionHandle {
     }
 
     pub fn send(&self, command: SessionCommand) -> Result<(), ServerError> {
-        self.commands
-            .send(OwnerEvent::Command(command))
+        self.try_send(command)
             .map_err(|_| ServerError::unknown_session(self.info.id))
+    }
+
+    /// Hands an undelivered command back, so the caller decides where its sink drops.
+    pub(crate) fn try_send(&self, command: SessionCommand) -> Result<(), SendError<OwnerEvent>> {
+        self.commands.send(OwnerEvent::Command(command))
+    }
+
+    /// A handle whose commands arrive on the returned receiver instead of a session thread.
+    #[cfg(test)]
+    pub(crate) fn fake() -> (Self, std::sync::mpsc::Receiver<OwnerEvent>) {
+        let directory = muxy_protocol::ServerPath(b"/tmp".to_vec());
+        let (commands, received) = std::sync::mpsc::channel();
+        let handle = Self::new(
+            SessionInfo {
+                project: muxy_protocol::ProjectId::from_u128(1),
+                id: SessionId::from(std::num::NonZeroU64::MIN),
+                directory: directory.clone(),
+            },
+            commands,
+            SharedProgress::default(),
+            std::sync::Arc::new(std::sync::Mutex::new(muxy_protocol::SessionMetadata {
+                title: String::new(),
+                directory,
+                process: None,
+            })),
+        );
+        (handle, received)
     }
 }
