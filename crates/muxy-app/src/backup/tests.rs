@@ -264,9 +264,16 @@ fn interrupted_restore_recovers_original_files_before_loading_the_profile() {
     fs::write(directory.path().join("ghostty.conf"), "font-size = 23\n").unwrap();
     fs::create_dir(directory.path().join("themes")).unwrap();
     fs::write(directory.path().join("themes/partial"), "incomplete").unwrap();
+    fs::write(recovery.join("extensions.json"), r#"["added"]"#).unwrap();
+    for name in ["added", "kept"] {
+        fs::create_dir_all(directory.path().join("extensions").join(name)).unwrap();
+    }
     fs::write(directory.path().join(PENDING), "invalid backup").unwrap();
     let error = apply_pending(directory.path()).unwrap().unwrap();
     assert!(error.contains("Could not restore backup"));
+    assert!(!directory.path().join("extensions/added").exists());
+    assert!(directory.path().join("pending-extensions/added").exists());
+    assert!(directory.path().join("extensions/kept").exists());
     assert_eq!(
         fs::read_to_string(directory.path().join("ghostty.conf")).unwrap(),
         "font-size = 17\n"
@@ -275,6 +282,7 @@ fn interrupted_restore_recovers_original_files_before_loading_the_profile() {
     assert!(!directory.path().join("restore-in-progress.json").exists());
     assert!(recovery.join("ghostty.conf").exists());
     cancel_pending(directory.path()).unwrap();
+    assert!(!directory.path().join("pending-extensions").exists());
     assert!(apply_pending(directory.path()).unwrap().is_none());
 }
 
@@ -403,6 +411,15 @@ fn mobile_preferences_exclude_credentials_and_apply_through_the_server() {
     assert_eq!(fs::read(target.path().join("remote.json")).unwrap(), raw);
 }
 
+fn legacy_package(folder: &Path, name: &str) {
+    fs::create_dir_all(folder).unwrap();
+    fs::write(
+        folder.join("package.json"),
+        serde_json::json!({"name":name,"version":"1.0.0","muxy":{}}).to_string(),
+    )
+    .unwrap();
+}
+
 #[test]
 fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge() {
     let directory = profile();
@@ -412,24 +429,19 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
     let first_id = "01000000-0000-0000-0000-000000000001";
     let second_id = "01000000-0000-0000-0000-000000000002";
     let extensions = tempfile::tempdir().unwrap();
-    for (folder, name) in [
-        ("reader", "reader"),
-        ("renamed", "other"),
-        ("locked", "locked"),
-    ] {
-        fs::create_dir(extensions.path().join(folder)).unwrap();
-        fs::write(
-            extensions.path().join(folder).join("package.json"),
-            serde_json::json!({"name":name,"version":"1.0.0","muxy":{}}).to_string(),
-        )
-        .unwrap();
-    }
+    legacy_package(&extensions.path().join("reader"), "reader");
+    legacy_package(&extensions.path().join("renamed"), "other");
     let reader = extensions.path().join("reader");
     std::os::unix::fs::symlink("package.json", reader.join("inside")).unwrap();
     std::os::unix::fs::symlink("/etc/hosts", reader.join("outside")).unwrap();
-    let secret = extensions.path().join("locked/secret.js");
-    fs::write(&secret, "").unwrap();
-    fs::set_permissions(&secret, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    legacy_package(elsewhere.path(), "locked");
+    fs::create_dir(extensions.path().join("locked")).unwrap();
+    std::os::unix::fs::symlink(
+        elsewhere.path().join("package.json"),
+        extensions.path().join("locked/package.json"),
+    )
+    .unwrap();
     let enabled = |name: &str| name == "reader" || name == "locked";
     let legacy_extensions = Some((extensions.path(), &enabled as &dyn Fn(&str) -> bool));
     let projects = |projects: serde_json::Value| {
@@ -476,12 +488,7 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
         {"id":first_id,"name":"First","path":first.path(),"sortOrder":0},
         {"id":second_id,"name":"Second","path":second.path(),"sortOrder":1}
     ]));
-    fs::create_dir(extensions.path().join("other")).unwrap();
-    fs::write(
-        extensions.path().join("other/package.json"),
-        serde_json::json!({"name":"other","version":"1.0.0","muxy":{}}).to_string(),
-    )
-    .unwrap();
+    legacy_package(&extensions.path().join("other"), "other");
     let backups = directory.path().join("Backups");
     fs::rename(&backups, directory.path().join("Backups.saved")).unwrap();
     fs::write(&backups, "").unwrap();

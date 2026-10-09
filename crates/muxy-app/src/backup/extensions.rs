@@ -150,6 +150,42 @@ pub(super) fn install(profile: &Path) -> Result<()> {
     cancel(profile)
 }
 
+/// Staged packages that installing would add, for recovery to take back.
+pub(super) fn additions(profile: &Path) -> Result<Vec<String>> {
+    let entries = match fs::read_dir(profile.join(PENDING)) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let installed = profile.join("extensions");
+    let mut names = Vec::new();
+    for entry in entries {
+        let name = entry?.file_name();
+        if fs::symlink_metadata(installed.join(&name)).is_err() {
+            names.push(
+                name.into_string()
+                    .map_err(|_| "Extension folder names must be UTF-8")?,
+            );
+        }
+    }
+    Ok(names)
+}
+
+/// Moves extensions an interrupted restore added back to the staged ones.
+pub(super) fn take_back(profile: &Path, names: &[String]) -> Result<()> {
+    let pending = profile.join(PENDING);
+    for name in names {
+        let installed = profile.join("extensions").join(name);
+        if fs::symlink_metadata(&installed).is_ok()
+            && fs::symlink_metadata(pending.join(name)).is_err()
+        {
+            fs::create_dir_all(&pending)?;
+            fs::rename(installed, pending.join(name))?;
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn cancel(profile: &Path) -> Result<()> {
     Ok(remove_dir(&profile.join(PENDING))?)
 }

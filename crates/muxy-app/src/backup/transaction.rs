@@ -7,10 +7,15 @@ use muxy_ui::tr;
 
 use super::{PENDING, PreparedImport, ROOTS, Restore, archive, extensions, validate_effective};
 
+/// Replaces any pending import. When staging fails, nothing stays pending.
 pub(crate) fn stage(profile: &Path, import: &PreparedImport) -> Result<()> {
     validate_effective(profile, &import.files, import.restore)?;
-    extensions::stage(profile, import.extensions.as_ref())?;
-    archive::write(&profile.join(PENDING), &import.files, import.restore)
+    let staged = extensions::stage(profile, import.extensions.as_ref())
+        .and_then(|()| archive::write(&profile.join(PENDING), &import.files, import.restore));
+    if staged.is_err() {
+        cancel_pending(profile)?;
+    }
+    staged
 }
 
 pub(crate) fn cancel_pending(profile: &Path) -> Result<()> {
@@ -106,6 +111,10 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
     };
     archive::write(&recovery.join("recovery.muxy"), &portable, recovery_restore)?;
     fs::write(recovery.join("roots.json"), serde_json::to_vec(&roots)?)?;
+    fs::write(
+        recovery.join("extensions.json"),
+        serde_json::to_vec(&extensions::additions(profile)?)?,
+    )?;
     let marker = profile.join("restore-in-progress.json");
     let mut journal = tempfile::NamedTempFile::new_in(profile)?;
     journal.write_all(&serde_json::to_vec(&recovery)?)?;
@@ -138,6 +147,22 @@ fn recover(profile: &Path) -> Result<()> {
     if roots.iter().any(|root| !ROOTS.contains(&root.as_str())) {
         return Err(tr!("Invalid recovery entry").to_string().into());
     }
+    let added = recovery.join("extensions.json");
+    let added: Vec<String> = if added.try_exists()? {
+        serde_json::from_slice(&archive::read_file(&added)?)?
+    } else {
+        Vec::new()
+    };
+    if added.iter().any(|name| {
+        let mut parts = Path::new(name).components();
+        !matches!(
+            (parts.next(), parts.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        )
+    }) {
+        return Err(tr!("Invalid recovery entry").to_string().into());
+    }
+    extensions::take_back(profile, &added)?;
     let names: Vec<_> = roots.iter().map(String::as_str).collect();
     let original = archive::collect(&recovery, &names)?;
     for root in roots {
