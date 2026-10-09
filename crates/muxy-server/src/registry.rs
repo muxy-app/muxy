@@ -589,6 +589,11 @@ impl Registry {
         lock(&self.sessions).sessions.get(&id).cloned()
     }
 
+    #[cfg(test)]
+    pub(crate) fn insert_session(&self, handle: SessionHandle) {
+        lock(&self.sessions).sessions.insert(handle.id(), handle);
+    }
+
     pub fn end(&self, id: SessionId) -> Result<(), ServerError> {
         let handle = self
             .handle(id)

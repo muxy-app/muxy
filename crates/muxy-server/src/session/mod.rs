@@ -172,4 +172,26 @@ impl SessionHandle {
     pub(crate) fn try_send(&self, command: SessionCommand) -> Result<(), SendError<OwnerEvent>> {
         self.commands.send(OwnerEvent::Command(command))
     }
+
+    /// A handle whose commands arrive on the returned receiver instead of a session thread.
+    #[cfg(test)]
+    pub(crate) fn fake() -> (Self, std::sync::mpsc::Receiver<OwnerEvent>) {
+        let directory = muxy_protocol::ServerPath(b"/tmp".to_vec());
+        let (commands, received) = std::sync::mpsc::channel();
+        let handle = Self::new(
+            SessionInfo {
+                project: muxy_protocol::ProjectId::from_u128(1),
+                id: SessionId::from(std::num::NonZeroU64::MIN),
+                directory: directory.clone(),
+            },
+            commands,
+            SharedProgress::default(),
+            std::sync::Arc::new(std::sync::Mutex::new(muxy_protocol::SessionMetadata {
+                title: String::new(),
+                directory,
+                process: None,
+            })),
+        );
+        (handle, received)
+    }
 }

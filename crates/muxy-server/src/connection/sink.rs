@@ -59,16 +59,14 @@ impl Drop for OutboxSink {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use std::num::NonZeroU64;
+    use std::sync::Arc;
     use std::sync::mpsc::{self, Receiver};
-    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
     use muxy_protocol::{
         AttachSnapshot, CONTROL, ChannelId, ErrorCode, ExitReason, Message, MetadataEvent,
-        ProjectId, ReplyBody, RequestId, ScreenFrame, ServerPath, SessionId, SessionInfo,
-        SessionMetadata, TerminalColors,
+        ReplyBody, RequestId, ScreenFrame, TerminalColors,
     };
 
     use super::OutboxSink;
@@ -80,30 +78,10 @@ mod tests {
     const CHANNEL: ChannelId = ChannelId(1);
     const REQUEST: RequestId = RequestId(7);
 
-    fn session() -> (SessionHandle, Receiver<impl Sized>) {
-        let directory = ServerPath(b"/tmp".to_vec());
-        let (commands, received) = mpsc::channel();
-        let handle = SessionHandle::new(
-            SessionInfo {
-                project: ProjectId::from_u128(1),
-                id: SessionId::from(NonZeroU64::MIN),
-                directory: directory.clone(),
-            },
-            commands,
-            Arc::default(),
-            Arc::new(Mutex::new(SessionMetadata {
-                title: String::new(),
-                directory,
-                process: None,
-            })),
-        );
-        (handle, received)
-    }
-
     /// An outbox with `CHANNEL` attached and waiting on `REQUEST`, and that channel's sink.
     fn attached() -> Result<(Arc<Outbox>, Receiver<impl Sized>, OutboxSink), Box<dyn Error>> {
         let outbox = Arc::new(Outbox::new(Arc::default()));
-        let (handle, commands) = session();
+        let (handle, commands) = SessionHandle::fake();
         let sink = OutboxSink::new(&outbox, CHANNEL, handle.id());
         let id = AttachmentId(1);
         outbox.attach(CHANNEL, id, REQUEST, handle, SessionCommand::Detach(id))?;
@@ -200,7 +178,7 @@ mod tests {
             if let Some(colors) = colors {
                 outbox.set_colors(colors);
             }
-            let (handle, commands) = session();
+            let (handle, commands) = SessionHandle::fake();
             drop(commands);
             let attaching = Arc::clone(&outbox);
             let (done, result) = mpsc::channel();

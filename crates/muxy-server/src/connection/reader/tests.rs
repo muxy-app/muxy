@@ -1,7 +1,8 @@
 use super::*;
 use std::error::Error;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -153,5 +154,48 @@ fn file_work_does_not_block_ping_or_catalog_requests() -> TestResult {
         connection.reply()?,
         (RequestId(1), ReplyBody::Error(_))
     ));
+    Ok(())
+}
+
+#[test]
+fn a_channel_is_accepted_before_its_session_can_reply() -> TestResult {
+    const ATTACHES: u32 = 200;
+    let connection = Connection::new()?;
+    let (handle, commands) = crate::SessionHandle::fake();
+    let session = handle.id();
+    connection.requests.registry.insert_session(handle);
+    let registry = Arc::clone(&connection.requests.registry);
+    let outbox = Arc::clone(&connection.requests.outbox);
+    let last_channel = Arc::clone(&connection.requests.last_channel);
+    let attaching = thread::spawn(move || {
+        (1..=ATTACHES).try_for_each(|request| {
+            attach(
+                session,
+                None,
+                RequestId(request),
+                &registry,
+                &outbox,
+                &last_channel,
+            )
+        })
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut received = Vec::new();
+    for channel in 1..=ATTACHES {
+        // Polls instead of blocking, to see each command as early as a session thread could.
+        let command = loop {
+            match commands.try_recv() {
+                Ok(command) => break command,
+                Err(TryRecvError::Empty) if Instant::now() < deadline => std::hint::spin_loop(),
+                Err(_) => return Err(format!("attach {channel} never reached its session").into()),
+            }
+        };
+        assert!(
+            connection.requests.last_channel.load(Ordering::Acquire) >= channel,
+            "channel {channel} reached its session before the reader accepts it"
+        );
+        received.push(command);
+    }
+    attaching.join().map_err(|_| "attaching panicked")??;
     Ok(())
 }

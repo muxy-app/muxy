@@ -610,6 +610,9 @@ fn attach(
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| ServerError::new(ErrorCode::BadRequest, "attachment IDs exhausted"))?,
     );
+    // The session replies straight to the outbox, and the client may use the
+    // channel as soon as it reads that reply.
+    last_channel.store(channel.0, Ordering::Release);
     let sink = AttachmentSink::outbox(OutboxSink::new(outbox, channel, session));
     outbox.attach(
         channel,
@@ -625,9 +628,7 @@ fn attach(
             },
             None => SessionCommand::AttachWithoutResize { id, channel, sink },
         },
-    )?;
-    last_channel.store(channel.0, Ordering::Release);
-    Ok(())
+    )
 }
 
 #[cfg(test)]
