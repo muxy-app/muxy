@@ -100,7 +100,12 @@ impl SettingsWindow {
             cx.notify();
         });
         let focus_lost = cx.on_focus_lost(window, |root, window, cx| root.focus(window, cx));
-        let mut subscriptions = vec![events, appearance, focus_lost];
+        let activation = cx.observe_window_activation(window, |root, window, cx| {
+            if window.is_window_active() {
+                root.reload_terminal(cx);
+            }
+        });
+        let mut subscriptions = vec![events, appearance, focus_lost, activation];
         if let Some(model) = model.upgrade() {
             subscriptions.push(cx.observe(&model, |root: &mut Self, model, cx| {
                 let error = model.read(cx).error.clone();
@@ -151,31 +156,20 @@ impl SettingsWindow {
         let theme = self.view.read(cx).theme.clone();
         let metrics = self.view.read(cx).metrics;
         match request.kind {
-            super::PickerKind::FontFamily => {
-                let active = self
-                    .view
-                    .read(cx)
-                    .snapshot
-                    .terminal
-                    .font_families
-                    .first()
-                    .cloned()
-                    .unwrap_or_default();
+            super::PickerKind::Font(slot) => {
+                let active = self.view.read(cx).active_font(slot);
                 let picker = cx.new(|cx| FontPicker::new(active, theme, metrics, cx));
-                self.overlay_subscription =
-                    Some(
-                        cx.subscribe_in(&picker, window, |root, _, event, window, cx| {
-                            if let FontEvent::Selected(name) = event {
-                                let _ = root.model.update(cx, |model, cx| {
-                                    model.change_preference(
-                                        Change::Field("font-family", name.clone()),
-                                        cx,
-                                    );
-                                });
-                            }
-                            root.dismiss_overlay(window, cx);
-                        }),
-                    );
+                self.overlay_subscription = Some(cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |root, _, event, window, cx| {
+                        if let FontEvent::Selected(name) = event {
+                            root.view
+                                .update(cx, |view, cx| view.select_font(slot, name.clone(), cx));
+                        }
+                        root.dismiss_overlay(window, cx);
+                    },
+                ));
                 self.overlay = Some(SettingsOverlay::Fonts {
                     picker,
                     source: request,
@@ -229,6 +223,7 @@ impl SettingsWindow {
                     source: request,
                 });
             }
+            super::PickerKind::Terminal(id) => self.open_terminal_picker(id, request, window, cx),
             super::PickerKind::Language => self.open_language_picker(request, window, cx),
             super::PickerKind::AiProvider(action) => {
                 self.open_provider_picker(action, request, window, cx);
@@ -238,6 +233,54 @@ impl SettingsWindow {
             super::PickerKind::AppLanguage => self.open_app_language_picker(request, window, cx),
         }
         cx.notify();
+    }
+
+    fn open_terminal_picker(
+        &mut self,
+        id: &'static str,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let (selected, choices) = super::terminal::choices(view, id);
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover(id, tr!("Search options…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = choices
+            .into_iter()
+            .map(|(id, label)| {
+                let mut row = PickerRow::new(id, label);
+                row.current = id == selected;
+                PickerItem::Row(row)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    root.view.update(cx, |view, cx| {
+                        view.choose_terminal_option(id, &selection.id, cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
     }
 
     /// Chooses between the built-in sidebar and enabled extension sidebars.
@@ -497,6 +540,11 @@ impl SettingsWindow {
     fn handle_event(&mut self, event: &SettingsEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             SettingsEvent::Backup(action) => self.backup_action(*action, cx),
+            SettingsEvent::PreviewTerminal(id, value) => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.preview_terminal_preference(id, value, cx);
+                });
+            }
             SettingsEvent::Change(change) => {
                 let _ = self
                     .model
@@ -545,16 +593,19 @@ impl SettingsWindow {
             SettingsEvent::OpenConfiguration(filename) => {
                 self.open_configuration(filename, cx);
             }
-            SettingsEvent::ReloadConfiguration => {
-                if let Ok(error) = self.model.update(cx, |model, cx| {
-                    model.reload_configuration(cx);
-                    model.configuration_error.clone()
-                }) {
-                    self.view.update(cx, |view, cx| {
-                        view.set_error("configuration", error.as_deref(), cx);
-                    });
-                }
-            }
+        }
+    }
+
+    fn reload_terminal(&self, cx: &mut Context<Self>) {
+        if let Ok(Some(error)) = self.model.update(cx, |model, cx| {
+            model.configuration_path("terminal.toml").exists().then(|| {
+                model.reload_configuration(cx);
+                model.configuration_error.clone()
+            })
+        }) {
+            self.view.update(cx, |view, cx| {
+                view.set_error("configuration", error.as_deref(), cx);
+            });
         }
     }
 

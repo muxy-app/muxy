@@ -1,6 +1,7 @@
 use super::{CellHeight, Error, Result, parse_height};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct FontOptions {
     pub bold: Vec<String>,
     pub italic: Vec<String>,
@@ -27,7 +28,8 @@ impl Default for FontOptions {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FontMap {
     pub start: u32,
     pub end: u32,
@@ -46,6 +48,18 @@ pub(super) const KEYS: &[&str] = &[
 ];
 
 impl FontOptions {
+    pub fn feature_list(&self) -> String {
+        self.features
+            .iter()
+            .map(|(name, value)| match value {
+                0 => format!("-{name}"),
+                1 => name.clone(),
+                value => format!("{name}={value}"),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub(super) fn lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         for (key, values) in [
@@ -96,8 +110,7 @@ impl FontOptions {
                     self.features.clear();
                     return Ok(true);
                 }
-                for feature in value.split(',') {
-                    let feature = feature.trim();
+                for feature in value.split(',').map(str::trim).filter(|f| !f.is_empty()) {
                     let (name, enabled) = if let Some(name) = feature.strip_prefix('-') {
                         (name, 0)
                     } else if let Some((name, number)) = feature.split_once('=') {
@@ -127,9 +140,10 @@ impl FontOptions {
                     .split_once('=')
                     .ok_or_else(|| Error::new(key, "expected U+start-U+end=family"))?;
                 let family = family.trim();
-                if family.is_empty() {
-                    return Err(Error::new(key, "font family is empty"));
-                }
+                let family = family
+                    .strip_prefix('"')
+                    .and_then(|family| family.strip_suffix('"'))
+                    .unwrap_or(family);
                 for range in ranges.split(',') {
                     let (start, end) = range
                         .trim()

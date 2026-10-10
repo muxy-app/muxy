@@ -9,8 +9,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         [command] if command == "show" => {
             let path = Settings::default_path()?;
             let settings = Settings::load(&path)?;
-            let ghostty_path = path.with_file_name("ghostty.conf");
-            let terminal = TerminalSettings::load(&ghostty_path)?;
+            let terminal_path = path.with_file_name("terminal.toml");
+            let terminal = TerminalSettings::load_native(&terminal_path)?;
             writeln!(
                 output,
                 "Settings: {}\n{}",
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             writeln!(
                 output,
                 "Terminal fonts: {}\n{terminal:#?}",
-                ghostty_path.display()
+                terminal_path.display()
             )?;
             writeln!(output, "Bindings:")?;
             for action in Keymap::ACTIONS {

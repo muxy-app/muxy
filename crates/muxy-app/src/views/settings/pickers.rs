@@ -5,8 +5,41 @@ pub(crate) use muxy_ui::popover::PopoverAnchor as PickerAnchor;
 use super::{SettingsEvent, SettingsView};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum FontSlot {
+    Regular,
+    Fallback,
+    Bold,
+    Italic,
+    BoldItalic,
+    Codepoint,
+}
+
+impl FontSlot {
+    pub(super) const ALL: [Self; 6] = [
+        Self::Regular,
+        Self::Fallback,
+        Self::Bold,
+        Self::Italic,
+        Self::BoldItalic,
+        Self::Codepoint,
+    ];
+
+    pub(super) fn id(self) -> &'static str {
+        match self {
+            Self::Regular => "font-family",
+            Self::Fallback => "font-fallbacks",
+            Self::Bold => "font-family-bold",
+            Self::Italic => "font-family-italic",
+            Self::BoldItalic => "font-family-bold-italic",
+            Self::Codepoint => "font-codepoint-map",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum PickerKind {
-    FontFamily,
+    Font(FontSlot),
+    Terminal(&'static str),
     Language,
     Theme(bool),
     AiProvider(crate::repository_actions::Action),
@@ -18,7 +51,8 @@ pub(crate) enum PickerKind {
 impl PickerKind {
     pub(super) fn id(self) -> &'static str {
         match self {
-            Self::FontFamily => "font-family",
+            Self::Font(slot) => slot.id(),
+            Self::Terminal(id) => id,
             Self::Language => "composer-language",
             Self::Theme(false) => "light-theme",
             Self::Theme(true) => "dark-theme",
@@ -53,7 +87,13 @@ impl SettingsView {
                 self.style(),
                 kind.id(),
                 value,
-                (!self.compact).then_some(controls::CONTROL_WIDTH),
+                (!self.compact).then_some(
+                    if matches!(kind, PickerKind::Terminal(id) if id.starts_with("adjust-")) {
+                        100.0
+                    } else {
+                        controls::CONTROL_WIDTH
+                    },
+                ),
                 false,
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;

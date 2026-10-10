@@ -53,6 +53,7 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
             .to_string()
             .into());
     }
+    super::normalize_terminal(&mut files)?;
     validate_effective(profile, &files, restore)?;
     if let Some(bytes) = files.get("desktop-state.json") {
         let imported: muxy_app_core::AppState = serde_json::from_slice(bytes)?;
@@ -89,7 +90,23 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
         .keep();
     archive::materialize(&recovery, &original)?;
     let mut portable = original.clone();
-    if portable.contains_key("ghostty.conf") {
+    if roots.contains(&"terminal.toml") && !portable.contains_key("terminal.toml") {
+        let legacy = profile.join("ghostty.conf");
+        let terminal = if legacy.try_exists()? {
+            muxy_app_core::settings::TerminalSettings::from_legacy_source(
+                &muxy_app_core::settings::TerminalSettings::backup_source(&legacy)?,
+            )?
+        } else {
+            muxy_app_core::settings::TerminalSettings::default()
+        };
+        portable.insert(
+            "terminal.toml".into(),
+            terminal.native_source()?.into_bytes(),
+        );
+    }
+    if portable.contains_key("terminal.toml") {
+        portable.remove("ghostty.conf");
+    } else if portable.contains_key("ghostty.conf") {
         portable.insert(
             "ghostty.conf".into(),
             muxy_app_core::settings::TerminalSettings::backup_source(

@@ -63,8 +63,8 @@ A line feed is a new line in many AI tools, but shells treat it like Return.
   **Reset** restores the default. Muxy refuses keys that are already taken.
 - Changes are saved to `settings.toml` under `[keymap]`, for example
   `split_right = "cmd-alt-d"`.
-- Terminal keys such as clear screen, line editing, and scrolling come from
-  `ghostty.conf`. Change them with `keybind`, and remove them all with
-  `keybind = clear`. Your `keybind` lines win while a terminal is focused.
+- Terminal keys such as clear screen, line editing, and scrolling have built-in
+  bindings. Add your own in **Settings → Terminal → Key bindings**; they take
+  precedence while a terminal is focused.
 - Commands from **Settings → Commands** and extensions can have shortcuts too.
 - The Quick Terminal shortcut is set in **Settings → Quick Terminal**.

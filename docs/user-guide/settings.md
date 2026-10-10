@@ -13,7 +13,7 @@ immediately, and Settings works while the server is offline.
 | Appearance | Language, light and dark themes, sidebar, status bar, tips |
 | Keyboard | Every shortcut. See [Keyboard shortcuts](keyboard-shortcuts.md) |
 | Commands | Your own commands, each run in a new tab, with optional shortcuts |
-| Terminal | Font, copy on select, new pane folder, `ghostty.conf` |
+| Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
 | Server | This computer's [server](../features/server.md#settings): shell, history, shell integration, stop and restart |
 | Mobile | [Phone access](../features/mobile.md) and paired phones |
 | Extensions | Installed extensions and the marketplace |
@@ -29,32 +29,59 @@ section opens its file.
 | File | Holds |
 | --- | --- |
 | `settings.toml` | App preferences, shortcuts (`[keymap]`), commands, remote servers |
-| `ghostty.conf` | Terminal font, colors, and key bindings |
+| `terminal.toml` | Terminal preferences and key bindings |
 | `themes/` | Your own themes |
 | `server.toml` | Server settings |
 
 - Restart the app after editing `settings.toml` by hand. If the file has an
   error or an unknown key, the app won't open; see
   [Troubleshooting](troubleshooting.md#the-app-doesnt-open).
-- `ghostty.conf` reloads with **Reload Configuration** in the app menu, and
-  whenever the Muxy window becomes active.
+- Hand edits to `terminal.toml` apply when Muxy or Settings becomes active. If
+  the file has an error, Settings shows it and keeps the last good values.
 
 ## Terminal configuration
 
-`ghostty.conf` uses [Ghostty's format](https://ghostty.org/docs/config). Muxy
-reads these options and lists any others under **Settings → Terminal →
-Configuration warnings**:
+Use **Settings → Terminal** for:
 
-- **Fonts:** `font-family` (and bold, italic variants), `font-size`,
-  `font-feature`, `font-codepoint-map`, `font-thicken`, `adjust-cell-height`,
-  `adjust-cell-width`
-- **Colors:** `background`, `foreground`, `palette`, `cursor-*`,
-  `selection-*`, `bold-is-bright`, `background-opacity`
-- **Window:** `window-padding-x`, `window-padding-y`, `window-padding-balance`,
-  `window-padding-color`
-- **Input and mouse:** `keybind`, `macos-option-as-alt`, `copy-on-select`,
-  `mouse-reporting`, `mouse-scroll-multiplier`, `scroll-to-bottom`
-- **Includes:** `config-file`
+- Font family, fallback fonts, bold and italic fonts, size, line and character
+  spacing, ligatures and other font features, fonts for Unicode ranges, thicker
+  strokes, and bright colors for bold text.
+- Background transparency and vibrancy sliders, optionally including colored cells.
+  Vibrancy uses the native macOS window material, including its blur and desktop
+  tinting. Increasing vibrancy reveals more of that material by reducing the
+  terminal's solid color overlay; it also works with transparency set to zero.
+  Reduce Transparency and Increase Contrast disable this material.
+- Cursor shape, blinking, opacity, and thickness. Thickness accepts an adjustment in
+  physical pixels or a percentage: `1` adds one pixel and `100%` doubles it.
+  It applies to bar, underline, and outlined cursors. Terminal programs can
+  override cursor shape and blinking.
+- Separate sliders for left, right, top, and bottom padding, with balanced
+  unused space and a padding color.
+- Background, text, cursor, selection, and the 16 ANSI colors. Each replaces
+  the theme's color; leave it empty to use the theme.
+- Copy on select, clearing selection when typing or copying, mouse reporting,
+  separate trackpad and mouse wheel speeds, and scrolling to live output.
+- Whether both, neither, left, or right Option keys act as Alt.
+- The working directory for new panes.
+- Key bindings the terminal handles while focused: record a key, then pick an
+  action such as sending text. They win over app shortcuts. You can also turn
+  off the built-in terminal bindings.
+
+Numeric controls use sliders, on/off options use switches, and fixed choices use
+dropdowns. Sliders preview changes while dragging and save when released or when
+Settings closes. Spacing and thickness offer a pixels/percent dropdown; changing
+units keeps the numeric adjustment within the supported range.
+
+Themes remain in **Settings → Appearance**. Shell and history limits remain
+in **Settings → Server**. Quick Terminal opacity combines with terminal opacity.
+
+On the first launch without `terminal.toml`, Muxy imports the supported values
+from its old `ghostty.conf`, including included files and custom terminal key
+bindings. The original files stay intact. Later edits to those old files have
+no effect. Any unsupported legacy options appear under **Imported settings**
+until you dismiss them.
+Older backups and 1.x imports are converted to native preferences too. Legacy blur
+and glass presets become native background vibrancy.
 
 ## Themes
 
@@ -67,7 +94,7 @@ colors the app and its terminals.
 
 ## Backup and restore
 
-- **Export…** saves a `.muxy` file with your settings, `ghostty.conf`, themes,
+- **Export…** saves a `.muxy` file with your settings, `terminal.toml`, themes,
   server settings, extension preferences, remote server list, and local
   projects with their layouts.
 - **Choose file…** under **Restore backup** restores on the next launch. Muxy

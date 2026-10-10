@@ -7,14 +7,17 @@ use crate::settings::{Error, Result, config::read_or_create};
 
 mod bindings;
 mod fonts;
+mod native;
 mod options;
 pub use bindings::{TerminalAction, TerminalBindings};
 pub use fonts::{FontMap, FontOptions};
+pub use native::TerminalEdit;
 pub use options::{PaddingColor, TerminalColor, TerminalOptions};
 
 const DEFAULT_CONFIG: &str = "font-family = Menlo\nfont-size = 13\nadjust-cell-height = 0\n";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct TerminalSettings {
     pub font_families: Vec<String>,
     pub font_size: f32,
@@ -26,7 +29,8 @@ pub struct TerminalSettings {
     pub diagnostics: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OptionAsAlt {
     #[default]
     True,
@@ -74,7 +78,8 @@ impl std::fmt::Display for OptionAsAlt {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub enum CellHeight {
     #[default]
     Natural,
@@ -255,17 +260,33 @@ impl TerminalSettings {
         &mut self,
         path: &Path,
         families: &mut Vec<String>,
-        mut included_keys: Option<&mut HashSet<String>>,
+        included_keys: Option<&mut HashSet<String>>,
     ) -> Result<Vec<(PathBuf, bool)>> {
         let source = fs::read_to_string(path)
             .map_err(|error| Error::new(path.display().to_string(), error))?;
+        self.read_source(&source, path, families, included_keys)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn read_source(
+        &mut self,
+        source: &str,
+        path: &Path,
+        families: &mut Vec<String>,
+        mut included_keys: Option<&mut HashSet<String>>,
+    ) -> Result<Vec<(PathBuf, bool)>> {
         let mut includes = Vec::new();
+        let file = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
         for (index, line) in source.lines().enumerate() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
             let context = format!("{}:{}", path.display(), index + 1);
+            let note = format!("{file}:{}", index + 1);
             let (key, value) = line
                 .split_once('=')
                 .map_or((line, None), |(key, value)| (key, Some(value)));
@@ -289,7 +310,7 @@ impl TerminalSettings {
                 && key != "keybind"
             {
                 self.diagnostics
-                    .push(format!("{context}: {key} is not supported by Muxy"));
+                    .push(format!("{note}: {key} is not supported by Muxy"));
                 continue;
             }
             if key != "config-file"
@@ -308,10 +329,14 @@ impl TerminalSettings {
                 .trim();
             let optional = key == "config-file" && value.starts_with('?');
             let value = if optional { &value[1..] } else { value };
-            let value = if key == "font-feature" {
-                value
-            } else {
-                config_value(value).map_err(|error| Error::new(&context, error))?
+            let value = match key {
+                "font-feature" => value,
+                "font-family"
+                | "font-family-bold"
+                | "font-family-italic"
+                | "font-family-bold-italic"
+                | "font-codepoint-map" => config_value(value).unwrap_or(value),
+                _ => config_value(value).map_err(|error| Error::new(&context, error))?,
             };
             match key {
                 key if self
@@ -328,7 +353,7 @@ impl TerminalSettings {
                         .read(value)
                         .map_err(|error| Error::new(&context, error))?
                     {
-                        self.diagnostics.push(format!("{context}: {warning}"));
+                        self.diagnostics.push(format!("{note} {key}: {warning}"));
                     }
                 }
                 "font-family" if value.is_empty() => families.clear(),

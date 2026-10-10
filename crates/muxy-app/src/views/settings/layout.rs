@@ -29,11 +29,7 @@ impl Category {
             ],
             Self::Appearance => &[tr_key!("Language"), tr_key!("Themes"), tr_key!("Interface")],
             Self::Keyboard => &[tr_key!("Shortcuts")],
-            Self::Terminal => &[
-                tr_key!("Text"),
-                tr_key!("Behavior"),
-                tr_key!("Configuration"),
-            ],
+            Self::Terminal => super::terminal::SECTIONS,
             Self::Server => &[
                 tr_key!("Connection"),
                 tr_key!("Sessions"),
@@ -58,6 +54,7 @@ impl SettingsView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.finish_terminal_slider(cx);
         self.recording = None;
         self.quick_recording = None;
         if section.is_none()
@@ -127,6 +124,12 @@ impl SettingsView {
             );
             if expanded && !self.compact {
                 for &section in category.sections() {
+                    if category == Category::Terminal
+                        && section == tr_key!("Migration")
+                        && self.snapshot.terminal.diagnostics.is_empty()
+                    {
+                        continue;
+                    }
                     categories = categories.child(
                         navigation::subitem(
                             self.layout_style(),

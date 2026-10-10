@@ -164,6 +164,9 @@ impl SettingsView {
             return;
         }
         match recorded_chord(keystroke) {
+            Ok(chord) if id == super::terminal_lists::BINDING_CHORD => {
+                self.record_terminal_chord(chord);
+            }
             Ok(chord) => cx.emit(SettingsEvent::Change(Change::Binding(id, Some(chord)))),
             Err(error) => {
                 self.errors.insert(id, format!("{error}"));

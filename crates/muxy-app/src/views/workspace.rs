@@ -374,6 +374,9 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         .on_action(
             cx.listener(|model, _: &ReloadConfiguration, _, cx| model.reload_configuration(cx)),
         )
+        .on_action(
+            cx.listener(|model, _: &OpenConfiguration, window, cx| model.open_settings(window, cx)),
+        )
         .on_action(cx.listener(|model, _: &IncreaseFontSize, _, cx| model.zoom_terminal(1.0, cx)))
         .on_action(cx.listener(|model, _: &DecreaseFontSize, _, cx| model.zoom_terminal(-1.0, cx)))
 }
@@ -569,7 +572,7 @@ impl Render for AppModel {
         self.prepare_workspace(window, cx);
         self.sync_project_logos(window, cx);
         #[cfg(all(target_os = "macos", not(test)))]
-        self.sync_sidebar_vibrancy(window);
+        self.sync_background_effects(window, cx);
         self.sync_toast(cx);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused

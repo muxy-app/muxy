@@ -82,7 +82,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     }
     if view.matches(Category::Backup, tr_key!("Configuration files")) {
         let mut control = div().flex().flex_wrap().gap(view.metrics.spacing2());
-        for name in ["settings.toml", "ghostty.conf", "server.toml"] {
+        for name in ["settings.toml", "terminal.toml", "server.toml"] {
             control = control.child(controls::button(
                 view.style(),
                 &format!("backup-edit-{name}"),

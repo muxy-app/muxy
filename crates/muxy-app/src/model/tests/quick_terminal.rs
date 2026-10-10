@@ -1,6 +1,38 @@
 use super::*;
 
 #[gpui::test]
+fn native_terminal_material_survives_pane_recreation_without_entering_quick_terminal(
+    cx: &mut TestAppContext,
+) {
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.terminal.options.background_vibrancy = 70;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.new_tab(cx);
+        let first = model.active_pane().expect("main pane");
+        model.set_terminal_vibrancy_available(true, cx);
+        assert!(model.grids[&first].view.read(cx).native_vibrancy);
+
+        let quick = model.state.ensure_quick_terminal();
+        model.quick.visible = true;
+        model.sync_visible(cx);
+        assert!(!model.grids[&quick].view.read(cx).native_vibrancy);
+
+        model.new_tab(cx);
+        let next = model.active_pane().expect("new main pane");
+        assert_ne!(next, first);
+        assert!(model.grids[&next].view.read(cx).native_vibrancy);
+        assert!(!model.grids[&quick].view.read(cx).native_vibrancy);
+
+        model.set_terminal_vibrancy_available(false, cx);
+        assert!(!model.grids[&next].view.read(cx).native_vibrancy);
+        model.set_terminal_vibrancy_available(true, cx);
+        assert!(model.grids[&next].view.read(cx).native_vibrancy);
+        assert!(!model.grids[&quick].view.read(cx).native_vibrancy);
+    });
+}
+
+#[gpui::test]
 fn quick_terminal_uses_home_without_changing_workspace_and_reattaches_after_hide(
     cx: &mut TestAppContext,
 ) {

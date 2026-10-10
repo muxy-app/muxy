@@ -42,7 +42,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "backup-files",
         label: tr_key!("Configuration files"),
         description: tr_key!(
-            "Open configuration files in the system editor. Restart Muxy after editing app settings, or reload terminal configuration from Terminal settings."
+            "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active."
         ),
         category: Category::Backup,
         section: tr_key!("Configuration"),
@@ -342,7 +342,14 @@ pub(super) const SETTINGS: &[Setting] = &[
         label: tr_key!("Font family"),
         description: tr_key!("The typeface used to render text in every terminal pane."),
         category: Category::Terminal,
-        section: tr_key!("Text"),
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-fallbacks",
+        label: tr_key!("Fallback fonts"),
+        description: tr_key!("Fonts used, in order, for characters the main font lacks."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
     },
     Setting {
         id: "font-size",
@@ -351,16 +358,240 @@ pub(super) const SETTINGS: &[Setting] = &[
             "Default terminal text size. Individual panes can still be zoomed independently."
         ),
         category: Category::Terminal,
-        section: tr_key!("Text"),
+        section: tr_key!("Font"),
     },
     Setting {
         id: "adjust-cell-height",
-        label: tr_key!("Cell height adjustment (pixels or %%)"),
+        label: tr_key!("Line spacing"),
         description: tr_key!(
             "Add space between terminal lines using pixels or a percentage, such as 10%%."
         ),
         category: Category::Terminal,
-        section: tr_key!("Text"),
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "adjust-cell-width",
+        label: tr_key!("Character spacing"),
+        description: tr_key!("Adjust character spacing by pixels or a percentage, such as 10%%."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-family-bold",
+        label: tr_key!("Bold font"),
+        description: tr_key!("Font for bold text. Default uses the main font's bold style."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-family-italic",
+        label: tr_key!("Italic font"),
+        description: tr_key!("Font for italic text. Default uses the main font's italic style."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-family-bold-italic",
+        label: tr_key!("Bold italic font"),
+        description: tr_key!(
+            "Font for bold italic text. Default uses the main font's bold italic style."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-feature",
+        label: tr_key!("Font features"),
+        description: tr_key!(
+            "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-ligatures",
+        label: tr_key!("Font ligatures"),
+        description: tr_key!(
+            "Combine programming symbols when the selected font supports ligatures."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-codepoint-map",
+        label: tr_key!("Codepoint fonts"),
+        description: tr_key!(
+            "Use a specific font for a Unicode range, such as U+E000-U+F8FF for icons."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-thicken",
+        label: tr_key!("Thicken font"),
+        description: tr_key!("Draw terminal text with a heavier stroke."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "font-thicken-strength",
+        label: tr_key!("Thicken strength"),
+        description: tr_key!("How much heavier text is drawn when Thicken font is on."),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "bold-is-bright",
+        label: tr_key!("Bright colors for bold text"),
+        description: tr_key!(
+            "Use bright ANSI colors for bold text in the first eight palette colors."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Font"),
+    },
+    Setting {
+        id: "background-transparency",
+        label: tr_key!("Terminal transparency"),
+        description: tr_key!("Let the desktop show through the terminal background."),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "background-vibrancy",
+        label: tr_key!("Background vibrancy"),
+        description: tr_key!(
+            "Reveal the native macOS material by reducing the solid background tint."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "background-opacity-cells",
+        label: tr_key!("Apply opacity to colored cells"),
+        description: tr_key!("Also make backgrounds drawn by terminal programs translucent."),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "window-padding-x",
+        label: tr_key!("Horizontal padding (points)"),
+        description: tr_key!("Adjust the space to the left and right of terminal text."),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "window-padding-y",
+        label: tr_key!("Vertical padding (points)"),
+        description: tr_key!("Adjust the space above and below terminal text."),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "window-padding-balance",
+        label: tr_key!("Balance padding"),
+        description: tr_key!("Distribute unused cell space equally around the terminal grid."),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "window-padding-color",
+        label: tr_key!("Padding color"),
+        description: tr_key!(
+            "Fill padding with the background color, or extend the color of the nearest cells."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Background"),
+    },
+    Setting {
+        id: "background",
+        label: tr_key!("Background color"),
+        description: tr_key!(
+            "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "foreground",
+        label: tr_key!("Text color"),
+        description: tr_key!(
+            "Replaces the theme's terminal text color. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "cursor-color",
+        label: tr_key!("Cursor color"),
+        description: tr_key!(
+            "A color, cell-foreground, or cell-background. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "cursor-text",
+        label: tr_key!("Cursor text color"),
+        description: tr_key!(
+            "Color of the character under a block cursor. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "selection-foreground",
+        label: tr_key!("Selection text color"),
+        description: tr_key!(
+            "A color, cell-foreground, or cell-background. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "selection-background",
+        label: tr_key!("Selection color"),
+        description: tr_key!(
+            "A color, cell-foreground, or cell-background. Leave empty to use the theme."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "palette",
+        label: tr_key!("ANSI colors"),
+        description: tr_key!("Replaces the 16 ANSI colors. Leave a color empty to use the theme."),
+        category: Category::Terminal,
+        section: tr_key!("Colors"),
+    },
+    Setting {
+        id: "cursor-style",
+        label: tr_key!("Cursor shape"),
+        description: tr_key!("Choose the initial cursor shape. Terminal programs can change it."),
+        category: Category::Terminal,
+        section: tr_key!("Cursor"),
+    },
+    Setting {
+        id: "cursor-style-blink",
+        label: tr_key!("Cursor blinking"),
+        description: tr_key!("Choose the initial blink behavior. Terminal programs can change it."),
+        category: Category::Terminal,
+        section: tr_key!("Cursor"),
+    },
+    Setting {
+        id: "adjust-cursor-thickness",
+        label: tr_key!("Cursor thickness"),
+        description: tr_key!(
+            "Thicken bar, underline, and outlined cursors. Use 1 for one extra physical pixel, or 100%% to double thickness."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Cursor"),
+    },
+    Setting {
+        id: "cursor-opacity",
+        label: tr_key!("Cursor opacity"),
+        description: tr_key!("How opaque the cursor is."),
+        category: Category::Terminal,
+        section: tr_key!("Cursor"),
     },
     Setting {
         id: "copy-on-select",
@@ -369,7 +600,67 @@ pub(super) const SETTINGS: &[Setting] = &[
             "Copy selected terminal text to the clipboard as soon as you finish selecting."
         ),
         category: Category::Terminal,
-        section: tr_key!("Behavior"),
+        section: tr_key!("Selection"),
+    },
+    Setting {
+        id: "selection-clear-on-typing",
+        label: tr_key!("Clear selection when typing"),
+        description: tr_key!("Remove the selected range when sending text to the terminal."),
+        category: Category::Terminal,
+        section: tr_key!("Selection"),
+    },
+    Setting {
+        id: "selection-clear-on-copy",
+        label: tr_key!("Clear selection after copying"),
+        description: tr_key!("Remove the selected range after copying its text."),
+        category: Category::Terminal,
+        section: tr_key!("Selection"),
+    },
+    Setting {
+        id: "scroll-precision",
+        label: tr_key!("Trackpad scroll speed"),
+        description: tr_key!("Adjust smooth scrolling speed."),
+        category: Category::Terminal,
+        section: tr_key!("Scrolling"),
+    },
+    Setting {
+        id: "scroll-discrete",
+        label: tr_key!("Mouse wheel scroll speed"),
+        description: tr_key!("Adjust mouse wheel scrolling speed."),
+        category: Category::Terminal,
+        section: tr_key!("Scrolling"),
+    },
+    Setting {
+        id: "scroll-on-keystroke",
+        label: tr_key!("Scroll to bottom when typing"),
+        description: tr_key!("Return to live output when sending a keystroke."),
+        category: Category::Terminal,
+        section: tr_key!("Scrolling"),
+    },
+    Setting {
+        id: "scroll-on-output",
+        label: tr_key!("Scroll to bottom on output"),
+        description: tr_key!("Return to live output whenever the terminal receives new text."),
+        category: Category::Terminal,
+        section: tr_key!("Scrolling"),
+    },
+    Setting {
+        id: "mouse-reporting",
+        label: tr_key!("Allow programs to use the mouse"),
+        description: tr_key!(
+            "Send mouse events to terminal programs that request them. Hold Shift to select text instead."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Input"),
+    },
+    Setting {
+        id: "macos-option-as-alt",
+        label: tr_key!("Option as Alt"),
+        description: tr_key!(
+            "Use both Option keys, neither, or just one as the terminal Alt modifier."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Input"),
     },
     Setting {
         id: "directory",
@@ -378,23 +669,34 @@ pub(super) const SETTINGS: &[Setting] = &[
             "Start new splits in the project folder or the current pane's working directory."
         ),
         category: Category::Terminal,
-        section: tr_key!("Behavior"),
+        section: tr_key!("Input"),
     },
     Setting {
-        id: "ghostty-configuration",
-        label: tr_key!("Ghostty configuration"),
+        id: "terminal-keybindings",
+        label: tr_key!("Key bindings"),
         description: tr_key!(
-            "Edit ghostty.conf to customize terminal appearance and key aliases such as Shift+Enter. Save the file, then reload to apply changes."
+            "Keys the terminal handles while it is focused. They take precedence over app shortcuts."
         ),
         category: Category::Terminal,
-        section: tr_key!("Configuration"),
+        section: tr_key!("Key bindings"),
     },
     Setting {
-        id: "terminal-configuration-warnings",
-        label: tr_key!("Configuration warnings"),
-        description: tr_key!("Unsupported Ghostty options in ghostty.conf are ignored."),
+        id: "keybind-clear-defaults",
+        label: tr_key!("Disable built-in bindings"),
+        description: tr_key!(
+            "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours."
+        ),
         category: Category::Terminal,
-        section: tr_key!("Configuration"),
+        section: tr_key!("Key bindings"),
+    },
+    Setting {
+        id: "terminal-import-notes",
+        label: tr_key!("Imported settings"),
+        description: tr_key!(
+            "Notes about imported terminal settings. Your original configuration is preserved."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Migration"),
     },
     Setting {
         id: "server",

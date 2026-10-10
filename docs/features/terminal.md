@@ -87,10 +87,12 @@ and transparency settings. `Cmd+W` ends its terminal.
 
 ## Appearance and configuration
 
-Fonts, colors, cursor, padding, and terminal key bindings live in
-`ghostty.conf`. See [Settings](../user-guide/settings.md#terminal-configuration).
+Fonts, colors, transparency, vibrancy, cursor, padding, selection, scrolling,
+and key bindings are in **Settings → Terminal**, saved to `terminal.toml`.
+Themes are in **Settings → Appearance**. See
+[Settings](../user-guide/settings.md#terminal-configuration).
 
 - `Cmd+=` and `Cmd+-` change the focused pane's font size. `Cmd+0` resets it.
-- `Option` acts as `Alt` by default (`macos-option-as-alt = true`).
+- `Option` acts as `Alt` by default (configurable in Terminal settings).
 - Images use the Kitty graphics protocol. Sixel and iTerm2 images are not
   supported.

@@ -3,7 +3,7 @@ use gpui::{
     WindowOptions, point, px, size,
 };
 use muxy_app_core::ServerId;
-use muxy_app_core::settings::CellHeight;
+use muxy_app_core::settings::TerminalEdit;
 use muxy_ui::tr;
 
 use super::{AppModel, Quitting};
@@ -25,6 +25,18 @@ pub(super) struct ServerPreferences {
 pub(crate) struct SettingsWindowState {
     pub(crate) window: WindowHandle<SettingsWindow>,
     pub(crate) view: Entity<SettingsView>,
+}
+
+pub(super) struct TerminalPreview {
+    settings: muxy_app_core::settings::TerminalSettings,
+    zoom: std::collections::HashMap<super::PaneId, f32>,
+}
+
+#[derive(Default)]
+pub(super) struct TerminalBackground {
+    pub(super) available: bool,
+    #[cfg(all(target_os = "macos", not(test)))]
+    native: Option<muxy_ui::vibrancy::TerminalVibrancy>,
 }
 
 impl AppModel {
@@ -51,10 +63,6 @@ impl AppModel {
         self.settings_window = None;
         let snapshot = self.preferences_snapshot();
         self.refresh_theme(cx);
-        let included_keys = muxy_app_core::settings::TerminalSettings::included_keys(
-            &self.path.with_file_name("ghostty.conf"),
-        )
-        .unwrap_or_default();
         let model = cx.weak_entity();
         let extensions = self.pending_extension_updates.take().unwrap_or_else(|| {
             cx.new(|cx| {
@@ -76,7 +84,6 @@ impl AppModel {
             );
             view.extensions = Some(extensions.clone());
             view.set_backup_pending(self.path.with_file_name("pending-import.muxy").exists());
-            view.set_included_keys(&included_keys);
             view
         });
         let weak = cx.weak_entity();
@@ -369,10 +376,6 @@ impl AppModel {
                 settings.window.close_behavior = value;
                 settings.save_window(&path)?;
             }
-            Change::CopyOnSelect(value) => {
-                settings.clipboard.copy_on_select = value;
-                settings.save_clipboard(&path)?;
-            }
             Change::FileOpener(value) => {
                 settings.openers.file = value;
                 settings.save_openers(&path)?;
@@ -436,8 +439,27 @@ impl AppModel {
                 settings.window.default_size[index] = value.parse()?;
                 settings.save_window(&path)?;
             }
-            Change::Field(id @ ("font-family" | "font-size" | "adjust-cell-height"), value) => {
-                self.save_terminal_preference(id, &value, cx)?;
+            Change::Terminal(id, value)
+            | Change::Field(
+                id @ ("font-family"
+                | "font-size"
+                | "adjust-cell-height"
+                | "adjust-cell-width"
+                | "background-opacity"
+                | "window-padding-x"
+                | "window-padding-y"
+                | "adjust-cursor-thickness"
+                | "scroll-precision"
+                | "scroll-discrete"),
+                value,
+            ) => {
+                self.save_terminal(cx, |terminal| terminal.set_preference(id, &value))?;
+            }
+            Change::Field(id, value) if terminal_field(id) => {
+                self.save_terminal(cx, |terminal| terminal.set_preference(id, &value))?;
+            }
+            Change::TerminalEdit(edit) => {
+                self.save_terminal(cx, |terminal| terminal.edit(edit))?;
             }
             _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
@@ -510,27 +532,139 @@ impl AppModel {
         Ok(())
     }
 
-    fn save_terminal_preference(
+    #[cfg(all(target_os = "macos", not(test)))]
+    pub(crate) fn sync_background_effects(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.sync_sidebar_vibrancy(window);
+        let options = &self.terminal.options;
+        if options.background_vibrancy == 0 || !self.terminal_effects_allowed() {
+            self.terminal_background.native = None;
+            self.set_terminal_vibrancy_available(false, cx);
+            return;
+        }
+        let offset = self.sidebar_width();
+        let width = (f32::from(window.viewport_size().width) - offset).max(0.0);
+        let background = self.palette.background;
+        let background = gpui::rgb(background).into();
+        if let Some(effect) = &mut self.terminal_background.native {
+            effect.update(offset, width, background);
+        } else {
+            self.terminal_background.native =
+                muxy_ui::vibrancy::TerminalVibrancy::new(window, offset, width, background);
+        }
+        self.set_terminal_vibrancy_available(self.terminal_background.native.is_some(), cx);
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn set_terminal_vibrancy_available(
+        &mut self,
+        available: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.terminal_background.available == available {
+            return;
+        }
+        self.terminal_background.available = available;
+        for (id, pane) in &self.grids {
+            let enabled = available && !self.is_quick_terminal(*id);
+            pane.view.update(cx, |pane, cx| {
+                if pane.native_vibrancy != enabled {
+                    pane.native_vibrancy = enabled;
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    pub(crate) fn preview_terminal_preference(
         &mut self,
         id: &str,
         value: &str,
         cx: &mut Context<Self>,
-    ) -> Result<()> {
-        let mut requested = muxy_app_core::settings::TerminalSettings::load(
-            &self.path.with_file_name("ghostty.conf"),
-        )?;
-        match id {
-            "font-family" => requested.font_families = vec![value.into()],
-            "font-size" => requested.font_size = value.parse()?,
-            "adjust-cell-height" => requested.cell_height = value.parse::<CellHeight>()?,
-            _ => return Err(tr!("Unknown terminal setting").to_string().into()),
+    ) {
+        let mut next = self.terminal.clone();
+        if let Err(error) = next.set_preference(id, value) {
+            self.preference_result(id, Some(&error.to_string()), cx);
+            return;
         }
-        self.settings.validate_command_shortcuts(&requested)?;
-        let effective = requested.save(&self.path.with_file_name("ghostty.conf"))?;
-        let changed_size = self.terminal.font_size.to_bits() != effective.font_size.to_bits();
+        if next == self.terminal {
+            return;
+        }
+        self.terminal_preview
+            .get_or_insert_with(|| TerminalPreview {
+                settings: self.terminal.clone(),
+                zoom: self
+                    .grids
+                    .iter()
+                    .map(|(id, pane)| (*id, pane.view.read(cx).terminal.font_size))
+                    .collect(),
+            });
+        self.apply_terminal_preferences(next, false, cx);
+    }
+
+    fn save_terminal(
+        &mut self,
+        cx: &mut Context<Self>,
+        edit: impl FnOnce(
+            &mut muxy_app_core::settings::TerminalSettings,
+        ) -> muxy_app_core::settings::Result<()>,
+    ) -> Result<()> {
+        let result = (|| {
+            let path = self.path.with_file_name("terminal.toml");
+            let mut requested = muxy_app_core::settings::TerminalSettings::load_native(&path)?;
+            edit(&mut requested)?;
+            self.settings.validate_command_shortcuts(&requested)?;
+            requested.save_native(&path)?;
+            Ok(requested)
+        })();
+        let preview = self.terminal_preview.take();
+        match result {
+            Ok(requested) => {
+                let original = preview
+                    .as_ref()
+                    .map_or(&self.terminal, |preview| &preview.settings);
+                let changed_size = original.font_size.to_bits() != requested.font_size.to_bits();
+                self.apply_terminal_preferences(requested, changed_size, cx);
+                if !changed_size && let Some(preview) = preview {
+                    self.restore_terminal_zoom(preview.zoom, cx);
+                }
+                self.set_configuration_error(None);
+                Ok(())
+            }
+            Err(error) => {
+                if let Some(preview) = preview {
+                    self.apply_terminal_preferences(preview.settings, false, cx);
+                    self.restore_terminal_zoom(preview.zoom, cx);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn restore_terminal_zoom(
+        &mut self,
+        zoom: std::collections::HashMap<super::PaneId, f32>,
+        cx: &mut Context<Self>,
+    ) {
+        for (id, size) in zoom {
+            if let Some(pane) = self.grids.get(&id) {
+                pane.view.update(cx, |pane, cx| {
+                    pane.terminal.font_size = size;
+                    cx.notify();
+                });
+            }
+        }
+    }
+
+    fn apply_terminal_preferences(
+        &mut self,
+        effective: muxy_app_core::settings::TerminalSettings,
+        reset_zoom: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let changed_size =
+            reset_zoom || self.terminal.font_size.to_bits() != effective.font_size.to_bits();
         self.terminal = effective;
-        self.set_configuration_error(None);
-        if changed_size {
+        if reset_zoom {
             self.font_sizes.clear();
         }
         for pane in self.grids.values() {
@@ -545,16 +679,6 @@ impl AppModel {
             });
         }
         self.refresh_theme(cx);
-        let included_keys = muxy_app_core::settings::TerminalSettings::included_keys(
-            &self.path.with_file_name("ghostty.conf"),
-        )?;
-        if let Some(settings) = &self.settings_window {
-            settings.view.update(cx, |view, cx| {
-                view.set_included_keys(&included_keys);
-                cx.notify();
-            });
-        }
-        Ok(())
     }
 
     pub(crate) fn read_server_settings(&mut self, cx: &mut Context<Self>) {
@@ -718,6 +842,19 @@ impl AppModel {
     }
 }
 
+fn terminal_field(id: &str) -> bool {
+    matches!(
+        id,
+        "font-feature"
+            | "background"
+            | "foreground"
+            | "cursor-color"
+            | "cursor-text"
+            | "selection-foreground"
+            | "selection-background"
+    ) || id.starts_with("palette-")
+}
+
 fn change_id(change: &Change) -> &str {
     match change {
         Change::Command(_) | Change::RemoveCommand(_) => "commands",
@@ -734,10 +871,17 @@ fn change_id(change: &Change) -> &str {
         Change::Tips(_) => "tips",
         Change::ConfirmProcess(_) => "confirm-process",
         Change::CloseBehavior(_) => "close-behavior",
-        Change::CopyOnSelect(_) => "copy-on-select",
         Change::FileOpener(_) => "file-opener",
         Change::Directory(_) => "directory",
-        Change::Composer(id, _) | Change::Field(id, _) => id,
+        Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
+        Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
+        Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",
+        Change::Terminal(id, _) | Change::Composer(id, _) | Change::Field(id, _) => id,
+        Change::TerminalEdit(edit) => match edit {
+            TerminalEdit::Fallbacks(_) => "font-fallbacks",
+            TerminalEdit::CodepointMap { .. } => "font-codepoint-map",
+            TerminalEdit::Binding { .. } => "terminal-keybindings",
+        },
         Change::Binding(id, _) | Change::Unassign(id) => id,
         Change::ShellIntegration(_) => "shell-integration",
         Change::MobileAccess(_) => "mobile-access",

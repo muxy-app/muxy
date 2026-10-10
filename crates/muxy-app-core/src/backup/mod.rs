@@ -30,7 +30,7 @@ pub fn settings_source(settings: &Settings) -> Result<String> {
 
 pub fn validate_configuration(directory: &Path) -> Result<()> {
     let settings = Settings::load(&directory.join("settings.toml"))?;
-    let terminal = TerminalSettings::load(&directory.join("ghostty.conf"))?;
+    let terminal = TerminalSettings::load_native(&directory.join("terminal.toml"))?;
     settings.validate_command_shortcuts(&terminal)?;
     let server = directory.join("server.toml");
     if server.exists() {

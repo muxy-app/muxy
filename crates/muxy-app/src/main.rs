@@ -80,11 +80,10 @@ use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight, FocusPaneUp,
     HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize, NewHomeTab, NewTab,
-    NewTabInProject, NextProject, NextPrompt, NextTab, OpenConfiguration, OpenSettings,
-    PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject,
-    SelectTab, ShowAll, SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer,
-    ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom,
-    bind_keys,
+    NewTabInProject, NextProject, NextPrompt, NextTab, OpenSettings, PreviousProject,
+    PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject, SelectTab, ShowAll,
+    SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
+    ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
 };
 
 fn main() -> ExitCode {
@@ -125,26 +124,6 @@ fn main() -> ExitCode {
             profile.finish_on_quit(cx);
         }
         bind_keys(&boot.settings.keymap, cx);
-        let config_path = boot.state_path.with_file_name("ghostty.conf");
-        cx.on_action(move |_: &OpenConfiguration, _| {
-            if let Err(error) = std::process::Command::new("/usr/bin/open")
-                .arg("-t")
-                .arg(&config_path)
-                .status()
-                .and_then(|status| {
-                    if status.success() {
-                        Ok(())
-                    } else {
-                        Err(io::Error::other(format!("open exited with {status}")))
-                    }
-                })
-            {
-                let _ = writeln!(
-                    io::stderr(),
-                    "muxy-app: could not open configuration: {error}"
-                );
-            }
-        });
         cx.on_action(|_: &HideApp, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
@@ -247,11 +226,6 @@ fn menus() -> Vec<Menu> {
             name: app_name().into(),
             items: vec![
                 MenuItem::action(tr!("Settings…"), OpenSettings),
-                MenuItem::action(tr!("Open Configuration…"), OpenConfiguration),
-                MenuItem::action(
-                    tr!("Reload Configuration"),
-                    views::workspace::ReloadConfiguration,
-                ),
                 MenuItem::action(tr!("Check for Updates…"), CheckForUpdates),
                 MenuItem::action(tr!("Install Command Line Tool…"), InstallCommandLineTool),
                 MenuItem::separator(),
