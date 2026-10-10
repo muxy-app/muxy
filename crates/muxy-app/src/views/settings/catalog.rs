@@ -699,6 +699,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Migration"),
     },
     Setting {
+        id: "terminal-reset",
+        label: tr_key!("Reset terminal settings"),
+        description: tr_key!(
+            "Return every setting on this page, including key bindings, to its default."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Reset"),
+    },
+    Setting {
         id: "server",
         label: tr_key!("Current device"),
         description: tr_key!("Manage the local server that keeps your terminal sessions running."),

@@ -461,6 +461,17 @@ impl AppModel {
             Change::TerminalEdit(edit) => {
                 self.save_terminal(cx, |terminal| terminal.edit(edit))?;
             }
+            Change::ResetTerminal => {
+                self.save_terminal(cx, |terminal| {
+                    *terminal = muxy_app_core::settings::TerminalSettings::default();
+                    Ok(())
+                })?;
+                let directory = muxy_app_core::settings::NewPaneDirectory::default();
+                if settings.panes.new_pane_directory != directory {
+                    settings.panes.new_pane_directory = directory;
+                    settings.save_panes(&path)?;
+                }
+            }
             _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
         let theme_changed = theme_changed
@@ -573,6 +584,28 @@ impl AppModel {
                 }
             });
         }
+    }
+
+    pub(crate) fn confirm_terminal_reset(
+        &mut self,
+        window: gpui::AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
+            return;
+        }
+        self.close_prompt = Some(cx.spawn(async move |model, cx| {
+            let response = crate::views::confirm::prompt_reset_terminal(window, cx).await;
+            let _ = model.update(cx, |model, cx| {
+                model.finish_confirmation(cx);
+                match response {
+                    Ok(true) => model.change_preference(Change::ResetTerminal, cx),
+                    Ok(false) => {}
+                    Err(error) => model.preference_result("terminal-reset", Some(&error), cx),
+                }
+                cx.notify();
+            });
+        }));
     }
 
     pub(crate) fn preview_terminal_preference(
@@ -877,6 +910,7 @@ fn change_id(change: &Change) -> &str {
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
         Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",
         Change::Terminal(id, _) | Change::Composer(id, _) | Change::Field(id, _) => id,
+        Change::ResetTerminal => "terminal-reset",
         Change::TerminalEdit(edit) => match edit {
             TerminalEdit::Fallbacks(_) => "font-fallbacks",
             TerminalEdit::CodepointMap { .. } => "font-codepoint-map",

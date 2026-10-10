@@ -253,6 +253,65 @@ fn terminal_preview_preserves_concurrent_edits_and_rolls_back_failed_saves(
 }
 
 #[gpui::test]
+fn terminal_reset_asks_first_then_restores_every_default_on_the_page(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::{NewPaneDirectory, TerminalSettings};
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let (boot, _) = stub_boot(state);
+    let path = boot.state_path.with_file_name("terminal.toml");
+    let app_settings = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_window(boot, cx);
+    model.update(settings, |model, cx| {
+        model.change_preference(Change::Terminal("scroll-discrete", "4.5".into()), cx);
+        model.change_preference(Change::Terminal("cursor-style", "bar".into()), cx);
+        model.change_preference(Change::Field("background", "not a color".into()), cx);
+        model.change_preference(Change::Directory(NewPaneDirectory::Current), cx);
+        assert!(
+            settings_view(model)
+                .read(cx)
+                .errors
+                .contains_key("background")
+        );
+    });
+    click_preference(settings, "settings-search");
+    settings.simulate_input("reset terminal settings");
+    click_preference(settings, "settings-button-terminal-reset");
+    assert!(settings.has_pending_prompt());
+    settings.simulate_prompt_answer("Cancel");
+    settings.run_until_parked();
+    model.read_with(settings, |model, _| {
+        assert_eq!(model.terminal.options.scroll_discrete, 4.5);
+    });
+    click_preference(settings, "settings-button-terminal-reset");
+    settings.simulate_prompt_answer("Reset");
+    settings.run_until_parked();
+    model.read_with(settings, |model, cx| {
+        assert_eq!(model.terminal, TerminalSettings::default());
+        assert_eq!(
+            TerminalSettings::load_native(&path).expect("saved defaults"),
+            model.terminal
+        );
+        assert_eq!(
+            model.settings.panes.new_pane_directory,
+            NewPaneDirectory::Project
+        );
+        let pane = model.grids.values().next().expect("pane").view.read(cx);
+        assert_eq!(pane.terminal, model.terminal);
+        assert!(model.palette.cursor_style.is_none());
+        assert!(settings_view(model).read(cx).errors.is_empty());
+    });
+    assert_eq!(
+        muxy_app_core::settings::Settings::load(&app_settings)
+            .expect("saved app settings")
+            .panes
+            .new_pane_directory,
+        NewPaneDirectory::Project
+    );
+    click_preference(settings, "settings-button-terminal-reset");
+    assert!(!settings.has_pending_prompt());
+}
+
+#[gpui::test]
 fn terminal_key_bindings_apply_atomically_and_never_take_a_command_shortcut(
     cx: &mut TestAppContext,
 ) {

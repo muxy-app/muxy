@@ -84,7 +84,9 @@ impl Scroll {
         live: &RunGrid,
         height: usize,
     ) -> Option<HistoryRequest> {
-        self.move_to(self.wanted + f64::from(delta), live, height)
+        let request = self.move_to(self.wanted + f64::from(delta), live, height);
+        self.elastic = 0.0;
+        request
     }
 
     #[allow(clippy::cast_precision_loss)]

@@ -72,6 +72,9 @@ dropdowns. Sliders preview changes while dragging and save when released or when
 Settings closes. Spacing and thickness offer a pixels/percent dropdown; changing
 units keeps the numeric adjustment within the supported range.
 
+**Reset terminal settings**, at the bottom of the section, returns everything
+on it, including key bindings, to its default after you confirm.
+
 Themes remain in **Settings → Appearance**. Shell and history limits remain
 in **Settings → Server**. Quick Terminal opacity combines with terminal opacity.
 

@@ -541,6 +541,7 @@
 "Enter a worktree name." = "Enter a worktree name.";
 "Enter an SSH host: a ~/.ssh/config alias, a host name, or an address" = "Enter an SSH host: a ~/.ssh/config alias, a host name, or an address";
 "Enter the password to test logging in with it." = "Enter the password to test logging in with it.";
+"Every setting on the Terminal page, including key bindings, returns to its default." = "Every setting on the Terminal page, including key bindings, returns to its default.";
 "Every target must have a live terminal before sending." = "Every target must have a live terminal before sending.";
 "Existing Terminals…" = "Existing Terminals…";
 "Expand Composer" = "Expand Composer";
@@ -1007,8 +1008,10 @@
 "Requested permissions" = "Requested permissions";
 "Reset" = "Reset";
 "Reset Composer Size" = "Reset Composer Size";
+"Reset Terminal Settings?" = "Reset Terminal Settings?";
 "Reset Title" = "Reset Title";
 "Reset font size" = "Reset font size";
+"Reset terminal settings" = "Reset terminal settings";
 "Resolve merge conflicts first" = "Resolve merge conflicts first";
 "Restart" = "Restart";
 "Restart Server" = "Restart Server";
@@ -1032,6 +1035,7 @@
 "Retry app update" = "Retry app update";
 "Retry connection" = "Retry connection";
 "Retry server update" = "Retry server update";
+"Return every setting on this page, including key bindings, to its default." = "Return every setting on this page, including key bindings, to its default.";
 "Return to live output when sending a keystroke." = "Return to live output when sending a keystroke.";
 "Return to live output whenever the terminal receives new text." = "Return to live output whenever the terminal receives new text.";
 "Reveal audit log" = "Reveal audit log";

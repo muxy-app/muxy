@@ -336,6 +336,7 @@ impl TerminalPane {
             if let Some(request) = self.scroll.move_rows(delta, grid, height) {
                 self.request_history(request, cx);
             }
+            self.scroll.revision = self.scroll.revision.wrapping_add(1);
             if was_scrolled && self.scroll.view.is_none() {
                 self.restart_find(cx);
             }
@@ -868,13 +869,14 @@ impl TerminalPane {
     }
 
     fn mouse_wheel(&mut self, event: &gpui::ScrollWheelEvent, cx: &mut Context<Self>) {
-        let delta = match event.delta {
-            gpui::ScrollDelta::Pixels(delta) => {
-                f32::from(delta.y) / self.cell_height.max(1.0)
-                    * self.terminal.options.scroll_precision
-            }
-            gpui::ScrollDelta::Lines(delta) => delta.y * self.terminal.options.scroll_discrete,
+        let (rows, multiplier) = match event.delta {
+            gpui::ScrollDelta::Pixels(delta) => (
+                f32::from(delta.y) / self.cell_height.max(1.0),
+                self.terminal.options.scroll_precision,
+            ),
+            gpui::ScrollDelta::Lines(delta) => (delta.y, self.terminal.options.scroll_discrete),
         };
+        let delta = rows * multiplier;
         if self.reports_wheel() && !event.modifiers.shift {
             if delta.signum() != self.wheel_remainder.signum() {
                 self.wheel_remainder = 0.0;
@@ -906,8 +908,7 @@ impl TerminalPane {
         self.prepare_saved_history(cx);
         #[cfg(target_os = "macos")]
         if !self.reports_wheel()
-            && self.terminal.options.scroll_precision.to_bits() == 1.0_f32.to_bits()
-            && self.terminal.options.scroll_discrete.to_bits() == 1.0_f32.to_bits()
+            && multiplier.to_bits() == 1.0_f32.to_bits()
             && let Some(position) = self
                 .native_scroll
                 .as_ref()
@@ -2322,6 +2323,46 @@ mod tests {
                 && event.column == 1
                 && event.row == 0));
         }
+    }
+
+    #[gpui::test]
+    fn scaled_wheel_scrolling_stops_at_history_edges_and_moves_the_scroll_bar(
+        cx: &mut TestAppContext,
+    ) {
+        let pane = cx.new(|cx| {
+            let mut terminal = muxy_app_core::settings::TerminalSettings::default();
+            terminal.options.scroll_discrete = 4.0;
+            TerminalPane::new(Palette::new(true), terminal, cx)
+        });
+        pane.update(cx, |pane, cx| {
+            prepare_mouse(pane);
+            let mut wheel = gpui::ScrollWheelEvent {
+                position: point(px(15.0), px(5.0)),
+                delta: gpui::ScrollDelta::Lines(point(0.0, 1.0)),
+                ..gpui::ScrollWheelEvent::default()
+            };
+            let revision = pane.scroll.revision;
+            pane.mouse_wheel(&wheel, cx);
+            assert_eq!(pane.scroll.offset.to_bits(), 1.0_f64.to_bits());
+            assert_eq!(
+                pane.scroll.pixel_remainder(20.0).to_bits(),
+                0.0_f32.to_bits()
+            );
+            assert_ne!(pane.scroll.revision, revision);
+            assert_eq!(
+                pane.scroll.requested_pixels(20.0).to_bits(),
+                20.0_f64.to_bits()
+            );
+            wheel.delta = gpui::ScrollDelta::Lines(point(0.0, -1.0));
+            for _ in 0..2 {
+                pane.mouse_wheel(&wheel, cx);
+                assert!(pane.scroll.view.is_none());
+                assert_eq!(
+                    pane.scroll.pixel_remainder(20.0).to_bits(),
+                    0.0_f32.to_bits()
+                );
+            }
+        });
     }
 
     #[gpui::test]
