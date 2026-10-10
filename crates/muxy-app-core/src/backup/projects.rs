@@ -319,7 +319,21 @@ fn remap_layout(layout: &mut Layout, panes: &BTreeMap<PaneId, PaneId>) {
 }
 
 pub fn remap_settings(source: &str, imported: &AppState, restored: &AppState) -> Result<String> {
-    let mut settings: crate::settings::Settings = toml::from_str(source)?;
+    super::settings_source(&remap_project_settings(
+        toml::from_str(source)?,
+        imported,
+        restored,
+    ))
+}
+
+/// Moves what `settings` keeps per project onto the projects `imported`
+/// landed on in `restored`.
+#[must_use]
+pub fn remap_project_settings(
+    mut settings: crate::settings::Settings,
+    imported: &AppState,
+    restored: &AppState,
+) -> crate::settings::Settings {
     let ids = imported.match_restore_projects(restored);
     let remap = |id: ProjectId| ids.get(&id).copied().unwrap_or(id);
     settings.worktrees.projects = remap_keys(settings.worktrees.projects, |id| remap(*id));
@@ -341,7 +355,7 @@ pub fn remap_settings(source: &str, imported: &AppState, restored: &AppState) ->
         id.parse::<ProjectId>()
             .map_or_else(|_| id.clone(), |id| remap(id).to_string())
     });
-    super::settings_source(&settings)
+    settings
 }
 
 /// A project's own entry wins over one moved onto it.

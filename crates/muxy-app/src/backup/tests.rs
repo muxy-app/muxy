@@ -566,7 +566,7 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
         {"id":first_id,"name":"First","path":first.path(),"sortOrder":0},
         {"id":second_id,"name":"Unmounted","path":"/missing-muxy-project","sortOrder":1}
     ]));
-    let notice = migrate_into_new_profile(directory.path(), legacy.path(), legacy_extensions)
+    let notice = migrate_once(directory.path(), legacy.path(), legacy_extensions)
         .unwrap()
         .unwrap();
     for item in ["Unmounted", "renamed", "locked", "reader (1 links"] {
@@ -590,7 +590,7 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
     state.open_terminal_tab(first_id).unwrap();
     muxy_app_core::store::save(&path, &state).unwrap();
     assert!(
-        migrate_into_new_profile(directory.path(), legacy.path(), legacy_extensions)
+        migrate_once(directory.path(), legacy.path(), legacy_extensions)
             .unwrap()
             .is_none()
     );
@@ -623,4 +623,93 @@ fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge()
         state.project(first_id).unwrap().tabs
     );
     assert!(merged.project(second_id.parse().unwrap()).is_some());
+}
+
+fn legacy_projects(legacy: &Path, folders: &[&Path]) -> Vec<muxy_app_core::ProjectId> {
+    let ids: Vec<_> = (1..=folders.len())
+        .map(|index| format!("01000000-0000-0000-0000-00000000000{index}"))
+        .collect();
+    let projects: Vec<_> = ids
+        .iter()
+        .zip(folders)
+        .enumerate()
+        .map(|(index, (id, folder))| {
+            serde_json::json!({"id":id,"name":format!("Project {index}"),"path":folder,"sortOrder":index})
+        })
+        .collect();
+    fs::write(
+        legacy.join("projects.json"),
+        serde_json::to_vec(&projects).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        legacy.join("project-groups.json"),
+        serde_json::json!([{"id":"02000000-0000-0000-0000-000000000001","name":"Work","sortOrder":0,"projectIDs":ids,"type":"local"}])
+            .to_string(),
+    )
+    .unwrap();
+    ids.iter().map(|id| id.parse().unwrap()).collect()
+}
+
+#[test]
+fn profile_an_earlier_two_x_left_empty_imports_installed_one_x_once() {
+    let legacy = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let id = legacy_projects(legacy.path(), &[folder.path()])[0];
+    let opened = tempfile::tempdir().unwrap();
+    let path = opened.path().join("desktop-state.json");
+    let empty = AppState::bootstrap().unwrap();
+    muxy_app_core::store::save(&path, &empty).unwrap();
+    assert!(
+        migrate_once(opened.path(), legacy.path(), None)
+            .unwrap()
+            .is_none()
+    );
+    assert!(apply_pending(opened.path()).unwrap().is_none());
+    let imported = muxy_app_core::store::load(&path).unwrap();
+    assert!(imported.project(id).is_some());
+    assert_eq!(imported.workspaces()[0].projects, [id].into());
+    muxy_app_core::store::save(&path, &empty).unwrap();
+    migrate_once(opened.path(), legacy.path(), None).unwrap();
+    assert!(!opened.path().join(PENDING).exists());
+}
+
+#[test]
+fn automatic_one_x_import_leaves_used_imported_and_staged_profiles_alone() {
+    let legacy = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    legacy_projects(legacy.path(), &[folder.path()]);
+    let empty = AppState::bootstrap().unwrap();
+    let mut with_project = empty.clone();
+    with_project
+        .add_project(ServerId::local(), folder.path().into())
+        .unwrap();
+    let mut with_workspace = empty.clone();
+    with_workspace.create_workspace("Mine").unwrap();
+    for used in [with_project, with_workspace] {
+        let profile = tempfile::tempdir().unwrap();
+        for state in [&used, &empty] {
+            muxy_app_core::store::save(profile.path().join("desktop-state.json"), state).unwrap();
+            migrate_once(profile.path(), legacy.path(), None).unwrap();
+            assert!(!profile.path().join(PENDING).exists());
+        }
+    }
+
+    let imported_by_two_one = tempfile::tempdir().unwrap();
+    fs::create_dir_all(
+        imported_by_two_one
+            .path()
+            .join("Backups/pre-import-earlier"),
+    )
+    .unwrap();
+    migrate_once(imported_by_two_one.path(), legacy.path(), None).unwrap();
+    assert!(!imported_by_two_one.path().join(PENDING).exists());
+
+    let staged = tempfile::tempdir().unwrap();
+    fs::write(staged.path().join(PENDING), "staged by the user").unwrap();
+    migrate_once(staged.path(), legacy.path(), None).unwrap();
+    assert_eq!(
+        fs::read_to_string(staged.path().join(PENDING)).unwrap(),
+        "staged by the user"
+    );
 }

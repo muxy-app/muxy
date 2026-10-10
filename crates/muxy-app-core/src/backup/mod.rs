@@ -2,7 +2,7 @@ mod legacy;
 mod projects;
 
 pub use legacy::{import_settings, import_shell, merge_legacy_files};
-pub use projects::{import_projects, remap_settings};
+pub use projects::{import_projects, remap_project_settings, remap_settings};
 
 use std::path::{Path, PathBuf};
 
