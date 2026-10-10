@@ -123,8 +123,9 @@ stop.
 - Import supported 1.x settings and local projects from the installed app, a
   `.muxy` backup, or `settings.json`. Unsupported options are listed before import.
   A 1.x import adds to what is already there: existing projects, tabs, and
-  workspaces are kept. A profile with no projects yet imports the installed 1.x
-  automatically, once, including its extensions.
+  workspaces are kept. A profile with no projects or workspaces yet imports the
+  installed 1.x automatically, once, including its extensions. Profiles chosen
+  with `MUXY_DIR` are left alone.
   Config files open in the system editor. Backups exclude live terminal sessions,
   paired-device credentials, extension packages, and project files. They keep
   the list of remote servers but not remote projects, which come back from
@@ -155,8 +156,9 @@ ends.
   projects closes them, and switching back reopens them.
 - **Extensions.** Add tabs, panels, a sidebar, toolbar and status bar items,
   shortcuts, and background scripts. They are managed in Settings → Extensions,
-  declare their permissions, and ask before sensitive actions. Extensions made
-  for Muxy 1.x work unchanged.
+  declare their permissions, and ask before sensitive actions. Most extensions
+  made for Muxy 1.x work unchanged; see the
+  [compatibility limits](../extensions/get-started.md#coming-from-1x).
 - **Git and AI.** For Git projects, the footer shows the branch and changes,
   commits and pushes with an AI-written message, and creates or manages pull
   requests. It uses an AI command-line tool you already have, chosen in

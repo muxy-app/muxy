@@ -37,8 +37,8 @@ after the app quits.
 ## PTYs
 
 - How fast a terminal fills up depends on how the program writes, not on parsing.
-  A program that writes line by line tops out near 12 MB/s on macOS. One that
-  writes large blocks reaches 280 MB/s through the same PTY.
+  In our benchmarks, a program that writes line by line reached about 12 MB/s
+  on macOS. One that writes large blocks reached 280 MB/s through the same PTY.
 - Reads therefore arrive small and often. The reader must be its own blocking
   thread. Sleeping to batch reads would stall the program, because the kernel's
   PTY buffer holds only a few kilobytes.

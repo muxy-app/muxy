@@ -35,13 +35,13 @@ doesn't know.
 
 | Field | Required | Notes |
 | --- | --- | --- |
-| `name` | yes | The extension ID. Use `a-z`, `0-9`, `.`, and `-`; pages don't load for other names. Must match the install folder name. |
+| `name` | yes | The extension ID. Use `a-z`, `0-9`, `.`, and `-`; pages don't load for other names. Must match its folder name when published or installed. |
 | `version` | yes | Semver. Bump it for every published change. |
 | `scripts.build` | to publish | Must leave `package.json` in `dist/`. |
 
 ## `muxy` fields
 
-All optional.
+The `muxy` object is required; its fields are optional.
 
 | Field | Type | See |
 | --- | --- | --- |

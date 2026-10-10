@@ -1,8 +1,8 @@
 # Composer
 
 The composer is a text box for writing long prompts and commands, with files,
-images, and dictation. It sends to the active terminal, or to every split in
-the tab. Handy for AI agents.
+images, and dictation. It sends to the active terminal, or to every visible
+terminal in the project. Handy for AI agents.
 
 ## Use it
 
@@ -13,11 +13,14 @@ the tab. Handy for AI agents.
 | Send without Return | `Cmd+Shift+Return` |
 | Close | `Esc` |
 
-- Sending replaces anything already typed at the terminal's prompt.
+- Sending first clears the terminal's prompt with `Ctrl+U`, in programs that
+  support it.
 - With text selected, only the selection is sent.
-- **Send to All Split Panes** in the **…** menu sends to every terminal in the
-  tab.
-- A failed send keeps the draft.
+- **Send to All Split Panes** in the **…** menu sends to every pane you can see
+  in the project. If one of them isn't a live terminal, such as an extension
+  tab, nothing is sent.
+- A failed send keeps the draft. Some terminals may already have received it,
+  so check before retrying.
 - Each project keeps its own draft, saved across restarts.
 
 ## Files and images

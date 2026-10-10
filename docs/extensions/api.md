@@ -41,10 +41,14 @@ their `clear` functions.
 | `tabs.list()` | `[{ index, id, kind, title, isActive }]` for the current project |
 | `tabs.switchTo(indexOrIdOrTitle)`, `new()`, `next()`, `previous()` | |
 | `tabs.open(request)` | The new tab's ID. See [Tabs](tabs.md#opening-tabs) |
-| `panes.list()` | `[{ id, title, workingDirectory, isFocused }]` |
-| `panes.send(id, text)`, `sendKeys(id, key)`, `readScreen(id, lines = 50)` | |
+| `panes.list()` | `[{ id, title, workingDirectory, isFocused }]` across projects |
+| `panes.send(id, text)`, `sendKeys(id, key)` | |
+| `panes.readScreen(id, lines = 50)` | The last rows of the screen as text, up to 500 |
 | `panes.close(id)`, `rename(id, title)` | |
 | `agents.list()` | Agent status per worktree, like the `agent.status` event |
+
+`send` and `sendKeys` only reach panes that are on screen. For a hidden pane,
+`readScreen` returns the text it last showed.
 
 ## Running programs
 
@@ -72,14 +76,14 @@ await muxy.storage.delete("count");
 await muxy.storage.keys();         // sorted keys
 ```
 
-Values are JSON, up to 1 MB each and 5 MB in total.
+Values are JSON, up to 1 MiB each and 5 MiB in total.
 
 ## Web requests
 
 `http.fetch(url, { method, headers, body, timeoutMs })` resolves to
 `{ status, headers, body, truncated }`. It runs in the app, asks the user per
-host, and can't reach the local machine or private networks. Bodies are capped
-at 10 MB and timeouts at 120 s. Pages only.
+host, and can't reach the local machine or private networks. Response bodies
+are capped at 10 MiB and timeouts at 120 s. Pages only.
 
 ## Notifications
 
@@ -95,8 +99,8 @@ needs `cmd`, `ctrl`, or `opt`. `unregister(id)` and `list()` manage them.
 
 ## GitHub
 
-`gh.user()` returns the signed-in GitHub user from the `gh` CLI, cached for five
-minutes.
+`gh.user()` returns the signed-in GitHub user from the `gh` CLI on the desktop
+computer, even for remote projects. It is cached for five minutes.
 
 ## Page only
 
@@ -107,7 +111,7 @@ minutes.
 | `data`, `onDataChange(fn)` | The view's data. See [Tabs](tabs.md#page-data) |
 | `theme`, `onThemeChange(fn)` | Theme colors. See [Tabs](tabs.md#theme) |
 | `focused`, `onFocus(fn)` | Whether the view has focus |
-| `lifecycle.onBeforeClose(fn)` | Called before the view closes. Return `true` to keep it open. Ignored after 5 s |
+| `lifecycle.onBeforeClose(fn)` | Called before the view closes. Return `true`, or a Promise of it, to keep it open. A page that doesn't respond is closed after 5 s |
 | `lifecycle.close()` | Closes this view |
 
 More: [Events](events.md), [Tabs](tabs.md), [Panels](panels.md),

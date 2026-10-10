@@ -83,4 +83,5 @@ baseBranch, state, isDraft, updatedAt, mergeable, mergeStateStatus,
 isCrossRepository, checks }`, where `checks` is
 `{ passing, failing, pending, total, status }`.
 
-`muxy.gh.user()` (needs `gh:read`) returns the signed-in GitHub user.
+`muxy.gh.user()` (needs `gh:read`) returns the signed-in GitHub user from the
+desktop computer's `gh` CLI, even when the project is remote.

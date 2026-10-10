@@ -15,7 +15,7 @@ flowchart LR
     subgraph SERVER["muxy-server · one per profile"]
         LOCAL["Local listener"]
         NETWORK["Network listener · opt-in"]
-        CONNECTION["One connection per app"]
+        CONNECTION["Client connections"]
         CATALOG["Projects"]
         S1["Session thread"]
         S2["Session thread"]
@@ -31,8 +31,9 @@ flowchart LR
   also released on their own. Either app starts the server if it isn't running.
 - The server keeps projects and which sessions belong to them. Apps keep tabs,
   panes, order, and workspaces.
-- The desktop app keeps one connection per server: this computer's, and one per
-  remote device.
+- The desktop app keeps a connection per server: this computer's, and one per
+  remote device. A second connection to each carries file, Git, and extension
+  work, so it never waits behind terminal traffic.
 - Apps never include server code. They only speak the [protocol](./protocol.md).
 
 ## Crates
@@ -127,8 +128,9 @@ flowchart LR
   any history it has fetched.
 - It repaints a pane only when a frame arrives or the view changes: one text
   line per row and one rectangle per color run.
-- Hidden panes hold nothing. They attach again when shown, displaying cached
-  content first, even while offline.
+- Hidden terminal panes detach but keep their last screen in memory, and the
+  server still counts them as showing their session. They attach again when
+  shown, displaying cached content first, even while offline.
 - The UI is built from `muxy-ui` components. Every app shortcut comes from one
   catalog, resolved through the keymap. Terminal preferences and key
   bindings live in `terminal.toml`, and the Quick Terminal's global shortcut is its own setting.

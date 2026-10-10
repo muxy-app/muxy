@@ -67,7 +67,7 @@ muxy.events.subscribe("extension.refresh", (payload) => { /* ... */ });
 ```
 
 A page's message needs the background script running. Payloads are JSON, up to
-64 KB.
+64 KiB.
 
 ## Background scripts
 

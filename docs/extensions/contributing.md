@@ -4,7 +4,7 @@ Published extensions live in the
 [`muxy-app/extensions`](https://github.com/muxy-app/extensions) repository and
 appear in **Settings → Extensions → Browse**. You publish by opening a pull
 request there; CI builds, checks, and lists your extension. The repository's
-README has the current validation steps.
+`CONTRIBUTING.md` has the current validation steps.
 
 ## 1. Check out your fork
 

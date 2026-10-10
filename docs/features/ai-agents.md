@@ -45,7 +45,7 @@ that run an agent.
 
 ## From a shell and extensions
 
-- `muxy activity list` prints agent status and unread alerts as JSON.
+- `muxy activity list --json` prints agent status and unread alerts as JSON.
   `muxy activity ack <event-id>` clears alerts.
 - Extensions get the `agent.status` event and `muxy.agents.list()`. See
   [Events](../extensions/events.md).
