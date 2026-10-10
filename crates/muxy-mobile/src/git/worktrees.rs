@@ -31,7 +31,8 @@ impl GitRepository {
     /// Checks out `branch` in a new worktree and returns its project. `base`
     /// creates the branch from that ref, such as `HEAD` or `main`; `None`
     /// checks out an existing branch. Without a `directory`, the worktree goes
-    /// next to the project's folder, named `<project>-<branch>`, as on the desktop.
+    /// next to the project's folder, named `<project>-<branch>`. The desktop
+    /// app's worktree location setting is not used.
     pub fn create_worktree(
         &self,
         branch: String,

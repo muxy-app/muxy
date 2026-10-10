@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://muxy.app/schema/manifest.schema.json",
   "title": "Muxy Extension package.json",
-  "description": "An extension is an npm + Vite project. Identity (name, version) lives at the top level of package.json; all Muxy manifest fields live under the `muxy` key. Mirror of the Swift PackageManifest/ExtensionManifest loader in muxy-app/muxy — source of truth is MuxyExtension.load/validate; this schema is the marketplace mirror, backed by an app contract test.",
+  "description": "Schema for published Muxy extension packages. Identity (name, version) lives at the top level of package.json; all Muxy manifest fields live under the `muxy` key. The app's loader is the source of truth (crates/muxy-app-core/src/extensions/manifest.rs); this schema adds publishing rules, such as a build script and names that pages can load under.",
   "type": "object",
   "required": ["name", "version", "scripts", "muxy"],
   "properties": {
@@ -12,8 +12,9 @@
     },
     "name": {
       "type": "string",
-      "description": "Extension identifier. Must equal the directory name. ASCII letters, digits, dash, underscore, dot; no leading dot.",
-      "pattern": "^(?!\\.)[A-Za-z0-9._-]+$",
+      "description": "Extension identifier. Must equal the directory name. Lowercase ASCII letters, digits, dash, dot; no leading dot. Pages don't load for other names. The name foundation is reserved.",
+      "pattern": "^(?!\\.)[a-z0-9.-]+$",
+      "not": { "const": "foundation" },
       "minLength": 1,
       "maxLength": 64
     },
@@ -24,7 +25,7 @@
     },
     "scripts": {
       "type": "object",
-      "description": "npm scripts. A `build` script is required: the publishing pipeline runs it (Vite) and ships the build output (dist/).",
+      "description": "npm scripts. A `build` script is required for publishing: it must produce dist/ with package.json and the extension's assets. Any build tool may be used.",
       "required": ["build"],
       "properties": {
         "build": { "type": "string", "minLength": 1 }
@@ -45,11 +46,11 @@
         },
         "background": {
           "type": "string",
-          "description": "Relative path to a background JS file inside the build output. Use for pushed workspace events, extension-local events, remote methods, or background shell commands."
+          "description": "Relative path to a background JS file inside the build output. Use for workspace events, extension-local events, or background shell commands."
         },
         "events": {
           "type": "array",
-          "description": "Workspace events this extension may subscribe to (e.g. pane.created, pane.closed, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, project.switched, projects.changed, worktree.switched, worktree.offline, notification.posted, agent.status, file.changed). Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
+          "description": "Workspace events this extension may subscribe to (pane.created, pane.closed, pane.focused, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, modal.opened, modal.closed, project.switched, projects.changed, worktree.switched, worktree.headChanged, notification.posted, agent.status, file.changed). worktree.offline is not emitted in Muxy 2. Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
           "items": { "type": "string" },
           "uniqueItems": true
         },
@@ -64,7 +65,7 @@
         },
         "homeViews": {
           "type": "array",
-          "description": "Global full-window extension views shown outside project tab restoration.",
+          "description": "Legacy field accepted for Muxy 1.x compatibility. Home views are not implemented in Muxy 2.",
           "items": { "$ref": "#/$defs/homeView" }
         },
         "fileOpeners": {
@@ -101,11 +102,12 @@
         },
         "settings": {
           "type": "array",
+          "description": "Preferences shown in Settings → Extensions. Muxy 2 does not yet expose their values to extension code; use storage for values needed at runtime.",
           "items": { "$ref": "#/$defs/setting" }
         },
         "remoteMethods": {
           "type": "array",
-          "description": "Named API methods this extension serves to the mobile app via the remote server. Requires the `remote:serve` permission. Handlers are registered in the background script with `muxy.remote.handle(id, fn)`.",
+          "description": "Legacy field accepted for Muxy 1.x compatibility. Serving extension methods to mobile clients is not implemented in Muxy 2.",
           "items": { "$ref": "#/$defs/remoteMethod" }
         },
         "marketplace": {
@@ -321,7 +323,7 @@
       }
     },
     "sidebar": {
-      "description": "A single full-height webview that replaces Muxy's built-in left sidebar when the user selects it in Settings → Sidebar. At most one per extension.",
+      "description": "A single full-height webview that replaces Muxy's built-in left sidebar when the user selects it in Settings → Appearance → Active sidebar. At most one per extension.",
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "entry"],
@@ -345,7 +347,7 @@
         "defaultShortcut": {
           "type": "string",
           "minLength": 1,
-          "description": "Default keyboard shortcut for this command, e.g. \"cmd+shift+e\". Must include at least one of cmd, ctrl, or opt; bare keys are ignored. Auto-assigned on load when free; registered unassigned when the combo is already taken. Editable in Settings → Keyboard Shortcuts."
+          "description": "Default keyboard shortcut for this command, e.g. \"cmd+shift+e\". Must include at least one of cmd, ctrl, or opt; bare keys are ignored. Auto-assigned on load when free; registered unassigned when the combo is already taken. Editable in Settings → Keyboard."
         }
       }
     },

@@ -4,8 +4,9 @@ The `muxy` command talks to the [server](server.md) from a shell. It manages
 projects, terminal sessions, worktrees, server settings, and phone access. No
 desktop app is needed, so it works on Linux and over SSH too.
 
-The CLI works with what the server owns: projects and sessions. Tabs, panes, and
-workspaces belong to each app, so the CLI never changes them.
+Commands work with what the server owns: projects and sessions. Tabs, panes, and
+workspaces belong to each app, so commands never change them. The
+[terminal UI](terminal-ui.md) is an app of its own, with its own layout.
 
 ## Install
 
@@ -19,7 +20,7 @@ Make sure `~/.local/bin` is on your `PATH`.
 
 ```bash
 muxy                 # open the terminal UI
-muxy .               # open this folder in the desktop app (macOS)
+muxy .               # open this folder in the desktop app or the terminal UI
 muxy project list    # list projects
 muxy --help          # all commands; muxy <command> --help for details
 ```
@@ -28,7 +29,7 @@ muxy --help          # all commands; muxy <command> --help for details
   one with `--host`. `muxy server status` and `muxy server stop` never start
   it.
 - Add `--json` to any management command for machine-readable output.
-- Commands that end terminals or delete data need `--yes`.
+- Ending a session and deleting a project or worktree need `--yes`.
 - A project can be named by its ID, its name if unique, or its folder.
 - `--host <destination>` runs the command against the server on another
   computer. It must come first: `muxy --host devbox project list`. See
@@ -39,16 +40,17 @@ muxy --help          # all commands; muxy <command> --help for details
 | Command | What it does |
 | --- | --- |
 | `muxy` | Opens the [terminal UI](terminal-ui.md). |
-| `muxy <folder>` | Opens the folder as a project in the desktop app. macOS only. |
+| `muxy <folder>` | Opens the folder as a project in the desktop app. On Linux, over SSH, or without the desktop app, opens it in the terminal UI. |
 | `muxy server start\|status\|stop` | Starts, inspects, or stops the server. `stop` refuses while terminals run; add `--force` to end them. |
 | `muxy project list\|add\|rename\|set-color\|set-icon\|delete` | Manages projects. Deleting ends its terminals but keeps files on disk. |
-| `muxy session list\|create\|send\|send-keys\|read-screen\|history\|search\|end\|discard` | Creates terminals, sends input, and reads output. |
-| `muxy worktree list\|create\|register\|remove` | Manages Git worktree projects. |
+| `muxy session list\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard` | Creates terminals, sends input, reads output, and waits for text or exit. |
+| `muxy worktree list\|create\|checkout-pr\|register\|remove` | Manages Git worktree projects, including checking out pull requests. |
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy activity list\|ack` | Reads or clears [AI agent](ai-agents.md) activity. |
 | `muxy exec <project> -- <program> [args]` | Runs a program in the project folder, without a shell. |
 | `muxy git`, `muxy files` | Run raw server Git and file actions as JSON. Advanced; the JSON shape follows the protocol and may change. |
 | `muxy mobile` | Turns on phone access and pairs phones. See [Mobile](mobile.md). |
+| `muxy install-skills` | Installs the Muxy CLI skill for the AI agents found in your home folder. `--dir <path>` adds another skills folder. |
 | `muxy stdio` | Joins stdin and stdout to the server. Used by `--host` over SSH; you don't run it yourself. |
 
 ## Sessions from a script
@@ -70,6 +72,11 @@ muxy session end "$id" --yes
   the output.
 - Sessions created here outlive the command and appear in every app under
   **Existing Terminals**.
+- Inside a Muxy terminal, session commands default to that terminal, and
+  `create` to its project.
+- `create` can take a `--directory` and a command to run after `--`.
+- `wait --text <text>` waits for text on the screen, and `wait --exit` for the
+  shell to exit. Both give up after 30 seconds by default.
 
 ## Exit codes
 

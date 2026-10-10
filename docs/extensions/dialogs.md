@@ -65,6 +65,6 @@ await muxy.modal.submitWebview({ title: "My note" });   // resolves openWebview 
 await muxy.modal.closeWebview();                         // resolves it with null
 ```
 
-The size is kept within 120–900 × 120–760, and results up to 256 KB. Clicking
+The size is kept within 120–900 × 120–760, and results up to 256 KiB. Clicking
 outside closes the modal unless `dismissOnOutsideClick` is `false`. A command
 can open one directly with the `openModal` action.

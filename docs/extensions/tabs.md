@@ -37,6 +37,8 @@ await muxy.tabs.open({ kind: "terminal", directory: "src", command: "npm test" }
 - `singleton: true` focuses an existing tab of that type instead of opening
   another.
 - Running a command, or opening another extension's tab, asks the user first.
+- A terminal's `directory` must be a folder inside the current project, and
+  works for local projects only.
 
 ## Page data
 

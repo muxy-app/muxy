@@ -6,7 +6,8 @@ Most numbers come from early prototypes, measured on an Apple M3 with release
 builds. Every candidate replayed the same recorded terminal output: an idle
 shell, large log dumps, a vim session, a full-screen monitor, heavy color
 changes, Unicode, and long lines with resizes, plus 100 sessions at once. The
-raw reports are in git history.
+[benchmark reports](https://github.com/muxy-app/muxy/blob/6b98443d27633738c108309e80a9a1ffa55f4aea/docs/tech/benchmarks.md)
+are in git history.
 
 | | Decision | In short |
 | --- | --- | --- |
@@ -25,10 +26,10 @@ raw reports are in git history.
 
 ## D1. Ghostty is the terminal engine
 
-The server keeps every terminal in libghostty-vt. With compressed history it
-uses about 1.7 MB per 10,000 rows, against 51 MB for Alacritty, and it parsed a
-colored build log faster than every alternative. 100 sessions, 30 of them busy,
-fit in 135 MB.
+The server keeps every terminal in libghostty-vt. In the prototype, compressed
+history used about 1.7 MB per 10,000 rows, against 51 MB for Alacritty, and
+Ghostty parsed a colored build log faster than every alternative. 100 sessions,
+30 of them busy, fit in 135 MB.
 
 Turned down: Alacritty for memory, including a 1.3 GB peak on resize; WezTerm's
 core for speed; vt100 for memory and wrong combining marks; a custom grid,
@@ -37,9 +38,9 @@ because Ghostty already beats it.
 ## D2. The server owns the screen; apps only draw
 
 Four designs were built and compared. With the screen on the server and rows
-sent to apps, 100 sessions used 9 MB in the app, sent under 2 percent of the raw
-output, and attached in 1 ms. Streaming raw bytes to apps used 2.3 GB, sent
-everything, and attached more slowly the more history there was.
+sent to apps, 100 sessions used 9 MB in the app, sent under 2 percent of a log
+dump's raw output, and attached in 1 ms. Streaming raw bytes to apps used
+2.3 GB, sent everything, and attached more slowly the more history there was.
 
 Turned down: raw byte streaming and a hybrid. Every app would parse everything
 again and keep its own history.
@@ -72,12 +73,12 @@ dictionaries, which fit their training data and little else.
 
 ## D7. Any byte stream is a transport
 
-Unix sockets, TCP, and stdio pipes were all ten times faster than any real
-program writes to a terminal. Apps on the same computer use a Unix socket and
-phones use TLS (D11). Other computers are reached over SSH, which runs
-`muxy stdio` there to join its stdin and stdout to that computer's server. ssh
-logs in with the user's keys, agent, or certificates. For a password login, the
-desktop asks for the password, keeps it only in memory, and answers ssh's
+Unix sockets, TCP, and stdio pipes were all about ten times faster than a
+program writing line by line to a terminal. Apps on the same computer use a Unix
+socket and phones use TLS (D11). Other computers are reached over SSH, which
+runs `muxy stdio` there to join its stdin and stdout to that computer's server.
+ssh logs in with the user's keys, agent, or certificates. For a password login,
+the desktop asks for the password, keeps it only in memory, and answers ssh's
 prompt for it.
 
 Turned down: a stream multiplexing library, because D8 fits terminals better.
@@ -93,9 +94,9 @@ replaces an older one.
 ## D9. The app draws rows directly
 
 The app draws one text line per row and one rectangle per color run, and redraws
-only when a frame arrives. Sixteen panes of vim held 60 fps on about a third of
-one core. Caching shaped text didn't help, since painting is the cost. A full
-terminal emulator in the app could be added later without changing the server.
+only when something changes. Sixteen panes of vim held 60 fps on about a third
+of one core. A full terminal emulator in the app could be added later without
+changing the server.
 
 ## D10. PTYs use portable-pty
 

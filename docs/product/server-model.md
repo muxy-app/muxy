@@ -8,7 +8,7 @@ the apps.
 - An app starts the server if it isn't running. The server keeps running until
   it is stopped, or until an update replaces it once no terminals are left.
 - Stopping or restarting it ends every terminal but keeps settings and each
-  terminal's saved content. Nothing is ever restarted automatically.
+  terminal's saved content. Terminal programs are never restarted automatically.
 
 ## Sessions
 
@@ -34,7 +34,8 @@ flowchart LR
 - The first app to attach is the session's owner. When it leaves, the next one
   takes over. Ownership only labels the session in Existing Terminals; it grants
   nothing extra.
-- Panes in background tabs stay attached.
+- Panes you can't see, such as those in background tabs, still count as showing
+  their session. They stop getting screen updates until shown again.
 
 ## Closing a pane
 
