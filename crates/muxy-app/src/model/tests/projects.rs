@@ -49,6 +49,74 @@ fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &m
 }
 
 #[gpui::test]
+fn one_x_projects_join_the_running_app_and_keep_what_is_there(cx: &mut TestAppContext) {
+    let legacy = tempfile::tempdir().expect("1.x folder");
+    let first = tempfile::tempdir().expect("first folder");
+    let second = tempfile::tempdir().expect("second folder");
+    let ids = [
+        "01000000-0000-0000-0000-000000000001",
+        "01000000-0000-0000-0000-000000000002",
+    ];
+    std::fs::write(
+        legacy.path().join("projects.json"),
+        serde_json::json!([
+            {"id":ids[0],"name":"First","path":first.path(),"sortOrder":0,"pullRequestPrompt":"From 1.x"},
+            {"id":ids[1],"name":"Second","path":second.path(),"sortOrder":1}
+        ])
+        .to_string(),
+    )
+    .expect("projects");
+    std::fs::write(
+        legacy.path().join("project-groups.json"),
+        serde_json::json!([{"id":"02000000-0000-0000-0000-000000000001","name":"Work","sortOrder":0,"projectIDs":ids,"type":"local"}])
+            .to_string(),
+    )
+    .expect("workspaces");
+    let mut state = AppState::bootstrap().expect("state");
+    let hand_added = state
+        .add_project(ServerId::local(), first.path().into())
+        .expect("project");
+    state
+        .rename_project(hand_added, "Hand added")
+        .expect("rename");
+    state.open_terminal_tab(hand_added).expect("tab");
+    let tabs = state.project(hand_added).expect("project").tabs.clone();
+    let (boot, requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        requests.try_iter().for_each(drop);
+        let import = crate::backup::projects_from(legacy.path()).expect("1.x projects");
+        assert_eq!(model.import_legacy_projects(&import, cx), Ok((1, 1)));
+
+        let second: ProjectId = ids[1].parse().expect("ID");
+        let kept = model.state.project(hand_added).expect("hand-added project");
+        assert_eq!((kept.name.as_str(), &kept.tabs), ("Hand added", &tabs));
+        assert!(model.state.project(ids[0].parse().expect("ID")).is_none());
+        assert_eq!(
+            model.state.workspaces()[0].projects,
+            [hand_added, second].into()
+        );
+        assert_eq!(
+            model.settings.ai.project_pr_prompts[&hand_added.to_string()],
+            "From 1.x"
+        );
+        assert!(
+            store::load(&model.path)
+                .expect("saved state")
+                .project(second)
+                .is_some()
+        );
+        assert!(requests.try_iter().any(|(_, work)| matches!(
+            work,
+            Work::MutateProject(intent)
+                if matches!(&intent.mutation, muxy_protocol::ProjectMutation::Create(project) if project.id == second)
+        )));
+    });
+}
+
+#[gpui::test]
 #[ignore = "requires a built server and a fresh MUXY_DIR under /tmp/muxy-catalog-"]
 fn server_first_legacy_migration_walkthrough(cx: &mut TestAppContext) {
     migration_walkthrough(cx, true).expect("server-first migration");

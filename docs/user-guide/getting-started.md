@@ -71,12 +71,12 @@ Run `muxy --version` and `muxy-server --version`, then `muxy` to open the
 
 ## Upgrading from Muxy 1.x
 
-Muxy 1.x offers Muxy 2 as an update, or you can install Muxy 2 over it. The first
-launch imports your 1.x setup: supported settings, shortcuts, local projects,
-workspaces, terminal tabs, the default shell, and extensions. Anything left out
-is listed, and your 1.x data stays where it was. To import again later, open
-**Settings → Backup & Restore** and choose **Import installed 1.x**; it adds to
-what you already have.
+Muxy 1.x offers Muxy 2 as an update, or you can install Muxy 2 over it. Unless
+you already have projects in Muxy 2, the first launch imports your 1.x setup:
+supported settings, shortcuts, local projects, workspaces, terminal tabs, the
+default shell, and extensions. Anything left out is listed, and your 1.x data
+stays where it was. To import again later, open **Settings → Backup & Restore**
+and choose **Import installed 1.x**; it adds to what you already have.
 
 Some 1.x features work differently or are not in 2.x yet. Extensions keep
 working; see [Coming from 1.x](../extensions/get-started.md#coming-from-1x).

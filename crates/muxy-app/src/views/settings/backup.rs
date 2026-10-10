@@ -10,6 +10,7 @@ pub(crate) enum Action {
     Export,
     Choose,
     Legacy,
+    LegacyProjects,
     Confirm,
     Cancel,
 }
@@ -32,6 +33,10 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             tr_key!("Import from Muxy 1.x"),
             vec![
                 (tr!("Import installed 1.x"), Action::Legacy),
+                (
+                    tr!("Import projects and workspaces"),
+                    Action::LegacyProjects,
+                ),
                 (tr!("Choose file…"), Action::Choose),
             ],
         ),
@@ -124,7 +129,10 @@ impl SettingsWindow {
         let Some(profile) = profile else { return };
         self.view.update(cx, |view, cx| {
             view.backup_busy = true;
-            if matches!(action, Action::Choose | Action::Legacy) {
+            if matches!(
+                action,
+                Action::Choose | Action::Legacy | Action::LegacyProjects
+            ) {
                 view.backup_import = None;
             }
             view.set_error("backup-restore", None, cx);
@@ -197,6 +205,30 @@ impl SettingsWindow {
                         })
                         .await;
                     let _ = root.update(cx, |root, cx| root.backup_prepared(result, cx));
+                })
+                .detach();
+            }
+            Action::LegacyProjects => {
+                cx.spawn(async move |root, cx| {
+                    let import = cx
+                        .background_executor()
+                        .spawn(async move {
+                            crate::backup::installed_projects().map_err(|error| error.to_string())
+                        })
+                        .await;
+                    let _ = root.update(cx, |root, cx| {
+                        let result = import.and_then(|import| {
+                            let (projects, workspaces) = root
+                                .model
+                                .update(cx, |model, cx| model.import_legacy_projects(&import, cx))
+                                .map_err(|error| error.to_string())??;
+                            import
+                                .summary(projects, workspaces)
+                                .map(Some)
+                                .map_err(|error| error.to_string())
+                        });
+                        root.backup_finished(result, cx);
+                    });
                 })
                 .detach();
             }

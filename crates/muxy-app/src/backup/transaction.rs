@@ -7,6 +7,21 @@ use muxy_ui::tr;
 
 use super::{PENDING, PreparedImport, ROOTS, Restore, archive, extensions, validate_effective};
 
+const RECOVERY_PREFIX: &str = "pre-import-";
+
+/// Whether an import was ever applied to `profile`. Each one leaves a
+/// recovery copy.
+pub(super) fn applied_before(profile: &Path) -> bool {
+    fs::read_dir(profile.join("Backups")).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(RECOVERY_PREFIX)
+        })
+    })
+}
+
 /// Replaces any pending import. When staging fails, nothing stays pending.
 pub(crate) fn stage(profile: &Path, import: &PreparedImport) -> Result<()> {
     validate_effective(profile, &import.files, import.restore)?;
@@ -85,7 +100,7 @@ fn restore(profile: &Path, pending: &Path) -> Result<()> {
     let backups = profile.join("Backups");
     fs::create_dir_all(&backups)?;
     let recovery = tempfile::Builder::new()
-        .prefix("pre-import-")
+        .prefix(RECOVERY_PREFIX)
         .tempdir_in(&backups)?
         .keep();
     archive::materialize(&recovery, &original)?;

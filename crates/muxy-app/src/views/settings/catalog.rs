@@ -33,7 +33,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "backup-legacy",
         label: tr_key!("Import from Muxy 1.x"),
         description: tr_key!(
-            "Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped."
+            "Import supported settings and local projects from the installed 1.x app, only its projects and workspaces, or a backup file. Unsupported options are skipped."
         ),
         category: Category::Backup,
         section: tr_key!("Migration"),

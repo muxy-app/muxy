@@ -106,6 +106,7 @@
 "Add a GitHub remote named origin to open a pull request" = "Add a GitHub remote named origin to open a pull request";
 "Add space between terminal lines using pixels or a percentage, such as 10%%." = "Add space between terminal lines using pixels or a percentage, such as 10%%.";
 "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"" = "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"";
+"Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged." = "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged.";
 "Additional Prompt" = "Additional Prompt";
 "Additional prompt" = "Additional prompt";
 "Adds %lld extensions from Muxy 1.x." = "Adds %lld extensions from Muxy 1.x.";
@@ -625,9 +626,10 @@
 "Import cancelled." = "Import cancelled.";
 "Import from Muxy 1.x" = "Import from Muxy 1.x";
 "Import installed 1.x" = "Import installed 1.x";
+"Import projects and workspaces" = "Import projects and workspaces";
 "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings." = "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings.";
 "Import settings and %lld projects with their layouts on the next launch. Projects you already have keep their details and tabs, and workspaces with the same name are combined. A recovery copy is saved in the profile’s Backups folder." = "Import settings and %lld projects with their layouts on the next launch. Projects you already have keep their details and tabs, and workspaces with the same name are combined. A recovery copy is saved in the profile’s Backups folder.";
-"Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped." = "Import supported settings and local projects from the installed 1.x app, or choose a backup file. Unsupported options are skipped.";
+"Import supported settings and local projects from the installed 1.x app, only its projects and workspaces, or a backup file. Unsupported options are skipped." = "Import supported settings and local projects from the installed 1.x app, only its projects and workspaces, or a backup file. Unsupported options are skipped.";
 "Imported %lld supported 1.x items." = "Imported %lld supported 1.x items.";
 "Imported settings" = "Imported settings";
 "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits." = "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits.";
@@ -760,6 +762,7 @@
 "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there." = "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there.";
 "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain." = "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain.";
 "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions." = "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions.";
+"Muxy 1.x has no projects or workspaces to import." = "Muxy 1.x has no projects or workspaces to import.";
 "Muxy 1.x was imported. Check these items:" = "Muxy 1.x was imported. Check these items:";
 "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@" = "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@";
 "Muxy Quick Terminal" = "Muxy Quick Terminal";

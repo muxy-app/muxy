@@ -821,6 +821,72 @@ impl AppModel {
         true
     }
 
+    /// Adds the projects, tabs, and workspaces Muxy 1.x had to the running
+    /// app, and returns how many projects and workspaces that added. What is
+    /// already here stays as it is.
+    pub(crate) fn import_legacy_projects(
+        &mut self,
+        import: &crate::backup::LegacyProjects,
+        cx: &mut Context<Self>,
+    ) -> Result<(usize, usize), String> {
+        let merged = import
+            .state
+            .merge_configuration(&self.state)
+            .map_err(|error| error.to_string())?;
+        let added = (
+            merged.projects().len() - self.state.projects().len(),
+            merged.workspaces().len() - self.state.workspaces().len(),
+        );
+        self.keep_legacy_preferences(muxy_app_core::backup::remap_project_settings(
+            import.settings.clone(),
+            &import.state,
+            &merged,
+        ))?;
+        let previous = std::mem::replace(&mut self.state, merged);
+        if let Err(error) = store::save(&self.path, &self.state) {
+            self.state = previous;
+            return Err(error.to_string());
+        }
+        self.replay_projects(cx);
+        self.sync_visible(cx);
+        cx.notify();
+        Ok(added)
+    }
+
+    /// A preference this profile already keeps for a project wins.
+    fn keep_legacy_preferences(
+        &mut self,
+        legacy: muxy_app_core::settings::Settings,
+    ) -> Result<(), String> {
+        let path = self.path.with_file_name("settings.toml");
+        let mut settings = self.settings.clone();
+        for (project, location) in legacy.worktrees.projects {
+            settings
+                .worktrees
+                .projects
+                .entry(project)
+                .or_insert(location);
+        }
+        if settings.worktrees != self.settings.worktrees {
+            settings
+                .save_worktrees(&path)
+                .map_err(|error| error.to_string())?;
+            self.settings.worktrees = settings.worktrees;
+        }
+        for (project, prompt) in legacy.ai.project_pr_prompts {
+            if !self.settings.ai.project_pr_prompts.contains_key(&project) {
+                self.settings.ai = muxy_app_core::settings::Settings::save_ai_entry(
+                    &path,
+                    "project_pr_prompts",
+                    &project,
+                    Some(&prompt),
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn move_project(&mut self, from: ProjectId, to: ProjectId, cx: &mut Context<Self>) {
         if let Some(index) = self
             .state
