@@ -156,6 +156,16 @@ pub(crate) async fn prompt_revoke(
     server_prompt(window, &title, &tr!("Revoke"), &message, cx).await
 }
 
+pub(crate) async fn prompt_reset_terminal(
+    window: AnyWindowHandle,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = tr!("Reset Terminal Settings?");
+    let message =
+        tr!("Every setting on the Terminal page, including key bindings, returns to its default.");
+    server_prompt(window, &title, &tr!("Reset"), &message, cx).await
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UpdateChoice {
     Install,

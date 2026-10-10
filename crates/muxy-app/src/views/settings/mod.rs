@@ -120,6 +120,7 @@ pub(crate) enum Change {
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
     Terminal(&'static str, String),
     TerminalEdit(muxy_app_core::settings::TerminalEdit),
+    ResetTerminal,
     /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
     FileOpener(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
@@ -137,6 +138,7 @@ pub(crate) enum SettingsEvent {
     Backup(backup::Action),
     Change(Change),
     PreviewTerminal(&'static str, String),
+    ResetTerminal,
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
     ReadServer,
@@ -508,6 +510,11 @@ impl SettingsView {
                 "commands" => self.command_editor = None,
                 "font-codepoint-map" => self.codepoint_editor = None,
                 "terminal-keybindings" => self.binding_editor = None,
+                "terminal-reset" => {
+                    self.codepoint_editor = None;
+                    self.binding_editor = None;
+                    self.errors.retain(|id, _| !terminal::owns(id));
+                }
                 _ => (),
             }
         }

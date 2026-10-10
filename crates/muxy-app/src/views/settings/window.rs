@@ -550,6 +550,11 @@ impl SettingsWindow {
                     .model
                     .update(cx, |model, cx| model.change_preference(change.clone(), cx));
             }
+            SettingsEvent::ResetTerminal => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.confirm_terminal_reset(window.window_handle(), cx);
+                });
+            }
             SettingsEvent::Picker(kind, anchor) => {
                 self.open_picker(
                     PickerRequest {

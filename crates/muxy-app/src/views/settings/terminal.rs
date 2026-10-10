@@ -22,6 +22,7 @@ pub(super) const SECTIONS: &[&str] = &[
     tr_key!("Input"),
     tr_key!("Key bindings"),
     tr_key!("Migration"),
+    tr_key!("Reset"),
 ];
 pub(super) const PICKERS: &[&str] = &[
     "cursor-style",
@@ -62,6 +63,11 @@ const PALETTE: [&str; 16] = [
     "palette-14",
     "palette-15",
 ];
+
+pub(super) fn owns(id: &str) -> bool {
+    PALETTE.contains(&id)
+        || catalog::setting(id).is_some_and(|setting| setting.category == Category::Terminal)
+}
 
 pub(super) fn fields() -> impl Iterator<Item = &'static str> {
     std::iter::once("font-feature").chain(COLORS).chain(PALETTE)
@@ -658,6 +664,20 @@ pub(super) fn rows(
                     rows.push(pane.row_with_description(id, setting.label, None, control, true));
                     continue;
                 }
+                "terminal-reset" => controls::button(
+                    pane.style(),
+                    id,
+                    &tr!("Reset"),
+                    *terminal != TerminalSettings::default()
+                        || pane.snapshot.settings.panes.new_pane_directory
+                            != NewPaneDirectory::default(),
+                    cx.listener(|pane, _, _, cx| {
+                        pane.recording = None;
+                        cx.emit(SettingsEvent::ResetTerminal);
+                    }),
+                )
+                .debug_selector(|| "settings-button-terminal-reset".into())
+                .into_any_element(),
                 _ => continue,
             }
         };
