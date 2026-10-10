@@ -27,14 +27,12 @@ impl From<crate::Size> for PtySize {
     }
 }
 
-impl From<PtySize> for portable_pty::PtySize {
-    fn from(size: PtySize) -> Self {
-        Self {
-            rows: size.rows,
-            cols: size.cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        }
+fn window_size(size: PtySize, cell: crate::CellSize) -> portable_pty::PtySize {
+    portable_pty::PtySize {
+        rows: size.rows,
+        cols: size.cols,
+        pixel_width: size.cols.saturating_mul(cell.width),
+        pixel_height: size.rows.saturating_mul(cell.height),
     }
 }
 
@@ -68,12 +66,16 @@ pub struct Pty {
     child: Child,
     child_pid: u32,
     master_fd: RawFd,
+    size: PtySize,
+    cell: crate::CellSize,
 }
 
 impl Pty {
     pub fn spawn(request: SpawnRequest) -> Result<Self, PtyError> {
+        let size = request.size;
+        let cell = crate::CellSize::default();
         let PtyPair { master, slave } = native_pty_system()
-            .openpty(request.size.into())
+            .openpty(window_size(size, cell))
             .map_err(|error| PtyError::wrap(PtyStep::Open, error))?;
         let master_fd = master
             .as_raw_fd()
@@ -104,6 +106,8 @@ impl Pty {
             child: *child,
             child_pid,
             master_fd,
+            size,
+            cell,
         })
     }
 
@@ -132,10 +136,21 @@ impl Pty {
             .ok_or_else(|| PtyError::wrap(PtyStep::TakeWriter, "PTY writer has been taken"))
     }
 
-    pub fn resize(&self, size: PtySize) -> Result<(), PtyError> {
+    pub fn resize(&mut self, size: PtySize) -> Result<(), PtyError> {
+        self.set_window_size(size, self.cell)
+    }
+
+    pub fn set_cell_size(&mut self, cell: crate::CellSize) -> Result<(), PtyError> {
+        self.set_window_size(self.size, cell)
+    }
+
+    fn set_window_size(&mut self, size: PtySize, cell: crate::CellSize) -> Result<(), PtyError> {
         self.master
-            .resize(size.into())
-            .map_err(|error| PtyError::wrap(PtyStep::Resize, error))
+            .resize(window_size(size, cell))
+            .map_err(|error| PtyError::wrap(PtyStep::Resize, error))?;
+        self.size = size;
+        self.cell = cell;
+        Ok(())
     }
 
     pub fn try_wait(&mut self) -> Option<ExitStatus> {

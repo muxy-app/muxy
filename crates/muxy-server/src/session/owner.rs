@@ -298,6 +298,7 @@ impl Owner {
                     let _ = reply.send(result);
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::CellSize(cell))) => {
+                    self.pty.set_cell_size(cell)?;
                     self.terminal.set_cell_size(cell)?;
                     self.output_pending = true;
                 }

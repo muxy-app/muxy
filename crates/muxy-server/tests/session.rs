@@ -4,7 +4,9 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 use std::{env, fs, process, thread};
 
-use muxy_protocol::{AttachSnapshot, ChannelId, ExitReason, Row, ScreenFrame, SessionInfo, Size};
+use muxy_protocol::{
+    AttachSnapshot, CellSize, ChannelId, ExitReason, Row, ScreenFrame, SessionInfo, Size,
+};
 use muxy_server::{
     AttachmentEvent, AttachmentId, Registry, ServerEvent, ServerSettings, SessionCommand,
     SessionHandle,
@@ -53,6 +55,39 @@ fn end_kills_a_running_program() -> TestResult {
         }
     );
     assert!(fixture.registry.list().is_empty());
+    fixture.finish()
+}
+
+#[test]
+fn programs_read_the_pane_size_in_pixels_from_the_pty() -> TestResult {
+    const PROBE: &str = concat!(
+        "python3 -c 'import fcntl,struct,termios;",
+        "print(\"pixels %dx%d\"%struct.unpack(\"HHHH\",fcntl.ioctl(1,termios.TIOCGWINSZ,bytes(8)))[2:])'\n",
+    );
+    let fixture = fixture("pixels")?;
+    let (_, handle) = session(&fixture)?;
+    let (events, _) = attach(&handle, 1, SIZE)?;
+
+    handle.send(SessionCommand::CellSize(CellSize {
+        width: 9,
+        height: 21,
+    }))?;
+    handle.send(SessionCommand::Input(PROBE.as_bytes().to_vec()))?;
+    wait_for_text(&events, "pixels 720x504")?;
+
+    handle.send(SessionCommand::Resize(Size {
+        cols: 100,
+        rows: 30,
+    }))?;
+    handle.send(SessionCommand::Input(PROBE.as_bytes().to_vec()))?;
+    wait_for_text(&events, "pixels 900x630")?;
+
+    handle.send(SessionCommand::CellSize(CellSize {
+        width: 10,
+        height: 20,
+    }))?;
+    handle.send(SessionCommand::Input(PROBE.as_bytes().to_vec()))?;
+    wait_for_text(&events, "pixels 1000x600")?;
     fixture.finish()
 }
 
