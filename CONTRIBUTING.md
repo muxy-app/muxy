@@ -42,7 +42,8 @@ cargo run -p muxy-app     # desktop app (macOS)
 cargo run -p muxy-cli     # muxy terminal UI
 ```
 
-Build the targets above first, so `muxy-server` sits next to the binary you run.
+Build as in [Setup](#setup) first, so `muxy-server` sits next to the binary you
+run.
 Development builds keep their data in a separate `Muxy Dev` profile (`muxy-dev`
 on Linux).
 
@@ -70,7 +71,7 @@ cargo xtest               # all tests
 
 ## Checks
 
-All PRs must pass the same checks CI runs:
+All PRs must pass CI. Run its main checks locally:
 
 ```bash
 cargo fmt --all --check
@@ -79,9 +80,10 @@ cargo test --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 ```
 
-On Linux, CI checks only the CLI and server, through
-`scripts/check-headless.py`. It needs glibc 2.35; elsewhere, scope Clippy and
-tests to `-p muxy-cli -p muxy-server` instead of `--workspace`.
+On Linux, CI checks only the CLI, the server, and the crates they depend on,
+through `scripts/check-headless.py`. It needs glibc 2.35; elsewhere, run Clippy
+and tests with `-p` for each package that
+`python3 scripts/check-headless.py --packages` lists, instead of `--workspace`.
 
 ## Pull Request Guidelines
 

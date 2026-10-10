@@ -32,8 +32,8 @@ flowchart LR
 - The server keeps projects and which sessions belong to them. Apps keep tabs,
   panes, order, and workspaces.
 - The desktop app keeps a connection per server: this computer's, and one per
-  remote device. A second connection to each carries file, Git, and extension
-  work, so it never waits behind terminal traffic.
+  remote device. A second connection to each carries extension work and remote
+  file transfers, so they never wait behind terminal traffic.
 - Apps never include server code. They only speak the [protocol](./protocol.md).
 
 ## Crates

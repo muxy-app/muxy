@@ -435,10 +435,11 @@ an Android Keystore key and exclude it from backups.
 
 ## Connecting
 
-`Connection.connect` tries each address in order. An address gets up to
-4 seconds to connect and another 4 for the TLS handshake, plus any name lookup.
-It checks the certificate against the pinned fingerprint, then signs in with the
-token. Keep one connection per computer, and keep a strong reference to it.
+`Connection.connect` tries each address in order, and for a name, each IP
+address it resolves to. An attempt gets up to 4 seconds to connect and another
+4 for the TLS handshake, plus any name lookup. It checks the certificate against
+the pinned fingerprint, then signs in with the token. Keep one connection per
+computer, and keep a strong reference to it.
 
 ```swift
 final class ConnectionEvents: ConnectionListener {
@@ -854,10 +855,10 @@ files.writeText("notes.md", text)
 - `createWorktree` adds a worktree project under the project, named after the
   branch. `base` creates the branch from a ref such as `HEAD`; `nil` checks
   out an existing branch. Without a `directory`, the worktree goes next to the
-  project's folder as `<project>-<branch>`; the desktop's worktree location
-  setting is not used. The call fails with "Worktree directory already exists"
-  when that folder is taken. On a worktree project, the calls that list and add
-  worktrees act on its parent.
+  project's folder as `<project>-<branch>`, with slashes turned into dashes; the
+  desktop's worktree location setting is not used. The call fails when that
+  folder is taken. On a worktree project, the calls that list and add worktrees
+  act on its parent.
 - To remove a worktree, call `inspectWorktreeRemoval()` on its project, confirm
   with the user, and warn when `dirty`. Then `removeWorktree(expected:)`
   deletes the folder and the project and ends its terminals.
@@ -945,7 +946,7 @@ try {
 | Addresses in a pairing code | Up to 8 |
 | Paired devices per computer | 64 |
 | Device name | Up to 64 bytes |
-| Connect timeout | Per address, 4 s to connect and 4 s for TLS; over SSH, 15 s for the bridge to start |
+| Connect timeout | 4 s to connect per IP address tried, then 4 s for TLS; over SSH, 15 s for the bridge to start |
 | Input per call | 1 MiB |
 | Scrollback page | 1–500 rows |
 | File read or write | 5 MiB |

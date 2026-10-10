@@ -5,7 +5,7 @@ projects, terminal sessions, worktrees, server settings, and phone access. No
 desktop app is needed, so it works on Linux and over SSH too.
 
 Commands work with what the server owns: projects and sessions. Tabs, panes, and
-workspaces belong to each app, so commands never change them. The
+workspaces belong to each app, so there are no commands for them. The
 [terminal UI](terminal-ui.md) is an app of its own, with its own layout.
 
 ## Install
@@ -28,8 +28,10 @@ muxy --help          # all commands; muxy <command> --help for details
 - Commands start the server they use if it isn't running, including a remote
   one with `--host`. `muxy server status` and `muxy server stop` never start
   it.
-- Add `--json` to any management command for machine-readable output.
-- Ending a session and deleting a project or worktree need `--yes`.
+- Management commands take `--json` for machine-readable output, except
+  `muxy mobile`.
+- Ending or discarding a session and deleting a project or worktree need
+  `--yes`.
 - A project can be named by its ID, its name if unique, or its folder.
 - `--host <destination>` runs the command against the server on another
   computer. It must come first: `muxy --host devbox project list`. See

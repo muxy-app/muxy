@@ -21,7 +21,7 @@ a message.
 | `tabs.open` | ✓ | ✓ | ✓ |
 | other `tabs`, `panes`, `projects`, `workspaces`, `worktrees`, `files`, `toast`, `execAsync` | ✓ | ✓ | |
 | `events` | ✓ | | ✓ |
-| `panels`, `popover`, `http`, `lifecycle`, `data`, `theme` | ✓ | | |
+| `tabs.setTitle`, `tabs.setIcon`, `panels`, `popover`, `http`, `lifecycle`, `data`, `theme` | ✓ | | |
 
 Scripts and background scripts also have `setTimeout`, `setInterval`, and
 their `clear` functions.
@@ -93,9 +93,11 @@ are capped at 10 MiB and timeouts at 120 s. Pages only.
 
 ## Shortcuts
 
-`shortcuts.register({ id, combo })` binds a key to one of the extension's
-commands while it runs. `combo` looks like `cmd+shift+e` or `opt+left` and
-needs `cmd`, `ctrl`, or `opt`. `unregister(id)` and `list()` manage them.
+`shortcuts.register({ id, combo })` binds a key while the extension runs.
+Pressing it sends the `command.<id>` event to the extension. Commands in the
+manifest use `defaultShortcut` instead. `combo` looks like `cmd+shift+e` or
+`opt+left` and needs `cmd`, `ctrl`, or `opt`. `unregister(id)` and `list()`
+manage them.
 
 ## GitHub
 

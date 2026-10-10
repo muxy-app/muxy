@@ -21,7 +21,7 @@ The app stores the following locally on your iOS device. None of it is transmitt
 - **Preferences.** Display settings such as the terminal font size.
 - **Diagnostic log (in memory only).** While the app is running, it keeps a short rolling log of connection events (timestamps, the address and port you are connecting to, and request identifiers) to help you troubleshoot connection problems. This log is held in memory, is cleared when the app exits, and is never sent anywhere. If a connection error occurs, the app shows the log so you can copy or share it yourself if you choose to.
 
-You can remove a saved computer at any time. Uninstalling the app removes its data, but iOS can keep Keychain items after an app is deleted. To end a phone's access for certain, revoke it on the computer, in **Settings → Mobile** or with `muxy mobile revoke`.
+You can remove a saved computer at any time. Uninstalling the app removes its data, but iOS can keep Keychain items after an app is deleted. To end a paired phone's access for certain, revoke it on the computer, in **Settings → Mobile** or with `muxy mobile revoke <id>`. Revoking does not end SSH access; that is controlled by the computer's SSH settings.
 
 ## What the app sends over the network
 

@@ -75,10 +75,10 @@ version.
 Muxy 1.x offers Muxy 2 as an update, or you can install Muxy 2 over it. Unless
 you already have projects or workspaces in Muxy 2, the first launch imports your
 1.x setup: supported settings, shortcuts, local projects, workspaces, terminal
-tabs, the default shell, and extensions. Anything left out is listed, and your
-1.x data stays where it was. To import again later, open
-**Settings → Backup & Restore** and choose **Import installed 1.x**; it adds to
-what you already have.
+tabs, the default shell, and extensions. Projects, workspaces, and extensions
+that could not be imported are listed, and your 1.x data stays where it was. To
+import again later, open **Settings → Backup & Restore** and choose
+**Import installed 1.x**; it adds to what you already have.
 
 Some 1.x features work differently or are not in 2.x yet. Most extensions keep
 working; see [Coming from 1.x](../extensions/get-started.md#coming-from-1x).
