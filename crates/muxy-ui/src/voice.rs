@@ -23,13 +23,18 @@ use objc2_core_audio::{
     kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal,
 };
 use objc2_core_media::CMSampleBuffer;
-use objc2_foundation::{NSBundle, NSError, NSLocale, NSObject, NSObjectProtocol, NSString};
+use objc2_foundation::{
+    NSArray, NSBundle, NSError, NSLocale, NSObject, NSObjectProtocol, NSString,
+};
 use objc2_speech::{
     SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
     SFSpeechRecognitionTaskHint, SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus,
 };
 
 use crate::tr;
+
+const FINALIZATION: Duration = Duration::from_secs(2);
+const DEFAULT_LANGUAGE: &str = "en-US";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Language {
@@ -41,7 +46,6 @@ pub struct Language {
 pub fn languages() -> Vec<Language> {
     unsafe {
         let current = NSLocale::currentLocale();
-        let current_id = current.localeIdentifier().to_string();
         let mut languages = Vec::new();
         for locale in &SFSpeechRecognizer::supportedLocales().allObjects() {
             let Some(recognizer) =
@@ -57,14 +61,40 @@ pub fn languages() -> Vec<Language> {
                 .localizedStringForLocaleIdentifier(&locale.localeIdentifier())
                 .to_string();
             languages.push(Language {
-                preferred: id == current_id,
                 id,
                 name,
+                preferred: false,
             });
         }
         languages.sort_by_key(|language| language.name.to_lowercase());
+        let system = system_language(&languages, &NSLocale::preferredLanguages());
+        for language in &mut languages {
+            language.preferred = system.as_deref() == Some(language.id.as_str());
+        }
         languages
     }
+}
+
+fn system_language(available: &[Language], preferences: &NSArray<NSString>) -> Option<String> {
+    let ids: Vec<_> = available
+        .iter()
+        .map(|language| NSString::from_str(&language.id))
+        .collect();
+    let matched = NSBundle::preferredLocalizationsFromArray_forPreferences(
+        &NSArray::from_retained_slice(&ids),
+        Some(preferences),
+    )
+    .firstObject()?;
+    let requested = preferences.containsObject(&matched);
+    let matched = matched.to_string();
+    let language = |id: &str| id.split('-').next().map(str::to_owned);
+    let default = available
+        .iter()
+        .any(|candidate| candidate.id == DEFAULT_LANGUAGE);
+    if default && !requested && language(&matched) == language(DEFAULT_LANGUAGE) {
+        return Some(DEFAULT_LANGUAGE.into());
+    }
+    Some(matched)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -91,6 +121,7 @@ struct Shared {
     snapshot: Mutex<Snapshot>,
     cancelled: AtomicBool,
     paused: AtomicBool,
+    finishing: AtomicBool,
     device_changed: AtomicBool,
 }
 
@@ -147,9 +178,20 @@ impl Recorder {
         self.shared.paused.store(paused, Ordering::Release);
     }
 
-    pub fn finish(self) -> String {
-        self.shared.cancelled.store(true, Ordering::Release);
-        self.snapshot().transcript.trim().to_owned()
+    pub fn finish(&self) {
+        self.shared.finishing.store(true, Ordering::Release);
+    }
+
+    pub fn finished(&self) -> Option<String> {
+        if !self.shared.finishing.load(Ordering::Acquire) {
+            return None;
+        }
+        let snapshot = self
+            .shared
+            .snapshot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        (snapshot.phase == Phase::Finished).then(|| snapshot.transcript.trim().to_owned())
     }
 }
 
@@ -183,6 +225,9 @@ impl SimulatedRecorder {
     }
     pub fn paused(&self) -> bool {
         self.0.paused.load(Ordering::Acquire)
+    }
+    pub fn finishing(&self) -> bool {
+        self.0.finishing.load(Ordering::Acquire)
     }
     pub fn update(&self, snapshot: Snapshot) {
         *self
@@ -299,24 +344,35 @@ struct Capture {
     session: Retained<AVCaptureSession>,
     output: Retained<AVCaptureAudioDataOutput>,
     input: Retained<AVCaptureDeviceInput>,
-    request: Retained<SFSpeechAudioBufferRecognitionRequest>,
+    request: Option<Retained<SFSpeechAudioBufferRecognitionRequest>>,
     task: Retained<SFSpeechRecognitionTask>,
     _delegate: Retained<CaptureDelegate>,
     queue: DispatchRetained<DispatchQueue>,
     active: Arc<AtomicBool>,
 }
 
-impl Drop for Capture {
-    fn drop(&mut self) {
-        self.active.store(false, Ordering::Release);
+impl Capture {
+    fn end_audio(&mut self) {
+        let Some(request) = self.request.take() else {
+            return;
+        };
         unsafe {
             self.output.setSampleBufferDelegate_queue(None, None);
         }
         self.queue.exec_sync(|| {});
         unsafe {
-            self.request.endAudio();
-            self.task.cancel();
+            request.endAudio();
             self.session.stopRunning();
+        }
+    }
+}
+
+impl Drop for Capture {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Release);
+        self.end_audio();
+        unsafe {
+            self.task.cancel();
             self.session.removeInput(&self.input);
             self.session.removeOutput(&self.output);
         }
@@ -328,7 +384,7 @@ fn capture(language: &str, shared: &Arc<Shared>) -> Result<Capture, String> {
         let available = languages();
         let selected = available.iter().find(|candidate| candidate.id.replace('_', "-").eq_ignore_ascii_case(&language.replace('_', "-")))
             .or_else(|| available.iter().find(|candidate| candidate.preferred))
-            .or_else(|| available.iter().find(|candidate| candidate.id.replace('_', "-").eq_ignore_ascii_case("en-US")))
+            .or_else(|| available.iter().find(|candidate| candidate.id.replace('_', "-").eq_ignore_ascii_case(DEFAULT_LANGUAGE)))
             .or_else(|| available.first())
             .ok_or_else(|| tr!("No on-device speech language is installed. Add one in System Settings → Keyboard → Dictation.").to_string())?;
         let locale = NSLocale::initWithLocaleIdentifier(
@@ -393,8 +449,12 @@ fn capture(language: &str, shared: &Arc<Shared>) -> Result<Capture, String> {
                     }
                 }
                 if let Some(error) = error.as_ref() {
-                    snapshot.phase = Phase::Failed;
-                    snapshot.error = Some(error.localizedDescription().to_string());
+                    if results.finishing.load(Ordering::Acquire) {
+                        snapshot.phase = Phase::Finished;
+                    } else {
+                        snapshot.phase = Phase::Failed;
+                        snapshot.error = Some(error.localizedDescription().to_string());
+                    }
                 }
             },
         );
@@ -403,7 +463,7 @@ fn capture(language: &str, shared: &Arc<Shared>) -> Result<Capture, String> {
             session,
             output,
             input,
-            request,
+            request: Some(request),
             task,
             _delegate: delegate,
             queue,
@@ -420,7 +480,7 @@ fn record(language: &str, shared: &Arc<Shared>) -> Result<(), String> {
     if shared.cancelled.load(Ordering::Acquire) {
         return Ok(());
     }
-    let capture = capture(language, shared)?;
+    let mut capture = capture(language, shared)?;
     let _device = DeviceObserver::new(shared.clone())?;
     unsafe {
         capture.session.startRunning();
@@ -429,7 +489,7 @@ fn record(language: &str, shared: &Arc<Shared>) -> Result<(), String> {
         return Err(tr!("The microphone could not start recording").to_string());
     }
     let mut last = Instant::now();
-    loop {
+    while !shared.finishing.load(Ordering::Acquire) {
         std::thread::sleep(Duration::from_millis(40));
         if shared.cancelled.load(Ordering::Acquire) {
             return Ok(());
@@ -459,6 +519,29 @@ fn record(language: &str, shared: &Arc<Shared>) -> Result<(), String> {
             snapshot.elapsed += now.duration_since(last);
         }
         last = now;
+    }
+    capture.end_audio();
+    finalize(shared, FINALIZATION);
+    Ok(())
+}
+
+fn finalize(shared: &Shared, limit: Duration) {
+    let deadline = Instant::now() + limit;
+    while !shared.cancelled.load(Ordering::Acquire) {
+        let mut snapshot = shared
+            .snapshot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if matches!(snapshot.phase, Phase::Failed | Phase::Finished) {
+            return;
+        }
+        snapshot.level = 0.0;
+        if Instant::now() >= deadline {
+            snapshot.phase = Phase::Finished;
+            return;
+        }
+        drop(snapshot);
+        std::thread::sleep(Duration::from_millis(40));
     }
 }
 
@@ -562,6 +645,100 @@ impl Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn language(id: &str) -> Language {
+        Language {
+            id: id.into(),
+            name: id.into(),
+            preferred: false,
+        }
+    }
+
+    #[test]
+    fn system_language_follows_the_preferred_languages() {
+        let available = ["en-ID", "en-PH", "en-SA", "en-US", "zh-CN"].map(language);
+        for (preferences, expected) in [
+            (["zh-Hans-CN", "en-CN"], "zh-CN"),
+            (["en-US", "zh-Hans-CN"], "en-US"),
+            (["ja-JP", "zh-Hans-CN"], "zh-CN"),
+            (["en-GB", "zh-Hans-CN"], "en-US"),
+        ] {
+            let preferences = NSArray::from_retained_slice(&preferences.map(NSString::from_str));
+            assert_eq!(
+                system_language(&available, &preferences).as_deref(),
+                Some(expected)
+            );
+        }
+        let british = NSArray::from_retained_slice(&[NSString::from_str("en-GB")]);
+        assert_eq!(
+            system_language(&["en-GB", "en-US"].map(language), &british).as_deref(),
+            Some("en-GB")
+        );
+    }
+
+    fn waiting(phase: Phase) -> Shared {
+        Shared {
+            snapshot: Mutex::new(Snapshot {
+                phase,
+                transcript: "hello".into(),
+                level: 0.5,
+                error: (phase == Phase::Failed).then(|| "failed".into()),
+                ..Snapshot::default()
+            }),
+            ..Shared::default()
+        }
+    }
+
+    fn outcome(shared: &Shared) -> Snapshot {
+        shared
+            .snapshot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    #[test]
+    fn finalization_ends_at_the_limit_and_keeps_the_transcript() {
+        let shared = waiting(Phase::Recording);
+        finalize(&shared, Duration::ZERO);
+        let snapshot = outcome(&shared);
+        assert_eq!(snapshot.phase, Phase::Finished);
+        assert_eq!(snapshot.transcript, "hello");
+        assert!(snapshot.level.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn finalization_preserves_failure_and_stops_when_cancelled() {
+        let shared = waiting(Phase::Failed);
+        finalize(&shared, Duration::ZERO);
+        let snapshot = outcome(&shared);
+        assert_eq!(snapshot.phase, Phase::Failed);
+        assert_eq!(snapshot.error.as_deref(), Some("failed"));
+
+        let shared = waiting(Phase::Recording);
+        shared.cancelled.store(true, Ordering::Release);
+        finalize(&shared, Duration::ZERO);
+        assert_eq!(outcome(&shared).phase, Phase::Recording);
+    }
+
+    #[test]
+    fn finished_transcript_is_available_only_after_a_requested_finish_completes() {
+        let (recorder, simulated) = SimulatedRecorder::new(Snapshot {
+            phase: Phase::Finished,
+            transcript: " hello ".into(),
+            ..Snapshot::default()
+        });
+        assert_eq!(recorder.finished(), None);
+        recorder.finish();
+        assert!(simulated.finishing());
+        assert_eq!(recorder.finished().as_deref(), Some("hello"));
+        simulated.update(Snapshot {
+            phase: Phase::Recording,
+            ..Snapshot::default()
+        });
+        assert_eq!(recorder.finished(), None);
+    }
+
     #[test]
     fn recognition_corrections_replace_partial_words_without_duplicates() {
         for (partial, incoming) in [

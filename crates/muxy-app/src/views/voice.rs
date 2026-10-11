@@ -42,7 +42,17 @@ impl VoicePanel {
         metrics: Metrics,
         cx: &mut Context<Self>,
     ) -> Self {
-        let (recorder, snapshot) = match Recorder::start(language) {
+        Self::with_recorder(Recorder::start(language), auto_send, theme, metrics, cx)
+    }
+
+    fn with_recorder(
+        recorder: Result<Recorder, String>,
+        auto_send: bool,
+        theme: Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let (recorder, snapshot) = match recorder {
             Ok(recorder) => (Some(recorder), Snapshot::default()),
             Err(error) => (
                 None,
@@ -66,6 +76,8 @@ impl VoicePanel {
                         view.snapshot = recorder.snapshot();
                         if view.snapshot.phase == Phase::Failed {
                             view.recorder = None;
+                        } else if let Some(transcript) = recorder.finished() {
+                            view.complete(transcript, cx);
                         }
                         cx.notify();
                         view.recorder.is_some()
@@ -106,19 +118,21 @@ impl VoicePanel {
         cx.notify();
     }
 
-    fn finish(&mut self, cx: &mut Context<Self>) {
+    fn finish(&self) {
         if self.snapshot.phase == Phase::Starting {
             return;
         }
-        let Some(recorder) = self.recorder.take() else {
-            return;
-        };
-        let transcript = recorder.finish();
+        if let Some(recorder) = &self.recorder {
+            recorder.finish();
+        }
+    }
+
+    fn complete(&mut self, transcript: String, cx: &mut Context<Self>) {
+        self.recorder = None;
         if transcript.is_empty() {
             self.snapshot.phase = Phase::Failed;
             self.snapshot.error =
                 Some(tr!("No speech detected. Try again or press Esc to close.").to_string());
-            cx.notify();
             return;
         }
         cx.emit(VoiceEvent::Finish(transcript));
@@ -156,7 +170,7 @@ impl VoicePanel {
             .button_interaction(cx.listener(move |view, _, _, cx| match id {
                 "voice-cancel" => cx.emit(VoiceEvent::Cancel),
                 "voice-pause" => view.pause(cx),
-                _ => view.finish(cx),
+                _ => view.finish(),
             }))
             .into_any_element()
     }
@@ -364,7 +378,7 @@ impl Render for VoicePanel {
             .pb(m.scaled(48.0))
             .text_color(self.theme.fg)
             .on_action(cx.listener(|view, _: &Finish, _, cx| {
-                view.finish(cx);
+                view.finish();
                 cx.stop_propagation();
             }))
             .on_action(cx.listener(|_, _: &Cancel, _, cx| {
@@ -421,3 +435,6 @@ impl Render for VoicePanel {
             })
     }
 }
+
+#[cfg(test)]
+mod tests;

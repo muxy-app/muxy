@@ -254,32 +254,28 @@ impl Composer {
         if self.sending {
             return;
         }
-        if let Some(recorder) = self.voice.take() {
-            self.voice_poll = None;
+        if let Some(recorder) = &self.voice {
             if self.voice_snapshot.phase == muxy_ui::voice::Phase::Starting {
-                drop(recorder);
-                cx.notify();
-                return;
-            }
-            let text = recorder.finish();
-            if text.is_empty() {
-                self.error = Some(tr!("No speech detected. Try dictation again.").into());
+                self.voice = None;
+                self.voice_poll = None;
             } else {
-                self.input
-                    .update(cx, |input, cx| input.insert_at_selection(&text, cx));
+                recorder.finish();
             }
             cx.notify();
             return;
         }
         self.error = None;
         match muxy_ui::voice::Recorder::start(self.settings.language.clone()) {
-            Ok(recorder) => self.voice = Some(recorder),
+            Ok(recorder) => self.record(recorder, cx),
             Err(error) => {
                 self.error = Some(error);
                 cx.notify();
-                return;
             }
         }
+    }
+
+    fn record(&mut self, recorder: muxy_ui::voice::Recorder, cx: &mut Context<Self>) {
+        self.voice = Some(recorder);
         self.voice_snapshot = muxy_ui::voice::Snapshot::default();
         self.voice_poll = Some(cx.spawn(async move |view, cx| {
             loop {
@@ -293,12 +289,20 @@ impl Composer {
                         };
                         view.voice_snapshot = recorder.snapshot();
                         view.error.clone_from(&view.voice_snapshot.error);
-                        let active = view.voice_snapshot.phase != muxy_ui::voice::Phase::Failed;
-                        if !active {
+                        if view.voice_snapshot.phase == muxy_ui::voice::Phase::Failed {
                             view.voice = None;
+                        } else if let Some(text) = recorder.finished() {
+                            view.voice = None;
+                            if text.is_empty() {
+                                view.error =
+                                    Some(tr!("No speech detected. Try dictation again.").into());
+                            } else {
+                                view.input
+                                    .update(cx, |input, cx| input.insert_at_selection(&text, cx));
+                            }
                         }
                         cx.notify();
-                        active
+                        view.voice.is_some()
                     })
                     .unwrap_or(false);
                 if !keep {
