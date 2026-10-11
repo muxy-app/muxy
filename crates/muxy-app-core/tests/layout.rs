@@ -48,6 +48,36 @@ fn nested_splits_focus_zoom_and_collapse_survive_roundtrip() -> Result {
 }
 
 #[test]
+fn equalizing_splits_evens_a_long_row_and_keeps_the_zoom() -> Result {
+    let mut state = AppState::bootstrap()?;
+    state.open_terminal_tab(state.home().id)?;
+    let first = state.home().tabs[0].panes[0].id;
+    let mut last = first;
+    for _ in 0..9 {
+        last = state.split_pane(last, Direction::Right)?;
+    }
+    let panes = state.home().tabs[0].layout.leaves();
+    state.toggle_zoom(last)?;
+    state.equalize_splits(first)?;
+    let tab = &state.home().tabs[0];
+    assert_eq!(tab.zoomed, Some(last));
+    assert_eq!(tab.layout.leaves(), panes);
+    let mut left = 0.0;
+    for (pane, [x, y, width, height]) in tab.layout.rects() {
+        for (actual, expected) in [(x, left), (y, 0.0), (width, 0.1), (height, 1.0)] {
+            assert!((actual - expected).abs() < 1e-4, "{pane:?}: {actual}");
+        }
+        left += 0.1;
+    }
+    let restored: AppState = serde_json::from_value(serde_json::to_value(&state)?)?;
+    assert_eq!(restored, state);
+    let before = state.clone();
+    assert!(state.equalize_splits(PaneId::new()).is_err());
+    assert_eq!(state, before);
+    Ok(())
+}
+
+#[test]
 fn m1_tabs_load_and_malformed_layouts_are_rejected() -> Result {
     let mut state = AppState::bootstrap()?;
     state.open_terminal_tab(state.home().id)?;

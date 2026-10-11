@@ -56,6 +56,7 @@ pub enum ShortcutId {
     FocusPaneUp,
     FocusPaneDown,
     ToggleZoomPane,
+    EqualizeSplits,
     ClosePane,
     NextTab,
     PreviousTab,
@@ -277,6 +278,12 @@ pub const ALL: &[Shortcut] = &[
     Shortcut {
         id: "toggle_zoom_pane",
         keys: &["cmd-shift-enter"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "equalize_splits",
+        keys: &["cmd-ctrl-="],
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[&[Some("WorkspaceTabs")]],
     },

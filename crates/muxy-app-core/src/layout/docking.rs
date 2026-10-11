@@ -39,6 +39,13 @@ impl Layout {
             Some(self.clone())
         }
     }
+
+    /// Gives every member of each row and column an equal share of it.
+    pub fn equalized(&self) -> Option<Self> {
+        let mut root = Node::from(self);
+        root.equalize();
+        root.into_layout()
+    }
 }
 
 enum Node {
@@ -101,6 +108,22 @@ impl Node {
                 shape: None,
             }) => balanced(axis, members),
         }
+    }
+
+    fn equalize(&mut self) {
+        let Self::Group(group) = self else {
+            return;
+        };
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "A row or column holds far fewer members than f32 counts exactly"
+        )]
+        let share = 1.0 / group.members.len() as f32;
+        for member in &mut group.members {
+            member.size = share;
+            member.node.equalize();
+        }
+        group.shape = None;
     }
 
     /// Paths of the nodes a pane can dock against along `edge` of `anchor`,

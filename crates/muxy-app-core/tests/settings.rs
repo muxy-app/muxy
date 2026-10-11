@@ -168,6 +168,25 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
 }
 
 #[test]
+fn an_existing_binding_keeps_the_key_equalize_splits_defaults_to() -> Result {
+    let fixture = Fixture::new()?;
+    let chord: KeyChord = "cmd-ctrl-=".parse()?;
+    assert_eq!(
+        Keymap::default().action(&chord),
+        Some(ShortcutId::EqualizeSplits)
+    );
+    for existing in ["new_tab", "\"command.tests\""] {
+        let source = format!("[keymap]\n{existing} = 'cmd-ctrl-='\n");
+        let path = fixture.write("settings.toml", &source)?;
+        let keymap = Settings::load(&path)?.keymap;
+        assert_eq!(keymap.binding(existing.trim_matches('"')), Some(&chord));
+        assert_eq!(keymap.chord(ShortcutId::EqualizeSplits), None);
+        assert_eq!(fs::read_to_string(&path)?, source);
+    }
+    Ok(())
+}
+
+#[test]
 fn a_command_keeps_a_key_a_newer_default_claims_but_cannot_take_one_in_use() -> Result {
     let fixture = Fixture::new()?;
     let path = fixture.write(

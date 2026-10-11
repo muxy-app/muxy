@@ -15,6 +15,7 @@ For the terminal UI, see [Terminal UI keys](../features/terminal-ui.md#keys).
 | Split down | `Cmd+Shift+D` |
 | Focus pane left / right / up / down | `Cmd+Opt+Arrows` |
 | Zoom pane | `Cmd+Shift+Return` |
+| Equalize splits | `Cmd+Ctrl+=` |
 | Next / previous tab | `Cmd+]` / `Cmd+[`, or `Ctrl+Tab` / `Ctrl+Shift+Tab` |
 | Go to tab 1–9 | `Cmd+1`–`Cmd+9` |
 | Existing terminals | `Cmd+Opt+T` |

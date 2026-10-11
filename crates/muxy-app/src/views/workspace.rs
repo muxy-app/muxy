@@ -34,6 +34,7 @@ actions!(
         FocusPaneUp,
         FocusPaneDown,
         ToggleZoomPane,
+        EqualizeSplits,
         ClosePane,
         NextTab,
         PreviousTab,
@@ -120,6 +121,7 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     registry.register(ShortcutId::FocusPaneUp, &FocusPaneUp);
     registry.register(ShortcutId::FocusPaneDown, &FocusPaneDown);
     registry.register(ShortcutId::ToggleZoomPane, &ToggleZoomPane);
+    registry.register(ShortcutId::EqualizeSplits, &EqualizeSplits);
     registry.register(ShortcutId::ClosePane, &ClosePane);
     registry.register(ShortcutId::NextTab, &NextTab);
     registry.register(ShortcutId::PreviousTab, &PreviousTab);
@@ -299,6 +301,11 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         )
         .on_action(cx.listener(|model, _: &SplitDown, _, cx| model.split_pane(Direction::Down, cx)))
         .on_action(cx.listener(|model, _: &ToggleZoomPane, _, cx| model.toggle_zoom_pane(cx)))
+        .on_action(cx.listener(|model, _: &EqualizeSplits, _, cx| {
+            if let Some(pane) = model.active_pane() {
+                model.equalize_splits(pane, cx);
+            }
+        }))
         .on_action(cx.listener(|model, _: &ClosePane, _, cx| {
             if let Some(pane) = model.active_pane() {
                 model.close_pane(pane, cx);
@@ -389,6 +396,11 @@ pub(crate) fn register_commands(
 
     let missing = model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing;
     let no_pane = missing || model.active_pane().is_none();
+    let unsplit = missing
+        || model
+            .active_tab()
+            .and_then(|tab| model.tab(tab))
+            .is_none_or(|tab| tab.panes.len() < 2);
     for command in [
         action(
             model,
@@ -439,6 +451,13 @@ pub(crate) fn register_commands(
             ToggleZoomPane,
         )
         .disabled(no_pane),
+        action(
+            model,
+            ShortcutId::EqualizeSplits,
+            tr_key!("Equalize Splits"),
+            EqualizeSplits,
+        )
+        .disabled(unsplit),
         action(
             model,
             ShortcutId::NextProject,

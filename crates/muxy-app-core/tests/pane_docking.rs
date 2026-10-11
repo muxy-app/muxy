@@ -209,6 +209,42 @@ fn every_drop_keeps_each_pane_once_in_a_valid_layout_and_never_targets_itself() 
 }
 
 #[test]
+fn equalizing_gives_every_member_of_each_row_and_column_an_equal_share() {
+    let [left, top, middle, bottom, right] = std::array::from_fn(|_| PaneId::new());
+    let column = split(
+        Axis::Vertical,
+        0.7,
+        Layout::Leaf(top),
+        split(
+            Axis::Vertical,
+            0.3,
+            Layout::Leaf(middle),
+            Layout::Leaf(bottom),
+        ),
+    );
+    let row = split(
+        Axis::Horizontal,
+        0.2,
+        Layout::Leaf(left),
+        split(Axis::Horizontal, 0.8, column, Layout::Leaf(right)),
+    );
+    let result = row.equalized().unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.leaves(), [left, top, middle, bottom, right]);
+    assert_rects(
+        &result,
+        &[
+            (left, [0.0, 0.0, THIRD, 1.0]),
+            (top, [THIRD, 0.0, THIRD, THIRD]),
+            (middle, [THIRD, THIRD, THIRD, THIRD]),
+            (bottom, [THIRD, 2.0 * THIRD, THIRD, THIRD]),
+            (right, [2.0 * THIRD, 0.0, THIRD, 1.0]),
+        ],
+    );
+    assert_eq!(Layout::Leaf(left).equalized(), Some(Layout::Leaf(left)));
+}
+
+#[test]
 fn state_docking_is_atomic_preserves_records_and_round_trips() {
     let mut state = AppState::bootstrap().unwrap();
     state.open_terminal_tab(state.home().id).unwrap();

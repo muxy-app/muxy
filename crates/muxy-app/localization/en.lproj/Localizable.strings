@@ -541,6 +541,7 @@
 "Enter a worktree name." = "Enter a worktree name.";
 "Enter an SSH host: a ~/.ssh/config alias, a host name, or an address" = "Enter an SSH host: a ~/.ssh/config alias, a host name, or an address";
 "Enter the password to test logging in with it." = "Enter the password to test logging in with it.";
+"Equalize Splits" = "Equalize Splits";
 "Every setting on the Terminal page, including key bindings, returns to its default." = "Every setting on the Terminal page, including key bindings, returns to its default.";
 "Every target must have a live terminal before sending." = "Every target must have a live terminal before sending.";
 "Existing Terminals…" = "Existing Terminals…";
@@ -1427,6 +1428,7 @@
 "deny" = "deny";
 "detach terminal" = "detach terminal";
 "end all sessions and quit" = "end all sessions and quit";
+"equalize splits" = "equalize splits";
 "existing terminals" = "existing terminals";
 "extension archive expands beyond its limit" = "extension archive expands beyond its limit";
 "extension archives cannot contain symbolic links" = "extension archives cannot contain symbolic links";

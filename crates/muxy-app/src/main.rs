@@ -78,12 +78,13 @@ use model::AppModel;
 use muxy_ui::tr;
 use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
-    Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight, FocusPaneUp,
-    HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize, NewHomeTab, NewTab,
-    NewTabInProject, NextProject, NextPrompt, NextTab, OpenSettings, PreviousProject,
-    PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject, SelectTab, ShowAll,
-    SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
-    ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
+    EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
+    FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
+    NewHomeTab, NewTab, NewTabInProject, NextProject, NextPrompt, NextTab, OpenSettings,
+    PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject,
+    SelectTab, ShowAll, SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer,
+    ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom,
+    bind_keys,
 };
 
 fn main() -> ExitCode {
@@ -203,6 +204,7 @@ fn menus() -> Vec<Menu> {
         MenuItem::action(tr!("Focus Pane Up"), FocusPaneUp),
         MenuItem::action(tr!("Focus Pane Down"), FocusPaneDown),
         MenuItem::action(tr!("Toggle Pane Zoom"), ToggleZoomPane),
+        MenuItem::action(tr!("Equalize Splits"), EqualizeSplits),
         MenuItem::action(tr!("Close Pane"), ClosePane),
         MenuItem::action(tr!("Close Tab"), CloseTab),
         MenuItem::separator(),

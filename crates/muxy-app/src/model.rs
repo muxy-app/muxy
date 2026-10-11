@@ -707,6 +707,12 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn equalize_splits(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        if self.quitting == Quitting::Idle && self.state.equalize_splits(pane).is_ok() {
+            self.changed(cx);
+        }
+    }
+
     fn tab_project(&self, tab: TabId) -> Option<&muxy_app_core::Project> {
         self.state
             .projects()

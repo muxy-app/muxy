@@ -27,7 +27,7 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 59] = [
+    pub const ACTIONS: [ShortcutId; 60] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
         ShortcutId::NewTabInProject,
@@ -52,6 +52,7 @@ impl Keymap {
         ShortcutId::FocusPaneUp,
         ShortcutId::FocusPaneDown,
         ShortcutId::ToggleZoomPane,
+        ShortcutId::EqualizeSplits,
         ShortcutId::ClosePane,
         ShortcutId::NextTab,
         ShortcutId::PreviousTab,
@@ -232,6 +233,7 @@ impl Keymap {
             ShortcutId::FocusPaneUp,
             ShortcutId::FocusPaneDown,
             ShortcutId::ToggleZoomPane,
+            ShortcutId::EqualizeSplits,
             ShortcutId::ClosePane,
             ShortcutId::MenuOpenSubmenu,
             ShortcutId::MenuCloseSubmenu,

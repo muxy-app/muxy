@@ -759,6 +759,15 @@ impl AppState {
         self.tab_mut(tab)?.layout.set_ratio(path, ratio)
     }
 
+    pub fn equalize_splits(&mut self, pane: PaneId) -> Result<(), AppError> {
+        let tab = self.pane_tab_mut(pane)?;
+        tab.layout = tab
+            .layout
+            .equalized()
+            .ok_or_else(|| AppError::InvalidState("layout has an empty split".into()))?;
+        Ok(())
+    }
+
     fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab, AppError> {
         let project = self
             .projects

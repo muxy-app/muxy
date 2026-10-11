@@ -186,14 +186,19 @@ impl AppModel {
             },
             Command::ToggleZoomPane(id),
         );
+        let mut equalize = Item::action(tr!("Equalize Splits"), Command::EqualizeSplits(id));
         let mut close = Item::action(tr!("Close Pane"), Command::ClosePane(id));
         if project.status() == ProjectStatus::Missing {
             split_right = split_right.disabled();
             split_down = split_down.disabled();
+            equalize = equalize.disabled();
             close = close.disabled();
         }
         if tab.panes.len() < 2 && tab.zoomed.is_none() {
             zoom = zoom.disabled();
+        }
+        if tab.panes.len() < 2 {
+            equalize = equalize.disabled();
         }
         if tab.pinned && tab.panes.len() == 1 {
             close = close.disabled();
@@ -206,6 +211,7 @@ impl AppModel {
             split_right,
             split_down,
             zoom,
+            equalize,
             detach.separated(),
             close,
         ];

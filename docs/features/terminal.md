@@ -19,8 +19,9 @@ quit the app, and every app shows the same screen and history.
 
 - New panes open in the project folder. Set **Settings → Terminal → New pane
   directory** to open them in the current pane's folder instead.
-- Drag dividers to resize. `Cmd`-drag a pane onto another pane to swap them, or
-  onto an edge to dock it there.
+- Drag dividers to resize, or even them out with **Equalize Splits**
+  (`Cmd+Ctrl+=`, or a pane's right-click menu). `Cmd`-drag a pane onto another
+  pane to swap them, or onto an edge to dock it there.
 - Right-click a tab to rename, color, or pin it. Pinned tabs stay first and
   can't be closed until unpinned.
 

@@ -106,6 +106,54 @@ fn zoom_and_tab_switch_detach_only_hidden_leaves_and_restore_all(cx: &mut TestAp
     });
 }
 
+#[gpui::test]
+fn equalize_splits_evens_resized_panes_from_the_shortcut_and_the_terminal_menu(
+    cx: &mut TestAppContext,
+) {
+    let (state, tab, panes) = split_state();
+    let (boot, _requests) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1000.0), px(600.0)));
+    let resize = |model: &mut AppModel, cx: &mut Context<AppModel>| {
+        model.state.set_ratio(tab, &[], 0.8).expect("ratio");
+        model
+            .state
+            .set_ratio(tab, &[muxy_app_core::Branch::Second], 0.2)
+            .expect("ratio");
+        model.save_split_resize(cx);
+    };
+    let assert_even_and_saved = |model: &AppModel| {
+        assert_eq!(
+            model.state.home().tabs[0].layout.rects(),
+            [
+                (panes[0], [0.0, 0.0, 0.5, 1.0]),
+                (panes[1], [0.5, 0.0, 0.5, 0.5]),
+                (panes[2], [0.5, 0.5, 0.5, 0.5]),
+            ]
+        );
+        assert_eq!(model.active_pane(), Some(panes[2]));
+        assert_eq!(store::load(&model.path).expect("saved"), model.state);
+    };
+    view.update(cx, |model, cx| resize(model, cx));
+    cx.simulate_keystrokes("cmd-ctrl-=");
+    view.read_with(cx, |model, _| assert_even_and_saved(model));
+
+    view.update(cx, |model, cx| {
+        resize(model, cx);
+        model.terminal_menu(panes[0], gpui::point(px(100.0), px(100.0)), cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        view.read_with(cx, |model, _| model.menu_outline()[0][7].clone()),
+        "Equalize Splits"
+    );
+    let equalize = cx.debug_bounds("menu-item-7").expect("Equalize Splits");
+    cx.simulate_click(equalize.center(), Modifiers::default());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| assert_even_and_saved(model));
+}
+
 fn scroll_first_pane(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppModel>) {
     let scrolled = model.terminal(&panes[0]).expect("terminal").view.clone();
     scrolled.update(cx, |pane, cx| pane.set_viewport(attachment().grid.size, cx));

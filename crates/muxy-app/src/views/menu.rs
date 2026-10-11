@@ -59,6 +59,7 @@ pub(crate) enum Command {
     DetachTerminal(muxy_app_core::PaneId),
     SplitPane(muxy_app_core::PaneId, muxy_app_core::Direction),
     ToggleZoomPane(muxy_app_core::PaneId),
+    EqualizeSplits(muxy_app_core::PaneId),
     ClosePane(muxy_app_core::PaneId),
     TerminalCopy(muxy_app_core::PaneId),
     TerminalPaste(muxy_app_core::PaneId),
@@ -586,6 +587,7 @@ impl AppModel {
             Command::DetachTerminal(pane) => self.detach_terminal(pane, cx),
             Command::SplitPane(id, _)
             | Command::ToggleZoomPane(id)
+            | Command::EqualizeSplits(id)
             | Command::ClosePane(id)
             | Command::TerminalCopy(id)
             | Command::TerminalPaste(id)
@@ -662,6 +664,7 @@ impl AppModel {
                     self.toggle_zoom_pane(cx);
                 }
             }
+            Command::EqualizeSplits(_) => self.equalize_splits(id, cx),
             Command::ClosePane(_) => self.close_pane(id, cx),
             Command::TerminalCopy(id)
             | Command::TerminalPaste(id)

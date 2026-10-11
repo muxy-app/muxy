@@ -17,6 +17,7 @@ impl Command {
             Self::SplitPane(_, Direction::Right) => Some(ShortcutId::SplitRight),
             Self::SplitPane(_, Direction::Down) => Some(ShortcutId::SplitDown),
             Self::ToggleZoomPane(_) => Some(ShortcutId::ToggleZoomPane),
+            Self::EqualizeSplits(_) => Some(ShortcutId::EqualizeSplits),
             Self::ClosePane(_) => Some(ShortcutId::ClosePane),
             Self::DetachTerminal(_) => Some(ShortcutId::DetachTerminal),
             Self::ExistingSessions(_) => Some(ShortcutId::ExistingTerminals),
@@ -37,6 +38,7 @@ impl Command {
             | Self::TerminalSelectCommandOutput(id)
             | Self::SplitPane(id, _)
             | Self::ToggleZoomPane(id)
+            | Self::EqualizeSplits(id)
             | Self::ClosePane(id)
             | Self::DetachTerminal(id) => model.terminal(&id).map(|pane| pane.view.read(cx)),
             _ => None,
