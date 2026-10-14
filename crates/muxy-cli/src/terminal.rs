@@ -48,12 +48,7 @@ impl Events {
             .name("muxy-tui-host-input".into())
             .spawn(move || {
                 while !stopped.load(Ordering::Acquire) {
-                    let timeout = if pausing.load(Ordering::Acquire) {
-                        Duration::ZERO
-                    } else {
-                        Duration::from_millis(16)
-                    };
-                    let event = match event::poll(timeout) {
+                    let event = match event::poll(Duration::from_millis(16)) {
                         Ok(false) => {
                             if pausing.load(Ordering::Acquire)
                                 && (ready.send(()).is_err() || resuming.recv().is_err())
@@ -117,8 +112,6 @@ impl Drop for Events {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         self.resume();
-        // Crossterm 0.29's Mio reader can spin on a revoked TTY. Never join it:
-        // the main loop still restores the terminal and exits this CLI process.
     }
 }
 
@@ -174,6 +167,7 @@ impl Host {
         if !self.suspend.swap(false, Ordering::AcqRel) {
             return Ok(false);
         }
+        execute!(io::stdout(), event::DisableMouseCapture)?;
         events.pause()?;
         restore();
         signal_hook::low_level::raise(SIGSTOP)?;

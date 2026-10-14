@@ -69,6 +69,8 @@ try:
             except OSError as error:
                 if error.errno != errno.EIO:
                     raise
+        if scenario == "suspend" and b"\x1b[?1006l" not in raw:
+            os.write(master, report)
         found, status = os.waitpid(pid, os.WNOHANG | os.WUNTRACED)
         if found:
             if os.WIFSTOPPED(status):
@@ -84,7 +86,7 @@ try:
             assert os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0, (status, raw)
             break
         time.sleep(0.001)
-    assert exited, f"Terminal cleanup remained alive after {scenario}"
+    assert exited, f"Terminal cleanup remained alive after {scenario}: {stops} stops, {raw!r}"
     if scenario == "late-input":
         assert sent_late
     if scenario == "suspend":
