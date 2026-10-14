@@ -4083,6 +4083,7 @@ dependencies = [
  "muxy-protocol",
  "muxy-terminal",
  "ratatui",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "signal-hook 0.4.4",

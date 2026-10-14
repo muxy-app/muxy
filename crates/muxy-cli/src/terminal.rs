@@ -161,23 +161,55 @@ fn restore() {
         terminal::LeaveAlternateScreen
     );
     let _ = io::stdout().flush();
-    discard_pending_input();
+    let _ = rustix::termios::tcflush(io::stdin(), rustix::termios::QueueSelector::IFlush);
     let _ = terminal::disable_raw_mode();
-}
-
-/// Reads away mouse reports already on their way, so none reach the shell
-/// once the terminal stops reporting.
-fn discard_pending_input() {
-    for _ in 0..64 {
-        if !event::poll(Duration::from_millis(5)).unwrap_or(false) || event::read().is_err() {
-            break;
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleanup_handles_hangup_and_pending_mouse_reports() -> Result<(), Box<dyn std::error::Error>>
+    {
+        if let Ok(scenario) = std::env::var("MUXY_TEST_HOST_CLEANUP") {
+            let host = Host::enter()?;
+            let _ = event::poll(Duration::ZERO)?;
+            signal_hook::low_level::raise(SIGSTOP)?;
+            if scenario == "input" {
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                while rustix::io::ioctl_fionread(io::stdin())? == 0 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "Mouse reports did not reach terminal input"
+                    );
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+            drop(host);
+            if scenario == "input" {
+                terminal::enable_raw_mode()?;
+                let pending = rustix::io::ioctl_fionread(io::stdin());
+                terminal::disable_raw_mode()?;
+                assert_eq!(pending?, 0);
+            }
+            std::process::exit(0);
+        }
+        for scenario in ["hangup", "input"] {
+            let output = std::process::Command::new("python3")
+                .args(["-c", include_str!("terminal/cleanup.py")])
+                .arg(std::env::current_exe()?)
+                .arg(scenario)
+                .env("TERM", "xterm-256color")
+                .output()?;
+            assert!(
+                output.status.success(),
+                "{scenario}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn panic_restores_terminal_settings_and_output_modes() -> Result<(), Box<dyn std::error::Error>>
