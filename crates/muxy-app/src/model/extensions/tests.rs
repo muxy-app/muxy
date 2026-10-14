@@ -284,6 +284,90 @@ fn script_call(
 }
 
 #[gpui::test]
+fn browser_tabs_opened_by_extensions_are_driven_by_their_tab_id(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "driver",
+        r#"{"permissions": ["tabs:write", "browser:write"]}"#,
+        AppState::bootstrap().expect("state"),
+    );
+    let opened = script_call(
+        &view,
+        cx,
+        "driver",
+        1,
+        "tabs.open",
+        json!({"kind": "browser", "url": "example.com"}),
+    );
+    assert_eq!(opened["ok"], true, "{opened}");
+    let tab = opened["value"].as_str().expect("tab ID").to_owned();
+    let navigated = script_call(
+        &view,
+        cx,
+        "driver",
+        1,
+        "browser.navigate",
+        json!({"tabId": tab, "url": "example.com/docs"}),
+    );
+    assert_eq!(navigated["ok"], true, "{navigated}");
+    view.read_with(cx, |model, _| {
+        let pane = model.state.browser_pane(&tab).expect("browser pane");
+        assert_eq!(
+            model
+                .state
+                .browser(pane)
+                .and_then(|browser| browser.url.as_deref()),
+            Some("https://example.com/docs")
+        );
+    });
+}
+
+#[gpui::test]
+fn browser_replies_to_expired_extension_calls_are_refused(cx: &mut TestAppContext) {
+    let (view, cx, _package, _requests) = enabled(
+        cx,
+        "driver",
+        r#"{"permissions": ["browser:read"]}"#,
+        AppState::bootstrap().expect("state"),
+    );
+    let (reply, replies) = std::sync::mpsc::sync_channel(1);
+    cx.update(|window, cx| {
+        view.update(cx, |model, cx| {
+            let (script, _events) =
+                muxy_ui::javascript::Script::start(String::new()).expect("script");
+            model.extensions.scripts.insert(
+                1,
+                scripts::Running {
+                    owner: "driver".into(),
+                    script,
+                },
+            );
+            let epoch = model.extensions.epoch_for("driver");
+            model.extension_call(
+                Call {
+                    owner: "driver".into(),
+                    epoch,
+                    generation: model.servers.local.generation,
+                    project: model.state.current_project().id,
+                    verb: "browser.list".into(),
+                    args: json!({}),
+                    reply: Reply::Script(1, reply),
+                    approved: false,
+                },
+                window,
+                cx,
+            );
+            model.extensions.epochs.insert("driver".into(), epoch + 1);
+        });
+    });
+    cx.run_until_parked();
+    let response: Value =
+        serde_json::from_str(&replies.try_recv().expect("reply")).expect("JSON reply");
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"], "extension call expired");
+}
+
+#[gpui::test]
 fn extension_events_stay_inside_the_extension(cx: &mut TestAppContext) {
     let (view, cx, _package, _requests) = enabled(
         cx,

@@ -219,6 +219,8 @@ fn earlier_grant_keys_keep_their_decisions() {
     assert!(Request::for_call("git", "git.worktree.switch", &json!({}), "").is_none());
     let own = json!({"kind":"extensionWebView","extension":{"id":"git","tabType":"diff"}});
     assert!(Request::for_call("git", "tabs.open", &own, "").is_none());
+    let browser = json!({"kind":"browser","url":"localhost:3000"});
+    assert!(Request::for_call("git", "tabs.open", &browser, "").is_none());
     let foreign = Request::for_call(
         "git",
         "tabs.open",

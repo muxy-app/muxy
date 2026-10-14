@@ -360,7 +360,6 @@ impl NativeWebview {
         host.attach(view.clone(), move |signal| match signal {
             Signal::Escape => sender.try_send(Event::Escape).is_ok(),
             Signal::Shortcut(keystroke) => sender.try_send(Event::Shortcut(keystroke)).is_ok(),
-            // The page's own script reports clicks, once it is ready for them.
             Signal::Clicked => false,
         });
         let url = NSURL::URLWithString(&NSString::from_str(&url)).ok_or("invalid entry URL")?;

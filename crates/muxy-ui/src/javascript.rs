@@ -15,10 +15,11 @@ use std::sync::{
 use std::time::Duration;
 
 use objc2_javascript_core::{
-    JSContextGetGlobalObject, JSContextRef, JSEvaluateScript, JSGlobalContextCreate,
-    JSGlobalContextRef, JSGlobalContextRelease, JSObjectMakeFunctionWithCallback, JSObjectRef,
-    JSObjectSetProperty, JSStringCreateWithCharacters, JSStringGetCharactersPtr, JSStringGetLength,
-    JSStringRef, JSStringRelease, JSValueIsNumber, JSValueMakeString, JSValueRef, JSValueToNumber,
+    JSCheckScriptSyntax, JSContextGetGlobalObject, JSContextRef, JSEvaluateScript,
+    JSGlobalContextCreate, JSGlobalContextRef, JSGlobalContextRelease,
+    JSObjectMakeFunctionWithCallback, JSObjectRef, JSObjectSetProperty,
+    JSStringCreateWithCharacters, JSStringGetCharactersPtr, JSStringGetLength, JSStringRef,
+    JSStringRelease, JSValueIsNumber, JSValueMakeString, JSValueRef, JSValueToNumber,
     JSValueToStringCopy, kJSPropertyAttributeDontDelete, kJSPropertyAttributeReadOnly,
 };
 
@@ -96,6 +97,18 @@ impl Script {
 impl Drop for Script {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Release);
+    }
+}
+
+/// Whether `body` parses as the body of an async function. Nothing runs.
+pub fn is_async_function_body(body: &str) -> bool {
+    let program = JsString::new(&format!("(async () => {{\n{body}\n}});"));
+    // SAFETY: The context is created, used, and released on this thread, and checking syntax runs no script.
+    unsafe {
+        let context = JSGlobalContextCreate(ptr::null_mut());
+        let parses = JSCheckScriptSyntax(context, program.0, ptr::null_mut(), 1, ptr::null_mut());
+        JSGlobalContextRelease(context);
+        parses
     }
 }
 
@@ -293,5 +306,26 @@ mod tests {
         };
         assert_eq!(call.request, "43");
         call.reply.send("null".into()).unwrap();
+    }
+
+    #[test]
+    fn async_function_bodies_are_told_apart_by_parsing() {
+        for body in [
+            "return (\n'a;b'\n);",
+            "return (\n(() => { return true; })()\n);",
+            "return (\ndocument\n  .title // the page\n);",
+            "return (\nawait fetch('/a')\n);",
+            "const a = 1;\nreturn a;",
+        ] {
+            assert!(is_async_function_body(body), "{body}");
+        }
+        for body in [
+            "return (\nconst a = 1; return a\n);",
+            "return (\na; b\n);",
+            "return (\nreturn 1\n);",
+            "return (\n\n);",
+        ] {
+            assert!(!is_async_function_body(body), "{body}");
+        }
     }
 }

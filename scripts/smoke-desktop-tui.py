@@ -36,6 +36,12 @@ def main():
             "MUXY_TEST_TUI": str(binary),
             "MUXY_SERVER_BIN": str(wrapper),
         }
+        build = subprocess.run(
+            ["cargo", "test", "--locked", "-p", "muxy-app", "--no-run"],
+            cwd=root, env=env, check=False,
+        ).returncode
+        if build:
+            return build
         try:
             return subprocess.run(
                 ["cargo", "test", "--locked", "-p", "muxy-app",

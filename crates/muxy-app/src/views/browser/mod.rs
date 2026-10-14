@@ -150,6 +150,8 @@ impl BrowserView {
         let history = setup.profile.history().ok();
         let url = setup.url.unwrap_or_default().to_owned();
         Ok(cx.new(|cx| {
+            cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
+                .detach();
             let address = cx.new(|cx| {
                 TextInput::new(InputStyle::compact(theme, &metrics), cx)
                     .with_placeholder_key(tr_key!("Search or enter address"))
@@ -262,9 +264,8 @@ impl BrowserView {
             }
             BrowserEvent::ProgressChanged { progress } => {
                 self.page.progress = progress;
-                // A request is on its way before any page commits, as when a
-                // form is sent to a slow server.
-                if progress > 0.0 && progress < 1.0 {
+                let request_in_flight = progress > 0.0 && progress < 1.0;
+                if request_in_flight {
                     self.page.loading = true;
                 }
             }
@@ -282,8 +283,6 @@ impl BrowserView {
                 }
             }
             BrowserEvent::CloseRequested => cx.emit(BrowserViewEvent::Close),
-            // Only a click the user just made opens another app; a page
-            // clicking its own links doesn't.
             BrowserEvent::ExternalLinkRequested { url }
                 if self.native.clicked_within(EXTERNAL_LINK_CLICK) =>
             {
@@ -606,7 +605,6 @@ impl BrowserView {
             }
             self.presentation.visible = visible;
             self.presentation.blocked = blocked;
-            // A pane that isn't drawn never syncs its page, so hide it here.
             self.native
                 .set_visible(visible && !blocked && self.shows_page());
             cx.notify();

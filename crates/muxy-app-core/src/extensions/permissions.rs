@@ -62,14 +62,7 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         "worktrees.list" => "worktrees:read",
         "worktrees.switch" | "worktrees.refresh" => "worktrees:write",
         "agents.list" => "agents:read",
-        // Scripts pass the condition inside their options, pages at the top.
-        "browser.wait"
-            if [&args["function"], &args["args"][0]["function"]]
-                .iter()
-                .any(|function| function.as_str().is_some_and(|f| !f.is_empty())) =>
-        {
-            "browser:write"
-        }
+        "browser.wait" if waits_on_a_function(args) => "browser:write",
         v if BROWSER_READS.contains(&v) => "browser:read",
         v if v.starts_with("browser.") => "browser:write",
         "panels.open"
@@ -88,6 +81,14 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         "shortcuts.register" | "shortcuts.unregister" => "shortcuts:register",
         _ => return None,
     })
+}
+
+fn waits_on_a_function(args: &Value) -> bool {
+    let from_page = &args["function"];
+    let from_script_options = &args["args"][0]["function"];
+    [from_page, from_script_options]
+        .iter()
+        .any(|function| function.as_str().is_some_and(|text| !text.is_empty()))
 }
 
 /// Events that also need a read permission before an extension may subscribe.
@@ -279,6 +280,9 @@ impl Request {
     }
 
     fn tab(owner: &str, args: &Value) -> Option<Self> {
+        if args["kind"] == "browser" {
+            return None;
+        }
         if args["kind"] == "terminal" {
             let command = args["command"].as_str().map_or("", str::trim);
             return (!command.is_empty()).then(|| {

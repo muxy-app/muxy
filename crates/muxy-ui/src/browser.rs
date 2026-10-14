@@ -64,12 +64,12 @@ impl std::fmt::Debug for NativeBrowser {
 
 impl NativeBrowser {
     /// A hidden page in `window`; it shows once synced and made visible.
+    /// Until then it takes the window's size, so a page loaded for automation
+    /// before its pane is ever shown can lay out and be pictured.
     pub fn new(window: &Window, options: &Options<'_>) -> Result<(Self, Receiver<Event>), String> {
         let mtm = MainThreadMarker::new().ok_or("browser must be created on the main thread")?;
         let parent = crate::webview::parent_view(window)?;
         let mut host = Host::new(parent.clone(), mtm);
-        // A page loaded for automation before its pane is ever shown still
-        // needs a size to lay out and be pictured at.
         host.container().setFrame(parent.bounds());
         let (sender, receiver) = async_channel::unbounded();
         let events = sender.clone();
@@ -196,14 +196,14 @@ impl Drop for NativeBrowser {
     }
 }
 
-/// The host's container, as the window polybrowser builds its view in.
+/// The host's container, as the window polybrowser builds its view in. It
+/// outlives the handle, which only builds the view.
 struct Container<'a>(&'a NSView);
 
 impl HasWindowHandle for Container<'_> {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
         let view = NonNull::from(self.0).cast::<c_void>();
         let raw = RawWindowHandle::AppKit(AppKitWindowHandle::new(view));
-        // The container outlives the handle, which only builds the view.
         Ok(unsafe { WindowHandle::borrow_raw(raw) })
     }
 }

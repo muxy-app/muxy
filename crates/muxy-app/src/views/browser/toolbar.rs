@@ -306,8 +306,6 @@ fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyE
                 .absolute()
                 .top(metrics.control_medium() + metrics.spacing1())
                 .left_0()
-                // Laid out after the toolbar, the list can't size itself from
-                // the field, so it takes the width the field was drawn at.
                 .w(view.address_width.get())
                 .flex()
                 .flex_col()

@@ -47,6 +47,24 @@ fn browser_tabs_open_split_and_survive_a_restart() -> TestResult {
 }
 
 #[test]
+fn browser_panes_are_found_by_their_own_or_their_tab_id() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let (browser_tab, first) = state.open_browser(home, browser("https://example.com"), true)?;
+    let second = state.split_browser(first, BrowserPane::default(), true)?;
+    assert_eq!(state.browser_pane(&first.to_string()), Some(first));
+    assert_eq!(state.browser_pane(&browser_tab.to_string()), Some(second));
+
+    let terminal_tab = state.open_terminal_tab(home)?;
+    let terminal = state.window().active_pane.ok_or("terminal pane")?;
+    let beside = state.split_browser(terminal, BrowserPane::default(), false)?;
+    assert_eq!(state.browser_pane(&terminal_tab.to_string()), Some(beside));
+    assert_eq!(state.browser_pane(&terminal.to_string()), None);
+    assert_eq!(state.browser_pane("nope"), None);
+    Ok(())
+}
+
+#[test]
 fn blank_pages_are_not_saved_as_addresses() -> TestResult {
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;

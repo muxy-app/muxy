@@ -274,6 +274,24 @@ impl AppState {
             })
     }
 
+    /// The browser pane `id` names: that pane, or the one a tab of that ID
+    /// shows, else the tab's first browser pane.
+    pub fn browser_pane(&self, id: &str) -> Option<PaneId> {
+        if let Some(pane) = id.parse().ok().filter(|pane| self.browser(*pane).is_some()) {
+            return Some(pane);
+        }
+        let tab: TabId = id.parse().ok()?;
+        let tab = self
+            .projects()
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .find(|candidate| candidate.id == tab)?;
+        let is_browser = |pane: &PaneId| self.browser(*pane).is_some();
+        self.shown_pane(tab)
+            .filter(is_browser)
+            .or_else(|| tab.layout.leaves().into_iter().find(is_browser))
+    }
+
     /// Records the page a browser pane shows, reporting whether it changed.
     pub fn set_browser_url(&mut self, pane: PaneId, url: Option<String>) -> Result<bool, AppError> {
         let browser = self.browser_mut(pane)?;

@@ -163,7 +163,13 @@ impl AppModel {
         let reply = self.browser_call(&call.verb, &args, window, cx);
         cx.spawn(async move |model, cx| {
             let result = reply.await;
-            let _ = model.update(cx, |_, cx| call.reply.send(result, cx));
+            let _ = model.update(cx, |model, cx| {
+                if model.call_live(&call, cx) {
+                    call.reply.send(result, cx);
+                } else {
+                    call.reply.send(Err("extension call expired".into()), cx);
+                }
+            });
         })
         .detach();
     }

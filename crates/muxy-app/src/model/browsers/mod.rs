@@ -63,7 +63,8 @@ pub(crate) struct Browsers {
 #[derive(Clone, Debug)]
 pub(crate) struct OpenBrowser {
     pub url: Option<String>,
-    /// A profile ID; none means the default profile.
+    /// A profile ID or name; none means the default profile, which the tab
+    /// keeps even if another becomes the default later.
     pub profile: Option<String>,
     pub project: ProjectId,
     /// Splits the project's shown pane instead of opening a tab.
@@ -231,7 +232,6 @@ impl AppModel {
                 self.cancel_layout_drag(cx);
             }
             BrowserViewEvent::Navigated(url) => {
-                // Pages change their address often; saving waits for a pause.
                 if self
                     .state
                     .set_browser_url(pane, url.clone())
@@ -250,13 +250,13 @@ impl AppModel {
             BrowserViewEvent::Focus | BrowserViewEvent::PageClicked => {
                 if self.overlay.is_none() && self.close_prompt.is_none() {
                     self.focus_pane(pane, cx);
-                    // A click into the page leaves the address and find
-                    // fields; one on the toolbar keeps the field it hit.
-                    if let Some(view) = self.browser_view(pane)
-                        && (matches!(event, BrowserViewEvent::PageClicked)
-                            || !view.read(cx).focus.contains_focused(window, cx))
-                    {
-                        view.read(cx).focus.focus(window);
+                    if let Some(view) = self.browser_view(pane) {
+                        let clicked_into_page = matches!(event, BrowserViewEvent::PageClicked);
+                        let toolbar_field_clicked =
+                            view.read(cx).focus.contains_focused(window, cx);
+                        if clicked_into_page || !toolbar_field_clicked {
+                            view.read(cx).focus.focus(window);
+                        }
                     }
                     self.focus_requested = false;
                 }
@@ -284,7 +284,6 @@ impl AppModel {
                     Err(error) => self.fail(error, cx),
                 }
             }
-            // As in other browsers, only a page's own tabs close themselves.
             BrowserViewEvent::Close => {
                 if self.browsers.opened_by_page.contains(&pane) {
                     self.close_pane(pane, cx);
@@ -422,11 +421,8 @@ impl AppModel {
         if !self.browser_enabled() {
             return Err("the built-in browser is disabled".into());
         }
-        let profile = match profile {
-            Some(profile) => Some(self.browser_profile(Some(&profile))?.id().to_string()),
-            None => None,
-        };
-        let browser = BrowserPane::new(url, profile);
+        let profile = self.browser_profile(profile.as_deref())?.id().to_string();
+        let browser = BrowserPane::new(url, Some(profile));
         let previous = self.state.clone();
         let anchor = split.then(|| self.shown_pane_of(project)).flatten();
         let opened = match anchor {

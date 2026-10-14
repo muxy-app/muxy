@@ -165,7 +165,8 @@ impl AppModel {
     }
 
     /// Deletes a profile with its cookies, site data, and history. Its tabs
-    /// browse with the default profile from then on.
+    /// browse with the default profile from then on, and keep their profile
+    /// if it can't be deleted.
     pub(crate) fn delete_browser_profile(
         &mut self,
         id: &str,
@@ -184,15 +185,17 @@ impl AppModel {
             .collect();
         for pane in &users {
             self.browsers.views.remove(pane);
-            let _ = self.state.set_browser_profile(*pane, None);
+        }
+        cx.notify();
+        self.browser_profiles()?
+            .delete(parsed)
+            .map_err(|error| error.to_string())?;
+        for pane in &users {
+            let _ = self.state.set_browser_profile(*pane, Some(default.clone()));
         }
         if !users.is_empty() {
             self.save(cx);
         }
-        self.browser_profiles()?
-            .delete(parsed)
-            .map_err(|error| error.to_string())?;
-        cx.notify();
         Ok(())
     }
 

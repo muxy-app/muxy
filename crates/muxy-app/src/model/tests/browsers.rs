@@ -186,6 +186,108 @@ fn urls_open_in_a_new_browser_tab_of_the_current_project(cx: &mut TestAppContext
     });
 }
 
+fn saved_profile(model: &AppModel, pane: PaneId) -> Option<String> {
+    model
+        .state
+        .browser(pane)
+        .and_then(|browser| browser.profile.clone())
+}
+
+#[gpui::test]
+fn tabs_keep_the_profile_they_opened_with_when_the_default_changes(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let opened = call(&view, cx, "browser.open", &json!({})).expect("open");
+    let pane: PaneId = opened.as_str().expect("tab ID").parse().expect("pane");
+    view.update(cx, |model, _| {
+        let default = model
+            .browser_profile(None)
+            .expect("default")
+            .id()
+            .to_string();
+        assert_eq!(saved_profile(model, pane), Some(default.clone()));
+        model.add_browser_profile("Work").expect("profile");
+        let work = model.browser_profile(Some("Work")).expect("work");
+        model.settings.browser.default_profile = work.id().to_string();
+        assert_eq!(saved_profile(model, pane), Some(default.clone()));
+        assert_eq!(
+            model
+                .pane_profile(saved_profile(model, pane).as_deref())
+                .expect("tab profile")
+                .name(),
+            "Default"
+        );
+    });
+}
+
+#[gpui::test]
+fn deleting_a_profile_moves_its_tabs_only_once_it_is_gone(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, _| {
+        model.add_browser_profile("Work").expect("profile");
+    });
+    let opened = call(&view, cx, "browser.open", &json!({"profile": "Work"})).expect("open");
+    let pane: PaneId = opened.as_str().expect("tab ID").parse().expect("pane");
+    view.update(cx, |model, cx| {
+        let work = saved_profile(model, pane).expect("work profile");
+        let default = model
+            .browser_profile(None)
+            .expect("default")
+            .id()
+            .to_string();
+        let missing = muxy_ui::browser::polybrowser::ProfileId::from_bytes([7; 16]).to_string();
+        model
+            .state
+            .set_browser_profile(pane, Some(missing.clone()))
+            .expect("assign");
+        assert!(model.delete_browser_profile(&missing, cx).is_err());
+        assert_eq!(saved_profile(model, pane), Some(missing));
+
+        model
+            .state
+            .set_browser_profile(pane, Some(work.clone()))
+            .expect("assign");
+        model.delete_browser_profile(&work, cx).expect("delete");
+        assert_eq!(saved_profile(model, pane), Some(default));
+        assert!(model.browser_profile(Some(&work)).is_err());
+    });
+}
+
+#[test]
+fn page_scripts_are_parsed_to_tell_expressions_from_statements() -> std::result::Result<(), String>
+{
+    use muxy_app_core::browser::automation::{condition, script};
+    use muxy_ui::javascript::is_async_function_body;
+    let args = |value: Value| value.as_object().cloned().unwrap_or_default();
+    let eval = |source: &str| {
+        script(
+            "eval",
+            &args(json!({ "script": source })),
+            is_async_function_body,
+        )
+    };
+    assert_eq!(eval("'a;b'")?.as_deref(), Some("return (\n'a;b'\n);"));
+    assert_eq!(
+        eval("document.title;")?.as_deref(),
+        Some("return (\ndocument.title\n);")
+    );
+    assert_eq!(
+        eval("const a = 1;\nreturn a;")?.as_deref(),
+        Some("const a = 1;\nreturn a;")
+    );
+    let wait = condition(
+        "wait",
+        &args(json!({ "function": "(() => { return true; })()" })),
+        is_async_function_body,
+    )?;
+    assert!(
+        wait.contains("return (\n(() => { return true; })()\n);"),
+        "{wait}"
+    );
+    Ok(())
+}
+
 #[test]
 fn extension_arguments_are_named_like_the_cli_names_them() {
     use crate::model::browsers::automation::extension_args;

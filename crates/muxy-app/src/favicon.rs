@@ -19,15 +19,14 @@ pub(crate) fn fetch(url: &str) -> Option<gpui::RenderImage> {
 }
 
 fn decode(bytes: &[u8]) -> Option<gpui::RenderImage> {
-    let mut pixels = image::load_from_memory(bytes)
+    let mut bgra = image::load_from_memory(bytes)
         .ok()?
         .thumbnail(SIZE, SIZE)
         .into_rgba8();
-    // GPUI draws BGRA.
-    for pixel in pixels.pixels_mut() {
+    for pixel in bgra.pixels_mut() {
         pixel.0.swap(0, 2);
     }
-    Some(gpui::RenderImage::new([image::Frame::new(pixels)]))
+    Some(gpui::RenderImage::new([image::Frame::new(bgra)]))
 }
 
 #[cfg(test)]

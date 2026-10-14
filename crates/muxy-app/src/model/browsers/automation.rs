@@ -11,6 +11,7 @@ use muxy_app_core::browser::automation::{
 };
 use muxy_app_core::browser::{is_blank, resolve_target, url_host};
 use muxy_ui::browser::polybrowser::{Cookie, Timestamp};
+use muxy_ui::javascript::is_async_function_body;
 use serde_json::{Value, json};
 
 use super::OpenBrowser;
@@ -94,7 +95,7 @@ impl AppModel {
                 cookies(verb, &view, args, cx)
             }
             "wait" | "waitFor" => {
-                let condition = automation::condition(verb, args)?;
+                let condition = automation::condition(verb, args, is_async_function_body)?;
                 let view = self.browser_page(args, window, cx)?;
                 Ok(wait_until(
                     view.downgrade(),
@@ -112,7 +113,7 @@ impl AppModel {
                 ))
             }
             _ => {
-                let script = automation::script(verb, args)?
+                let script = automation::script(verb, args, is_async_function_body)?
                     .ok_or_else(|| format!("unknown command browser.{verb}"))?;
                 let view = self.browser_page(args, window, cx)?;
                 Ok(run_script(&view, &script, MAX_WAIT, cx))
@@ -187,9 +188,8 @@ impl AppModel {
 
     fn browser_tab(&self, args: &Args) -> Result<PaneId, String> {
         let id = string(args, "tabId")?;
-        id.parse::<PaneId>()
-            .ok()
-            .filter(|pane| self.state.browser(*pane).is_some())
+        self.state
+            .browser_pane(id)
             .ok_or_else(|| format!("browser tab not found {id}"))
     }
 
