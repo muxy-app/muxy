@@ -58,8 +58,9 @@ pub(crate) struct PaneView {
 }
 
 impl PaneView {
-    pub(crate) fn element(&self) -> gpui::AnyElement {
+    pub(crate) fn element(&self, cx: &gpui::App) -> gpui::AnyElement {
         use gpui::{IntoElement, Styled};
+        let _ = self.view.read(cx);
         gpui::AnyView::from(self.view.clone())
             .cached(
                 gpui::div()
@@ -2688,6 +2689,7 @@ mod tests {
     mod splits;
     mod tab_groups;
     mod tab_menu;
+    mod terminal_redraw;
     mod tui;
     mod updates;
     mod worktrees;

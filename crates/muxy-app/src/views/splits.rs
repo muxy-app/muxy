@@ -544,5 +544,5 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
     let Some(pane) = model.grids.get(&id) else {
         return div().size_full().into_any_element();
     };
-    pane.element()
+    pane.element(cx)
 }
