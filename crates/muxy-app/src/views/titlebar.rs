@@ -1,12 +1,67 @@
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, Div, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, AppContext, Context, Div, ElementId, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
+    div, px,
 };
-use muxy_ui::components::IconGlyph;
+use muxy_ui::components::{IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
 use crate::model::AppModel;
+
+pub(super) fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> (Div, f32) {
+    let project = model.state.current_project();
+    let available = project.status() == muxy_app_core::ProjectStatus::Available;
+    let existing_count = if available {
+        model.existing_terminal_count()
+    } else {
+        0
+    };
+    let browser = available && model.browser_enabled();
+    let layouts = available && model.has_project_layouts();
+    let zoom_tab = project.tabs.iter().find(|tab| {
+        available
+            && Some(tab.id) == model.active_tab()
+            && (tab.zoomed.is_some() || tab.panes.len() > 1)
+    });
+    let controls = 1
+        + u8::from(existing_count > 0)
+        + u8::from(browser)
+        + u8::from(zoom_tab.is_some())
+        + u8::from(layouts);
+    let width = f32::from(controls)
+        * f32::from(model.metrics.control_medium() + model.metrics.spacing2())
+        + model.extension_toolbar_width();
+    let bar = div()
+        .debug_selector(|| "titlebar-actions".into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .when(existing_count > 0, |bar| {
+            bar.child(super::tab_strip::existing_terminals_button(
+                existing_count,
+                model,
+                cx,
+            ))
+        })
+        .when(browser, |bar| {
+            bar.child(super::tab_strip::browser_button(model, cx))
+        })
+        .when_some(zoom_tab, |bar, tab| {
+            bar.child(super::tab_strip::zoom_control(
+                tab.zoomed.is_some(),
+                model,
+                cx,
+            ))
+        })
+        .when(layouts, |bar| {
+            bar.child(super::project_layouts::button(model, cx))
+        })
+        .child(model.extension_toolbar(cx))
+        .child(super::tab_strip::settings_button(model, cx));
+    (bar, width)
+}
 
 #[derive(Clone, PartialEq, Debug, gpui::Action)]
 #[action(namespace = muxy, no_json)]
@@ -47,6 +102,54 @@ fn background_click(event: &gpui::ClickEvent, window: &mut Window, cx: &mut App)
         cx.stop_propagation();
         window.dispatch_action(Box::new(super::workspace::Zoom), cx);
     }
+}
+
+pub(crate) fn action_button(
+    id: impl Into<ElementId>,
+    tooltip: impl Into<SharedString>,
+    model: &AppModel,
+) -> Stateful<Div> {
+    let m = model.metrics;
+    let theme = model.theme.clone();
+    let tooltip = tooltip.into();
+    div()
+        .id(id)
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(m.control_medium())
+        .mr(m.spacing2())
+        .rounded(m.radius_sm())
+        .cursor_pointer()
+        .hover(|style| style.bg(theme.hover))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .tooltip(move |_, cx| {
+            cx.new(|_| {
+                Tooltip::new(
+                    tooltip.clone(),
+                    theme.raised(),
+                    theme.fg,
+                    theme.border,
+                    theme.bg,
+                )
+            })
+            .into()
+        })
+}
+
+pub(super) fn icon_button(
+    id: impl Into<ElementId>,
+    icon: Icon,
+    tooltip: impl Into<SharedString>,
+    model: &AppModel,
+) -> Stateful<Div> {
+    action_button(id, tooltip, model).child(IconGlyph::new(
+        icon,
+        model.metrics.icon_md(),
+        model.theme.fg_muted,
+    ))
 }
 
 pub(crate) fn navigation(

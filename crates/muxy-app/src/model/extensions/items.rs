@@ -12,6 +12,7 @@ use muxy_app_core::extensions::{Action, Extension, Icon, Side};
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph, TemplateGlyph, Tooltip};
 
 use super::AppModel;
+use crate::views::titlebar;
 
 const FALLBACK: &str = "puzzlepiece.extension";
 const MAX_ICON_BYTES: u64 = 256 * 1024;
@@ -249,45 +250,28 @@ impl AppModel {
     }
 
     pub(crate) fn extension_toolbar_width(&self) -> f32 {
-        f32::from(u16::try_from(self.topbar_items().len()).unwrap_or(u16::MAX)) * 28.0
+        f32::from(u16::try_from(self.topbar_items().len()).unwrap_or(u16::MAX))
+            * f32::from(self.metrics.control_medium() + self.metrics.spacing2())
     }
 
     pub(crate) fn extension_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut bar = div().flex().items_center().gap(px(2.0));
+        let mut bar = div().flex().flex_none().items_center();
         for item in self.topbar_items() {
             let key = format!("top:{}:{}", item.owner, item.id);
             let anchor = self.extensions.items.anchor(&key);
-            let tooltip = item.tooltip.clone();
-            let theme = self.theme.clone();
-            let icon = self.extension_icon(&item.root, &item.icon, px(14.0), self.theme.fg_muted);
+            let icon = self.extension_icon(
+                &item.root,
+                &item.icon,
+                self.metrics.icon_md(),
+                self.theme.fg_muted,
+            );
             let element_id =
                 gpui::SharedString::from(format!("extension-toolbar-{}-{}", item.owner, item.id));
             bar = bar.child(
-                div()
+                titlebar::action_button(element_id, item.tooltip.clone(), self)
                     .debug_selector(|| "extension-toolbar-item".into())
-                    .id(element_id)
-                    .relative()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(26.0))
-                    .rounded(px(4.0))
-                    .cursor_pointer()
-                    .hover(|view| view.bg(self.theme.hover))
-                    .tooltip(move |_, cx| {
-                        cx.new(|_| {
-                            Tooltip::new(
-                                tooltip.clone(),
-                                theme.raised(),
-                                theme.fg,
-                                theme.border,
-                                theme.bg,
-                            )
-                        })
-                        .into()
-                    })
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .button_interaction(cx.listener(move |model, _, window, cx| {
+                        cx.stop_propagation();
                         model.click_extension_item(&item, &key, false, window, cx);
                     }))
                     .child(

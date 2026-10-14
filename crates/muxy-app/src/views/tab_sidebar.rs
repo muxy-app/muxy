@@ -633,12 +633,7 @@ pub(super) fn titlebar(
 ) -> AnyElement {
     let theme = &model.theme;
     let project = model.state.current_project();
-    let available = project.status() == ProjectStatus::Available;
-    let count = model.existing_terminal_count();
-    let tab = project
-        .tabs
-        .iter()
-        .find(|tab| Some(tab.id) == model.active_tab());
+    let (actions, _) = titlebar::actions(model, cx);
     titlebar::background("project-titlebar")
         .flex()
         .items_center()
@@ -658,46 +653,11 @@ pub(super) fn titlebar(
                 .text_color(theme.fg_muted)
                 .child(model.project_title(project)),
         )
-        .when(available && project.groups().is_none(), |bar| {
-            bar.child(
-                div()
-                    .debug_selector(|| "new-tab-button".into())
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(
-                        IconButton::new(
-                            "new-tab",
-                            Icon::Plus,
-                            px(13.0),
-                            px(24.0),
-                            theme.fg_muted,
-                            theme.fg,
-                        )
-                        .tooltip(
-                            tr!("New Terminal Tab"),
-                            theme.raised(),
-                            theme.fg,
-                            theme.border,
-                            theme.bg,
-                        )
-                        .on_click(cx.listener(|model, _, _, cx| {
-                            cx.stop_propagation();
-                            model.new_tab(cx);
-                        })),
-                    ),
-            )
-        })
-        .when(available && count > 0, |bar| {
-            bar.child(tab_strip::existing_terminals_button(count, model, cx))
-        })
-        .when_some(
-            tab.filter(|tab| tab.zoomed.is_some() || tab.panes.len() > 1),
-            |bar, tab| bar.child(tab_strip::zoom_control(tab.zoomed.is_some(), model, cx)),
+        .when(
+            project.status() == ProjectStatus::Available && project.groups().is_none(),
+            |bar| bar.child(tab_strip::new_tab_button(None, model, cx)),
         )
-        .when(available && model.has_project_layouts(), |bar| {
-            bar.child(super::project_layouts::button(model, cx))
-        })
-        .child(model.extension_toolbar(cx))
-        .child(tab_strip::settings_button(model, cx))
+        .child(actions)
         .into_any_element()
 }
 

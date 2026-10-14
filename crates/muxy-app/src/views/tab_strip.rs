@@ -12,7 +12,7 @@ use muxy_app_core::{Tab, TabGroup, TabId, TabSide};
 
 use super::titlebar;
 use crate::model::AppModel;
-use muxy_ui::components::{IconButton, IconGlyph};
+use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::Theme;
 use muxy_ui::tr;
@@ -29,30 +29,18 @@ pub(crate) fn tab_strip(
         .items_center()
         .h(px(32.0))
         .flex_none();
-    let settings = settings_button(model, cx);
+    let (actions, actions_width) = titlebar::actions(model, cx);
     if model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing {
-        return strip.justify_end().child(settings).into_any_element();
+        return strip.justify_end().child(actions).into_any_element();
     }
-    let zoom_tab = model
-        .state
-        .current_project()
-        .tabs
-        .iter()
-        .find(|tab| Some(tab.id) == model.active_tab())
-        .filter(|tab| tab.zoomed.is_some() || tab.panes.len() > 1);
-    let control_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2());
-    let existing_count = model.existing_terminal_count();
-    let has_layouts = model.has_project_layouts();
-    let controls =
-        1 + u8::from(zoom_tab.is_some()) + u8::from(existing_count > 0) + u8::from(has_layouts);
     let leading = (titlebar::navigation_width(model) - sidebar_width).max(0.0);
+    let new_tab_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2());
     let available = (f32::from(window.viewport_size().width)
         - sidebar_width
         - leading
-        - 28.0
-        - f32::from(controls) * control_width
-        - model.extension_toolbar_width())
-    .max(0.0);
+        - actions_width
+        - new_tab_width)
+        .max(0.0);
     let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
     let ideal_width = available / f32::from(count.max(1));
     let width = ideal_width.clamp(44.0, 200.0);
@@ -79,14 +67,7 @@ pub(crate) fn tab_strip(
                 .child(cells),
         )
         .children(pinned_button)
-        .children(
-            (existing_count > 0).then(|| existing_terminals_button(existing_count, model, cx)),
-        )
-        .children(model.browser_enabled().then(|| browser_button(model, cx)))
-        .children(zoom_tab.map(|tab| zoom_control(tab.zoomed.is_some(), model, cx)))
-        .children(has_layouts.then(|| super::project_layouts::button(model, cx)))
-        .child(model.extension_toolbar(cx))
-        .child(settings)
+        .child(actions)
         .into_any_element()
 }
 
@@ -108,7 +89,8 @@ pub(crate) fn group_strip(
         .active_tab()
         .is_some_and(|tab| group.tabs().contains(&tab));
     let count = u16::try_from(tabs.len()).unwrap_or(u16::MAX).max(1);
-    let cell_width = ((width - 28.0) / f32::from(count)).clamp(44.0, 200.0);
+    let control_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2());
+    let cell_width = ((width - control_width) / f32::from(count)).clamp(44.0, 200.0);
     let cells = tab_cells(&tabs, cell_width, focused, model, cx).child(new_tab_button(
         group.tabs().last().copied(),
         model,
@@ -153,7 +135,7 @@ fn tab_cells(
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> gpui::Div {
-    let mut cells = div().flex().flex_none().h_full();
+    let mut cells = div().flex().flex_none().items_center().h_full();
     for (index, tab) in tabs.iter().enumerate() {
         cells = cells.child(tab_cell(tab, index, width, shortcuts, model, cx));
     }
@@ -165,43 +147,31 @@ fn tab_cells(
 }
 
 /// Opens a tab after `anchor` in its group, or at the end of the focused one.
-fn new_tab_button(
+pub(super) fn new_tab_button(
     anchor: Option<TabId>,
     model: &AppModel,
     cx: &mut Context<AppModel>,
-) -> gpui::Div {
-    let theme = &model.theme;
+) -> gpui::Stateful<gpui::Div> {
     let id = anchor.map_or_else(
         || SharedString::from("new-tab"),
         |anchor| SharedString::from(format!("new-tab-{anchor}")),
     );
-    div()
-        .debug_selector(|| "new-tab-button".into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .pl(px(4.0))
-        .w(px(28.0))
-        .h_full()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            IconButton::new(id, Icon::Plus, px(13.0), px(24.0), theme.fg_muted, theme.fg)
-                .tooltip(
-                    tr!("New Tab (⌘T)"),
-                    theme.raised(),
-                    theme.fg,
-                    theme.border,
-                    theme.bg,
-                )
-                .on_click(cx.listener(move |model, _, _, cx| {
-                    cx.stop_propagation();
-                    match anchor {
-                        Some(anchor) => model.new_tab_adjacent(anchor, TabSide::Right, cx),
-                        None => model.new_tab(cx),
-                    }
-                })),
-        )
+    titlebar::icon_button(id, Icon::Plus, tr!("New Tab (⌘T)"), model)
+        .debug_selector(move || {
+            if anchor.is_some() {
+                "group-new-tab-button"
+            } else {
+                "new-tab-button"
+            }
+            .into()
+        })
+        .on_click(cx.listener(move |model, _, _, cx| {
+            cx.stop_propagation();
+            match anchor {
+                Some(anchor) => model.new_tab_adjacent(anchor, TabSide::Right, cx),
+                None => model.new_tab(cx),
+            }
+        }))
 }
 
 pub(super) fn existing_terminals_button(
@@ -209,7 +179,6 @@ pub(super) fn existing_terminals_button(
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
-    let theme = &model.theme;
     let project = model.state.current_project().id;
     let tooltip = if count == 1 {
         tr!("1 Existing Terminal").to_string()
@@ -221,35 +190,17 @@ pub(super) fn existing_terminals_button(
         .keymap
         .chord(ShortcutId::ExistingTerminals)
         .map_or_else(|| tooltip.clone(), |chord| format!("{tooltip} ({chord})"));
-    div()
+    titlebar::icon_button("existing-terminals", Icon::TerminalStack, tooltip, model)
         .debug_selector(|| "existing-terminals-button".into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .h_full()
-        .pr(model.metrics.spacing2())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            IconButton::new(
-                "existing-terminals",
-                Icon::TerminalStack,
-                model.metrics.scaled(14.0),
-                model.metrics.control_medium(),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
-            .on_click(cx.listener(move |model, _, window, cx| {
-                cx.stop_propagation();
-                model.open_session_picker(project, window, cx);
-            })),
-        )
+        .on_click(cx.listener(move |model, _, window, cx| {
+            cx.stop_propagation();
+            model.open_session_picker(project, window, cx);
+        }))
         .into_any_element()
 }
 
 /// Opens a browser tab in the current project.
-fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let theme = &model.theme;
+pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let tooltip = model
         .settings
         .keymap
@@ -258,34 +209,16 @@ fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
             || tr!("Open Browser Tab").to_string(),
             |chord| format!("{} ({chord})", tr!("Open Browser Tab")),
         );
-    div()
+    titlebar::icon_button("new-browser-tab", Icon::Globe, tooltip, model)
         .debug_selector(|| "browser-button".into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .h_full()
-        .pr(model.metrics.spacing2())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            IconButton::new(
-                "new-browser-tab",
-                Icon::Globe,
-                model.metrics.scaled(14.0),
-                model.metrics.control_medium(),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
-            .on_click(cx.listener(|model, _, _, cx| {
-                cx.stop_propagation();
-                model.new_browser_tab(cx);
-            })),
-        )
+        .on_click(cx.listener(|model, _, _, cx| {
+            cx.stop_propagation();
+            model.new_browser_tab(cx);
+        }))
         .into_any_element()
 }
 
 pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let theme = &model.theme;
     let tooltip = model
         .settings
         .keymap
@@ -294,29 +227,12 @@ pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> A
             || tr!("Settings").to_string(),
             |chord| format!("{} ({chord})", tr!("Settings")),
         );
-    div()
+    titlebar::icon_button("open-settings", Icon::Settings, tooltip, model)
         .debug_selector(|| "settings-button".into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .h_full()
-        .pr(model.metrics.spacing2())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            IconButton::new(
-                "open-settings",
-                Icon::Settings,
-                model.metrics.scaled(13.0),
-                model.metrics.control_medium(),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
-            .on_click(cx.listener(|model, _, window, cx| {
-                cx.stop_propagation();
-                model.open_settings(window, cx);
-            })),
-        )
+        .on_click(cx.listener(|model, _, window, cx| {
+            cx.stop_propagation();
+            model.open_settings(window, cx);
+        }))
         .into_any_element()
 }
 
@@ -325,7 +241,6 @@ pub(super) fn zoom_control(
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
-    let theme = &model.theme;
     let label = if zoomed {
         tr!("Restore Pane")
     } else {
@@ -336,42 +251,30 @@ pub(super) fn zoom_control(
         .keymap
         .chord(ShortcutId::ToggleZoomPane)
         .map_or_else(|| label.to_string(), |chord| format!("{label} ({chord})"));
-    div()
-        .debug_selector(move || {
-            if zoomed {
-                "restore-pane"
-            } else {
-                "maximize-pane"
-            }
-            .into()
-        })
-        .flex()
-        .flex_none()
-        .items_center()
-        .h_full()
-        .pr(model.metrics.spacing2())
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            IconButton::new(
-                "toggle-zoom-pane",
-                if zoomed {
-                    Icon::Restore
-                } else {
-                    Icon::Maximize
-                },
-                model.metrics.scaled(13.0),
-                model.metrics.control_medium(),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
-            .on_click(cx.listener(|model, _, window, cx| {
-                cx.stop_propagation();
-                model.toggle_zoom_pane(cx);
-                model.focus_active(window, cx);
-            })),
-        )
-        .into_any_element()
+    titlebar::icon_button(
+        "toggle-zoom-pane",
+        if zoomed {
+            Icon::Restore
+        } else {
+            Icon::Maximize
+        },
+        tooltip,
+        model,
+    )
+    .debug_selector(move || {
+        if zoomed {
+            "restore-pane"
+        } else {
+            "maximize-pane"
+        }
+        .into()
+    })
+    .on_click(cx.listener(|model, _, window, cx| {
+        cx.stop_propagation();
+        model.toggle_zoom_pane(cx);
+        model.focus_active(window, cx);
+    }))
+    .into_any_element()
 }
 
 fn close_control(

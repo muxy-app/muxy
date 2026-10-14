@@ -32,6 +32,62 @@ fn browser_pane(model: &AppModel) -> Option<PaneId> {
 }
 
 #[gpui::test]
+fn topbar_opens_browser_tabs_after_layout_and_group_changes(cx: &mut TestAppContext) {
+    use muxy_app_core::{Direction, settings::AppLayout};
+
+    let mut state = AppState::bootstrap().expect("state");
+    let first = state.open_terminal_tab(state.home().id).expect("first tab");
+    let second = state
+        .open_terminal_tab(state.home().id)
+        .expect("second tab");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    for grouped in [false, true] {
+        if grouped {
+            view.update(cx, |model, cx| {
+                model
+                    .state
+                    .split_tab(second, first, Direction::Right)
+                    .expect("split tabs into groups");
+                model.changed(cx);
+            });
+        }
+        for layout in [
+            AppLayout::ProjectFocused,
+            AppLayout::TabFocused,
+            AppLayout::AgentsFocused,
+        ] {
+            view.update(cx, |model, cx| model.set_layout(layout, cx));
+            cx.run_until_parked();
+            let (count, previous) = view.read_with(cx, |model, _| {
+                (model.state.current_project().tabs.len(), model.active_tab())
+            });
+            let button = cx
+                .debug_bounds("browser-button")
+                .unwrap_or_else(|| panic!("browser unavailable in {layout:?}, grouped={grouped}"));
+            cx.simulate_click(button.center(), Modifiers::default());
+            cx.run_until_parked();
+            view.read_with(cx, |model, _| {
+                let project = model.state.current_project();
+                assert_eq!(project.tabs.len(), count + 1);
+                let active = model.active_tab().expect("new tab selected");
+                assert_ne!(Some(active), previous);
+                let pane = model.active_pane().expect("new pane selected");
+                assert!(model.state.browser(pane).is_some());
+                if grouped {
+                    assert!(
+                        project
+                            .group_tabs(active)
+                            .contains(&previous.expect("previous tab"))
+                    );
+                }
+                assert!(model.error.is_none(), "{:?}", model.error);
+            });
+        }
+    }
+}
+
+#[gpui::test]
 fn new_browser_tabs_open_on_the_start_page_and_requests_drive_them(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
