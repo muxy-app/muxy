@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ratatui::crossterm::{cursor, event, execute, terminal};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGSTOP, SIGTERM, SIGTSTP};
@@ -30,6 +30,9 @@ pub(crate) type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<
 pub(crate) struct Events {
     receiver: Receiver<io::Result<event::Event>>,
     stop: Arc<AtomicBool>,
+    pause: Arc<AtomicBool>,
+    paused: Receiver<()>,
+    resume: mpsc::SyncSender<()>,
 }
 
 impl Events {
@@ -37,22 +40,47 @@ impl Events {
         let (sender, receiver) = mpsc::sync_channel(128);
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = Arc::clone(&stop);
+        let pause = Arc::new(AtomicBool::new(false));
+        let pausing = Arc::clone(&pause);
+        let (ready, paused) = mpsc::sync_channel(1);
+        let (resume, resuming) = mpsc::sync_channel(1);
         thread::Builder::new()
             .name("muxy-tui-host-input".into())
             .spawn(move || {
                 while !stopped.load(Ordering::Acquire) {
-                    let event = match event::poll(Duration::from_millis(16)) {
-                        Ok(false) => continue,
+                    let timeout = if pausing.load(Ordering::Acquire) {
+                        Duration::ZERO
+                    } else {
+                        Duration::from_millis(16)
+                    };
+                    let event = match event::poll(timeout) {
+                        Ok(false) => {
+                            if pausing.load(Ordering::Acquire)
+                                && (ready.send(()).is_err() || resuming.recv().is_err())
+                            {
+                                break;
+                            }
+                            continue;
+                        }
                         Ok(true) => event::read(),
                         Err(error) => Err(error),
                     };
                     let failed = event.is_err();
+                    if pausing.load(Ordering::Acquire) && !failed {
+                        continue;
+                    }
                     if sender.send(event).is_err() || failed {
                         break;
                     }
                 }
             })?;
-        Ok(Self { receiver, stop })
+        Ok(Self {
+            receiver,
+            stop,
+            pause,
+            paused,
+            resume,
+        })
     }
 
     pub(crate) fn next(&self) -> io::Result<Option<event::Event>> {
@@ -64,11 +92,31 @@ impl Events {
             }
         }
     }
+
+    fn pause(&self) -> io::Result<()> {
+        self.pause.store(true, Ordering::Release);
+        while self.receiver.try_recv().is_ok() {}
+        if let Err(error) = self.paused.recv_timeout(Duration::from_secs(1)) {
+            self.resume();
+            return Err(io::Error::other(format!(
+                "Terminal input could not pause: {error}"
+            )));
+        }
+        while self.receiver.try_recv().is_ok() {}
+        Ok(())
+    }
+
+    fn resume(&self) {
+        if self.pause.swap(false, Ordering::AcqRel) {
+            let _ = self.resume.try_send(());
+        }
+    }
 }
 
 impl Drop for Events {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.resume();
         // Crossterm 0.29's Mio reader can spin on a revoked TTY. Never join it:
         // the main loop still restores the terminal and exits this CLI process.
     }
@@ -122,13 +170,15 @@ impl Host {
         self.terminal.clear()
     }
 
-    pub(crate) fn resume_if_needed(&mut self) -> io::Result<bool> {
+    pub(crate) fn resume_if_needed(&mut self, events: &Events) -> io::Result<bool> {
         if !self.suspend.swap(false, Ordering::AcqRel) {
             return Ok(false);
         }
+        events.pause()?;
         restore();
         signal_hook::low_level::raise(SIGSTOP)?;
         self.activate()?;
+        events.resume();
         Ok(true)
     }
 }
@@ -161,8 +211,30 @@ fn restore() {
         terminal::LeaveAlternateScreen
     );
     let _ = io::stdout().flush();
-    let _ = rustix::termios::tcflush(io::stdin(), rustix::termios::QueueSelector::IFlush);
+    discard_pending_input();
     let _ = terminal::disable_raw_mode();
+}
+
+fn discard_pending_input() {
+    let input = io::stdin();
+    let started = Instant::now();
+    let mut quiet = started;
+    while started.elapsed() < Duration::from_millis(100) {
+        match rustix::io::ioctl_fionread(&input) {
+            Ok(0) if quiet.elapsed() >= Duration::from_millis(10) => break,
+            Ok(0) => {}
+            Ok(_) => {
+                if rustix::termios::tcflush(&input, rustix::termios::QueueSelector::IFlush).is_err()
+                {
+                    return;
+                }
+                quiet = Instant::now();
+            }
+            Err(_) => return,
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    let _ = rustix::termios::tcflush(input, rustix::termios::QueueSelector::IFlush);
 }
 
 #[cfg(test)]
@@ -173,21 +245,40 @@ mod tests {
     fn cleanup_handles_hangup_and_pending_mouse_reports() -> Result<(), Box<dyn std::error::Error>>
     {
         if let Ok(scenario) = std::env::var("MUXY_TEST_HOST_CLEANUP") {
-            let host = Host::enter()?;
+            let mut host = Host::enter()?;
             let _ = event::poll(Duration::ZERO)?;
+            let events = (scenario == "suspend").then(Events::start).transpose()?;
             signal_hook::low_level::raise(SIGSTOP)?;
             if scenario == "input" {
-                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                let deadline = Instant::now() + Duration::from_secs(1);
                 while rustix::io::ioctl_fionread(io::stdin())? == 0 {
                     assert!(
-                        std::time::Instant::now() < deadline,
+                        Instant::now() < deadline,
                         "Mouse reports did not reach terminal input"
                     );
                     thread::sleep(Duration::from_millis(1));
                 }
             }
+            if let Some(events) = events {
+                assert!(matches!(events.next()?, Some(event::Event::Mouse(_))));
+                thread::sleep(Duration::from_millis(20));
+                host.suspend.store(true, Ordering::Release);
+                assert!(host.resume_if_needed(&events)?);
+                assert!(events.next()?.is_none(), "Input survived suspension");
+                signal_hook::low_level::raise(SIGSTOP)?;
+                assert!(matches!(
+                    events.next()?,
+                    Some(event::Event::Key(event::KeyEvent {
+                        code: event::KeyCode::Char('x'),
+                        ..
+                    }))
+                ));
+            }
             drop(host);
-            if scenario == "input" {
+            if scenario == "late-input" {
+                thread::sleep(Duration::from_millis(50));
+            }
+            if matches!(scenario.as_str(), "input" | "late-input") {
                 terminal::enable_raw_mode()?;
                 let pending = rustix::io::ioctl_fionread(io::stdin());
                 terminal::disable_raw_mode()?;
@@ -195,7 +286,13 @@ mod tests {
             }
             std::process::exit(0);
         }
-        for scenario in ["hangup", "input"] {
+        for scenario in [
+            "hangup",
+            "input",
+            "late-input",
+            "continuous-input",
+            "suspend",
+        ] {
             let output = std::process::Command::new("python3")
                 .args(["-c", include_str!("terminal/cleanup.py")])
                 .arg(std::env::current_exe()?)

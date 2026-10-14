@@ -72,7 +72,10 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
         if host.stop.load(Ordering::Acquire) || terminal::require_interactive().is_err() {
             return Ok(());
         }
-        if host.resume_if_needed().map_err(|error| error.to_string())? {
+        if host
+            .resume_if_needed(&events)
+            .map_err(|error| error.to_string())?
+        {
             capturing = true;
         }
         if capturing != ui.mouse {
