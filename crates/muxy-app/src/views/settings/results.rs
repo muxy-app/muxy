@@ -160,6 +160,7 @@ impl SettingsView {
                 Category::Terminal,
                 Category::Keyboard,
                 Category::Commands,
+                Category::Browser,
                 Category::Server,
                 Category::Mobile,
                 Category::Extensions,
@@ -288,6 +289,7 @@ impl SettingsView {
         match category {
             Category::General | Category::Appearance => appearance::rows(self, category, cx),
             Category::Composer => super::composer::rows(self, cx),
+            Category::Browser => super::browser::rows(self, cx),
             Category::Ai => super::ai::rows(self, cx),
             Category::Backup => super::backup::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),

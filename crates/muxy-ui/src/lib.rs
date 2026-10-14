@@ -68,6 +68,13 @@ pub mod native_menu;
 #[allow(unsafe_code, reason = "Main-thread WebKit and native view integration")]
 pub mod webview;
 
+#[cfg(target_os = "macos")]
+#[allow(
+    unsafe_code,
+    reason = "The browser view is built inside a native container"
+)]
+pub mod browser;
+
 pub mod transcript;
 
 #[cfg(target_os = "macos")]

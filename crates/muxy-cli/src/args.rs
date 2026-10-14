@@ -20,6 +20,8 @@ pub(crate) enum Command {
     /// Joins stdin and stdout to the server, for clients on other computers.
     Stdio(Start),
     Open(PathBuf),
+    /// Drives a browser tab in the desktop app on this computer.
+    Browser(Box<crate::browser::Invocation>),
     /// Installs the agent skill into agent folders and these folders.
     InstallSkills(Vec<PathBuf>),
 }
@@ -35,8 +37,9 @@ pub(crate) enum Mobile {
 
 /// Reads the command, and the other computer whose server it uses when it
 /// starts with `--host DESTINATION`. Help, version and build info describe
-/// this computer's Muxy, and a bridge must never reach on to another
-/// computer, so none of them takes `--host`.
+/// this computer's Muxy, a bridge must never reach on to another computer,
+/// and browser tabs live in this computer's desktop app, so none of them
+/// takes `--host`.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Command)> {
     match arguments {
         [flag, destination, rest @ ..] if flag == "--host" => {
@@ -54,6 +57,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     | Command::BuildInfo
                     | Command::Stdio(_)
                     | Command::Open(_)
+                    | Command::Browser(_)
                     | Command::InstallSkills(_),
                     [word, ..],
                 ) => Err(invalid(&format!(
@@ -90,6 +94,13 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
         [command, rest @ ..] if command == "install-skills" => {
             install_skills(rest).map(Command::InstallSkills)
         }
+        [command, rest @ ..] if command == "browser" => crate::browser::parse(rest),
+        [command] if command == "help" => Ok(Command::Help),
+        [command, topic] if command == "help" => topic
+            .to_str()
+            .and_then(help::topic)
+            .map(Command::Usage)
+            .ok_or_else(|| invalid("unknown command; run muxy --help")),
         [word] if names_folder(word) => Ok(Command::Open(word.into())),
         _ => {
             crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
@@ -195,6 +206,28 @@ mod tests {
             vec!["install-skills", "--dir"],
             vec!["install-skills", "a"],
             vec!["--host", "example", "install-skills"],
+        ] {
+            assert!(words(&args).is_err(), "{args:?}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn browser_commands_stay_on_this_computer_and_have_help() -> io::Result<()> {
+        assert!(matches!(
+            words(&["browser", "list"])?.1,
+            Command::Browser(_)
+        ));
+        assert_eq!(words(&["browser"])?.1, Command::Usage(help::BROWSER));
+        assert_eq!(
+            words(&["help", "browser"])?.1,
+            Command::Usage(help::BROWSER)
+        );
+        assert_eq!(words(&["help"])?.1, Command::Help);
+        assert!(!names_folder(OsStr::new("browser")));
+        for args in [
+            vec!["--host", "example", "browser", "list"],
+            vec!["help", "nothing"],
         ] {
             assert!(words(&args).is_err(), "{args:?}");
         }

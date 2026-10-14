@@ -78,6 +78,7 @@
 "A process is still running in this pane.\nAre you sure you want to close it?" = "A process is still running in this pane.\nAre you sure you want to close it?";
 "A process is still running in this tab.\nAre you sure you want to close it?" = "A process is still running in this tab.\nAre you sure you want to close it?";
 "A process is still running in this terminal." = "A process is still running in this terminal.";
+"A profile needs a name" = "A profile needs a name";
 "A single-line shell command, such as cargo test or npm run dev." = "A single-line shell command, such as cargo test or npm run dev.";
 "AI" = "AI";
 "AI CLI that drafts commit messages. Auto uses the first installed provider." = "AI CLI that drafts commit messages. Auto uses the first installed provider.";
@@ -98,6 +99,7 @@
 "Add Command" = "Add Command";
 "Add Font…" = "Add Font…";
 "Add Map" = "Add Map";
+"Add Profile" = "Add Profile";
 "Add Project" = "Add Project";
 "Add Project…" = "Add Project…";
 "Add Prompt" = "Add Prompt";
@@ -165,6 +167,7 @@
 "Automatic updates require a Developer ID signed app" = "Automatic updates require a Developer ID signed app";
 "Automatic updates require an installed %@.app" = "Automatic updates require an installed %@.app";
 "Automatic updates require an installed release of %@" = "Automatic updates require an installed release of %@";
+"Back" = "Back";
 "Background" = "Background";
 "Background color" = "Background color";
 "Background script" = "Background script";
@@ -204,14 +207,19 @@
 "Branch" = "Branch";
 "Branch name" = "Branch name";
 "Bright colors for bold text" = "Bright colors for bold text";
+"Bring history, bookmarks, or sign-ins from a browser on this computer." = "Bring history, bookmarks, or sign-ins from a browser on this computer.";
 "Broadcast to Split Panes" = "Broadcast to Split Panes";
 "Browse" = "Browse";
 "Browse extensions" = "Browse extensions";
 "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it." = "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it.";
 "Browse extensions to add tools to Muxy, or load an unpacked extension folder." = "Browse extensions to add tools to Muxy, or load an unpacked extension folder.";
 "Browse language extensions…" = "Browse language extensions…";
+"Browser" = "Browser";
+"Browser Profile" = "Browser Profile";
 "Browse…" = "Browse…";
+"Browsing" = "Browsing";
 "Built-in" = "Built-in";
+"Built-in browser is disabled" = "Built-in browser is disabled";
 "Bundled muxy executable is missing" = "Bundled muxy executable is missing";
 "By default, ⌘D splits right, ⌘⇧D splits down, ⌘⌥ plus an arrow moves between panes, and ⌘⇧↩ maximizes or restores the focused pane." = "By default, ⌘D splits right, ⌘⇧D splits down, ⌘⌥ plus an arrow moves between panes, and ⌘⇧↩ maximizes or restores the focused pane.";
 "By default, ⌘I opens Composer to draft prompts with files, images, or dictation, and ⌘↩ sends it. Send to All Split Panes in its menu targets every split." = "By default, ⌘I opens Composer to draft prompts with files, images, or dictation, and ⌘↩ sends it. Send to All Split Panes in its menu targets every split.";
@@ -265,8 +273,10 @@
 "Choose the initial cursor shape. Terminal programs can change it." = "Choose the initial cursor shape. Terminal programs can change it.";
 "Clean" = "Clean";
 "Clear After Sending" = "Clear After Sending";
+"Clear Data" = "Clear Data";
 "Clear after sending" = "Clear after sending";
 "Clear all" = "Clear all";
+"Clear data for “%@”?" = "Clear data for “%@”?";
 "Clear on Close" = "Clear on Close";
 "Clear on close" = "Clear on close";
 "Clear screen" = "Clear screen";
@@ -274,6 +284,7 @@
 "Clear selection when typing" = "Clear selection when typing";
 "Clear the draft only after every terminal confirms delivery." = "Clear the draft only after every terminal confirms delivery.";
 "Cleared" = "Cleared";
+"Cleared browsing data for “%@”" = "Cleared browsing data for “%@”";
 "Clearing…" = "Clearing…";
 "Click Server in the status bar to connect, restart, or stop the background server. Restarting or stopping ends every terminal on this Mac." = "Click Server in the status bar to connect, restart, or stop the background server. Restarting or stopping ends every terminal on this Mac.";
 "Click a shortcut to record it. Escape cancels. Conflicts in the same context must be resolved first." = "Click a shortcut to record it. Escape cancels. Conflicts in the same context must be resolved first.";
@@ -318,6 +329,7 @@
 "Command" = "Command";
 "Command Line Tool Installed" = "Command Line Tool Installed";
 "Command Palette…" = "Command Palette…";
+"Command-click a web link in a terminal to open it in a browser tab instead of your system browser." = "Command-click a web link in a terminal to open it in a browser tab instead of your system browser.";
 "Commands" = "Commands";
 "Commands and file or Git changes ask for permission when used." = "Commands and file or Git changes ask for permission when used.";
 "Commands run in the new worktree. Review project commands before enabling them." = "Commands run in the new worktree. Review project commands before enabling them.";
@@ -360,6 +372,7 @@
 "Connecting…" = "Connecting…";
 "Connection" = "Connection";
 "Connection succeeded · Muxy %@" = "Connection succeeded · Muxy %@";
+"Cookies" = "Cookies";
 "Copied image is larger than 25 MiB" = "Copied image is larger than 25 MiB";
 "Copied the path" = "Copied the path";
 "Copied the update command" = "Copied the update command";
@@ -421,6 +434,7 @@
 "Could not save panel pin: %@" = "Could not save panel pin: %@";
 "Could not save project prompt: %@" = "Could not save project prompt: %@";
 "Could not save search location: %@" = "Could not save search location: %@";
+"Could not save tabs" = "Could not save tabs";
 "Could not save tabs: %@" = "Could not save tabs: %@";
 "Could not save the update schedule: %@" = "Could not save the update schedule: %@";
 "Could not save theme: %@" = "Could not save theme: %@";
@@ -487,6 +501,7 @@
 "Delete" = "Delete";
 "Delete Workspace?" = "Delete Workspace?";
 "Delete Workspace…" = "Delete Workspace…";
+"Delete “%@”?" = "Delete “%@”?";
 "Delete “%@”? Its projects will not be removed." = "Delete “%@”? Its projects will not be removed.";
 "Deny & Remember" = "Deny & Remember";
 "Detach" = "Detach";
@@ -517,6 +532,7 @@
 "Draft · Open" = "Draft · Open";
 "Drag to reposition, scroll to zoom" = "Drag to reposition, scroll to zoom";
 "Draw terminal text with a heavier stroke." = "Draw terminal text with a heavier stroke.";
+"Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar." = "Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar.";
 "Edit" = "Edit";
 "Edit Project Prompt…" = "Edit Project Prompt…";
 "Edit Remote Server" = "Edit Remote Server";
@@ -524,6 +540,8 @@
 "Edit…" = "Edit…";
 "Enable" = "Enable";
 "Enable Quick Terminal" = "Enable Quick Terminal";
+"Enable built-in browser" = "Enable built-in browser";
+"Enable it in Settings → Browser." = "Enable it in Settings → Browser.";
 "Enable working-directory tracking and prompt navigation in new sessions." = "Enable working-directory tracking and prompt navigation in new sessions.";
 "Enabled" = "Enabled";
 "Enabling…" = "Enabling…";
@@ -570,6 +588,7 @@
 "Find Previous" = "Find Previous";
 "Find and install language packs in Extensions." = "Find and install language packs in Extensions.";
 "Find in terminal…" = "Find in terminal…";
+"Find on page" = "Find on page";
 "Finder…" = "Finder…";
 "Finding SSH key…" = "Finding SSH key…";
 "Find…" = "Find…";
@@ -599,6 +618,7 @@
 "For example ../{base-dir}.{branch}. Must include {branch}; also supports {project-name}. Relative paths start in the project folder. Overrides the default folder." = "For example ../{base-dir}.{branch}. Must include {branch}; also supports {project-name}. Relative paths start in the project folder. Overrides the default folder.";
 "Forget" = "Forget";
 "Forget %@?" = "Forget %@?";
+"Forward" = "Forward";
 "General" = "General";
 "Global folder: %@" = "Global folder: %@";
 "Global template: %@" = "Global template: %@";
@@ -612,10 +632,12 @@
 "Hide Tips" = "Hide Tips";
 "Hide Tips?" = "Hide Tips?";
 "Hides the panel" = "Hides the panel";
+"History & Bookmarks" = "History & Bookmarks";
 "History budget is too large" = "History budget is too large";
 "History budget per session (MiB)" = "History budget per session (MiB)";
 "Home directory is unavailable" = "Home directory is unavailable";
 "Home directory unavailable" = "Home directory unavailable";
+"Home page" = "Home page";
 "Horizontal padding (points)" = "Horizontal padding (points)";
 "How much heavier text is drawn when Thicken font is on." = "How much heavier text is drawn when Thicken font is on.";
 "How much of the macOS background effect shows through the theme color, from 0 to 100. Collapsed sidebars stay solid." = "How much of the macOS background effect shows through the theme color, from 0 to 100. Collapsed sidebars stay solid.";
@@ -628,13 +650,17 @@
 "Image submission" = "Image submission";
 "Import cancelled." = "Import cancelled.";
 "Import from Muxy 1.x" = "Import from Muxy 1.x";
+"Import from another browser" = "Import from another browser";
 "Import installed 1.x" = "Import installed 1.x";
 "Import projects and workspaces" = "Import projects and workspaces";
 "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings." = "Import ready. Quit and reopen Muxy to restore it. A recovery copy will be saved in Backups. Restart the server from Settings to apply server settings.";
 "Import settings and %lld projects with their layouts on the next launch. Projects you already have keep their details and tabs, and workspaces with the same name are combined. A recovery copy is saved in the profile’s Backups folder." = "Import settings and %lld projects with their layouts on the next launch. Projects you already have keep their details and tabs, and workspaces with the same name are combined. A recovery copy is saved in the profile’s Backups folder.";
 "Import supported settings and local projects from the installed 1.x app, only its projects and workspaces, or a backup file. Unsupported options are skipped." = "Import supported settings and local projects from the installed 1.x app, only its projects and workspaces, or a backup file. Unsupported options are skipped.";
+"Imported %lld cookies from %@ into “%@”" = "Imported %lld cookies from %@ into “%@”";
 "Imported %lld supported 1.x items." = "Imported %lld supported 1.x items.";
+"Imported %lld visits and %lld bookmarks from %@" = "Imported %lld visits and %lld bookmarks from %@";
 "Imported settings" = "Imported settings";
+"Imports go into the default profile. Cookies bring your sign-ins; macOS may ask to allow access to the browser's key." = "Imports go into the default profile. Cookies bring your sign-ins; macOS may ask to allow access to the browser's key.";
 "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits." = "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits.";
 "In a Git project, right-click the project and choose Worktrees → Show Worktrees, then New Worktree…, to work on a branch in its own folder with its own tabs." = "In a Git project, right-click the project and choose Worktrees → Show Worktrees, then New Worktree…, to work on a branch in its own folder with its own tabs.";
 "Inactive" = "Inactive";
@@ -724,7 +750,9 @@
 "Logs" = "Logs";
 "Looking for the newest release on your update channel." = "Looking for the newest release on your update channel.";
 "MUXY TIP" = "MUXY TIP";
+"Make Default" = "Make Default";
 "Manage Extensions" = "Manage Extensions";
+"Manage Profiles…" = "Manage Profiles…";
 "Manage Remote Servers…" = "Manage Remote Servers…";
 "Manage Servers…" = "Manage Servers…";
 "Manage extension" = "Manage extension";
@@ -793,6 +821,7 @@
 "Never connected" = "Never connected";
 "New Branch" = "New Branch";
 "New Branch…" = "New Branch…";
+"New Browser Tab" = "New Browser Tab";
 "New Home Tab" = "New Home Tab";
 "New Tab" = "New Tab";
 "New Tab (⌘T)" = "New Tab (⌘T)";
@@ -830,6 +859,7 @@
 "No microphone is available" = "No microphone is available";
 "No on-device speech language is installed. Add one in System Settings → Keyboard → Dictation." = "No on-device speech language is installed. Add one in System Settings → Keyboard → Dictation.";
 "No opener supports this resource" = "No opener supports this resource";
+"No other browsers were found on this computer." = "No other browsers were found on this computer.";
 "No other terminals in this project" = "No other terminals in this project";
 "No output yet. Logs are also written to %@." = "No output yet. Logs are also written to %@.";
 "No owner" = "No owner";
@@ -849,6 +879,7 @@
 "Not assigned" = "Not assigned";
 "Not available in Muxy 2 (%lld): %@" = "Not available in Muxy 2 (%lld): %@";
 "Not connected" = "Not connected";
+"Not found" = "Not found";
 "Not listening: %@" = "Not listening: %@";
 "Notes about imported terminal settings. Your original configuration is preserved." = "Notes about imported terminal settings. Your original configuration is preserved.";
 "Nothing is staged. Stage changes first or include unstaged changes." = "Nothing is staged. Stage changes first or include unstaged changes.";
@@ -857,6 +888,7 @@
 "On" = "On";
 "On-device speech recognition is unavailable for this language. Choose another dictation language." = "On-device speech recognition is unavailable for this language. Choose another dictation language.";
 "Open" = "Open";
+"Open Browser Tab" = "Open Browser Tab";
 "Open Project" = "Open Project";
 "Open Project…" = "Open Project…";
 "Open Quick Terminal" = "Open Quick Terminal";
@@ -868,8 +900,12 @@
 "Open a new terminal tab to start working in this project." = "Open a new terminal tab to start working in this project.";
 "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active." = "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active.";
 "Open files with" = "Open files with";
+"Open in Default Browser" = "Open in Default Browser";
+"Open in External Browser" = "Open in External Browser";
 "Open on GitHub" = "Open on GitHub";
+"Open terminal links in the browser" = "Open terminal links in the browser";
 "Open the packaged Muxy app to enable microphone and speech permissions." = "Open the packaged Muxy app to enable microphone and speech permissions.";
+"Open web pages in browser tabs and let muxy browser commands drive them." = "Open web pages in browser tabs and let muxy browser commands drive them.";
 "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt." = "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt.";
 "Opener does not support this resource" = "Opener does not support this resource";
 "Opener exited with %@" = "Opener exited with %@";
@@ -923,6 +959,8 @@
 "Previous Tab" = "Previous Tab";
 "Previous Tip" = "Previous Tip";
 "Previous match" = "Previous match";
+"Profiles" = "Profiles";
+"Profiles keep cookies and logins apart. New tabs use the default profile." = "Profiles keep cookies and logins apart. New tabs use the default profile.";
 "Project" = "Project";
 "Project %lld" = "Project %lld";
 "Project Focused" = "Project Focused";
@@ -1003,6 +1041,7 @@
 "Rename Workspace" = "Rename Workspace";
 "Rename Workspace…" = "Rename Workspace…";
 "Rename Worktree…" = "Rename Worktree…";
+"Rename to Name Below" = "Rename to Name Below";
 "Rename…" = "Rename…";
 "Replaces the 16 ANSI colors. Leave a color empty to use the theme." = "Replaces the 16 ANSI colors. Leave a color empty to use the theme.";
 "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme." = "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme.";
@@ -1077,16 +1116,20 @@
 "Search branches…" = "Search branches…";
 "Search changes…" = "Search changes…";
 "Search commands…" = "Search commands…";
+"Search engine" = "Search engine";
 "Search extensions…" = "Search extensions…";
 "Search folders or enter a path…" = "Search folders or enter a path…";
 "Search fonts…" = "Search fonts…";
 "Search languages…" = "Search languages…";
 "Search openers…" = "Search openers…";
 "Search options…" = "Search options…";
+"Search or enter address" = "Search or enter address";
 "Search providers…" = "Search providers…";
 "Search settings…" = "Search settings…";
 "Search sidebars…" = "Search sidebars…";
 "Search symbols…" = "Search symbols…";
+"Search with %@ or enter a website address." = "Search with %@ or enter a website address.";
+"Searches typed in the address bar use this engine." = "Searches typed in the address bar use this engine.";
 "Search…" = "Search…";
 "Select All" = "Select All";
 "Select Command Output" = "Select Command Output";
@@ -1207,6 +1250,7 @@
 "Text" = "Text";
 "Text color" = "Text color";
 "Text to send. Write special keys as escapes, such as \\e for Escape or \\x01 for Control-A." = "Text to send. Write special keys as escapes, such as \\e for Escape or \\x01 for Control-A.";
+"That browser is no longer available" = "That browser is no longer available";
 "The AI provider returned an empty commit message" = "The AI provider returned an empty commit message";
 "The AI provider returned an empty pull request title" = "The AI provider returned an empty pull request title";
 "The AI provider returned an invalid response. Update the prompt or try another provider." = "The AI provider returned an invalid response. Update the prompt or try another provider.";
@@ -1215,8 +1259,10 @@
 "The audio input changed. Finish or cancel dictation, then try again." = "The audio input changed. Finish or cancel dictation, then try again.";
 "The backup does not contain settings.toml" = "The backup does not contain settings.toml";
 "The branch changed. Try again." = "The branch changed. Try again.";
+"The built-in browser is off. Browser tabs and browser commands are disabled, and terminal links open in your system browser." = "The built-in browser is off. Browser tabs and browser commands are disabled, and terminal links open in your system browser.";
 "The bundled client and server do not match the release" = "The bundled client and server do not match the release";
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
+"The default profile can't be deleted" = "The default profile can't be deleted";
 "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer." = "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer.";
 "The device disconnects now and must be paired again to reconnect." = "The device disconnects now and must be paired again to reconnect.";
 "The extension changed. Check for updates and try again." = "The extension changed. Check for updates and try again.";
@@ -1232,6 +1278,7 @@
 "The installed app includes a server update. Restarting the server ends all terminal sessions." = "The installed app includes a server update. Restarting the server ends all terminal sessions.";
 "The installed extension could not be loaded. Reload extensions to try again." = "The installed extension could not be loaded. Reload extensions to try again.";
 "The microphone could not start recording" = "The microphone could not start recording";
+"The page new browser tabs open to. Leave it empty for the start page." = "The page new browser tabs open to. Leave it empty for the start page.";
 "The pairing code is too long to show." = "The pairing code is too long to show.";
 "The project directory isn't available on this Mac" = "The project directory isn't available on this Mac";
 "The project's tabs changed. Choose the layout again to confirm replacement." = "The project's tabs changed. Choose the layout again to confirm replacement.";
@@ -1272,11 +1319,14 @@
 "This extension is up to date." = "This extension is up to date.";
 "This is not a released version" = "This is not a released version";
 "This language is unavailable for speech recognition" = "This language is unavailable for speech recognition";
+"This page can't be opened" = "This page can't be opened";
 "This path is a file. Choose a folder for the project." = "This path is a file. Choose a folder for the project.";
+"This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile." = "This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile.";
 "This project’s folder could not be found. Remove the project from the sidebar to clear its tabs." = "This project’s folder could not be found. Remove the project from the sidebar to clear its tabs.";
 "This prompt overrides Settings → AI only for this project." = "This prompt overrides Settings → AI only for this project.";
 "This release needs a new server. Wait for all terminal sessions to end, or confirm ending them to update now." = "This release needs a new server. Wait for all terminal sessions to end, or confirm ending them to update now.";
 "This remote server is no longer listed" = "This remote server is no longer listed";
+"This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
 "This update requires a server restart" = "This update requires a server restart";
 "To pair a phone, turn on Settings → Mobile → Allow mobile devices and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone, turn on Settings → Mobile → Allow mobile devices and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
 "Toggle Composer" = "Toggle Composer";
@@ -1288,6 +1338,7 @@
 "Trackpad scroll speed" = "Trackpad scroll speed";
 "Transparency of the terminal background." = "Transparency of the terminal background.";
 "Trust & Test" = "Trust & Test";
+"Try Again" = "Try Again";
 "Try a different name or clear your search." = "Try a different name or clear your search.";
 "Try a different search to find extensions." = "Try a different search to find extensions.";
 "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours." = "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours.";
@@ -1414,6 +1465,15 @@
 "archive size does not match the marketplace" = "archive size does not match the marketplace";
 "blocked" = "blocked";
 "blocks all %@" = "blocks all %@";
+"browser back" = "browser back";
+"browser copy url" = "browser copy url";
+"browser focus address" = "browser focus address";
+"browser forward" = "browser forward";
+"browser inspect" = "browser inspect";
+"browser reload" = "browser reload";
+"browser zoom in" = "browser zoom in";
+"browser zoom out" = "browser zoom out";
+"browser zoom reset" = "browser zoom reset";
 "button activate" = "button activate";
 "close pane" = "close pane";
 "close tab" = "close tab";
@@ -1470,6 +1530,7 @@
 "missing archive URL" = "missing archive URL";
 "navigate back" = "navigate back";
 "navigate forward" = "navigate forward";
+"new browser tab" = "new browser tab";
 "new home tab" = "new home tab";
 "new tab" = "new tab";
 "new tab in project" = "new tab in project";

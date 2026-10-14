@@ -178,6 +178,16 @@ pub enum ShortcutId {
     VoiceFinish,
     VoiceCancel,
     VoicePause,
+    NewBrowserTab,
+    BrowserFocusAddress,
+    BrowserReload,
+    BrowserBack,
+    BrowserForward,
+    BrowserZoomIn,
+    BrowserZoomOut,
+    BrowserZoomReset,
+    BrowserCopyUrl,
+    BrowserInspect,
 }
 
 impl ShortcutId {
@@ -1303,5 +1313,65 @@ pub const ALL: &[Shortcut] = &[
         keys: &["space"],
         contexts: &[Some("VoiceRecording")],
         key_contexts: &[&[Some("VoiceRecording")]],
+    },
+    Shortcut {
+        id: "new_browser_tab",
+        keys: &["cmd-alt-b"],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "browser.focus_address",
+        keys: &["cmd-l"],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.reload",
+        keys: &["cmd-r"],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.back",
+        keys: &["cmd-["],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.forward",
+        keys: &["cmd-]"],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.zoom_in",
+        keys: &["cmd-=", "cmd-+", "cmd-shift-="],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")], &[Some("Browser")], &[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.zoom_out",
+        keys: &["cmd--"],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.zoom_reset",
+        keys: &["cmd-0"],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.copy_url",
+        keys: &["cmd-shift-c"],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "browser.inspect",
+        keys: &["cmd-alt-i"],
+        contexts: &[Some("Browser")],
+        key_contexts: &[&[Some("Browser")]],
     },
 ];

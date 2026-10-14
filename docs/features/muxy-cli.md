@@ -5,8 +5,10 @@ projects, terminal sessions, worktrees, server settings, and phone access. No
 desktop app is needed, so it works on Linux and over SSH too.
 
 Commands work with what the server owns: projects and sessions. Tabs, panes, and
-workspaces belong to each app, so there are no commands for them. The
-[terminal UI](terminal-ui.md) is an app of its own, with its own layout.
+workspaces belong to each app, so there are no commands for them. Browser tabs
+are the exception: they live in the desktop app, and `muxy browser` talks to
+the app on this computer. The [terminal UI](terminal-ui.md) is an app of its
+own, with its own layout.
 
 ## Install
 
@@ -49,6 +51,7 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy worktree list\|create\|checkout-pr\|register\|remove` | Manages Git worktree projects, including checking out pull requests. |
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy activity list\|ack` | Reads or clears [AI agent](ai-agents.md) activity. |
+| `muxy browser open\|list\|read\|click\|…` | Drives browser tabs in the desktop app on this computer. See [Browser control](#browser-control). |
 | `muxy exec <project> -- <program> [args]` | Runs a program in the project folder, without a shell. |
 | `muxy git`, `muxy files` | Run raw server Git and file actions as JSON. Advanced; the JSON shape follows the protocol and may change. |
 | `muxy mobile` | Turns on phone access and pairs phones. See [Mobile](mobile.md). |
@@ -79,6 +82,26 @@ muxy session end "$id" --yes
 - `create` can take a `--directory` and a command to run after `--`.
 - `wait --text <text>` waits for text on the screen, and `wait --exit` for the
   shell to exit. Both give up after 30 seconds by default.
+
+## Browser control
+
+```bash
+tab=$(muxy browser open localhost:3000)
+muxy browser wait-for-navigation "$tab"
+muxy browser fill "$tab" "#email" "me@example.com"
+muxy browser click "$tab" "button[type=submit]"
+muxy browser wait "$tab" --text "Welcome"
+muxy browser read "$tab"
+muxy browser screenshot "$tab" | base64 -D > page.png
+muxy browser close "$tab"
+```
+
+- Browser commands need the desktop app and don't take `--host`. `open` starts
+  the app if it isn't running.
+- `open` prints the new tab's ID. Pass it to the other commands.
+- `snapshot` lists a page's interactive elements, each with a selector for
+  `click`, `fill`, or `type`.
+- `muxy browser --help` lists every command.
 
 ## Exit codes
 

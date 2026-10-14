@@ -50,6 +50,22 @@ For the terminal UI, see [Terminal UI keys](../features/terminal-ui.md#keys).
 
 A line feed is a new line in many AI tools, but shells treat it like Return.
 
+## Browser
+
+| Action | Shortcut |
+| --- | --- |
+| New browser tab | `Cmd+Opt+B` |
+| Address bar | `Cmd+L` |
+| Reload | `Cmd+R` |
+| Back / forward | `Cmd+[` / `Cmd+]` |
+| Find on page | `Cmd+F` |
+| Zoom in / out / reset | `Cmd+=` / `Cmd+-` / `Cmd+0` |
+| Copy address | `Cmd+Shift+C` |
+| Web Inspector | `Cmd+Opt+I` |
+
+In a browser, `Cmd+[` and `Cmd+]` go back and forward instead of switching
+tabs.
+
 ## Composer and dictation
 
 | Action | Shortcut |

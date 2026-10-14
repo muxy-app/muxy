@@ -82,6 +82,7 @@ pub(crate) fn tab_strip(
         .children(
             (existing_count > 0).then(|| existing_terminals_button(existing_count, model, cx)),
         )
+        .children(model.browser_enabled().then(|| browser_button(model, cx)))
         .children(zoom_tab.map(|tab| zoom_control(tab.zoomed.is_some(), model, cx)))
         .children(has_layouts.then(|| super::project_layouts::button(model, cx)))
         .child(model.extension_toolbar(cx))
@@ -241,6 +242,43 @@ pub(super) fn existing_terminals_button(
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.open_session_picker(project, window, cx);
+            })),
+        )
+        .into_any_element()
+}
+
+/// Opens a browser tab in the current project.
+fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let theme = &model.theme;
+    let tooltip = model
+        .settings
+        .keymap
+        .chord(ShortcutId::NewBrowserTab)
+        .map_or_else(
+            || tr!("Open Browser Tab").to_string(),
+            |chord| format!("{} ({chord})", tr!("Open Browser Tab")),
+        );
+    div()
+        .debug_selector(|| "browser-button".into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .h_full()
+        .pr(model.metrics.spacing2())
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            IconButton::new(
+                "new-browser-tab",
+                Icon::Globe,
+                model.metrics.scaled(14.0),
+                model.metrics.control_medium(),
+                theme.fg_muted,
+                theme.fg,
+            )
+            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+            .on_click(cx.listener(|model, _, _, cx| {
+                cx.stop_propagation();
+                model.new_browser_tab(cx);
             })),
         )
         .into_any_element()

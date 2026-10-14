@@ -4,6 +4,7 @@
 //! server execution and UI toolkit code do not.
 
 pub mod backup;
+pub mod browser;
 pub mod composer;
 mod error;
 pub mod extensions;

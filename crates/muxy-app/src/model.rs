@@ -1,5 +1,6 @@
 pub(crate) mod ai;
 pub(crate) mod banners;
+pub(crate) mod browsers;
 mod catalog;
 pub(crate) mod commands;
 mod composer;
@@ -105,6 +106,7 @@ pub(crate) struct AppModel {
     pub(crate) extensions: extensions::Runtime,
     pub(crate) sidebar_view: Entity<crate::views::cached::CachedView<Self>>,
     pub(crate) webviews: webviews::Webviews,
+    pub(crate) browsers: browsers::Browsers,
     pub(crate) panels: muxy_ui::panel::PanelHost,
     pub(crate) composer: composer::ComposerRuntime,
     pub(crate) voice: voice::VoiceRuntime,
@@ -456,6 +458,7 @@ impl AppModel {
                 cx,
             ),
             webviews: webviews::Webviews::default(),
+            browsers: browsers::Browsers::default(),
             panels: muxy_ui::panel::PanelHost::default(),
             composer: composer::ComposerRuntime::new(boot.composer),
             voice: voice::VoiceRuntime::default(),
@@ -1382,7 +1385,7 @@ impl AppModel {
             .find(|pane| pane.id == id)
             .and_then(|pane| match pane.content {
                 PaneContent::Terminal { session } => session,
-                PaneContent::Settings | PaneContent::Webview(_) => None,
+                PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => None,
             })
     }
 
@@ -2670,6 +2673,7 @@ mod tests {
     use muxy_protocol::ExitReason;
     mod activity;
     mod ai;
+    mod browsers;
     mod composer;
     mod detach;
     mod find;

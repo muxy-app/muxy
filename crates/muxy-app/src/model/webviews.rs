@@ -132,19 +132,7 @@ impl AppModel {
             && self.settings.composer.presentation
                 == muxy_app_core::settings::ComposerPresentation::Floating;
         let blocked = composer_dialog || self.overlay.is_some() || self.close_prompt.is_some();
-        let resizing = self.sidebar_resize.is_some()
-            || self.split_resize.active()
-            || self.layout_drag_pending()
-            || self
-                .webviews
-                .panels
-                .values()
-                .any(|panel| panel.resize.is_active())
-            || self
-                .composer
-                .view
-                .as_ref()
-                .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active());
+        let resizing = self.resizing_surfaces(window, cx);
         self.spinners
             .set_blocked(resizing || composer_dialog || self.overlay_unmarked());
         let shortcuts = self.webview_shortcuts();
@@ -170,6 +158,7 @@ impl AppModel {
                 );
             });
         }
+        self.sync_browsers(blocked, resizing, window, cx);
         self.sync_webview_panels(blocked, resizing, window, cx);
         self.sync_extension_surfaces(&shortcuts, blocked, resizing, window, cx);
         if let Some(modal) = &self.webviews.modal {
@@ -192,6 +181,24 @@ impl AppModel {
         }
     }
 
+    /// Whether something is being resized or dragged, so pages let clicks
+    /// through to it.
+    fn resizing_surfaces(&self, window: &Window, cx: &gpui::App) -> bool {
+        self.sidebar_resize.is_some()
+            || self.split_resize.active()
+            || self.layout_drag_pending()
+            || self
+                .webviews
+                .panels
+                .values()
+                .any(|panel| panel.resize.is_active())
+            || self
+                .composer
+                .view
+                .as_ref()
+                .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active())
+    }
+
     /// An overlay that doesn't mark where it is hides every spinner.
     /// Confirmations are native sheets above the window, so they hide none.
     fn overlay_unmarked(&self) -> bool {
@@ -200,7 +207,7 @@ impl AppModel {
             .is_some_and(|overlay| !overlay.marks_bounds())
     }
 
-    fn pane_drag_available(&self, pane: PaneId) -> bool {
+    pub(super) fn pane_drag_available(&self, pane: PaneId) -> bool {
         self.pane_tab(pane)
             .and_then(|tab| self.tab(tab))
             .is_some_and(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
@@ -845,10 +852,17 @@ impl AppModel {
     pub(crate) fn webview_title<'a>(&'a self, tab: &'a Tab, cx: &'a gpui::App) -> &'a str {
         if tab.custom_title.is_none()
             && let Some(pane) = tab.displayed_pane(self.state.shown_pane(tab))
-            && let Some(surface) = self.webviews.panes.get(&pane.id)
-            && let Some(title) = &surface.view.read(cx).title
         {
-            return title;
+            if let Some(surface) = self.webviews.panes.get(&pane.id)
+                && let Some(title) = &surface.view.read(cx).title
+            {
+                return title;
+            }
+            if matches!(pane.content, PaneContent::Browser(_))
+                && let Some(title) = self.browser_title(pane.id, cx)
+            {
+                return title;
+            }
         }
         tab.title(self.state.shown_pane(tab))
     }
@@ -862,6 +876,9 @@ pub(super) fn dispatch_shortcut(key: gpui::Keystroke, window: &Window, cx: &mut 
 
 impl AppModel {
     pub(crate) fn blur_webviews(&self, cx: &gpui::App) {
+        for surface in self.browsers.views.values() {
+            surface.view.read(cx).native.blur();
+        }
         for view in self
             .webviews
             .panes
@@ -947,6 +964,17 @@ impl AppModel {
             )
             .map(|(view, pane)| (view.entity_id(), view.read(cx).native.clone(), pane))
             .collect();
+        let browsers: Vec<_> = self
+            .browsers
+            .views
+            .values()
+            .map(|surface| {
+                (
+                    surface.view.entity_id(),
+                    surface.view.read(cx).native.clone(),
+                )
+            })
+            .collect();
         let occlusions = self.webviews.occlusions.clone();
         let covers = self.webviews.occlusions.clone();
         let grips = self.webviews.grips.clone();
@@ -956,6 +984,10 @@ impl AppModel {
                 for (id, view, pane) in &views {
                     view.occlude(&occlusions_for(*id, &occlusions.borrow()));
                     view.set_grips(&grips_for(*id, *pane, &grips.borrow()));
+                }
+                for (id, view) in &browsers {
+                    view.occlude(&occlusions_for(*id, &occlusions.borrow()));
+                    view.set_grips(&grips_for(*id, true, &grips.borrow()));
                 }
             },
             // Painting starts after every element, overlays included, is laid out.
@@ -1001,6 +1033,7 @@ impl AppModel {
 
     pub(super) fn invalidate_webview_shortcuts(&mut self) {
         self.webview_shortcuts = None;
+        self.invalidate_browser_shortcuts();
     }
 
     fn webview_metadata(
@@ -1093,7 +1126,13 @@ impl AppModel {
     ) -> Option<gpui::AnyElement> {
         use gpui::{IntoElement, Styled};
         let pane = tab.displayed_pane(self.state.shown_pane(tab))?;
-        if !matches!(pane.content, PaneContent::Webview(_)) || tab.pinned {
+        if tab.pinned {
+            return None;
+        }
+        if matches!(pane.content, PaneContent::Browser(_)) {
+            return Some(self.browser_glyph(pane.id, size, foreground, cx));
+        }
+        if !matches!(pane.content, PaneContent::Webview(_)) {
             return None;
         }
         let icon = self

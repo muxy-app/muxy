@@ -1,6 +1,6 @@
 ---
 name: muxy-cli
-description: How to drive Muxy 2 from a shell with the `muxy` command — start terminals that keep running, type into them, read and wait on their output, and manage projects and Git worktrees. Use this when you are an agent running inside a Muxy terminal (or any script on the same computer) and want work to run in its own terminal instead of blocking yours.
+description: How to drive Muxy 2 from a shell with the `muxy` command — start terminals that keep running, type into them, read and wait on their output, and manage projects and Git worktrees. Use this when you are an agent running inside a Muxy terminal (or any script on the same computer) and want work to run in its own terminal instead of blocking yours, or to drive the desktop app's built-in browser.
 ---
 
 # Muxy CLI
@@ -113,11 +113,40 @@ muxy worktree remove login --yes
 the user before using it. `worktree remove` refuses uncommitted changes unless
 `--force` is given; never pass `--force` without the user's consent.
 
+## Browser
+
+`muxy browser` drives tabs in the desktop app's built-in browser: open a page,
+read it, click and type, take screenshots. It talks to the desktop app on this
+Mac, so it needs the app (`open` starts it) and never takes `--host`.
+
+```bash
+TAB=$(muxy browser open http://localhost:3000)    # prints the new tab's ID
+muxy browser wait-for-navigation "$TAB"
+muxy browser snapshot "$TAB"                       # interactive elements, each with a selector
+muxy browser fill "$TAB" "#email" "me@example.com"
+muxy browser click "$TAB" "button[type=submit]"
+muxy browser wait "$TAB" --text "Welcome" --timeout-ms 10000
+muxy browser read "$TAB"                           # title, URL and page text
+```
+
+- Capture the tab ID that `open` prints, or find it with `muxy browser list`;
+  never guess one.
+- Wait after anything that loads a page (`open`, `navigate`, a submitting
+  `click`, `back`): `wait-for-navigation`, `wait-for <selector>`, or `wait`.
+- `snapshot` lists the interactive elements, each with a `selector` you can
+  pass to `click`, `fill`, `type`, and the other element commands. They print
+  `false` when nothing matches.
+- `eval` runs JavaScript in the page and prints the result as JSON.
+- Screenshots work on background tabs:
+  `muxy browser screenshot "$TAB" | base64 -D > page.png`.
+- Close only tabs you opened.
+
 ## Other computers
 
 Put `--host user@computer` before a server-backed command, such as `project`,
 `session`, or `worktree`, to use another computer's server over SSH. Directories
 are then absolute paths on that computer.
 
-Folder-opening commands and `install-skills` do not support `--host`.
+Folder-opening commands, `browser`, and `install-skills` do not support
+`--host`.
 `install-skills --dir DIR` always installs into a local directory.

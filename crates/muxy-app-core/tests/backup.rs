@@ -78,7 +78,15 @@ fn shortcuts_and_commands_migrate_without_running_commands() {
             .binding(&settings.commands[0].shortcut_id())
             .is_some()
     );
-    assert_eq!(report.skipped, ["shortcuts.app.newBrowserTab"]);
+    assert_eq!(
+        settings.keymap.binding("new_browser_tab").unwrap().as_str(),
+        if cfg!(target_os = "macos") {
+            "cmd-b"
+        } else {
+            "ctrl-b"
+        }
+    );
+    assert!(report.skipped.is_empty());
 }
 
 #[test]

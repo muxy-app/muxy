@@ -153,6 +153,23 @@ fn files_and_git_bridge_payloads_match_main_contract() {
         required_permission("exec.start", &json!({})),
         Some("commands:exec")
     );
+    for (args, permission) in [
+        (
+            json!({"tabId": "t", "args": [{"text": "Done"}]}),
+            "browser:read",
+        ),
+        (json!({"tabId": "t", "function": "go()"}), "browser:write"),
+        (
+            json!({"tabId": "t", "args": [{"function": "go()"}]}),
+            "browser:write",
+        ),
+    ] {
+        assert_eq!(
+            required_permission("browser.wait", &args),
+            Some(permission),
+            "{args}"
+        );
+    }
     assert_eq!(
         api::git_reply("git.commit", GitReply::Commit("abc123".into())).unwrap(),
         json!({"hash":"abc123"})

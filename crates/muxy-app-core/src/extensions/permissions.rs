@@ -62,7 +62,12 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         "worktrees.list" => "worktrees:read",
         "worktrees.switch" | "worktrees.refresh" => "worktrees:write",
         "agents.list" => "agents:read",
-        "browser.wait" if args["function"].as_str().is_some_and(|f| !f.is_empty()) => {
+        // Scripts pass the condition inside their options, pages at the top.
+        "browser.wait"
+            if [&args["function"], &args["args"][0]["function"]]
+                .iter()
+                .any(|function| function.as_str().is_some_and(|f| !f.is_empty())) =>
+        {
             "browser:write"
         }
         v if BROWSER_READS.contains(&v) => "browser:read",

@@ -111,8 +111,8 @@
       for (const verb of ['eval', 'click', 'type', 'waitFor', 'wait', 'fill', 'press', 'select', 'hover', 'scrollIntoView', 'setChecked', 'is', 'getValue', 'getCount', 'find', 'snapshot', 'getText', 'getHTML', 'getAttribute', 'reload', 'back', 'forward', 'waitForNavigation', 'screenshot']) {
         muxy.browser[verb] = (tabId, ...args) => dispatch('browser.' + verb, { tabId: String(tabId), args });
       }
-      muxy.browser.storage = Object.freeze(Object.fromEntries(['get', 'set', 'clear'].map(verb => [verb, tabId => dispatch('browser.storage.' + verb, { tabId: String(tabId) })])));
-      muxy.browser.cookies = Object.freeze(Object.fromEntries(['get', 'set', 'delete', 'clear'].map(verb => [verb, tabId => dispatch('browser.cookies.' + verb, { tabId: String(tabId) })])));
+      muxy.browser.storage = Object.freeze(Object.fromEntries(['get', 'set', 'clear'].map(verb => [verb, (tabId, ...args) => dispatch('browser.storage.' + verb, { tabId: String(tabId), args })])));
+      muxy.browser.cookies = Object.freeze(Object.fromEntries(['get', 'set', 'delete', 'clear'].map(verb => [verb, (tabId, ...args) => dispatch('browser.cookies.' + verb, { tabId: String(tabId), args })])));
     }
     muxy.panes = {
       list: () => dispatch('panes.list', {}),

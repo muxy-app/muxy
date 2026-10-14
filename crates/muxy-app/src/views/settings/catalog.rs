@@ -12,6 +12,58 @@ pub(super) struct Setting {
 
 pub(super) const SETTINGS: &[Setting] = &[
     Setting {
+        id: "browser-enabled",
+        label: tr_key!("Enable built-in browser"),
+        description: tr_key!(
+            "Open web pages in browser tabs and let muxy browser commands drive them."
+        ),
+        category: Category::Browser,
+        section: tr_key!("General"),
+    },
+    Setting {
+        id: "browser-terminal-links",
+        label: tr_key!("Open terminal links in the browser"),
+        description: tr_key!(
+            "Command-click a web link in a terminal to open it in a browser tab instead of your system browser."
+        ),
+        category: Category::Browser,
+        section: tr_key!("General"),
+    },
+    Setting {
+        id: "browser-search-engine",
+        label: tr_key!("Search engine"),
+        description: tr_key!("Searches typed in the address bar use this engine."),
+        category: Category::Browser,
+        section: tr_key!("Browsing"),
+    },
+    Setting {
+        id: "browser-home-page",
+        label: tr_key!("Home page"),
+        description: tr_key!(
+            "The page new browser tabs open to. Leave it empty for the start page."
+        ),
+        category: Category::Browser,
+        section: tr_key!("Browsing"),
+    },
+    Setting {
+        id: "browser-profiles",
+        label: tr_key!("Profiles"),
+        description: tr_key!(
+            "Profiles keep cookies and logins apart. New tabs use the default profile."
+        ),
+        category: Category::Browser,
+        section: tr_key!("Profiles"),
+    },
+    Setting {
+        id: "browser-import",
+        label: tr_key!("Import from another browser"),
+        description: tr_key!(
+            "Bring history, bookmarks, or sign-ins from a browser on this computer."
+        ),
+        category: Category::Browser,
+        section: tr_key!("Profiles"),
+    },
+    Setting {
         id: "backup-export",
         label: tr_key!("Export backup"),
         description: tr_key!(

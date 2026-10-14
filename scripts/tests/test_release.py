@@ -54,6 +54,7 @@ class BetaVersionTests(unittest.TestCase):
         self.assertEqual([info[key] for key in keys], ["Muxy Beta", "com.muxy-beta.app", "2.1.0", "1234"])
         self.assertNotIn("SUPublicEDKey", info)
         self.assertIn("NSLocalNetworkUsageDescription", info)
+        self.assertEqual(info["NSAppTransportSecurity"], {"NSAllowsArbitraryLoadsInWebContent": True})
         info = release.bundle_info("2.1.0", "1234")
         self.assertEqual([info[key] for key in keys], ["Muxy", "com.muxy.app", "2.1.0", "1234"])
         self.assertEqual(info["SUPublicEDKey"], "X5YPWvD11Qthw+41DPZQRK8aOYBlPjjfeWW2k3510cY=")

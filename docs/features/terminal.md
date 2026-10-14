@@ -64,6 +64,8 @@ plain text and case-insensitive; **Aa** makes it case-sensitive.
 - `Cmd`-click a URL or file path to open it. Paths with `:line:column` jump to
   that line in supported editors.
 - **Settings → General → Open files with** picks the app for files.
+- Web links open in your system browser, or in the
+  [built-in browser](browser.md) when **Settings → Browser** says so.
 - Dropping files on a terminal pastes their paths.
 - On a [remote server](remote-servers.md), dropped and pasted files are
   uploaded first and the remote path is pasted. `Cmd`-clicking a remote file

@@ -79,6 +79,12 @@ pub(crate) enum Command {
     /// The open remote file link's menu: copy the file here and open it.
     OpenRemoteCopy,
     CopyRemotePath,
+    /// Opens a browser pane's page in the default browser, or the installed
+    /// browser at an index of `opener::web_browsers`.
+    OpenInBrowser(muxy_app_core::PaneId, Option<usize>),
+    /// Browses a pane with the profile at an index of Settings' profile list.
+    BrowserProfile(muxy_app_core::PaneId, usize),
+    ManageBrowserProfiles,
 }
 
 #[derive(Clone, Debug)]
@@ -640,6 +646,13 @@ impl AppModel {
             }
             Command::OpenRemoteCopy => self.open_remote_copy(cx),
             Command::CopyRemotePath => self.copy_remote_path(cx),
+            Command::OpenInBrowser(pane, index) => self.open_browser_page_in(pane, index, cx),
+            Command::BrowserProfile(pane, index) => {
+                if let Some(profile) = self.settings_browser_profiles().into_iter().nth(index) {
+                    self.switch_browser_profile(pane, profile.id, cx);
+                }
+            }
+            Command::ManageBrowserProfiles => self.show_browser_settings(cx),
         }
         self.focus_active(window, cx);
     }

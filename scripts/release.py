@@ -151,6 +151,7 @@ def bundle_info(version, build):
         "NSMicrophoneUsageDescription": "Muxy uses your microphone to dictate text into Composer.",
         "NSSpeechRecognitionUsageDescription": "Muxy transcribes your dictation on this device and inserts it into Composer.",
         "NSLocalNetworkUsageDescription": "Commands you run in Muxy terminals can connect to devices on your local network.",
+        "NSAppTransportSecurity": {"NSAllowsArbitraryLoadsInWebContent": True},
         **sparkle,
     }
 

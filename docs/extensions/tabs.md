@@ -32,6 +32,9 @@ await muxy.tabs.open({
 
 // a terminal in the current project, optionally in a subfolder or running a command
 await muxy.tabs.open({ kind: "terminal", directory: "src", command: "npm test" });
+
+// a browser tab; drive it with muxy.browser
+await muxy.tabs.open({ kind: "browser", url: "localhost:3000" });
 ```
 
 - `singleton: true` focuses an existing tab of that type instead of opening

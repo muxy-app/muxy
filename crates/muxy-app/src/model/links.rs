@@ -43,6 +43,13 @@ impl AppModel {
         else {
             return;
         };
+        if let Target::Url(url) = &target
+            && self.browser_enabled()
+            && self.settings.browser.open_terminal_links
+        {
+            self.open_url_in_browser(url.clone(), cx);
+            return;
+        }
         if let Target::File(file) = &target
             && let Ok(relative) = file.path.strip_prefix(&context.project_directory)
             && let Some(relative) = relative.to_str()

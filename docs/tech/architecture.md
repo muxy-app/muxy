@@ -147,6 +147,16 @@ flowchart LR
 - Language packs are resource-only bundles. The app reads their catalogs, checks
   that each translation keeps its key's placeholders, and runs nothing from them.
 
+## The browser
+
+- Browser panes embed [polybrowser](https://github.com/saeedvaziry/polybrowser),
+  which wraps the system WebKit view and keeps profiles and history.
+- A page sits in the same native host as extension web views, so it hides under
+  app content and shares the keyboard with Muxy's shortcuts.
+- The server knows nothing about browsers. `muxy browser` reaches the desktop
+  app over its own socket in the profile folder, `app.sock`, which only this
+  user can open. One JSON request gets one JSON reply.
+
 ## AI activity
 
 - Each session thread checks the running program, the title, and the screen

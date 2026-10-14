@@ -27,7 +27,7 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 60] = [
+    pub const ACTIONS: [ShortcutId; 61] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
         ShortcutId::NewTabInProject,
@@ -88,6 +88,7 @@ impl Keymap {
         ShortcutId::SelectCommandOutput,
         ShortcutId::IncreaseFontSize,
         ShortcutId::DecreaseFontSize,
+        ShortcutId::NewBrowserTab,
     ];
 
     pub fn chord(&self, action: ShortcutId) -> Option<&KeyChord> {
@@ -194,50 +195,7 @@ impl Keymap {
             }
             explicit.insert(name, chord);
         }
-        for action in [
-            ShortcutId::OpenSettings,
-            ShortcutId::NewHomeTab,
-            ShortcutId::NewTabInProject,
-            ShortcutId::ToggleSidebar,
-            ShortcutId::ToggleFullScreen,
-            ShortcutId::ToggleThemePicker,
-            ShortcutId::ToggleCommandPalette,
-            ShortcutId::NavigateBack,
-            ShortcutId::NavigateForward,
-            ShortcutId::Quit,
-            ShortcutId::HideApp,
-            ShortcutId::HideOthers,
-            ShortcutId::Minimize,
-            ShortcutId::PreviousPrompt,
-            ShortcutId::NextPrompt,
-            ShortcutId::Find,
-            ShortcutId::FindNext,
-            ShortcutId::FindPrevious,
-            ShortcutId::PreviousProject,
-            ShortcutId::NextProject,
-            ShortcutId::SelectProject1,
-            ShortcutId::SelectProject2,
-            ShortcutId::SelectProject3,
-            ShortcutId::SelectProject4,
-            ShortcutId::SelectProject5,
-            ShortcutId::SelectProject6,
-            ShortcutId::SelectProject7,
-            ShortcutId::SelectProject8,
-            ShortcutId::SelectProject9,
-            ShortcutId::AddProject,
-            ShortcutId::CloseTab,
-            ShortcutId::SplitRight,
-            ShortcutId::SplitDown,
-            ShortcutId::FocusPaneLeft,
-            ShortcutId::FocusPaneRight,
-            ShortcutId::FocusPaneUp,
-            ShortcutId::FocusPaneDown,
-            ShortcutId::ToggleZoomPane,
-            ShortcutId::EqualizeSplits,
-            ShortcutId::ClosePane,
-            ShortcutId::MenuOpenSubmenu,
-            ShortcutId::MenuCloseSubmenu,
-        ] {
+        for action in YIELDING {
             if !explicit.contains_key(action.name())
                 && explicit.iter().any(|(id, chord)| {
                     Some(chord) == keymap.chord(action) && same_scope(id, action.name())
@@ -310,6 +268,62 @@ const RETIRED: [&str; 4] = [
     "project_colors.next_color",
     "project_colors.choose_color",
     "project_colors.dismiss_colors",
+];
+
+/// Built-in defaults that give way to a key a user binding already has.
+const YIELDING: [ShortcutId; 52] = [
+    ShortcutId::OpenSettings,
+    ShortcutId::NewHomeTab,
+    ShortcutId::NewTabInProject,
+    ShortcutId::ToggleSidebar,
+    ShortcutId::ToggleFullScreen,
+    ShortcutId::ToggleThemePicker,
+    ShortcutId::ToggleCommandPalette,
+    ShortcutId::NavigateBack,
+    ShortcutId::NavigateForward,
+    ShortcutId::Quit,
+    ShortcutId::HideApp,
+    ShortcutId::HideOthers,
+    ShortcutId::Minimize,
+    ShortcutId::PreviousPrompt,
+    ShortcutId::NextPrompt,
+    ShortcutId::Find,
+    ShortcutId::FindNext,
+    ShortcutId::FindPrevious,
+    ShortcutId::PreviousProject,
+    ShortcutId::NextProject,
+    ShortcutId::SelectProject1,
+    ShortcutId::SelectProject2,
+    ShortcutId::SelectProject3,
+    ShortcutId::SelectProject4,
+    ShortcutId::SelectProject5,
+    ShortcutId::SelectProject6,
+    ShortcutId::SelectProject7,
+    ShortcutId::SelectProject8,
+    ShortcutId::SelectProject9,
+    ShortcutId::AddProject,
+    ShortcutId::CloseTab,
+    ShortcutId::SplitRight,
+    ShortcutId::SplitDown,
+    ShortcutId::FocusPaneLeft,
+    ShortcutId::FocusPaneRight,
+    ShortcutId::FocusPaneUp,
+    ShortcutId::FocusPaneDown,
+    ShortcutId::ToggleZoomPane,
+    ShortcutId::EqualizeSplits,
+    ShortcutId::ClosePane,
+    ShortcutId::MenuOpenSubmenu,
+    ShortcutId::MenuCloseSubmenu,
+    ShortcutId::NewBrowserTab,
+    ShortcutId::BrowserFocusAddress,
+    ShortcutId::BrowserReload,
+    ShortcutId::BrowserBack,
+    ShortcutId::BrowserForward,
+    ShortcutId::BrowserZoomIn,
+    ShortcutId::BrowserZoomOut,
+    ShortcutId::BrowserZoomReset,
+    ShortcutId::BrowserCopyUrl,
+    ShortcutId::BrowserInspect,
 ];
 
 fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {

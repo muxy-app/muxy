@@ -33,7 +33,7 @@ pub(super) fn standardized(path: &str) -> PathBuf {
     normalized
 }
 
-fn base64(bytes: &[u8]) -> String {
+pub(crate) fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -465,13 +465,18 @@ impl AppModel {
                     .iter()
                     .enumerate()
                     .map(|(index, tab)| {
-                        let webview = tab
+                        let kind = match tab
                             .displayed_pane(self.state.shown_pane(tab))
-                            .is_some_and(|pane| matches!(pane.content, PaneContent::Webview(_)));
+                            .map(|pane| &pane.content)
+                        {
+                            Some(PaneContent::Webview(_)) => "extensionWebView",
+                            Some(PaneContent::Browser(_)) => "browser",
+                            _ => "terminal",
+                        };
                         json!({
                             "index": index,
                             "id": tab.id.to_string(),
-                            "kind": if webview { "extensionWebView" } else { "terminal" },
+                            "kind": kind,
                             "title": self.webview_title(tab, cx),
                             "isActive": Some(tab.id) == self.active_tab(),
                         })
@@ -549,7 +554,8 @@ impl AppModel {
                     .map(|_| ())
                     .ok_or_else(|| format!("extension '{id}' has no tab type '{tab_type}'"))
             }
-            Some("browser") => Err("browser tabs cannot be opened via this API yet".into()),
+            Some("browser") if self.browser_enabled() => Ok(()),
+            Some("browser") => Err("the built-in browser is disabled".into()),
             _ => Err("invalid open tab request: unknown kind".into()),
         }
     }
@@ -612,6 +618,24 @@ impl AppModel {
                 self.connect_server(server, cx);
             }
             return Ok(json!(tab.to_string()));
+        }
+        if args["kind"] == "browser" {
+            let url = match args["url"].as_str().filter(|url| !url.trim().is_empty()) {
+                Some(input) => Some(self.settings.browser.resolve(input).ok_or("invalid url")?),
+                None => self.settings.browser.home_url(),
+            };
+            let pane = self.open_browser(
+                crate::model::browsers::OpenBrowser {
+                    url,
+                    profile: None,
+                    project: self.state.current_project().id,
+                    split: false,
+                    select: true,
+                    focus_address: false,
+                },
+                cx,
+            )?;
+            return Ok(json!(self.pane_tab(pane).map(|tab| tab.to_string())));
         }
         let target = &args["extension"];
         let (id, tab_type) = (

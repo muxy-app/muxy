@@ -39,6 +39,7 @@ impl AppModel {
         self.reload_themes(cx);
         let mut registry = Registry::default();
         super::workspace::register_commands(&mut registry, self);
+        super::workspace::register_browser_commands(&mut registry, self);
         super::sidebar::register_commands(&mut registry, self, cx);
         super::settings::register_commands(&mut registry, self);
         registry.register(super::theme_picker::command(self, dark, cx));

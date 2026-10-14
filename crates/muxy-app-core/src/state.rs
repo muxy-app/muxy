@@ -782,7 +782,7 @@ impl AppState {
             .ok_or_else(|| AppError::InvalidState("unknown tab".into()))
     }
 
-    fn pane_tab_mut(&mut self, id: PaneId) -> Result<&mut Tab, AppError> {
+    pub(crate) fn pane_tab_mut(&mut self, id: PaneId) -> Result<&mut Tab, AppError> {
         let project = self
             .projects
             .iter_mut()
@@ -921,7 +921,9 @@ impl AppState {
                 *current = session;
                 Ok(())
             }
-            PaneContent::Settings | PaneContent::Webview(_) => Err(AppError::NotTerminal(pane)),
+            PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => {
+                Err(AppError::NotTerminal(pane))
+            }
         }
     }
 

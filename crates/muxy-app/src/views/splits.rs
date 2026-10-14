@@ -511,6 +511,30 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
     if let Some(surface) = model.webviews.panes.get(&id) {
         return surface.view.clone().into_any_element();
     }
+    if let Some(view) = model.browser_view(id) {
+        return view.clone().into_any_element();
+    }
+    if model.state.browser(id).is_some() {
+        let reason = model.browser_unavailable(id).unwrap_or_default();
+        return div()
+            .size_full()
+            .id(SharedString::from(format!("browser-placeholder-{id}")))
+            .debug_selector(|| "browser-placeholder".into())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |model, _, window, cx| {
+                    model.focus_pane(id, cx);
+                    model.focus_active(window, cx);
+                }),
+            )
+            .child(super::browser::placeholder(
+                &reason,
+                !model.browser_enabled(),
+                &model.theme,
+                model.metrics,
+            ))
+            .into_any_element();
+    }
     if let Some(descriptor) = model
         .state
         .projects()

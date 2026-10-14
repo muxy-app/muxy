@@ -106,9 +106,8 @@ Most 1.x extensions work unchanged. The differences:
 - **Lowercase names.** Pages only load for names made of `a-z`, `0-9`, `.`,
   and `-`.
 - **Background scripts run in-process,** in JavaScriptCore on their own thread.
-- **Not supported yet:** the built-in browser API (`muxy.browser`, `browser`
-  tabs), remote methods for the phone app, home views, reading extension
-  settings at runtime, and the `worktree.offline` event.
+- **Not supported yet:** remote methods for the phone app, home views, reading
+  extension settings at runtime, and the `worktree.offline` event.
 - **Bar items** always sit in the top bar. There is no icon rail.
 - **New:** the `openPanel` command action, `visible` on panel header buttons,
   `execAsync` on pages and scripts, and the `modal.opened` and `modal.closed`

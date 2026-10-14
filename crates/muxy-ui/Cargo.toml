@@ -21,6 +21,7 @@ async-channel = "2"
 raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+polybrowser = { git = "https://github.com/saeedvaziry/polybrowser", rev = "ea4b3f80109abcfbfd07f062599e21964633fa04", default-features = false, features = ["webkit", "devtools"] }
 objc2-javascript-core = { version = "=0.3.2", default-features = false, features = ["std", "JSBase", "JSContextRef", "JSObjectRef", "JSStringRef", "JSValueRef"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKWebView", "WKWebViewConfiguration", "WKUserContentController", "WKUserScript", "WKContentWorld", "WKScriptMessage", "WKScriptMessageHandlerWithReply", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKUIDelegate", "WKWindowFeatures", "WKURLSchemeHandler", "WKURLSchemeTask", "WKSnapshotConfiguration"] }
 dispatch2 = "0.3"

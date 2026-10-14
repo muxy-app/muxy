@@ -9,7 +9,7 @@ use muxy_ui::tr;
 use super::{AppModel, Quitting};
 use crate::boot::Work;
 use crate::views::settings::window::SettingsWindow;
-use crate::views::settings::{Change, SettingsView, Snapshot};
+use crate::views::settings::{BrowserChange, Change, SettingsView, Snapshot};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -44,10 +44,20 @@ impl AppModel {
         self.show_settings(cx);
     }
 
+    /// Opens Settings at Browser, where profiles are managed.
+    pub(crate) fn show_browser_settings(&mut self, cx: &mut Context<Self>) {
+        self.show_settings(cx);
+        if let Some(settings) = &self.settings_window {
+            settings.view.update(cx, SettingsView::show_browser);
+        }
+    }
+
     pub(super) fn show_settings(&mut self, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
             return;
         }
+        self.refresh_browser_profiles();
+        self.browsers.import_sources = Self::browser_import_sources();
         if let Some(settings) = &self.settings_window
             && settings
                 .window
@@ -176,6 +186,18 @@ impl AppModel {
             file_openers: self.extension_file_openers(),
             languages: self.app_languages(),
             extension_shortcuts: self.extension_shortcuts(),
+            browser_profiles: self.settings_browser_profiles(),
+            browser_sources: self
+                .browsers
+                .import_sources
+                .iter()
+                .map(|source| {
+                    (
+                        format!("{} — {}", source.browser(), source.name()),
+                        source.browser().supports_cookies(),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -304,6 +326,17 @@ impl AppModel {
                 self.apply_quick_settings(quick, cx)?;
                 return Ok(());
             }
+            Change::Browser(change) => {
+                if !self.apply_browser_profile_change(&change, cx)? {
+                    settings.browser = browser_settings(settings.browser, change);
+                    settings.save_browser(&path)?;
+                }
+            }
+            Change::Field("browser-home-page", value) => {
+                settings.browser.home_page = value;
+                settings.save_browser(&path)?;
+            }
+            Change::Field("browser-profile-name", _) => return Ok(()),
             Change::Field(id @ ("quick-width" | "quick-height"), value) => {
                 let mut quick = settings.quick_terminal;
                 if id == "quick-width" {
@@ -919,5 +952,31 @@ fn change_id(change: &Change) -> &str {
         Change::Binding(id, _) | Change::Unassign(id) => id,
         Change::ShellIntegration(_) => "shell-integration",
         Change::MobileAccess(_) => "mobile-access",
+        Change::Browser(change) => match change {
+            BrowserChange::Enabled(_) => "browser-enabled",
+            BrowserChange::TerminalLinks(_) => "browser-terminal-links",
+            BrowserChange::SearchEngine(_) => "browser-search-engine",
+            BrowserChange::Import { .. } => "browser-import",
+            BrowserChange::DefaultProfile(_)
+            | BrowserChange::AddProfile(_)
+            | BrowserChange::RenameProfile(..)
+            | BrowserChange::ClearProfile(_)
+            | BrowserChange::DeleteProfile(_) => "browser-profiles",
+        },
     }
+}
+
+/// `browser` with a change that lives in `settings.toml`.
+fn browser_settings(
+    mut browser: muxy_app_core::settings::BrowserSettings,
+    change: BrowserChange,
+) -> muxy_app_core::settings::BrowserSettings {
+    match change {
+        BrowserChange::Enabled(enabled) => browser.enabled = enabled,
+        BrowserChange::TerminalLinks(enabled) => browser.open_terminal_links = enabled,
+        BrowserChange::SearchEngine(engine) => browser.search_engine = engine,
+        BrowserChange::DefaultProfile(id) => browser.default_profile = id,
+        _ => {}
+    }
+    browser
 }

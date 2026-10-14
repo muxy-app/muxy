@@ -14,15 +14,16 @@ pub(crate) fn run(word: &Path) -> Result<(), Box<dyn Error>> {
                 word.display()
             )
         })?;
-    if crate::terminal::over_ssh() || !desktop(&folder) {
+    if crate::terminal::over_ssh() || !desktop_app(Some(&folder)) {
         crate::tui::run(None, Some(&folder))?;
     }
     Ok(())
 }
 
-/// Opens `folder` in the desktop app, returning false if it can't.
+/// Opens the desktop app, with `folder` as a project if given, returning
+/// false if it can't.
 #[cfg(target_os = "macos")]
-fn desktop(folder: &Path) -> bool {
+pub(crate) fn desktop_app(folder: Option<&Path>) -> bool {
     use std::process::{Command, Stdio};
     let Ok(executable) = muxy_core::executable::current_path() else {
         return false;
@@ -35,7 +36,7 @@ fn desktop(folder: &Path) -> bool {
             muxy_core::release::Channel::current().bundle_identifier(),
         ]),
     };
-    open.arg(folder)
+    open.args(folder)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -44,7 +45,7 @@ fn desktop(folder: &Path) -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn desktop(_: &Path) -> bool {
+pub(crate) fn desktop_app(_: Option<&Path>) -> bool {
     false
 }
 

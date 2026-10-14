@@ -14,6 +14,7 @@ use muxy_ui::tr;
 
 use super::{menu, overlays, sidebar, status_bar, tab_strip, titlebar};
 use crate::model::AppModel;
+use crate::model::browsers::BrowserAction;
 
 actions!(
     muxy,
@@ -66,7 +67,17 @@ actions!(
         FindPrevious,
         PreviousPrompt,
         NextPrompt,
-        SelectCommandOutput
+        SelectCommandOutput,
+        NewBrowserTab,
+        BrowserFocusAddress,
+        BrowserReload,
+        BrowserBack,
+        BrowserForward,
+        BrowserZoomIn,
+        BrowserZoomOut,
+        BrowserZoomReset,
+        BrowserCopyUrl,
+        BrowserInspect
     ]
 );
 
@@ -145,6 +156,16 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     registry.register(ShortcutId::ScrollToBottom, &ScrollToBottom);
     registry.register(ShortcutId::IncreaseFontSize, &IncreaseFontSize);
     registry.register(ShortcutId::DecreaseFontSize, &DecreaseFontSize);
+    registry.register(ShortcutId::NewBrowserTab, &NewBrowserTab);
+    registry.register(ShortcutId::BrowserFocusAddress, &BrowserFocusAddress);
+    registry.register(ShortcutId::BrowserReload, &BrowserReload);
+    registry.register(ShortcutId::BrowserBack, &BrowserBack);
+    registry.register(ShortcutId::BrowserForward, &BrowserForward);
+    registry.register(ShortcutId::BrowserZoomIn, &BrowserZoomIn);
+    registry.register(ShortcutId::BrowserZoomOut, &BrowserZoomOut);
+    registry.register(ShortcutId::BrowserZoomReset, &BrowserZoomReset);
+    registry.register(ShortcutId::BrowserCopyUrl, &BrowserCopyUrl);
+    registry.register(ShortcutId::BrowserInspect, &BrowserInspect);
     muxy_ui::text_input::register_shortcuts(&mut registry);
     muxy_ui::picker::register_shortcuts(&mut registry);
     muxy_ui::components::register_shortcuts(&mut registry);
@@ -188,6 +209,10 @@ impl AppModel {
         if self.overlay.is_some() {
             return;
         }
+        if let Some(view) = self.active_browser() {
+            view.update(cx, |view, cx| view.open_find(window, cx));
+            return;
+        }
         if let Some(pane) = self.active_pane().and_then(|id| self.terminal(&id)) {
             pane.view.update(cx, |pane, cx| {
                 pane.open_find(&self.theme, self.metrics, window, cx);
@@ -197,6 +222,10 @@ impl AppModel {
 
     fn step_find(&mut self, previous: bool, cx: &mut Context<Self>) {
         if self.overlay.is_some() {
+            return;
+        }
+        if let Some(view) = self.active_browser() {
+            view.update(cx, |view, cx| view.step_find(previous, cx));
             return;
         }
         if let Some(pane) = self.active_pane().and_then(|id| self.terminal(&id)) {
@@ -233,6 +262,15 @@ impl AppModel {
     }
 
     pub(crate) fn focus_active(&self, window: &mut Window, cx: &App) {
+        if let Some(view) = self.active_pane().and_then(|id| self.browser_view(id)) {
+            let view = view.read(cx);
+            if !view.focus.contains_focused(window, cx) {
+                self.blur_webviews(cx);
+                view.focus.focus(window);
+                view.native.focus();
+            }
+            return;
+        }
         self.blur_webviews(cx);
         if let Some(surface) = self
             .active_pane()
@@ -294,6 +332,34 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             cx.listener(|model, _, _, cx| model.navigate(true, cx)),
         )
         .on_action(cx.listener(|model, _: &NewTab, _, cx| model.new_tab(cx)))
+        .on_action(cx.listener(|model, _: &NewBrowserTab, _, cx| model.new_browser_tab(cx)))
+        .on_action(cx.listener(|model, _: &BrowserFocusAddress, window, cx| {
+            model.browser_action(BrowserAction::FocusAddress, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserReload, window, cx| {
+            model.browser_action(BrowserAction::Reload, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserBack, window, cx| {
+            model.browser_action(BrowserAction::Back, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserForward, window, cx| {
+            model.browser_action(BrowserAction::Forward, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserZoomIn, window, cx| {
+            model.browser_action(BrowserAction::ZoomIn, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserZoomOut, window, cx| {
+            model.browser_action(BrowserAction::ZoomOut, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserZoomReset, window, cx| {
+            model.browser_action(BrowserAction::ZoomReset, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserCopyUrl, window, cx| {
+            model.browser_action(BrowserAction::CopyUrl, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &BrowserInspect, window, cx| {
+            model.browser_action(BrowserAction::Inspect, window, cx);
+        }))
         .on_action(cx.listener(AppModel::detach_active_terminal))
         .on_action(cx.listener(AppModel::existing_terminals))
         .on_action(
@@ -490,6 +556,22 @@ pub(crate) fn register_commands(
     ] {
         registry.register(command);
     }
+}
+
+pub(crate) fn register_browser_commands(
+    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
+    model: &AppModel,
+) {
+    let missing = model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing;
+    registry.register(
+        super::command_palette::action(
+            model,
+            ShortcutId::NewBrowserTab,
+            tr_key!("New Browser Tab"),
+            NewBrowserTab,
+        )
+        .disabled(missing || !model.browser_enabled()),
+    );
 }
 
 impl AppModel {

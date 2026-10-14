@@ -23,6 +23,7 @@ pub struct Settings {
     pub panes: PaneSettings,
     pub clipboard: ClipboardSettings,
     pub openers: OpenerSettings,
+    pub browser: super::BrowserSettings,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<super::ServerEntry>,
 }
@@ -230,6 +231,7 @@ impl Settings {
     pub fn validate(&self) -> Result<()> {
         self.quick_terminal.validate()?;
         self.composer.validate()?;
+        self.browser.validate()?;
         self.validate_commands()?;
         self.validate_servers()?;
         for (name, value, minimum) in [
@@ -266,6 +268,12 @@ impl Settings {
         self.composer.validate()?;
         crate::settings::appearance::save_section(path, "composer", &self.composer)
             .map_err(|error| Error::new("composer", error))
+    }
+
+    pub fn save_browser(&self, path: &Path) -> Result<()> {
+        self.browser.validate()?;
+        crate::settings::appearance::save_section(path, "browser", &self.browser)
+            .map_err(|error| Error::new("browser", error))
     }
 
     pub fn save_panes(&self, path: &Path) -> Result<()> {

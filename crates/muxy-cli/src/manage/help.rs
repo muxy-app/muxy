@@ -15,19 +15,21 @@ Usage: muxy [--host DESTINATION] [COMMAND]
   files         Run a server file action using JSON
   exec          Execute a program in a server project
   mobile        Enable access, pair phones and revoke devices
+  browser       Drive browser tabs in the desktop app on this computer
   install-skills
                 Install the muxy-cli skill for AI coding agents
   stdio         Connect stdin/stdout to the server; used over SSH
   --help | --version | --build-info
 
-Run muxy <command> --help for usage. Management commands accept --json.
+Run muxy <command> --help or muxy help <command> for usage. Management
+commands accept --json.
 Commands connect directly to the server, starting it if needed, except server
 status/stop, which never start it. --host uses the server on another computer
 over SSH (user@host, an ssh_config alias or ssh://user@host:port); Muxy must be
 installed there, and directories are absolute paths on that computer.
 MUXY_DIR selects the local profile, which also keeps the terminal UI layouts
-for other computers. No desktop app is required. Tabs, panes and workspaces
-belong to UI clients.
+for other computers. No desktop app is required, except by browser commands.
+Tabs, panes and workspaces belong to UI clients.
 Project selectors accept an exact ID, unique name or directory path.
 Inside a Muxy terminal, session commands default to that terminal.
 Use ./NAME to open a folder named like a command.
@@ -44,6 +46,49 @@ pub(crate) const MOBILE: &str = "Usage: muxy mobile [action]
 Pairing codes list the server's own addresses. --address puts a DNS name or
 IPv4 address first, for a server that phones reach by another name, such as a
 cloud server's public name. Repeat it for more, up to 8 addresses in all.";
+pub(crate) const BROWSER: &str = "Usage: muxy browser <action>
+  open [url] [--split] [--project PROJECT] [--worktree WORKTREE]
+       [--profile PROFILE]          Open a tab and print its ID
+  list [--project PROJECT] [--worktree WORKTREE] [--json]
+  navigate <tab-id> <url>
+  read <tab-id> [--json]            Title, URL and page text
+  close <tab-id>
+  reload|back|forward <tab-id>
+  screenshot <tab-id>               Print the page as a base64 PNG
+  eval <tab-id> <javascript>        Print the result as JSON
+  click|hover|scroll-into-view|check|uncheck <tab-id> <selector>
+  fill <tab-id> <selector> <text>
+  type <tab-id> <selector> <text> [--submit]
+  press <tab-id> <key> [selector]
+  select <tab-id> <selector> <value>
+  is <tab-id> visible|hidden|enabled|disabled|checked <selector>
+  get-text|get-value|get-count <tab-id> <selector>
+  get-attribute <tab-id> <selector> <attribute>
+  get-html <tab-id> [selector]
+  find <tab-id> role|text|label|placeholder|testid <value>
+  snapshot <tab-id> [selector]      Interactive elements, each with a selector
+  wait <tab-id> [--selector SELECTOR] [--text TEXT] [--url-contains TEXT]
+       [--function JAVASCRIPT] [--timeout-ms N]
+  wait-for <tab-id> <selector> [ms]
+  wait-for-navigation <tab-id> [ms | --timeout-ms N]
+  storage get <tab-id> <key> [local|session]
+  storage set <tab-id> <key> <value> [local|session]
+  storage clear <tab-id> [local|session]
+  cookies get <tab-id> [url]
+  cookies set <tab-id> <name> <value> <domain> [--path PATH] [--secure]
+              [--http-only] [--expires UNIX-SECONDS]
+  cookies delete <tab-id> <name> [domain]
+  cookies clear <tab-id>
+
+Browser commands talk to the Muxy desktop app on this computer, not to the
+server, so they don't take --host. Open starts the app if it isn't running.
+Tabs open in the current project, or the one named by --project and
+--worktree; --split opens the tab beside the current pane instead.
+Use the tab ID that open or list prints. Page actions print their result as
+JSON. Waits give up after --timeout-ms or ms (default 5000, 10000 for
+wait-for-navigation; maximum 60000).
+MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
+Text list columns: tab-id, title, url, profile, active (tab-separated).";
 pub(crate) const INSTALL_SKILLS: &str = "Usage: muxy install-skills [--dir DIR]...
 Installs the muxy-cli skill, which teaches AI coding agents to use this command,
 into each agent folder that exists: ~/.claude/skills, ~/.codex/skills and
@@ -143,6 +188,9 @@ pub(crate) fn topic(group: &str) -> Option<&'static str> {
         "git" => GIT,
         "files" => FILES,
         "exec" => EXEC,
+        "mobile" => MOBILE,
+        "install-skills" => INSTALL_SKILLS,
+        "browser" => BROWSER,
         _ => return None,
     })
 }

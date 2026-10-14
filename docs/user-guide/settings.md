@@ -14,6 +14,7 @@ immediately, and Settings works while the server is offline.
 | Keyboard | Every shortcut. See [Keyboard shortcuts](keyboard-shortcuts.md) |
 | Commands | Your own commands, each run in a new tab, with optional shortcuts |
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
+| Browser | The [built-in browser](../features/browser.md): terminal links, search engine, home page, profiles, import |
 | Server | This computer's [server](../features/server.md#settings): shell, history, shell integration, stop and restart |
 | Mobile | [Phone access](../features/mobile.md) and paired phones |
 | Extensions | Installed extensions and the marketplace |

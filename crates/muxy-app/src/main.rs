@@ -1,10 +1,12 @@
 mod ai;
+mod app_socket;
 mod askpass;
 mod backup;
 mod boot;
 mod cli_install;
 mod diagnostics;
 mod extensions;
+mod favicon;
 mod model;
 mod navigation;
 mod opener;
@@ -17,6 +19,7 @@ mod theme;
 mod updater;
 mod views {
     pub(crate) mod banners;
+    pub(crate) mod browser;
     pub(crate) mod cached;
     pub(crate) mod command_palette;
     pub(crate) mod composer;
@@ -80,9 +83,9 @@ use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
     FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
-    NewHomeTab, NewTab, NewTabInProject, NextProject, NextPrompt, NextTab, OpenSettings,
-    PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject,
-    SelectTab, ShowAll, SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer,
+    NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NextProject, NextPrompt, NextTab,
+    OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput,
+    SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, ToggleCommandPalette, ToggleComposer,
     ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom,
     bind_keys,
 };
@@ -102,6 +105,7 @@ fn main() -> ExitCode {
             .unwrap_or_default();
         return askpass::run(&socket, &prompt);
     }
+    muxy_ui::browser::polybrowser::init();
     let profile = profiler::init();
     let boot = {
         let _span = profiler::span(profiler::Metric::BootLoad);
@@ -146,6 +150,7 @@ fn main() -> ExitCode {
         if let Err(error) = cx.open_window(options, |window, cx| {
             let model = cx.new(|cx| AppModel::new(boot, window, cx));
             model.update(cx, |_, cx| AppModel::open_folders_from(opened_folders, cx));
+            model.update(cx, |model, cx| model.start_app_socket(window, cx));
             let configuration = model.downgrade();
             cx.on_action(move |_: &views::workspace::ReloadConfiguration, cx| {
                 let _ = configuration.update(cx, AppModel::reload_configuration);
@@ -266,6 +271,7 @@ fn menus() -> Vec<Menu> {
             name: tr!("File"),
             items: vec![
                 MenuItem::action(tr!("New Tab"), NewTab),
+                MenuItem::action(tr!("New Browser Tab"), NewBrowserTab),
                 MenuItem::action(tr!("New Home Tab"), NewHomeTab),
                 MenuItem::action(tr!("New Tab in Project…"), NewTabInProject),
                 MenuItem::action(tr!("Open Project…"), AddProject),

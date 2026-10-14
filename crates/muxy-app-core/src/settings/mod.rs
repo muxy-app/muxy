@@ -3,6 +3,7 @@
 //! Server-owned settings and presentation code stay with their owners.
 
 mod appearance;
+mod browser;
 mod chord;
 mod commands;
 mod composer;
@@ -20,6 +21,7 @@ pub use worktrees::{
 };
 
 pub use appearance::{AppLayout, Appearance, ProjectOrder, SidebarCollapsedStyle};
+pub use browser::BrowserSettings;
 pub use chord::KeyChord;
 pub use commands::CustomCommand;
 pub use composer::{ComposerPosition, ComposerPresentation, ComposerSettings};

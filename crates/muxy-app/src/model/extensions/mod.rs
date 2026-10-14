@@ -18,6 +18,7 @@ mod worktrees;
 pub(crate) use commands::{ExtensionShortcut, RunCommand};
 pub(in crate::model) use events::root_of;
 pub(crate) use logs::log_file;
+pub(crate) use workspace::base64;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;

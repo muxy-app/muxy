@@ -1,6 +1,7 @@
 mod ai;
 mod appearance;
 mod backup;
+pub(crate) mod browser;
 mod catalog;
 mod commands;
 mod composer;
@@ -18,6 +19,7 @@ mod terminal_lists;
 pub(crate) mod window;
 
 pub(crate) use ai::prompt_action;
+pub(crate) use browser::BrowserChange;
 pub(crate) use pickers::{PickerAnchor, PickerKind, PickerRequest};
 
 use std::collections::{HashMap, HashSet};
@@ -60,6 +62,7 @@ pub(crate) enum Category {
     Terminal,
     Keyboard,
     Commands,
+    Browser,
     Server,
     Mobile,
     Extensions,
@@ -67,7 +70,7 @@ pub(crate) enum Category {
 }
 
 impl Category {
-    pub(crate) const ALL: [Self; 12] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -75,6 +78,7 @@ impl Category {
         Self::Keyboard,
         Self::Commands,
         Self::Terminal,
+        Self::Browser,
         Self::Server,
         Self::Mobile,
         Self::Extensions,
@@ -93,6 +97,7 @@ impl Category {
             Self::Terminal => tr_key!("Terminal"),
             Self::Keyboard => tr_key!("Keyboard"),
             Self::Commands => tr_key!("Commands"),
+            Self::Browser => tr_key!("Browser"),
             Self::Server => tr_key!("Server"),
             Self::Mobile => tr_key!("Mobile"),
             Self::Extensions => tr_key!("Extensions"),
@@ -132,6 +137,7 @@ pub(crate) enum Change {
     Unassign(String),
     ShellIntegration(bool),
     MobileAccess(bool),
+    Browser(BrowserChange),
 }
 
 pub(crate) enum SettingsEvent {
@@ -173,6 +179,10 @@ pub(crate) struct Snapshot {
     /// Languages enabled extensions provide, as `(selection, label)`.
     pub(crate) languages: Vec<(String, String)>,
     pub(crate) extension_shortcuts: Vec<crate::model::extensions::ExtensionShortcut>,
+    pub(crate) browser_profiles: Vec<browser::Profile>,
+    /// Other browsers' profiles that can be imported, by name, and whether
+    /// their cookies can be.
+    pub(crate) browser_sources: Vec<(String, bool)>,
 }
 
 pub(crate) struct SettingsView {
@@ -322,6 +332,8 @@ impl SettingsView {
             "default-shell",
             "history-budget",
             "mobile-port",
+            "browser-home-page",
+            "browser-profile-name",
         ]
         .into_iter()
         .chain(terminal::fields())
@@ -431,6 +443,7 @@ impl SettingsView {
             ("default-shell", shell),
             ("history-budget", budget),
             ("mobile-port", mobile_port),
+            ("browser-home-page", settings.browser.home_page.clone()),
         ]
         .into_iter()
         .chain(terminal::field_values(&self.snapshot.terminal))
@@ -544,6 +557,15 @@ impl SettingsView {
         if let Some(extensions) = &self.extensions {
             extensions.update(cx, extensions::ExtensionsView::browse_languages);
         }
+    }
+
+    pub(crate) fn show_browser(&mut self, cx: &mut Context<Self>) {
+        self.category = Category::Browser;
+        self.section = None;
+        self.query.clear();
+        self.results.reset();
+        self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.notify();
     }
 
     pub(crate) fn show_extensions(&mut self, cx: &mut Context<Self>) {

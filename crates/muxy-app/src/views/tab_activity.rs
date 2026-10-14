@@ -87,7 +87,7 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
         .iter()
         .filter_map(|pane| match pane.content {
             PaneContent::Terminal { session } => session,
-            PaneContent::Settings | PaneContent::Webview(_) => None,
+            PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => None,
         })
         .collect();
     resolve(
@@ -164,7 +164,7 @@ fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel)
         .iter()
         .filter_map(|pane| match pane.content {
             PaneContent::Terminal { session } => session,
-            PaneContent::Settings | PaneContent::Webview(_) => None,
+            PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => None,
         })
         .collect();
     let completion = panes

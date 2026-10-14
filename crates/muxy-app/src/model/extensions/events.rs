@@ -109,6 +109,16 @@ impl AppModel {
                     put("data", descriptor.data.to_string());
                 }
             }
+            Some((id, PaneContent::Browser(browser))) => {
+                put("kind", "browser".into());
+                put("paneID", id.to_string());
+                let url = self
+                    .browser_view(id)
+                    .map(|view| view.read(cx).page.url.clone())
+                    .or_else(|| browser.url.clone())
+                    .unwrap_or_default();
+                put("url", url);
+            }
             Some((id, _)) => {
                 put("kind", "terminal".into());
                 put("paneID", id.to_string());

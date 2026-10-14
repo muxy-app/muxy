@@ -112,6 +112,12 @@ fn show(output: &mut impl Write, state: &AppState) -> io::Result<()> {
                         "    Pane {} webview {}/{}",
                         pane.id, descriptor.owner, descriptor.kind
                     )?,
+                    PaneContent::Browser(ref browser) => writeln!(
+                        output,
+                        "    Pane {} — browser, {}",
+                        pane.id,
+                        browser.url.as_deref().unwrap_or("start page")
+                    )?,
                     PaneContent::Settings => writeln!(output, "    Pane {} — settings", pane.id)?,
                 }
             }

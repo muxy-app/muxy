@@ -33,7 +33,7 @@ loading. Ask for the minimum.
 | `commands:run-script` | `runScript` commands |
 | `commands:exec` | `exec`, `execAsync` |
 | `shortcuts:register` | `shortcuts.register`, `shortcuts.unregister` |
-| `browser:read` / `browser:write` | Accepted; the browser API is not available in 2.x |
+| `browser:read` / `browser:write` | Read / drive [browser tabs](../features/browser.md) with `muxy.browser` |
 | `remote:serve` | Accepted; remote methods are not available in 2.x |
 
 `http.fetch`, dialogs, the picker, `events`, and `lifecycle` need no
