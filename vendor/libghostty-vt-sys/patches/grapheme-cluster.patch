@@ -1,0 +1,40 @@
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -437,6 +437,7 @@
+     glyph_protocol = 24,
+     pwd_changed = 25,
+     clipboard_write = 26,
++    default_grapheme_cluster = 27,
+ 
+     /// Input type expected for setting the option.
+     pub fn InType(comptime self: Option) type {
+@@ -465,6 +466,7 @@
+             .selection => ?*const selection_c.CSelection,
+             .default_cursor_style => ?*const TerminalCursorStyle,
+             .default_cursor_blink => ?*const bool,
++            .default_grapheme_cluster => ?*const bool,
+         };
+     }
+ };
+@@ -601,6 +603,11 @@
+                 wrapper.terminal.modes.set(.cursor_blinking, blink);
+             }
+         },
++        .default_grapheme_cluster => {
++            const enabled = if (value) |ptr| ptr.* else false;
++            wrapper.terminal.modes.default.grapheme_cluster = enabled;
++            wrapper.terminal.modes.set(.grapheme_cluster, enabled);
++        },
+     }
+     return .success;
+ }
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -887,6 +887,7 @@
+    * Input type: GhosttyTerminalClipboardWriteFn
+    */
+   GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE = 26,
++  GHOSTTY_TERMINAL_OPT_DEFAULT_GRAPHEME_CLUSTER = 27,
+   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+ } GhosttyTerminalOption;
+ 

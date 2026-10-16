@@ -83,6 +83,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=patch.rs");
     println!("cargo:rerun-if-changed=patches/clear-screen.patch");
+    println!("cargo:rerun-if-changed=patches/grapheme-cluster.patch");
 
     // An explicit source override should stay authoritative even when the
     // pkg-config feature is enabled, so local Ghostty checkouts remain easy to
@@ -249,10 +250,12 @@ fn try_pkg_config(link_mode: LinkMode) -> bool {
 
     assert!(
         lib.include_paths.iter().any(|path| {
-            std::fs::read_to_string(path.join("ghostty/vt/terminal.h"))
-                .is_ok_and(|header| header.contains("ghostty_terminal_clear_screen("))
+            std::fs::read_to_string(path.join("ghostty/vt/terminal.h")).is_ok_and(|header| {
+                header.contains("ghostty_terminal_clear_screen(")
+                    && header.contains("GHOSTTY_TERMINAL_OPT_DEFAULT_GRAPHEME_CLUSTER")
+            })
         }),
-        "Muxy requires libghostty-vt with patches/clear-screen.patch applied"
+        "Muxy requires libghostty-vt with patches/clear-screen.patch and patches/grapheme-cluster.patch applied"
     );
     if let LinkMode::Static = link_mode {
         emit_static_pkg_config_metadata(&lib);

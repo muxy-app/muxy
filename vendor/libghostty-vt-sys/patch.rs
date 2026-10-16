@@ -9,16 +9,17 @@ pub fn prepare(source: &Path, out_dir: &Path) -> PathBuf {
         fs::remove_dir_all(&patched).expect("remove previous private Ghostty copy");
     }
     copy_tree(source, &patched);
-    let patch = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
-        .join("patches/clear-screen.patch");
-    let status = Command::new("git")
-        .current_dir(&patched)
-        .env("GIT_CEILING_DIRECTORIES", out_dir)
-        .arg("apply")
-        .arg(patch)
-        .status()
-        .expect("apply native Ghostty clear API patch");
-    assert!(status.success(), "native Ghostty clear API patch failed");
+    let patches = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("patches");
+    for name in ["clear-screen.patch", "grapheme-cluster.patch"] {
+        let status = Command::new("git")
+            .current_dir(&patched)
+            .env("GIT_CEILING_DIRECTORIES", out_dir)
+            .arg("apply")
+            .arg(patches.join(name))
+            .status()
+            .expect("apply native Ghostty patch");
+        assert!(status.success(), "native Ghostty patch {name} failed");
+    }
     patched
 }
 

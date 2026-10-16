@@ -20,12 +20,29 @@ fn run(text: &str, style: Style) -> Run {
 fn unicode_runs_preserve_cells_across_grapheme_mode_changes() -> TestResult {
     for (input, expected) in [
         ("لاx", vec![("ل", 1), ("ا", 1), ("x", 1)]),
-        ("👩‍💻x", vec![("👩‍", 2), ("💻", 2), ("x", 1)]),
-        ("❤️x", vec![("❤️", 1), ("x", 1)]),
-        ("\u{1b}[?2027h👩‍💻x", vec![("👩‍💻", 2), ("x", 1)]),
-        ("\u{1b}[?2027h❤️x", vec![("❤️", 2), ("x", 1)]),
+        ("👩‍💻x", vec![("👩‍💻", 2), ("x", 1)]),
+        ("❤️x", vec![("❤️", 2), ("x", 1)]),
+        ("⚠️x", vec![("⚠️", 2), ("x", 1)]),
+        ("ℹ️x", vec![("ℹ️", 2), ("x", 1)]),
+        ("1️⃣x", vec![("1️⃣", 2), ("x", 1)]),
+        ("👋🏿x", vec![("👋🏿", 2), ("x", 1)]),
+        ("🇦🇧x", vec![("🇦🇧", 2), ("x", 1)]),
+        ("⚠x", vec![("⚠", 1), ("x", 1)]),
         (
-            "👩‍💻\u{1b}[?2027h👩‍💻x",
+            "✅❌⭐😀界x",
+            vec![
+                ("✅", 2),
+                ("❌", 2),
+                ("⭐", 2),
+                ("😀", 2),
+                ("界", 2),
+                ("x", 1),
+            ],
+        ),
+        ("\u{1b}[?2027l👩‍💻x", vec![("👩‍", 2), ("💻", 2), ("x", 1)]),
+        ("\u{1b}[?2027l❤️x", vec![("❤️", 1), ("x", 1)]),
+        (
+            "\u{1b}[?2027l👩‍💻\u{1b}[?2027h👩‍💻x",
             vec![("👩‍", 2), ("💻", 2), ("👩‍💻", 2), ("x", 1)],
         ),
         (
@@ -34,7 +51,9 @@ fn unicode_runs_preserve_cells_across_grapheme_mode_changes() -> TestResult {
         ),
     ] {
         let mut terminal = terminal()?;
-        terminal.feed(input.as_bytes());
+        for part in input.as_bytes().chunks(1) {
+            terminal.feed(part);
+        }
         let screen = terminal.screen()?;
         let actual: Vec<_> = screen[0]
             .runs
@@ -45,6 +64,28 @@ fn unicode_runs_preserve_cells_across_grapheme_mode_changes() -> TestResult {
         assert_eq!(
             terminal.cursor()?.col,
             expected.iter().map(|(_, width)| width).sum::<u16>()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn grapheme_width_reports_follow_application_mode_changes_and_terminal_reset() -> TestResult {
+    let mut terminal = terminal()?;
+    for (sequence, expected) in [
+        ("", "\x1b[?2027;1$y\x1b[1;11R"),
+        ("\x1b[?2027l", "\x1b[?2027;2$y\x1b[1;6R"),
+        ("\x1b[?2027h", "\x1b[?2027;1$y\x1b[1;11R"),
+        ("\x1b[?2027l\x1bc", "\x1b[?2027;1$y\x1b[1;11R"),
+    ] {
+        terminal.feed(sequence.as_bytes());
+        terminal.feed(b"\x1b[2J\x1b[H\x1b[?2027$p");
+        terminal.feed("⚠️⚠️⚠️⚠️⚠️".as_bytes());
+        terminal.feed(b"\x1b[6n");
+        assert_eq!(
+            terminal.take_pty_output(),
+            expected.as_bytes(),
+            "{sequence:?}"
         );
     }
     Ok(())

@@ -717,6 +717,12 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
         Ok(self)
     }
 
+    #[doc(hidden)]
+    pub fn set_default_grapheme_cluster(&mut self, v: Option<bool>) -> Result<&mut Self> {
+        self.set_optional(Opt::DEFAULT_GRAPHEME_CLUSTER, v.as_ref())?;
+        Ok(self)
+    }
+
     /// The current 256-color palette.
     pub fn color_palette(&self) -> Result<Palette> {
         self.get::<RawPalette>(Data::COLOR_PALETTE)
