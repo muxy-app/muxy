@@ -57,6 +57,7 @@ pub(super) const CAIRO_FORMAT_RGB24: c_int = 1;
 pub(super) const LOAD_STARTED: c_int = 0;
 pub(super) const LOAD_COMMITTED: c_int = 2;
 pub(super) const LOAD_FINISHED: c_int = 3;
+pub(super) const HARDWARE_ACCELERATION_NEVER: c_int = 2;
 pub(super) const POLICY_NAVIGATION_ACTION: c_int = 0;
 pub(super) const POLICY_RESPONSE: c_int = 2;
 pub(super) const INJECT_ALL_FRAMES: c_int = 0;
@@ -425,6 +426,7 @@ libraries! {
         fn webkit_web_view_go_forward(view: gpointer);
         fn webkit_web_view_reload(view: gpointer);
         fn webkit_web_view_get_settings(view: gpointer) -> gpointer;
+        fn webkit_settings_set_hardware_acceleration_policy(settings: gpointer, policy: c_int);
         fn webkit_settings_set_enable_developer_extras(settings: gpointer, enabled: gboolean);
         fn webkit_web_view_get_inspector(view: gpointer) -> gpointer;
         fn webkit_web_inspector_get_web_view(inspector: gpointer) -> gpointer;

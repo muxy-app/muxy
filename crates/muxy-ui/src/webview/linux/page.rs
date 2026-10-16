@@ -47,6 +47,9 @@ macro_rules! callback {
 pub(super) mod browser;
 mod input;
 
+#[cfg(test)]
+mod tests;
+
 /// What a page is created from.
 pub(super) struct Setup {
     pub(super) id: u64,
@@ -467,6 +470,10 @@ unsafe fn web_view(g: &Api, context: gpointer, data: usize, browser: bool) -> (g
                     manager,
                 ),
             ],
+        );
+        g.webkit_settings_set_hardware_acceleration_policy(
+            g.webkit_web_view_get_settings(view),
+            ffi::HARDWARE_ACCELERATION_NEVER,
         );
         connect_view(g, view, data);
         // Starting a drag makes GTK ask the desktop to move a window that is
