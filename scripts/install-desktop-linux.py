@@ -362,6 +362,23 @@ def fetch(url, output, limit):
     return total
 
 
+def latest(release_channel):
+    import io
+    url = (f"{RELEASES}/beta-2.x/update.json" if release_channel == "beta"
+           else "https://github.com/muxy-app/muxy/releases/latest/download/update.json")
+    metadata = io.BytesIO()
+    fetch(url, metadata, 65536)
+    feed = json.loads(metadata.getvalue())
+    version = feed["version"]
+    if feed.get("schema") != 1 or channel(version) != release_channel:
+        raise ValueError("Unexpected release channel metadata")
+    key = "linux-aarch64" if architecture() == "arm64" else "linux-x86_64"
+    if key not in feed.get("platforms", {}):
+        raise ValueError(f"The latest {release_channel} release has no Linux desktop for this architecture. "
+                         "Use --channel beta to opt into beta releases, or --version to select a desktop release.")
+    return version
+
+
 def download(version, directory):
     import io
     metadata = io.BytesIO()
@@ -383,7 +400,8 @@ def download(version, directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("install", "stage", "verify", "prune", "discard", "activate", "restart", "uninstall"))
-    parser.add_argument("--version")
+    parser.add_argument("--version", help="Exact release; otherwise install the latest release in the selected channel")
+    parser.add_argument("--channel", choices=("stable", "beta"), help="Channel for install (default: stable)")
     parser.add_argument("--root", type=Path)
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--sha256")
@@ -392,6 +410,16 @@ def main():
     args = parser.parse_args()
     if platform.system() != "Linux" or os.getuid() == 0:
         raise ValueError("Run as your normal user on Linux, without sudo")
+    if args.channel and args.command != "install":
+        raise ValueError("--channel is only used for install")
+    if args.command == "install":
+        if args.archive and not args.version:
+            raise ValueError("An offline archive requires --version and --sha256")
+        if not args.version:
+            args.version = latest(args.channel or "stable")
+        if args.channel and channel(args.version) != args.channel:
+            raise ValueError("The version does not belong to the selected channel")
+        print(f"Installing Muxy {args.version} for Linux {architecture()}…", flush=True)
     if args.command in {"install", "stage", "verify", "discard", "activate", "restart"}:
         channel(args.version or "")
     root = args.root or (default_root(args.version) if args.command == "install" else Path(__file__).resolve().parent.parent.parent)

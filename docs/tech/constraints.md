@@ -52,6 +52,26 @@ has:
 - content processes outside WebKit's sandbox where the system forbids the
   sandbox, as Ubuntu 24.04 does for an app without an AppArmor profile.
 
+On Ubuntu, download `muxy-desktop.apparmor` from the
+[latest stable release](https://github.com/muxy-app/muxy/releases/latest) to allow
+WebKit's sandbox at the default installation paths for all three Linux formats.
+An administrator can install it:
+
+```sh
+sudo install -m 644 muxy-desktop.apparmor /etc/apparmor.d/muxy-desktop
+sudo apparmor_parser -r /etc/apparmor.d/muxy-desktop
+```
+
+Adjust its attachment paths for a custom `XDG_DATA_HOME`, then fully quit and
+reopen Muxy. The profile permits user-namespace creation; it does not confine
+the whole terminal app. Installers do not change system security settings.
+Remove the optional profile only when no installed channel or format needs it.
+
+Rendering needs a working Vulkan 1.1 driver and the extensions required by
+GPUI's Blade renderer. Use your GPU vendor's driver and your desktop's portal
+backend: `xdg-desktop-portal-gnome`, `xdg-desktop-portal-kde` or
+`xdg-desktop-portal-gtk`.
+
 SF Symbols exist only on macOS. Linux draws a symbol from a bundled icon when
 there is one, and an extension's symbol without one as the extension icon.
 
@@ -98,8 +118,11 @@ uses at most four CPU threads and times out after ten minutes. One dictation
 session can run in the app at a time. macOS keeps its native speech service and
 resolves language selections imported from Linux to installed speech locales.
 
-User-installed Linux releases use a versioned installation with an atomic
-`current` link, verified downloads and the shared session-compatibility rules.
+Linux releases installed with the user-local installer use a versioned installation
+with an atomic `current` link, verified downloads and the shared session-compatibility
+rules. Debian packages are managed by APT; AppImages are replaced manually. Neither
+uses the in-app updater. AppImages retain a private, unpacked copy so background
+servers and CLI commands do not depend on a temporary FUSE mount.
 See [Linux desktop installation and updates](../user-guide/linux.md). The
 package baseline is Ubuntu 24.04 and glibc 2.39; this does not change the
 standalone CLI/server floor of 2.35.

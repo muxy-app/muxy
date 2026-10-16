@@ -63,8 +63,8 @@ jobs:
         run: |
           python3 scripts/release.py promote "$BETA_TAG" "$VERSION" "$NEXT" >> "$GITHUB_OUTPUT"
           SOURCE="$(git rev-parse --verify "refs/tags/$BETA_TAG^{commit}")"
-          if ! git cat-file -e "$SOURCE:scripts/build-desktop-release-linux.sh"; then
-            echo "Error: release a beta with Linux desktop packaging before promoting it" >&2
+          if ! git cat-file -e "$SOURCE:scripts/linux_packages.py"; then
+            echo "Error: release a beta with AppImage and Debian packaging before promoting it" >&2
             exit 1
           fi
           if [[ "$(gh release view "$BETA_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '.isPrerelease and (.isDraft | not)')" != true ]]; then

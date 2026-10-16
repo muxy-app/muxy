@@ -244,6 +244,23 @@ class DesktopDistributionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "insecure"):
             INSTALL.HTTPSRedirectHandler().redirect_request(request, None, 302, "redirect", {}, "http://example.com/archive")
 
+    def test_latest_install_uses_existing_feeds_without_switching_channels_or_selecting_cli_only_releases(self):
+        def feed(version, platforms):
+            return json.dumps({"schema": 1, "version": version, "platforms": platforms}).encode()
+        for selected, version, url in (
+                ("stable", "2.2.0", "https://github.com/muxy-app/muxy/releases/latest/download/update.json"),
+                ("beta", self.new, f"{INSTALL.RELEASES}/beta-2.x/update.json")):
+            def fetch(actual_url, output, limit):
+                self.assertEqual(actual_url, url)
+                output.write(feed(version, {"linux-aarch64": {}}))
+            with patch.object(INSTALL, "fetch", side_effect=fetch):
+                self.assertEqual(INSTALL.latest(selected), version)
+        for data, reason in ((feed("2.2.0", {"macos-aarch64": {}}), "no Linux desktop"),
+                             (feed(self.new, {"linux-aarch64": {}}), "channel metadata")):
+            with patch.object(INSTALL, "fetch", side_effect=lambda url, output, limit: output.write(data)):
+                with self.assertRaisesRegex(ValueError, reason):
+                    INSTALL.latest("stable")
+
     def test_linux_metadata_is_complete_checksummed_and_keeps_macos_assets(self):
         for name in (f"Muxy-{self.new}-arm64.dmg", f"Muxy-{self.new}-x86_64.dmg",
                      f"muxy-desktop-{self.new}-linux-arm64.tar.gz", f"muxy-desktop-{self.new}-linux-x86_64.tar.gz"):

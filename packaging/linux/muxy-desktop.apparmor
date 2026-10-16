@@ -7,3 +7,11 @@ include <tunables/global>
 profile muxy-desktop @{HOME}/.local/share/muxy-desktop{,-beta}/versions/*/muxy-app flags=(unconfined) {
     userns,
 }
+
+profile muxy-desktop-package /usr/lib/muxy-desktop{,-beta}/muxy-app flags=(unconfined) {
+    userns,
+}
+
+profile muxy-desktop-appimage @{HOME}/.local/share/muxy-appimage/*/usr/bin/muxy-app flags=(unconfined) {
+    userns,
+}

@@ -227,7 +227,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y
           build-essential pkg-config clang cmake binutils libfontconfig1-dev libfreetype-dev
           libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev
-          libssl-dev libwebkit2gtk-4.1-0
+          libssl-dev libwebkit2gtk-4.1-0 curl dpkg-dev file desktop-file-utils
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
@@ -248,23 +248,15 @@ jobs:
         run: >-
           python3 scripts/verify-desktop-linux.py
           "$PACKAGE_DIR/muxy-desktop-$VERSION-linux-$ARCH.tar.gz" --version "$VERSION"
-      - name: Verify the package with only declared Ubuntu runtime libraries
-        run: |
-          docker run --rm -v "$PWD:/src:ro" -e VERSION -e ARCH ubuntu:24.04 bash -euc '
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-              python3 ca-certificates libfreetype6 libfontconfig1 libxcb1 \
-              libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libvulkan1 \
-              libwebkit2gtk-4.1-0 xdg-utils xdg-desktop-portal bubblewrap xdg-dbus-proxy
-            useradd --create-home package-check
-            runuser -u package-check -- python3 /src/scripts/verify-desktop-linux.py \
-              "/src/target/packages/$VERSION/linux-desktop-$ARCH/muxy-desktop-$VERSION-linux-$ARCH.tar.gz" \
-              --version "$VERSION"
-          '
+      - name: Verify APT dependencies, package lifecycle, AppImage and the user-local installer
+        run: bash scripts/verify-desktop-runtime.sh "$VERSION" "$ARCH" "$PACKAGE_DIR"
       - uses: actions/upload-artifact@v4
         with:
           name: distribution-linux-desktop-${{ matrix.arch }}
-          path: ${{ env.PACKAGE_DIR }}/muxy-desktop-${{ env.VERSION }}-linux-${{ matrix.arch }}.tar.gz
+          path: |
+            ${{ env.PACKAGE_DIR }}/muxy-desktop-${{ env.VERSION }}-linux-${{ matrix.arch }}.tar.gz
+            ${{ env.PACKAGE_DIR }}/Muxy-${{ env.VERSION }}-linux-${{ matrix.arch }}.AppImage
+            ${{ env.PACKAGE_DIR }}/muxy-desktop*.deb
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@v4

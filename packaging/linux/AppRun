@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+fail() { printf 'Muxy: %s\n' "$*" >&2; exit 1; }
+HERE=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
+case "${1:-}" in
+    --build-info) exec "$HERE/usr/bin/muxy-app" "$@" ;;
+    --version) exec "$HERE/usr/bin/muxy" "$@" ;;
+esac
+if [ "${1:-}" = --cli ]; then
+    case "${2:-}" in
+        --build-info|--version|--help) shift; exec "$HERE/usr/bin/muxy" "$@" ;;
+    esac
+fi
+[ "$(id -u)" != 0 ] || fail 'Run the AppImage as your normal user, without sudo.'
+UMASK=$(umask)
+umask 077
+DATA=${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}
+case "$DATA" in /*) ;; *) fail 'XDG_DATA_HOME must be absolute.' ;; esac
+STORE=$DATA/muxy-appimage
+[ ! -L "$STORE" ] || fail 'The AppImage data directory must not be a symlink.'
+mkdir -p -m 700 "$STORE"
+[ "$(stat -c %u "$STORE")" = "$(id -u)" ] && [ "$(stat -c %a "$STORE")" = 700 ] \
+    || fail 'The AppImage data directory must be private and owned by you.'
+ID=$(cat "$HERE/bundle-id")
+case "$ID" in ''|*[!0-9a-f]*) fail 'Invalid AppImage bundle identity.' ;; esac
+[ "${#ID}" = 64 ] || fail 'Invalid AppImage bundle identity.'
+BUNDLE=$STORE/$ID
+exec 9>"$STORE/.lock"
+flock 9
+[ ! -L "$BUNDLE" ] || fail 'The unpacked bundle must not be a symlink.'
+if [ ! -d "$BUNDLE" ]; then
+    STAGE=$(mktemp -d "$STORE/.stage-XXXXXX")
+    trap 'rm -rf -- "$STAGE"' EXIT
+    trap 'exit 1' HUP INT TERM
+    cp -a -- "$HERE/." "$STAGE/"
+    mv -- "$STAGE" "$BUNDLE"
+    trap - EXIT HUP INT TERM
+fi
+flock -u 9
+exec 9>&-
+umask "$UMASK"
+unset APPDIR APPIMAGE ARGV0 OWD
+case "${1:-}" in
+    --cli) shift; exec "$BUNDLE/usr/bin/muxy" "$@" ;;
+esac
+exec "$BUNDLE/usr/bin/muxy-app" "$@"

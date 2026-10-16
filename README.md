@@ -5,7 +5,7 @@
 <h1 align="center">Muxy</h1>
 
 <p align="center">Lightweight and Memory efficient terminal multiplexer built with Rust, GPUI and libghostty.</p>
-<p align="center"><a href="#install">Mac</a> | <a href="https://apps.apple.com/de/app/muxy/id6762464046?l=en-GB">iOS</a> | <a href="https://play.google.com/store/apps/details?id=com.muxy.app">Android</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
+<p align="center"><a href="#install">Mac</a> | <a href="docs/user-guide/linux.md">Linux</a> | <a href="https://apps.apple.com/de/app/muxy/id6762464046?l=en-GB">iOS</a> | <a href="https://play.google.com/store/apps/details?id=com.muxy.app">Android</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
 
 ## Screenshots
 
@@ -33,8 +33,11 @@ brew install --cask muxy-app/tap/muxy
 
 Or download the DMG for your Mac from the [latest release](https://github.com/muxy-app/muxy/releases/latest).
 
-Experimental [Linux desktop packages](docs/user-guide/linux.md) target Ubuntu
-24.04 on x86_64 and ARM64, with separate stable/beta installs and in-app updates.
+On **Ubuntu 24.04**, use the [quick installer](docs/user-guide/linux.md#quick-installer-with-in-app-updates)
+for the latest stable release and in-app updates, or download a **`.deb`** or
+**AppImage** from the [latest release](https://github.com/muxy-app/muxy/releases/latest).
+The [Linux guide](docs/user-guide/linux.md) covers all three formats and optional
+beta installs. Linux support is experimental, targeting x86_64 and ARM64.
 
 The `muxy` CLI and server also run on their own, on macOS and Linux:
 

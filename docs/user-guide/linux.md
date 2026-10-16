@@ -1,128 +1,105 @@
 # Linux desktop
 
-The Linux desktop release targets **Ubuntu 24.04 on x86_64 and ARM64**, with
-glibc 2.39 or newer. Packages for both architectures are built natively.
-ARM64 has been exercised in a VM; x86_64, hardware GPUs and the full desktop
-acceptance list still need validation. Other distributions, musl and Alpine
-are not supported by this desktop package. The separate CLI/server downloads
-keep their glibc 2.35 requirement.
+Linux packages target **Ubuntu 24.04 on x86_64 and ARM64**, with glibc 2.39 or
+newer and a working Vulkan driver. Linux support is experimental; see
+[platform limits and WebKit sandbox setup](../tech/constraints.md#experimental-linux-desktop).
+Choose one installation format per channel to avoid conflicting CLI commands.
 
-Wayland and native X11 are available. Rendering needs a working Vulkan driver
-with Vulkan 1.1 and the extensions required by GPUI's Blade renderer. A software
-renderer can run the app, but does not establish hardware performance. GNOME
-Wayland currently uses the app's fallback window buttons and cannot resize
-from its edges. Quick Terminal works on native X11; it is unavailable on
-Wayland and XWayland. See the [platform limits](../tech/constraints.md#experimental-linux-desktop)
-for clipboard, extension-page input and voice requirements.
+## Quick installer with in-app updates
 
-## Install
-
-Install the system libraries on Ubuntu 24.04:
+Install the Ubuntu dependencies once:
 
 ```sh
-sudo apt-get update
-sudo apt-get install python3 ca-certificates libfreetype6 libfontconfig1 libxcb1 \
+sudo apt update
+sudo apt install curl python3 ca-certificates libfreetype6 libfontconfig1 libxcb1 \
   libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libvulkan1 mesa-vulkan-drivers \
   libwebkit2gtk-4.1-0 xdg-utils xdg-desktop-portal bubblewrap xdg-dbus-proxy
 ```
 
-Use your desktop's portal backend too: `xdg-desktop-portal-gnome`,
-`xdg-desktop-portal-kde` or `xdg-desktop-portal-gtk`. Use your GPU vendor's
-Vulkan driver where appropriate. WebKitGTK 4.1, version 2.40 or newer, is
-required for extensions; the integrated browser needs version 2.42 or newer. Voice is optional and needs the additional
-[local transcription tools and models](../tech/constraints.md#experimental-linux-desktop).
-
-Choose a release containing `muxy-desktop-<version>-linux-<arch>.tar.gz` from
-the [release downloads](https://github.com/muxy-app/muxy/releases). Set
-`VERSION` to its version without `v`; use `X.Y.Z-beta.N` for the beta.
+Then install the **latest stable release**. The installer detects your
+architecture and verifies the download. Run it as your normal user, without `sudo`:
 
 ```sh
-VERSION=2.1.0
-curl -fL --proto '=https' --proto-redir '=https' \
-  "https://github.com/muxy-app/muxy/releases/download/v$VERSION/install-desktop-linux.py" \
-  -o install-desktop-linux.py
-python3 install-desktop-linux.py install --version "$VERSION"
+curl -fsSL --proto '=https' --proto-redir '=https' \
+  https://github.com/muxy-app/muxy/releases/latest/download/install-desktop-linux.py \
+  | python3 - install
 ```
 
-Run the installer as your normal user, without `sudo`. It selects the native
-architecture, downloads the archive over HTTPS, verifies its SHA-256 against
-that release's metadata, and checks that the app, CLI and server report the
-same build. It does not open the app or start a server.
+Open **Muxy** from Applications. By default, the app, CLI and server install into
+`~/.local/share/muxy-desktop`. Add `~/.local/bin` to your shell's `PATH` to use
+`muxy <folder>` from a terminal.
 
-Open **Muxy** or **Muxy Beta** from your desktop's Applications menu. No terminal
-environment or development tools are needed. The installations are separate:
+## Debian package
 
-| Channel | Installation | Shell commands |
-| --- | --- | --- |
-| Stable | `~/.local/share/muxy-desktop` | `~/.local/bin/muxy`, `~/.local/bin/muxy-server` |
-| Beta | `~/.local/share/muxy-desktop-beta` | `~/.local/bin/muxy-beta`, `~/.local/bin/muxy-server-beta` |
-
-`XDG_DATA_HOME`, when set to an absolute path, replaces `~/.local/share`.
-Settings and session data stay in Muxy's existing profile, outside these
-installation directories. An existing command belonging to another installation
-is kept, with a message showing the bundled command's full path.
-
-Add `~/.local/bin` to your shell's `PATH`. Use `muxy <folder>` or
-`muxy-beta <folder>` to open a project. **Install Command Line Tool…** in the
-command palette can also link the running app's CLI as `muxy`, provided that
-name is free or already managed by the app.
-
-## Updates and recovery
-
-The app checks automatically, and **Check for Updates** checks immediately.
-Stable installs receive stable releases; beta installs receive betas. The
-updater verifies the archive checksum, file hashes, architecture and matching
-helper versions before replacing anything. It uses the same server protocol
-and session rules as macOS: compatible running sessions continue; an
-incompatible update waits until sessions end or asks before ending them.
-Canceling that confirmation leaves the installation and sessions untouched.
-
-Each release has its own directory. Switching the `current` link replaces the
-app and both helpers together. Restart setup failures and immediate startup
-failures restore the previous link. One previous release is retained for
-recovery, along with older versions still in use by apps, CLIs or servers.
-Unused older versions are removed when the app connects to its server.
-The app's profile selection is inherited when it restarts.
-
-Updates do not write to `/usr`, replace package-manager files or change
-standalone CLI installations. Development builds and manually unpacked
-archives do not enable automatic updates. Use the installer for desktop
-integration and updates. If an installation is damaged, quit the app and
-stop its server, uninstall as below, then install again; profile data stays.
-
-## WebKit sandbox on Ubuntu
-
-Ubuntu restricts unprivileged user namespaces. The app probes whether WebKit's
-sandbox can start and uses the existing unsandboxed fallback when it cannot.
-The release includes `muxy-desktop.apparmor` to permit the sandbox for the
-default installation paths, following Ubuntu's
-[application-profile guidance](https://documentation.ubuntu.com/release-notes/24.04/).
-An administrator can install it:
+Download `muxy-desktop_<version>_amd64.deb` or
+`muxy-desktop_<version>_arm64.deb` from the
+[latest stable release](https://github.com/muxy-app/muxy/releases/latest).
+Use `dpkg --print-architecture` to check which you need. In your download directory:
 
 ```sh
-sudo install -m 644 muxy-desktop.apparmor /etc/apparmor.d/muxy-desktop
-sudo apparmor_parser -r /etc/apparmor.d/muxy-desktop
+sudo apt install './muxy-desktop_<version>_amd64.deb'
 ```
 
-Download the profile from the same release, adapt its attachment path if using
-a custom `XDG_DATA_HOME`, and fully quit and reopen the app after loading it.
-This profile grants user-namespace creation; WebKit provides the page sandbox.
-It does not confine the whole terminal app. The user-local installer does not
-change system security settings.
+Replace the filename with your download. APT installs the dependencies and adds
+**Muxy** to Applications, with `muxy` and `muxy-server` in `/usr/bin`.
 
-## Uninstall
+## AppImage
 
-Quit the app and stop its local server first. Stopping the server ends its
-running terminals. For stable:
+Install the [runtime libraries above](#quick-installer-with-in-app-updates), then
+download `Muxy-<version>-linux-x86_64.AppImage` or
+`Muxy-<version>-linux-arm64.AppImage` from the
+[latest stable release](https://github.com/muxy-app/muxy/releases/latest).
+Use `uname -m` to check: `aarch64` means ARM64. Replace the filename below with
+your download and run it without `sudo`:
 
 ```sh
-python3 "${XDG_DATA_HOME:-$HOME/.local/share}/muxy-desktop/current/install.py" uninstall
+chmod +x './Muxy-<version>-linux-x86_64.AppImage'
+'./Muxy-<version>-linux-x86_64.AppImage'
 ```
 
-For beta, replace `muxy-desktop` with `muxy-desktop-beta`. Removal refuses to
-proceed while an installed app, CLI or server is using any version. It removes
-the installation, its unchanged desktop entry and only CLI links pointing into
-that installation. Settings, projects, sessions, extensions and unrelated CLI
-files are preserved. An administrator can separately remove the optional
-AppArmor profile when neither channel is installed.
+AppImage uses **system WebKitGTK**, not a bundled browser engine. If FUSE is
+unavailable, append `--appimage-extract-and-run` when launching it.
 
+Muxy keeps an unpacked copy in
+`${XDG_DATA_HOME:-$HOME/.local/share}/muxy-appimage/<bundle-id>` so terminals can
+keep running after the window closes. This takes extra disk space. Use
+`./Muxy-<version>-linux-x86_64.AppImage --cli <arguments>` for the bundled CLI,
+or choose **Install Command Line Tool…** in the app to link it into `~/.local/bin`.
+
+## Beta
+
+To install the latest beta, append `--channel beta` to the quick-installer
+command. For `.deb` or AppImage, choose a beta from the
+[releases page](https://github.com/muxy-app/muxy/releases).
+Beta installs as **Muxy Beta** alongside stable, with separate settings and sessions.
+The quick installer and Debian package provide `muxy-beta` and `muxy-server-beta` commands.
+
+## Updates
+
+- **Quick installer:** the app checks automatically; **Check for Updates** checks
+  now. Stable installs stay on stable; beta installs stay on beta.
+- **Debian package:** download the newer `.deb` and install it with `sudo apt install`.
+  Stop the server and quit Muxy first. There is no Muxy APT repository, so
+  `apt upgrade` alone does not update Muxy.
+- **AppImage:** download and run the newer file. If you linked the CLI, choose
+  **Install Command Line Tool…** again from the new app.
+
+Debian packages and AppImages do not use the in-app updater.
+
+## Remove
+
+Stop the local server in **Settings → Server**, then quit Muxy. Stopping the
+server ends its running terminals. Removal keeps your settings, projects and
+saved session data.
+
+- **Quick installer:** run the command below. For beta, replace `muxy-desktop`
+  with `muxy-desktop-beta`.
+
+  ```sh
+  python3 "${XDG_DATA_HOME:-$HOME/.local/share}/muxy-desktop/current/install.py" uninstall
+  ```
+
+- **Debian package:** run `sudo apt remove muxy-desktop` (or `muxy-desktop-beta`).
+- **AppImage:** delete the downloaded file, its matching unpacked copy listed
+  above, and any CLI link pointing into that copy. Do not delete a copy still
+  used by another running app or server.

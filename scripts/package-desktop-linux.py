@@ -12,7 +12,7 @@ from pathlib import Path
 from release import ROOT, build_metadata, channel, check_build
 
 
-def package(version, arch, binaries, output):
+def package(version, arch, binaries, output, native_formats=False, tools=None):
     release_channel = channel(version)
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"muxy-desktop-{version}-linux-{arch}.tar.gz"
@@ -56,6 +56,10 @@ def package(version, arch, binaries, output):
                 info.mode = 0o755 if path.name in {"muxy-app", "muxy", "muxy-server"} else 0o644
                 with path.open("rb") as source:
                     target.addfile(info, source)
+        if native_formats:
+            from linux_packages import package_appimage, package_deb
+            package_deb(version, arch, directory, output)
+            package_appimage(version, arch, directory, output, tools or output / "appimage-tools")
     print(archive)
 
 
@@ -65,5 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("arch", choices=("arm64", "x86_64"))
     parser.add_argument("binaries", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--native-formats", action="store_true", help="Also build Debian and AppImage packages on Ubuntu 24.04")
+    parser.add_argument("--tools", type=Path, help="Cache of checksummed AppImage build tools")
     args = parser.parse_args()
-    package(args.version, args.arch, args.binaries, args.output)
+    package(args.version, args.arch, args.binaries, args.output, args.native_formats, args.tools)

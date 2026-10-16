@@ -41,7 +41,8 @@ for BINARY in muxy-app muxy muxy-server; do
     python3 scripts/audit-linux.py --desktop --target "$TARGET" "$STAGING/bin/$BINARY" \
         > "$STAGING/artifacts/desktop-$BINARY-audit.txt"
 done
-python3 scripts/package-desktop-linux.py "$VERSION" "$ARCH" "$STAGING/bin" "$STAGING/artifacts"
+python3 scripts/package-desktop-linux.py "$VERSION" "$ARCH" "$STAGING/bin" "$STAGING/artifacts" \
+    --native-formats --tools "$CARGO_TARGET_DIR/appimage-tools"
 tar -czf "$STAGING/artifacts/muxy-desktop-${VERSION}-linux-${ARCH}-symbols.tar.gz" -C "$STAGING/symbols" .
 mv "$STAGING/artifacts" "$OUTPUT"
 echo "Built $OUTPUT"

@@ -30,9 +30,15 @@ keep going through most updates.
 
 ## Linux desktop app
 
-See [Linux desktop](linux.md) for system libraries, the user-local installer,
-stable and beta channels, in-app updates and removal. Linux desktop packages
-require glibc 2.39; standalone CLI/server packages retain the lower floor below.
+On Ubuntu 24.04, the [quick installer](linux.md#quick-installer-with-in-app-updates)
+selects the latest **stable** release for your architecture and supports in-app
+updates. Alternatively, download a **`.deb` package** or **AppImage** from the
+[latest stable release](https://github.com/muxy-app/muxy/releases/latest).
+All three include the desktop app, CLI and server, on x86_64 and ARM64.
+
+See [Linux desktop](linux.md) for install commands, optional beta builds, updates
+and removal. Desktop packages require glibc 2.39; standalone CLI/server packages
+retain the lower floor below.
 
 ## CLI and server only
 
