@@ -244,7 +244,7 @@ impl AppModel {
                 is_resizable: false,
                 is_minimizable: false,
                 window_background: model.appearance.background,
-                ..Default::default()
+                ..crate::window_options()
             };
             let panel = cx
                 .open_window(options, |window, cx| {

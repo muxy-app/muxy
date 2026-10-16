@@ -221,6 +221,32 @@ class DesktopDistributionTests(unittest.TestCase):
         self.assertEqual(unrelated.read_text(), "unrelated CLI")
         self.assertEqual((profile / "settings.toml").read_text(), "keep me")
 
+    def test_appimage_updates_its_launcher_without_overwriting_other_formats_or_channels(self):
+        store = self.home / "data/muxy-appimage"
+        old, new = store / ("a" * 64), store / ("b" * 64)
+        old.mkdir(parents=True)
+        new.mkdir()
+        INSTALL.integrate_appimage(old, self.old)
+        entry, old_contents = INSTALL.desktop_entry(old, self.old, appimage=True)
+        self.assertEqual(entry.read_text(), old_contents)
+        INSTALL.integrate_appimage(new, self.new)
+        self.assertEqual(entry.read_text(), INSTALL.desktop_entry(new, self.new, appimage=True)[1])
+        self.assertIn(f'Exec="{new}/usr/bin/muxy-app" %F', entry.read_text())
+        self.assertIn(f"Icon={new}/com.muxy-beta.app.png", entry.read_text())
+        INSTALL.integrate_appimage(new, "2.2.0")
+        stable, stable_contents = INSTALL.desktop_entry(new, "2.2.0", appimage=True)
+        self.assertEqual(stable.read_text(), stable_contents)
+        for unrelated in (old_contents + "X-User-Customized=true\n", INSTALL.desktop_entry(self.root, self.old)[1]):
+            entry.write_text(unrelated)
+            INSTALL.integrate_appimage(new, self.new)
+            self.assertEqual(entry.read_text(), unrelated)
+            self.assertEqual(stable.read_text(), stable_contents)
+        entry.unlink()
+        entry.symlink_to(stable)
+        INSTALL.integrate_appimage(new, self.new)
+        self.assertTrue(entry.is_symlink())
+        self.assertEqual(stable.read_text(), stable_contents)
+
     def test_symlinked_installation_and_competing_mutations_are_rejected(self):
         link = self.home / "linked"
         link.symlink_to(self.root)

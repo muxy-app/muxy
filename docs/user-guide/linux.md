@@ -57,8 +57,9 @@ chmod +x './Muxy-<version>-linux-x86_64.AppImage'
 './Muxy-<version>-linux-x86_64.AppImage'
 ```
 
-AppImage uses **system WebKitGTK**, not a bundled browser engine. If FUSE is
-unavailable, append `--appimage-extract-and-run` when launching it.
+The first launch adds **Muxy** to Applications with its app icon. AppImage uses
+**system WebKitGTK**, not a bundled browser engine. If FUSE is unavailable,
+append `--appimage-extract-and-run` when launching it.
 
 Muxy keeps an unpacked copy in
 `${XDG_DATA_HOME:-$HOME/.local/share}/muxy-appimage/<bundle-id>` so terminals can
@@ -81,8 +82,9 @@ The quick installer and Debian package provide `muxy-beta` and `muxy-server-beta
 - **Debian package:** download the newer `.deb` and install it with `sudo apt install`.
   Stop the server and quit Muxy first. There is no Muxy APT repository, so
   `apt upgrade` alone does not update Muxy.
-- **AppImage:** download and run the newer file. If you linked the CLI, choose
-  **Install Command Line Tool…** again from the new app.
+- **AppImage:** quit the app, then download and run the newer file. Running
+  terminals stay alive. If you linked the CLI, choose **Install Command Line Tool…**
+  again from the new app.
 
 Debian packages and AppImages do not use the in-app updater.
 
@@ -101,5 +103,7 @@ saved session data.
 
 - **Debian package:** run `sudo apt remove muxy-desktop` (or `muxy-desktop-beta`).
 - **AppImage:** delete the downloaded file, its matching unpacked copy listed
-  above, and any CLI link pointing into that copy. Do not delete a copy still
-  used by another running app or server.
+  above, and any CLI link or Applications entry pointing into that copy. The entry
+  is in `${XDG_DATA_HOME:-$HOME/.local/share}/applications/com.muxy.app.desktop`
+  (`com.muxy-beta.app.desktop` for beta). Do not delete a copy still used by
+  another running app or server.

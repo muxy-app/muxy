@@ -69,7 +69,7 @@ def package_deb(version, arch, payload, output):
                                 (f"muxy-server{suffix}", "muxy-server")):
             (commands / command).symlink_to(f"../lib/{package}/{binary}")
         write(root / f"usr/share/applications/{identifier}.desktop", desktop_entry(version, package))
-        copy(payload / "icon.png", root / f"usr/share/icons/hicolor/1024x1024/apps/{identifier}.png")
+        copy(payload / "icon.png", root / f"usr/share/pixmaps/{identifier}.png")
         copy(payload / "LICENSE", root / f"usr/share/doc/{package}/copyright")
         size = sum(path.stat().st_size for path in root.rglob("*") if path.is_file() and not path.is_symlink())
         write(root / "DEBIAN/control", (
@@ -190,6 +190,8 @@ def package_appimage(version, arch, payload, output, tools_directory):
         shutil.copytree("/usr/share/common-licenses", root / "usr/share/common-licenses")
         write(root / "usr/share/doc/muxy/bundled-sources.json", json.dumps(sources, indent=2) + "\n")
         copy(ROOT / "packaging/linux/AppRun", root / "AppRun", 0o755)
+        copy(payload / "install.py", root / "install.py")
+        write(root / "version", version + "\n")
         write(root / "bundle-id", bundle_identity(root) + "\n")
         subprocess.run([str(appimagetool / "AppRun"), "--no-appstream", "--runtime-file", str(tools["runtime"]),
                         str(root), str(archive)], env=env, check=True)

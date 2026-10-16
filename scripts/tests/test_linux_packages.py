@@ -73,6 +73,8 @@ class LinuxPackageTests(unittest.TestCase):
             bins = appdir / "usr/bin"
             bins.mkdir(parents=True)
             shutil.copyfile(ROOT / "packaging/linux/AppRun", appdir / "AppRun")
+            shutil.copyfile(ROOT / "scripts/install-desktop-linux.py", appdir / "install.py")
+            (appdir / "version").write_text("2.2.0-beta.10\n")
             (appdir / "bundle-id").write_text("a" * 64 + "\n")
             (bins / "muxy-app").write_text('#!/bin/sh\nHERE=$(dirname "$0")\nexec "${MUXY_SERVER_BIN:-$HERE/muxy-server}" "$@"\n')
             (bins / "muxy-server").write_text('#!/bin/sh\nprintf "%s\\n" "$0"\nprintf "umask=%s\\n" "$(umask)"\nenv\n')

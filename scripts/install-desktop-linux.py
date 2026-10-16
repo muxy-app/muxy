@@ -290,17 +290,43 @@ def restart(root, version, previous, parent):
     subprocess.Popen([str(root / "current/muxy-app")], start_new_session=True)
 
 
-def desktop_entry(root, version):
+def desktop_entry(root, version, appimage=False):
     beta = channel(version) == "beta"
     identifier = "com.muxy-beta.app" if beta else "com.muxy.app"
     path = data_home() / "applications" / f"{identifier}.desktop"
-    executable = str(root / "current/muxy-app")
+    executable = str(root / ("usr/bin/muxy-app" if appimage else "current/muxy-app"))
     executable = executable.replace("\\", "\\\\\\\\").replace('"', '\\\\"').replace("`", "\\\\`").replace("$", "\\\\$").replace("%", "%%")
-    icon = str(root / "current/icon.png").replace("\\", "\\\\")
+    icon = str(root / (f"{identifier}.png" if appimage else "current/icon.png")).replace("\\", "\\\\")
     contents = (f"[Desktop Entry]\nType=Application\nName={'Muxy Beta' if beta else 'Muxy'}\n"
                 f'Exec="{executable}" %F\nIcon={icon}\nTerminal=false\nCategories=Development;TerminalEmulator;\n'
                 f"StartupWMClass={identifier}\n")
+    if appimage:
+        contents += f"X-Muxy-AppImage={root.name}\n"
     return path, contents
+
+
+def integrate_appimage(root, version):
+    if root.parent.resolve() != data_home() / "muxy-appimage" or not re.fullmatch(r"[0-9a-f]{64}", root.name):
+        raise ValueError("Invalid unpacked AppImage path")
+    owned_directory(root)
+    path, contents = desktop_entry(root, version, appimage=True)
+    if path.exists() or path.is_symlink():
+        previous = path.read_text() if path.is_file() and not path.is_symlink() else ""
+        if previous == contents:
+            return
+        owner = re.search(r"^X-Muxy-AppImage=([0-9a-f]{64})$", previous, re.MULTILINE)
+        if not owner or previous != desktop_entry(root.parent / owner[1], version, appimage=True)[1]:
+            print(f"Kept existing desktop entry {path}", file=sys.stderr)
+            return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            output.write(contents)
+            output.flush()
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def integrate(root, version):
@@ -399,7 +425,7 @@ def download(version, directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("install", "stage", "verify", "prune", "discard", "activate", "restart", "uninstall"))
+    parser.add_argument("command", choices=("install", "stage", "verify", "prune", "discard", "activate", "restart", "uninstall", "integrate-appimage"))
     parser.add_argument("--version", help="Exact release; otherwise install the latest release in the selected channel")
     parser.add_argument("--channel", choices=("stable", "beta"), help="Channel for install (default: stable)")
     parser.add_argument("--root", type=Path)
@@ -420,7 +446,7 @@ def main():
         if args.channel and channel(args.version) != args.channel:
             raise ValueError("The version does not belong to the selected channel")
         print(f"Installing Muxy {args.version} for Linux {architecture()}…", flush=True)
-    if args.command in {"install", "stage", "verify", "discard", "activate", "restart"}:
+    if args.command in {"install", "stage", "verify", "discard", "activate", "restart", "integrate-appimage"}:
         channel(args.version or "")
     root = args.root or (default_root(args.version) if args.command == "install" else Path(__file__).resolve().parent.parent.parent)
     if not root.is_absolute() or any(character in str(root) for character in "\n\r\0"):
@@ -429,6 +455,9 @@ def main():
         channel(args.current or "")
         if not args.pid or args.pid <= 1:
             raise ValueError("Missing updater process")
+    if args.command == "integrate-appimage":
+        integrate_appimage(root, args.version)
+        return
     if args.command == "restart":
         restart(root, args.version, args.current, args.pid)
         return

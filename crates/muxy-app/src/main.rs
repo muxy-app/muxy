@@ -194,7 +194,7 @@ fn run() -> ExitCode {
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(9.0), px(9.0))),
             }),
-            ..WindowOptions::default()
+            ..window_options()
         };
         if let Err(error) = cx.open_window(options, |window, cx| {
             #[cfg(target_os = "linux")]
@@ -245,6 +245,18 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
 
 fn app_name() -> &'static str {
     muxy_core::release::Channel::current().app_name()
+}
+
+fn window_options() -> WindowOptions {
+    WindowOptions {
+        #[cfg(target_os = "linux")]
+        app_id: Some(
+            muxy_core::release::Channel::current()
+                .bundle_identifier()
+                .into(),
+        ),
+        ..WindowOptions::default()
+    }
 }
 
 #[allow(clippy::too_many_lines, reason = "One native menu registration list")]

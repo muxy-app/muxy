@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,9 +21,41 @@ def module(name):
 
 HEADLESS = module("check-headless")
 AUDIT = module("audit-linux")
+SMOKE = module("smoke-headless")
 
 
 class HeadlessTests(unittest.TestCase):
+    def test_smoke_waits_for_the_restarted_servers_socket_not_its_retained_catalog(self):
+        profile = None
+
+        def start(command, *, env, **kwargs):
+            nonlocal profile
+            profile = Path(env["MUXY_DIR"])
+            server = Mock()
+            server.poll.return_value = None
+            server.wait.return_value = 0
+            server.send_signal.side_effect = lambda _: (profile / "server.sock").unlink(missing_ok=True)
+            return server
+
+        def ready(_):
+            for name in ("sessions/catalog.json", "server.log", "server.toml", "server.sock"):
+                path = profile / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch(mode=0o600)
+
+        def output(command, **kwargs):
+            if command[1].startswith("--"):
+                return "{}"
+            self.assertTrue((profile / "server.sock").exists(), "CLI used before the owned server was ready")
+            return "Home\n"
+
+        with patch.object(SMOKE.subprocess, "Popen", side_effect=start) as spawn, \
+                patch.object(SMOKE.subprocess, "check_output", side_effect=output), \
+                patch.object(SMOKE.time, "sleep", side_effect=ready) as wait:
+            SMOKE.smoke(Path("/unused/muxy"))
+        self.assertEqual(spawn.call_count, 2)
+        self.assertEqual(wait.call_count, 2)
+
     def test_zig_build_uses_baseline_cpu_and_preserves_other_arguments(self):
         with tempfile.TemporaryDirectory(prefix="zig test ") as temporary:
             zig = Path(temporary) / "real zig"

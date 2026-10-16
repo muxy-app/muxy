@@ -26,9 +26,9 @@ def smoke(binary):
                 server = subprocess.Popen([binary.with_name("muxy-server")], env=env, stdout=log, stderr=log)
                 try:
                     deadline = time.monotonic() + 10
-                    while not (profile / "sessions/catalog.json").exists():
+                    while not (profile / "server.sock").exists() or not (profile / "sessions/catalog.json").exists():
                         if server.poll() is not None or time.monotonic() >= deadline:
-                            raise RuntimeError("server did not create its catalog")
+                            raise RuntimeError("server did not become ready")
                         time.sleep(0.025)
                     listed = command("project", "list")
                     assert "Home" in listed

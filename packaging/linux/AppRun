@@ -37,6 +37,10 @@ if [ ! -d "$BUNDLE" ]; then
     mv -- "$STAGE" "$BUNDLE"
     trap - EXIT HUP INT TERM
 fi
+case "${1:-}" in
+    --cli) ;;
+    *) python3 "$BUNDLE/install.py" integrate-appimage --root "$BUNDLE" --version "$(cat "$BUNDLE/version")" ;;
+esac
 flock -u 9
 exec 9>&-
 umask "$UMASK"

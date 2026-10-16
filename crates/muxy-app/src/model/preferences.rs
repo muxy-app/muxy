@@ -115,7 +115,7 @@ impl AppModel {
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(14.0), px(16.0))),
             }),
-            ..WindowOptions::default()
+            ..crate::window_options()
         };
         match cx.open_window(options, move |window, cx| {
             #[cfg(target_os = "linux")]
