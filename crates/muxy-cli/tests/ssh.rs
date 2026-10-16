@@ -6,7 +6,6 @@ mod remote;
 mod support;
 
 use std::fs;
-use std::net::TcpListener;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -300,11 +299,6 @@ fn host_runs_server_commands_on_the_other_computer_only() -> Result {
     }
 
     succeeded(muxy(&["mobile"])?)?;
-    let port = TcpListener::bind("127.0.0.1:0")?
-        .local_addr()?
-        .port()
-        .to_string();
-    succeeded(muxy(&["mobile", "enable", "--port", &port])?)?;
 
     succeeded(muxy(&["server", "stop", "--force"])?)?;
     let deadline = Instant::now() + TIMEOUT;

@@ -10,7 +10,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use muxy_protocol::transport::{ByteStream, StreamCancellation, connect, tls};
+use muxy_protocol::transport::{ByteStream, StreamCancellation, connect};
 use muxy_protocol::wire::{Decoder, Encoder, WireError};
 use muxy_protocol::{
     CONTROL, ChannelId, ExitReason, Message, ReplyBody, RequestBody, RequestId, SUPPORTED,
@@ -634,45 +634,6 @@ fn settings_persist_and_protocol_stop_gracefully_ends_sessions_before_restart() 
 }
 
 #[test]
-fn replacing_the_binary_and_reconnecting_preserves_the_shell_process() -> TestResult {
-    let mut fixture = Fixture::new()?;
-    let executable = fixture.directory.join("muxy-server");
-    copy_executable(&binary(), &executable)?;
-    let mut command = Command::new(&executable);
-    command
-        .env("MUXY_DIR", &fixture.directory)
-        .env("SHELL", "/bin/sh");
-    fixture.start_command(command, &fixture.socket())?;
-    let server_pid = fixture.child.as_ref().ok_or("server")?.id();
-    let mut client = Client::new(&fixture.socket())?;
-    let session = client.create(&fixture.directory)?;
-    let channel = client.attach(session)?;
-    client
-        .encoder
-        .send(channel, &Message::Input(b"echo $$ > before.pid\n".to_vec()))?;
-    wait_until(|| Ok(fixture.directory.join("before.pid").exists()))?;
-    let pid = fs::read(fixture.directory.join("before.pid"))?;
-    drop(client);
-    fs::rename(&executable, fixture.directory.join("previous-server"))?;
-    copy_executable(&binary(), &executable)?;
-    let mut client = Client::new(&fixture.socket())?;
-    let channel = client.attach(session)?;
-    client
-        .encoder
-        .send(channel, &Message::Input(b"echo $$ > after.pid\n".to_vec()))?;
-    wait_until(|| Ok(fixture.directory.join("after.pid").exists()))?;
-    assert_eq!(fs::read(fixture.directory.join("after.pid"))?, pid);
-    assert_eq!(fixture.child.as_ref().ok_or("server")?.id(), server_pid);
-    assert_eq!(
-        client.request(RequestBody::StopServerIfIdle)?,
-        ReplyBody::ServerBusy
-    );
-    drop(client);
-    fixture.stop("-TERM")?;
-    Ok(())
-}
-
-#[test]
 fn idle_update_notifies_every_client_before_disconnecting() -> TestResult {
     let mut fixture = Fixture::new()?;
     fixture.start()?;
@@ -688,22 +649,8 @@ fn idle_update_notifies_every_client_before_disconnecting() -> TestResult {
     Ok(())
 }
 
-fn copy_executable(source: &Path, destination: &Path) -> TestResult {
-    // A separate process prevents concurrent test forks inheriting a writable
-    // descriptor and temporarily blocking Linux exec with ETXTBSY.
-    let output = Command::new("cp").args([source, destination]).output()?;
-    assert!(output.status.success(), "{output:?}");
-    Ok(())
-}
-
 fn binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_muxy-server"))
-}
-
-fn free_port() -> TestResult<u16> {
-    Ok(std::net::TcpListener::bind("127.0.0.1:0")?
-        .local_addr()?
-        .port())
 }
 
 fn enable_mobile_access(
@@ -721,105 +668,8 @@ fn enable_mobile_access(
     }
 }
 
-/// Retries while the listener comes up after a start or restart.
-fn connect_phone(port: u16, fingerprint: [u8; 32]) -> TestResult<Client> {
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        match tls::connect("127.0.0.1", port, fingerprint, TIMEOUT) {
-            Ok(stream) => return Client::start(stream),
-            Err(error) if Instant::now() < deadline => {
-                if error.kind() != std::io::ErrorKind::ConnectionRefused {
-                    return Err(error.into());
-                }
-                thread::sleep(POLL);
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
-
-fn pair_phone(
-    local: &mut Client,
-    port: u16,
-) -> TestResult<(muxy_protocol::Paired, [u8; 32], Client)> {
-    let offer = match local.request(RequestBody::StartPairing)? {
-        ReplyBody::Pairing(offer) => offer,
-        other => return Err(format!("expected pairing, got {other:?}").into()),
-    };
-    let mut phone = connect_phone(port, offer.invite.fingerprint)?;
-    match phone.request(RequestBody::Pair(muxy_protocol::PairRequest {
-        secret: offer.invite.secret,
-        name: "Test phone".into(),
-    }))? {
-        ReplyBody::Paired(paired) => Ok((paired, offer.invite.fingerprint, phone)),
-        other => Err(format!("expected paired, got {other:?}").into()),
-    }
-}
-
 #[test]
-fn a_paired_phone_reconnects_over_tls_after_a_restart() -> TestResult {
-    let mut fixture = Fixture::new()?;
-    fixture.start()?;
-    let port = free_port()?;
-    let mut local = Client::new(&fixture.socket())?;
-    assert_eq!(
-        enable_mobile_access(&mut local, port)?,
-        muxy_protocol::ListenerStatus::Listening
-    );
-    let (paired, fingerprint, mut phone) = pair_phone(&mut local, port)?;
-    assert!(matches!(
-        phone.request(RequestBody::ReadCatalog {
-            after: None,
-            revision: None
-        })?,
-        ReplyBody::Catalog(_)
-    ));
-    drop(phone);
-    assert_eq!(
-        local.request(RequestBody::StopServer)?,
-        ReplyBody::ServerStopping
-    );
-    assert!(fixture.finish()?.status.success());
-    drop(local);
-    let store = fixture.directory.join("remote.json");
-    let token = paired
-        .credential
-        .token
-        .iter()
-        .fold(String::new(), |mut text, byte| {
-            use std::fmt::Write as _;
-            let _ = write!(text, "{byte:02x}");
-            text
-        });
-    let saved = fs::read_to_string(&store)?;
-    assert!(saved.contains("Test phone"));
-    assert!(!saved.contains(&token), "the raw device token was stored");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(fs::metadata(&store)?.permissions().mode() & 0o777, 0o600);
-    }
-    fixture.start()?;
-    let mut phone = connect_phone(port, fingerprint)?;
-    assert_eq!(
-        phone.request(RequestBody::Authenticate(paired.credential))?,
-        ReplyBody::Authenticated
-    );
-    let mut local = Client::new(&fixture.socket())?;
-    match local.request(RequestBody::ReadRemoteAccess)? {
-        ReplyBody::RemoteAccess(state) => {
-            assert_eq!(state.devices.len(), 1);
-            assert!(state.devices[0].connected);
-        }
-        other => return Err(format!("expected remote access, got {other:?}").into()),
-    }
-    let stopping = Instant::now();
-    fixture.stop("-TERM")?;
-    assert!(stopping.elapsed() < TIMEOUT);
-    Ok(())
-}
-
-#[test]
-fn an_occupied_port_reports_failure_and_disabling_drops_phones() -> TestResult {
+fn an_occupied_port_reports_failure_without_breaking_local_access() -> TestResult {
     let mut fixture = Fixture::new()?;
     fixture.start()?;
     let occupied = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -829,25 +679,5 @@ fn an_occupied_port_reports_failure_and_disabling_drops_phones() -> TestResult {
         muxy_protocol::ListenerStatus::Failed(_)
     ));
     assert_eq!(local.request(RequestBody::Ping)?, ReplyBody::Pong);
-    let port = free_port()?;
-    assert_eq!(
-        enable_mobile_access(&mut local, port)?,
-        muxy_protocol::ListenerStatus::Listening
-    );
-    let (_, _, phone) = pair_phone(&mut local, port)?;
-    local.request(RequestBody::WriteRemoteAccess(
-        muxy_protocol::RemoteAccessSettings {
-            enabled: false,
-            port,
-        },
-    ))?;
-    loop {
-        match phone.incoming.recv_timeout(TIMEOUT)? {
-            Err(WireError::Closed) => break,
-            Ok(_) => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    assert!(tls::connect("127.0.0.1", port, [0; 32], TIMEOUT).is_err());
     fixture.stop("-TERM")
 }

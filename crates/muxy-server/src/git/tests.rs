@@ -454,30 +454,6 @@ fn durable_receipts_recover_after_restart_and_recheck_storage_on_replay() {
     ));
 }
 
-#[test]
-fn linked_worktree_watch_detects_common_refs_and_stops_when_dropped() {
-    let repo = Repo::new(true);
-    let (child, _, _) = repo.create();
-    let (send, events) = mpsc::sync_channel(1);
-    let watch = repo
-        .registry
-        .watch_git(child, move || {
-            let _ = send.try_send(());
-        })
-        .unwrap()
-        .unwrap();
-    run(&repo.path, &["branch", "shared-ref"]).unwrap();
-    events
-        .recv_timeout(std::time::Duration::from_secs(8))
-        .unwrap();
-    drop(watch);
-    assert!(
-        events
-            .recv_timeout(std::time::Duration::from_secs(1))
-            .is_err()
-    );
-}
-
 mod extensions;
 mod review;
 

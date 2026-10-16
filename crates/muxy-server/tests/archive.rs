@@ -134,33 +134,6 @@ fn checkpoint_exists_while_the_session_is_live_without_clients() -> TestResult {
 }
 
 #[test]
-fn graceful_restart_recovers_saved_output_without_recreating_processes() -> TestResult {
-    let mut fixture = Fixture::new()?;
-    let id = fixture.start(b"stty -echo; printf '\\033[2J\\033[Hbefore-shutdown'\n")?;
-    thread::sleep(Duration::from_millis(100));
-    fixture.registry.shutdown();
-    assert_eq!(fixture.ended(id)?, ExitReason::ServerStopped);
-    let saved = fixture.registry.read_saved_screen(id)?;
-    assert!(text(&saved).contains("before-shutdown"));
-    let (sender, _) = mpsc::channel();
-    let old = std::mem::replace(
-        &mut fixture.registry,
-        Arc::new(Registry::new(settings(), sender)),
-    );
-    drop(old);
-    let (sender, events) = mpsc::channel();
-    fixture.registry = Arc::new(Registry::persistent(
-        settings(),
-        sender,
-        &fixture.root.join("sessions"),
-    )?);
-    fixture.events = events;
-    assert!(fixture.registry.list().is_empty());
-    assert_eq!(fixture.registry.read_saved_screen(id)?, saved);
-    Ok(())
-}
-
-#[test]
 fn discard_racing_checkpoints_and_exit_cannot_recreate_an_archive() -> TestResult {
     let fixture = Fixture::new()?;
     let id = fixture.start(

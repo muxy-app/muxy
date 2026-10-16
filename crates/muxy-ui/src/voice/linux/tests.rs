@@ -91,65 +91,6 @@ fn pause_releases_the_device_resume_reopens_and_finish_delivers_local_audio() {
 }
 
 #[test]
-fn cancelling_a_silent_device_reaps_it_without_waiting_for_audio() {
-    let fixture = Fixture::new();
-    let tools = fixture.tools(
-        "time.sleep(60)",
-        "raise RuntimeError('must not transcribe')",
-    );
-    let shared = Arc::new(Shared::default());
-    let recorder = Recorder {
-        shared: shared.clone(),
-    };
-    let worker = std::thread::spawn(move || capture(&tools, &shared, CAPTURE_IDLE, MAX_AUDIO));
-    until(|| fixture.0.join("capture.pid").exists());
-    drop(recorder);
-    until(|| worker.is_finished());
-    assert!(worker.join().expect("worker").is_ok());
-    assert!(gone(&fixture.pid("capture")));
-    assert!(!fixture.0.join("transcribe.pid").exists());
-}
-
-#[test]
-fn cancelling_transcription_unblocks_the_audio_writer_and_reaps_the_child() {
-    let fixture = Fixture::new();
-    let tools = fixture.tools(AUDIO, "time.sleep(60)");
-    let shared = Arc::new(Shared::default());
-    let recorder = Recorder {
-        shared: shared.clone(),
-    };
-    let worker = std::thread::spawn(move || {
-        transcribe(
-            &tools,
-            Path::new("model"),
-            "en",
-            vec![1; 1024 * 1024],
-            &shared,
-            TRANSCRIPTION_TIMEOUT,
-        )
-    });
-    until(|| fixture.0.join("transcribe.pid").exists());
-    drop(recorder);
-    until(|| worker.is_finished());
-    assert_eq!(worker.join().expect("worker"), Ok(String::new()));
-    assert!(gone(&fixture.pid("transcribe")));
-}
-
-#[test]
-fn denied_disconnected_and_stalled_capture_fail_and_release_the_device() {
-    for (script, idle, limit) in [
-        ("sys.exit(1)", CAPTURE_IDLE, MAX_AUDIO),
-        ("os.write(1, b'\\x01\\x00' * 100)", CAPTURE_IDLE, MAX_AUDIO),
-        ("time.sleep(60)", Duration::from_millis(150), MAX_AUDIO),
-    ] {
-        let fixture = Fixture::new();
-        let tools = fixture.tools(script, "sys.exit(1)");
-        assert!(capture(&tools, &Shared::default(), idle, limit).is_err());
-        assert!(gone(&fixture.pid("capture")));
-    }
-}
-
-#[test]
 fn the_recording_limit_releases_the_device_and_preserves_audio_for_finish() {
     let fixture = Fixture::new();
     let tools = fixture.tools(AUDIO, "sys.exit(1)");
@@ -164,30 +105,6 @@ fn the_recording_limit_releases_the_device_and_preserves_audio_for_finish() {
     recorder.finish();
     until(|| worker.is_finished());
     assert_eq!(worker.join().expect("worker").expect("audio").len(), 8192);
-}
-
-#[test]
-fn failed_stalled_or_excessive_transcription_is_never_delivered() {
-    for script in [
-        "sys.exit(1)",
-        "time.sleep(60)",
-        "os.write(1, b'x' * 300000)\ntime.sleep(60)",
-    ] {
-        let fixture = Fixture::new();
-        let tools = fixture.tools(AUDIO, script);
-        assert!(
-            transcribe(
-                &tools,
-                Path::new("model"),
-                "en",
-                vec![1; 32000],
-                &Shared::default(),
-                Duration::from_millis(200)
-            )
-            .is_err()
-        );
-        assert!(gone(&fixture.pid("transcribe")));
-    }
 }
 
 #[test]

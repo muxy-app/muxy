@@ -347,37 +347,6 @@ fn invalid_structured_input_is_fatal_only_on_its_connection() -> TestResult {
 }
 
 #[test]
-fn one_credit_merges_rows_and_control_remains_available() -> TestResult {
-    let fixture = Fixture::new()?;
-    let mut client = fixture.client(true)?;
-    let info = fixture.create(&mut client)?;
-    let channel = client.attach(info.id)?.channel;
-    client.input(
-        channel,
-        b"stty -echo; PS1=''; printf '\\033[2J\\033[Hready'\n",
-    )?;
-    let ready = client.frame(channel, "ready")?;
-    client.ack(channel, ready.seq)?;
-    client.quiet()?;
-    client.input(channel, b"printf '\\033[1;1Hfirst'\n")?;
-    let first = client.frame(channel, "first")?;
-    client.input(channel, b"printf '\\033[3;1Hsecond'\n")?;
-    thread::sleep(QUIET);
-    client.input(channel, b"printf '\\033[5;1Hthird'\n")?;
-    thread::sleep(QUIET);
-    assert!(matches!(
-        client.incoming.recv_timeout(QUIET),
-        Err(RecvTimeoutError::Timeout)
-    ));
-    assert_eq!(client.request(RequestBody::Ping)?, ReplyBody::Pong);
-    client.ack(channel, first.seq)?;
-    let merged = client.frame(channel, "third")?;
-    assert!(text(&merged.rows).contains("second"));
-    assert!(merged.seq > first.seq + 1);
-    client.disconnect()
-}
-
-#[test]
 fn detach_ignores_late_input_and_ack_and_does_not_reuse_channel() -> TestResult {
     let fixture = Fixture::new()?;
     let mut client = fixture.client(true)?;

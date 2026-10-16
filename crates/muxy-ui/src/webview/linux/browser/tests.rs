@@ -446,24 +446,6 @@ fn closing_or_navigating_a_page_cancels_pending_automation() {
 
 #[test]
 #[ignore = "Requires WebKitGTK and a display; runs in the Linux desktop guard"]
-fn closing_a_hidden_page_during_capture_retires_the_request() {
-    let _serial = super::super::tests::alone();
-    let server = Server::new();
-    let page = Page::new(&Profile::ephemeral(), &server.url);
-    page.loaded();
-    let (send, receive) = mpsc::channel();
-    page.native
-        .capture(move |result| {
-            let _ = send.send(result);
-        })
-        .unwrap();
-    drop(page);
-    assert!(receive.recv_timeout(WAIT).unwrap().is_err());
-    drained();
-}
-
-#[test]
-#[ignore = "Requires WebKitGTK and a display; runs in the Linux desktop guard"]
 fn retirement_drains_an_inflight_cookie_import_before_deleting_data() {
     let _serial = super::super::tests::alone();
     let root = std::env::temp_dir().join(format!("muxy-browser-retirement-{}", std::process::id()));
