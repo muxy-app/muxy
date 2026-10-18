@@ -713,6 +713,7 @@ fn import_layout_snapshot(
         };
         tab.layout = layout;
         tab.custom_title = root["customTitle"].as_str().map(Into::into);
+        tab.sanitize_titles();
         tab.color = root["colorID"].as_str().and_then(legacy_color);
         tab.pinned = root["isPinned"].as_bool().unwrap_or(false);
         tabs.push(tab);

@@ -39,6 +39,29 @@ fn yaml_and_json_build_the_same_nested_layout_and_commands() {
 }
 
 #[test]
+fn layout_titles_are_filtered_without_changing_startup_commands() {
+    let config = Config::parse(
+        "tabs:\n  - {name: '◐ 日本語', command: 'echo 🚀'}\n  - {name: '🚀'}\n  - {command: './🚀build --watch'}\n",
+    )
+    .expect("layout");
+    let mut state = state();
+    let panes = state
+        .apply_project_layout(state.home().id, &config)
+        .expect("apply");
+    assert_eq!(
+        state
+            .home()
+            .tabs
+            .iter()
+            .map(|tab| tab.title(None))
+            .collect::<Vec<_>>(),
+        ["日本語", "Terminal", "./build"]
+    );
+    assert_eq!(state.startup_command(panes[0]), Some("echo 🚀"));
+    assert_eq!(state.startup_command(panes[2]), Some("./🚀build --watch"));
+}
+
+#[test]
 fn rejects_invalid_or_unbounded_layouts_instead_of_partially_replacing_tabs() {
     for text in [
         "",

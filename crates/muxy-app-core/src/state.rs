@@ -462,9 +462,9 @@ impl AppState {
     }
 
     pub fn set_tab_title(&mut self, tab: TabId, title: Option<String>) -> Result<(), AppError> {
-        self.tab_mut(tab)?.custom_title = title
-            .map(|title| title.trim().to_owned())
-            .filter(|title| !title.is_empty());
+        let tab = self.tab_mut(tab)?;
+        tab.custom_title = title;
+        tab.sanitize_titles();
         Ok(())
     }
 
@@ -932,7 +932,13 @@ impl AppState {
         pane: PaneId,
         title: impl Into<String>,
     ) -> Result<(), AppError> {
-        self.pane_mut(pane)?.title = title.into();
+        let pane = self.pane_mut(pane)?;
+        let title = title.into();
+        pane.title = if matches!(pane.content, PaneContent::Terminal { .. }) {
+            crate::title::sanitize_or_default(&title)
+        } else {
+            title
+        };
         Ok(())
     }
 

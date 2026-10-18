@@ -258,9 +258,8 @@ fn one_x_import_keeps_every_usable_project_when_some_details_are_stale() {
         {"id":"01000000-0000-0000-0000-000000000004","name":"Missing","path":"/missing-muxy-project","sortOrder":3},
         {"id":symbol,"name":"Duplicate","path":folders[0].path(),"sortOrder":4}
     ]);
-    let home_tab =
-        json!({"id":"02000000-0000-0000-0000-000000000001","paneTitle":"Shell","isPinned":false});
-    let home_child = json!({"id":"02000000-0000-0000-0000-000000000002","parentTabID":"02000000-0000-0000-0000-000000000001","paneTitle":"Shell","isPinned":false});
+    let home_tab = json!({"id":"02000000-0000-0000-0000-000000000001","paneTitle":"◐ Shell","customTitle":"🚀 日本語","isPinned":false});
+    let home_child = json!({"id":"02000000-0000-0000-0000-000000000002","parentTabID":"02000000-0000-0000-0000-000000000001","paneTitle":"👩🏽‍💻","isPinned":false});
     let workspaces = json!([
         {"projectID":"00000000-0000-0000-0000-000000000001","root":{"type":"split","split":{"direction":"horizontal","ratio":0.95,"first":{"type":"tabArea","tabArea":{"tabs":[home_tab]}},"second":{"type":"tabArea","tabArea":{"tabs":[home_child]}}}}},
         {"projectID":symbol,"root":{"type":"unknown"}}
@@ -285,6 +284,9 @@ fn one_x_import_keeps_every_usable_project_when_some_details_are_stale() {
     assert!(outdated.icon.is_none() && outdated.logo.is_none());
     assert_eq!(state.home().tabs.len(), 1);
     assert_eq!(state.home().tabs[0].panes.len(), 2);
+    assert_eq!(state.home().tabs[0].custom_title.as_deref(), Some("日本語"));
+    assert_eq!(state.home().tabs[0].panes[0].title, "Shell");
+    assert_eq!(state.home().tabs[0].panes[1].title, "Terminal");
     for item in [
         "Icon of Stale",
         "Logo of Stale",

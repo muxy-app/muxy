@@ -237,7 +237,7 @@ impl Terminal {
             .unwrap_or("Terminal");
         Pane {
             id,
-            title: title.into(),
+            title: crate::title::sanitize_or_default(title),
             content: PaneContent::Terminal { session: None },
         }
     }

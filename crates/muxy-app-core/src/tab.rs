@@ -78,12 +78,9 @@ impl TryFrom<StoredTab> for Tab {
             .panes
             .first()
             .ok_or_else(|| AppError::InvalidState("tab must contain a pane".into()))?;
-        let tab = Self {
+        let mut tab = Self {
             id: stored.id,
-            custom_title: stored
-                .custom_title
-                .map(|title| title.trim().to_owned())
-                .filter(|title| !title.is_empty()),
+            custom_title: stored.custom_title,
             color: stored.color,
             pinned: stored.pinned,
             layout: stored.layout.unwrap_or(Layout::Leaf(first.id)),
@@ -91,12 +88,34 @@ impl TryFrom<StoredTab> for Tab {
             legacy_active_pane: stored.active_pane,
             zoomed: stored.zoomed,
         };
+        tab.sanitize_titles();
         tab.validate()?;
         Ok(tab)
     }
 }
 
 impl Tab {
+    pub(crate) fn sanitize_titles(&mut self) {
+        let mut terminal = false;
+        for pane in &mut self.panes {
+            if matches!(pane.content, PaneContent::Terminal { .. }) {
+                pane.title = crate::title::sanitize_or_default(&pane.title);
+                terminal = true;
+            }
+        }
+        self.custom_title = self
+            .custom_title
+            .take()
+            .map(|title| {
+                if terminal {
+                    crate::title::sanitize(&title)
+                } else {
+                    title.trim().to_owned()
+                }
+            })
+            .filter(|title| !title.is_empty());
+    }
+
     pub fn visible_panes(&self) -> Vec<PaneId> {
         self.zoomed
             .map_or_else(|| self.layout.leaves(), |pane| vec![pane])
