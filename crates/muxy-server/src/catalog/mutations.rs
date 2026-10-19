@@ -1,8 +1,5 @@
 use super::{Catalog, Receipt, ServerError, State, bad, unknown};
 use muxy_protocol::{MAX_PROJECTS, ProjectId, ProjectIntent, ProjectMutation, SessionId};
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 
 impl Catalog {
     pub(crate) fn begin_mutation(&self, intent: &ProjectIntent) -> Result<bool, ServerError> {
@@ -30,7 +27,7 @@ impl Catalog {
                         || state.projects.len() == MAX_PROJECTS
                     {
                         Err(bad("project identity already exists or catalog is full"))
-                    } else if !Path::new(OsStr::from_bytes(&project.directory.0)).is_dir() {
+                    } else if !is_folder(&project.directory) {
                         Err(ServerError::new(
                             muxy_protocol::ErrorCode::BadPath,
                             "project folder does not exist",
@@ -145,13 +142,21 @@ impl State {
             && project
                 .parent_id
                 .and_then(|id| self.projects.get(&id))
-                .is_some_and(|parent| Path::new(OsStr::from_bytes(&parent.directory.0)).is_dir())
-            && Path::new(OsStr::from_bytes(&project.directory.0))
-                .try_exists()
-                .is_ok_and(|exists| !exists)
+                .is_some_and(|parent| is_folder(&parent.directory))
+            && project
+                .directory
+                .to_path_buf()
+                .is_ok_and(|directory| directory.try_exists().is_ok_and(|exists| !exists))
             && !self
                 .sessions
                 .values()
                 .any(|session| session.info.project == id)
     }
+}
+
+/// Whether `directory` is an absolute path to a folder on this computer.
+fn is_folder(directory: &muxy_protocol::ServerPath) -> bool {
+    directory
+        .to_path_buf()
+        .is_ok_and(|directory| directory.is_absolute() && directory.is_dir())
 }

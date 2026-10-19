@@ -368,6 +368,9 @@ fn tab_cell(
         .when(!model.tab_drag.is_active(), |cell| {
             cell.group(group.clone())
         })
+        // On Windows the strip behind is the window's caption, where a press
+        // would never start a drag.
+        .when(cfg!(windows), InteractiveElement::occlude)
         .relative()
         .flex()
         .flex_none()

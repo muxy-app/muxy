@@ -174,7 +174,7 @@ fn create(
         None => own_project(client)?,
     };
     let directory = directory.map_or_else(
-        || Ok(local_path(&project.directory)),
+        || local_path(&project.directory),
         |path| paths.directory(path),
     )?;
     let typed = command.map(|command| format!("{command}\r").into_bytes());

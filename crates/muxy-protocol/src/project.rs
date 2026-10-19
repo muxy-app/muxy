@@ -120,7 +120,7 @@ impl ProjectDescriptor {
     pub fn new<'a>(directory: ServerPath, taken: impl IntoIterator<Item = &'a str>) -> Self {
         let name = directory
             .0
-            .rsplit(|byte| *byte == b'/')
+            .rsplit(|byte| matches!(byte, b'/' | b'\\'))
             .find(|part| !part.is_empty())
             .unwrap_or(&directory.0);
         let name = String::from_utf8_lossy(name).into_owned();
@@ -167,7 +167,7 @@ impl ProjectDescriptor {
         validate_icon(self.icon.as_deref())?;
         validate_color(&self.color)?;
         validate_logo(self.logo.as_deref())?;
-        if !self.directory.0.starts_with(b"/")
+        if !self.directory.is_absolute()
             || self.directory.0.len() > 4096
             || self.directory.0.contains(&0)
             || self.parent_id == Some(self.id)

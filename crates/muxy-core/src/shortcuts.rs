@@ -1441,3 +1441,54 @@ pub const ALL: &[Shortcut] = &[
         key_contexts: &[&[Some("Browser")]],
     },
 ];
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// Combinations that Windows or a Linux desktop takes before the app sees
+    /// them. `AltGr` needs no entry: GPUI drops its Ctrl and Alt on layouts that
+    /// have it.
+    const RESERVED: [&str; 18] = [
+        "alt-f4",
+        "alt-tab",
+        "alt-shift-tab",
+        "alt-escape",
+        "alt-space",
+        "ctrl-escape",
+        "ctrl-shift-escape",
+        "ctrl-alt-delete",
+        "cmd-alt-b",
+        "cmd-alt-d",
+        "cmd-alt-g",
+        "cmd-alt-k",
+        "cmd-alt-m",
+        "cmd-alt-r",
+        "cmd-alt-t",
+        "cmd-alt-up",
+        "cmd-alt-down",
+        "cmd-alt-enter",
+    ];
+
+    fn modifiers_and_key(keys: &str) -> BTreeSet<&str> {
+        keys.split('-').collect()
+    }
+
+    #[test]
+    fn defaults_leave_combinations_the_desktop_reserves_to_it() {
+        let reserved: Vec<_> = RESERVED
+            .iter()
+            .map(|keys| modifiers_and_key(keys))
+            .collect();
+        for shortcut in ALL {
+            for keys in shortcut.keys {
+                assert!(
+                    !reserved.contains(&modifiers_and_key(keys)),
+                    "{} uses {keys}",
+                    shortcut.id
+                );
+            }
+        }
+    }
+}

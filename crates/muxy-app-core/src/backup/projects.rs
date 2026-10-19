@@ -81,7 +81,7 @@ impl AppState {
             }
             if let Some(existing) = current.local_projects().find(|candidate| {
                 !candidate.home
-                    && candidate.directory == project.directory
+                    && muxy_core::paths::path_eq(&candidate.directory, &project.directory)
                     && !claimed.contains(&candidate.id)
             }) {
                 ids.insert(project.id, existing.id);

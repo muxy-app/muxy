@@ -1,6 +1,5 @@
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -40,10 +39,9 @@ impl log::Log for FileLogger {
 }
 
 pub(crate) fn init(path: &Path) -> io::Result<()> {
-    let file = OpenOptions::new()
+    let file = muxy_core::files::private_file()
         .create(true)
         .append(true)
-        .mode(0o600)
         .open(path)?;
     log::set_boxed_logger(Box::new(FileLogger(Mutex::new(file)))).map_err(io::Error::other)?;
     log::set_max_level(log::LevelFilter::Info);

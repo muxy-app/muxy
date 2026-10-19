@@ -11,6 +11,9 @@ import unittest
 import zipfile
 from pathlib import Path
 
+if sys.platform == 'win32':
+    raise unittest.SkipTest('The installer is a POSIX shell script')
+
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = '2.0.0-beta.1234'
 FAKE = r'''

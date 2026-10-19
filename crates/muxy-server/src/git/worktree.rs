@@ -1,11 +1,12 @@
 use super::{Result, error, path, read, run, server_path, validate_branch, validate_member};
 use crate::{Registry, catalog::GitReceipt};
+use muxy_core::files::FileId;
 use muxy_protocol::{
     GitReply, ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind, ProjectMutation,
     WorktreeAction, WorktreeIntent, WorktreeRemoval,
 };
 use std::ffi::{OsStr, OsString};
-use std::os::unix::fs::MetadataExt;
+use std::path::Path;
 use std::sync::PoisonError;
 
 impl Registry {
@@ -18,14 +19,15 @@ impl Registry {
         if parent.home || parent.parent_id.is_some() {
             return Err(error("Invalid worktree parent"));
         }
+        let directory = path(&project.directory)?;
         if self
             .catalog
-            .child_at(parent.id, path(&project.directory))
+            .child_at(parent.id, &directory)
             .is_some_and(|id| id != project.id)
         {
             return Err(error("Worktree is already registered under this parent"));
         }
-        let entry = validate_member(path(&parent.directory), path(&project.directory))?;
+        let entry = validate_member(&path(&parent.directory)?, &directory)?;
         if entry.primary {
             return Err(error("Cannot register the primary worktree as a child"));
         }
@@ -41,8 +43,8 @@ impl Registry {
                 .parent_id
                 .ok_or_else(|| error("Missing worktree parent"))?,
         )?;
-        let target = path(&project.directory);
-        let entry = validate_member(path(&parent.directory), target)?;
+        let target = &path(&project.directory)?;
+        let entry = validate_member(&path(&parent.directory)?, target)?;
         if entry.primary || entry.locked {
             return Err(error("Primary or locked worktrees cannot be removed"));
         }
@@ -50,12 +52,13 @@ impl Registry {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return Err(error("Worktree directory was replaced"));
         }
+        let identity = FileId::of_link(target).map_err(error)?;
         let status = read::status(target)?;
         let summary = read::summary(target)?;
         Ok(WorktreeRemoval {
             directory: project.directory.clone(),
-            device: metadata.dev(),
-            inode: metadata.ino(),
+            device: identity.device(),
+            inode: identity.index(),
             dirty: !status.is_empty(),
             status,
             head: summary.head,
@@ -103,13 +106,13 @@ impl Registry {
         } else {
             parent.clone()
         };
-        let lock = self.git.lock_for(path(&repository.directory))?;
+        let lock = self.git.lock_for(&path(&repository.directory)?)?;
         let _guard = lock.write().unwrap_or_else(PoisonError::into_inner);
         let (project, removal) = match &intent.action {
             WorktreeAction::Create { project, .. }
             | WorktreeAction::Register { project, .. }
             | WorktreeAction::CheckoutPullRequest { project, .. } => (*project, None),
-            WorktreeAction::Remove { .. } => (owner, Some(path(&parent.directory).to_owned())),
+            WorktreeAction::Remove { .. } => (owner, Some(path(&parent.directory)?)),
         };
         let _reservation = {
             let _operation = self.session_operation();
@@ -146,7 +149,7 @@ impl Registry {
                 parent.clone()
             };
             super::hooks::approved(
-                path(&source.directory),
+                &path(&source.directory)?,
                 self.git.hook_config.as_deref(),
                 matches!(intent.action, WorktreeAction::Remove { .. }),
                 approved,
@@ -159,13 +162,13 @@ impl Registry {
                 number,
             } => {
                 self.validate_worktree_parent(parent, *project, directory)?;
-                if path(directory).try_exists().map_err(error)? {
+                if path(directory)?.try_exists().map_err(error)? {
                     return Err(error("Worktree directory already exists"));
                 }
                 let branch = self
                     .git
                     .github
-                    .prepare_worktree(path(&parent.directory), *number)?;
+                    .prepare_worktree(&path(&parent.directory)?, *number)?;
                 reserve_folder(directory)?;
                 Self::new_worktree_receipt(owner, intent, parent, *project, directory, &branch)?
             }
@@ -176,13 +179,13 @@ impl Registry {
                 base,
             } => {
                 self.validate_worktree_parent(parent, *project, directory)?;
-                validate_branch(path(&parent.directory), branch)?;
+                validate_branch(&path(&parent.directory)?, branch)?;
                 if let Some(base) = base {
                     if base.starts_with('-') {
                         return Err(error("Invalid base branch"));
                     }
                     run(
-                        path(&parent.directory),
+                        &path(&parent.directory)?,
                         &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
                     )?;
                 }
@@ -191,11 +194,13 @@ impl Registry {
             }
             WorktreeAction::Register { project, directory } => {
                 self.validate_worktree_parent(parent, *project, directory)?;
-                let entry = validate_member(path(&parent.directory), path(directory))?;
-                if entry.primary || same_folder(path(&parent.directory), path(directory)) {
+                let parent_directory = path(&parent.directory)?;
+                let directory_path = path(directory)?;
+                let entry = validate_member(&parent_directory, &directory_path)?;
+                if entry.primary || same_folder(&parent_directory, &directory_path) {
                     return Err(error("This worktree is already the parent project"));
                 }
-                let folder = path(directory).file_name().map(OsStr::to_string_lossy);
+                let folder = directory_path.file_name().map(OsStr::to_string_lossy);
                 Self::new_worktree_receipt(
                     owner,
                     intent,
@@ -225,6 +230,7 @@ impl Registry {
                     applied: false,
                     failed: None,
                     reply: None,
+                    set_aside: None,
                 }
             }
         };
@@ -240,11 +246,12 @@ impl Registry {
         if parent.home || parent.parent_id.is_some() || parent.kind.is_some() {
             return Err(error("Worktrees require an ordinary top-level parent"));
         }
-        if !path(directory).is_absolute() {
+        let directory = path(directory)?;
+        if !directory.is_absolute() {
             return Err(error("Worktree directory must be absolute"));
         }
         if self.catalog.project(id).is_ok()
-            || self.catalog.child_at(parent.id, path(directory)).is_some()
+            || self.catalog.child_at(parent.id, &directory).is_some()
         {
             return Err(error("Worktree is already registered"));
         }
@@ -259,11 +266,11 @@ impl Registry {
         directory: &muxy_protocol::ServerPath,
         name: &str,
     ) -> Result<GitReceipt> {
-        let canonical = path(directory).canonicalize().map_err(error)?;
-        let meta = std::fs::symlink_metadata(&canonical).map_err(error)?;
+        let canonical = muxy_core::files::canonicalize(&path(directory)?).map_err(error)?;
+        let identity = FileId::of_link(&canonical).map_err(error)?;
         let project = ProjectDescriptor {
             id,
-            directory: server_path(&canonical),
+            directory: server_path(&canonical)?,
             home: false,
             name: intent
                 .options
@@ -284,14 +291,15 @@ impl Registry {
             owner,
             intent: intent.clone(),
             project,
-            device: meta.dev(),
-            inode: meta.ino(),
+            device: identity.device(),
+            inode: identity.index(),
             hooks_started: false,
             hooks_finished: false,
             hook_error: None,
             applied: false,
             failed: None,
             reply: None,
+            set_aside: None,
         })
     }
 
@@ -311,15 +319,13 @@ impl Registry {
                     WorktreeAction::Create { .. } | WorktreeAction::CheckoutPullRequest { .. }
                 )
             {
-                let target = path(&current.project.directory);
-                if std::fs::symlink_metadata(target)
-                    .is_ok_and(|m| m.dev() == current.device && m.ino() == current.inode)
-                {
+                let target = path(&current.project.directory)?;
+                if same_identity(&target, current.device, current.inode) {
                     let _ = std::fs::remove_dir(target);
                 }
             }
             if matches!(current.intent.action, WorktreeAction::Remove { .. })
-                && !path(&current.project.directory)
+                && !path(&current.project.directory)?
                     .try_exists()
                     .map_err(error)?
             {
@@ -346,14 +352,13 @@ impl Registry {
             receipt.owner
         };
         let parent = self.catalog.project(parent_id)?;
-        let repository = path(&parent.directory);
-        let target_path = receipt.project.directory.clone();
-        let target = path(&target_path);
+        let repository = &path(&parent.directory)?;
+        let target = &path(&receipt.project.directory)?;
         if !receipt.applied {
             let exists = target.try_exists().map_err(error)?;
             if exists {
                 let meta = std::fs::symlink_metadata(target).map_err(error)?;
-                if meta.dev() != receipt.device || meta.ino() != receipt.inode || !meta.is_dir() {
+                if !same_identity(target, receipt.device, receipt.inode) || !meta.is_dir() {
                     return Err(error(
                         "Worktree directory identity changed; files were preserved",
                     ));
@@ -379,12 +384,21 @@ impl Registry {
                             ));
                         }
                         self.stop_worktree_sessions(&receipt.project)?;
+                        #[cfg(unix)]
                         super::processes::stop(target)?;
+                        #[cfg(windows)]
+                        self.end_sessions_inside(target)?;
                         if self.inspect_removal(&receipt.project)? != *expected {
                             return Err(error(
                                 "Worktree changed while stopping sessions; inspect removal again",
                             ));
                         }
+                        // Refuse a busy worktree before its teardown hooks run.
+                        #[cfg(windows)]
+                        super::processes::check_unused(
+                            target,
+                            &super::processes::aside_path(target, receipt.intent.operation)?,
+                        )?;
                         self.run_worktree_hooks(&mut receipt, repository, true)?;
                         let current = self.inspect_removal(&receipt.project)?;
                         if current.device != expected.device
@@ -396,18 +410,14 @@ impl Registry {
                                 "Worktree identity changed during teardown; files were preserved",
                             ));
                         }
-                        let args = [
-                            OsString::from("worktree"),
-                            "remove".into(),
-                            "--force".into(),
-                            "--".into(),
-                            target.as_os_str().to_owned(),
-                        ];
-                        run(repository, &args)?;
-                    } else if let Some(entry) = read::worktrees(repository)?
-                        .into_iter()
-                        .find(|w| w.directory == receipt.project.directory)
-                    {
+                        #[cfg(unix)]
+                        remove_registered(repository, target)?;
+                        #[cfg(windows)]
+                        self.delete_worktree_folder(&mut receipt, repository, target)?;
+                    } else if let Some(entry) = read::worktrees(repository)?.into_iter().find(|w| {
+                        path(&w.directory)
+                            .is_ok_and(|directory| muxy_core::paths::path_eq(&directory, target))
+                    }) {
                         if entry.primary
                             || entry.locked
                             || entry.branch != expected.branch
@@ -415,14 +425,11 @@ impl Registry {
                         {
                             return Err(error("Git worktree registration changed during removal"));
                         }
-                        let args = [
-                            OsString::from("worktree"),
-                            "remove".into(),
-                            "--force".into(),
-                            "--".into(),
-                            target.as_os_str().to_owned(),
-                        ];
-                        run(repository, &args)?;
+                        remove_registered(repository, target)?;
+                    }
+                    #[cfg(windows)]
+                    if !exists {
+                        finish_deleting_set_aside(&receipt)?;
                     }
                 }
             }
@@ -461,7 +468,7 @@ impl Registry {
     fn run_worktree_hooks(
         &self,
         receipt: &mut GitReceipt,
-        repository: &std::path::Path,
+        repository: &Path,
         teardown: bool,
     ) -> Result<()> {
         let Some(hooks) = receipt
@@ -488,7 +495,7 @@ impl Registry {
         )?;
         receipt.hooks_started = true;
         self.catalog.save_git(receipt.clone())?;
-        let branch = read::summary(path(&receipt.project.directory))?
+        let branch = read::summary(&path(&receipt.project.directory)?)?
             .branch
             .unwrap_or_default();
         super::hooks::run(repository, &receipt.project, &branch, &hooks)?;
@@ -497,7 +504,7 @@ impl Registry {
     }
 
     fn stop_worktree_sessions(&self, project: &ProjectDescriptor) -> Result<()> {
-        let target = path(&project.directory);
+        let target = path(&project.directory)?;
         for session in self.catalog.owned(project.id) {
             self.discard_owned(session)?;
         }
@@ -505,12 +512,60 @@ impl Registry {
             if self
                 .catalog
                 .project(session.project)
-                .is_ok_and(|p| path(&p.directory).canonicalize().ok() == target.canonicalize().ok())
+                .is_ok_and(|p| path(&p.directory).is_ok_and(|p| same_folder(&p, &target)))
             {
                 self.end(session.id)?;
             }
         }
         Ok(())
+    }
+
+    /// Ends this server's sessions whose shell reported a folder inside the
+    /// worktree. Windows can't read another process's working directory.
+    #[cfg(windows)]
+    fn end_sessions_inside(&self, target: &Path) -> Result<()> {
+        let target = muxy_core::files::canonicalize(target).map_err(error)?;
+        for session in self.list() {
+            let inside = self.handle(session.id).is_some_and(|handle| {
+                path(&handle.metadata().directory)
+                    .is_ok_and(|directory| muxy_core::paths::path_starts_with(&directory, &target))
+            });
+            if inside {
+                self.end(session.id)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Sets the folder aside, which fails while a file in it is open, records
+    /// where, deletes it, and has Git forget the worktree. Until the files
+    /// are gone the folder goes back on failure, as when a running program's
+    /// file can't be deleted.
+    #[cfg(windows)]
+    fn delete_worktree_folder(
+        &self,
+        receipt: &mut GitReceipt,
+        repository: &Path,
+        target: &Path,
+    ) -> Result<()> {
+        let aside = super::processes::aside_path(target, receipt.intent.operation)?;
+        // Recorded first, so recovery finds the folder after any crash.
+        receipt.set_aside = Some(server_path(&aside)?);
+        self.catalog.save_git(receipt.clone())?;
+        if let Err(cause) = super::processes::set_aside(target, &aside) {
+            receipt.set_aside = None;
+            self.catalog.save_git(receipt.clone())?;
+            return Err(cause);
+        }
+        if let Err(cause) = super::processes::delete_set_aside(&aside) {
+            super::processes::restore(&aside, target)?;
+            receipt.set_aside = None;
+            self.catalog.save_git(receipt.clone())?;
+            return Err(error(format!(
+                "Some worktree files could not be deleted; the rest were preserved: {cause}"
+            )));
+        }
+        remove_registered(repository, target)
     }
 
     pub(crate) fn resume_git(&self) {
@@ -522,12 +577,43 @@ impl Registry {
     }
 }
 
+/// Has Git delete the worktree and its registration. With the folder already
+/// gone, Git only forgets it.
+fn remove_registered(repository: &Path, target: &Path) -> Result<()> {
+    let args = [
+        OsString::from("worktree"),
+        "remove".into(),
+        "--force".into(),
+        "--".into(),
+        target.as_os_str().to_owned(),
+    ];
+    run(repository, &args).map(drop)
+}
+
+/// Deletes what a removal interrupted after setting the folder aside left.
+#[cfg(windows)]
+fn finish_deleting_set_aside(receipt: &GitReceipt) -> Result<()> {
+    let Some(aside) = &receipt.set_aside else {
+        return Ok(());
+    };
+    match super::processes::delete_set_aside(&path(aside)?) {
+        Err(cause) if cause.kind() != std::io::ErrorKind::NotFound => Err(error(cause)),
+        _ => Ok(()),
+    }
+}
+
+/// Whether `path` is still the folder a receipt recorded.
+fn same_identity(path: &Path, device: u64, inode: u64) -> bool {
+    FileId::of_link(path).is_ok_and(|id| id.device() == device && id.index() == inode)
+}
+
 /// Creates the empty folder a new worktree fills, refusing one that already exists.
 fn reserve_folder(directory: &muxy_protocol::ServerPath) -> Result<()> {
-    if let Some(parent) = path(directory).parent() {
+    let directory = path(directory)?;
+    if let Some(parent) = directory.parent() {
         std::fs::create_dir_all(parent).map_err(error)?;
     }
-    std::fs::create_dir(path(directory)).map_err(|cause| {
+    std::fs::create_dir(&directory).map_err(|cause| {
         if cause.kind() == std::io::ErrorKind::AlreadyExists {
             error("Worktree directory already exists")
         } else {
@@ -536,18 +622,20 @@ fn reserve_folder(directory: &muxy_protocol::ServerPath) -> Result<()> {
     })
 }
 
-fn same_folder(one: &std::path::Path, other: &std::path::Path) -> bool {
-    one.canonicalize()
-        .is_ok_and(|one| other.canonicalize().is_ok_and(|other| one == other))
+fn same_folder(one: &Path, other: &Path) -> bool {
+    muxy_core::files::canonicalize(one).is_ok_and(|one| {
+        muxy_core::files::canonicalize(other)
+            .is_ok_and(|other| muxy_core::paths::path_eq(&one, &other))
+    })
 }
 
 fn create_worktree(
-    repository: &std::path::Path,
+    repository: &Path,
     receipt: &GitReceipt,
     branch: &str,
     base: Option<&str>,
 ) -> Result<()> {
-    let target = path(&receipt.project.directory);
+    let target = &path(&receipt.project.directory)?;
     if let Ok(entry) = validate_member(repository, target) {
         if entry.primary || entry.branch.as_deref() != Some(branch) {
             return Err(error("Worktree changed during creation"));
@@ -566,8 +654,7 @@ fn create_worktree(
         {
             return Err(e);
         }
-        let meta = std::fs::symlink_metadata(target).map_err(error)?;
-        if meta.dev() != receipt.device || meta.ino() != receipt.inode {
+        if !same_identity(target, receipt.device, receipt.inode) {
             return Err(error("Worktree directory was replaced during creation"));
         }
     }

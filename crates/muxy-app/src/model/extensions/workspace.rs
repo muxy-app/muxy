@@ -1,7 +1,7 @@
 //! Workspace verbs (`tabs`, `panes`, `projects`, `worktrees`, `workspaces`,
 //! `agents`) with main's reply shapes and error messages.
 
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use gpui::Context;
 use muxy_app_core::{
@@ -14,12 +14,8 @@ use super::{AppModel, Call};
 
 /// Expands `~` and resolves `.`/`..` lexically, like `standardizedFileURL`.
 pub(super) fn standardized(path: &str) -> PathBuf {
-    let expanded = match (path.strip_prefix('~'), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
-            PathBuf::from(home).join(rest.trim_start_matches('/'))
-        }
-        _ => PathBuf::from(path),
-    };
+    let expanded =
+        muxy_core::paths::expand_tilde(Path::new(path)).unwrap_or_else(|_| PathBuf::from(path));
     let mut normalized = PathBuf::new();
     for part in expanded.components() {
         match part {

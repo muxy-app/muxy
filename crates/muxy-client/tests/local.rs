@@ -1,13 +1,12 @@
 use muxy_client::{Client, ClientError, local};
 use std::io::{self, Read};
-use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
 
 #[test]
 fn handshake_timeout_cancels_the_reader_before_another_startup_attempt() -> io::Result<()> {
     let directory = tempfile::tempdir()?;
     let socket = directory.path().join("server.sock");
-    let listener = UnixListener::bind(&socket)?;
+    let listener = muxy_protocol::transport::LocalListener::bind(&socket)?;
     let server = std::thread::spawn(move || -> io::Result<bool> {
         let (mut stream, _) = listener.accept()?;
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
@@ -34,4 +33,19 @@ fn handshake_timeout_cancels_the_reader_before_another_startup_attempt() -> io::
         io::ErrorKind::PermissionDenied.into()
     )));
     Ok(())
+}
+
+#[test]
+fn a_server_elsewhere_is_explained_and_not_retried() {
+    use muxy_client::ServerElsewhere;
+    for place in [
+        ServerElsewhere::Session,
+        ServerElsewhere::Elevated,
+        ServerElsewhere::NotElevated,
+    ] {
+        let error = ClientError::ServerElsewhere(place);
+        assert!(!error.recoverable());
+        assert!(!local::unavailable(&error));
+        assert!(error.to_string().contains("muxy server stop"), "{error}");
+    }
 }

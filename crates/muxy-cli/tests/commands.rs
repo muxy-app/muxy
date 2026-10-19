@@ -3,7 +3,7 @@ mod support;
 use muxy_client::Client;
 use muxy_protocol::OperationId;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -24,14 +24,17 @@ impl Profile {
 #[test]
 fn linked_client_finds_its_sibling_server_and_reuses_a_server_when_the_sibling_is_missing() -> Result
 {
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_file as symlink;
     let profile = Profile::new()?;
     let package = profile.0.join("installed pair");
     fs::create_dir(&package)?;
-    let client = package.join("muxy");
-    let server = package.join("muxy-server");
+    let client = program(&package, "muxy");
     copy_executable(&support::binary(), &client)?;
-    let link = profile.0.join("muxy");
+    let server = program(&muxy_core::files::canonicalize(&package)?, "muxy-server");
+    let link = program(&profile.0, "muxy");
     symlink(&client, &link)?;
     let invoke = || {
         Command::new(&link)
@@ -43,11 +46,11 @@ fn linked_client_finds_its_sibling_server_and_reuses_a_server_when_the_sibling_i
     let missing = invoke()?;
     assert!(!missing.status.success());
     assert!(String::from_utf8(missing.stderr)?.contains(&server.display().to_string()));
-    copy_executable(&support::binary().with_file_name("muxy-server"), &server)?;
+    copy_executable(&support::server(), &server)?;
     let launched = invoke()?;
     assert!(launched.status.success(), "{launched:?}");
     let first = Client::connect(&profile.socket())?;
-    fs::rename(&server, package.join("running-server"))?;
+    fs::rename(&server, program(&package, "running-server"))?;
     let reused = invoke()?;
     assert!(reused.status.success(), "{reused:?}");
     assert_eq!(launched.stdout, reused.stdout);
@@ -58,11 +61,21 @@ fn linked_client_finds_its_sibling_server_and_reuses_a_server_when_the_sibling_i
     Ok(())
 }
 
-fn copy_executable(source: &std::path::Path, destination: &std::path::Path) -> Result {
+/// The program `name` in `directory`.
+fn program(directory: &Path, name: &str) -> PathBuf {
+    muxy_core::executable::sibling(&directory.join(name), name)
+}
+
+fn copy_executable(source: &Path, destination: &Path) -> Result {
     // A separate process prevents concurrent test forks inheriting a writable
     // destination descriptor and temporarily blocking Linux exec with ETXTBSY.
-    let output = Command::new("cp").args([source, destination]).output()?;
-    assert!(output.status.success(), "{output:?}");
+    #[cfg(unix)]
+    {
+        let output = Command::new("cp").args([source, destination]).output()?;
+        assert!(output.status.success(), "{output:?}");
+    }
+    #[cfg(windows)]
+    fs::copy(source, destination)?;
     Ok(())
 }
 impl Drop for Profile {
@@ -71,7 +84,9 @@ impl Drop for Profile {
         {
             let _ = client.stop_server();
             let deadline = Instant::now() + Duration::from_secs(3);
-            while self.socket().exists() && Instant::now() < deadline {
+            while muxy_core::files::FileId::of_link(&self.socket()).is_ok()
+                && Instant::now() < deadline
+            {
                 std::thread::sleep(Duration::from_millis(10));
             }
         }
@@ -87,11 +102,8 @@ fn simultaneous_client_startup_reuses_one_server_instance() -> Result {
         let workers: Vec<_> = (0..4)
             .map(|_| {
                 scope.spawn(|| {
-                    muxy_client::local::ensure_running(
-                        &socket,
-                        &support::binary().with_file_name("muxy-server"),
-                    )
-                    .map(|client| client.server_info().instance)
+                    muxy_client::local::ensure_running(&socket, &support::server())
+                        .map(|client| client.server_info().instance)
                 })
             })
             .collect();

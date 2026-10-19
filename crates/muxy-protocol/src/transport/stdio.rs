@@ -3,16 +3,13 @@
 //! stdin and stdout.
 
 use std::io::{self, Read, Write};
-use std::net::Shutdown;
-use std::os::fd::OwnedFd;
-use std::os::unix::net::UnixStream;
 use std::process::{Child, ChildStderr, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::transport::unix::socket_pair;
-use crate::transport::{ByteStream, StreamCancellation};
+use crate::transport::unix::{shut_down, socket_pair};
+use crate::transport::{ByteStream, LocalStream, StreamCancellation};
 
 const BUFFER: usize = 64 * 1024;
 const EXIT_POLL: Duration = Duration::from_millis(10);
@@ -20,13 +17,15 @@ const EXIT_POLL: Duration = Duration::from_millis(10);
 /// A child process's stdin and stdout as one byte stream, such as `ssh`
 /// running `muxy stdio` on another computer.
 ///
-/// Both are joined to one end of a Unix socket pair rather than to two pipes.
+/// Both are joined to one end of a socket pair rather than to two pipes.
 /// Cancelling can then wake blocked reads and writes at once, even while a
-/// grandchild still holds the child's end.
+/// grandchild still holds the child's end. Windows cannot hand a socket to a
+/// child as stdin and stdout, so there two threads copy between the child's
+/// pipes and that end.
 #[derive(Debug)]
 pub struct ChildStream {
     /// Taken by `split`; while it is here, dropping the stream kills the child.
-    socket: Option<UnixStream>,
+    socket: Option<LocalStream>,
     process: ChildProcess,
 }
 
@@ -52,19 +51,57 @@ impl ChildStream {
     /// finish once every copy of that end is closed.
     pub fn spawn(mut command: Command) -> io::Result<Self> {
         let (socket, child_end) = socket_pair()?;
-        command
-            .stdin(Stdio::from(OwnedFd::from(child_end.try_clone()?)))
-            .stdout(Stdio::from(OwnedFd::from(child_end)));
+        #[cfg(unix)]
+        {
+            use std::os::fd::OwnedFd;
+            command
+                .stdin(Stdio::from(OwnedFd::from(child_end.try_clone()?)))
+                .stdout(Stdio::from(OwnedFd::from(child_end)));
+        }
+        #[cfg(windows)]
+        command.stdin(Stdio::piped()).stdout(Stdio::piped());
         let child = command.spawn()?;
         drop(command);
-        Ok(Self {
+        let stream = Self {
             socket: Some(socket),
             process: ChildProcess {
                 process: Arc::new(Process {
                     child: Mutex::new(child),
                 }),
             },
-        })
+        };
+        #[cfg(windows)]
+        stream.copy_pipes(child_end)?;
+        Ok(stream)
+    }
+
+    /// Copies between the child's pipes and `child_end` until each side
+    /// ends. The end then sees the child finish once every copy of its
+    /// stdout is closed, as on Unix.
+    #[cfg(windows)]
+    fn copy_pipes(&self, child_end: LocalStream) -> io::Result<()> {
+        let (stdin, stdout) = {
+            let mut child = self.process.lock();
+            (child.stdin.take(), child.stdout.take())
+        };
+        let (Some(mut stdin), Some(mut stdout)) = (stdin, stdout) else {
+            return Err(io::Error::other(
+                "the child's stdin and stdout are not piped",
+            ));
+        };
+        let input = child_end.try_clone()?;
+        thread::Builder::new()
+            .name("child-stdout".into())
+            .spawn(move || {
+                let _ = io::copy(&mut stdout, &mut &child_end);
+                let _ = child_end.shutdown(std::net::Shutdown::Write);
+            })?;
+        thread::Builder::new()
+            .name("child-stdin".into())
+            .spawn(move || {
+                let _ = io::copy(&mut &input, &mut stdin);
+            })?;
+        Ok(())
     }
 
     /// The child's stderr, if the command piped it. Keep reading it, or the
@@ -77,7 +114,7 @@ impl ChildStream {
         self.process.clone()
     }
 
-    fn socket(&self) -> io::Result<&UnixStream> {
+    fn socket(&self) -> io::Result<&LocalStream> {
         self.socket
             .as_ref()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "stream already split"))
@@ -162,13 +199,13 @@ fn kill(child: &mut Child) {
 }
 
 struct ChildCancellation {
-    socket: UnixStream,
+    socket: LocalStream,
     process: ChildProcess,
 }
 
 impl StreamCancellation for ChildCancellation {
     fn cancel(&self) {
-        let _ = self.socket.shutdown(Shutdown::Both);
+        shut_down(&self.socket);
         self.process.kill();
     }
 }

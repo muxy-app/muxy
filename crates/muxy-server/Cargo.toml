@@ -17,7 +17,6 @@ regex = "1"
 notify = "8"
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
 ring = "0.17.14"
-rustix = { version = "1.1.4", features = ["fs", "process", "system"] }
 muxy-terminal = { path = "../muxy-terminal" }
 getrandom = "0.3"
 postcard = { version = "1", default-features = false, features = ["use-std"] }
@@ -26,10 +25,35 @@ serde_json.workspace = true
 log = { version = "0.4", features = ["std"] }
 muxy-core = { path = "../muxy-core" }
 serde = { version = "1", features = ["derive"] }
-signal-hook = "0.4"
 toml = "1.1"
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs", "process", "system"] }
+signal-hook = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libproc = "0.14.11"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSFileManager", "NSString", "NSURL"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+windows-core = "0.62"
+windows-sys = { version = "0.61", features = [
+    "Wdk_Foundation",
+    "Wdk_Storage_FileSystem",
+    "Wdk_System_Threading",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_WindowsAndMessaging",
+] }

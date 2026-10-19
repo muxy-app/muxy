@@ -4,13 +4,15 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 use std::{env, fs, process, thread};
 
-use muxy_protocol::{
-    AttachSnapshot, CellSize, ChannelId, ExitReason, Row, ScreenFrame, SessionInfo, Size,
-};
+#[cfg(unix)]
+use muxy_protocol::CellSize;
+use muxy_protocol::{AttachSnapshot, ChannelId, ExitReason, Row, ScreenFrame, SessionInfo, Size};
 use muxy_server::{
     AttachmentEvent, AttachmentId, Registry, ServerEvent, ServerSettings, SessionCommand,
     SessionHandle,
 };
+
+mod support;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -23,6 +25,7 @@ struct Fixture {
     directory: PathBuf,
 }
 
+#[cfg(unix)]
 #[test]
 fn end_kills_a_running_program() -> TestResult {
     let fixture = fixture("end")?;
@@ -58,6 +61,8 @@ fn end_kills_a_running_program() -> TestResult {
     fixture.finish()
 }
 
+/// Windows consoles report sizes in cells only.
+#[cfg(unix)]
 #[test]
 fn programs_read_the_pane_size_in_pixels_from_the_pty() -> TestResult {
     const PROBE: &str = concat!(
@@ -96,7 +101,7 @@ fn fixture(name: &str) -> Result<Fixture, Box<dyn Error>> {
     fs::create_dir_all(&directory)?;
     let (sender, events) = channel();
     let settings = ServerSettings {
-        default_shell: Some(PathBuf::from("/bin/sh")),
+        default_shell: Some(support::shell()),
         ..ServerSettings::default()
     };
     Ok(Fixture {
@@ -201,4 +206,176 @@ fn text(rows: &[Row]) -> String {
         .map(|row| row.runs.iter().map(|run| run.text.as_str()).collect())
         .collect();
     lines.join("\n")
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_end_kills_a_running_program_and_everything_the_session_started() -> TestResult {
+    let fixture = fixture("end")?;
+    let (info, handle) = session(&fixture)?;
+    let (events, _) = attach(&handle, 1, SIZE)?;
+    // The background program writes a line a second while it runs.
+    let output = fixture.directory.join("background.txt");
+    // Process IDs repeat, so an earlier run's fixture folder may remain.
+    let _ = fs::remove_file(&output);
+    handle.send(SessionCommand::Input(
+        format!("start /b ping -n 60 127.0.0.1 > {}\r", output.display()).into_bytes(),
+    ))?;
+    handle.send(SessionCommand::Input(b"ping -n 60 127.0.0.1\r".to_vec()))?;
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        match events.recv_timeout(deadline.saturating_duration_since(Instant::now()))? {
+            AttachmentEvent::Metadata(muxy_protocol::MetadataEvent::ForegroundProcess {
+                name,
+                is_shell: false,
+            }) if name.eq_ignore_ascii_case("ping") => break,
+            AttachmentEvent::Frame(_) | AttachmentEvent::Metadata(_) => {}
+            other => return Err(format!("waiting for ping: {other:?}").into()),
+        }
+    }
+    wait_for_text(&events, "127.0.0.1")?;
+    while fs::metadata(&output).map_or(0, |metadata| metadata.len()) < 100 {
+        if Instant::now() > deadline {
+            return Err("the background program wrote nothing".into());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    fixture.registry.end(info.id)?;
+
+    assert_eq!(wait_for_ended(&events)?, ExitReason::Ended);
+    assert_eq!(
+        fixture.events.recv_timeout(TIMEOUT)?,
+        ServerEvent::SessionEnded {
+            id: info.id,
+            reason: ExitReason::Ended
+        }
+    );
+    thread::sleep(Duration::from_secs(1));
+    let ended = fs::metadata(&output)?.len();
+    thread::sleep(Duration::from_secs(3));
+    assert_eq!(
+        fs::metadata(&output)?.len(),
+        ended,
+        "the session's background program outlived it"
+    );
+    fs::remove_file(&output)?;
+    assert!(fixture.registry.list().is_empty());
+    fixture.finish()
+}
+
+/// Windows reports no program's working directory, so the server resolves a
+/// session's folder before starting it, as Unix reports the shell's.
+#[cfg(windows)]
+#[test]
+fn windows_sessions_start_in_and_report_their_resolved_folder() -> TestResult {
+    const WIDE: Size = Size {
+        cols: 400,
+        rows: 24,
+    };
+    let fixture = fixture("resolved")?;
+    let real = fixture.directory.join("real");
+    let junction = fixture.directory.join("junction");
+    // Process IDs repeat, so an earlier run's fixture folder may remain.
+    let _ = fs::remove_dir(&junction);
+    fs::create_dir_all(&real)?;
+    let linked = process::Command::new("cmd")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(&junction)
+        .arg(&real)
+        .stdout(process::Stdio::null())
+        .status()?;
+    assert!(linked.success());
+    let requested = PathBuf::from(junction.to_string_lossy().replace('\\', "/"));
+    let resolved = muxy_core::files::canonicalize(&real)?;
+
+    let info = fixture.registry.create(&requested, WIDE)?;
+    assert_eq!(info.directory, support::server_path(&resolved)?);
+    let handle = fixture
+        .registry
+        .handle(info.id)
+        .ok_or("created session has no handle")?;
+    let (events, snapshot) = attach(&handle, 1, WIDE)?;
+    assert_eq!(snapshot.directory, info.directory);
+    handle.send(SessionCommand::Input(b"cd\r".to_vec()))?;
+    wait_for_text(&events, &format!("{}>", resolved.display()))?;
+
+    fixture.registry.end(info.id)?;
+    assert_eq!(wait_for_ended(&events)?, ExitReason::Ended);
+    let deadline = Instant::now() + TIMEOUT;
+    while !fixture.registry.list().is_empty() {
+        if Instant::now() > deadline {
+            return Err("the session did not end".into());
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    fs::remove_dir(&junction)?;
+    fs::remove_dir(&real)?;
+    fixture.finish()
+}
+
+/// Changes the user's `PATH` in the registry for a moment, so it runs only
+/// in the test VM: `cargo test -- --ignored`.
+#[cfg(windows)]
+#[test]
+#[ignore = "changes the user's PATH in the registry"]
+fn windows_a_path_change_in_the_registry_reaches_new_sessions() -> TestResult {
+    let query = process::Command::new("reg")
+        .args(["query", r"HKCU\Environment", "/v", "Path"])
+        .output()?;
+    let original = String::from_utf8_lossy(&query.stdout)
+        .lines()
+        .find_map(|line| {
+            let line = line.trim();
+            line.strip_prefix("Path").map(|rest| {
+                rest.trim_start()
+                    .split_once(char::is_whitespace)
+                    .map_or("", |(_, value)| value)
+                    .trim()
+                    .to_owned()
+            })
+        });
+    let marker = fixture_marker();
+    let value = match &original {
+        Some(path) if !path.is_empty() => format!("{path};{marker}"),
+        _ => marker.clone(),
+    };
+    let set = |value: &str| {
+        process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Environment",
+                "/v",
+                "Path",
+                "/t",
+                "REG_EXPAND_SZ",
+                "/d",
+                value,
+                "/f",
+            ])
+            .output()
+    };
+    assert!(set(&value)?.status.success());
+    let result = (|| -> TestResult {
+        let fixture = fixture("registry-path")?;
+        let (_, handle) = session(&fixture)?;
+        let (events, _) = attach(&handle, 1, SIZE)?;
+        handle.send(SessionCommand::Input(b"echo [%PATH%]\r".to_vec()))?;
+        wait_for_text(&events, &format!("{marker}]"))?;
+        fixture.finish()
+    })();
+    match original {
+        Some(path) => assert!(set(&path)?.status.success()),
+        None => {
+            process::Command::new("reg")
+                .args(["delete", r"HKCU\Environment", "/v", "Path", "/f"])
+                .output()?;
+        }
+    }
+    result
+}
+
+#[cfg(windows)]
+fn fixture_marker() -> String {
+    format!(r"C:\muxy-path-{}", process::id())
 }

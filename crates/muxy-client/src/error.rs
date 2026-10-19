@@ -26,6 +26,22 @@ pub enum ClientError {
         /// What the transport reported, such as ssh's last line of errors.
         detail: String,
     },
+    /// The local server runs where this program must not use it. Only on
+    /// Windows.
+    ServerElsewhere(ServerElsewhere),
+}
+
+/// Why this program refuses the local server on Windows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerElsewhere {
+    /// It runs in another Windows session, such as an SSH login, where the
+    /// programs its terminals start can't show windows on this screen.
+    Session,
+    /// It runs as administrator and this program doesn't, so using it would
+    /// let a normal program drive administrator shells.
+    Elevated,
+    /// This program runs as administrator and the server doesn't.
+    NotElevated,
 }
 
 /// Why a server on another computer couldn't be reached, so apps can offer
@@ -73,6 +89,7 @@ impl ClientError {
     pub fn recoverable(&self) -> bool {
         match self {
             Self::Remote { reason, .. } => reason.recoverable(),
+            Self::ServerElsewhere(_) => false,
             _ => true,
         }
     }
@@ -98,6 +115,17 @@ impl fmt::Display for ClientError {
                 destination,
                 detail,
             } => remote(formatter, *reason, destination, detail),
+            Self::ServerElsewhere(place) => formatter.write_str(match place {
+                ServerElsewhere::Session => {
+                    "Muxy's server runs in another Windows session, such as an SSH login. Run muxy server stop there, then try again."
+                }
+                ServerElsewhere::Elevated => {
+                    "Muxy's server runs as administrator. Run muxy server stop from an administrator terminal, then try again."
+                }
+                ServerElsewhere::NotElevated => {
+                    "Muxy's server doesn't run as administrator, but this program does. Run muxy server stop from a normal terminal, or run this program without administrator rights."
+                }
+            }),
         }
     }
 }

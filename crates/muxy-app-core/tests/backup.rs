@@ -370,11 +370,16 @@ fn merging_one_x_keeps_existing_projects_tabs_workspaces_and_preferences() {
 
 #[test]
 fn one_x_shell_command_becomes_the_default_shell_unless_one_is_chosen() {
+    let shell = if cfg!(windows) {
+        "C:/Windows/System32/cmd.exe"
+    } else {
+        "/bin/sh"
+    };
     let mut report = backup::ImportReport::default();
-    let server = backup::import_shell("command = \"/bin/sh\"\n", None, &mut report)
+    let server = backup::import_shell(&format!("command = \"{shell}\"\n"), None, &mut report)
         .unwrap()
         .unwrap();
-    assert!(server.contains("default_shell = \"/bin/sh\""));
+    assert!(server.contains(&format!("default_shell = \"{shell}\"")));
     let chosen = "default_shell = \"/bin/zsh\"\n";
     assert!(
         backup::import_shell("command = /bin/sh\n", Some(chosen), &mut report)

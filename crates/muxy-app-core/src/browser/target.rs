@@ -1,5 +1,9 @@
 use std::path::Path;
 
+use muxy_core::files::canonicalize;
+use muxy_core::paths::path_eq;
+use muxy_protocol::ServerPath;
+
 use crate::{AppState, Project, ProjectId};
 
 /// The project a browser command acts in: the current one, or the one named
@@ -64,12 +68,11 @@ fn names_worktree(project: &Project, text: &str) -> bool {
             .is_some_and(|folder| folder == text)
 }
 
+/// `text` may be absolute on any server, Unix or Windows.
 fn same_directory(directory: &Path, text: &Path) -> bool {
-    text.is_absolute()
-        && (directory == text
-            || text
-                .canonicalize()
-                .is_ok_and(|canonical| canonical == directory))
+    ServerPath::from_path(text).is_ok_and(|path| path.is_absolute())
+        && (path_eq(directory, text)
+            || canonicalize(text).is_ok_and(|canonical| path_eq(&canonical, directory)))
 }
 
 fn unique<'a>(

@@ -38,6 +38,22 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSJSONSerialization", "NSURLRequest", "NSURLResponse", "NSNull", "NSKeyValueCoding", "NSValue", "NSDictionary", "NSData", "NSGeometry", "NSString", "NSURL", "NSNotification", "NSBundle", "NSError", "NSOperation", "NSArray", "NSEnumerator", "NSUserDefaults", "block2"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSMenu", "NSMenuItem", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSFontDescriptor", "objc2-core-foundation", "NSAlert", "NSTextField", "NSText", "NSTextView", "NSTextContainer", "NSFont", "NSOpenPanel", "NSPanel", "NSPopUpButton", "NSSavePanel", "NSApplication", "NSButton", "NSButtonCell", "NSActionCell", "NSLayoutConstraint", "NSCell", "NSControl", "NSResponder", "NSView", "NSWindow", "NSCursor", "NSScrollView", "NSScroller", "NSClipView", "NSEvent", "NSAppearance", "NSVisualEffectView", "block2", "NSAccessibility", "NSAccessibilityConstants", "NSAccessibilityProtocols", "libc", "NSAccessibilityElement", "NSColor", "NSScreen", "NSWorkspace", "NSRunningApplication", "NSTextInputContext", "objc2-core-graphics", "objc2-quartz-core"] }
 
+[target.'cfg(windows)'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"] }
+windows = { version = "0.62", features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "UI_Notifications",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_System_WinRT",
+    "Win32_UI_Notifications",
+    "Win32_UI_Shell",
+] }
+windows-core = "0.62"
+# Profiles, history and cookies only: no web engine yet.
+polybrowser = { git = "https://github.com/saeedvaziry/polybrowser", branch = "main", default-features = false }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 polybrowser = { git = "https://github.com/saeedvaziry/polybrowser", branch = "main", default-features = false, features = ["webkit-dynamic"] }
 ashpd = { version = "0.11", default-features = false, features = ["async-std", "wayland", "raw_handle"] }

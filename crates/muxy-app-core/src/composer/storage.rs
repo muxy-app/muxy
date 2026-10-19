@@ -1,9 +1,22 @@
+//! Composer files live in private folders and are published by name only
+//! once complete, never through a symbolic link.
+
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
+mod windows;
+
+#[cfg(unix)]
+use unix as platform;
+#[cfg(windows)]
+use windows as platform;
+
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 
-use rustix::fs::{AtFlags, FileType, Mode, OFlags};
+use muxy_core::files::FileId;
 
 #[derive(Debug)]
 pub(super) struct AtomicWriteError {
@@ -33,21 +46,21 @@ pub(super) fn write_private_durable(path: &Path, contents: &[u8]) -> Result<(), 
         error: io::Error::other("Missing draft filename"),
         published: false,
     })?;
-    let temporary = format!(".{}.tmp", uuid::Uuid::new_v4());
+    let temporary = temporary_name();
     directory
         .write_new_atomic(&temporary, contents)
         .map_err(|error| AtomicWriteError {
             error,
             published: false,
         })?;
-    if let Err(error) = rustix::fs::renameat(&directory.file, &temporary, &directory.file, name) {
-        let _ = rustix::fs::unlinkat(&directory.file, &temporary, AtFlags::empty());
+    if let Err(error) = platform::replace(&directory, temporary.as_ref(), name) {
+        let _ = platform::remove(&directory, temporary.as_ref());
         return Err(AtomicWriteError {
-            error: error.into(),
+            error,
             published: false,
         });
     }
-    directory.file.sync_all().map_err(|error| AtomicWriteError {
+    platform::sync(&directory).map_err(|error| AtomicWriteError {
         error,
         published: true,
     })
@@ -60,19 +73,9 @@ pub(super) struct PrivateDirectory {
 }
 
 pub(super) fn ensure_private_directory(path: &Path) -> io::Result<PrivateDirectory> {
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)?;
-    let file = rustix::fs::open(
-        path,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?
-    .into();
     Ok(PrivateDirectory {
         path: path.to_owned(),
-        file,
+        file: platform::create_directory(path)?,
     })
 }
 
@@ -82,9 +85,8 @@ impl PrivateDirectory {
     }
 
     pub(super) fn verify(&self) -> io::Result<()> {
-        let opened = self.file.metadata()?;
         let current = fs::symlink_metadata(&self.path)?;
-        if !current.is_dir() || (opened.dev(), opened.ino()) != (current.dev(), current.ino()) {
+        if !current.is_dir() || FileId::of(&self.file)? != FileId::of_link(&self.path)? {
             return Err(io::Error::other("Composer storage directory was replaced"));
         }
         Ok(())
@@ -92,32 +94,23 @@ impl PrivateDirectory {
 
     pub(super) fn write_new_atomic(&self, name: &str, contents: &[u8]) -> io::Result<()> {
         self.verify()?;
-        let temporary = format!(".{}.tmp", uuid::Uuid::new_v4());
-        let mut file = File::from(rustix::fs::openat(
-            &self.file,
-            &temporary,
-            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::RUSR | Mode::WUSR,
-        )?);
+        let temporary = temporary_name();
+        let mut file = platform::create_new(self, temporary.as_ref())?;
         let result = (|| {
             file.write_all(contents)?;
             file.sync_all()?;
             self.verify()?;
-            rustix::fs::linkat(&self.file, &temporary, &self.file, name, AtFlags::empty())?;
-            self.file.sync_all()
+            platform::link_new(self, temporary.as_ref(), name.as_ref())?;
+            platform::sync(self)
         })();
-        let _ = rustix::fs::unlinkat(&self.file, &temporary, AtFlags::empty());
+        drop(file);
+        let _ = platform::remove(self, temporary.as_ref());
         result
     }
 
     pub(super) fn read_regular(&self, name: &str) -> io::Result<Vec<u8>> {
         self.verify()?;
-        let file = File::from(rustix::fs::openat(
-            &self.file,
-            name,
-            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?);
+        let file = platform::open_regular(self, name.as_ref())?;
         if !file.metadata()?.is_file() {
             return Err(io::Error::other("Expected a regular composer image"));
         }
@@ -132,31 +125,23 @@ impl PrivateDirectory {
 
     pub(super) fn remove_regular(&self, name: &str) -> io::Result<bool> {
         self.verify()?;
-        let stat = match rustix::fs::statat(&self.file, name, AtFlags::SYMLINK_NOFOLLOW) {
-            Ok(stat) => stat,
-            Err(rustix::io::Errno::NOENT) => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-        if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+        if platform::is_regular(self, name.as_ref())? != Some(true) {
             return Ok(false);
         }
-        rustix::fs::unlinkat(&self.file, name, AtFlags::empty())?;
+        platform::remove(self, name.as_ref())?;
         Ok(true)
     }
 
     pub(super) fn regular_file_names(&self) -> io::Result<Vec<String>> {
         self.verify()?;
         let mut names = Vec::new();
-        for entry in rustix::fs::Dir::read_from(&self.file)? {
-            let entry = entry?;
-            let Ok(name) = entry.file_name().to_str() else {
+        for name in platform::names(self)? {
+            let Some(name) = name.to_str() else {
                 continue;
             };
-            if super::image_storage::validate_image_filename(name).is_err() {
-                continue;
-            }
-            let stat = rustix::fs::statat(&self.file, name, AtFlags::SYMLINK_NOFOLLOW)?;
-            if FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile {
+            if super::image_storage::validate_image_filename(name).is_ok()
+                && platform::is_regular(self, name.as_ref())? == Some(true)
+            {
                 names.push(name.to_owned());
             }
         }
@@ -166,31 +151,20 @@ impl PrivateDirectory {
 
 pub(super) fn lock_profile(root: &Path) -> io::Result<File> {
     let directory = ensure_private_directory(root)?;
-    let file = File::from(rustix::fs::openat(
-        &directory.file,
-        ".composer.lock",
-        OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-        Mode::RUSR | Mode::WUSR,
-    )?);
+    let file = platform::open_lock(&directory, OsStr::new(".composer.lock"))?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::other("Composer lock must be a regular file"));
     }
-    rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive).map_err(
-        |error| {
-            io::Error::other(format!(
-                "Composer drafts are in use by another Muxy instance: {error}"
-            ))
-        },
-    )?;
+    file.try_lock().map_err(|error| {
+        io::Error::other(format!(
+            "Composer drafts are in use by another Muxy instance: {error}"
+        ))
+    })?;
     Ok(file)
 }
 
 pub(super) fn read_document(path: &Path) -> io::Result<Vec<u8>> {
-    let file = File::from(rustix::fs::open(
-        path,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?);
+    let file = platform::open_document(path)?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::other("Composer drafts must be a regular file"));
     }
@@ -205,9 +179,84 @@ pub(super) fn read_document(path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn temporary_name() -> String {
+    format!(".{}.tmp", uuid::Uuid::new_v4())
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::composer::{ComposerStore, DraftId};
+    use crate::composer::image_storage::ImageStorage;
+    use crate::composer::{ComposerStore, DraftId, IMAGES_DIRECTORY_NAME};
+
+    #[test]
+    fn a_linked_drafts_document_is_never_read() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = root.path().join("outside.json");
+        std::fs::write(&outside, b"{}").unwrap();
+        let linked = root.path().join(crate::composer::DRAFTS_FILE_NAME);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside, &linked).unwrap();
+        assert_eq!(super::read_document(&outside).unwrap(), b"{}");
+        assert!(super::read_document(&linked).is_err());
+    }
+
+    #[test]
+    fn a_linked_image_folder_is_refused() {
+        let profile = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let folder = profile.path().join(IMAGES_DIRECTORY_NAME);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), &folder).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(outside.path(), &folder).unwrap();
+        assert!(ImageStorage::open(profile.path()).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_in_place_of_the_image_folder_is_refused() {
+        let profile = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let folder = profile.path().join(IMAGES_DIRECTORY_NAME);
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&folder)
+            .arg(outside.path())
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let permissions = || {
+            std::process::Command::new("icacls")
+                .arg(outside.path())
+                .output()
+                .unwrap()
+                .stdout
+        };
+        let before = permissions();
+        assert!(ImageStorage::open(profile.path()).is_err());
+        assert_eq!(permissions(), before);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_open_image_folder_and_its_parents_cannot_be_moved() {
+        let parent = tempfile::tempdir().unwrap();
+        let profile = parent.path().join("profile");
+        let storage = ImageStorage::open(&profile).unwrap();
+        let folder = storage.directory_path().to_owned();
+        assert!(std::fs::rename(&folder, profile.join("moved")).is_err());
+        assert!(std::fs::remove_dir_all(&folder).is_err());
+        assert!(std::fs::rename(&profile, parent.path().join("moved")).is_err());
+        assert!(
+            storage
+                .path_for("AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE.png")
+                .is_ok()
+        );
+        drop(storage);
+        std::fs::rename(&folder, profile.join("moved")).unwrap();
+    }
 
     #[test]
     fn only_the_profile_owner_can_publish_drafts_and_the_lock_releases_on_drop() {

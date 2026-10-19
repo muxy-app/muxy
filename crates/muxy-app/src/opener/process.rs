@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 use muxy_ui::tr;
 
 pub(super) fn run(command: &mut Command, timeout: Duration) -> io::Result<Child> {
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(command, crate::NO_WINDOW);
     let mut child = command.stdin(Stdio::null()).stderr(Stdio::null()).spawn()?;
     let deadline = Instant::now() + timeout;
     loop {

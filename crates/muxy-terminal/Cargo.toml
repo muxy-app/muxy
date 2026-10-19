@@ -17,3 +17,6 @@ muxy-protocol = { path = "../muxy-protocol" }
 portable-pty = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
 libghostty-vt = "=0.2.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

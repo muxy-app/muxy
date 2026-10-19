@@ -4,6 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_client::{Client, ClientError};
+use muxy_core::files::FileId;
 use muxy_ui::tr;
 
 pub(crate) fn ensure_server_running(socket: &Path) -> Result<Client, ClientError> {
@@ -36,21 +37,18 @@ fn retryable_restart(error: &ClientError) -> bool {
 pub(crate) use muxy_client::local::server_executable;
 
 pub(crate) fn stop_server(client: &Client, socket: &Path) -> Result<(), ClientError> {
-    use std::os::unix::fs::MetadataExt;
-    let identity =
-        std::fs::symlink_metadata(socket).map(|metadata| (metadata.dev(), metadata.ino()))?;
+    let identity = FileId::of_link(socket)?;
     client.stop_server()?;
     wait_stopped(socket, identity)
 }
 
-fn wait_stopped(socket: &Path, identity: (u64, u64)) -> Result<(), ClientError> {
-    use std::os::unix::fs::MetadataExt;
+fn wait_stopped(socket: &Path, identity: FileId) -> Result<(), ClientError> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        match std::fs::symlink_metadata(socket) {
+        match FileId::of_link(socket) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(error) => return Err(error.into()),
-            Ok(metadata) if (metadata.dev(), metadata.ino()) != identity => return Ok(()),
+            Ok(current) if current != identity => return Ok(()),
             Ok(_) => {}
         }
         if Instant::now() >= deadline {
@@ -115,8 +113,7 @@ pub(crate) fn prepare_update(
 }
 
 fn stop_if_idle(client: &Client, socket: &Path) -> Result<bool, ClientError> {
-    use std::os::unix::fs::MetadataExt;
-    let identity = std::fs::symlink_metadata(socket).map(|m| (m.dev(), m.ino()))?;
+    let identity = FileId::of_link(socket)?;
     if !client.stop_server_if_idle()? {
         return Ok(false);
     }

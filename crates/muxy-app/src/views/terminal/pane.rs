@@ -1,4 +1,3 @@
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -224,7 +223,7 @@ impl TerminalPane {
     }
 
     pub(crate) fn directory(&self) -> Option<PathBuf> {
-        let path = PathBuf::from(std::ffi::OsString::from_vec(self.directory.0.clone()));
+        let path = self.directory.to_path_buf().ok()?;
         path.is_absolute().then_some(path)
     }
 

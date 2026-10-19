@@ -481,7 +481,7 @@ impl AppModel {
             let start = call.args["default"]
                 .as_str()
                 .map(expand_home)
-                .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
+                .or_else(|| muxy_core::paths::home_dir().ok())
                 .unwrap_or_else(|| "/".into());
             muxy_ui::dialog::choose_folder_with(
                 cx,
@@ -550,12 +550,7 @@ impl AppModel {
 }
 
 fn expand_home(path: &str) -> std::path::PathBuf {
-    match (path.strip_prefix('~'), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
-            std::path::PathBuf::from(home).join(rest.trim_start_matches('/'))
-        }
-        _ => path.into(),
-    }
+    muxy_core::paths::expand_tilde(std::path::Path::new(path)).unwrap_or_else(|_| path.into())
 }
 
 /// Builds the native dialog, applying main's validation and 2000-character caps.

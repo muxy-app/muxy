@@ -1,12 +1,12 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use super::{Result, error};
+use crate::platform::ProcessGroup;
 
 const LIMIT: usize = 4 * 1024 * 1024;
 
@@ -25,7 +25,7 @@ pub(super) fn run_with_index(
 }
 
 pub(super) fn network(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>> {
-    let mut arguments: Vec<std::ffi::OsString> = Vec::new();
+    let mut arguments: Vec<OsString> = Vec::new();
     if let Some(helper) = github_credential_helper() {
         arguments.extend(["-c".into(), helper]);
     }
@@ -39,29 +39,43 @@ pub(super) fn network(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>
     .map(|output| output.0)
 }
 
-fn github_credential_helper() -> Option<std::ffi::OsString> {
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+/// A Git option that asks `gh` for GitHub credentials. Git runs the helper
+/// through a POSIX shell, Git for Windows included.
+fn github_credential_helper() -> Option<OsString> {
     let gh = github_cli()?;
-    let mut value = b"credential.https://github.com.helper=!'".to_vec();
-    for byte in gh.as_os_str().as_bytes() {
-        if *byte == b'\'' {
-            value.extend_from_slice(b"'\\''");
-        } else {
-            value.push(*byte);
+    let mut value = OsString::from("credential.https://github.com.helper=!'");
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let mut quoted = Vec::new();
+        for byte in gh.as_os_str().as_bytes() {
+            if *byte == b'\'' {
+                quoted.extend_from_slice(b"'\\''");
+            } else {
+                quoted.push(*byte);
+            }
         }
+        value.push(OsString::from_vec(quoted));
     }
-    value.extend_from_slice(b"' auth git-credential");
-    Some(std::ffi::OsString::from_vec(value))
+    #[cfg(windows)]
+    value.push(gh.to_str()?.replace('\'', "'\\''"));
+    value.push("' auth git-credential");
+    Some(value)
 }
 
 /// Finds `gh` beyond the system PATH that a server started from the app inherits,
 /// checking Homebrew's folders before asking the login shell.
 pub(super) fn github_cli() -> Option<PathBuf> {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let homebrew: &[&str] = if cfg!(windows) {
+        &[]
+    } else {
+        &["/opt/homebrew/bin", "/usr/local/bin"]
+    };
     find_executable(
         "gh",
         std::env::split_paths(&inherited)
-            .chain(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from))
+            .chain(homebrew.iter().map(PathBuf::from))
             .chain(
                 std::iter::once_with(crate::exec::login_path)
                     .flatten()
@@ -75,16 +89,10 @@ pub(super) fn find_executable(
     name: &str,
     directories: impl IntoIterator<Item = PathBuf>,
 ) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
     directories
         .into_iter()
-        .map(|directory| directory.join(name))
-        .find(|path| {
-            path.is_absolute()
-                && path.metadata().is_ok_and(|metadata| {
-                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                })
-        })
+        .filter(|directory| directory.is_absolute())
+        .find_map(|directory| crate::exec::program_in(&directory, name))
 }
 
 pub(super) fn diff(
@@ -112,8 +120,7 @@ fn git_command(path: &Path, args: &[impl AsRef<OsStr>]) -> Command {
         .stderr(Stdio::piped())
         .env("LC_ALL", "C")
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .process_group(0);
+        .env("GIT_OPTIONAL_LOCKS", "0");
     for (name, _) in std::env::vars_os() {
         let key = name.to_string_lossy();
         if key.starts_with("GIT_")
@@ -174,10 +181,8 @@ fn capture_process(
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0);
-    let mut child = command.spawn().map_err(error)?;
-    let id = child.id();
+        .stderr(Stdio::piped());
+    let (mut child, group) = ProcessGroup::spawn(&mut command).map_err(error)?;
     let input_task = input
         .zip(child.stdin.take())
         .map(|(bytes, mut pipe)| std::thread::spawn(move || pipe.write_all(&bytes)));
@@ -220,7 +225,7 @@ fn capture_process(
                         && output[0].len() + bytes.len() > limit
                     {
                         output[0].extend_from_slice(&bytes[..limit - output[0].len()]);
-                        terminate_group(id);
+                        group.kill();
                         return Ok((std::mem::take(&mut output[0]), true));
                     }
                     if output[stream].len() + bytes.len() > LIMIT {
@@ -248,7 +253,7 @@ fn capture_process(
         }
     })();
     if result.is_err() {
-        terminate_group(id);
+        group.kill();
     }
     let _ = child.wait();
     if let Some(task) = input_task {
@@ -261,15 +266,6 @@ fn capture_process(
         }
     }
     result
-}
-
-fn terminate_group(id: u32) {
-    let _ = Command::new("/bin/kill")
-        .args(["-KILL", "--", &format!("-{id}")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
 }
 
 fn forward_output(

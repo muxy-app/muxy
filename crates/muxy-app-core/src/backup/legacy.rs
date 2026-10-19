@@ -370,9 +370,16 @@ pub fn import_shell(
     Ok(Some(toml::to_string_pretty(&settings)?))
 }
 
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.is_absolute()
         && std::fs::metadata(path)
             .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+/// Windows has no executable bit, so any file counts.
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    path.is_absolute() && std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
 }

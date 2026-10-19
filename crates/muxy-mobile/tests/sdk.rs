@@ -1,3 +1,6 @@
+//! Phones run Unix, so these tests drive POSIX shells and run only there.
+#![cfg(unix)]
+
 use std::net::{SocketAddr, TcpListener};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;

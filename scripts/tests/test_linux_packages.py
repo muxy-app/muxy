@@ -36,7 +36,7 @@ class LinuxPackageTests(unittest.TestCase):
 
             def build(command, **kwargs):
                 staging = Path(command[-2]).resolve()
-                paths = {str(path.relative_to(staging)) for path in staging.rglob("*")
+                paths = {path.relative_to(staging).as_posix() for path in staging.rglob("*")
                          if path.is_file() or path.is_symlink()}
                 control = (staging / "DEBIAN/control").read_text()
                 self.assertIn("libc6 (>= 2.39)", control)

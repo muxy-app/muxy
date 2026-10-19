@@ -204,7 +204,10 @@ fn traversal_symlinks_missing_manifest_and_unknown_versions_are_rejected() {
     assert!(prepare(directory.path(), &archive).is_err());
     fs::write(&archive, b"not a ZIP").unwrap();
     assert!(prepare(directory.path(), &archive).is_err());
+    #[cfg(unix)]
     std::os::unix::fs::symlink("/etc/passwd", directory.path().join("themes")).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(r"C:\Windows", directory.path().join("themes")).unwrap();
     assert!(export(directory.path(), &archive, &AppState::bootstrap().unwrap()).is_err());
 }
 
@@ -522,6 +525,7 @@ fn mobile_preferences_exclude_credentials_and_apply_through_the_server() {
     assert_eq!(fs::read(target.path().join("remote.json")).unwrap(), raw);
 }
 
+#[cfg(unix)]
 fn legacy_package(folder: &Path, name: &str) {
     fs::create_dir_all(folder).unwrap();
     fs::write(
@@ -531,6 +535,8 @@ fn legacy_package(folder: &Path, name: &str) {
     .unwrap();
 }
 
+/// Muxy 1 ran only on macOS, so only Unix has its data to migrate.
+#[cfg(unix)]
 #[test]
 fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge() {
     let directory = profile();

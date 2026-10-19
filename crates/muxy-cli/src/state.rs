@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use muxy_app_core::{Branch, Direction, Layout, PaneId};
@@ -598,10 +597,7 @@ impl Store {
     /// Loads the layout kept in `directory`, creating the folder, private to
     /// this user, if it is missing.
     pub(crate) fn load(directory: &Path, catalog: &CatalogPage) -> Result<Self> {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(directory)
+        muxy_core::files::private_dir(directory)
             .map_err(|error| format!("Cannot create {}: {error}", directory.display()))?;
         let path = directory.join("tui-state.json");
         let _guard = state_lock(&path)?;
@@ -672,12 +668,11 @@ impl Store {
 }
 
 fn state_lock(path: &Path) -> Result<File> {
-    let file = OpenOptions::new()
+    let file = muxy_core::files::private_file()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(path.with_file_name("tui.lock"))
         .map_err(|error| error.to_string())?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -724,16 +719,17 @@ fn persist(path: &Path, state: &State) -> io::Result<()> {
         return Err(io::Error::other("TUI state file is too large"));
     }
     let temporary = path.with_file_name(format!(".tui-state-{}.tmp", OperationId::new()));
-    let mut file = OpenOptions::new()
+    let mut file = muxy_core::files::private_file()
         .write(true)
         .create_new(true)
-        .mode(0o600)
         .open(&temporary)?;
     let result = file
         .write_all(&bytes)
         .and_then(|()| file.sync_all())
-        .and_then(|()| fs::rename(&temporary, path))
-        .and_then(|()| File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all());
+        .and_then(|()| muxy_core::files::replace_file(&temporary, path))
+        .and_then(|()| {
+            muxy_core::files::sync_directory(path.parent().unwrap_or_else(|| Path::new(".")))
+        });
     if result.is_err() {
         let _ = fs::remove_file(temporary);
     }

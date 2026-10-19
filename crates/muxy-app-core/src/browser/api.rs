@@ -5,10 +5,10 @@
 
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use muxy_protocol::transport::LocalStream;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -95,7 +95,7 @@ impl std::error::Error for CallError {}
 
 /// Sends `request` to the app and waits up to `timeout` for its reply.
 pub fn call(socket: &Path, request: &Request, timeout: Duration) -> Result<Value, CallError> {
-    let mut stream = UnixStream::connect(socket).map_err(|error| match error.kind() {
+    let mut stream = LocalStream::connect(socket).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => CallError::NotRunning,
         _ => CallError::Io(error),
     })?;

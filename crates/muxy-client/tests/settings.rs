@@ -1,3 +1,6 @@
+//! Shells are POSIX ones here, and they report `$SHELL`.
+#![cfg(unix)]
+
 use std::error::Error;
 use std::os::unix::net::UnixStream;
 use std::sync::{

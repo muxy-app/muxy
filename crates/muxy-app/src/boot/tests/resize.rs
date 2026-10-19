@@ -11,13 +11,11 @@ fn resize_coalescing_preserves_request_and_detach_order() -> TestResult {
 }
 
 fn check_resize_delivery(saturated: bool) -> TestResult {
-    let directory = PathBuf::from(format!(
-        "/tmp/muxy-resize-{}-{saturated}",
-        std::process::id(),
-    ));
+    let directory = crate::app_socket::test_socket_folder()
+        .join(format!("muxy-resize-{}-{saturated}", std::process::id(),));
     fs::create_dir(&directory)?;
     let socket = directory.join("server.sock");
-    let listener = UnixListener::bind(&socket)?;
+    let listener = LocalListener::bind(&socket)?;
     let (progress, received) = mpsc::channel();
     let (release, gate) = mpsc::channel();
     let server = thread::spawn(move || resize_server(&listener, &progress, &gate));
@@ -108,7 +106,7 @@ fn check_resize_delivery(saturated: bool) -> TestResult {
 }
 
 fn resize_server(
-    listener: &UnixListener,
+    listener: &LocalListener,
     progress: &Sender<()>,
     gate: &mpsc::Receiver<()>,
 ) -> Result<Vec<RequestBody>, Box<dyn Error + Send + Sync>> {
@@ -176,10 +174,11 @@ fn resize_server(
 
 #[test]
 fn reconnect_discards_old_resizes_and_stale_completion_unblocks_new_work() -> TestResult {
-    let directory = PathBuf::from(format!("/tmp/muxy-resize-reconnect-{}", std::process::id()));
+    let directory = crate::app_socket::test_socket_folder()
+        .join(format!("muxy-resize-reconnect-{}", std::process::id()));
     fs::create_dir(&directory)?;
     let socket = directory.join("server.sock");
-    let listener = UnixListener::bind(&socket)?;
+    let listener = LocalListener::bind(&socket)?;
     let (started, running) = mpsc::channel();
     let server = thread::spawn(move || reconnect_server(&listener, &started));
     let (work, updates) = local_worker(socket)?;
@@ -246,7 +245,7 @@ fn reconnect_discards_old_resizes_and_stale_completion_unblocks_new_work() -> Te
     Ok(())
 }
 
-fn reconnect_server(listener: &UnixListener, started: &Sender<()>) -> TestResult {
+fn reconnect_server(listener: &LocalListener, started: &Sender<()>) -> TestResult {
     for generation in 1..=2 {
         let (socket, _) = listener.accept()?;
         socket.set_read_timeout(Some(Duration::from_secs(3)))?;

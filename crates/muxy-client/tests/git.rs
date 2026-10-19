@@ -5,7 +5,6 @@ use muxy_protocol::{
 };
 use muxy_server::{Registry, ServerSettings, connection};
 use std::error::Error;
-use std::os::unix::{ffi::OsStrExt, fs::PermissionsExt, net::UnixStream};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -49,10 +48,14 @@ fn git_round_trips_while_slow_hooks_leave_control_requests_responsive() -> TestR
     }
     let hook = directory.0.join(".git/hooks/post-checkout");
     std::fs::write(&hook, "#!/bin/sh\ntouch hook-started\nsleep 1\n")?;
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700))?;
+    }
     let (send, events) = mpsc::channel();
     let registry = Arc::new(Registry::new(ServerSettings::default(), send));
-    let (local, remote) = UnixStream::pair()?;
+    let (local, remote) = muxy_protocol::transport::socket_pair()?;
     let serving_registry = registry.clone();
     let serving =
         std::thread::spawn(move || connection::serve(Box::new(remote), serving_registry, events));
@@ -63,7 +66,7 @@ fn git_round_trips_while_slow_hooks_leave_control_requests_responsive() -> TestR
         mutation: ProjectMutation::Create(ProjectDescriptor {
             id: project,
             home: false,
-            directory: ServerPath(directory.0.as_os_str().as_bytes().to_vec()),
+            directory: ServerPath::from_path(&directory.0).map_err(|code| format!("{code:?}"))?,
             name: "Test".into(),
             icon: None,
             logo: None,

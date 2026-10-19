@@ -93,7 +93,7 @@ impl From<ClientError> for MobileError {
             ClientError::Invalid(_) | ClientError::UnexpectedReply(_) => Self::Server {
                 reason: error.to_string(),
             },
-            ClientError::Remote { .. } => Self::Unreachable {
+            ClientError::Remote { .. } | ClientError::ServerElsewhere(_) => Self::Unreachable {
                 reason: error.to_string(),
             },
         }

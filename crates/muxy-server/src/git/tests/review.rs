@@ -1,9 +1,10 @@
-use super::extensions::{commit, fake_gh, pr, remote};
+use super::extensions::{commit, remote};
+#[cfg(unix)]
+use super::extensions::{fake_gh, pr};
 use super::*;
-use muxy_protocol::{
-    GitBaseSwitch, GitChangesPreview, GitPullRequestAction as Pr, GitPushDestination,
-};
-use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use muxy_protocol::GitPullRequestAction as Pr;
+use muxy_protocol::{GitBaseSwitch, GitChangesPreview, GitPushDestination};
 
 fn preview(repo: &Repo) -> GitChangesPreview {
     let GitReply::ChangesPreview(preview) = repo
@@ -201,7 +202,7 @@ fn failed_commit_keeps_what_the_user_had_staged() {
     std::fs::create_dir(&hooks).unwrap();
     let hook = hooks.join("pre-commit");
     std::fs::write(&hook, "#!/bin/sh\necho blocked by hook >&2\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    make_executable(&hook);
     run(
         &repo.path,
         &[
@@ -380,7 +381,7 @@ fn switch_to_base_skips_other_worktrees_and_only_fast_forwards() {
         panic!()
     };
     assert_eq!(
-        path(&directory).canonicalize().unwrap(),
+        path(&directory).unwrap().canonicalize().unwrap(),
         linked.canonicalize().unwrap()
     );
     assert_eq!(repo.summary().branch.as_deref(), Some("feature"));
@@ -419,6 +420,7 @@ fn switch_to_base_skips_other_worktrees_and_only_fast_forwards() {
     assert_eq!(repo.summary().branch.as_deref(), Some("main"));
 }
 
+#[cfg(unix)]
 fn pull_request_behind_base(repo: &mut Repo, local: &str, feature_file: &str) -> (PathBuf, String) {
     let remote = remote(repo);
     run(&repo.path, &["push", "-u", "origin", "main"]).unwrap();
@@ -452,6 +454,7 @@ fn pull_request_behind_base(repo: &mut Repo, local: &str, feature_file: &str) ->
     (remote, head)
 }
 
+#[cfg(unix)]
 fn update(repo: &Repo, head: &str) -> Result<GitReply> {
     pr(
         repo,
@@ -462,6 +465,7 @@ fn update(repo: &Repo, head: &str) -> Result<GitReply> {
     )
 }
 
+#[cfg(unix)]
 #[test]
 fn update_branch_works_for_muxy_pull_request_checkouts_with_untracked_files() {
     let mut repo = Repo::new(true);
@@ -482,6 +486,7 @@ fn update_branch_works_for_muxy_pull_request_checkouts_with_untracked_files() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn update_branch_explains_each_refusal_and_partial_failure() {
     let mut repo = Repo::new(true);
@@ -499,7 +504,7 @@ fn update_branch_explains_each_refusal_and_partial_failure() {
     let (remote, head) = pull_request_behind_base(&mut repo, "feature", "feature");
     let hook = remote.join("hooks/pre-receive");
     std::fs::write(&hook, "#!/bin/sh\necho rejected >&2\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    make_executable(&hook);
     let error = update(&repo, &head).unwrap_err();
     assert!(
         error.message().contains("locally, but couldn't push"),
@@ -536,6 +541,7 @@ fn update_branch_explains_each_refusal_and_partial_failure() {
     assert!(error.message().contains("forks"));
 }
 
+#[cfg(unix)]
 #[test]
 fn pull_request_from_the_default_branch_moves_uncommitted_work_to_a_new_branch() {
     let mut repo = Repo::new(true);

@@ -14,6 +14,7 @@ fn backend(feature: Feature) -> Capability {
         Feature::CommandLineTool => crate::cli_install::CAPABILITY,
         Feature::Updates => crate::updater::CAPABILITY,
         Feature::AppHiding => Capability::of(cfg!(target_os = "macos")),
+        Feature::BrowserPanes | Feature::SshRemotes => Capability::of(!cfg!(windows)),
     }
 }
 

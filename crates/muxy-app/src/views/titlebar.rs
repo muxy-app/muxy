@@ -1,8 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, Context, Div, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
-    div, px,
+    AnyElement, AppContext, Context, Div, ElementId, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use muxy_ui::components::{IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
@@ -14,6 +13,8 @@ use crate::model::AppModel;
 pub(crate) mod frame;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
+#[cfg(windows)]
+pub(crate) mod windows;
 
 pub(crate) fn content_size(window: &Window) -> gpui::Size<gpui::Pixels> {
     #[cfg(target_os = "linux")]
@@ -43,7 +44,7 @@ pub(super) fn top_corners<T: Styled>(element: T, window: &Window, left: bool, ri
 }
 
 pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> (Div, f32) {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     let _ = window;
     let project = model.state.current_project();
     let available = project.status() == muxy_app_core::ProjectStatus::Available;
@@ -72,7 +73,7 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .flex()
         .flex_none()
         .items_center()
-        .when(cfg!(target_os = "linux"), Styled::h_full)
+        .when(!cfg!(target_os = "macos"), Styled::h_full)
         .when(existing_count > 0, |bar| {
             bar.child(super::tab_strip::existing_terminals_button(
                 existing_count,
@@ -107,6 +108,12 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
             width + linux::controls_width(window) + 1.0,
         );
     }
+    #[cfg(windows)]
+    return (
+        bar.child(windows::controls(window, &model.theme).ml(model.metrics.spacing2())),
+        width + windows::controls_width() + f32::from(model.metrics.spacing2()),
+    );
+    #[cfg(not(windows))]
     (bar, width)
 }
 
@@ -133,6 +140,20 @@ pub(crate) fn begin_window_move(
     window.start_window_move();
 }
 
+/// Empty titlebar space, which moves the window. On Windows, Windows itself
+/// moves it, maximizes it on a double click, and offers its menu. It does
+/// so only for a press no element handled, so the space occludes the
+/// focusable views behind it, which would otherwise take the press.
+#[cfg(windows)]
+pub(crate) fn background(id: &'static str) -> Stateful<Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .window_control_area(gpui::WindowControlArea::Drag)
+        .occlude()
+}
+
+#[cfg(not(windows))]
 pub(crate) fn background(id: &'static str) -> Stateful<Div> {
     let background = div()
         .id(id)
@@ -154,7 +175,8 @@ pub(crate) fn background(id: &'static str) -> Stateful<Div> {
     background
 }
 
-fn background_click(event: &gpui::ClickEvent, window: &mut Window, cx: &mut App) {
+#[cfg(not(windows))]
+fn background_click(event: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App) {
     if event.click_count() == 2 {
         cx.stop_propagation();
         window.dispatch_action(Box::new(super::workspace::Zoom), cx);

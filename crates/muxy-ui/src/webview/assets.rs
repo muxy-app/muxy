@@ -115,7 +115,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!("muxy-web-assets-{}", std::process::id()));
         std::fs::create_dir_all(root.join("inside"))?;
         std::fs::write(root.join("inside/index.html"), "hello")?;
+        #[cfg(unix)]
         std::os::unix::fs::symlink("/etc/passwd", root.join("outside"))?;
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(r"C:\Windows\win.ini", root.join("outside"))?;
         assert!(resolve(&root, "../etc/passwd").is_err());
         assert!(resolve(&root, "outside").is_err());
         assert!(resolve(&root, "inside").is_err());

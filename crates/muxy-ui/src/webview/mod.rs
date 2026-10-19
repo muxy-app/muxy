@@ -6,6 +6,7 @@ pub mod assets;
 mod file_drop;
 #[cfg(target_os = "macos")]
 pub(crate) mod host;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod rules;
 #[cfg(target_os = "macos")]
 pub(crate) use macos::parent_view;

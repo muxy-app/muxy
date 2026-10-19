@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
@@ -19,6 +20,8 @@ pub(crate) fn paste(text: &str, modes: Modes) -> Vec<u8> {
     bracket(text.into_bytes(), modes)
 }
 
+/// Dropped paths as POSIX shell words.
+#[cfg(unix)]
 pub(crate) fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
     let mut text = Vec::new();
     for path in paths {
@@ -53,6 +56,33 @@ pub(crate) fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
         text.push(b'\'');
     }
     Some(bracket(text, modes))
+}
+
+/// Dropped paths as words of the shell Windows sessions start with, in its
+/// single quotes. Windows paths hold no control characters, and that shell
+/// reads the curly single quotes as quotes too.
+#[cfg(windows)]
+pub(crate) fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
+    let mut words = Vec::new();
+    for path in paths {
+        let text = path.to_str()?;
+        if !path.is_absolute() || text.chars().any(char::is_control) {
+            return None;
+        }
+        let mut word = String::from("'");
+        for character in text.chars() {
+            if matches!(
+                character,
+                '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}'
+            ) {
+                word.push(character);
+            }
+            word.push(character);
+        }
+        word.push('\'');
+        words.push(word);
+    }
+    Some(bracket(words.join(" ").into_bytes(), modes))
 }
 
 fn bracket(text: Vec<u8>, modes: Modes) -> Vec<u8> {

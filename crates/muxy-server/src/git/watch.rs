@@ -1,9 +1,7 @@
-use super::{Result, error, is_repository, path, run};
+use super::{Result, error, git_path, is_repository, path, run};
 use crate::Registry;
 use muxy_protocol::ProjectId;
 use notify::{EventKind, RecursiveMode, Watcher};
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,17 +59,13 @@ impl Registry {
         invalidated: impl Fn() + Send + 'static,
     ) -> Result<Option<RepositoryWatch>> {
         let project = self.catalog.project(project)?;
-        let directory = path(&project.directory);
+        let directory = &path(&project.directory)?;
         if !directory.is_dir() || !is_repository(directory)? {
             return Ok(None);
         }
         let resolve = |name: &str| -> Result<PathBuf> {
             let value = run(directory, &["rev-parse", "--path-format=absolute", name])?;
-            Path::new(OsStr::from_bytes(
-                value.strip_suffix(b"\n").unwrap_or(&value),
-            ))
-            .canonicalize()
-            .map_err(error)
+            muxy_core::files::canonicalize(&git_path(&value)?).map_err(error)
         };
         RepositoryWatch::new(
             &Roots {

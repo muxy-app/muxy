@@ -298,7 +298,7 @@ pub(crate) fn atomic_write(path: &Path, source: &str) -> Result<()> {
     let result = (|| -> io::Result<()> {
         file.write_all(source.as_bytes())?;
         file.sync_all()?;
-        fs::rename(&temporary, path)
+        muxy_core::files::replace_file(&temporary, path)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);

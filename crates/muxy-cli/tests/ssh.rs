@@ -1,5 +1,8 @@
 //! Reaching a server on another computer over SSH. A fake ssh runs the remote
 //! command on this computer, against the real `muxy` and `muxy-server`.
+//!
+//! SSH remotes are Unix-only for now, so these tests run only on Unix.
+#![cfg(unix)]
 
 #[path = "support/ssh.rs"]
 mod remote;

@@ -7,6 +7,9 @@ use std::fs;
 use std::path::PathBuf;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+/// Replaces the catalog's folder while the server uses it, which Windows
+/// refuses while files in it are open.
+#[cfg(unix)]
 #[test]
 fn cached_receipts_require_the_directory_durability_barrier() -> TestResult {
     let profile = Profile::new()?;
@@ -16,7 +19,7 @@ fn cached_receipts_require_the_directory_durability_barrier() -> TestResult {
     let session = registry.create_project_session(
         home,
         operation,
-        Path::new("/tmp"),
+        &crate::test_support::folder(),
         Size { cols: 80, rows: 24 },
     )?;
     registry.end(session.id)?;
@@ -41,7 +44,7 @@ fn cached_receipts_require_the_directory_durability_barrier() -> TestResult {
             .create_project_session(
                 home,
                 operation,
-                Path::new("/tmp"),
+                &crate::test_support::folder(),
                 Size { cols: 80, rows: 24 }
             )
             .unwrap_err()
@@ -55,7 +58,7 @@ fn cached_receipts_require_the_directory_durability_barrier() -> TestResult {
         registry.create_project_session(
             home,
             operation,
-            Path::new("/tmp"),
+            &crate::test_support::folder(),
             Size { cols: 80, rows: 24 }
         )?,
         session
@@ -68,7 +71,7 @@ fn cached_receipts_require_the_directory_durability_barrier() -> TestResult {
 fn natural_exit_retries_a_failed_catalog_write_without_server_restart() -> TestResult {
     let profile = Profile::new()?;
     let registry = profile.open()?;
-    let session = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    let session = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
     let revision = registry.catalog_revision();
     let path = profile.0.join("sessions/catalog.json");
     let backup = profile.0.join("catalog.backup");
@@ -102,8 +105,8 @@ fn natural_exit_retries_a_failed_catalog_write_without_server_restart() -> TestR
 fn retention_removes_expired_output_without_ending_live_sessions() -> TestResult {
     let profile = Profile::new()?;
     let registry = profile.open()?;
-    let ended = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
-    let live = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    let ended = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
+    let live = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
     registry.end(ended.id)?;
     let revision = registry.catalog_revision();
     registry.prune_expired_sessions()?;
@@ -134,7 +137,7 @@ fn retention_removes_expired_output_without_ending_live_sessions() -> TestResult
 fn retention_migrates_old_entries_once_and_prunes_on_startup() -> TestResult {
     let profile = Profile::new()?;
     let registry = profile.open()?;
-    let session = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    let session = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
     registry.end(session.id)?;
     drop(registry);
     let path = profile.0.join("sessions/catalog.json");
@@ -192,7 +195,7 @@ impl Profile {
         let (events, _) = std::sync::mpsc::channel();
         Registry::persistent(
             ServerSettings {
-                default_shell: Some("/bin/sh".into()),
+                default_shell: Some(crate::test_support::shell()),
                 ..ServerSettings::default()
             },
             events,
@@ -214,7 +217,8 @@ fn reservation_survives_restart_before_pty_start() -> TestResult {
     let info = SessionInfo {
         id: registry.reserve_start()?,
         project: registry.home_project(),
-        directory: ServerPath(b"/tmp".to_vec()),
+        directory: ServerPath::from_path(&crate::test_support::folder())
+            .map_err(|code| format!("{code:?}"))?,
     };
     registry.catalog.reserve(operation, &info)?;
     drop(registry);
@@ -223,7 +227,7 @@ fn reservation_survives_restart_before_pty_start() -> TestResult {
         registry.create_project_session(
             info.project,
             operation,
-            Path::new("/tmp"),
+            &crate::test_support::folder(),
             Size { cols: 80, rows: 24 }
         )?,
         info
@@ -251,7 +255,7 @@ fn deletion_and_cancellation_resume_after_their_durable_marker() -> TestResult {
             icon: None,
             logo: None,
             color: "#808080".into(),
-            directory: ServerPath(profile.0.as_os_str().as_bytes().into()),
+            directory: ServerPath::from_path(&profile.0).map_err(|code| format!("{code:?}"))?,
             kind: None,
             parent_id: None,
         };
@@ -326,7 +330,7 @@ fn failed_catalog_replace_does_not_publish_or_forget_a_mutation() -> TestResult 
 fn unreferenced_legacy_archive_belongs_to_home_without_payload_changes() -> TestResult {
     let profile = Profile::new()?;
     let registry = profile.open()?;
-    let session = registry.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })?;
+    let session = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
     registry.end(session.id)?;
     drop(registry);
     let path = profile

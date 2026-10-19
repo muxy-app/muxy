@@ -13,6 +13,18 @@ mod worktree_concurrency;
 mod worktree_hooks;
 mod worktree_pruning;
 
+/// Lets Git run `hook`. Git for Windows runs hooks through its own shell,
+/// whatever their mode.
+fn make_executable(hook: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    #[cfg(windows)]
+    let _ = hook;
+}
+
 struct Repo {
     path: PathBuf,
     registry: Registry,
@@ -26,6 +38,8 @@ impl Repo {
         run(&path, &["config", "user.name", "Test"]).unwrap();
         run(&path, &["config", "user.email", "test@example.invalid"]).unwrap();
         run(&path, &["config", "commit.gpgsign", "false"]).unwrap();
+        // Git for Windows turns LF into CRLF on checkout by default.
+        run(&path, &["config", "core.autocrlf", "false"]).unwrap();
         if commit {
             run(&path, &["commit", "--allow-empty", "-m", "initial"]).unwrap();
         }
@@ -39,7 +53,7 @@ impl Repo {
                 mutation: ProjectMutation::Create(ProjectDescriptor {
                     id: project,
                     home: false,
-                    directory: server_path(&path),
+                    directory: server_path(&path).unwrap(),
                     name: "Test".into(),
                     icon: None,
                     logo: None,
@@ -77,7 +91,7 @@ impl Repo {
                 operation: OperationId::new(),
                 action: WorktreeAction::Create {
                     project: id,
-                    directory: server_path(&directory),
+                    directory: server_path(&directory).unwrap(),
                     branch: "feature".into(),
                     base: Some("main".into()),
                 },
@@ -98,9 +112,11 @@ fn unborn_stage_unstage_and_literal_unix_paths() {
     let repo = Repo::new(false);
     #[cfg(target_os = "linux")]
     let relative = ServerPath(b"odd\xff\n[*].txt".to_vec());
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     let relative = ServerPath(b"odd\n[*].txt".to_vec());
-    std::fs::write(repo.path.join(path(&relative)), b"one\ntwo\n").unwrap();
+    #[cfg(windows)]
+    let relative = ServerPath(b"odd [x] #.txt".to_vec());
+    std::fs::write(repo.path.join(path(&relative).unwrap()), b"one\ntwo\n").unwrap();
     assert!(repo.summary().head.is_none());
     assert_eq!(repo.summary().untracked, 1);
     repo.git(GitAction::Stage(vec![relative.clone()])).unwrap();
@@ -110,7 +126,7 @@ fn unborn_stage_unstage_and_literal_unix_paths() {
     assert_eq!(repo.summary().untracked, 1);
     repo.git(GitAction::Discard(vec![relative.clone()]))
         .unwrap();
-    assert!(!repo.path.join(path(&relative)).exists());
+    assert!(!repo.path.join(path(&relative).unwrap()).exists());
 }
 
 #[test]
@@ -202,7 +218,7 @@ fn creating_a_worktree_in_an_existing_folder_says_so_and_keeps_it() {
             operation: OperationId::new(),
             action: WorktreeAction::Create {
                 project: ProjectId::new(),
-                directory: server_path(&taken),
+                directory: server_path(&taken).unwrap(),
                 branch: "feature".into(),
                 base: Some("HEAD".into()),
             },
@@ -242,6 +258,9 @@ fn stale_dirty_removal_confirmation_preserves_files() {
     assert!(directory.join("new").exists());
 }
 
+/// Windows can't find processes by working directory; see
+/// `windows_removal_sets_the_folder_aside_only_once_nothing_holds_a_file_in_it`.
+#[cfg(unix)]
 #[test]
 fn removal_stops_local_processes_and_preserves_other_registrations() {
     let repo = Repo::new(true);
@@ -265,7 +284,7 @@ fn removal_stops_local_processes_and_preserves_other_registrations() {
                 operation: OperationId::new(),
                 action: WorktreeAction::Register {
                     project: child,
-                    directory: server_path(&directory),
+                    directory: server_path(&directory).unwrap(),
                 },
             }),
         })
@@ -338,7 +357,22 @@ fn untracked_directory_and_symlink_traversal_are_never_recursively_deleted() {
     let outside = repo.path.join("outside");
     std::fs::create_dir(&outside).unwrap();
     std::fs::write(outside.join("keep"), "keep").unwrap();
+    #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, repo.path.join("link")).unwrap();
+    #[cfg(windows)]
+    if std::os::windows::fs::symlink_dir(&outside, repo.path.join("link")).is_err() {
+        // Without Developer Mode, a junction is the link Windows allows.
+        assert!(
+            std::process::Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(repo.path.join("link"))
+                .arg(&outside)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     assert!(safe_path(&repo.path, &ServerPath(b"link/keep".to_vec())).is_err());
     assert!(
         repo.git(GitAction::Discard(vec![ServerPath(b"outside".to_vec())]))
@@ -349,11 +383,10 @@ fn untracked_directory_and_symlink_traversal_are_never_recursively_deleted() {
 
 #[test]
 fn checkout_hook_failure_reconciles_the_created_worktree() {
-    use std::os::unix::fs::PermissionsExt;
     let repo = Repo::new(true);
     let hook = repo.path.join(".git/hooks/post-checkout");
     std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+    make_executable(&hook);
     let (id, directory, request) = repo.create();
     assert!(repo.registry.catalog.project(id).is_ok());
     assert!(directory.join(".git").exists());
@@ -396,6 +429,7 @@ fn removal_recovery_cleans_up_the_exact_missing_worktree_registration() {
         applied: false,
         failed: None,
         reply: None,
+        set_aside: None,
     };
     repo.registry.catalog.save_git(receipt).unwrap();
     std::fs::remove_dir_all(&directory).unwrap();
@@ -413,6 +447,9 @@ fn removal_recovery_cleans_up_the_exact_missing_worktree_registration() {
     );
 }
 
+/// Replaces the storage folder while the server uses it, which Windows
+/// refuses while files in it are open.
+#[cfg(unix)]
 #[test]
 fn durable_receipts_recover_after_restart_and_recheck_storage_on_replay() {
     let repo = Repo::new(true);
@@ -488,4 +525,52 @@ fn repository_reads_overlap_and_mutations_wait_for_readers() {
             GitReply::Done
         ));
     });
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_removal_sets_the_folder_aside_only_once_nothing_holds_a_file_in_it() {
+    let repo = Repo::new(true);
+    let (id, directory, _) = repo.create();
+    let remove = || {
+        let GitReply::Removal(expected) = repo
+            .registry
+            .git(&GitRequest {
+                project: id,
+                action: GitAction::InspectRemoval,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        repo.registry.git(&GitRequest {
+            project: id,
+            action: GitAction::Worktree(WorktreeIntent {
+                options: None,
+                operation: OperationId::new(),
+                action: WorktreeAction::Remove { expected },
+            }),
+        })
+    };
+    let held = std::fs::File::create(directory.join("held.txt")).unwrap();
+    assert_eq!(
+        remove().unwrap_err().message(),
+        "Processes are still using this worktree; files were preserved"
+    );
+    assert!(directory.join("held.txt").exists());
+    assert!(validate_member(&repo.path, &directory).is_ok());
+    assert!(repo.registry.catalog.project(id).is_ok());
+    drop(held);
+    remove().unwrap();
+    assert!(!directory.exists());
+    assert_eq!(read::worktrees(&repo.path).unwrap().len(), 1);
+    assert!(repo.registry.catalog.project(id).is_err());
+    let parent = directory.parent().unwrap();
+    assert!(std::fs::read_dir(parent).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".muxy-removing-")
+    }));
 }

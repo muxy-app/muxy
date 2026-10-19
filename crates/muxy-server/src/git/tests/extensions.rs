@@ -1,8 +1,16 @@
 use super::*;
-use muxy_protocol::{
-    GitDiffKind, GitDiffRequest, GitMergeMethod, GitPullRequestAction as Pr, GitPullRequestFilter,
-};
-use std::os::unix::fs::PermissionsExt;
+use muxy_protocol::{GitDiffKind, GitDiffRequest};
+#[cfg(unix)]
+use muxy_protocol::{GitMergeMethod, GitPullRequestAction as Pr, GitPullRequestFilter};
+
+/// A name Git must take literally. Windows refuses `*` and newlines in names.
+fn literal_name() -> ServerPath {
+    ServerPath(if cfg!(windows) {
+        b"file [x] .txt".to_vec()
+    } else {
+        b"file [*] \n.txt".to_vec()
+    })
+}
 
 pub(super) fn commit(repo: &Repo, message: &str) -> String {
     let GitReply::Commit(hash) = repo
@@ -94,7 +102,7 @@ fn init_stage_all_unstage_all_commit_and_history_cover_unborn_repositories() {
         panic!()
     };
     assert_eq!(
-        path(&info.root).canonicalize().unwrap(),
+        path(&info.root).unwrap().canonicalize().unwrap(),
         repo.path.canonicalize().unwrap()
     );
     assert!(!info.is_worktree);
@@ -103,8 +111,8 @@ fn init_stage_all_unstage_all_commit_and_history_cover_unborn_repositories() {
 #[test]
 fn diffs_and_status_separate_staged_worktree_untracked_and_binary_changes() {
     let repo = Repo::new(false);
-    let relative = ServerPath(b"file [*] \n.txt".to_vec());
-    let file = repo.path.join(path(&relative));
+    let relative = literal_name();
+    let file = repo.path.join(path(&relative).unwrap());
     std::fs::write(&file, "one\ntwo\n").unwrap();
     commit(&repo, "initial");
     std::fs::write(&file, "one\nstaged\n").unwrap();
@@ -306,6 +314,10 @@ fn push_sets_upstream_lists_and_deletes_remote_branches_and_pull_updates() {
     );
 }
 
+/// A GitHub CLI written as a shell script, which Windows can't start
+/// directly, so the tests that use it run on Unix. How Windows finds `gh` is
+/// covered by `windows_programs_are_found_with_pathext_and_missing_ones_read_like_main`.
+#[cfg(unix)]
 pub(super) fn fake_gh(repo: &mut Repo) {
     let executable = repo.path.join(".git/fake-gh");
     std::fs::write(&executable, r#"#!/bin/sh
@@ -339,7 +351,7 @@ case "$1 $2" in
   *) exit 2;;
 esac
 "#).unwrap();
-    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+    make_executable(&executable);
     let response = r#"{
         "number":42,"url":"https://github.com/example/repository/pull/42","title":"A PR","author":{"login":"contributor"},
         "headRefName":"main","headRefOid":"abc123","baseRefName":"main","state":"OPEN","isDraft":false,
@@ -352,10 +364,12 @@ esac
     repo.registry.git.github.executable = Some(executable);
 }
 
+#[cfg(unix)]
 pub(super) fn pr(repo: &Repo, action: Pr) -> Result<GitReply> {
     repo.git(GitAction::PullRequest(action))
 }
 
+#[cfg(unix)]
 #[test]
 fn github_reads_mutations_and_errors_have_structured_results_and_explicit_targets() {
     let mut repo = Repo::new(true);
@@ -454,6 +468,7 @@ fn github_reads_mutations_and_errors_have_structured_results_and_explicit_target
     assert!(!calls.contains("--rebase\n--delete-branch\n--match-head-commit"));
 }
 
+#[cfg(unix)]
 #[test]
 fn github_detects_only_open_prs_from_every_lookup() {
     for source in ["implicit", "branch", "configured", "list"] {
@@ -514,6 +529,7 @@ fn github_detects_only_open_prs_from_every_lookup() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn github_ignores_old_prs_for_a_reused_branch_and_matches_the_current_commit() {
     let mut repo = Repo::new(true);
@@ -555,6 +571,7 @@ fn github_ignores_old_prs_for_a_reused_branch_and_matches_the_current_commit() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn github_finds_an_open_branch_pr_when_local_head_has_advanced() {
     let mut repo = Repo::new(true);
@@ -582,6 +599,7 @@ fn github_finds_an_open_branch_pr_when_local_head_has_advanced() {
     assert!(calls.contains("pr\nview\nfeature\n"));
 }
 
+#[cfg(unix)]
 #[test]
 fn github_distinguishes_absent_prs_authentication_missing_tools_and_invalid_data() {
     let mut repo = Repo::new(true);
@@ -617,6 +635,7 @@ fn github_distinguishes_absent_prs_authentication_missing_tools_and_invalid_data
     repo.git(GitAction::Status { local: true }).unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn pull_request_checkout_and_worktree_use_fork_tracking_and_replay_receipts() {
     let mut repo = Repo::new(true);
@@ -655,7 +674,7 @@ fn pull_request_checkout_and_worktree_use_fork_tracking_and_replay_receipts() {
         operation: OperationId::new(),
         action: WorktreeAction::CheckoutPullRequest {
             project: ProjectId::new(),
-            directory: server_path(&repo.path.join("pr-worktree")),
+            directory: server_path(&repo.path.join("pr-worktree")).unwrap(),
             number: 42,
         },
     });
@@ -683,8 +702,21 @@ fn pull_request_checkout_and_worktree_use_fork_tracking_and_replay_receipts() {
 fn bounded_commands_stop_on_timeout_and_do_not_hide_failures_as_empty_results() {
     use std::process::Command;
     use std::time::{Duration, Instant};
-    let mut command = Command::new("/bin/sh");
-    command.args(["-c", "sleep 10"]);
+    let script = |script: &str| {
+        let mut command = Command::new(if cfg!(windows) { "cmd" } else { "/bin/sh" });
+        if cfg!(windows) {
+            command.args(["/d", "/c"]);
+        } else {
+            command.arg("-c");
+        }
+        command.arg(script);
+        command
+    };
+    let command = script(if cfg!(windows) {
+        "ping -n 10 127.0.0.1"
+    } else {
+        "sleep 10"
+    });
     let started = Instant::now();
     assert!(
         command::capture_with(command, Duration::from_millis(50), None, false)
@@ -693,8 +725,7 @@ fn bounded_commands_stop_on_timeout_and_do_not_hide_failures_as_empty_results() 
             .contains("timed out")
     );
     assert!(started.elapsed() < Duration::from_secs(3));
-    let mut command = Command::new("/bin/sh");
-    command.args(["-c", "exit 7"]);
+    let command = script("exit 7");
     assert!(
         command::capture(command)
             .unwrap_err()
@@ -776,13 +807,18 @@ fn traced_remote(repo: &Repo) -> PathBuf {
             "remote",
             "set-url",
             "origin",
-            "ext::/bin/sh .git/remote-probe",
+            if cfg!(windows) {
+                "ext::sh .git/remote-probe"
+            } else {
+                "ext::/bin/sh .git/remote-probe"
+            },
         ],
     )
     .unwrap();
     remote
 }
 
+#[cfg(unix)]
 #[test]
 fn remote_default_branch_is_reported_and_used_for_pr_creation_without_a_local_branch() {
     let mut repo = Repo::new(true);

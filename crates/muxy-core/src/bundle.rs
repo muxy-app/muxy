@@ -1,7 +1,9 @@
 use crate::file_lock::FileLock;
-use std::fs::{self, File, OpenOptions};
+use crate::files::{FileId, private_dir, private_file};
+#[cfg(target_os = "linux")]
+use std::fs::OpenOptions;
+use std::fs::{self, File};
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -27,6 +29,9 @@ pub fn acquire_runtime(
     executable: &Path,
     expected_metadata: &[u8],
 ) -> io::Result<Option<BundleLease>> {
+    if cfg!(windows) {
+        return Ok(None);
+    }
     #[cfg(target_os = "linux")]
     if let Some(root) = linux_root(executable) {
         let directory = executable
@@ -113,27 +118,20 @@ pub fn lock_unused(bundle: &Path) -> io::Result<Option<File>> {
 }
 
 fn identity(bundle: &Path) -> io::Result<String> {
-    let metadata = fs::metadata(bundle)?;
-    Ok(format!("{:x}-{:x}", metadata.dev(), metadata.ino()))
+    FileId::of_path(bundle).map(|id| id.to_string())
 }
 
 fn lease_directory() -> io::Result<PathBuf> {
-    let home =
-        std::env::home_dir().ok_or_else(|| io::Error::other("Home directory unavailable"))?;
-    Ok(home.join("Library/Application Support/Muxy Runtime/leases"))
+    Ok(crate::paths::home_dir()?.join("Library/Application Support/Muxy Runtime/leases"))
 }
 
 fn lease_file(directory: &Path, identity: &str) -> io::Result<File> {
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(directory)?;
-    OpenOptions::new()
+    private_dir(directory)?;
+    private_file()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(directory.join(format!("{identity}.lock")))
 }
 

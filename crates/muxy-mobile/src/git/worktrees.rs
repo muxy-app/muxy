@@ -1,10 +1,7 @@
 //! Worktrees belong to a top-level project. Called on a worktree project, the
 //! calls that list and add worktrees act on its parent.
 
-use std::ffi::OsStr;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::path::Path;
-
+use muxy_client::ClientError;
 use muxy_protocol::{
     GitAction, GitReply, OperationId, ProjectDescriptor, ProjectId, ServerPath, WorktreeAction,
     WorktreeIntent,
@@ -41,7 +38,10 @@ impl GitRepository {
         directory: Option<String>,
     ) -> Result<Project, MobileError> {
         let root = self.root()?;
-        let directory = directory.map_or_else(|| suggested_folder(&root, &branch), server_path);
+        let directory = match directory {
+            Some(directory) => server_path(directory),
+            None => suggested_folder(&root, &branch)?,
+        };
         self.add_worktree(
             &root,
             WorktreeAction::Create {
@@ -73,10 +73,10 @@ impl GitRepository {
         directory: Option<String>,
     ) -> Result<Project, MobileError> {
         let root = self.root()?;
-        let directory = directory.map_or_else(
-            || suggested_folder(&root, &format!("pr-{number}")),
-            server_path,
-        );
+        let directory = match directory {
+            Some(directory) => server_path(directory),
+            None => suggested_folder(&root, &format!("pr-{number}"))?,
+        };
         self.add_worktree(
             &root,
             WorktreeAction::CheckoutPullRequest {
@@ -139,11 +139,14 @@ impl GitRepository {
 }
 
 /// Next to the project's folder, named after the project and `suffix`.
-fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> ServerPath {
-    let directory = Path::new(OsStr::from_bytes(&project.directory.0));
+fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> Result<ServerPath, MobileError> {
+    let directory = project
+        .directory
+        .to_path_buf()
+        .map_err(ClientError::Invalid)?;
     let name = format!("{}-{}", folder_name(&project.name), folder_name(suffix));
-    let folder = directory.parent().unwrap_or(directory).join(name);
-    ServerPath(folder.into_os_string().into_vec())
+    let folder = directory.parent().unwrap_or(&directory).join(name);
+    Ok(ServerPath::from_path(&folder).map_err(ClientError::Invalid)?)
 }
 
 /// Slashes would nest folders, so they become dashes.

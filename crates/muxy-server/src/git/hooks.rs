@@ -25,13 +25,21 @@ enum Hook {
     },
 }
 
+/// `~/.config/muxy/worktree.json`, or `%APPDATA%\muxy\worktree.json` on
+/// Windows.
 fn global_path() -> Result<PathBuf> {
+    #[cfg(unix)]
     let root = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
         .ok_or_else(|| error("Home directory is unavailable"))?;
-    Ok(root.join("muxy/worktree.json"))
+    #[cfg(windows)]
+    let root = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| error("The roaming application data folder is unavailable"))?;
+    Ok(root.join("muxy").join("worktree.json"))
 }
 
 fn load(path: &Path, teardown: bool, project: bool) -> Result<Vec<WorktreeHook>> {
@@ -131,21 +139,17 @@ pub(super) fn run(
     hooks: &[WorktreeHook],
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(300);
-    let shell = std::env::var_os("SHELL")
-        .map(PathBuf::from)
-        .filter(|shell| shell.is_absolute() && shell.is_file())
-        .unwrap_or_else(|| "/bin/sh".into());
+    let directory = path(&project.directory)?;
     for hook in hooks {
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or_else(|| error("Worktree hooks timed out"))?;
-        let mut process = Command::new(&shell);
+        let mut process = script(&hook.command);
         process
-            .args(["-c", &hook.command])
-            .current_dir(path(&project.directory))
+            .current_dir(&directory)
             .env("MUXY_PROJECT_PATH", repository)
             .env("MUXY_WORKTREE_ID", project.id.to_string())
-            .env("MUXY_WORKTREE_PATH", path(&project.directory))
+            .env("MUXY_WORKTREE_PATH", &directory)
             .env("MUXY_WORKTREE_NAME", &project.name)
             .env("MUXY_WORKTREE_BRANCH", branch);
         if let Some(path) = crate::exec::login_path() {
@@ -159,4 +163,22 @@ pub(super) fn run(
         })?;
     }
     Ok(())
+}
+
+/// A command that runs a hook: through the user's shell on Unix, through
+/// `cmd.exe` on Windows.
+#[cfg(unix)]
+fn script(command: &str) -> Command {
+    let shell = std::env::var_os("SHELL")
+        .map(PathBuf::from)
+        .filter(|shell| shell.is_absolute() && shell.is_file())
+        .unwrap_or_else(|| "/bin/sh".into());
+    let mut process = Command::new(shell);
+    process.args(["-c", command]);
+    process
+}
+
+#[cfg(windows)]
+fn script(command: &str) -> Command {
+    crate::exec::cmd_script(command)
 }

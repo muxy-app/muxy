@@ -1,13 +1,11 @@
 //! Commit exactly what the user reviewed: changes are previewed through a
 //! temporary index and committed only while the working tree still matches.
 
-use super::{Result, command, diff, error, read, run, text, validate_branch};
+use super::{Result, command, diff, error, read, run, same_canonical, text, validate_branch};
 use muxy_protocol::{
     GitBaseSwitch, GitChangesPreview, GitPreviewFile, GitPushDestination, ServerPath,
 };
 use std::collections::HashSet;
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -186,12 +184,13 @@ pub(super) fn publish(
 pub(super) fn switch_to_base(repository: &Path, base: &str) -> Result<GitBaseSwitch> {
     validate_branch(repository, base)?;
     if read::summary(repository)?.branch.as_deref() != Some(base) {
-        let here = repository.canonicalize().map_err(error)?;
+        let here = muxy_core::files::canonicalize(repository).map_err(error)?;
         let elsewhere = read::worktrees(repository)?.into_iter().find(|worktree| {
             worktree.branch.as_deref() == Some(base)
-                && Path::new(OsStr::from_bytes(&worktree.directory.0))
-                    .canonicalize()
-                    .is_ok_and(|directory| directory != here)
+                && super::path(&worktree.directory)
+                    .and_then(|directory| muxy_core::files::canonicalize(&directory).map_err(error))
+                    .is_ok()
+                && !same_canonical(&worktree.directory, &here)
         });
         if let Some(worktree) = elsewhere {
             return Ok(GitBaseSwitch::CheckedOutElsewhere(worktree.directory));
@@ -342,10 +341,7 @@ fn lock_path(path: &Path) -> PathBuf {
 }
 
 fn git_path(repository: &Path, name: &str) -> Result<PathBuf> {
-    let bytes = run(repository, &["rev-parse", "--git-path", name])?;
-    let path = PathBuf::from(OsStr::from_bytes(
-        bytes.strip_suffix(b"\n").unwrap_or(&bytes),
-    ));
+    let path = super::git_path(&run(repository, &["rev-parse", "--git-path", name])?)?;
     Ok(if path.is_absolute() {
         path
     } else {

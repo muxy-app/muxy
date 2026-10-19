@@ -1,24 +1,21 @@
-use super::{Result, command, error, read, run, server_path, text};
+use super::{Result, command, error, git_path, read, run, server_path, text};
 use muxy_protocol::{GitCommit, GitRef, GitRefKind, GitRepoInfo};
 use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 pub(super) fn repo_info(repository: &Path) -> Result<GitRepoInfo> {
     let resolve = |flag| -> Result<std::path::PathBuf> {
-        let bytes = run(repository, &["rev-parse", "--path-format=absolute", flag])?;
-        Ok(Path::new(OsStr::from_bytes(
-            bytes.strip_suffix(b"\n").unwrap_or(&bytes),
-        ))
-        .to_owned())
+        git_path(&run(
+            repository,
+            &["rev-parse", "--path-format=absolute", flag],
+        )?)
     };
     let git_dir = resolve("--git-dir")?;
     let common = resolve("--git-common-dir")?;
     Ok(GitRepoInfo {
-        root: server_path(repository),
-        is_worktree: git_dir != common,
-        git_dir: server_path(&git_dir),
+        root: server_path(repository)?,
+        is_worktree: !muxy_core::paths::path_eq(&git_dir, &common),
+        git_dir: server_path(&git_dir)?,
         current_branch: read::summary(repository)?.branch,
     })
 }

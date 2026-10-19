@@ -7,7 +7,6 @@
 
 use std::fs::File;
 use std::io::{self, Cursor, Read, Write};
-use std::os::fd::AsFd;
 use std::path::Path;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -74,8 +73,7 @@ pub fn command(start: Start) -> &'static str {
 pub fn serve(socket: &Path, executable: &Path, start: Start) -> Result<(), ClientError> {
     let server = match start {
         Start::IfNeeded => local::ensure_listening(socket, executable)?,
-        Start::Never => transport::connect(socket).map_err(|error| {
-            let error = ClientError::Io(error);
+        Start::Never => local::connect(socket).map_err(|error| {
             if local::unavailable(&error) {
                 io::Error::new(io::ErrorKind::NotFound, NOT_RUNNING).into()
             } else {
@@ -83,11 +81,25 @@ pub fn serve(socket: &Path, executable: &Path, start: Start) -> Result<(), Clien
             }
         })?,
     };
-    let input = File::from(io::stdin().as_fd().try_clone_to_owned()?);
-    let mut output = File::from(io::stdout().as_fd().try_clone_to_owned()?);
+    let input = File::from(owned(&io::stdin())?);
+    let mut output = File::from(owned(&io::stdout())?);
     output.write_all(&[READY, VERSION, b"\n"].concat())?;
     transport::relay(server, input, output)?;
     Ok(())
+}
+
+/// A handle of its own to one of this process's standard streams.
+#[cfg(unix)]
+fn owned(stream: &impl std::os::fd::AsFd) -> io::Result<std::os::fd::OwnedFd> {
+    stream.as_fd().try_clone_to_owned()
+}
+
+/// A handle of its own to one of this process's standard streams.
+#[cfg(windows)]
+fn owned(
+    stream: &impl std::os::windows::io::AsHandle,
+) -> io::Result<std::os::windows::io::OwnedHandle> {
+    stream.as_handle().try_clone_to_owned()
 }
 
 /// How a bridge's transport ended, to explain a connection that failed before

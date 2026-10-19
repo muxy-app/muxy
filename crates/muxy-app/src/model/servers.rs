@@ -8,6 +8,7 @@ use gpui::Context;
 use muxy_app_core::settings::ServerEntry;
 use muxy_app_core::{PaneId, Project, ServerId};
 use muxy_client::SshTarget;
+use muxy_core::capability::Feature;
 use muxy_protocol::{ChannelId, SessionId, SessionProgress};
 use muxy_ui::tr;
 
@@ -373,6 +374,7 @@ impl AppModel {
     ) {
         if self.quitting != Quitting::Idle
             || (server.is_local() && self.server_preferences.control_busy)
+            || (!server.is_local() && !self.supports(Feature::SshRemotes))
         {
             return;
         }

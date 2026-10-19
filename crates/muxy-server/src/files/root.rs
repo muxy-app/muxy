@@ -2,11 +2,9 @@ use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf};
 
-use rustix::fs::{self, AtFlags, FileType, Mode, OFlags, Stat};
-
+use super::native::{self, Entry, Kind};
 use super::{Result, error, wire_path};
 
 pub(super) struct Root {
@@ -22,27 +20,14 @@ pub(super) struct Target {
 }
 
 pub(super) fn directory_at(parent: &File, name: &OsStr) -> io::Result<File> {
-    fs::openat(
-        parent,
-        name,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map(File::from)
-    .map_err(Into::into)
+    native::open_directory(parent, name)
 }
 
 impl Root {
     pub(super) fn open(path: &Path) -> Result<Self> {
         let logical = path.to_owned();
-        let path = path.canonicalize().map_err(error)?;
-        let directory = fs::open(
-            &path,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .map(File::from)
-        .map_err(error)?;
+        let path = muxy_core::files::canonicalize(path).map_err(error)?;
+        let directory = native::open_root(&path).map_err(error)?;
         Ok(Self {
             path,
             logical,
@@ -51,7 +36,12 @@ impl Root {
     }
 
     pub(super) fn resolve(&self, path: &Path) -> Result<Target> {
-        if path.is_absolute() || path.as_os_str().as_bytes().contains(&0) {
+        if path.is_absolute()
+            || path.as_os_str().as_encoded_bytes().contains(&0)
+            || path
+                .components()
+                .any(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
+        {
             return Err(error("Expected a relative workspace path"));
         }
         let mut pending = components(path);
@@ -69,20 +59,23 @@ impl Root {
                 parents.pop();
                 continue;
             }
+            #[cfg(windows)]
+            if let Some(refusal) = name.to_str().map_or(
+                Some("File names must be valid Unicode"),
+                super::names::windows_refusal,
+            ) {
+                return Err(error(refusal));
+            }
             let parent = parents
                 .last()
                 .ok_or_else(|| error("Missing workspace root"))?;
-            let stat = fs::statat(parent, &name, AtFlags::SYMLINK_NOFOLLOW);
-            if stat
-                .as_ref()
-                .is_ok_and(|stat| FileType::from_raw_mode(stat.st_mode) == FileType::Symlink)
-            {
+            let stat = native::stat(parent, &name);
+            if stat.as_ref().is_ok_and(|stat| stat.kind == Kind::Link) {
                 links += 1;
                 if links > 64 {
                     return Err(error("Too many symbolic links"));
                 }
-                let value = fs::readlinkat(parent, &name, Vec::new()).map_err(error)?;
-                let value = PathBuf::from(OsString::from_vec(value.into_bytes()));
+                let value = native::read_link(parent, &name).map_err(error)?;
                 let target = if value.is_absolute() {
                     names.clear();
                     parents.truncate(1);
@@ -100,7 +93,7 @@ impl Root {
             }
             if pending.is_empty() {
                 if let Err(cause) = stat
-                    && cause != rustix::io::Errno::NOENT
+                    && cause.kind() != io::ErrorKind::NotFound
                 {
                     return Err(error(cause));
                 }
@@ -148,19 +141,18 @@ impl Root {
             .or_else(|| self.path.file_name())
             .unwrap_or(OsStr::new(""));
         Ok(muxy_protocol::FileInfo {
-            name: wire_path(Path::new(name)),
-            path: wire_path(&target.relative),
-            is_directory: FileType::from_raw_mode(stat.st_mode) == FileType::Directory,
-            size: u64::try_from(stat.st_size).unwrap_or(0),
+            name: wire_path(Path::new(name))?,
+            path: wire_path(&target.relative)?,
+            is_directory: stat.kind == Kind::Directory,
+            size: stat.size,
         })
     }
 }
 
 impl Target {
-    pub(super) fn stat(&self) -> Result<Stat> {
-        let stat =
-            fs::statat(&self.parent, &self.name, AtFlags::SYMLINK_NOFOLLOW).map_err(error)?;
-        if FileType::from_raw_mode(stat.st_mode) == FileType::Symlink {
+    pub(super) fn stat(&self) -> Result<Entry> {
+        let stat = native::stat(&self.parent, &self.name).map_err(error)?;
+        if stat.kind == Kind::Link {
             return Err(error("Path changed during the file operation; retry"));
         }
         Ok(stat)

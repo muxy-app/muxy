@@ -1,5 +1,5 @@
+use muxy_protocol::transport::socket_pair;
 use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -16,7 +16,7 @@ fn a_silent_network_peer_is_closed_at_the_deadline() -> Result<(), Box<dyn std::
         .remote
         .admit_with(Duration::from_millis(100))
         .ok_or("admission refused")?;
-    let (mut peer, stream) = UnixStream::pair()?;
+    let (mut peer, stream) = socket_pair()?;
     let (_forward, events) = mpsc::channel();
     let started = Instant::now();
     let serving =

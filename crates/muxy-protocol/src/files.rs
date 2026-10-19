@@ -164,7 +164,7 @@ impl FileChanges {
 
 /// A `ListFolders` path: absolute, without NUL, at most 4096 bytes.
 pub fn validate_folder_path(path: &ServerPath) -> Result<(), ErrorCode> {
-    if path.0.len() > 4096 || path.0.contains(&0) || !path.0.starts_with(b"/") {
+    if path.0.len() > 4096 || path.0.contains(&0) || !path.is_absolute() {
         return Err(ErrorCode::BadPath);
     }
     Ok(())

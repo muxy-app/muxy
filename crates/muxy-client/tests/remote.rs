@@ -1,6 +1,4 @@
 use std::net::{SocketAddr, TcpListener};
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::thread;
 
@@ -26,32 +24,27 @@ impl Server {
         let owner = Arc::clone(&slot);
         let running = Mutex::new(None::<Arc<TlsListener>>);
         let registry = Arc::new(
-            Registry::new(
-                ServerSettings {
-                    default_shell: Some(PathBuf::from("/bin/sh")),
-                    ..ServerSettings::default()
-                },
-                sender,
-            )
-            .with_remote_listener(move |listening| {
-                let mut running = running.lock().unwrap_or_else(PoisonError::into_inner);
-                if let Some(previous) = running.take() {
-                    previous.close();
-                }
-                let Some((port, identity)) = listening else {
-                    return ListenerStatus::Disabled;
-                };
-                match TlsListener::bind(SocketAddr::from(([127, 0, 0, 1], port)), &identity) {
-                    Ok(listener) => {
-                        let listener = Arc::new(listener);
-                        *running = Some(Arc::clone(&listener));
-                        let registry = owner.get().cloned().unwrap_or_default();
-                        thread::spawn(move || accept(&listener, &registry));
-                        ListenerStatus::Listening
+            Registry::new(ServerSettings::default(), sender).with_remote_listener(
+                move |listening| {
+                    let mut running = running.lock().unwrap_or_else(PoisonError::into_inner);
+                    if let Some(previous) = running.take() {
+                        previous.close();
                     }
-                    Err(error) => ListenerStatus::Failed(error.to_string()),
-                }
-            }),
+                    let Some((port, identity)) = listening else {
+                        return ListenerStatus::Disabled;
+                    };
+                    match TlsListener::bind(SocketAddr::from(([127, 0, 0, 1], port)), &identity) {
+                        Ok(listener) => {
+                            let listener = Arc::new(listener);
+                            *running = Some(Arc::clone(&listener));
+                            let registry = owner.get().cloned().unwrap_or_default();
+                            thread::spawn(move || accept(&listener, &registry));
+                            ListenerStatus::Listening
+                        }
+                        Err(error) => ListenerStatus::Failed(error.to_string()),
+                    }
+                },
+            ),
         );
         let _ = slot.set(Arc::downgrade(&registry));
         Self {
@@ -61,7 +54,7 @@ impl Server {
     }
 
     fn local(&self) -> TestResult<Client> {
-        let (client, server) = UnixStream::pair()?;
+        let (client, server) = muxy_protocol::transport::socket_pair()?;
         let registry = Arc::clone(&self.registry);
         thread::spawn(move || {
             let (_keep, events) = mpsc::channel();

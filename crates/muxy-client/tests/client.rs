@@ -1,22 +1,22 @@
 use std::error::Error;
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 
 #[path = "client/attachment_timeout.rs"]
 mod attachment_timeout;
+#[cfg(unix)]
 #[path = "client/clear.rs"]
 mod clear;
 #[path = "client/close.rs"]
 mod close;
+#[cfg(unix)]
 #[path = "client/colors.rs"]
 mod colors;
+#[cfg(unix)]
 #[path = "client/input.rs"]
 mod input;
 #[path = "client/observe.rs"]
 mod observe;
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -24,7 +24,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_client::{Attachment, Client, ClientError, ClientEvent, RunGrid};
-use muxy_protocol::transport::{ByteStream, StreamCancellation};
+use muxy_protocol::transport::{ByteStream, LocalStream, StreamCancellation};
 use muxy_protocol::wire::{Decoder, Encoder, WireError};
 use muxy_protocol::{CONTROL, ChannelId, ErrorCode, ExitReason, Message, ScreenFrame, Size};
 use muxy_server::{Registry, ServerEvent, ServerSettings, connection::serve};
@@ -51,36 +51,48 @@ struct Connection {
 
 impl Fixture {
     fn new() -> TestResult<Self> {
-        Self::with_startup("")
+        Self::build(|_| Ok(shell()), false)
     }
 
+    #[cfg(unix)]
     fn with_startup(script: &str) -> TestResult<Self> {
         Self::with_storage(script, false)
     }
 
+    /// Sessions run `script` before a login shell.
+    #[cfg(unix)]
     fn with_storage(script: &str, persistent: bool) -> TestResult<Self> {
+        use std::os::unix::fs::PermissionsExt;
+        Self::build(
+            |directory| {
+                let shell = directory.join("shell");
+                fs::write(
+                    &shell,
+                    format!(
+                        "#!/bin/sh
+{script}
+exec /bin/sh -l
+"
+                    ),
+                )?;
+                fs::set_permissions(&shell, fs::Permissions::from_mode(0o700))?;
+                Ok(shell)
+            },
+            persistent,
+        )
+    }
+
+    fn build(
+        shell: impl FnOnce(&Path) -> TestResult<PathBuf>,
+        persistent: bool,
+    ) -> TestResult<Self> {
         let directory = std::env::temp_dir().join(format!(
             "muxy-client-{}-{}",
             std::process::id(),
             NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory)?;
-        let shell = if script.is_empty() {
-            PathBuf::from("/bin/sh")
-        } else {
-            let shell = directory.join("shell");
-            fs::write(
-                &shell,
-                format!(
-                    "#!/bin/sh
-{script}
-exec /bin/sh -l
-"
-                ),
-            )?;
-            fs::set_permissions(&shell, fs::Permissions::from_mode(0o700))?;
-            shell
-        };
+        let shell = shell(&directory)?;
         let (sender, events) = mpsc::channel();
         let settings = ServerSettings {
             default_shell: Some(shell),
@@ -122,9 +134,9 @@ exec /bin/sh -l
 
     fn connect_stream(
         &self,
-        stream: impl FnOnce(UnixStream) -> Box<dyn ByteStream>,
+        stream: impl FnOnce(LocalStream) -> Box<dyn ByteStream>,
     ) -> TestResult<Connection> {
-        let (socket, server) = UnixStream::pair()?;
+        let (socket, server) = muxy_protocol::transport::socket_pair()?;
         let server: Box<dyn ByteStream> = Box::new(server);
         let cancellation = server.cancellation()?;
         let (sender, events) = mpsc::channel();
@@ -265,6 +277,26 @@ impl Connection {
     }
 }
 
+fn shell() -> PathBuf {
+    if cfg!(windows) {
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        Path::new(&system).join(r"System32\cmd.exe")
+    } else {
+        PathBuf::from("/bin/sh")
+    }
+}
+
+/// A command line that prints `first` and `second` joined, which the typed
+/// line itself never shows.
+fn print_joined(first: &str, second: &str) -> Vec<u8> {
+    if cfg!(windows) {
+        format!("echo {first}^{second}\r")
+    } else {
+        format!("printf '%s%s\\n' '{first}' '{second}'\r")
+    }
+    .into_bytes()
+}
+
 fn text(grid: &RunGrid) -> String {
     (0..grid.rows.len())
         .map(|index| grid.row_text(index))
@@ -286,10 +318,11 @@ fn connect_list_create_attach_input_and_end() -> TestResult {
     assert_eq!(attachment.grid.size, SIZE);
     assert_eq!(attachment.grid.rows.len(), usize::from(SIZE.rows));
     assert_eq!(
-        attachment.directory.0,
-        fixture.directory.canonicalize()?.as_os_str().as_bytes()
+        attachment.directory,
+        muxy_protocol::ServerPath::from_path(&muxy_core::files::canonicalize(&fixture.directory)?)
+            .map_err(|code| format!("{code:?}"))?
     );
-    client.send_input(attachment.channel, b"echo hel\"\"lo\n")?;
+    client.send_input(attachment.channel, &print_joined("hel", "lo"))?;
     connection.frame_containing(&mut attachment, "hello")?;
     client.end_session(info.id)?;
     assert_eq!(connection.expect_ended(info.id)?, ExitReason::Ended);
@@ -365,6 +398,7 @@ fn server_exit_disconnects_the_client() -> TestResult {
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 fn history_reads_refresh_a_coherent_boundary_and_merge_all_older_pages() -> TestResult {
     use muxy_protocol::HistoryCursor;
@@ -444,6 +478,7 @@ fn history_reads_refresh_a_coherent_boundary_and_merge_all_older_pages() -> Test
     Ok(())
 }
 
+#[cfg(unix)]
 #[path = "client/activity.rs"]
 mod activity;
 
@@ -473,5 +508,39 @@ fn asynchronous_session_presence_includes_saved_history_without_mutating_project
     assert!(has_sessions()?);
     fixture.registry.discard(session.id)?;
     assert!(!has_sessions()?);
+    Ok(())
+}
+
+#[test]
+fn older_servers_are_not_sent_input_they_would_silently_ignore() -> TestResult {
+    use muxy_protocol::{Feature, TerminalInput};
+    let (socket, server) = muxy_protocol::transport::socket_pair()?;
+    server.set_read_timeout(Some(TIMEOUT))?;
+    let mut decoder = Decoder::new(server.try_clone()?);
+    let mut encoder = Encoder::new(server);
+    let fake = thread::spawn(move || -> Result<(), WireError> {
+        decoder.next()?;
+        encoder.send(
+            CONTROL,
+            &Message::HelloReply {
+                versions: muxy_protocol::SUPPORTED.to_vec(),
+                server: muxy_protocol::ServerInfo::current(),
+                features: Vec::new(),
+            },
+        )?;
+        assert_eq!(
+            decoder.next()?,
+            (ChannelId(1), Message::Input(b"legacy".to_vec()))
+        );
+        Ok(())
+    });
+    let client = Client::from_stream(Box::new(socket))?;
+    assert!(!client.supports(Feature::TERMINAL_INPUT));
+    assert!(matches!(
+        client.send_terminal_input(ChannelId(1), TerminalInput::ClearScreen),
+        Err(ClientError::Invalid(ErrorCode::Unsupported))
+    ));
+    client.send_input(ChannelId(1), b"legacy")?;
+    fake.join().map_err(|_| "fake server panicked")??;
     Ok(())
 }

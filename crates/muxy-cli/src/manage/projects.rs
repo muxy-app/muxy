@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use muxy_app_core::settings::Settings;
 use muxy_client::Client;
+use muxy_core::files::canonicalize;
+use muxy_core::paths::path_eq;
 use muxy_protocol::{
     GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectDescriptor, ProjectId,
     ProjectIntent, ProjectMutation, ProjectPatch, WorktreeAction, WorktreeHook, WorktreeIntent,
@@ -31,18 +33,19 @@ fn select(
     let (path, canonical) = match paths {
         Paths::Local => {
             let path = absolute(Path::new(selector))?;
-            let canonical = path.canonicalize().ok();
+            let canonical = canonicalize(&path).ok();
             (path, canonical)
         }
         Paths::Remote => (PathBuf::from(selector), None),
     };
     let mut matches = projects.into_iter().filter(|project| {
-        let directory = local_path(&project.directory);
         project.name.eq_ignore_ascii_case(selector)
-            || directory == path
-            || canonical
-                .as_ref()
-                .is_some_and(|path| directory.canonicalize().ok().as_ref() == Some(path))
+            || local_path(&project.directory).is_ok_and(|directory| {
+                path_eq(&directory, &path)
+                    || canonical
+                        .as_ref()
+                        .is_some_and(|path| canonicalize(&directory).ok().as_ref() == Some(path))
+            })
     });
     let found = matches
         .next()
@@ -81,7 +84,7 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 make_directory(client, &directory, paths)?;
             }
             if paths == Paths::Local {
-                directory = directory.canonicalize()?;
+                directory = canonicalize(&directory)?;
                 if !directory.is_dir() {
                     return Err("project directory must exist".into());
                 }
@@ -91,7 +94,7 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 return output.record(&record(existing), &["id", "name"]);
             }
             let mut project = ProjectDescriptor::new(
-                server_path(&directory),
+                server_path(&directory)?,
                 projects.iter().map(|project| project.color.as_str()),
             );
             if let Some(name) = name {
@@ -126,7 +129,7 @@ pub(crate) fn folder_project(client: &Client, folder: &Path) -> Result<ProjectId
         return Ok(project.id);
     }
     let project = ProjectDescriptor::new(
-        server_path(folder),
+        server_path(folder)?,
         projects.iter().map(|project| project.color.as_str()),
     );
     mutate(client, ProjectMutation::Create(project.clone()))?;
@@ -175,9 +178,11 @@ fn existing<'a>(
     projects
         .iter()
         .filter(|project| {
-            let path = local_path(&project.directory);
-            path == directory
-                || (paths == Paths::Local && path.canonicalize().ok().as_deref() == Some(directory))
+            local_path(&project.directory).is_ok_and(|path| {
+                path_eq(&path, directory)
+                    || (paths == Paths::Local
+                        && canonicalize(&path).ok().as_deref() == Some(directory))
+            })
         })
         .min_by_key(|project| project.parent_id.is_some())
 }
@@ -248,7 +253,7 @@ pub(super) fn worktree(
                 &root,
                 WorktreeAction::Create {
                     project: ProjectId::new(),
-                    directory: server_path(&directory),
+                    directory: server_path(&directory)?,
                     branch,
                     base,
                 },
@@ -275,7 +280,7 @@ pub(super) fn worktree(
                 &root,
                 WorktreeAction::CheckoutPullRequest {
                     project: ProjectId::new(),
-                    directory: server_path(&directory),
+                    directory: server_path(&directory)?,
                     number,
                 },
                 name,
@@ -290,7 +295,7 @@ pub(super) fn worktree(
                 action: intent(
                     WorktreeAction::Register {
                         project: ProjectId::new(),
-                        directory: server_path(&paths.directory(&directory)?),
+                        directory: server_path(&paths.directory(&directory)?)?,
                     },
                     None,
                 ),
@@ -380,11 +385,12 @@ fn default_directory(
             .projects
             .iter()
             .find(|project| project.home)
-            .map(|home| local_path(&home.directory)),
+            .map(|home| local_path(&home.directory))
+            .transpose()?,
     };
     Ok(settings.worktrees.directory_in(
         &root.name,
-        &local_path(&root.directory),
+        &local_path(&root.directory)?,
         &location,
         name,
         branch,
@@ -480,13 +486,14 @@ fn intent(action: WorktreeAction, options: Option<WorktreeOptions>) -> GitAction
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muxy_protocol::ServerPath;
 
     fn project(name: &str, directory: &str) -> ProjectDescriptor {
         ProjectDescriptor {
             id: ProjectId::new(),
             home: false,
             name: name.into(),
-            directory: server_path(Path::new(directory)),
+            directory: ServerPath(directory.as_bytes().to_vec()),
             icon: None,
             logo: None,
             color: "#808080".into(),
@@ -497,7 +504,7 @@ mod tests {
 
     #[test]
     fn pull_request_worktrees_are_named_only_after_checkout() {
-        let directory = server_path(Path::new("/tmp/w"));
+        let directory = ServerPath(b"/tmp/w".to_vec());
         let checkout = WorktreeAction::CheckoutPullRequest {
             project: ProjectId::new(),
             directory: directory.clone(),
@@ -519,9 +526,12 @@ mod tests {
     #[test]
     fn remote_project_reuse_does_not_follow_local_symlinks() -> Result {
         let directory = tempfile::tempdir()?;
-        let target = directory.path().canonicalize()?;
+        let target = canonicalize(directory.path())?;
         let alias = directory.path().join("alias");
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&target, &alias)?;
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&target, &alias)?;
         let projects = [
             project("Alias", alias.to_str().ok_or("alias path")?),
             project("Target", target.to_str().ok_or("target path")?),

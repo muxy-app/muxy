@@ -1,14 +1,13 @@
 use std::collections::{BTreeMap, HashMap};
-use std::os::unix::ffi::OsStringExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use muxy_protocol::{ProjectDescriptor, ServerPath};
+use muxy_protocol::ProjectDescriptor;
 
 use crate::{AppError, AppState, Project, ServerId, WindowState};
 
 impl AppState {
     pub fn bootstrap() -> Result<Self, AppError> {
-        let home = new_home(home_directory()?)?;
+        let home = new_home(&home_directory()?)?;
         let window = WindowState {
             active_pane: None,
             focus_history: Vec::new(),
@@ -52,7 +51,7 @@ impl AppState {
             home.directory = directory;
             self.projects.insert(0, home);
         } else {
-            self.projects.insert(0, new_home(directory)?);
+            self.projects.insert(0, new_home(&directory)?);
         }
         let remote_homes: Vec<_> = self
             .projects
@@ -111,12 +110,12 @@ impl AppState {
 }
 
 fn home_directory() -> Result<PathBuf, AppError> {
-    std::env::home_dir()
-        .filter(|path| !path.as_os_str().is_empty())
-        .ok_or(AppError::HomeDirectoryUnavailable)
+    let home = muxy_core::paths::home_dir().map_err(|_| AppError::HomeDirectoryUnavailable)?;
+    crate::catalog::checked_server_path(&home)?;
+    Ok(home)
 }
 
-fn new_home(directory: PathBuf) -> Result<Project, AppError> {
-    let home = ProjectDescriptor::home(ServerPath(directory.into_os_string().into_vec()));
+fn new_home(directory: &Path) -> Result<Project, AppError> {
+    let home = ProjectDescriptor::home(crate::catalog::server_path(directory));
     Project::from_descriptor(ServerId::local(), &home)
 }

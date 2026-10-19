@@ -15,7 +15,7 @@ fn close_preserves_another_clients_hidden_pane_until_its_final_close() -> TestRe
     let mut attached = second.client.attach(session, SIZE)?;
     second
         .client
-        .send_input(attached.channel, b"printf 'SURVIVED_CLOSE\n'\r")?;
+        .send_input(attached.channel, &print_joined("SURVIVED", "_CLOSE"))?;
     second.frame_containing(&mut attached, "SURVIVED_CLOSE")?;
     second.client.sync_session_references(vec![])?;
     second.client.close_session(session, OperationId::new())?;

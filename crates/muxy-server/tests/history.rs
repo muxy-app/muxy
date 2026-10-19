@@ -1,5 +1,10 @@
+//! These count exact rows printed by `seq`. The Windows pseudoconsole
+//! redraws the screen itself, so its rows differ; the app checks history
+//! there (phase 10).
+#![cfg(unix)]
+
 use std::error::Error;
-use std::path::{Path, PathBuf};
+
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -7,6 +12,8 @@ use muxy_protocol::{AttachSnapshot, ChannelId, ErrorCode, HistoryCursor, History
 use muxy_server::{
     AttachmentEvent, AttachmentId, Registry, ServerSettings, SessionCommand, SessionHandle,
 };
+
+mod support;
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 const SIZE: Size = Size { cols: 80, rows: 24 };
@@ -23,12 +30,12 @@ impl Fixture {
         let registry = Registry::new(
             ServerSettings {
                 shell_integration: false,
-                default_shell: Some(PathBuf::from("/bin/sh")),
+                default_shell: Some(support::shell()),
                 history_budget_bytes: budget,
             },
             events,
         );
-        let session = registry.create(Path::new("/tmp"), SIZE)?;
+        let session = registry.create(&support::folder(), SIZE)?;
         let handle = registry.handle(session.id).ok_or("missing session")?;
         Ok(Self { registry, handle })
     }

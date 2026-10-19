@@ -6,7 +6,9 @@ use std::thread;
 use std::time::Duration;
 
 use ratatui::crossterm::{cursor, event, execute, terminal};
-use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGSTOP, SIGTERM, SIGTSTP};
+#[cfg(unix)]
+use signal_hook::consts::signal::{SIGHUP, SIGSTOP, SIGTSTP};
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
 
 pub(crate) fn require_interactive() -> io::Result<()> {
     if io::stdin().is_terminal() && io::stdout().is_terminal() {
@@ -77,6 +79,7 @@ impl Drop for Events {
 pub(crate) struct Host {
     pub terminal: Terminal,
     pub stop: Arc<AtomicBool>,
+    #[cfg(unix)]
     suspend: Arc<AtomicBool>,
     _signals: Signals,
 }
@@ -84,13 +87,21 @@ pub(crate) struct Host {
 impl Host {
     pub(crate) fn enter() -> io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
-        let suspend = Arc::new(AtomicBool::new(false));
         let mut signals = Signals::default();
-        for signal in [SIGHUP, SIGINT, SIGTERM] {
+        // On Windows a closed console arrives through crossterm's events, and
+        // there is no suspending.
+        #[cfg(unix)]
+        let stopping = [SIGHUP, SIGINT, SIGTERM];
+        #[cfg(windows)]
+        let stopping = [SIGINT, SIGTERM];
+        for signal in stopping {
             signals
                 .0
                 .push(signal_hook::flag::register(signal, Arc::clone(&stop))?);
         }
+        #[cfg(unix)]
+        let suspend = Arc::new(AtomicBool::new(false));
+        #[cfg(unix)]
         signals
             .0
             .push(signal_hook::flag::register(SIGTSTP, Arc::clone(&suspend))?);
@@ -102,6 +113,7 @@ impl Host {
         let mut host = Self {
             terminal: Terminal::new(ratatui::backend::CrosstermBackend::new(io::stdout()))?,
             stop,
+            #[cfg(unix)]
             suspend,
             _signals: signals,
         };
@@ -122,14 +134,23 @@ impl Host {
         self.terminal.clear()
     }
 
+    #[cfg_attr(
+        windows,
+        allow(
+            clippy::unused_self,
+            clippy::unnecessary_wraps,
+            reason = "Windows consoles have no suspend"
+        )
+    )]
     pub(crate) fn resume_if_needed(&mut self) -> io::Result<bool> {
-        if !self.suspend.swap(false, Ordering::AcqRel) {
-            return Ok(false);
+        #[cfg(unix)]
+        if self.suspend.swap(false, Ordering::AcqRel) {
+            restore();
+            signal_hook::low_level::raise(SIGSTOP)?;
+            self.activate()?;
+            return Ok(true);
         }
-        restore();
-        signal_hook::low_level::raise(SIGSTOP)?;
-        self.activate()?;
-        Ok(true)
+        Ok(false)
     }
 }
 
@@ -175,7 +196,7 @@ fn discard_pending_input() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

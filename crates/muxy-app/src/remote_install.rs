@@ -62,6 +62,7 @@ impl Source {
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
 

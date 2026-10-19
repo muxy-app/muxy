@@ -210,7 +210,12 @@ fn worktree_form_reviews_hooks_validates_templates_and_saves_the_submitted_locat
         branch, "feature/custom",
         "editing the name preserves a customized branch"
     );
-    assert!(directory.0.ends_with(b"/trees/feature-custom"));
+    assert!(
+        directory
+            .to_path_buf()
+            .expect("local path")
+            .ends_with(std::path::Path::new("trees").join("feature-custom"))
+    );
     let record = muxy_protocol::ProjectDescriptor {
         id: *child,
         directory: directory.clone(),

@@ -1,5 +1,7 @@
 use super::*;
 
+use std::os::unix::fs::PermissionsExt;
+
 use muxy_terminal::pty::{Pty, PtyEvent, PtySize};
 use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};

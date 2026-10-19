@@ -44,16 +44,17 @@ fn lost_attach_reply_releases_ownership_and_preserves_the_session_for_reopening(
         assert_eq!(available[0].owner, shared.then_some(observer_id));
         assert!(!available[0].attached);
         let mut attachment = reopened.client.attach(session.id, SIZE)?;
-        reopened
-            .client
-            .send_input(attachment.channel, b"printf 'AFTER_ATTACH_TIMEOUT\\n'\r")?;
+        reopened.client.send_input(
+            attachment.channel,
+            &print_joined("AFTER_ATTACH", "_TIMEOUT"),
+        )?;
         reopened.frame_containing(&mut attachment, "AFTER_ATTACH_TIMEOUT")?;
     }
     Ok(())
 }
 
 struct WithoutAttachReplies {
-    socket: UnixStream,
+    socket: LocalStream,
     installed: Sender<ChannelId>,
 }
 
@@ -73,7 +74,7 @@ impl ByteStream for WithoutAttachReplies {
 }
 
 struct ReplyFilter {
-    decoder: Decoder<UnixStream>,
+    decoder: Decoder<LocalStream>,
     buffer: Cursor<Vec<u8>>,
     installed: Sender<ChannelId>,
 }

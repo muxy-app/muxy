@@ -4,6 +4,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px};
 use muxy_app_core::browser::SearchEngine;
+use muxy_core::capability::Feature;
 use muxy_ui::controls::{self, Choice};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
@@ -39,6 +40,12 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     let settings = &view.snapshot.settings.browser;
     let mut rows = Vec::new();
     let browser = |change| Change::Browser(change);
+    if let Some(reason) = view.snapshot.capabilities.reason(Feature::BrowserPanes) {
+        if view.matches(Category::Browser, tr_key!("Enable built-in browser")) {
+            rows.push(view.note(&reason, false).into_any_element());
+        }
+        return rows;
+    }
     if view.matches(Category::Browser, tr_key!("Enable built-in browser")) {
         rows.push(view.row(
             "browser-enabled",

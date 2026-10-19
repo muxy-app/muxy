@@ -1,9 +1,8 @@
+use muxy_protocol::transport::{LocalStream, socket_pair};
 use std::error::Error;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -15,9 +14,11 @@ use muxy_protocol::transport::{ByteStream, StreamCancellation};
 use muxy_protocol::wire::{Decoder, Encoder, WireError};
 use muxy_protocol::{
     AttachSnapshot, CONTROL, ChannelId, ErrorCode, ExitReason, Message, ReplyBody, RequestBody,
-    RequestId, Row, SUPPORTED, ScreenFrame, ServerPath, SessionId, SessionInfo, Size, Version,
+    RequestId, Row, SUPPORTED, ScreenFrame, SessionId, SessionInfo, Size, Version,
 };
 use muxy_server::{Registry, ServerEvent, ServerSettings, connection::serve};
+
+mod support;
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -33,8 +34,8 @@ struct Fixture {
 }
 
 struct Client {
-    socket: UnixStream,
-    encoder: Encoder<UnixStream>,
+    socket: LocalStream,
+    encoder: Encoder<LocalStream>,
     incoming: Receiver<Result<(ChannelId, Message), WireError>>,
     finished: Receiver<Result<(), WireError>>,
     next_request: u32,
@@ -51,7 +52,7 @@ impl Fixture {
         let (sender, events) = mpsc::channel();
         let registry = Arc::new(Registry::new(
             ServerSettings {
-                default_shell: Some(PathBuf::from("/bin/sh")),
+                default_shell: Some(support::shell()),
                 ..ServerSettings::default()
             },
             sender,
@@ -82,7 +83,7 @@ impl Fixture {
     }
 
     fn client(&self, hello: bool) -> TestResult<Client> {
-        let (socket, server) = UnixStream::pair()?;
+        let (socket, server) = socket_pair()?;
         let (sender, events) = mpsc::channel();
         self.subscribers
             .lock()
@@ -137,7 +138,7 @@ impl Fixture {
         match client.request(RequestBody::CreateSession {
             project: self.registry.home_project(),
             operation: muxy_protocol::OperationId::new(),
-            directory: ServerPath(self.directory.as_os_str().as_bytes().to_vec()),
+            directory: support::server_path(&self.directory)?,
             size: SIZE,
         })? {
             ReplyBody::SessionCreated(info) => Ok(info),
@@ -431,7 +432,7 @@ fn disconnect_keeps_session_for_a_new_client() -> TestResult {
     let mut first = fixture.client(true)?;
     let info = fixture.create(&mut first)?;
     let channel = first.attach(info.id)?.channel;
-    first.input(channel, b"echo retained\n")?;
+    first.input(channel, &support::line("echo retained"))?;
     first.frame(channel, "retained")?;
     first.disconnect()?;
     let mut second = fixture.client(true)?;
@@ -441,7 +442,7 @@ fn disconnect_keeps_session_for_a_new_client() -> TestResult {
     );
     let snapshot = second.attach(info.id)?;
     assert!(text(&snapshot.rows).contains("retained"));
-    second.input(snapshot.channel, b"echo reattached\n")?;
+    second.input(snapshot.channel, &support::line("echo reattached"))?;
     second.frame(snapshot.channel, "reattached")?;
     second.disconnect()
 }
@@ -455,12 +456,12 @@ fn attachments_from_two_connections_have_independent_identity_and_credit() -> Te
     let first_channel = first.attach(info.id)?.channel;
     let second_channel = second.attach(info.id)?.channel;
     assert_eq!(first_channel, second_channel);
-    first.input(first_channel, b"echo shared-one\n")?;
+    first.input(first_channel, &support::line("echo shared-one"))?;
     first.frame(first_channel, "shared-one")?;
     let frame = second.frame(second_channel, "shared-one")?;
     second.ack(second_channel, frame.seq)?;
     first.disconnect()?;
-    second.input(second_channel, b"echo shared-two\n")?;
+    second.input(second_channel, &support::line("echo shared-two"))?;
     second.frame(second_channel, "shared-two")?;
     second.disconnect()
 }
@@ -562,7 +563,7 @@ fn detaching_replies_once_to_each_pending_resize() -> TestResult {
 }
 
 struct EofStream {
-    stream: UnixStream,
+    stream: LocalStream,
     eof: Sender<()>,
 }
 
@@ -603,7 +604,7 @@ impl Read for EofReader {
 fn reader_eof_and_fatal_cancel_a_blocked_writer() -> TestResult {
     let fixture = Fixture::new()?;
     for fatal in [false, true] {
-        let (peer, stream) = UnixStream::pair()?;
+        let (peer, stream) = socket_pair()?;
         peer.set_read_timeout(Some(TIMEOUT))?;
         peer.set_write_timeout(Some(TIMEOUT))?;
         let (eof, observed) = mpsc::channel();
@@ -649,7 +650,7 @@ fn reader_eof_and_fatal_cancel_a_blocked_writer() -> TestResult {
 }
 
 struct FailingStream {
-    stream: UnixStream,
+    stream: LocalStream,
     ready: Sender<()>,
     fail: Receiver<()>,
 }
@@ -677,7 +678,7 @@ impl ByteStream for FailingStream {
 }
 
 struct IdleReader {
-    stream: UnixStream,
+    stream: LocalStream,
     handshake: Arc<AtomicBool>,
     ready: Option<Sender<()>>,
 }
@@ -694,7 +695,7 @@ impl Read for IdleReader {
 }
 
 struct FailingWriter {
-    stream: UnixStream,
+    stream: LocalStream,
     handshake: Arc<AtomicBool>,
     fail: Receiver<()>,
 }
@@ -721,7 +722,7 @@ impl Write for FailingWriter {
 #[test]
 fn writer_failure_cancels_an_idle_reader_and_returns_the_error() -> TestResult {
     let fixture = Fixture::new()?;
-    let (peer, stream) = UnixStream::pair()?;
+    let (peer, stream) = socket_pair()?;
     peer.set_read_timeout(Some(TIMEOUT))?;
     let (ready, idle) = mpsc::channel();
     let (fail, failure) = mpsc::channel();
@@ -799,7 +800,7 @@ fn clients_from_before_v2_are_told_to_update_in_their_own_framing() -> TestResul
     use std::io::{Read, Write};
 
     let fixture = Fixture::new()?;
-    let (mut socket, server) = UnixStream::pair()?;
+    let (mut socket, server) = socket_pair()?;
     let (sender, events) = mpsc::channel();
     fixture
         .subscribers

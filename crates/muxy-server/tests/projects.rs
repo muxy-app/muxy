@@ -4,10 +4,10 @@ use muxy_protocol::{
 };
 use muxy_server::{LegacyImport, Registry, ServerSettings};
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
+
+mod support;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 const SIZE: Size = Size { cols: 80, rows: 24 };
@@ -23,7 +23,7 @@ impl Fixture {
         let (events, _) = mpsc::channel();
         Ok(Registry::persistent_with_import(
             ServerSettings {
-                default_shell: Some("/bin/sh".into()),
+                default_shell: Some(support::shell()),
                 ..ServerSettings::default()
             },
             events,
@@ -45,7 +45,7 @@ fn project(path: &Path) -> ProjectDescriptor {
         icon: None,
         logo: None,
         color: "#808080".into(),
-        directory: ServerPath(path.as_os_str().as_bytes().into()),
+        directory: ServerPath::from_path(path).unwrap_or_else(|_| ServerPath(Vec::new())),
         kind: None,
         parent_id: None,
     }
@@ -85,13 +85,17 @@ fn exact_identity_duplicate_paths_private_catalog_and_idempotent_mutations() -> 
             .code(),
         ErrorCode::CatalogChanged
     );
-    assert_eq!(
-        fs::metadata(fixture.0.join("sessions/catalog.json"))?
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(fixture.0.join("sessions/catalog.json"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
     drop(registry);
     let reopened = fixture.registry(LegacyImport::default())?;
     let after = reopened.read_catalog(None, None)?;
@@ -117,10 +121,10 @@ fn retry_never_respawns_ended_or_discarded_sessions_and_cwd_never_owns() -> Resu
     let owner = project(&fixture.0);
     registry.mutate_project(&intent(ProjectMutation::Create(owner.clone())))?;
     let operation = OperationId::new();
-    let first = registry.create_project_session(owner.id, operation, Path::new("/tmp"), SIZE)?;
+    let first = registry.create_project_session(owner.id, operation, &support::folder(), SIZE)?;
     assert_eq!(first.project, owner.id);
     assert_eq!(
-        registry.create_project_session(owner.id, operation, Path::new("/tmp"), SIZE)?,
+        registry.create_project_session(owner.id, operation, &support::folder(), SIZE)?,
         first
     );
     assert_eq!(registry.list().len(), 1);
@@ -128,7 +132,7 @@ fn retry_never_respawns_ended_or_discarded_sessions_and_cwd_never_owns() -> Resu
     let listed = registry.list_project_sessions(owner.id, None, None)?;
     assert_eq!(listed.sessions[0].status, SessionStatus::Ended);
     assert_eq!(
-        registry.create_project_session(owner.id, operation, Path::new("/tmp"), SIZE)?,
+        registry.create_project_session(owner.id, operation, &support::folder(), SIZE)?,
         first
     );
     assert!(registry.list().is_empty());
@@ -142,7 +146,7 @@ fn retry_never_respawns_ended_or_discarded_sessions_and_cwd_never_owns() -> Resu
     drop(registry);
     let registry = fixture.registry(LegacyImport::default())?;
     assert_eq!(
-        registry.create_project_session(owner.id, operation, Path::new("/tmp"), SIZE)?,
+        registry.create_project_session(owner.id, operation, &support::folder(), SIZE)?,
         first
     );
     assert!(registry.list().is_empty());
@@ -250,7 +254,7 @@ fn logo_heavy_catalog_pages_fit_the_wire_and_continue_without_losing_projects() 
     logo.resize(muxy_protocol::MAX_PROJECT_LOGO_BYTES, 0);
     let logo: Arc<[u8]> = logo.into();
     for _ in 0..60 {
-        let mut project = project(Path::new("/tmp"));
+        let mut project = project(&support::folder());
         project.logo = Some(logo.clone());
         registry.mutate_project(&intent(ProjectMutation::Create(project)))?;
     }

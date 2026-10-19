@@ -75,9 +75,12 @@ fn local_name() -> Option<String> {
 }
 
 fn node_name() -> String {
-    rustix::system::uname()
+    #[cfg(unix)]
+    let name = rustix::system::uname()
         .nodename()
         .to_string_lossy()
-        .trim()
-        .to_owned()
+        .into_owned();
+    #[cfg(windows)]
+    let name = std::env::var("COMPUTERNAME").unwrap_or_default();
+    name.trim().to_owned()
 }

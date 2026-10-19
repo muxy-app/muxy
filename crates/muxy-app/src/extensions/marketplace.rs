@@ -153,17 +153,7 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
         .map_err(|error| error.to_string())?;
     let archive = stage.path().join("download.zip");
     std::fs::write(&archive, &data).map_err(|error| error.to_string())?;
-    let hash = std::process::Command::new("/usr/bin/shasum")
-        .args(["-a", "256"])
-        .arg(&archive)
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !hash.status.success()
-        || String::from_utf8_lossy(&hash.stdout)
-            .split_whitespace()
-            .next()
-            .is_none_or(|hash| !hash.eq_ignore_ascii_case(expected))
-    {
+    if !sha256(&archive)?.eq_ignore_ascii_case(expected) {
         return Err(tr!("archive checksum does not match the marketplace").into());
     }
     let extracted = stage.path().join("package");
@@ -198,6 +188,39 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
     Ok(stage)
 }
 
+/// The SHA-256 of `file`, in hex, from the tool the system ships.
+#[cfg(unix)]
+fn sha256(file: &Path) -> Result<String> {
+    let output = std::process::Command::new("/usr/bin/shasum")
+        .args(["-a", "256"])
+        .arg(file)
+        .output()
+        .map_err(|error| error.to_string())?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    match text.split_whitespace().next() {
+        Some(hash) if output.status.success() => Ok(hash.to_owned()),
+        _ => Err(tr!("archive checksum does not match the marketplace").into()),
+    }
+}
+
+/// The SHA-256 of `file`, in hex. `certutil` prints it on its second line,
+/// in older Windows versions with spaces between the bytes.
+#[cfg(windows)]
+fn sha256(file: &Path) -> Result<String> {
+    use std::os::windows::process::CommandExt;
+    let output = std::process::Command::new("certutil")
+        .arg("-hashfile")
+        .arg(file)
+        .arg("SHA256")
+        .creation_flags(crate::NO_WINDOW)
+        .output()
+        .map_err(|error| error.to_string())?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    match text.lines().nth(1) {
+        Some(hash) if output.status.success() => Ok(hash.replace(' ', "").trim().to_owned()),
+        _ => Err(tr!("archive checksum does not match the marketplace").into()),
+    }
+}
 fn extract(data: &[u8], directory: &Path) -> Result<()> {
     let mut archive =
         zip::ZipArchive::new(std::io::Cursor::new(data)).map_err(|error| error.to_string())?;

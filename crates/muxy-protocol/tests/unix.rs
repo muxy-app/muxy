@@ -1,16 +1,17 @@
+mod support;
+
 use std::error::Error;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::fs::symlink;
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
-use std::{env, fs, process, thread};
+use std::{fs, thread};
 
-use muxy_protocol::transport::{BindError, ByteStream, Listener, UnixSocketListener, connect};
+use muxy_protocol::transport::{
+    BindError, ByteStream, Listener, LocalListener, UnixSocketListener, connect, socket_pair,
+};
+use support::TempFolder;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -19,7 +20,7 @@ const BLOCKED_INTERVAL: Duration = Duration::from_millis(50);
 
 #[test]
 fn live_socket_returns_in_use_and_remains_reachable() -> TestResult {
-    let path = SocketPath::new()?;
+    let path = TempFolder::new()?;
     let listener = UnixSocketListener::bind(path.socket())?;
     let result = UnixSocketListener::bind(path.socket());
 
@@ -37,9 +38,26 @@ fn live_socket_returns_in_use_and_remains_reachable() -> TestResult {
 }
 
 #[test]
+fn sockets_work_under_a_non_ascii_folder_and_a_canonical_path() -> TestResult {
+    let path = TempFolder::new()?;
+    let folder = path.path.join("dév-日本");
+    fs::create_dir(&folder)?;
+    // On Windows this is a verbatim `\\?\C:\…` path.
+    let socket = fs::canonicalize(&folder)?.join("socket");
+    let listener = UnixSocketListener::bind(&socket)?;
+    let (_, mut writer) = connect(&socket)?.split()?;
+    let (mut reader, _) = listener.accept()?.split()?;
+    writer.write_all(b"x")?;
+    let mut byte = [0];
+    reader.read_exact(&mut byte)?;
+    assert_eq!(&byte, b"x");
+    Ok(())
+}
+
+#[test]
 fn bind_replaces_a_stale_socket() -> TestResult {
-    let path = SocketPath::new()?;
-    drop(UnixListener::bind(path.socket())?);
+    let path = TempFolder::new()?;
+    drop(LocalListener::bind(path.socket())?);
     assert!(path.socket().exists());
 
     let listener = UnixSocketListener::bind(path.socket())?;
@@ -50,9 +68,9 @@ fn bind_replaces_a_stale_socket() -> TestResult {
 
 #[test]
 fn concurrent_stale_binds_keep_exactly_one_live_listener() -> TestResult {
-    let path = SocketPath::new()?;
+    let path = TempFolder::new()?;
     for _ in 0..16 {
-        drop(UnixListener::bind(path.socket())?);
+        drop(LocalListener::bind(path.socket())?);
         let start = Arc::new(Barrier::new(8));
         let done = Arc::new(Barrier::new(8));
         let mut workers = Vec::new();
@@ -86,10 +104,13 @@ fn concurrent_stale_binds_keep_exactly_one_live_listener() -> TestResult {
 
 #[test]
 fn bind_preserves_a_symlink_to_a_stale_socket() -> TestResult {
-    let path = SocketPath::new()?;
-    let target = path.directory.join("target");
-    drop(UnixListener::bind(&target)?);
-    symlink(&target, path.socket())?;
+    let path = TempFolder::new()?;
+    let target = path.path.join("target");
+    drop(LocalListener::bind(&target)?);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&target, path.socket())?;
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(&target, path.socket())?;
 
     assert!(matches!(
         UnixSocketListener::bind(path.socket()),
@@ -102,7 +123,7 @@ fn bind_preserves_a_symlink_to_a_stale_socket() -> TestResult {
 
 #[test]
 fn accepted_stream_blocks_until_bytes_arrive() -> TestResult {
-    let path = SocketPath::new()?;
+    let path = TempFolder::new()?;
     let listener = UnixSocketListener::bind(path.socket())?;
     let (_, mut writer) = connect(path.socket())?.split()?;
     let (mut reader, _server_writer) = listener.accept()?.split()?;
@@ -128,7 +149,7 @@ fn accepted_stream_blocks_until_bytes_arrive() -> TestResult {
 
 #[test]
 fn dropping_writer_sends_eof_while_reader_still_receives() -> TestResult {
-    let (stream, mut peer) = UnixStream::pair()?;
+    let (stream, mut peer) = socket_pair()?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     peer.set_read_timeout(Some(TIMEOUT))?;
     let (mut reader, mut writer) = Box::new(stream).split()?;
@@ -148,7 +169,7 @@ fn dropping_writer_sends_eof_while_reader_still_receives() -> TestResult {
 
 #[test]
 fn close_wakes_pending_accepts_and_rejects_future_accepts() -> TestResult {
-    let path = SocketPath::new()?;
+    let path = TempFolder::new()?;
     let listener = Arc::new(UnixSocketListener::bind(path.socket())?);
     let (ready_sender, ready_receiver) = mpsc::channel();
     let (sender, receiver) = mpsc::channel();
@@ -189,36 +210,9 @@ fn close_wakes_pending_accepts_and_rejects_future_accepts() -> TestResult {
     Ok(())
 }
 
-struct SocketPath {
-    directory: PathBuf,
-}
-
-impl SocketPath {
-    fn new() -> io::Result<Self> {
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-        let directory = env::temp_dir().join(format!(
-            "muxy-t-{}-{}",
-            process::id(),
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&directory)?;
-        Ok(Self { directory })
-    }
-
-    fn socket(&self) -> PathBuf {
-        self.directory.join("socket")
-    }
-}
-
-impl Drop for SocketPath {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.directory);
-    }
-}
-
 #[test]
 fn cancellation_wakes_a_blocked_reader_and_closes_both_directions() -> TestResult {
-    let (stream, mut peer) = UnixStream::pair()?;
+    let (stream, mut peer) = socket_pair()?;
     peer.set_read_timeout(Some(TIMEOUT))?;
     let cancellation = stream.cancellation()?;
     let (mut reader, mut writer) = Box::new(stream).split()?;
@@ -244,7 +238,7 @@ fn cancellation_wakes_a_blocked_reader_and_closes_both_directions() -> TestResul
 
 #[test]
 fn cancellation_wakes_a_blocked_writer_after_peer_write_shutdown() -> TestResult {
-    let (stream, peer) = UnixStream::pair()?;
+    let (stream, peer) = socket_pair()?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     let cancellation = stream.cancellation()?;
     let (mut reader, mut writer) = Box::new(stream).split()?;
@@ -254,7 +248,14 @@ fn cancellation_wakes_a_blocked_writer_after_peer_write_shutdown() -> TestResult
     let (sender, finished) = mpsc::channel();
     let worker = thread::spawn(move || {
         let _ = ready.send(());
-        let _ = sender.send(writer.write_all(&vec![0; 1024 * 1024]));
+        // Windows takes one write of any size into an empty buffer, so keep
+        // writing until a write blocks.
+        let chunk = vec![0; 64 * 1024];
+        let _ = sender.send(loop {
+            if let Err(error) = writer.write_all(&chunk) {
+                break Err::<(), _>(error);
+            }
+        });
     });
     started.recv_timeout(TIMEOUT)?;
     assert!(matches!(

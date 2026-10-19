@@ -1,6 +1,5 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -61,7 +60,15 @@ impl Capture {
             .unwrap_or_default()
             .as_millis();
         let directory = parent.join(format!("muxy-profile-{}-{unix_ms}", std::process::id()));
-        fs::DirBuilder::new().mode(0o700).create(&directory)?;
+        // A new folder, never one that is already there.
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut fs::DirBuilder::new(), 0o700)
+            .create(&directory)?;
+        #[cfg(windows)]
+        {
+            fs::create_dir(&directory)?;
+            muxy_core::files::private_dir(&directory)?;
+        }
         let executable = std::env::current_exe().ok();
         let executable_metadata = executable.as_ref().and_then(|path| fs::metadata(path).ok());
         let metadata = json!({
@@ -166,11 +173,10 @@ impl Capture {
             .directory
             .join(format!("stacks-{}.txt", self.sample_number % SAMPLE_SLOTS));
         self.sample_number += 1;
-        OpenOptions::new()
+        muxy_core::files::private_file()
             .write(true)
             .create(true)
             .truncate(true)
-            .mode(0o600)
             .open(&path)?;
         let result = Command::new("/usr/bin/sample")
             .arg(std::process::id().to_string())
@@ -205,7 +211,7 @@ impl Capture {
         };
         let truncated = fs::metadata(&path).is_ok_and(|metadata| metadata.len() > MAX_LOG_BYTES);
         if truncated {
-            OpenOptions::new()
+            fs::OpenOptions::new()
                 .write(true)
                 .open(&path)?
                 .set_len(MAX_LOG_BYTES)?;
@@ -227,10 +233,9 @@ impl Drop for Capture {
 }
 
 fn private_file(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
+    muxy_core::files::private_file()
         .write(true)
         .create_new(true)
-        .mode(0o600)
         .open(path)
 }
 

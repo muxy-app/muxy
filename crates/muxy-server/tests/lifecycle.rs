@@ -1,8 +1,7 @@
+use muxy_protocol::transport::LocalStream;
 use std::error::Error;
 use std::fs;
 use std::io::{Read, Write};
-use std::os::unix::fs::FileTypeExt;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,6 +15,8 @@ use muxy_protocol::{
     CONTROL, ChannelId, ExitReason, Message, ReplyBody, RequestBody, RequestId, SUPPORTED,
     ServerPath, SessionId, Size,
 };
+
+mod support;
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -51,7 +52,7 @@ impl Fixture {
         command
             .env("MUXY_DIR", &self.directory)
             .env("MUXY_REMOTE_BIND", "127.0.0.1")
-            .env("SHELL", "/bin/sh")
+            .env("SHELL", support::shell())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -66,11 +67,10 @@ impl Fixture {
     fn start_command(&mut self, mut command: Command, socket: &Path) -> TestResult {
         self.child = Some(command.spawn()?);
         wait_until(|| {
-            if !fs::symlink_metadata(socket).is_ok_and(|metadata| metadata.file_type().is_socket())
-            {
+            if !support::is_socket(socket) {
                 return Ok(false);
             }
-            match UnixStream::connect(socket) {
+            match LocalStream::connect(socket) {
                 Ok(_) => Ok(true),
                 Err(error)
                     if matches!(
@@ -85,8 +85,20 @@ impl Fixture {
         })
     }
 
+    /// Asks the server to stop as the system does. Windows has no signals,
+    /// and its console events need a console the test shares with the
+    /// server, so there the request arrives through the protocol.
     fn signal(&self, signal: &str) -> TestResult {
         let child = self.child.as_ref().ok_or("server is not running")?;
+        if cfg!(windows) {
+            let _ = (signal, child);
+            let mut client = Client::new(&self.socket())?;
+            assert_eq!(
+                client.request(RequestBody::StopServer)?,
+                ReplyBody::ServerStopping
+            );
+            return Ok(());
+        }
         let output = Command::new("kill")
             .args([signal, &child.id().to_string()])
             .output()?;
@@ -371,10 +383,14 @@ fn lifecycle_serves_shell_logs_and_stops_every_session() -> TestResult {
     let first = creator.create(&fixture.directory)?;
     let second = creator.create(&fixture.directory)?;
     let channel = creator.attach(first)?;
-    creator.encoder.send(
-        channel,
-        &Message::Input(b"printf '\\nphase-eight-ready\\n'\n".to_vec()),
-    )?;
+    let command: &[u8] = if cfg!(windows) {
+        b"echo phase-eight-^ready\r"
+    } else {
+        b"printf '\\nphase-eight-ready\\n'\n"
+    };
+    creator
+        .encoder
+        .send(channel, &Message::Input(command.to_vec()))?;
     creator.wait_for_output("phase-eight-ready")?;
     assert!(
         matches!(observer.request(RequestBody::ListSessions)?, ReplyBody::Sessions(sessions) if sessions.len() == 2)
@@ -408,7 +424,7 @@ fn second_instance_exits_successfully_and_preserves_the_first() -> TestResult {
 fn shutdown_cancels_clients_that_never_finish_hello() -> TestResult {
     let mut fixture = Fixture::new()?;
     fixture.start()?;
-    let mut stalled = UnixStream::connect(fixture.socket())?;
+    let mut stalled = LocalStream::connect(fixture.socket())?;
     stalled.set_read_timeout(Some(TIMEOUT))?;
     let _ready = Client::new(&fixture.socket())?;
     fixture.stop("-TERM")?;
@@ -419,9 +435,11 @@ fn shutdown_cancels_clients_that_never_finish_hello() -> TestResult {
 
 #[test]
 fn shutdown_does_not_wait_for_a_descendant_holding_the_pty() -> TestResult {
-    assert_shutdown_interrupts_input(
-        b"stty -icanon -echo; trap '' HUP; sleep 10 & printf '\\nnonreading-ready\\n'; wait\n",
-    )
+    assert_shutdown_interrupts_input(if cfg!(windows) {
+        b"start /b ping -n 10 127.0.0.1 >nul& echo nonreading-^ready& ping -n 10 127.0.0.1 >nul\r"
+    } else {
+        b"stty -icanon -echo; trap '' HUP; sleep 10 & printf '\\nnonreading-ready\\n'; wait\n"
+    })
 }
 
 fn assert_shutdown_interrupts_input(command: &[u8]) -> TestResult {
@@ -466,11 +484,15 @@ fn malformed_settings_name_the_key_and_cleanup_the_socket() -> TestResult {
 fn default_directory_does_not_touch_other_channels() -> TestResult {
     let mut fixture = Fixture::new()?;
     let linux = cfg!(target_os = "linux");
-    let support = fixture.directory.join(if linux {
-        ".local/state"
+    let support = if cfg!(windows) {
+        fixture.directory.clone()
     } else {
-        "Library/Application Support"
-    });
+        fixture.directory.join(if linux {
+            ".local/state"
+        } else {
+            "Library/Application Support"
+        })
+    };
     let [development, beta, stable] = if linux {
         ["muxy-dev", "muxy-beta", "muxy"]
     } else {
@@ -498,6 +520,7 @@ fn default_directory_does_not_touch_other_channels() -> TestResult {
         .env_remove("MUXY_DIR")
         .env_remove("XDG_STATE_HOME")
         .env("HOME", &fixture.directory)
+        .env("LOCALAPPDATA", &fixture.directory)
         .arg("--socket")
         .arg(&socket);
     fixture.start_command(command, &socket)?;
@@ -518,6 +541,9 @@ fn default_directory_does_not_touch_other_channels() -> TestResult {
     Ok(())
 }
 
+/// zsh's hooks; `powershell_marks_prompts_commands_failures_and_drive_folders`
+/// covers `PowerShell`'s on Windows.
+#[cfg(unix)]
 #[test]
 fn shell_hooks_are_socket_relative_and_the_setting_controls_new_shells() -> TestResult {
     let mut fixture = Fixture::new()?;
@@ -588,8 +614,13 @@ fn settings_persist_and_protocol_stop_gracefully_ends_sessions_before_restart() 
     fixture.start()?;
     let mut client = Client::new(&fixture.socket())?;
     let session = client.create(&fixture.directory)?;
+    let shell = if cfg!(windows) {
+        support::shell()
+    } else {
+        PathBuf::from("/bin/bash")
+    };
     let settings = muxy_protocol::ServerSettingsDoc {
-        default_shell: Some(ServerPath(b"/bin/bash".to_vec())),
+        default_shell: Some(support::server_path(&shell)?),
         history_budget_bytes: 8 * 1024 * 1024,
         shell_integration: false,
     };
@@ -608,7 +639,11 @@ fn settings_persist_and_protocol_stop_gracefully_ends_sessions_before_restart() 
     assert!(fixture.finish()?.status.success());
     assert!(!fixture.socket().exists());
     let saved = fs::read_to_string(fixture.directory.join("server.toml"))?;
-    assert!(saved.contains("/bin/bash"));
+    assert!(saved.contains(if cfg!(windows) {
+        "cmd.exe"
+    } else {
+        "/bin/bash"
+    }));
     assert!(saved.contains("shell_integration = false"));
     drop(client);
     fixture.start()?;

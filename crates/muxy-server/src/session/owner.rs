@@ -19,6 +19,7 @@ use crate::session::metadata::Metadata;
 use crate::session::{
     AttachmentEvent, AttachmentId, AttachmentSink, SessionCommand, SessionHandle,
 };
+use crate::spawn::Shell;
 
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
@@ -76,7 +77,7 @@ struct Attachment {
 )]
 struct Owner {
     info: SessionInfo,
-    pty: Pty,
+    shell: Shell,
     terminal: Terminal,
     metadata: Metadata,
     progress: super::SharedProgress,
@@ -116,7 +117,7 @@ struct Owner {
 )]
 pub(crate) fn start(
     info: SessionInfo,
-    mut pty: Pty,
+    mut shell: Shell,
     size: Size,
     history_budget_bytes: usize,
     archive: Archive,
@@ -127,7 +128,9 @@ pub(crate) fn start(
     let id = info.id.get();
     let (sender, receiver) = mpsc::channel();
     let (ready_sender, ready) = mpsc::channel();
-    pty.start_reader(sender.clone())
+    shell
+        .pty
+        .start_reader(sender.clone())
         .map_err(ServerError::spawn_failed)?;
 
     let progress = super::SharedProgress::default();
@@ -153,17 +156,17 @@ pub(crate) fn start(
                 }) {
                     Ok(terminal) => terminal,
                     Err(error) => {
-                        let _ = pty.kill();
-                        let _ = pty.wait();
+                        let _ = shell.pty.kill();
+                        let _ = shell.pty.wait();
                         let _ = ready_sender.send(Err(ServerError::spawn_failed(error)));
                         return;
                     }
                 };
-            let input = match start_input(&mut pty, failed) {
+            let input = match start_input(&mut shell.pty, failed) {
                 Ok(input) => input,
                 Err(error) => {
-                    let _ = pty.kill();
-                    let _ = pty.wait();
+                    let _ = shell.pty.kill();
+                    let _ = shell.pty.wait();
                     let _ = ready_sender.send(Err(error));
                     return;
                 }
@@ -180,7 +183,7 @@ pub(crate) fn start(
                 detection_screen: String::new(),
                 detection_progress: String::new(),
                 info: session,
-                pty,
+                shell,
                 terminal,
                 size,
                 events: receiver,
@@ -254,8 +257,8 @@ fn start_input(
 impl Owner {
     fn run(mut self) -> ExitReason {
         let reason = self.serve().unwrap_or_else(|_| {
-            let _ = self.pty.kill();
-            self.pty.wait().map_or(ExitReason::Ended, exit_reason)
+            let _ = self.shell.pty.kill();
+            self.shell.pty.wait().map_or(ExitReason::Ended, exit_reason)
         });
         self.drain_output();
         self.update_metadata();
@@ -298,7 +301,7 @@ impl Owner {
                     let _ = reply.send(result);
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::CellSize(cell))) => {
-                    self.pty.set_cell_size(cell)?;
+                    self.shell.pty.set_cell_size(cell)?;
                     self.terminal.set_cell_size(cell)?;
                     self.output_pending = true;
                 }
@@ -367,7 +370,7 @@ impl Owner {
                 Wake::Orphaned => return self.terminate(ExitReason::ServerStopped),
             }
             if self.output_state == OutputState::Closed
-                && let Some(status) = self.pty.try_wait()
+                && let Some(status) = self.shell.pty.try_wait()
             {
                 return Ok(exit_reason(status));
             }
@@ -465,7 +468,7 @@ impl Owner {
     }
 
     fn resize(&mut self, size: Size) -> Result<(), Fault> {
-        self.pty.resize(size.into())?;
+        self.shell.pty.resize(size.into())?;
         self.terminal.resize(size)?;
         self.size = size;
         self.resize_pending = true;
@@ -697,7 +700,7 @@ impl Owner {
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = *progress;
             }
         }
-        let events = self.metadata.update(&self.pty, terminal);
+        let events = self.metadata.update(&self.shell, terminal);
         if events.iter().any(|event| {
             matches!(
                 event,
@@ -848,8 +851,8 @@ impl Owner {
     }
 
     fn terminate(&mut self, reason: ExitReason) -> Result<ExitReason, Fault> {
-        self.pty.kill()?;
-        self.pty.wait()?;
+        self.shell.pty.kill()?;
+        self.shell.pty.wait()?;
         Ok(reason)
     }
 
@@ -902,20 +905,26 @@ mod tests {
     use muxy_protocol::{ServerPath, SessionId};
     use muxy_terminal::pty::SpawnRequest;
     use std::num::NonZeroU64;
-    use std::os::unix::ffi::OsStrExt;
 
     fn owner() -> Result<Owner, Fault> {
         let size = Size { cols: 20, rows: 3 };
         let cwd = std::env::temp_dir();
+        #[cfg(unix)]
+        let (program, args) = ("/bin/sh", ["-c", "exit 0"]);
+        #[cfg(windows)]
+        let (program, args) = ("cmd.exe", ["/d", "/c"]);
         let mut pty = Pty::spawn(SpawnRequest {
-            program: "/bin/sh".into(),
-            args: vec!["-c".into(), "exit 0".into()],
+            program: program.into(),
+            args: args.map(Into::into).to_vec(),
             cwd: cwd.clone(),
             env: vec![],
             size: size.into(),
         })?;
+        // The pseudoconsole starts nothing until its cursor query is answered.
+        #[cfg(windows)]
+        pty.kill()?;
         pty.wait()?;
-        let directory = ServerPath(cwd.as_os_str().as_bytes().to_vec());
+        let directory = ServerPath::from_path(&cwd).map_err(|code| format!("{code:?}"))?;
         Ok(Owner {
             graphics: muxy_protocol::Graphics::default(),
             info: SessionInfo {
@@ -923,7 +932,11 @@ mod tests {
                 id: SessionId::from(NonZeroU64::MIN),
                 directory: directory.clone(),
             },
-            pty,
+            shell: Shell {
+                pty,
+                #[cfg(windows)]
+                job: crate::platform::windows::Job::killed_on_drop()?,
+            },
             terminal: Terminal::new(size, 1024)?,
             metadata: Metadata::new(directory.clone()),
             progress: crate::session::SharedProgress::default(),

@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 #[cfg(target_os = "macos")]
 use std::os::unix::fs::PermissionsExt;
@@ -170,6 +171,7 @@ fn editor_cli_arguments_are_lossless_and_directories_are_not_line_locations() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_timed_out_opener_is_reaped_and_the_worker_accepts_later_work() {
     let temp = Temp::new();
@@ -220,7 +222,7 @@ fn a_timed_out_opener_is_reaped_and_the_worker_accepts_later_work() {
     );
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 #[test]
 fn linux_openers_preserve_literal_paths_and_use_the_file_manager_for_reveal() {
     let temp = Temp::new();
@@ -262,14 +264,62 @@ fn linux_openers_preserve_literal_paths_and_use_the_file_manager_for_reveal() {
 
 #[test]
 fn a_missing_program_is_named_and_other_failures_are_kept() {
-    let missing = Launch::program("/nonexistent/muxy-opener", ["a file".into()]);
+    let program = if cfg!(windows) {
+        r"C:\nonexistent\muxy-opener.exe"
+    } else {
+        "/nonexistent/muxy-opener"
+    };
+    let missing = Launch::program(program, ["a file".into()]);
     let error = launch(&missing).expect_err("nothing to run");
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
-    assert!(
-        error.to_string().contains("/nonexistent/muxy-opener"),
-        "{error}"
-    );
-    let failing = Launch::program("/usr/bin/false", []);
+    assert!(error.to_string().contains(program), "{error}");
+    let failing = if cfg!(windows) {
+        Launch::program("cmd.exe", ["/c".into(), "exit 1".into()])
+    } else {
+        Launch::program("/usr/bin/false", [])
+    };
     let error = launch(&failing).expect_err("exits with failure");
     assert_ne!(error.kind(), io::ErrorKind::NotFound);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_openers_hand_files_to_the_shell_and_editors_to_their_command_shims() {
+    let temp = Temp::new();
+    let directory = temp.0.join("project space");
+    std::fs::create_dir(&directory).expect("project");
+    let bin = temp.0.join("bin");
+    std::fs::create_dir(&bin).expect("bin");
+    std::fs::write(bin.join("code.cmd"), "").expect("shim");
+    let path = muxy_core::executable::find_with_extensions(
+        std::slice::from_ref(&bin),
+        "code",
+        ".EXE;.CMD",
+    )
+    .expect("editor");
+    let location = file(directory.join("main.rs"));
+    let editor = Editor {
+        bundle: "com.microsoft.VSCode".into(),
+        path,
+        rank: 0,
+    };
+    let command = editor.command(&location, &directory);
+    assert_eq!(command.program, bin.join("code.cmd"));
+    assert_eq!(
+        command.args,
+        [
+            directory.as_os_str().to_owned(),
+            "--goto".into(),
+            format!("{}:12:3", location.path.display()).into(),
+        ]
+    );
+    let system = Launch::system([location.path.as_os_str().to_owned()]);
+    assert!(system.program.as_os_str().is_empty(), "the shell opens it");
+    assert_eq!(
+        finder(&location.path).select.as_deref(),
+        Some(location.path.as_path())
+    );
+    let folder = finder(&directory);
+    assert_eq!(folder.select, None);
+    assert_eq!(folder.args, [directory.into_os_string()]);
 }

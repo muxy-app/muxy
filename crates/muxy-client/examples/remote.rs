@@ -5,8 +5,6 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::ExitCode;
 use std::thread;
@@ -41,10 +39,9 @@ fn pair(link: &str, file: &Path) -> Result {
     let invite =
         PairingInvite::parse_link(link).map_err(|code| format!("invalid link: {code:?}"))?;
     // The file will hold the device token: create it private before pairing.
-    let mut output = fs::OpenOptions::new()
+    let mut output = muxy_core::files::private_file()
         .write(true)
         .create_new(true)
-        .mode(0o600)
         .open(file)?;
     let (_client, paired) = match Client::pair(&invite, "Example device") {
         Ok(paired) => paired,
@@ -82,8 +79,11 @@ fn connect(file: &Path) -> Result {
         .find(|project| project.home)
         .ok_or("the server has no Home project")?;
     let events = client.events().ok_or("event stream already taken")?;
-    let directory = Path::new(std::ffi::OsStr::from_bytes(&home.directory.0));
-    let session = client.create_session(directory, SIZE)?;
+    let directory = home
+        .directory
+        .to_path_buf()
+        .map_err(|code| format!("the Home folder can't be named here: {code:?}"))?;
+    let session = client.create_session(&directory, SIZE)?;
     let mut attachment = client.attach(session.id, SIZE)?;
     let channel = attachment.channel;
     let input = client.clone();

@@ -7,6 +7,7 @@ mod archive;
 pub mod connection;
 mod error;
 mod exec;
+mod platform;
 mod registry;
 mod search;
 mod session;
@@ -30,6 +31,9 @@ mod uploads;
 
 mod activity;
 mod detection;
+
+#[cfg(test)]
+mod test_support;
 
 mod remote;
 pub use remote::{Admission, RemoteAccess};

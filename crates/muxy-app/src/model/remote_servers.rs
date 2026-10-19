@@ -6,6 +6,7 @@ use gpui::{AnyWindowHandle, Context};
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::ServerEntry;
 use muxy_client::SshTarget;
+use muxy_core::capability::Feature;
 use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting, ServerStatus};
@@ -288,6 +289,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return Err(tr!("Muxy is quitting").to_string());
         }
+        self.capabilities.check(Feature::SshRemotes)?;
         if id.is_some_and(|id| self.settings.server(id).is_none()) {
             return Err(tr!("This remote server is no longer listed").to_string());
         }
@@ -420,7 +422,11 @@ impl AppModel {
     ) {
         self.clear_server_probe();
         let generation = self.server_probe_generation;
-        let entry = match form.entry(id) {
+        let entry = match self
+            .capabilities
+            .check(Feature::SshRemotes)
+            .and_then(|()| form.entry(id))
+        {
             Ok(entry) => entry,
             Err(error) => {
                 let tried = form.probe_key();

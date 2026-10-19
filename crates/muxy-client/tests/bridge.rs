@@ -2,7 +2,6 @@
 //! bridge that prints shell noise and the ready line, then relays.
 
 use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -11,7 +10,7 @@ use std::time::{Duration, Instant};
 use muxy_client::bridge::BridgeExit;
 use muxy_client::{Client, ClientError, RemoteReason};
 use muxy_protocol::Size;
-use muxy_protocol::transport::relay;
+use muxy_protocol::transport::{LocalStream, relay, socket_pair};
 use muxy_server::connection::serve;
 use muxy_server::{Registry, ServerSettings};
 
@@ -19,13 +18,13 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Returns the client's end of a bridge that prints `printed` first.
-fn bridge(printed: &'static [u8]) -> TestResult<UnixStream> {
-    let (client, mut remote) = UnixStream::pair()?;
-    let (bridge, server) = UnixStream::pair()?;
+fn bridge(printed: &'static [u8]) -> TestResult<LocalStream> {
+    let (client, mut remote) = socket_pair()?;
+    let (bridge, server) = socket_pair()?;
     let (events, receiver) = mpsc::channel();
     let registry = Arc::new(Registry::new(
         ServerSettings {
-            default_shell: Some(PathBuf::from("/bin/sh")),
+            default_shell: Some(shell()),
             ..ServerSettings::default()
         },
         events,
@@ -43,7 +42,16 @@ fn bridge(printed: &'static [u8]) -> TestResult<UnixStream> {
     Ok(client)
 }
 
-fn connect(stream: UnixStream, exit: BridgeExit) -> Result<Client, ClientError> {
+fn shell() -> PathBuf {
+    if cfg!(windows) {
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        Path::new(&system).join(r"System32\cmd.exe")
+    } else {
+        PathBuf::from("/bin/sh")
+    }
+}
+
+fn connect(stream: LocalStream, exit: BridgeExit) -> Result<Client, ClientError> {
     Client::connect_bridge(Box::new(stream), "box", TIMEOUT, || exit)
 }
 
@@ -66,7 +74,7 @@ fn a_bridge_behind_shell_noise_carries_the_protocol() -> TestResult {
     )?;
     client.ping()?;
     assert_eq!(client.list_sessions()?, vec![]);
-    let session = client.create_session(Path::new("/tmp"), Size { cols: 40, rows: 5 })?;
+    let session = client.create_session(&std::env::temp_dir(), Size { cols: 40, rows: 5 })?;
     assert_eq!(client.list_sessions()?, vec![session.clone()]);
     client.end_session(session.id)?;
     Ok(())
@@ -74,7 +82,7 @@ fn a_bridge_behind_shell_noise_carries_the_protocol() -> TestResult {
 
 #[test]
 fn a_bridge_of_another_version_is_incompatible_rather_than_a_hang() -> TestResult {
-    let (client, mut remote) = UnixStream::pair()?;
+    let (client, mut remote) = socket_pair()?;
     remote.set_read_timeout(Some(TIMEOUT))?;
     remote.write_all(b"MUXY-STDIO/2\n")?;
     let reason = remote_error(connect(client, BridgeExit::default()))?;
@@ -85,7 +93,7 @@ fn a_bridge_of_another_version_is_incompatible_rather_than_a_hang() -> TestResul
 
 #[test]
 fn a_silent_transport_times_out_and_is_shut_down() -> TestResult {
-    let (client, mut remote) = UnixStream::pair()?;
+    let (client, mut remote) = socket_pair()?;
     remote.set_read_timeout(Some(TIMEOUT))?;
     remote.write_all(b"still logging in")?;
     let start = Instant::now();

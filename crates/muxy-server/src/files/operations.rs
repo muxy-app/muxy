@@ -1,17 +1,15 @@
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::os::unix::ffi::OsStrExt;
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 use muxy_protocol::{
     FileBytes, FileContent, FileEntry, MAX_FILE_BYTES, MAX_FILE_ENTRIES, MAX_FILE_PATH_BYTES,
     OperationId, ServerPath,
 };
-use rustix::fs::{self, AtFlags, FileType, Mode, OFlags, RenameFlags};
 
+use super::native::{self, Kind};
 use super::root::{Root, Target};
-use super::{Result, error, path, wire_path};
+use super::{Result, error, is_git, path, wire_path};
 
 impl Root {
     pub(super) fn list(&self, path: &Path) -> Result<Vec<FileEntry>> {
@@ -19,33 +17,36 @@ impl Root {
         let directory = target.directory()?;
         let mut entries = Vec::new();
         let mut size = 0;
-        for entry in fs::Dir::read_from(&directory).map_err(error)? {
-            let entry = entry.map_err(error)?;
-            let name = OsStr::from_bytes(entry.file_name().to_bytes());
-            if matches!(name.as_bytes(), b"." | b".." | b".git") {
+        for name in native::names(&directory).map_err(error)? {
+            if is_git(&name) {
                 continue;
             }
-            let relative = target.relative.join(name);
-            size += relative.as_os_str().len() + name.len();
+            let relative = target.relative.join(&name);
+            // A name Windows can't represent on the wire is left out.
+            let (Ok(wire_name), Ok(wire_relative)) =
+                (wire_path(Path::new(&name)), wire_path(&relative))
+            else {
+                continue;
+            };
+            size += wire_relative.0.len() + wire_name.0.len();
             if entries.len() == MAX_FILE_ENTRIES || size > MAX_FILE_PATH_BYTES {
                 return Err(error("Directory listing exceeds the limit"));
             }
-            let stat = match fs::statat(&directory, name, AtFlags::SYMLINK_NOFOLLOW) {
+            let stat = match native::stat(&directory, &name) {
                 Ok(stat) => stat,
-                Err(rustix::io::Errno::NOENT) => continue,
+                Err(cause) if cause.kind() == io::ErrorKind::NotFound => continue,
                 Err(cause) => return Err(error(cause)),
             };
-            let kind = FileType::from_raw_mode(stat.st_mode);
-            let is_directory = if kind == FileType::Symlink {
+            let is_directory = if stat.kind == Kind::Link {
                 self.resolve(&relative)
                     .and_then(|target| target.stat())
-                    .is_ok_and(|stat| FileType::from_raw_mode(stat.st_mode) == FileType::Directory)
+                    .is_ok_and(|stat| stat.kind == Kind::Directory)
             } else {
-                kind == FileType::Directory
+                stat.kind == Kind::Directory
             };
             entries.push(FileEntry {
-                name: wire_path(Path::new(name)),
-                path: wire_path(&relative),
+                name: wire_name,
+                path: wire_relative,
                 is_directory,
                 is_ignored: false,
             });
@@ -77,14 +78,7 @@ impl Root {
 
     pub(super) fn read_bytes(&self, path: &Path) -> Result<FileBytes> {
         let target = self.resolve(path)?;
-        let file = fs::openat(
-            &target.parent,
-            &target.name,
-            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .map(File::from)
-        .map_err(error)?;
+        let file = native::open_file(&target.parent, &target.name).map_err(error)?;
         let metadata = file.metadata().map_err(error)?;
         if !metadata.is_file() {
             return Err(error("Only regular files can be read"));
@@ -100,7 +94,7 @@ impl Root {
             return Err(error("File exceeds the 5 MiB limit"));
         }
         Ok(FileBytes {
-            path: wire_path(&target.relative),
+            path: wire_path(&target.relative)?,
             bytes,
         })
     }
@@ -110,36 +104,28 @@ impl Root {
             return Err(error("Content exceeds the 5 MiB limit"));
         }
         let target = self.mutation(path)?;
-        let mode = match fs::statat(&target.parent, &target.name, AtFlags::SYMLINK_NOFOLLOW) {
-            Ok(stat) if FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile => {
-                Some(Mode::from_raw_mode(stat.st_mode))
-            }
+        let replaced = match native::stat(&target.parent, &target.name) {
+            Ok(stat) if stat.kind == Kind::File => Some(stat),
             Ok(_) => return Err(error("Only regular files can be overwritten")),
-            Err(rustix::io::Errno::NOENT) => None,
+            Err(cause) if cause.kind() == io::ErrorKind::NotFound => None,
             Err(cause) => return Err(error(cause)),
         };
-        let temporary = format!(".muxy-write-{}", OperationId::new());
-        let mut file = fs::openat(
-            &target.parent,
-            &temporary,
-            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_raw_mode(0o666),
-        )
-        .map(File::from)
-        .map_err(error)?;
+        let temporary = OsString::from(format!(".muxy-write-{}", OperationId::new()));
+        let mut file = native::create_file(&target.parent, &temporary).map_err(error)?;
         let result = (|| {
             file.write_all(content).map_err(error)?;
-            if let Some(mode) = mode {
-                fs::fchmod(&file, mode).map_err(error)?;
+            if let Some(replaced) = &replaced {
+                native::copy_mode(&file, replaced).map_err(error)?;
             }
             file.sync_all().map_err(error)?;
-            fs::renameat(&target.parent, &temporary, &target.parent, &target.name).map_err(error)
+            drop(file);
+            native::replace(&target.parent, &temporary, &target.name).map_err(error)
         })();
         if result.is_err() {
-            let _ = fs::unlinkat(&target.parent, &temporary, AtFlags::empty());
+            let _ = native::remove_file(&target.parent, &temporary);
         }
         result?;
-        Ok(wire_path(&target.relative))
+        wire_path(&target.relative)
     }
 
     pub(super) fn mkdir(&self, path: &Path) -> Result<ServerPath> {
@@ -147,9 +133,9 @@ impl Root {
         let name = sanitized(&target.name)?;
         for number in 1..=10_000 {
             let name = unique_name(&name, number);
-            match fs::mkdirat(&target.parent, &name, Mode::from_raw_mode(0o777)) {
-                Ok(()) => return Ok(wire_path(&target.relative.with_file_name(name))),
-                Err(rustix::io::Errno::EXIST) => (),
+            match native::create_directory(&target.parent, &name) {
+                Ok(()) => return wire_path(&target.relative.with_file_name(name)),
+                Err(cause) if cause.kind() == io::ErrorKind::AlreadyExists => (),
                 Err(cause) => return Err(error(cause)),
             }
         }
@@ -161,24 +147,17 @@ impl Root {
         source.stat()?;
         let name = sanitized(name)?;
         if source.name == name {
-            return Ok(wire_path(&source.relative));
+            return wire_path(&source.relative);
         }
-        fs::renameat_with(
-            &source.parent,
-            &source.name,
-            &source.parent,
-            &name,
-            RenameFlags::NOREPLACE,
-        )
-        .map_err(error)?;
-        Ok(wire_path(&source.relative.with_file_name(name)))
+        native::rename(&source.parent, &source.name, &source.parent, &name).map_err(error)?;
+        wire_path(&source.relative.with_file_name(name))
     }
 
     pub(super) fn selected(&self, paths: &[ServerPath]) -> Result<Vec<Target>> {
         let sources = paths
             .iter()
             .map(|value| {
-                let target = self.mutation(path(value))?;
+                let target = self.mutation(&path(value)?)?;
                 target.stat()?;
                 Ok(target)
             })
@@ -206,24 +185,18 @@ impl Root {
         let mut moved = Vec::new();
         for source in sources {
             if source.relative.parent() == Some(destination.relative.as_path()) {
-                moved.push(wire_path(&source.relative));
+                moved.push(wire_path(&source.relative)?);
                 continue;
             }
             let mut result = None;
             for number in 1..=10_000 {
                 let name = unique_name(&source.name, number);
-                match fs::renameat_with(
-                    &source.parent,
-                    &source.name,
-                    &directory,
-                    &name,
-                    RenameFlags::NOREPLACE,
-                ) {
+                match native::rename(&source.parent, &source.name, &directory, &name) {
                     Ok(()) => {
-                        result = Some(wire_path(&destination.relative.join(name)));
+                        result = Some(wire_path(&destination.relative.join(name))?);
                         break;
                     }
-                    Err(rustix::io::Errno::EXIST) => (),
+                    Err(cause) if cause.kind() == io::ErrorKind::AlreadyExists => (),
                     Err(cause) => return Err(error(cause)),
                 }
             }
@@ -245,13 +218,17 @@ fn sanitized(name: &OsStr) -> Result<OsString> {
     let name = name
         .to_str()
         .map_or_else(|| name.to_owned(), |value| OsString::from(value.trim()));
-    if name.is_empty()
-        || name == "."
-        || name == ".."
-        || name.as_bytes().contains(&b'/')
-        || name.as_bytes().contains(&0)
+    let bytes = name.as_encoded_bytes();
+    if name.is_empty() || name == "." || name == ".." || bytes.contains(&b'/') || bytes.contains(&0)
     {
         return Err(error("Invalid file name"));
+    }
+    #[cfg(windows)]
+    if let Some(refusal) = name.to_str().map_or(
+        Some("File names must be valid Unicode"),
+        super::names::windows_refusal,
+    ) {
+        return Err(error(refusal));
     }
     Ok(name)
 }

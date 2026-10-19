@@ -52,7 +52,7 @@ impl UploadChunk {
 /// An `Uploaded` reply: the file's absolute path once its last chunk arrived.
 pub fn validate_uploaded(path: Option<&ServerPath>) -> Result<(), ErrorCode> {
     match path {
-        Some(path) if path.0.len() > 4096 || path.0.contains(&0) || !path.0.starts_with(b"/") => {
+        Some(path) if path.0.len() > 4096 || path.0.contains(&0) || !path.is_absolute() => {
             Err(ErrorCode::BadPath)
         }
         _ => Ok(()),

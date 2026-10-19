@@ -10,6 +10,8 @@ use muxy_server::{
     AttachmentEvent, AttachmentId, Registry, ServerSettings, SessionCommand, SessionHandle,
 };
 
+mod support;
+
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 const SIZE: Size = Size { cols: 80, rows: 24 };
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -21,19 +23,25 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> TestResult<Self> {
-        Self::with_shell("/bin/sh")
+        Self::with_shell(&support::shell())
     }
 
-    fn with_shell(shell: &str) -> TestResult<Self> {
+    fn with_shell(shell: &Path) -> TestResult<Self> {
         let (events, _) = mpsc::channel();
         let registry = Registry::new(
             ServerSettings {
-                default_shell: Some(PathBuf::from(shell)),
+                default_shell: Some(shell.to_owned()),
+                shell_integration: false,
                 ..ServerSettings::default()
             },
             events,
         );
-        let session = registry.create(Path::new("/"), SIZE)?;
+        let start = if cfg!(windows) {
+            support::folder()
+        } else {
+            PathBuf::from("/")
+        };
+        let session = registry.create(&start, SIZE)?;
         let handle = registry.handle(session.id).ok_or("missing session")?;
         Ok(Self { registry, handle })
     }
@@ -89,6 +97,7 @@ fn metadata(
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn foreground_process_changes_while_silent_and_returns_to_the_spawned_shell() -> TestResult {
     let fixture = Fixture::new()?;
@@ -118,6 +127,7 @@ fn foreground_process_changes_while_silent_and_returns_to_the_spawned_shell() ->
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 fn terminal_directory_and_bell_events_are_delivered_without_replaying_bells_on_attach() -> TestResult
 {
@@ -143,10 +153,13 @@ fn terminal_directory_and_bell_events_are_delivered_without_replaying_bells_on_a
     Ok(())
 }
 
+/// Windows has no foreground process group, so a program started in the
+/// background counts as the foreground while it runs.
+#[cfg(unix)]
 #[test]
 fn background_work_alone_keeps_shell_foreground_metadata() -> TestResult {
     for shell in ["/bin/sh", "/bin/zsh"] {
-        let fixture = Fixture::with_shell(shell)?;
+        let fixture = Fixture::with_shell(Path::new(shell))?;
         let (events, _, _) = fixture.attach(1)?;
         fixture.input(b"sleep 5 &\ncd /tmp\n")?;
         metadata(
@@ -165,5 +178,60 @@ fn background_work_alone_keeps_shell_foreground_metadata() -> TestResult {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_foreground_program_is_the_newest_the_shell_started() -> TestResult {
+    let fixture = Fixture::new()?;
+    let (events, _, _) = fixture.attach(1)?;
+    fixture.input(b"ping -n 30 127.0.0.1\r")?;
+    let is_ping = |name: &str| name.eq_ignore_ascii_case("ping");
+    metadata(
+        &events,
+        |event| matches!(event, MetadataEvent::ForegroundProcess { name, is_shell: false } if is_ping(name)),
+    )?;
+    let (_, _, process) = fixture.attach(2)?;
+    assert!(process.is_some_and(|process| is_ping(&process.name) && !process.is_shell));
+    fixture.input(b"\x03")?;
+    metadata(&events, |event| {
+        matches!(
+            event,
+            MetadataEvent::ForegroundProcess { is_shell: true, .. }
+        )
+    })?;
+    let (_, _, process) = fixture.attach(3)?;
+    assert!(
+        process.is_some_and(|process| process.is_shell && process.name.eq_ignore_ascii_case("cmd"))
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_drive_folders_and_bells_are_delivered_without_replaying_bells_on_attach() -> TestResult {
+    let system = std::env::var_os("SystemRoot").ok_or("SystemRoot is unset")?;
+    let powershell = Path::new(&system).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    let fixture = Fixture::with_shell(&powershell)?;
+    let (events, _, _) = fixture.attach(1)?;
+    fixture.input(b"[Console]::Write(\"$([char]27)]7;file:///C:/a%20b$([char]7)\")\r")?;
+    let expected = ServerPath(br"C:\a b".to_vec());
+    assert_eq!(
+        metadata(
+            &events,
+            |event| matches!(event, MetadataEvent::Directory(path) if *path == expected)
+        )?,
+        MetadataEvent::Directory(expected.clone())
+    );
+    fixture.input(b"[Console]::Write([char]7)\r")?;
+    metadata(&events, |event| matches!(event, MetadataEvent::Bell))?;
+    let (second, snapshot, _) = fixture.attach(2)?;
+    assert_eq!(snapshot.directory, expected);
+    assert!(
+        second
+            .try_iter()
+            .all(|event| !matches!(event, AttachmentEvent::Metadata(MetadataEvent::Bell)))
+    );
     Ok(())
 }

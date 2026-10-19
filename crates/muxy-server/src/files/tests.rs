@@ -9,6 +9,7 @@ use muxy_protocol::{
     FileContent, MAX_FILE_BYTES, OperationId, ProjectDescriptor, ProjectId, ProjectIntent,
     ProjectMutation,
 };
+#[cfg(unix)]
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::sync::mpsc;
 
@@ -22,7 +23,7 @@ impl Workspace {
     pub(super) fn new() -> Self {
         let path = std::env::temp_dir().join(format!("muxy-files-{}", OperationId::new()));
         std::fs::create_dir(&path).unwrap();
-        let path = path.canonicalize().unwrap();
+        let path = muxy_core::files::canonicalize(&path).unwrap();
         let (send, _) = mpsc::channel();
         let registry = Registry::new(crate::ServerSettings::default(), send);
         let project = ProjectId::new();
@@ -32,7 +33,7 @@ impl Workspace {
                 mutation: ProjectMutation::Create(ProjectDescriptor {
                     id: project,
                     home: false,
-                    directory: wire_path(&path),
+                    directory: ServerPath::from_path(&path).unwrap(),
                     name: "Test".into(),
                     icon: None,
                     logo: None,
@@ -89,20 +90,33 @@ fn atomic_utf8_writes_preserve_modes_and_enforce_both_limits() {
             size: 8
         })
     );
-    std::fs::set_permissions(
-        workspace.path.join("note"),
-        std::fs::Permissions::from_mode(0o751),
-    )
-    .unwrap();
-    workspace.write("note", "new").unwrap();
-    assert_eq!(
-        std::fs::metadata(workspace.path.join("note"))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777,
-        0o751
-    );
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(
+            workspace.path.join("note"),
+            std::fs::Permissions::from_mode(0o751),
+        )
+        .unwrap();
+        workspace.write("note", "new").unwrap();
+        assert_eq!(
+            std::fs::metadata(workspace.path.join("note"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o751
+        );
+    }
+    #[cfg(windows)]
+    {
+        let open = std::fs::File::open(workspace.path.join("note")).unwrap();
+        workspace.write("note", "new").unwrap();
+        drop(open);
+        assert_eq!(
+            std::fs::read_to_string(workspace.path.join("note")).unwrap(),
+            "new"
+        );
+    }
     let large = "a".repeat(MAX_FILE_BYTES);
     workspace.write("large", &large).unwrap();
     assert!(
@@ -137,6 +151,7 @@ fn directories_sort_first_and_gitignore_flags_include_unusual_names() {
     workspace.write(".gitignore", "*.log\nignored/\n").unwrap();
     workspace.write("a.log", "x").unwrap();
     workspace.write("-dash", "x").unwrap();
+    #[cfg(unix)]
     workspace.write("line\nbreak", "x").unwrap();
     workspace.files(FilesAction::Mkdir(p("ignored"))).unwrap();
     let FilesReply::Entries(entries) = workspace.files(FilesAction::List(p(""))).unwrap() else {
@@ -243,8 +258,14 @@ fn mkdir_rename_and_move_do_not_overwrite_collisions() {
 fn root_aliases_and_traversal_cannot_be_mutated() {
     let workspace = Workspace::new();
     std::fs::create_dir(workspace.path.join("nested")).unwrap();
+    #[cfg(unix)]
     symlink(".", workspace.path.join("root-link")).unwrap();
-    for root in ["", ".", "nested/..", "root-link"] {
+    let roots: &[&str] = if cfg!(unix) {
+        &["", ".", "nested/..", "root-link"]
+    } else {
+        &["", ".", "nested/..", "nested\\.."]
+    };
+    for &root in roots {
         assert!(
             matches!(workspace.files(FilesAction::Stat(p(root))).unwrap(), FilesReply::Info(info) if info.is_directory && info.path == p(""))
         );
@@ -268,12 +289,18 @@ fn root_aliases_and_traversal_cannot_be_mutated() {
         );
         assert!(workspace.files(FilesAction::Delete(vec![p(root)])).is_err());
     }
-    for escape in ["../file", "nested/../../file", "/tmp/file"] {
+    let mut escapes = vec!["../file", "nested/../../file", "/tmp/file"];
+    // On Unix these are ordinary names.
+    if cfg!(windows) {
+        escapes.extend(["C:/file", "C:file", "\\\\?\\C:\\file", "..\\file"]);
+    }
+    for escape in escapes {
         assert!(workspace.write(escape, "x").is_err());
         assert!(workspace.files(FilesAction::Read(p(escape))).is_err());
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn links_follow_internal_targets_and_reject_external_dangling_and_cyclic_targets() {
     let workspace = Workspace::new();
@@ -334,6 +361,7 @@ fn directory_writes_and_fifo_reads_fail_without_blocking() {
     let workspace = Workspace::new();
     workspace.files(FilesAction::Mkdir(p("folder"))).unwrap();
     assert!(workspace.write("folder", "no").is_err());
+    #[cfg(unix)]
     assert!(
         std::process::Command::new("mkfifo")
             .arg(workspace.path.join("fifo"))
@@ -341,9 +369,11 @@ fn directory_writes_and_fifo_reads_fail_without_blocking() {
             .unwrap()
             .success()
     );
+    #[cfg(unix)]
     assert!(workspace.files(FilesAction::Read(p("fifo"))).is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn concurrent_symlink_swaps_never_expose_external_content() {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -408,4 +438,138 @@ fn project_reads_overlap_and_mutations_wait_for_readers() {
             FilesReply::Path(_)
         ));
     });
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_refuses_junctions_links_streams_devices_and_trailing_dots() {
+    let workspace = Workspace::new();
+    let outside = Workspace::new();
+    outside.write("secret", "SECRET").unwrap();
+    workspace.files(FilesAction::Mkdir(p("real"))).unwrap();
+    let junction = std::process::Command::new("cmd")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(workspace.path.join("junction"))
+        .arg(&outside.path)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(junction.success());
+    let mut refused = vec!["junction/secret", "junction"];
+    let link =
+        std::os::windows::fs::symlink_dir(workspace.path.join("real"), workspace.path.join("link"));
+    // Creating links needs Developer Mode or a privilege (error 1314).
+    if !link
+        .as_ref()
+        .is_err_and(|error| error.raw_os_error() == Some(1314))
+    {
+        link.unwrap();
+        refused.push("link/file");
+    }
+    for path in refused {
+        assert!(
+            workspace.files(FilesAction::Read(p(path))).is_err(),
+            "{path}"
+        );
+        assert!(workspace.write(path, "no").is_err(), "{path}");
+        assert!(
+            workspace.files(FilesAction::List(p(path))).is_err(),
+            "{path}"
+        );
+        assert!(
+            workspace.files(FilesAction::Delete(vec![p(path)])).is_err(),
+            "{path}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(outside.path.join("secret")).unwrap(),
+        "SECRET"
+    );
+    let FilesReply::Entries(entries) = workspace.files(FilesAction::List(p(""))).unwrap() else {
+        panic!();
+    };
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.name == p("junction") && !entry.is_directory)
+    );
+    for name in [
+        "note.txt:stream",
+        "trailing.",
+        "trailing ",
+        "NUL",
+        "nul.txt",
+        "COM1.log",
+        "CONIN$",
+        "a<b",
+        "a|b",
+        "real/aux",
+    ] {
+        assert!(workspace.write(name, "no").is_err(), "{name}");
+        assert!(
+            workspace.files(FilesAction::Mkdir(p(name))).is_err(),
+            "{name}"
+        );
+    }
+    workspace.write("real/file", "x").unwrap();
+    for name in ["bad:name", "trailing.", "PRN"] {
+        assert!(
+            workspace
+                .files(FilesAction::Rename {
+                    path: p("real/file"),
+                    name: p(name)
+                })
+                .is_err(),
+            "{name}"
+        );
+    }
+    assert!(std::fs::read_dir(&workspace.path).unwrap().all(|entry| {
+        let name = entry.unwrap().file_name();
+        !name
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("NUL")
+    }));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_paths_travel_slash_separated_and_git_folders_ignore_case() {
+    let workspace = Workspace::new();
+    workspace.files(FilesAction::Mkdir(p("a"))).unwrap();
+    assert_eq!(
+        workspace.write("a\\b.txt", "x").unwrap(),
+        FilesReply::Path(p("a/b.txt"))
+    );
+    std::fs::create_dir(workspace.path.join(".GIT")).unwrap();
+    let FilesReply::Entries(entries) = workspace.files(FilesAction::List(p("a"))).unwrap() else {
+        panic!();
+    };
+    assert_eq!(entries[0].path, p("a/b.txt"));
+    let FilesReply::Entries(entries) = workspace.files(FilesAction::List(p(""))).unwrap() else {
+        panic!();
+    };
+    assert!(!entries.iter().any(|entry| entry.name == p(".GIT")));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_delete_moves_to_the_recycle_bin_and_refuses_volumes_without_one() {
+    let workspace = Workspace::new();
+    workspace.write("recycled.txt", "x").unwrap();
+    workspace
+        .files(FilesAction::Delete(vec![p("recycled.txt")]))
+        .unwrap();
+    assert!(!workspace.path.join("recycled.txt").exists());
+    // An administrative share is a network path, which has no Recycle Bin.
+    let local = workspace.path.to_str().unwrap();
+    let share = format!(r"\\localhost\{}${}", &local[..1], &local[2..]);
+    if !Path::new(&share).is_dir() {
+        return;
+    }
+    std::fs::write(workspace.path.join("kept.txt"), "x").unwrap();
+    let root = root::Root::open(Path::new(&share)).unwrap();
+    let source = root.mutation(Path::new("kept.txt")).unwrap();
+    assert!(trash::move_to_trash(&root, &source).is_err());
+    assert!(workspace.path.join("kept.txt").exists());
 }

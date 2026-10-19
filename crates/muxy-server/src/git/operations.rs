@@ -81,7 +81,7 @@ impl Operations {
         if active
             .removals
             .iter()
-            .any(|path| directory.starts_with(path))
+            .any(|path| muxy_core::paths::path_starts_with(directory, path))
         {
             return Err(error("Worktree is being removed"));
         }

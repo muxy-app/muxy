@@ -1,12 +1,11 @@
 //! The profile's `extension-audit.log`: one JSON line per gated decision, with
 //! main's fields, trimmed to its newest 256 KB once it passes 1 MB.
 
-use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use muxy_core::files::{private_file, replace_file};
 use serde::Serialize;
 
 pub const AUDIT_LOG: &str = "extension-audit.log";
@@ -44,11 +43,7 @@ impl AuditLog {
     pub fn append(&self, entry: &AuditEntry) -> std::io::Result<()> {
         let mut line = serde_json::to_vec(entry)?;
         line.push(b'\n');
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(&self.path)?;
+        let mut file = private_file().create(true).append(true).open(&self.path)?;
         file.write_all(&line)?;
         if file.metadata()?.len() > MAX_SIZE {
             trim(&self.path)?;
@@ -69,14 +64,13 @@ fn trim(path: &Path) -> std::io::Result<()> {
         .position(|byte| *byte == b'\n')
         .map_or(kept.len(), |index| index + 1);
     let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-    OpenOptions::new()
+    private_file()
         .create(true)
         .write(true)
         .truncate(true)
-        .mode(0o600)
         .open(&temporary)?
         .write_all(&kept[start..])?;
-    std::fs::rename(temporary, path)
+    replace_file(&temporary, path)
 }
 
 /// `time` as an ISO 8601 UTC timestamp to the second, like main's log.

@@ -219,7 +219,7 @@ impl AppModel {
             .detach();
             Ok(())
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         self.finish_profile_delete(parsed, cx)
     }
 

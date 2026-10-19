@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -73,7 +72,7 @@ impl Client {
         if timeout.is_zero() {
             return Err(ClientError::Timeout);
         }
-        Self::from_stream_with_timeout(muxy_protocol::transport::connect(socket)?, timeout)
+        Self::from_stream_with_timeout(crate::local::connect(socket)?, timeout)
     }
 
     pub fn from_stream(stream: Box<dyn ByteStream>) -> Result<Self, ClientError> {
@@ -244,7 +243,7 @@ impl Client {
         directory: &Path,
         size: Size,
     ) -> Result<SessionInfo, ClientError> {
-        let directory = ServerPath(directory.as_os_str().as_bytes().to_vec());
+        let directory = ServerPath::from_path(directory).map_err(ClientError::Invalid)?;
         match self.request(RequestBody::CreateSession {
             project,
             operation,

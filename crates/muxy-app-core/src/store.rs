@@ -1,7 +1,8 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+
+use muxy_core::files::{FileId, private_file, replace_file, sync_directory};
 
 use crate::{AppError, AppState};
 
@@ -65,8 +66,8 @@ pub fn save(path: impl AsRef<Path>, state: &AppState) -> Result<(), AppError> {
         .set_len(0)
         .and_then(|()| file.write_all(&bytes))
         .and_then(|()| file.sync_all())
-        .and_then(|()| fs::rename(&temporary, path))
-        .and_then(|()| File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all());
+        .and_then(|()| replace_file(&temporary, path))
+        .and_then(|()| sync_directory(path.parent().unwrap_or_else(|| Path::new("."))));
     if let Err(source) = result {
         let _ = fs::remove_file(&temporary);
         return Err(AppError::Io {
@@ -78,16 +79,13 @@ pub fn save(path: impl AsRef<Path>, state: &AppState) -> Result<(), AppError> {
 }
 
 fn open_temporary(path: &Path) -> io::Result<File> {
-    let file = OpenOptions::new()
+    let file = private_file()
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(path)?;
     file.try_lock()?;
-    let opened = file.metadata()?;
-    let current = fs::metadata(path)?;
-    if (opened.dev(), opened.ino()) != (current.dev(), current.ino()) {
+    if FileId::of(&file)? != FileId::of_path(path)? {
         return Err(io::Error::new(
             io::ErrorKind::WouldBlock,
             "temporary state file was replaced by another writer",

@@ -4583,6 +4583,7 @@ dependencies = [
  "muxy-ui",
  "serde_json",
  "tempfile",
+ "windows 0.62.2",
  "xim-ctext",
  "zed-reqwest",
  "zip",
@@ -4609,6 +4610,7 @@ dependencies = [
  "toml 1.1.5+spec-1.1.0",
  "unicode-segmentation",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4637,6 +4639,7 @@ dependencies = [
  "muxy-server",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4647,6 +4650,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4670,8 +4674,10 @@ dependencies = [
  "rustix 1.1.4",
  "rustls",
  "serde",
+ "uds_windows",
  "unicode-segmentation",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4695,6 +4701,9 @@ dependencies = [
  "serde_json",
  "signal-hook 0.4.4",
  "toml 1.1.5+spec-1.1.0",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4705,6 +4714,7 @@ dependencies = [
  "libghostty-vt",
  "muxy-protocol",
  "portable-pty",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4735,6 +4745,8 @@ dependencies = [
  "raw-window-handle",
  "serde_json",
  "unicode-segmentation",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "x11rb",
  "zbus",
 ]

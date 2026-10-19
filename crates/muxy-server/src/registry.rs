@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -453,10 +452,9 @@ impl Registry {
         requester: Option<&crate::connection::Outbox>,
     ) -> Result<SessionInfo, ServerError> {
         let _operation = self.session_operation();
-        let directory_bytes = session_directory(directory)?;
-        self.git
-            .operations
-            .check_session(Path::new(std::ffi::OsStr::from_bytes(&directory_bytes.0)))?;
+        let (directory, directory_bytes) = session_directory(directory)?;
+        let directory = directory.as_path();
+        self.git.operations.check_session(directory)?;
         if let Some(info) = self
             .catalog
             .creation(operation, project, &directory_bytes)?
@@ -495,10 +493,10 @@ impl Registry {
             size.into(),
             (self.catalog.identity(), id),
         )
-        .and_then(|pty| {
+        .and_then(|shell| {
             session::start(
                 info.clone(),
-                pty,
+                shell,
                 size,
                 budget,
                 self.archive.clone(),
@@ -874,7 +872,7 @@ mod update_tests {
             let (events, _receiver) = std::sync::mpsc::channel();
             let registry = Arc::new(Registry::new(
                 ServerSettings {
-                    default_shell: Some("/bin/sh".into()),
+                    default_shell: Some(crate::test_support::shell()),
                     ..ServerSettings::default()
                 },
                 events,
@@ -884,7 +882,7 @@ mod update_tests {
             let start = gate.clone();
             let worker = std::thread::spawn(move || {
                 start.wait();
-                spawning.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })
+                spawning.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })
             });
             gate.wait();
             let stopped = registry.stop_if_idle();
@@ -905,13 +903,75 @@ mod update_tests {
 #[path = "registry/recovery.rs"]
 mod recovery;
 
-fn session_directory(directory: &Path) -> Result<ServerPath, ServerError> {
-    let bytes = directory.as_os_str().as_bytes();
-    if !directory.is_absolute() || bytes.len() > 4096 || bytes.contains(&0) {
-        return Err(ServerError::new(
-            ErrorCode::BadPath,
-            "session directory must be an absolute Unix path",
-        ));
+/// The folder a session starts in, and how it is reported. Windows reports no
+/// program's working directory, so the folder is resolved up front, as Unix
+/// reports one: with long names and links followed.
+fn session_directory(directory: &Path) -> Result<(PathBuf, ServerPath), ServerError> {
+    let path = valid_directory(directory)?;
+    #[cfg(windows)]
+    if let Ok(resolved) = muxy_core::files::canonicalize(directory)
+        && same_root(directory, &resolved)
+        && let Ok(path) = valid_directory(&resolved)
+    {
+        return Ok((resolved, path));
     }
-    Ok(ServerPath(bytes.into()))
+    Ok((directory.to_owned(), path))
+}
+
+/// Whether `resolved` is still on the drive or share `requested` names.
+/// Resolving a mapped drive gives a share, which `cmd.exe` refuses to start
+/// in, and resolving a `subst` drive gives the long path it shortens.
+#[cfg(windows)]
+fn same_root(requested: &Path, resolved: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    fn prefix(path: &Path) -> Option<Prefix<'_>> {
+        match path.components().next() {
+            Some(Component::Prefix(prefix)) => Some(prefix.kind()),
+            _ => None,
+        }
+    }
+    match (prefix(requested), prefix(resolved)) {
+        (Some(Prefix::Disk(requested)), Some(Prefix::Disk(resolved))) => {
+            requested.eq_ignore_ascii_case(&resolved)
+        }
+        (
+            Some(Prefix::UNC(requested_server, requested_share)),
+            Some(Prefix::UNC(resolved_server, resolved_share)),
+        ) => {
+            requested_server.eq_ignore_ascii_case(resolved_server)
+                && requested_share.eq_ignore_ascii_case(resolved_share)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(all(test, windows))]
+mod directory_tests {
+    use super::*;
+
+    #[test]
+    fn sessions_stay_on_the_drive_or_share_they_were_asked_for() {
+        let same =
+            |requested: &str, resolved: &str| same_root(Path::new(requested), Path::new(resolved));
+        assert!(same(r"c:/Users/me", r"C:\Users\me"));
+        assert!(same(r"\\Server\Share\a", r"\\server\share\a"));
+        assert!(!same(r"Z:\proj", r"\\server\share\proj"));
+        assert!(!same(r"S:\proj", r"C:\Users\me\proj"));
+        assert!(!same(r"C:\a", r"\\?\C:\a"));
+        assert!(!same(r"\\server\share\a", r"\\server\other\a"));
+    }
+}
+
+fn valid_directory(directory: &Path) -> Result<ServerPath, ServerError> {
+    let invalid = || {
+        ServerError::new(
+            ErrorCode::BadPath,
+            "session directory must be an absolute path on this computer",
+        )
+    };
+    let path = ServerPath::from_path(directory).map_err(|_| invalid())?;
+    if !directory.is_absolute() || path.0.len() > 4096 || path.0.contains(&0) {
+        return Err(invalid());
+    }
+    Ok(path)
 }

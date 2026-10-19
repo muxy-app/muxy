@@ -1,3 +1,7 @@
+//! These tests drive the terminal UI through a Unix PTY, with POSIX shells and
+//! Python helpers, so they run only on Unix.
+#![cfg(unix)]
+
 #[path = "tui/applications.rs"]
 mod applications;
 #[path = "tui/faults.rs"]

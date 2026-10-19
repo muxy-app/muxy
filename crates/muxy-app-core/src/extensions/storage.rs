@@ -37,7 +37,7 @@ pub(super) fn write(path: &Path, value: &Value) -> Result<(), String> {
                 .open(&temp)?;
             file.write_all(&bytes)?;
             file.sync_all()?;
-            std::fs::rename(&temp, path)
+            muxy_core::files::replace_file(&temp, path)
         })();
         if result.is_err() {
             let _ = std::fs::remove_file(temp);

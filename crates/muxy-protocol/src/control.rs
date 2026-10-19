@@ -337,7 +337,7 @@ impl ServerSettingsDoc {
         }
         if let Some(shell) = &self.default_shell {
             crate::validate_path(shell)?;
-            if !shell.0.starts_with(b"/") || shell.0.contains(&0) {
+            if !shell.is_absolute() || shell.0.contains(&0) {
                 return Err(ErrorCode::BadPath);
             }
         }

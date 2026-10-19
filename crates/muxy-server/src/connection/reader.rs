@@ -1,7 +1,4 @@
-use std::ffi::OsStr;
 use std::io::Read;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -311,7 +308,7 @@ fn ordered_request(
             ReplyBody::ServerSettings(registry.settings().document())
         }
         RequestBody::WriteServerSettings(settings) => {
-            registry.write_settings(settings.into())?;
+            registry.write_settings(settings.try_into()?)?;
             ReplyBody::ServerSettingsWritten
         }
         RequestBody::StopServerIfIdle if !registry.stop_if_idle() => ReplyBody::ServerBusy,
@@ -426,7 +423,9 @@ fn ordered_request(
         } => ReplyBody::SessionCreated(registry.create_with_colors(
             project,
             operation,
-            Path::new(OsStr::from_bytes(&directory.0)),
+            &directory.to_path_buf().map_err(|code| {
+                ServerError::new(code, "session directory is not valid on this computer")
+            })?,
             size,
             outbox.colors(),
             Some(outbox),

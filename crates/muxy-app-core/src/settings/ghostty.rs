@@ -391,12 +391,12 @@ impl TerminalSettings {
                 }
                 "config-file" if value.is_empty() => includes.clear(),
                 "config-file" => {
-                    let target = if let Some(relative) = value.strip_prefix("~/") {
-                        PathBuf::from(
-                            std::env::var_os("HOME")
-                                .ok_or_else(|| Error::new(&context, "HOME is not set"))?,
-                        )
-                        .join(relative)
+                    let target = if let Ok(relative) = Path::new(value).strip_prefix("~")
+                        && !relative.as_os_str().is_empty()
+                    {
+                        muxy_core::paths::home_dir()
+                            .map_err(|error| Error::new(&context, error))?
+                            .join(relative)
                     } else {
                         path.parent().unwrap_or_else(|| Path::new(".")).join(value)
                     };
@@ -540,7 +540,8 @@ impl TerminalSettings {
         crate::settings::appearance::atomic_write(&temporary, &updated)
             .map_err(|error| Error::new("ghostty.conf", error))?;
         let result = Self::load(&temporary).and_then(|_| {
-            fs::rename(&temporary, path).map_err(|error| Error::new("ghostty.conf", error))?;
+            muxy_core::files::replace_file(&temporary, path)
+                .map_err(|error| Error::new("ghostty.conf", error))?;
             Self::load(path)
         });
         if result.is_err() {

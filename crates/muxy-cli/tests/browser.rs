@@ -1,3 +1,6 @@
+//! Browser panes are Unix-only for now, so these tests run only on Unix.
+#![cfg(unix)]
+
 mod support;
 
 use std::io::{self, Write};

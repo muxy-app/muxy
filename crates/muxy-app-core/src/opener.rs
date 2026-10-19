@@ -118,7 +118,6 @@ fn position(text: &str) -> Option<u32> {
 }
 
 fn decode_path(text: &str) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
     let mut bytes = Vec::with_capacity(text.len());
     let mut source = text.bytes();
     while let Some(byte) = source.next() {
@@ -134,7 +133,20 @@ fn decode_path(text: &str) -> Option<PathBuf> {
         }
         bytes.push(byte);
     }
-    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    }
+    #[cfg(windows)]
+    {
+        // `file:///C:/a` names `C:/a`.
+        let path = String::from_utf8(bytes).ok()?;
+        Some(PathBuf::from(match path.as_bytes() {
+            [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &path[1..],
+            _ => &path,
+        }))
+    }
 }
 
 type Supports = Box<dyn Fn(&OpenRequest) -> bool + Send + Sync>;

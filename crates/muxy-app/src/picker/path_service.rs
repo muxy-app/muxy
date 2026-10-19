@@ -2,6 +2,80 @@ use std::env::home_dir;
 
 pub(crate) const PARENT_ROW: &str = "..";
 
+/// A path of this computer in the picker's form, which separates folders with
+/// `/`. Windows paths start with their drive as a folder, so `C:\Users` is
+/// `/C:/Users`, and `/` holds the drives. A share, `\\host\share`, is
+/// `/UNC/host/share`. Windows builds browse only this computer.
+pub(crate) fn from_native(path: &str) -> String {
+    if cfg!(windows) {
+        from_windows(path)
+    } else {
+        path.to_owned()
+    }
+}
+
+/// The path of this computer that a picker path names.
+pub(crate) fn to_native(path: &str) -> String {
+    if cfg!(windows) {
+        to_windows(path)
+    } else {
+        path.to_owned()
+    }
+}
+
+/// A picker path as the picker shows it, which on Windows starts with its
+/// drive.
+pub(crate) fn shown(path: &str) -> String {
+    if cfg!(windows) {
+        shown_on_windows(path)
+    } else {
+        path.to_owned()
+    }
+}
+
+fn drive(path: &str) -> Option<char> {
+    let mut characters = path.chars();
+    match (characters.next(), characters.next()) {
+        (Some(letter), Some(':')) if letter.is_ascii_alphabetic() => Some(letter),
+        _ => None,
+    }
+}
+
+const SHARES: &str = "/UNC/";
+
+fn from_windows(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    if let Some(share) = path.strip_prefix("//") {
+        return format!("{SHARES}{share}");
+    }
+    match drive(&path) {
+        Some(letter) => format!("/{}{}", letter.to_ascii_uppercase(), &path[1..]),
+        None => path,
+    }
+}
+
+fn to_windows(path: &str) -> String {
+    if let Some(share) = path.strip_prefix(SHARES) {
+        return format!("\\\\{}", share.replace('/', "\\"));
+    }
+    match path.strip_prefix('/').filter(|rest| drive(rest).is_some()) {
+        // `C:` alone is the current folder of drive C, not its root.
+        Some(rest) if rest.len() == 2 => format!("{rest}\\"),
+        Some(rest) => rest.replace('/', "\\"),
+        None => path.replace('/', "\\"),
+    }
+}
+
+fn shown_on_windows(path: &str) -> String {
+    if let Some(share) = path.strip_prefix(SHARES) {
+        return format!("//{share}");
+    }
+    match path.strip_prefix('/').filter(|rest| drive(rest).is_some()) {
+        Some(rest) => rest.to_owned(),
+        None => path.to_owned(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DirectoryItem {
     Parent,
@@ -75,30 +149,34 @@ pub(crate) struct PathService {
 impl Default for PathService {
     fn default() -> Self {
         Self {
-            home_directory: standardize(
+            home_directory: standardize(&from_native(
                 &home_dir().unwrap_or_else(|| "/".into()).to_string_lossy(),
-            ),
+            )),
         }
     }
 }
 
 impl PathService {
     pub(crate) fn state(&self, input: &str) -> PathState {
+        let input = from_native(input);
         let trimmed = input.trim();
         let confirm_path = self.confirm_path(trimmed);
         let directory_path = self.directory_path(trimmed, &confirm_path);
         PathState {
-            input: input.to_owned(),
+            input: shown(&input),
             leaf_filter: leaf_filter(trimmed),
             standardized_confirm_path: standardize(&confirm_path),
-            parent_display_path: self.parent_display_path(&directory_path),
-            completion_display_prefix: self.completion_display_prefix(trimmed, &directory_path),
+            parent_display_path: shown(&self.parent_display_path(&directory_path)),
+            completion_display_prefix: shown(
+                &self.completion_display_prefix(trimmed, &directory_path),
+            ),
             directory_path,
             confirm_path,
         }
     }
 
     pub(crate) fn expanded_path(&self, path: &str) -> String {
+        let path = from_native(path);
         let trimmed = path.trim();
         if trimmed == "~" {
             return self.home_directory.clone();
@@ -126,11 +204,11 @@ impl PathService {
         } else {
             standardized
         };
-        if display.ends_with('/') {
+        shown(&if display.ends_with('/') {
             display
         } else {
             format!("{display}/")
-        }
+        })
     }
 
     fn confirm_path(&self, trimmed: &str) -> String {
@@ -202,7 +280,10 @@ pub(crate) enum DirectoryState {
 }
 
 pub(crate) fn directory_state(path: &str) -> DirectoryState {
-    match std::fs::metadata(path) {
+    if cfg!(windows) && path == "/" {
+        return DirectoryState::Directory;
+    }
+    match std::fs::metadata(to_native(path)) {
         Err(_) => DirectoryState::Missing,
         Ok(metadata) if metadata.is_dir() => DirectoryState::Directory,
         Ok(_) => DirectoryState::NotDirectory,
@@ -210,8 +291,11 @@ pub(crate) fn directory_state(path: &str) -> DirectoryState {
 }
 
 pub(crate) fn directory_contents(path: &str) -> Result<Vec<DirectoryItem>, std::io::Error> {
+    if cfg!(windows) && path == "/" {
+        return Ok(drives());
+    }
     let mut items = Vec::new();
-    for entry in std::fs::read_dir(path)? {
+    for entry in std::fs::read_dir(to_native(path))? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let symlink = entry
@@ -236,6 +320,14 @@ pub(crate) fn directory_contents(path: &str) -> Result<Vec<DirectoryItem>, std::
         }
     }
     Ok(items)
+}
+
+/// The drives Windows has, as the folders of `/`.
+fn drives() -> Vec<DirectoryItem> {
+    ('A'..='Z')
+        .filter(|letter| std::path::Path::new(&format!("{letter}:\\")).is_dir())
+        .map(|letter| DirectoryItem::Directory(format!("{letter}:")))
+        .collect()
 }
 
 pub(crate) fn standardize(path: &str) -> String {
@@ -331,4 +423,39 @@ fn take_number(chars: &mut std::iter::Peekable<std::str::Chars>) -> u128 {
         chars.next();
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_paths_take_their_drive_as_the_first_folder() {
+        assert_eq!(from_windows(r"c:\Users\Me Too"), "/C:/Users/Me Too");
+        assert_eq!(from_windows("D:/src/"), "/D:/src/");
+        assert_eq!(from_windows(r"~\src"), "~/src");
+        assert_eq!(from_windows(r"..\up"), "../up");
+        assert_eq!(from_windows("/C:/already"), "/C:/already");
+        assert_eq!(to_windows("/C:/Users/Me Too"), r"C:\Users\Me Too");
+        assert_eq!(
+            to_windows("/C:"),
+            r"C:\",
+            "a drive's root, not its current folder"
+        );
+        assert_eq!(shown_on_windows("/C:/Users/"), "C:/Users/");
+        assert_eq!(shown_on_windows("~/src/"), "~/src/");
+        assert_eq!(
+            standardize(&from_windows(r"C:\Users\..\Windows")),
+            "/C:/Windows"
+        );
+        assert_eq!(parent_path("/C:"), "/", "the drives are above a drive");
+        let share = from_windows(r"\\nas\code\app");
+        assert_eq!(standardize(&share), "/UNC/nas/code/app");
+        assert_eq!(to_windows(&standardize(&share)), r"\\nas\code\app");
+        assert_eq!(
+            from_windows(&shown_on_windows(&share)),
+            share,
+            "shown as typed"
+        );
+    }
 }

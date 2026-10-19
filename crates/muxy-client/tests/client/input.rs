@@ -127,36 +127,3 @@ exec /bin/cat",
     assert!(attachment.grid.history.is_empty());
     Ok(())
 }
-
-#[test]
-fn older_servers_are_not_sent_input_they_would_silently_ignore() -> TestResult {
-    let (socket, server) = UnixStream::pair()?;
-    server.set_read_timeout(Some(TIMEOUT))?;
-    let mut decoder = Decoder::new(server.try_clone()?);
-    let mut encoder = Encoder::new(server);
-    let fake = thread::spawn(move || -> Result<(), WireError> {
-        decoder.next()?;
-        encoder.send(
-            CONTROL,
-            &Message::HelloReply {
-                versions: muxy_protocol::SUPPORTED.to_vec(),
-                server: muxy_protocol::ServerInfo::current(),
-                features: Vec::new(),
-            },
-        )?;
-        assert_eq!(
-            decoder.next()?,
-            (ChannelId(1), Message::Input(b"legacy".to_vec()))
-        );
-        Ok(())
-    });
-    let client = Client::from_stream(Box::new(socket))?;
-    assert!(!client.supports(Feature::TERMINAL_INPUT));
-    assert!(matches!(
-        client.send_terminal_input(ChannelId(1), TerminalInput::ClearScreen),
-        Err(ClientError::Invalid(ErrorCode::Unsupported))
-    ));
-    client.send_input(ChannelId(1), b"legacy")?;
-    fake.join().map_err(|_| "fake server panicked")??;
-    Ok(())
-}

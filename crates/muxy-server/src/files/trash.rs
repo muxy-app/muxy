@@ -1,8 +1,14 @@
 use super::root::{Root, Target};
 use super::{Result, error};
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 mod freedesktop;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows;
+
+#[cfg(windows)]
+pub(super) use windows::move_to_trash;
 
 #[cfg(target_os = "linux")]
 pub(super) fn move_to_trash(root: &Root, source: &Target) -> Result<()> {
@@ -32,9 +38,7 @@ fn macos_trash(root: &Root, source: &Target) -> Result<std::path::PathBuf> {
         .and_then(|url| url.path())
         .ok_or_else(|| error("Cannot resolve the Trash file reference"))?;
     let metadata = std::fs::symlink_metadata(resolved.to_string()).map_err(error)?;
-    if metadata.ino() != expected.st_ino
-        || metadata.dev() != u64::try_from(expected.st_dev).map_err(error)?
-    {
+    if metadata.ino() != expected.index || metadata.dev() != expected.device {
         return Err(error("Path changed before moving to Trash; retry"));
     }
     let mut result = None;
@@ -47,6 +51,7 @@ fn macos_trash(root: &Root, source: &Target) -> Result<std::path::PathBuf> {
         .ok_or_else(|| error("File was moved to Trash but its new location is unavailable"))
 }
 
+#[cfg(unix)]
 fn percent_encode(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut encoded = String::new();

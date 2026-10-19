@@ -1,6 +1,3 @@
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
@@ -174,7 +171,10 @@ impl Connection {
         let info = self.client.create_project_session(
             project,
             OperationId::new(),
-            Path::new(OsStr::from_bytes(&descriptor.directory.0)),
+            &descriptor
+                .directory
+                .to_path_buf()
+                .map_err(ClientError::Invalid)?,
             Size {
                 cols: columns,
                 rows,

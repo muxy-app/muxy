@@ -17,7 +17,7 @@ impl Connection {
         let (events, _) = mpsc::channel();
         let registry = Arc::new(Registry::new(
             crate::ServerSettings {
-                default_shell: Some("/bin/sh".into()),
+                default_shell: Some(crate::test_support::shell()),
                 ..crate::ServerSettings::default()
             },
             events,

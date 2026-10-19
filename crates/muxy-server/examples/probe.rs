@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{self, BufRead, Read, Write};
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::mpsc::{self, Sender};
@@ -119,7 +118,8 @@ fn probe(path: &Path) -> Result {
         RequestBody::CreateSession {
             project,
             operation: muxy_protocol::OperationId::new(),
-            directory: ServerPath(env::current_dir()?.as_os_str().as_bytes().to_vec()),
+            directory: ServerPath::from_path(&env::current_dir()?)
+                .map_err(|code| io::Error::other(format!("{code:?}")))?,
             size: SIZE,
         },
     )? {

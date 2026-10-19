@@ -11,6 +11,7 @@ use std::sync::Arc;
 use gpui::{Context, Entity, Pixels, Point, Subscription, Window};
 use muxy_app_core::browser::BrowserPane;
 use muxy_app_core::{PaneContent, PaneId, ProjectId, Tab};
+use muxy_core::capability::Feature;
 use muxy_ui::browser::polybrowser::ProfileManager;
 use muxy_ui::tr;
 
@@ -77,7 +78,7 @@ pub(crate) struct OpenBrowser {
 
 impl AppModel {
     pub(crate) fn browser_enabled(&self) -> bool {
-        self.settings.browser.enabled
+        self.settings.browser.enabled && self.supports(Feature::BrowserPanes)
     }
 
     /// Every browser pane, with its project and tab.
@@ -381,7 +382,8 @@ impl AppModel {
     /// Opens a browser tab on the home page in the current project, with the
     /// address field ready.
     pub(crate) fn new_browser_tab(&mut self, cx: &mut Context<Self>) {
-        if !self.browser_enabled()
+        if !self.require(Feature::BrowserPanes, cx)
+            || !self.browser_enabled()
             || self.state.current_project().status() == muxy_app_core::ProjectStatus::Missing
         {
             return;
@@ -427,6 +429,7 @@ impl AppModel {
             select,
             focus_address,
         } = request;
+        self.capabilities.check(Feature::BrowserPanes)?;
         if !self.browser_enabled() {
             return Err("the built-in browser is disabled".into());
         }

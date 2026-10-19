@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use muxy_protocol::{ExitReason, SavedScreen, SessionId, Size};
 use muxy_server::{Registry, ServerEvent, ServerSettings, SessionCommand};
 
+mod support;
+
 type TestResult = Result<(), Box<dyn Error>>;
 const TIMEOUT: Duration = Duration::from_secs(10);
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -75,7 +77,7 @@ impl Drop for Fixture {
 
 fn settings() -> ServerSettings {
     ServerSettings {
-        default_shell: Some(PathBuf::from("/bin/sh")),
+        default_shell: Some(support::shell()),
         ..ServerSettings::default()
     }
 }
@@ -97,7 +99,11 @@ fn text(screen: &SavedScreen) -> String {
 #[test]
 fn normal_exit_saves_final_output_before_the_event_without_an_attachment() -> TestResult {
     let fixture = Fixture::new()?;
-    let id = fixture.start(b"stty -echo; printf '\\033[2J\\033[Hfinal-output'; exit 7\n")?;
+    let id = fixture.start(if cfg!(windows) {
+        b"cls& echo final-^output& exit 7\r"
+    } else {
+        b"stty -echo; printf '\\033[2J\\033[Hfinal-output'; exit 7\n"
+    })?;
     assert_eq!(fixture.ended(id)?, ExitReason::Exited(7));
     let saved = fixture.registry.read_saved_screen(id)?;
     assert!(text(&saved).contains("final-output"));
@@ -112,7 +118,11 @@ fn normal_exit_saves_final_output_before_the_event_without_an_attachment() -> Te
 #[test]
 fn checkpoint_exists_while_the_session_is_live_without_clients() -> TestResult {
     let fixture = Fixture::new()?;
-    let id = fixture.start(b"stty -echo; printf '\\033[2J\\033[Hcheckpoint-live'\n")?;
+    let id = fixture.start(if cfg!(windows) {
+        b"cls& echo checkpoint-^live\r"
+    } else {
+        b"stty -echo; printf '\\033[2J\\033[Hcheckpoint-live'\n"
+    })?;
     let deadline = Instant::now() + TIMEOUT;
     loop {
         if let Ok(saved) = fixture.registry.read_saved_screen(id)
@@ -136,9 +146,11 @@ fn checkpoint_exists_while_the_session_is_live_without_clients() -> TestResult {
 #[test]
 fn discard_racing_checkpoints_and_exit_cannot_recreate_an_archive() -> TestResult {
     let fixture = Fixture::new()?;
-    let id = fixture.start(
-        b"stty -echo; i=0; while [ $i -lt 1000 ]; do echo tick-$i; i=$((i+1)); done; exit\n",
-    )?;
+    let id = fixture.start(if cfg!(windows) {
+        b"(for /l %i in (1,1,1000) do @echo tick-%i)& exit\r"
+    } else {
+        b"stty -echo; i=0; while [ $i -lt 1000 ]; do echo tick-$i; i=$((i+1)); done; exit\n"
+    })?;
     let first = Arc::clone(&fixture.registry);
     let second = Arc::clone(&fixture.registry);
     let a = thread::spawn(move || first.discard(id));
@@ -149,8 +161,10 @@ fn discard_racing_checkpoints_and_exit_cannot_recreate_an_archive() -> TestResul
     assert!(fixture.registry.read_saved_screen(id).is_err());
     fixture.registry.shutdown();
     assert!(fixture.registry.is_stopped());
+    // Windows locks a file in the folder, since it can't lock the folder.
     let remaining = fs::read_dir(fixture.root.join("sessions"))?
         .map(|entry| entry.map(|entry| entry.file_name()))
+        .filter(|name| name.as_ref().map_or(true, |name| name != ".lock"))
         .collect::<std::io::Result<Vec<_>>>()?;
     assert_eq!(remaining, [std::ffi::OsString::from("catalog.json")]);
     Ok(())

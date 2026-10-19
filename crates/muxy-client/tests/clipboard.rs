@@ -1,9 +1,9 @@
 use std::error::Error;
-use std::os::unix::net::UnixStream;
 use std::thread;
 use std::time::Duration;
 
 use muxy_client::{Client, ClientEvent};
+use muxy_protocol::transport::LocalStream;
 use muxy_protocol::wire::{Decoder, Encoder};
 use muxy_protocol::{
     CONTROL, ChannelId, MAX_CLIPBOARD_TEXT, Message, MetadataEvent, ReplyBody, RequestBody,
@@ -14,7 +14,7 @@ type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
 #[test]
 fn clipboard_floods_coalesce_until_consumed_without_blocking_control_replies() -> TestResult {
-    let (client, server) = UnixStream::pair()?;
+    let (client, server) = muxy_protocol::transport::socket_pair()?;
     server.set_read_timeout(Some(Duration::from_secs(10)))?;
     server.set_write_timeout(Some(Duration::from_secs(10)))?;
     let peer = thread::spawn(move || send_clipboard_batches(server));
@@ -63,7 +63,7 @@ fn clipboard_floods_coalesce_until_consumed_without_blocking_control_replies() -
     Ok(())
 }
 
-fn send_clipboard_batches(server: UnixStream) -> TestResult {
+fn send_clipboard_batches(server: LocalStream) -> TestResult {
     let mut decoder = Decoder::new(server.try_clone()?);
     let mut encoder = Encoder::new(server);
     assert!(matches!(decoder.next()?, (CONTROL, Message::Hello { .. })));

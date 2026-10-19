@@ -79,8 +79,49 @@ pub(crate) fn display_path(catalog: &CatalogPage, directory: &ServerPath) -> Str
     let path = directory.0.as_slice();
     let shortened = match home.and_then(|home| path.strip_prefix(home)) {
         Some([]) => "~".to_owned(),
-        Some(rest) if rest.starts_with(b"/") => format!("~{}", String::from_utf8_lossy(rest)),
+        // A Windows server's paths use `\`.
+        Some(rest) if rest.starts_with(b"/") || rest.starts_with(b"\\") => {
+            format!("~{}", String::from_utf8_lossy(rest))
+        }
         _ => String::from_utf8_lossy(path).into_owned(),
     };
     crate::ui::clean(&shortened)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use muxy_protocol::ServerIdentity;
+
+    fn catalog(home: &str) -> CatalogPage {
+        let id = ProjectId::new();
+        CatalogPage {
+            server: ServerIdentity::new(),
+            home: id,
+            revision: 0,
+            next: None,
+            legacy_home: None,
+            projects: vec![ProjectDescriptor {
+                id,
+                home: true,
+                name: "Home".into(),
+                icon: None,
+                logo: None,
+                color: "#808080".into(),
+                directory: ServerPath(home.into()),
+                kind: None,
+                parent_id: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn the_home_folder_is_shortened_on_unix_and_windows_servers() {
+        let shown = |home: &str, path: &str| display_path(&catalog(home), &ServerPath(path.into()));
+        assert_eq!(shown("/home/me", "/home/me/src"), "~/src");
+        assert_eq!(shown("/home/me", "/home/meow"), "/home/meow");
+        assert_eq!(shown(r"C:\Users\me", r"C:\Users\me\src"), r"~\src");
+        assert_eq!(shown(r"C:\Users\me", r"C:\Users\me"), "~");
+        assert_eq!(shown(r"C:\Users\me", r"C:\Users\meow"), r"C:\Users\meow");
+    }
 }

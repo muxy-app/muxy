@@ -10,14 +10,13 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
 use muxy_client::bridge::{self, BridgeExit, Start};
 use muxy_client::{Client, ClientError};
-use muxy_protocol::transport::socket_pair;
+use muxy_protocol::transport::{LocalStream, socket_pair};
 
 use crate::MobileError;
 
@@ -53,9 +52,9 @@ pub trait ChannelWriter: Send + Sync {
 #[derive(uniffi::Object)]
 pub struct BridgeChannel {
     /// The app's end: received bytes go in, and the SDK's bytes come out.
-    socket: UnixStream,
+    socket: LocalStream,
     /// The SDK's end, until a connection takes it.
-    stream: Mutex<Option<UnixStream>>,
+    stream: Mutex<Option<LocalStream>>,
     writer: Arc<dyn ChannelWriter>,
     ending: Ending,
 }
@@ -134,7 +133,7 @@ impl BridgeChannel {
 
 /// Hands what the SDK writes to the channel until either side ends, then
 /// closes the channel.
-fn pump(mut socket: UnixStream, writer: &dyn ChannelWriter) {
+fn pump(mut socket: LocalStream, writer: &dyn ChannelWriter) {
     let mut buffer = vec![0; BUFFER];
     loop {
         match socket.read(&mut buffer) {

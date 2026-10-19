@@ -9,7 +9,6 @@ mod storage;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -79,8 +78,8 @@ pub(crate) struct Catalog {
 }
 
 impl State {
-    fn fresh(home: &Path) -> Self {
-        let project = ProjectDescriptor::home(ServerPath(home.as_os_str().as_bytes().into()));
+    fn fresh(home: ServerPath) -> Self {
+        let project = ProjectDescriptor::home(home);
         let id = project.id;
         Self {
             git: BTreeMap::new(),
@@ -206,7 +205,12 @@ impl Catalog {
 
     pub(crate) fn memory() -> Self {
         Self::from_state(
-            State::fresh(&std::env::home_dir().unwrap_or_else(|| PathBuf::from("/"))),
+            State::fresh(
+                muxy_core::paths::home_dir()
+                    .ok()
+                    .and_then(|home| ServerPath::from_path(&home).ok())
+                    .unwrap_or_else(|| ServerPath(b"/".to_vec())),
+            ),
             None,
         )
     }
@@ -230,9 +234,14 @@ impl Catalog {
         let mut state = match fs::read(&path) {
             Ok(bytes) => serde_json::from_slice::<State>(&bytes)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let home = std::env::home_dir()
-                    .ok_or_else(|| io::Error::other("home directory unavailable"))?;
-                let mut state = State::fresh(&home);
+                let home = muxy_core::paths::home_dir()?;
+                let home = ServerPath::from_path(&home).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "home directory is not valid Unicode",
+                    )
+                })?;
+                let mut state = State::fresh(home);
                 state.import(legacy, archive)?;
                 state
             }

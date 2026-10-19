@@ -3,7 +3,6 @@ mod retention;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -11,16 +10,15 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use muxy_core::files::FileId;
 use muxy_protocol::transport::{
-    BindError, ByteStream, Listener, StreamCancellation, UnixSocketListener,
+    BindError, ByteStream, Listener, StreamCancellation, UnixSocketListener, lock_socket_directory,
 };
 use muxy_protocol::wire::WireError;
 use muxy_server::{Registry, RemoteAccess, ServerEvent, connection};
-use signal_hook::consts::{SIGINT, SIGTERM};
-use signal_hook::iterator::Signals;
 
 use crate::remote_listener::RemoteListener;
-use crate::{args::Args, logging, settings_file};
+use crate::{args::Args, logging, settings_file, shutdown};
 
 const POLL: Duration = Duration::from_millis(10);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -161,18 +159,18 @@ impl Connections {
 struct Socket {
     listener: Arc<UnixSocketListener>,
     path: PathBuf,
-    identity: Mutex<Option<(u64, u64)>>,
+    identity: Mutex<Option<FileId>>,
 }
 
 impl Socket {
     fn bind(path: PathBuf) -> Result<Self, BindError> {
         validate_socket(&path)?;
         let listener = Arc::new(UnixSocketListener::bind(&path)?);
-        let metadata = fs::symlink_metadata(&path)?;
+        let identity = FileId::of_link(&path)?;
         Ok(Self {
             listener,
             path,
-            identity: Mutex::new(Some((metadata.dev(), metadata.ino()))),
+            identity: Mutex::new(Some(identity)),
         })
     }
 }
@@ -200,19 +198,16 @@ impl Socket {
         result
     }
 
-    fn remove_owned(&self, identity: (u64, u64)) -> io::Result<()> {
+    fn remove_owned(&self, identity: FileId) -> io::Result<()> {
         let parent = self
             .path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let directory = fs::File::open(parent)?;
-        directory.lock()?;
+        let _lock = lock_socket_directory(parent)?;
         self.listener.close();
-        match fs::symlink_metadata(&self.path) {
-            Ok(metadata) if (metadata.dev(), metadata.ino()) == identity => {
-                fs::remove_file(&self.path)
-            }
+        match FileId::of_link(&self.path) {
+            Ok(current) if current == identity => fs::remove_file(&self.path),
             Ok(_) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error),
@@ -221,7 +216,7 @@ impl Socket {
 }
 
 pub(crate) fn run(args: &Args) -> io::Result<()> {
-    let mut signals = Signals::new([SIGTERM, SIGINT])?;
+    let requests = shutdown::Requests::new()?;
     let socket = match Socket::bind(args.socket.clone()) {
         Ok(socket) => Arc::new(socket),
         Err(BindError::InUse) => {
@@ -263,18 +258,13 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
                 requested_socket.close();
             });
         })?;
-    let signal_handle = signals.handle();
     let closing_socket = Arc::clone(&socket);
     let stopped = Arc::clone(&stopping);
-    let signal = thread::Builder::new()
-        .name("server-signals".into())
-        .spawn(move || {
-            if signals.forever().next().is_some() {
-                stopped.store(true, Ordering::Release);
-                closing_socket.close();
-            }
-        });
-    let result = match signal.as_ref() {
+    let listening = requests.listen(move || {
+        stopped.store(true, Ordering::Release);
+        closing_socket.close();
+    });
+    let result = match listening.as_ref() {
         Ok(_) => accept(&socket, &registry, &connections).or_else(|error| {
             if stopping.load(Ordering::Acquire) {
                 Ok(())
@@ -294,15 +284,10 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     connections.drain(Instant::now() + DRAIN_TIMEOUT);
     connections.cancel_all();
     let worker_result = connections.join();
-    signal_handle.close();
-    let signal_result = match signal {
-        Ok(signal) => signal
-            .join()
-            .map_err(|_| io::Error::other("signal thread panicked")),
-        Err(_) => Ok(()),
-    };
     log::info!("server stopped");
-    socket.remove()?;
+    let removed = socket.remove();
+    let signal_result = listening.map_or(Ok(()), shutdown::Listening::close);
+    removed?;
     result
         .and(broadcast_result)
         .and(worker_result)
@@ -393,7 +378,7 @@ fn lock(clients: &Clients) -> MutexGuard<'_, BTreeMap<u64, Client>> {
 
 fn validate_socket(path: &Path) -> io::Result<()> {
     let bytes = path.as_os_str().as_encoded_bytes().len();
-    let limit = if cfg!(target_os = "linux") { 108 } else { 104 };
+    let limit = if cfg!(target_os = "macos") { 104 } else { 108 };
     if bytes >= limit {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -412,8 +397,13 @@ mod tests {
 
     #[test]
     fn closed_socket_cleanup_does_not_remove_its_replacement() -> io::Result<()> {
-        let directory =
-            Path::new("/tmp").join(format!("muxy-socket-{}", muxy_protocol::OperationId::new()));
+        // Short, because socket paths are limited to about 100 bytes.
+        let base = if cfg!(unix) {
+            PathBuf::from("/tmp")
+        } else {
+            std::env::temp_dir()
+        };
+        let directory = base.join(format!("muxy-socket-{}", muxy_protocol::OperationId::new()));
         fs::create_dir(&directory)?;
         let path = directory.join("server.sock");
         for _ in 0..32 {
@@ -424,9 +414,10 @@ mod tests {
             let replacement = Socket::bind(path.clone()).map_err(io::Error::other)?;
             previous.remove()?;
             drop(previous);
-            assert!(std::os::unix::net::UnixStream::connect(&path).is_ok());
+            assert!(muxy_protocol::transport::connect(&path).is_ok());
             drop(replacement);
         }
-        fs::remove_dir(directory)
+        // Windows keeps its socket lock file beside the socket.
+        fs::remove_dir_all(directory)
     }
 }

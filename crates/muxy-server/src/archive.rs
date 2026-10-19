@@ -4,17 +4,16 @@ mod storage;
 use storage::StoredRecord;
 
 use std::collections::BTreeMap;
-use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::fs::{self, File};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, BufWriter, Read, Write};
 use std::ops::Range;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use muxy_protocol::{
     ErrorCode, ExitReason, HistoryCursor, HistoryPage, Message, ReplyBody, RequestId, Row, Run,
@@ -95,7 +94,7 @@ struct Disk {
     queue: Queue,
     wake: Option<SyncSender<()>>,
     worker: Mutex<Option<JoinHandle<()>>>,
-    _lock: File,
+    _lock: muxy_core::file_lock::FileLock,
 }
 
 impl Drop for Disk {
@@ -133,13 +132,13 @@ impl Archive {
     }
 
     pub(crate) fn open(directory: &Path, budget: u64) -> io::Result<Self> {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(directory)?;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-        let directory_lock = File::open(directory)?;
-        lock_directory(&directory_lock)?;
+        muxy_core::files::private_dir(directory)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+        }
+        let directory_lock = muxy_core::files::lock_directory(directory, Duration::from_secs(3))?;
         let queue = Queue::default();
         let jobs = Arc::clone(&queue);
         let (wake, receiver) = mpsc::sync_channel(1);
@@ -268,9 +267,10 @@ impl Archive {
         let stamp = match self.0.as_ref() {
             Backend::Memory { revision, .. } => [revision.load(Ordering::Acquire), 0, 0],
             Backend::Disk(disk) => {
-                let metadata =
-                    fs::metadata(record_path(&disk.directory, session)).map_err(failed)?;
-                [metadata.dev(), metadata.ino(), metadata.len()]
+                let path = record_path(&disk.directory, session);
+                let identity = muxy_core::files::FileId::of_path(&path).map_err(failed)?;
+                let length = fs::metadata(&path).map_err(failed)?.len();
+                [identity.device(), identity.index(), length]
             }
         };
         if cache
@@ -508,24 +508,6 @@ fn write_jobs(directory: &Path, queue: &Queue, wake: &Receiver<()>) {
     }
 }
 
-fn lock_directory(directory: &File) -> io::Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        match directory.try_lock().map_err(io::Error::from) {
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-            {
-                thread::sleep(
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .min(Duration::from_millis(10)),
-                );
-            }
-            result => return result,
-        }
-    }
-}
-
 fn record_path(directory: &Path, session: SessionId) -> PathBuf {
     directory.join(format!("{:016x}.postcard", session.get()))
 }
@@ -567,15 +549,15 @@ fn write_record(directory: &Path, session: SessionId, record: &Record) -> io::Re
     let nonce = getrandom::u64().map_err(|error| io::Error::other(error.to_string()))?;
     let temporary = directory.join(format!(".{:016x}-{nonce:016x}.tmp", session.get()));
     let result = (|| {
-        let mut file = OpenOptions::new()
+        let mut file = muxy_core::files::private_file()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(&temporary)?;
         write_buffered(record, &mut file)?;
         file.sync_all()?;
-        fs::rename(&temporary, record_path(directory, session))?;
-        File::open(directory)?.sync_all()
+        drop(file);
+        muxy_core::files::replace_file(&temporary, &record_path(directory, session))?;
+        muxy_core::files::sync_directory(directory)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -591,7 +573,7 @@ fn write_buffered(record: &Record, writer: impl Write) -> io::Result<()> {
 
 fn discard_record(directory: &Path, session: SessionId) -> io::Result<()> {
     match fs::remove_file(record_path(directory, session)) {
-        Ok(()) => File::open(directory)?.sync_all(),
+        Ok(()) => muxy_core::files::sync_directory(directory),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
@@ -608,6 +590,7 @@ mod tests {
     use std::error::Error;
     use std::io::Read;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
 
     type TestResult = Result<(), Box<dyn Error>>;
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -753,8 +736,7 @@ mod tests {
     #[test]
     fn restart_waits_for_the_previous_archive_owner_to_release_its_lock() -> TestResult {
         let directory = Directory::new()?;
-        let previous = File::open(&directory.0)?;
-        previous.lock()?;
+        let previous = muxy_core::files::lock_directory(&directory.0, Duration::ZERO)?;
         let root = directory.0.clone();
         let (sender, completed) = mpsc::channel();
         let next = thread::spawn(move || {
@@ -787,11 +769,15 @@ mod tests {
         old_file.read_to_end(&mut still_old)?;
         assert_eq!(old_bytes, still_old);
         assert_ne!(fs::read(&path)?, old_bytes);
-        assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
-        assert_eq!(
-            fs::metadata(&directory.0)?.permissions().mode() & 0o777,
-            0o700
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                fs::metadata(&directory.0)?.permissions().mode() & 0o777,
+                0o700
+            );
+        }
         let record = StoredRecord::open(&path, 512)?;
         assert_eq!(record.total(), capture("last")?.history.len());
         assert_eq!(*record.screen(), archive.read(session)?);
@@ -820,6 +806,9 @@ mod tests {
         Ok(())
     }
 
+    /// Moves the archive folder aside while the archive uses it, which
+    /// Windows refuses while files in it are open.
+    #[cfg(unix)]
     #[test]
     fn failed_write_preserves_previous_complete_record_and_discard_drains_pending_saves()
     -> TestResult {
@@ -847,7 +836,12 @@ mod tests {
         archive.discard(session)?;
         drop(archive);
         assert!(!record_path(&root, session).exists());
-        assert!(fs::read_dir(&root)?.next().is_none());
+        // Windows locks a file in the folder, since it can't lock the folder.
+        assert!(
+            fs::read_dir(&root)?
+                .filter_map(Result::ok)
+                .all(|entry| entry.file_name() == ".lock")
+        );
         Ok(())
     }
 
@@ -901,14 +895,14 @@ mod tests {
 
     #[test]
     fn slow_archive_read_does_not_block_ping_or_another_sessions_input() -> TestResult {
+        use muxy_protocol::transport::socket_pair;
         use muxy_protocol::wire::{Decoder, Encoder};
         use muxy_protocol::{CONTROL, RequestBody, SUPPORTED};
-        use std::os::unix::net::UnixStream;
         let (server_events, events) = mpsc::channel();
         let directory = Directory::new()?;
         let registry = Arc::new(crate::Registry::new(
             crate::ServerSettings {
-                default_shell: Some(PathBuf::from("/bin/sh")),
+                default_shell: Some(crate::test_support::shell()),
                 ..crate::ServerSettings::default()
             },
             server_events,
@@ -916,7 +910,7 @@ mod tests {
         let size = Size { cols: 80, rows: 24 };
         let live = registry.create(&directory.0, size)?;
         let archive = registry.archive();
-        let (socket, server) = UnixStream::pair()?;
+        let (socket, server) = socket_pair()?;
         let serving = Arc::clone(&registry);
         let worker =
             thread::spawn(move || crate::connection::serve(Box::new(server), serving, events));
@@ -967,10 +961,12 @@ mod tests {
                 body: RequestBody::ReadSavedScreen(session),
             },
         )?;
-        encoder.send(
-            snapshot.channel,
-            &Message::Input(b"touch proof-input\n".to_vec()),
-        )?;
+        let touch: &[u8] = if cfg!(windows) {
+            b"type nul > proof-input\r"
+        } else {
+            b"touch proof-input\n"
+        };
+        encoder.send(snapshot.channel, &Message::Input(touch.to_vec()))?;
         encoder.send(
             CONTROL,
             &Message::Request {

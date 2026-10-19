@@ -1,4 +1,5 @@
 use super::fold::fold;
+use super::path_service::{from_native, shown, to_native};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -80,9 +81,11 @@ impl SearchService {
                 indexes: HashMap::new(),
                 cache_order: Vec::new(),
                 home_directory: standardized_absolute_path(
-                    &std::env::home_dir()
-                        .unwrap_or_else(|| "/".into())
-                        .to_string_lossy(),
+                    &from_native(
+                        &std::env::home_dir()
+                            .unwrap_or_else(|| "/".into())
+                            .to_string_lossy(),
+                    ),
                     "",
                 )
                 .unwrap_or_default(),
@@ -183,9 +186,14 @@ enum RootState {
 }
 
 fn root_state(path: &str) -> RootState {
-    match std::fs::metadata(path) {
+    // Searching every drive at once would find nothing in time.
+    if cfg!(windows) && path == "/" {
+        return RootState::Invalid;
+    }
+    let path = to_native(path);
+    match std::fs::metadata(&path) {
         Ok(metadata) if metadata.is_dir() => {
-            if std::fs::read_dir(path).is_ok() {
+            if std::fs::read_dir(&path).is_ok() {
                 RootState::Ready
             } else {
                 RootState::Unreadable
@@ -207,7 +215,7 @@ fn scan(root: &str, home: &str, cancelled: &AtomicBool) -> Index {
     entries.push(make_entry(root, root));
 
     while let Some(directory) = queue.pop_front() {
-        let Ok(read) = std::fs::read_dir(&directory) else {
+        let Ok(read) = std::fs::read_dir(to_native(&directory)) else {
             continue;
         };
         for entry in read.flatten() {
@@ -244,7 +252,7 @@ fn scan(root: &str, home: &str, cancelled: &AtomicBool) -> Index {
             }
 
             let path = entry.path();
-            let path_string = path.to_string_lossy().into_owned();
+            let path_string = from_native(&path.to_string_lossy());
             let name = entry.file_name().to_string_lossy().into_owned();
             let indexed = make_entry(&path_string, root);
             index_bytes += indexed.name.len()
@@ -513,6 +521,7 @@ fn run_search(
 }
 
 pub(crate) fn standardized_absolute_path(path: &str, home_directory: &str) -> Option<String> {
+    let path = from_native(path);
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return None;
@@ -568,11 +577,11 @@ pub(crate) fn display_path(path: &str, home: &str) -> String {
     } else {
         path.to_owned()
     };
-    if display.ends_with('/') {
+    shown(&if display.ends_with('/') {
         display
     } else {
         format!("{display}/")
-    }
+    })
 }
 
 #[cfg(test)]
@@ -591,7 +600,10 @@ mod tests {
         ] {
             std::fs::create_dir_all(root.join(directory))?;
         }
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&root, root.join("Projects/cycle"))?;
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&root, root.join("Projects/cycle"))?;
         let cancelled = AtomicBool::new(true);
         let search = SearchService::new();
         let root_path = root.to_string_lossy();
@@ -609,7 +621,7 @@ mod tests {
         assert_eq!(snapshot.results.len(), 1);
         assert_eq!(
             snapshot.results[0].path,
-            root.join("Projects/Alpha").to_string_lossy()
+            from_native(&root.join("Projects").join("Alpha").to_string_lossy())
         );
         std::fs::remove_dir_all(root)
     }

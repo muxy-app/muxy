@@ -1,10 +1,9 @@
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 #[derive(Debug)]
-pub struct FileLock(File);
+pub struct FileLock(pub(crate) File);
 
 impl Drop for FileLock {
     fn drop(&mut self) {
@@ -13,12 +12,11 @@ impl Drop for FileLock {
 }
 
 pub fn try_lock(path: &Path) -> io::Result<FileLock> {
-    let file = OpenOptions::new()
+    let file = crate::files::private_file()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(path)?;
     file.try_lock().map_err(|error| match error {
         std::fs::TryLockError::WouldBlock => io::Error::new(

@@ -16,10 +16,9 @@ fn one_shot_attachments_preserve_unattended_size_and_leave_sessions_running() ->
         let observer = fixture.connect()?;
         let mut attachment = observer.client.attach_without_resize(session.id)?;
         assert_eq!(attachment.grid.size, size);
-        observer.client.write_input(
-            attachment.channel,
-            b"printf '\\nOBSERVED_%s\\n' 'OUTPUT'\r".to_vec(),
-        )?;
+        observer
+            .client
+            .write_input(attachment.channel, print_joined("OBSERVED", "_OUTPUT"))?;
         observer.frame_containing(&mut attachment, "OBSERVED_OUTPUT")?;
         observer.client.detach(attachment.channel)?;
         assert_eq!(owner.client.list_sessions()?[0].id, session.id);

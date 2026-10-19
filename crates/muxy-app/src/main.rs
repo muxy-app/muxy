@@ -1,13 +1,18 @@
+#![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
+
 mod ai;
 mod app_socket;
 mod askpass;
 mod backup;
 mod boot;
 mod cli_install;
+#[cfg(windows)]
+#[allow(unsafe_code, reason = "Attaching to the console of the caller")]
+mod console;
 mod diagnostics;
 mod extensions;
 mod favicon;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", windows, test))]
 mod instance;
 mod model;
 mod navigation;
@@ -98,11 +103,18 @@ use views::workspace::{
     ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
 };
 
+/// Starts a console program without a console window: the app has no
+/// console of its own for it to share.
+#[cfg(windows)]
+pub(crate) const NO_WINDOW: u32 = windows::Win32::System::Threading::CREATE_NO_WINDOW.0;
+
 fn main() -> ExitCode {
     if std::env::args_os()
         .nth(1)
         .is_some_and(|argument| argument == "--build-info")
     {
+        #[cfg(windows)]
+        console::attach();
         return match serde_json::to_writer(
             io::stdout().lock(),
             &muxy_protocol::BuildInfo::current(),
@@ -111,6 +123,8 @@ fn main() -> ExitCode {
             Err(_) => ExitCode::FAILURE,
         };
     }
+    #[cfg(windows)]
+    muxy_ui::notifications::identify_process();
     run()
 }
 
@@ -145,7 +159,7 @@ fn run() -> ExitCode {
         }
     };
     let (folders, opened_folders) = async_channel::unbounded();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     let _instance = match instance::claim(std::env::args_os().skip(1), &folders) {
         Ok(Some(instance)) => instance,
         Ok(None) => return ExitCode::SUCCESS,
@@ -187,7 +201,7 @@ fn run() -> ExitCode {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(640.0), px(400.0))),
-            window_background: WindowBackgroundAppearance::Transparent,
+            window_background: window_background(),
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui::WindowDecorations::Client),
             // Empty titlebar space explicitly starts native movement, not tab presses.
@@ -244,6 +258,16 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
     }
     let [width, height] = boot.settings.window.default_size;
     Bounds::centered(None, size(px(width), px(height)), cx)
+}
+
+/// Windows draws a transparent window through composition, which the app has
+/// no use for.
+fn window_background() -> WindowBackgroundAppearance {
+    if cfg!(windows) {
+        WindowBackgroundAppearance::Opaque
+    } else {
+        WindowBackgroundAppearance::Transparent
+    }
 }
 
 fn app_name() -> &'static str {

@@ -507,7 +507,7 @@ impl ProjectPicker {
             return;
         }
         cx.emit(PickerEvent::ChooseFinder {
-            directory: self.session.path_state().directory_path,
+            directory: path_service::to_native(&self.session.path_state().directory_path),
         });
     }
 
@@ -516,7 +516,7 @@ impl ProjectPicker {
             return;
         }
         cx.emit(PickerEvent::EditSearchLocation {
-            directory: self.session.search_root_path.clone(),
+            directory: path_service::to_native(&self.session.search_root_path),
         });
     }
 
@@ -622,7 +622,7 @@ impl AppModel {
                     && self.project_listed(project)
                     && !project.is_remote_home()
             })
-            .map(|project| project.directory.to_string_lossy().into_owned())
+            .map(|project| path_service::from_native(&project.directory.to_string_lossy()))
             .collect()
     }
 
@@ -792,7 +792,8 @@ impl AppModel {
         if self.close_prompt.is_some() {
             return;
         }
-        let path = PathBuf::from(path_service::standardize(path));
+        let standardized = path_service::standardize(path);
+        let path = PathBuf::from(path_service::to_native(&standardized));
         if !path.exists() && create_if_missing {
             let window = self.window;
             let message = tr!(
@@ -869,7 +870,7 @@ impl AppModel {
     }
 
     fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
-        let canonical = folder.canonicalize().ok();
+        let canonical = muxy_core::files::canonicalize(&folder).ok();
         let existing = self
             .state
             .projects()
@@ -877,7 +878,7 @@ impl AppModel {
             .find(|project| {
                 project.server_id.is_local()
                     && canonical.is_some()
-                    && project.directory.canonicalize().ok() == canonical
+                    && muxy_core::files::canonicalize(&project.directory).ok() == canonical
             })
             .map(|project| project.id);
         match existing {
@@ -894,14 +895,17 @@ impl AppModel {
             );
             return;
         }
+        let standardized =
+            path_service::standardize(&path_service::from_native(&path.to_string_lossy()));
         let existing = self
             .state
             .projects()
             .iter()
             .find(|project| {
                 project.server_id.is_local()
-                    && path_service::standardize(&project.directory.to_string_lossy())
-                        == path.to_string_lossy()
+                    && path_service::standardize(&path_service::from_native(
+                        &project.directory.to_string_lossy(),
+                    )) == standardized
             })
             .map(|project| project.id);
         if let Some(id) = existing {
@@ -1082,15 +1086,10 @@ async fn folder_prompt(
 }
 
 pub(crate) fn display_path(path: &Path) -> String {
-    if let Some(home) = std::env::home_dir()
-        && let Ok(relative) = path.strip_prefix(home)
-    {
-        if relative.as_os_str().is_empty() {
-            "~".into()
-        } else {
-            format!("~/{}", relative.display())
-        }
-    } else {
-        path.to_string_lossy().into_owned()
+    match muxy_core::paths::home_dir() {
+        Ok(home) => muxy_core::paths::shorten_home(path, &home)
+            .to_string_lossy()
+            .into_owned(),
+        Err(_) => path.to_string_lossy().into_owned(),
     }
 }

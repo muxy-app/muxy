@@ -445,6 +445,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn custom_command_arguments_are_not_evaluated_by_a_local_shell() -> io::Result<()> {
         let target = SshTarget::custom_command(

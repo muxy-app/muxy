@@ -19,7 +19,7 @@ mod ssh;
 
 pub use bridge::Start;
 pub use client::{Attachment, Client};
-pub use error::{ClientError, RemoteReason};
+pub use error::{ClientError, RemoteReason, ServerElsewhere};
 pub use events::{ClientEvent, ClipboardWrite};
 pub use grid::{RunGrid, ScreenLinks, ScreenPrompts};
 pub use ssh::{Askpass, SshTarget};

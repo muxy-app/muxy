@@ -4,8 +4,25 @@ use muxy_protocol::{
     ServerIdentity, ServerPath,
 };
 use std::collections::{BTreeMap, HashSet};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
+
+/// `directory` as it travels, refused when Windows can't send it as UTF-8.
+pub(crate) fn checked_server_path(directory: impl AsRef<Path>) -> Result<ServerPath, AppError> {
+    let directory = directory.as_ref();
+    ServerPath::from_path(directory).map_err(|_| {
+        AppError::InvalidState(format!(
+            "{} is not a valid Unicode path",
+            directory.display()
+        ))
+    })
+}
+
+/// `directory` as it travels. Directories are checked when they enter the
+/// app, so on Windows this fails only for a path that bypassed the checks:
+/// it then travels empty, and the server refuses it.
+pub(crate) fn server_path(directory: &Path) -> ServerPath {
+    ServerPath::from_path(directory).unwrap_or_else(|_| ServerPath(Vec::new()))
+}
 
 impl Project {
     pub fn descriptor(&self) -> ProjectDescriptor {
@@ -16,7 +33,7 @@ impl Project {
             icon: self.icon.clone(),
             logo: self.logo.clone(),
             color: self.color.to_string(),
-            directory: ServerPath(self.directory.as_os_str().as_bytes().into()),
+            directory: server_path(&self.directory),
             kind: self.kind,
             parent_id: self.parent_id,
         }
@@ -52,8 +69,12 @@ impl Project {
         self.icon.clone_from(&descriptor.icon);
         self.logo.clone_from(&descriptor.logo);
         self.color = descriptor.color.parse()?;
-        self.directory =
-            PathBuf::from(std::ffi::OsString::from_vec(descriptor.directory.0.clone()));
+        self.directory = descriptor.directory.to_path_buf().map_err(|_| {
+            AppError::InvalidState(format!(
+                "project {} has a path that is not valid Unicode",
+                descriptor.id
+            ))
+        })?;
         self.kind = descriptor.kind;
         self.parent_id = descriptor.parent_id;
         self.refresh_status();
@@ -193,7 +214,7 @@ impl AppState {
     pub fn prepare_creation(&mut self, pane: PaneId, directory: &Path) -> ServerPath {
         self.starting_directories
             .entry(pane)
-            .or_insert_with(|| ServerPath(directory.as_os_str().as_bytes().into()))
+            .or_insert_with(|| server_path(directory))
             .clone()
     }
 
@@ -352,16 +373,28 @@ impl AppState {
     }
 }
 
+/// Saved directories are bytes on Unix and text on Windows, and either
+/// reads back.
 pub(crate) mod directory {
+    use muxy_protocol::ServerPath;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::ffi::OsString;
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
     use std::path::{Path, PathBuf};
     pub(crate) fn serialize<S: Serializer>(
         directory: &Path,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        directory.as_os_str().as_bytes().serialize(serializer)
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            directory.as_os_str().as_bytes().serialize(serializer)
+        }
+        #[cfg(windows)]
+        {
+            directory
+                .to_str()
+                .ok_or_else(|| serde::ser::Error::custom("project path is not valid Unicode"))?
+                .serialize(serializer)
+        }
     }
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
@@ -374,7 +407,9 @@ pub(crate) mod directory {
         }
         Ok(match Directory::deserialize(deserializer)? {
             Directory::Text(text) => PathBuf::from(text),
-            Directory::Bytes(bytes) => PathBuf::from(OsString::from_vec(bytes)),
+            Directory::Bytes(bytes) => ServerPath(bytes)
+                .to_path_buf()
+                .map_err(|_| serde::de::Error::custom("project path is not valid Unicode"))?,
         })
     }
 }

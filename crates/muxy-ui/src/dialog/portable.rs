@@ -12,6 +12,10 @@ use crate::{
     tr,
 };
 
+#[cfg(target_os = "linux")]
+mod picker;
+#[cfg(windows)]
+#[path = "system_picker.rs"]
 mod picker;
 mod view;
 

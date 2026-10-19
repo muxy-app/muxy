@@ -161,7 +161,7 @@ pub(crate) struct AppModel {
     pub(crate) focus_return: Option<gpui::WeakFocusHandle>,
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     pub(crate) sidebar_available_width: gpui::Pixels,
     pub(crate) agent_sessions: agent_sessions::AgentSessions,
     pub(crate) agents_panel: agents_panel::AgentsPanel,
@@ -556,7 +556,7 @@ impl AppModel {
             focus_return: None,
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(not(target_os = "macos"))]
             sidebar_available_width: gpui::px(f32::MAX),
             agent_sessions: agent_sessions::AgentSessions::new(cx),
             agents_panel: agents_panel::AgentsPanel::new(cx),
@@ -1905,10 +1905,9 @@ impl AppModel {
         if !self.save(cx) {
             return;
         }
-        let directory = {
-            use std::os::unix::ffi::OsStringExt;
-            PathBuf::from(std::ffi::OsString::from_vec(directory.0))
-        };
+        // A server sends only paths this computer can hold, so an empty one
+        // is never asked for here.
+        let directory = directory.to_path_buf().unwrap_or_default();
         if self.pending.insert(pane, server).is_some() {
             return;
         }
@@ -2722,6 +2721,8 @@ mod tests {
     mod agent_sessions;
     mod agents_panel;
     mod ai;
+    // Windows has no browser engine yet.
+    #[cfg(not(windows))]
     mod browsers;
     mod commands;
     mod composer;
@@ -2734,7 +2735,10 @@ mod tests {
     mod project_layouts;
     mod projects;
     mod quick_terminal;
+    // Remote servers are reached over SSH, which Windows builds don't offer.
+    #[cfg(unix)]
     mod remote_devices;
+    #[cfg(unix)]
     mod remote_parity;
     mod servers;
     mod session_ownership;

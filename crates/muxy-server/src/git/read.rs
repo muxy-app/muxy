@@ -1,4 +1,4 @@
-use super::{Result, error, run, text};
+use super::{Result, error, git_path, run, server_path, text};
 use muxy_protocol::{GitBranch, GitFile, GitSummary, GitWorktree, ServerPath};
 use std::collections::HashMap;
 use std::path::Path;
@@ -141,7 +141,7 @@ pub(super) fn changes(path: &Path) -> Result<Vec<GitFile>> {
     let unstaged = line_stats(path, false)?;
     for file in &mut files {
         if file.untracked() {
-            if let Some(lines) = untracked_lines(&path.join(super::path(&file.path))) {
+            if let Some(lines) = untracked_lines(&path.join(super::path(&file.path)?)) {
                 file.added = Some(lines);
                 file.removed = Some(0);
             }
@@ -176,7 +176,7 @@ pub(super) fn file_status(path: &Path) -> Result<Vec<muxy_protocol::GitFileStatu
             binary: additions.is_none() && deletions.is_none(),
         }
     };
-    Ok(files
+    files
         .into_iter()
         .map(|file| {
             let staged = stat(staged.get(&file.path.0));
@@ -184,18 +184,18 @@ pub(super) fn file_status(path: &Path) -> Result<Vec<muxy_protocol::GitFileStatu
                 GitLineStat {
                     additions: file.added,
                     deletions: file.removed,
-                    binary: untracked_binary(&path.join(super::path(&file.path))),
+                    binary: untracked_binary(&path.join(super::path(&file.path)?)),
                 }
             } else {
                 stat(unstaged.get(&file.path.0))
             };
-            GitFileStatus {
+            Ok(GitFileStatus {
                 file,
                 staged,
                 unstaged,
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 fn untracked_binary(path: &Path) -> bool {
@@ -260,7 +260,7 @@ pub(super) fn worktrees(path: &Path) -> Result<Vec<GitWorktree>> {
     for record in bytes.split(|b| *b == 0) {
         if let Some(path) = record.strip_prefix(b"worktree ") {
             result.push(GitWorktree {
-                directory: ServerPath(path.to_vec()),
+                directory: server_path(&git_path(path)?)?,
                 head: None,
                 branch: None,
                 primary: result.is_empty(),

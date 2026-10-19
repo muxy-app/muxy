@@ -49,7 +49,7 @@ pub(super) fn read(repository: &Path, request: &GitDiffRequest) -> Result<GitRep
         args.push("/dev/null".into());
     }
     if let Some(relative) = &request.path {
-        args.push(path(relative).as_os_str().to_owned());
+        args.push(path(relative)?.into_os_string());
     }
     let (bytes, truncated) = command::diff(repository, &args, no_index)?;
     let raw = bounded(&bytes, truncated, request.line_limit);

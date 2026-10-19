@@ -10,6 +10,41 @@ use serde_json::{Value, json};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/// The shell sessions run, and what each test types into it.
+#[cfg(unix)]
+mod shell {
+    pub(crate) const PATH: &str = "/bin/sh";
+    /// Prints the argument that follows, without a newline.
+    pub(crate) const PRINT: &[&str] = &["/usr/bin/printf", "%s"];
+    pub(crate) const FAIL: &[&str] = &["/bin/sh", "-c", "printf failure; exit 7"];
+    pub(crate) const PRINT_OUTPUT: &str = "printf '\\nCLI_%s\\n' 'OUTPUT'";
+    pub(crate) const PRINT_READY: &[&str] = &["printf", "'%s_%s\\n'", "WAIT", "READY"];
+    pub(crate) const EXIT_7: &str = "exec sh -c 'exit 7'";
+
+    /// A worktree hook that creates `name` in the project.
+    pub(crate) fn touch(name: &str) -> String {
+        format!("touch \"$MUXY_PROJECT_PATH/{name}\"")
+    }
+}
+
+/// The shell sessions run, and what each test types into it.
+#[cfg(windows)]
+mod shell {
+    pub(crate) const PATH: &str = r"C:\Windows\System32\cmd.exe";
+    /// Prints the argument that follows, and a newline.
+    pub(crate) const PRINT: &[&str] = &["cmd.exe", "/d", "/c", "echo"];
+    pub(crate) const FAIL: &[&str] = &["cmd.exe", "/d", "/c", "exit 7"];
+    // A caret keeps the typed line from showing the text it prints.
+    pub(crate) const PRINT_OUTPUT: &str = "echo CLI^_OUTPUT";
+    pub(crate) const PRINT_READY: &[&str] = &["echo", "WAIT^_READY"];
+    pub(crate) const EXIT_7: &str = "exit 7";
+
+    /// A worktree hook that creates `name` in the project.
+    pub(crate) fn touch(name: &str) -> String {
+        format!("type nul > \"%MUXY_PROJECT_PATH%\\{name}\"")
+    }
+}
+
 struct Fixture {
     directory: tempfile::TempDir,
     profile: PathBuf,
@@ -62,7 +97,7 @@ impl Fixture {
         Ok(value["id"].as_str().ok_or("project ID")?.into())
     }
     fn shell(&self) -> Result {
-        self.ok(&["settings", "set", "default-shell", "/bin/sh"])?;
+        self.ok(&["settings", "set", "default-shell", shell::PATH])?;
         self.ok(&["settings", "set", "shell-integration", "false"])?;
         Ok(())
     }
@@ -81,7 +116,7 @@ impl Drop for Fixture {
         if let Ok(client) = Client::connect_with_timeout(&socket, Duration::from_millis(100)) {
             let _ = client.stop_server();
             let deadline = Instant::now() + Duration::from_secs(5);
-            while socket.exists() && Instant::now() < deadline {
+            while muxy_core::files::FileId::of_link(&socket).is_ok() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(10));
             }
         }
@@ -107,7 +142,7 @@ fn projects_settings_files_exec_and_activity_are_scriptable() -> Result {
     assert_eq!(found["color"], "#123456");
     assert_eq!(found["icon"], "sf:terminal");
     f.shell()?;
-    assert_eq!(f.json(&["settings", "get"])?["default_shell"], "/bin/sh");
+    assert_eq!(f.json(&["settings", "get"])?["default_shell"], shell::PATH);
     assert!(
         !f.run(&["settings", "set", "history-budget-bytes", "999999999999999"])?
             .status
@@ -122,19 +157,9 @@ fn projects_settings_files_exec_and_activity_are_scriptable() -> Result {
     );
     let escape = json!({"Read":b"../outside"}).to_string();
     assert!(!f.run(&["files", &project, &escape])?.status.success());
-    assert_eq!(
-        f.ok(&["exec", "Renamed", "--", "/usr/bin/printf", "%s", "--json"])?,
-        "--json"
-    );
-    let failed = f.run(&[
-        "exec",
-        &project,
-        "--json",
-        "--",
-        "/bin/sh",
-        "-c",
-        "printf failure; exit 7",
-    ])?;
+    let print = [&["exec", "Renamed", "--"], shell::PRINT, &["--json"]].concat();
+    assert_eq!(f.ok(&print)?.trim_end(), "--json");
+    let failed = f.run(&[&["exec", &project, "--json", "--"], shell::FAIL].concat())?;
     assert!(!failed.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&failed.stdout)?["exit_code"],
@@ -163,12 +188,7 @@ fn sessions_survive_commands_accept_input_and_keep_saved_output() -> Result {
     let unattended = f.json(&["session", "read-screen", &session, "--json"])?;
     assert_eq!(unattended["size"], json!({"cols":96,"rows":32}));
     let attachment = client.attach(id, Size { cols: 96, rows: 32 })?;
-    f.ok(&[
-        "session",
-        "send",
-        &session,
-        "printf '\\nCLI_%s\\n' 'OUTPUT'",
-    ])?;
+    f.ok(&["session", "send", &session, shell::PRINT_OUTPUT])?;
     f.ok(&["session", "send-keys", &session, "Enter"])?;
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -273,16 +293,7 @@ fn started_commands_can_be_awaited_and_session_ids_default_to_the_calling_termin
     let project = f.project()?;
     f.shell()?;
     let session = f
-        .ok(&[
-            "session",
-            "create",
-            &project,
-            "--",
-            "printf",
-            "'%s_%s\\n'",
-            "WAIT",
-            "READY",
-        ])?
+        .ok(&[&["session", "create", &project, "--"], shell::PRINT_READY].concat())?
         .trim()
         .to_owned();
     let ready = f.ok(&[
@@ -347,7 +358,7 @@ fn initial_exec_command_can_be_awaited_to_completion() -> Result {
     let project = f.project()?;
     f.shell()?;
     let session = f
-        .ok(&["session", "create", &project, "--", "exec sh -c 'exit 7'"])?
+        .ok(&["session", "create", &project, "--", shell::EXIT_7])?
         .trim()
         .to_owned();
     assert_eq!(
@@ -371,35 +382,42 @@ fn worktrees_use_the_default_location_and_run_hooks_only_when_asked() -> Result 
         "-m",
         "initial",
     ])?;
-    let trees = f.directory.path().canonicalize()?.join("trees");
+    let trees = muxy_core::files::canonicalize(f.directory.path())?.join("trees");
     std::fs::write(
         f.profile.join("settings.toml"),
         format!(
-            "[worktrees.default_location]\nparent_path = \"{}\"\n",
+            "[worktrees.default_location]\nparent_path = '{}'\n",
             trees.display()
         ),
     )?;
     std::fs::create_dir(f.directory.path().join(".muxy"))?;
     std::fs::write(
-        f.directory.path().join(".muxy/worktree.json"),
-        r#"{"setup": ["touch \"$MUXY_PROJECT_PATH/setup-ran\""],
-            "teardown": ["touch \"$MUXY_PROJECT_PATH/teardown-ran\""]}"#,
+        f.directory.path().join(".muxy").join("worktree.json"),
+        json!({"setup": [shell::touch("setup-ran")], "teardown": [shell::touch("teardown-ran")]})
+            .to_string(),
     )?;
     let project = f.project()?;
     let plain = f.json(&["worktree", "create", &project, "plain", "--json"])?;
-    let plain_directory = trees.join("Test/plain");
+    let plain_directory = trees.join("Test").join("plain");
     assert_eq!(plain["directory"], plain_directory.to_str().ok_or("path")?);
     assert!(plain_directory.is_dir());
     assert!(!f.directory.path().join("setup-ran").exists());
     let hooked = f.run(&["worktree", "create", &project, "hooked", "--hooks"])?;
     assert!(hooked.status.success(), "{hooked:?}");
-    assert!(String::from_utf8(hooked.stderr)?.contains("setup: touch"));
+    let setup = format!("setup: {}", shell::touch("setup-ran"));
+    assert!(String::from_utf8(hooked.stderr)?.contains(&setup));
     assert!(f.directory.path().join("setup-ran").exists());
     let listed = f.ok(&["worktree", "list", &project])?;
     assert_eq!(listed.lines().count(), 3, "{listed}");
+    // Listed fields are escaped, so a Windows path shows each `\` twice.
+    let listed_directory = plain_directory
+        .to_str()
+        .ok_or("path")?
+        .escape_debug()
+        .to_string();
     assert!(listed.lines().any(|line| {
         let columns: Vec<_> = line.split('\t').collect();
-        columns[1] == "plain" && columns[2] == plain_directory.to_str().unwrap_or_default()
+        columns[1] == "plain" && columns[2] == listed_directory
     }));
     std::fs::write(plain_directory.join("untracked"), "keep")?;
     let refused = f.run(&["worktree", "remove", "plain", "--yes"])?;
@@ -422,5 +440,25 @@ fn projects_can_be_created_and_reused() -> Result {
     assert_eq!(reused["id"], created["id"]);
     let duplicate = f.json(&["project", "add", "new/app", "--json"])?;
     assert_ne!(duplicate["id"], created["id"]);
+    Ok(())
+}
+
+#[test]
+fn the_server_starts_lists_and_stops_on_request() -> Result {
+    let f = Fixture::new()?;
+    assert!(!f.run(&["server", "status"])?.status.success());
+    let started = f.json(&["server", "start"])?;
+    assert!(started["instance"].is_u64(), "{started}");
+    assert_eq!(
+        f.json(&["server", "status"])?["instance"],
+        started["instance"]
+    );
+    assert_eq!(f.json(&["session", "list", "--json"])?, json!([]));
+    f.ok(&["server", "stop"])?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while f.run(&["server", "status"])?.status.success() {
+        assert!(Instant::now() < deadline, "the server kept running");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     Ok(())
 }

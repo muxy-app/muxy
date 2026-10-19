@@ -2,9 +2,6 @@ mod io;
 pub(crate) use io::{Closing, Fetcher, InputWriter, Shared, View, lock};
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -782,7 +779,10 @@ impl Core {
         pane: &mut crate::state::Pane,
     ) -> Result<bool> {
         if let Some(operation) = pane.creation {
-            let directory = PathBuf::from(OsString::from_vec(pane.directory.0.clone()));
+            let directory = pane
+                .directory
+                .to_path_buf()
+                .map_err(|code| format!("Invalid pane directory: {code:?}"))?;
             match client.create_project_session(project, operation, &directory, size) {
                 Ok(info) => {
                     self.store_mut()?.change(|state| {

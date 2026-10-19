@@ -68,6 +68,22 @@ fn closing_one_writer_ends_that_direction_only() -> Result {
     Ok(())
 }
 
+#[test]
+fn the_open_direction_keeps_flowing_past_the_close_timeout() -> Result {
+    let ((mut client_read, mut client_write), (mut server_read, server_write)) = pair()?;
+    drop(server_write);
+    client_read.read_to_end(&mut Vec::new())?;
+    for _ in 0..15 {
+        client_write.write_all(b"x")?;
+        thread::sleep(Duration::from_millis(100));
+    }
+    drop(client_write);
+    let mut received = Vec::new();
+    server_read.read_to_end(&mut received)?;
+    assert_eq!(received, [b'x'; 15]);
+    Ok(())
+}
+
 /// Blocks a reader and a writer on one end, then checks that cancelling that end wakes both.
 fn cancelling_wakes(cancellation: &dyn StreamCancellation, halves: Halves) -> Result {
     let (mut read, mut write) = halves;

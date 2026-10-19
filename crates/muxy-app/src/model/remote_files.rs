@@ -3,9 +3,9 @@
 //! files their links name can be copied here.
 
 use std::cmp::Reverse;
-use std::fs::DirBuilder;
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -218,14 +218,14 @@ fn display_name(path: &Path) -> String {
     )
 }
 
-fn wire_path(path: &Path) -> ServerPath {
-    use std::os::unix::ffi::OsStrExt;
-    ServerPath(path.as_os_str().as_bytes().to_vec())
+/// A path the server refuses where this computer's can't travel, which is
+/// only a Windows path that isn't Unicode.
+pub(crate) fn wire_path(path: &Path) -> ServerPath {
+    ServerPath::from_path(path).unwrap_or_else(|_| ServerPath(Vec::new()))
 }
 
-fn local_path(path: &ServerPath) -> PathBuf {
-    use std::os::unix::ffi::OsStrExt;
-    PathBuf::from(std::ffi::OsStr::from_bytes(&path.0))
+pub(crate) fn local_path(path: &ServerPath) -> PathBuf {
+    path.to_path_buf().unwrap_or_default()
 }
 
 /// Copied files, or an image copied without text, which a terminal on
@@ -303,13 +303,18 @@ pub(crate) fn save_copy(bytes: &[u8], original: &Path, server: &str) -> io::Resu
     let folder = std::env::temp_dir()
         .join("Muxy Copies")
         .join(muxy_protocol::OperationId::new().to_string());
-    DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&folder)?;
+    muxy_core::files::private_dir(&folder)?;
     let copy = folder.join(format!("{stem} (copy from {server}){extension}"));
     std::fs::write(&copy, bytes)?;
-    std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o444))?;
+    #[cfg(unix)]
+    let read_only = std::fs::Permissions::from_mode(0o444);
+    #[cfg(windows)]
+    let read_only = {
+        let mut permissions = std::fs::metadata(&copy)?.permissions();
+        permissions.set_readonly(true);
+        permissions
+    };
+    std::fs::set_permissions(&copy, read_only)?;
     Ok(copy)
 }
 

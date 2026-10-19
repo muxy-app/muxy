@@ -5,9 +5,9 @@ use muxy_protocol::{MAX_CLIPBOARD_TEXT, MetadataEvent};
 fn clipboard_notifications_stay_coalesced_through_worker_and_ui_queues() -> TestResult {
     let directory = tempfile::Builder::new()
         .prefix("muxy-clipboard-")
-        .tempdir_in("/tmp")?;
+        .tempdir_in(crate::app_socket::test_socket_folder())?;
     let socket = directory.path().join("server.sock");
-    let listener = UnixListener::bind(&socket)?;
+    let listener = LocalListener::bind(&socket)?;
     let server = thread::spawn(move || clipboard_server(&listener));
     let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
@@ -71,7 +71,7 @@ fn expect_clipboard_barrier(updates: &Updates) -> TestResult {
     Ok(())
 }
 
-fn clipboard_server(listener: &UnixListener) -> TestResult {
+fn clipboard_server(listener: &LocalListener) -> TestResult {
     let (socket, _) = listener.accept()?;
     socket.set_read_timeout(Some(Duration::from_secs(10)))?;
     socket.set_write_timeout(Some(Duration::from_secs(10)))?;

@@ -1,3 +1,6 @@
+// Most of these run extension scripts, which Windows builds can't yet.
+#![cfg_attr(windows, allow(dead_code, unused_imports))]
+
 use super::*;
 use crate::model::tests::extensions::finish_extension;
 use crate::model::tests::stub_boot;
@@ -96,6 +99,7 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
     });
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn expired_confirmation_does_not_persist_permission(cx: &mut TestAppContext) {
     let package = tempfile::tempdir().expect("extension folder");
@@ -179,6 +183,7 @@ fn expired_confirmation_does_not_persist_permission(cx: &mut TestAppContext) {
 }
 
 /// Loads and enables an unpacked extension whose `muxy` manifest is `manifest`.
+#[cfg(not(windows))]
 fn enabled<'a>(
     cx: &'a mut TestAppContext,
     name: &str,
@@ -239,6 +244,7 @@ fn enabled_with<'a>(
 }
 
 /// Sends one API call as the extension's script `id` and waits for its reply.
+#[cfg(not(windows))]
 fn script_call(
     view: &Entity<AppModel>,
     cx: &mut gpui::VisualTestContext,
@@ -285,6 +291,7 @@ fn script_call(
     }
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn browser_tabs_opened_by_extensions_are_driven_by_their_tab_id(cx: &mut TestAppContext) {
     let (view, cx, _package, _requests) = enabled(
@@ -324,6 +331,7 @@ fn browser_tabs_opened_by_extensions_are_driven_by_their_tab_id(cx: &mut TestApp
     });
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn browser_replies_to_expired_extension_calls_are_refused(cx: &mut TestAppContext) {
     let (view, cx, _package, _requests) = enabled(
@@ -369,6 +377,7 @@ fn browser_replies_to_expired_extension_calls_are_refused(cx: &mut TestAppContex
     assert_eq!(response["error"], "extension call expired");
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn extension_events_stay_inside_the_extension(cx: &mut TestAppContext) {
     let (view, cx, _package, _requests) = enabled(
@@ -453,6 +462,7 @@ fn extension_events_stay_inside_the_extension(cx: &mut TestAppContext) {
     );
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContext) {
     let (view, cx, _package, requests) = enabled(
@@ -561,6 +571,7 @@ fn logged(model: &AppModel, owner: &str, line: &str) -> bool {
         .any(|logged| logged == line)
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn background_scripts_follow_the_extension_not_the_connection(cx: &mut TestAppContext) {
     let manifest = r#"{"background": "background.js"}"#;
@@ -609,8 +620,10 @@ fn background_scripts_follow_the_extension_not_the_connection(cx: &mut TestAppCo
 
 /// Stands in for the native consent sheet, which reports a cancel when it
 /// closes without an answer.
+#[cfg(not(windows))]
 struct ConsentSheet(async_channel::Sender<muxy_ui::dialog::ConsentResponse>);
 
+#[cfg(not(windows))]
 impl Drop for ConsentSheet {
     fn drop(&mut self) {
         let _ = self.0.try_send(muxy_ui::dialog::ConsentResponse::Cancel);
@@ -618,6 +631,7 @@ impl Drop for ConsentSheet {
 }
 
 /// An `exec` call from script 1 of the `runner` extension.
+#[cfg(not(windows))]
 fn runner_exec(model: &AppModel, argv: &Value, reply: std::sync::mpsc::SyncSender<String>) -> Call {
     Call {
         owner: "runner".into(),
@@ -632,6 +646,7 @@ fn runner_exec(model: &AppModel, argv: &Value, reply: std::sync::mpsc::SyncSende
 }
 
 /// Shows a consent sheet `id` for running `argv`, returning where its answer goes.
+#[cfg(not(windows))]
 fn prompt_runner(
     view: &Entity<AppModel>,
     cx: &mut gpui::VisualTestContext,
@@ -650,6 +665,7 @@ fn prompt_runner(
     answer
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn gated_decisions_are_recorded_in_the_audit_log(cx: &mut TestAppContext) {
     let (view, cx, _package, _requests) = enabled(
@@ -754,6 +770,7 @@ fn gated_decisions_are_recorded_in_the_audit_log(cx: &mut TestAppContext) {
     );
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn workspace_events_reach_permitted_extension_scripts(cx: &mut TestAppContext) {
     let (view, cx, _package, _requests) = enabled(
@@ -803,6 +820,7 @@ fn workspace_events_reach_permitted_extension_scripts(cx: &mut TestAppContext) {
     );
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn project_and_agent_lists_use_main_shapes(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");

@@ -24,6 +24,7 @@ use super::{
     menu::{Command, Item},
     tab_sidebar,
 };
+use muxy_core::capability::Feature;
 use muxy_ui::components::{IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
@@ -184,7 +185,9 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
             div()
                 .flex_none()
                 .bg(model.sidebar_background())
-                .child(super::remote_servers::section(model, cx)),
+                .when(model.supports(Feature::SshRemotes), |footer| {
+                    footer.child(super::remote_servers::section(model, cx))
+                }),
         )
         .into_any_element()
 }
@@ -198,7 +201,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings.servers.is_empty() {
+        if self.settings.servers.is_empty() || !self.supports(Feature::SshRemotes) {
             self.open_project_picker(window, cx);
             return;
         }
@@ -292,12 +295,12 @@ impl AppModel {
             self.metrics.sidebar_expanded_min_width(),
             self.metrics.sidebar_expanded_max_width(),
         );
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         let width = width.min(self.sidebar_available_width);
         width
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     pub(crate) fn fit_sidebar_to_window(
         &mut self,
         window: &Window,

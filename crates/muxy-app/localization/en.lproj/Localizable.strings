@@ -23,6 +23,7 @@
 "%@ is also bound to command: %@" = "%@ is also bound to command: %@";
 "%@ is an unrelated link; move it before installing Muxy." = "%@ is an unrelated link; move it before installing Muxy.";
 "%@ is checked out in another worktree, so this one stays on its branch." = "%@ is checked out in another worktree, so this one stays on its branch.";
+"%@ is installed with a command launcher, which Windows can't hand a prompt of several lines to." = "%@ is installed with a command launcher, which Windows can't hand a prompt of several lines to.";
 "%@ is larger than 100 MiB, the most Muxy sends to %@." = "%@ is larger than 100 MiB, the most Muxy sends to %@.";
 "%@ is no longer available. Try again." = "%@ is no longer available. Try again.";
 "%@ is not installed, so there is nothing to open this with." = "%@ is not installed, so there is nothing to open this with.";
@@ -230,6 +231,7 @@
 "Browse language extensions…" = "Browse language extensions…";
 "Browser" = "Browser";
 "Browser Profile" = "Browser Profile";
+"Browser tabs are not available on this platform yet." = "Browser tabs are not available on this platform yet.";
 "Browse…" = "Browse…";
 "Browsing" = "Browsing";
 "Built-in" = "Built-in";
@@ -953,6 +955,7 @@
 "Notes about imported terminal settings. Your original configuration is preserved." = "Notes about imported terminal settings. Your original configuration is preserved.";
 "Nothing is staged. Stage changes first or include unstaged changes." = "Nothing is staged. Stage changes first or include unstaged changes.";
 "Notifications are turned off for Muxy in System Settings." = "Notifications are turned off for Muxy in System Settings.";
+"Notifications are turned off for Muxy in Windows Settings." = "Notifications are turned off for Muxy in Windows Settings.";
 "OK" = "OK";
 "Off" = "Off";
 "Offline transcription failed. Check whisper-cli, the voice model and the Silero speech detection model." = "Offline transcription failed. Check whisper-cli, the voice model and the Silero speech detection model.";
@@ -1100,6 +1103,7 @@
 "Remote Servers" = "Remote Servers";
 "Remote Servers…" = "Remote Servers…";
 "Remote project on %@" = "Remote project on %@";
+"Remote servers are not available on this platform yet." = "Remote servers are not available on this platform yet.";
 "Remove" = "Remove";
 "Remove Icon" = "Remove Icon";
 "Remove Logo" = "Remove Logo";
@@ -1280,6 +1284,7 @@
 "Show all" = "Show all";
 "Show an enabled extension's sidebar in place of the built-in one." = "Show an enabled extension's sidebar in place of the built-in one.";
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
+"Show in File Explorer" = "Show in File Explorer";
 "Show in File Manager" = "Show in File Manager";
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
 "Show project names alongside their icons in the workspace sidebar." = "Show project names alongside their icons in the workspace sidebar.";
@@ -1387,6 +1392,7 @@
 "The project directory isn't available on this Mac" = "The project directory isn't available on this Mac";
 "The project or home directory could not be found." = "The project or home directory could not be found.";
 "The project's tabs changed. Choose the layout again to confirm replacement." = "The project's tabs changed. Choose the layout again to confirm replacement.";
+"The prompt is too long for Windows to hand to %@." = "The prompt is too long for Windows to hand to %@.";
 "The selected 1.x configuration contains no supported settings or projects." = "The selected 1.x configuration contains no supported settings or projects.";
 "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI." = "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI.";
 "The selected language extension is unavailable, so Muxy is temporarily using English." = "The selected language extension is unavailable, so Muxy is temporarily using English.";
@@ -1557,6 +1563,8 @@
 "Width 480–1200; height 280–800 pixels." = "Width 480–1200; height 280–800 pixels.";
 "Width in pixels for a new workspace window when no saved bounds exist." = "Width in pixels for a new workspace window when no saved bounds exist.";
 "Window size" = "Window size";
+"Windows refused a notification: %@" = "Windows refused a notification: %@";
+"Windows refused to set up notifications: %@" = "Windows refused to set up notifications: %@";
 "Work finished and is ready to review." = "Work finished and is ready to review.";
 "Work is in progress." = "Work is in progress.";
 "Work is paused." = "Work is paused.";

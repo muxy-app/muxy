@@ -1,5 +1,4 @@
 use super::*;
-use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 struct Gate(PathBuf);
@@ -16,7 +15,7 @@ fn pending_worktree_keeps_unrelated_lifecycle_responsive_and_replays_once() {
     let other = Repo::new(true);
     let hook = repo.path.join(".git/hooks/post-checkout");
     std::fs::write(&hook, "#!/bin/sh\ncommon=$(git rev-parse --path-format=absolute --git-common-dir)\ntouch \"$common/test-started\"\nattempt=0\nwhile [ ! -e \"$common/test-release\" ] && [ $attempt -lt 400 ]; do\n  sleep 0.025\n  attempt=$((attempt + 1))\ndone\n").unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+    make_executable(&hook);
     let project = ProjectId::new();
     let request = GitRequest {
         project: repo.project,
@@ -25,7 +24,7 @@ fn pending_worktree_keeps_unrelated_lifecycle_responsive_and_replays_once() {
             operation: OperationId::new(),
             action: WorktreeAction::Create {
                 project,
-                directory: server_path(&repo.path.join("pending")),
+                directory: server_path(&repo.path.join("pending")).unwrap(),
                 branch: "pending".into(),
                 base: Some("main".into()),
             },

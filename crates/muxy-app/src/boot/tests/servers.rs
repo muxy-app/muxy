@@ -13,7 +13,7 @@ fn local_and_ssh_workers_keep_their_own_connections_and_generations() -> TestRes
     let remote_socket = directory.path().join("remote.sock");
     let (heard, hearing) = mpsc::channel();
     for (name, socket) in [("local", &local_socket), ("remote", &remote_socket)] {
-        let listener = UnixListener::bind(socket)?;
+        let listener = LocalListener::bind(socket)?;
         let heard = heard.clone();
         thread::spawn(move || listen(&listener, name, &heard));
     }
@@ -62,7 +62,7 @@ fn local_and_ssh_workers_keep_their_own_connections_and_generations() -> TestRes
     Ok(())
 }
 
-fn listen(listener: &UnixListener, name: &'static str, heard: &Sender<Heard>) {
+fn listen(listener: &LocalListener, name: &'static str, heard: &Sender<Heard>) {
     for stream in listener.incoming() {
         let Ok(stream) = stream else {
             return;

@@ -10,7 +10,7 @@ use notify::{EventKind, RecursiveMode, Watcher};
 
 use crate::{Registry, connection::Outbox};
 
-use super::{Result, error, path, root::Root, wire_path};
+use super::{Result, error, is_git, path, root::Root, wire_path};
 
 #[derive(Default)]
 pub(crate) struct Subscriptions {
@@ -32,7 +32,7 @@ impl Subscriptions {
             return Err(error("Too many file subscriptions"));
         }
         let project = registry.catalog.project(request.project)?;
-        let root = Root::open(path(&project.directory))?;
+        let root = Root::open(&path(&project.directory)?)?;
         let events = Arc::downgrade(output);
         let project = project.id;
         let watch = FileWatch::new(&root.path, move |changes| {
@@ -75,10 +75,12 @@ impl FileWatch {
                             let Ok(relative) = path.strip_prefix(&directory) else {
                                 continue;
                             };
-                            if relative.components().any(|part| part.as_os_str() == ".git") {
+                            if relative.components().any(|part| is_git(part.as_os_str())) {
                                 continue;
                             }
-                            let path = wire_path(relative);
+                            let Ok(path) = wire_path(relative) else {
+                                continue;
+                            };
                             if path.0.len() > 4096 {
                                 pending.merge(&FileChanges {
                                     paths: Vec::new(),

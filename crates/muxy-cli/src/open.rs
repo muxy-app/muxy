@@ -4,8 +4,7 @@ use std::path::Path;
 /// Opens `word`, a folder, in the desktop app. Without it, or over SSH, the
 /// folder opens in the terminal UI instead.
 pub(crate) fn run(word: &Path) -> Result<(), Box<dyn Error>> {
-    let folder = word
-        .canonicalize()
+    let folder = muxy_core::files::canonicalize(word)
         .ok()
         .filter(|path| path.is_dir())
         .ok_or_else(|| {
@@ -44,15 +43,18 @@ pub(crate) fn desktop_app(folder: Option<&Path>) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// On Linux the app is installed beside this tool. It needs a desktop
-/// session to open in.
+/// On Linux and Windows the app is installed beside this tool. On Linux it
+/// needs a desktop session to open in.
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn desktop_app(folder: Option<&Path>) -> bool {
     let Ok(executable) = muxy_core::executable::current_path() else {
         return false;
     };
-    desktop_session(|name| std::env::var_os(name))
-        && launch(&executable.with_file_name("muxy-app"), folder)
+    (cfg!(windows) || desktop_session(|name| std::env::var_os(name)))
+        && launch(
+            &muxy_core::executable::sibling(&executable, "muxy-app"),
+            folder,
+        )
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -67,17 +69,12 @@ fn desktop_session(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> boo
 /// that, or an app still running after a moment, is a folder opened.
 #[cfg(not(target_os = "macos"))]
 fn launch(app: &Path, folder: Option<&Path>) -> bool {
-    use std::os::unix::process::CommandExt;
-    use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
-    let Ok(mut child) = Command::new(app)
-        .args(folder)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .process_group(0)
-        .spawn()
-    else {
+    let arguments: Vec<_> = folder
+        .map(|folder| folder.as_os_str().to_owned())
+        .into_iter()
+        .collect();
+    let Ok(mut child) = muxy_client::local::spawn_detached(app, &arguments) else {
         return false;
     };
     let settled = Instant::now() + Duration::from_millis(500);
@@ -107,12 +104,16 @@ fn containing_app(executable: &Path) -> Option<&Path> {
 #[allow(clippy::expect_used, reason = "Regression fixture setup")]
 mod tests {
     use std::ffi::OsString;
+    #[cfg(unix)]
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    #[cfg(unix)]
     use std::path::PathBuf;
+    #[cfg(unix)]
     use std::process::Command;
 
     use super::*;
 
+    #[cfg(unix)]
     fn stub(root: &Path, script: &str) -> PathBuf {
         let app = root.join("muxy-app");
         let status = Command::new("/bin/sh")
@@ -140,6 +141,7 @@ mod tests {
         assert!(!session(&[("DISPLAY", ""), ("WAYLAND_DISPLAY", "")]));
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_folder_reaches_the_app_byte_for_byte_and_never_through_a_shell() {
         let root = tempfile::tempdir().expect("root");
@@ -168,12 +170,18 @@ mod tests {
     }
 
     #[test]
-    fn an_app_that_cannot_start_leaves_the_folder_to_the_terminal_ui() {
+    fn a_missing_app_leaves_the_folder_to_the_terminal_ui() {
         let root = tempfile::tempdir().expect("root");
         assert!(!launch(
-            &root.path().join("muxy-app"),
-            Some(Path::new("/srv"))
+            &muxy_core::executable::sibling(&root.path().join("muxy"), "muxy-app"),
+            Some(root.path())
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_app_that_cannot_start_leaves_the_folder_to_the_terminal_ui() {
+        let root = tempfile::tempdir().expect("root");
         let failing = stub(root.path(), "exit 3");
         assert!(!launch(&failing, Some(Path::new("/srv"))));
         let starting = stub(root.path(), "exec sleep 2");

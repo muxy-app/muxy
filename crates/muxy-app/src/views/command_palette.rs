@@ -57,7 +57,9 @@ impl AppModel {
         super::sidebar::register_commands(&mut registry, self, cx);
         super::settings::register_commands(&mut registry, self);
         registry.register(super::theme_picker::command(self, dark, cx));
-        registry.register(super::remote_servers::command(self, cx));
+        if self.supports(muxy_core::capability::Feature::SshRemotes) {
+            registry.register(super::remote_servers::command(self, cx));
+        }
         registry.register(super::new_tab::command(cx));
         self.register_extension_commands(&mut registry);
         self.register_custom_commands(&mut registry);

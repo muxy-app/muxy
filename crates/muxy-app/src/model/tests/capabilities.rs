@@ -78,6 +78,55 @@ fn commands_without_a_backend_report_why_and_start_nothing(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn browser_tabs_and_remote_servers_without_a_backend_report_why(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        without(model, &[Feature::BrowserPanes, Feature::SshRemotes]);
+        let tabs = model.state.home().tabs.len();
+        model.new_browser_tab(cx);
+        assert_eq!(model.error, Some(reason(Feature::BrowserPanes)));
+        assert_eq!(model.state.home().tabs.len(), tabs);
+        assert!(!model.browser_enabled(), "browser commands are hidden");
+        let form = DeviceForm {
+            name: "box".into(),
+            host: "box.local".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            model.save_remote_server(None, &form, cx),
+            Err(reason(Feature::SshRemotes))
+        );
+        assert!(model.settings.servers.is_empty());
+    });
+}
+
+/// What Windows builds lack, and why: everything outside the desktop MVP.
+#[cfg(windows)]
+#[test]
+fn windows_reports_why_each_missing_feature_is_unavailable() {
+    let backends = crate::model::capabilities::backends();
+    for feature in [
+        Feature::ExtensionScripts,
+        Feature::ExtensionWebviews,
+        Feature::Voice,
+        Feature::QuickTerminal,
+        Feature::ClipboardImages,
+        Feature::CommandLineTool,
+        Feature::Updates,
+        Feature::AppHiding,
+        Feature::BrowserPanes,
+        Feature::SshRemotes,
+    ] {
+        assert_eq!(
+            backends.unsupported(feature),
+            Some(feature.unsupported_reason())
+        );
+    }
+    assert!(backends.has_backend(Feature::Notifications));
+}
+
+#[gpui::test]
 fn shortcuts_for_features_without_a_backend_report_why(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));

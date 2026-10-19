@@ -174,7 +174,8 @@ fn build_vendored(link_mode: LinkMode) {
 
     // Only pass -Dtarget when cross-compiling. For native builds, let zig
     // auto-detect the host (matches how ghostty's own CMakeLists.txt works).
-    if target != host {
+    // Zig's native Windows default is the GNU ABI, so MSVC is always explicit.
+    if target != host || target.ends_with("-windows-msvc") {
         let zig_target = zig_target(&target);
         build.arg(format!("-Dtarget={zig_target}"));
     }
@@ -218,7 +219,10 @@ fn build_vendored(link_mode: LinkMode) {
     }
     match link_mode {
         LinkMode::Dynamic => println!("cargo:rustc-link-lib=dylib=ghostty-vt"),
-        LinkMode::Static => println!("cargo:rustc-link-lib=static=ghostty-vt"),
+        LinkMode::Static => println!(
+            "cargo:rustc-link-lib=static={}",
+            static_library_name(&target)
+        ),
     }
     emit_include_metadata(&[include_dir]);
 }
@@ -361,6 +365,8 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
     let mut clone = Command::new("git");
     clone
         .arg("clone")
+        // Ghostty's test corpus has paths beyond Windows' 260-character limit.
+        .arg("--config=core.longpaths=true")
         .arg("--filter=blob:none")
         .arg("--no-checkout")
         .arg(GHOSTTY_REPO)
@@ -395,6 +401,15 @@ fn library_search_dirs(target: &str, install_prefix: &Path) -> Vec<PathBuf> {
         dirs.push(install_prefix.join("bin"));
     }
     dirs
+}
+
+/// Zig names the Windows archive `ghostty-vt-static.lib`.
+fn static_library_name(target: &str) -> &'static str {
+    if target.contains("windows") {
+        "ghostty-vt-static"
+    } else {
+        "ghostty-vt"
+    }
 }
 
 fn zig_target(target: &str) -> String {

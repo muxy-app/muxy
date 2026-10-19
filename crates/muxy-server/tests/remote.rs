@@ -1,7 +1,7 @@
+use muxy_protocol::transport::{LocalStream, socket_pair};
 use std::error::Error;
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -12,10 +12,12 @@ use muxy_protocol::wire::{Decoder, Encoder, WireError};
 use muxy_protocol::{
     CONTROL, ChannelId, ClientKind, DeviceCredential, DeviceId, ErrorCode, ListenerStatus, Message,
     OperationId, PairRequest, Paired, RemoteAccessSettings, RemoteAccessState, ReplyBody,
-    RequestBody, RequestId, SUPPORTED, ServerPath, Size,
+    RequestBody, RequestId, SUPPORTED, Size,
 };
 use muxy_server::connection::{serve, serve_remote};
 use muxy_server::{Registry, ServerEvent, ServerSettings};
+
+mod support;
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -27,8 +29,8 @@ struct Fixture {
 }
 
 struct Client {
-    socket: UnixStream,
-    encoder: Encoder<UnixStream>,
+    socket: LocalStream,
+    encoder: Encoder<LocalStream>,
     incoming: Receiver<Result<(ChannelId, Message), WireError>>,
     next_request: u32,
 }
@@ -39,7 +41,7 @@ impl Fixture {
         let registry = Arc::new(
             Registry::new(
                 ServerSettings {
-                    default_shell: Some(PathBuf::from("/bin/sh")),
+                    default_shell: Some(support::shell()),
                     ..ServerSettings::default()
                 },
                 sender,
@@ -77,7 +79,7 @@ impl Fixture {
     }
 
     fn connect(&self, remote: bool) -> TestResult<Client> {
-        let (socket, server) = UnixStream::pair()?;
+        let (socket, server) = socket_pair()?;
         let (sender, events) = mpsc::channel();
         self.subscribers
             .lock()
@@ -280,7 +282,7 @@ fn a_paired_device_reconnects_and_uses_a_terminal() -> TestResult {
     let session = match phone.request(RequestBody::CreateSession {
         project: fixture.registry.home_project(),
         operation: OperationId::new(),
-        directory: ServerPath(b"/tmp".to_vec()),
+        directory: support::server_path(&support::folder())?,
         size,
     })? {
         ReplyBody::SessionCreated(session) => session,
@@ -295,7 +297,11 @@ fn a_paired_device_reconnects_and_uses_a_terminal() -> TestResult {
     };
     phone.encoder.send(
         channel,
-        &Message::Input(b"echo remote-$((40+2))\n".to_vec()),
+        &Message::Input(if cfg!(windows) {
+            b"echo remote-^42\r".to_vec()
+        } else {
+            b"echo remote-$((40+2))\n".to_vec()
+        }),
     )?;
     loop {
         match phone.receive()? {

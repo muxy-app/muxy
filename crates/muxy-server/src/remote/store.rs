@@ -1,7 +1,6 @@
 use std::fmt::Write as _;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use muxy_protocol::transport::tls::TlsIdentity;
@@ -126,15 +125,15 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
         .ok_or_else(|| io::Error::other("remote access store has no parent"))?;
     let temporary = parent.join(format!(".remote-{}.tmp", muxy_protocol::OperationId::new()));
     let result = (|| {
-        let mut file = OpenOptions::new()
+        let mut file = muxy_core::files::private_file()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(&temporary)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
-        fs::rename(&temporary, path)?;
-        File::open(parent)?.sync_all()
+        drop(file);
+        muxy_core::files::replace_file(&temporary, path)?;
+        muxy_core::files::sync_directory(parent)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -165,7 +164,6 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
     use super::*;
@@ -200,7 +198,11 @@ mod tests {
             }],
         };
         save(&path, &stored)?;
-        assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+        }
         let loaded = load(&path)?;
         assert_eq!(loaded.settings, stored.settings);
         assert_eq!(loaded.identity, stored.identity);

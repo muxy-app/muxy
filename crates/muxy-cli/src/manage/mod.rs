@@ -5,7 +5,6 @@ mod records;
 mod sessions;
 
 use std::io::{self, Write};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use muxy_client::{Client, SshTarget, Start};
@@ -174,7 +173,7 @@ fn set_setting(client: &Client, key: &str, value: &str) -> Result {
                 if !path.is_absolute() {
                     return Err("default-shell must be an absolute path or 'default'".into());
                 }
-                Some(server_path(path))
+                Some(server_path(path)?)
             }
         }
         "history-budget-bytes" => settings.history_budget_bytes = value.parse()?,
@@ -252,19 +251,14 @@ fn escape(text: &str) -> String {
 fn path_text(path: &ServerPath) -> String {
     String::from_utf8_lossy(&path.0).into_owned()
 }
-fn local_path(path: &ServerPath) -> PathBuf {
-    std::ffi::OsString::from_vec(path.0.clone()).into()
+fn local_path(path: &ServerPath) -> Result<PathBuf> {
+    path.to_path_buf()
+        .map_err(|_| format!("{}: not a path on this computer", path_text(path)).into())
 }
-fn server_path(path: &Path) -> ServerPath {
-    ServerPath(path.as_os_str().as_bytes().to_vec())
+fn server_path(path: &Path) -> Result<ServerPath> {
+    ServerPath::from_path(path)
+        .map_err(|_| format!("{}: the server can't use this path", path.display()).into())
 }
 fn absolute(path: &Path) -> Result<PathBuf> {
-    let path = if path == Path::new("~") {
-        PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?)
-    } else if let Ok(rest) = path.strip_prefix("~/") {
-        PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(rest)
-    } else {
-        path.to_owned()
-    };
-    Ok(std::path::absolute(path)?)
+    Ok(std::path::absolute(muxy_core::paths::expand_tilde(path)?)?)
 }

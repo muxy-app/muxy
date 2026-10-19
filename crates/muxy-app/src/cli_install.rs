@@ -1,8 +1,13 @@
+#[cfg(unix)]
 use std::fs;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, symlink};
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use crate::model::AppModel;
 use gpui::{Context, SharedString};
@@ -10,7 +15,7 @@ use muxy_core::capability::{Capability, Feature};
 use muxy_ui::tr;
 
 /// The installer links the `muxy` that was installed with the running app.
-pub(crate) const CAPABILITY: Capability = Capability::Supported;
+pub(crate) const CAPABILITY: Capability = Capability::of(cfg!(unix));
 
 impl AppModel {
     pub(crate) fn install_command_line(&mut self, cx: &mut Context<Self>) {
@@ -63,6 +68,14 @@ fn installation_message(result: io::Result<PathBuf>) -> (SharedString, String) {
     }
 }
 
+#[cfg(windows)]
+fn install() -> io::Result<PathBuf> {
+    Err(io::Error::other(
+        Feature::CommandLineTool.unsupported_reason().into_owned(),
+    ))
+}
+
+#[cfg(unix)]
 fn install() -> io::Result<PathBuf> {
     let executable = muxy_core::executable::current_path()?;
     let target = installed_tool(&executable)?;
@@ -88,7 +101,7 @@ fn install() -> io::Result<PathBuf> {
 /// The `muxy` installed with the app at `executable`: on Linux the app, the
 /// tool and the server sit in one directory. An app run from a temporary
 /// folder is not installed, and a link into it would not last.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     if let Some(root) = muxy_core::bundle::linux_root(executable) {
@@ -165,6 +178,7 @@ fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     Ok(bundle.join("Contents/MacOS/muxy"))
 }
 
+#[cfg(unix)]
 fn install_link(target: &Path, destination: &Path) -> io::Result<()> {
     if !target.is_absolute() || !target.is_file() {
         return Err(io::Error::other(
@@ -247,6 +261,7 @@ fn install_link(target: &Path, destination: &Path) -> io::Result<()> {
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
 

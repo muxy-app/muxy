@@ -693,3 +693,12 @@ fn invalid_servers_are_rejected_without_changing_the_file() -> Result {
     assert!(settings.servers.is_empty());
     Ok(())
 }
+
+#[test]
+fn the_platform_key_reads_the_same_however_gpui_writes_it() -> Result {
+    let cmd = "cmd-backspace".parse::<KeyChord>()?;
+    for written in ["super-backspace", "win-backspace", "Win-Backspace"] {
+        assert_eq!(written.parse::<KeyChord>()?, cmd, "{written}");
+    }
+    Ok(())
+}

@@ -6,6 +6,7 @@ mod logging;
 mod remote_listener;
 mod run;
 mod settings_file;
+mod shutdown;
 
 use std::io::{self, Write};
 use std::process::ExitCode;

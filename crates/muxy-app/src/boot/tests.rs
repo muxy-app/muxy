@@ -1,7 +1,7 @@
 use super::*;
+use muxy_protocol::transport::LocalListener;
 use std::error::Error;
 use std::fs;
-use std::os::unix::net::UnixListener;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -12,6 +12,7 @@ type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
 /// An `ssh` for tests that plays the other computer: it prints the bridge's
 /// ready line and relays to `socket` with macOS's `nc`.
+#[cfg(unix)]
 pub(crate) fn fake_ssh(
     directory: &std::path::Path,
     socket: &std::path::Path,
@@ -41,14 +42,14 @@ fn local_worker(socket: PathBuf) -> std::io::Result<(Worker, Updates)> {
 #[test]
 fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> TestResult {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let directory = PathBuf::from(format!(
-        "/tmp/muxy-bridge-{}-{}",
+    let directory = crate::app_socket::test_socket_folder().join(format!(
+        "muxy-bridge-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     fs::create_dir(&directory)?;
     let socket = directory.join("server.sock");
-    let listener = UnixListener::bind(&socket)?;
+    let listener = LocalListener::bind(&socket)?;
     let (progress, received) = mpsc::channel();
     let (release, gate) = mpsc::channel();
     let server = thread::spawn(move || fake_server(&listener, &progress, &gate));
@@ -102,7 +103,7 @@ fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> Test
 }
 
 fn fake_server(
-    listener: &UnixListener,
+    listener: &LocalListener,
     progress: &Sender<()>,
     gate: &mpsc::Receiver<()>,
 ) -> TestResult {
@@ -319,6 +320,7 @@ fn a_full_event_buffer_preserves_the_only_disconnect_after_history_completion() 
 
 mod clipboard;
 mod resize;
+#[cfg(unix)]
 mod servers;
 
 fn identify_desktop<R: std::io::Read, W: std::io::Write>(
@@ -353,8 +355,8 @@ fn identify_desktop<R: std::io::Read, W: std::io::Write>(
 fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult {
     let directory = tempfile::Builder::new()
         .prefix("muxy-async-")
-        .tempdir_in("/tmp")?;
-    let listener = UnixListener::bind(directory.path().join("server.sock"))?;
+        .tempdir_in(crate::app_socket::test_socket_folder())?;
+    let listener = LocalListener::bind(directory.path().join("server.sock"))?;
     let (started, pending) = mpsc::channel();
     let server = thread::spawn(move || withhold_extension_replies(&listener, &started));
     let (work, updates) = local_worker(directory.path().join("server.sock"))?;
@@ -434,7 +436,7 @@ fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult 
     Ok(())
 }
 
-fn withhold_extension_replies(listener: &UnixListener, started: &Sender<()>) -> TestResult {
+fn withhold_extension_replies(listener: &LocalListener, started: &Sender<()>) -> TestResult {
     let (socket, _) = listener.accept()?;
     socket.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut decoder = Decoder::new(socket.try_clone()?);

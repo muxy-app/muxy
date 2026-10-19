@@ -83,12 +83,18 @@ fn pruning_preserves_worktrees_when_the_parent_is_unavailable() {
 fn pruning_preserves_sessions_until_their_history_is_discarded() {
     let repo = Repo::new(true);
     let (child, directory, _) = repo.create();
+    // Windows can't delete a folder a running shell works in.
+    let start = if cfg!(windows) {
+        repo.path.clone()
+    } else {
+        directory.clone()
+    };
     let session = repo
         .registry
         .create_project_session(
             child,
             OperationId::new(),
-            &directory,
+            &start,
             muxy_protocol::Size { cols: 80, rows: 24 },
         )
         .unwrap();

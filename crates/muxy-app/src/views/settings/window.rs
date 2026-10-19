@@ -641,20 +641,25 @@ impl SettingsWindow {
                         .create(true)
                         .append(true)
                         .open(&path)?;
-                    let mut command = if cfg!(target_os = "macos") {
-                        let mut command = std::process::Command::new("/usr/bin/open");
-                        command.arg("-t");
-                        command
-                    } else {
-                        std::process::Command::new("xdg-open")
-                    };
-                    let status = command.arg(path).status()?;
-                    if status.success() {
-                        Ok(())
-                    } else {
-                        Err(std::io::Error::other(
-                            tr!("System editor exited with %@", status.to_string()).to_string(),
-                        ))
+                    #[cfg(windows)]
+                    return crate::opener::edit_text(&path);
+                    #[cfg(not(windows))]
+                    {
+                        let mut command = if cfg!(target_os = "macos") {
+                            let mut command = std::process::Command::new("/usr/bin/open");
+                            command.arg("-t");
+                            command
+                        } else {
+                            std::process::Command::new("xdg-open")
+                        };
+                        let status = command.arg(path).status()?;
+                        if status.success() {
+                            Ok(())
+                        } else {
+                            Err(std::io::Error::other(
+                                tr!("System editor exited with %@", status.to_string()).to_string(),
+                            ))
+                        }
                     }
                 })
                 .await;
@@ -721,7 +726,7 @@ impl SettingsWindow {
 
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         let _ = window;
         let root = div()
             .id("settings-window")
@@ -799,6 +804,11 @@ impl Render for SettingsWindow {
                 }),
             )
         };
+        #[cfg(windows)]
+        let root = root.child(crate::views::titlebar::windows::corner(
+            window,
+            &self.view.read(cx).theme,
+        ));
         #[cfg(target_os = "linux")]
         let root = {
             let view = self.view.read(cx);

@@ -1,6 +1,9 @@
 //! Connecting through an SSH channel that the app opens itself. The fake
 //! channel's command is a bridge in this process: it prints the shell's
 //! noise and the ready line, then relays to an in-process server.
+//!
+//! Phones run Unix, so these tests drive POSIX shells and run only there.
+#![cfg(unix)]
 
 use std::io::{Read, Write};
 use std::net::Shutdown;

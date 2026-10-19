@@ -145,15 +145,12 @@ pub fn sanitized_component(value: &str, fallback: &str) -> String {
 }
 
 fn resolve(project: &Path, value: &str, home: Option<&Path>) -> Result<PathBuf> {
-    let path = if value == "~" || value.starts_with("~/") {
+    let path = if let Ok(relative) = Path::new(value).strip_prefix("~") {
         let home = match home {
             Some(home) => home.to_path_buf(),
-            None => PathBuf::from(
-                std::env::var_os("HOME")
-                    .ok_or_else(|| Error::new("worktrees", "HOME is not set"))?,
-            ),
+            None => muxy_core::paths::home_dir().map_err(|error| Error::new("worktrees", error))?,
         };
-        home.join(value.strip_prefix("~/").unwrap_or(""))
+        home.join(relative)
     } else {
         project.join(value)
     };

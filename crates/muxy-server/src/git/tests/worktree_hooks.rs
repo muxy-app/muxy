@@ -1,6 +1,13 @@
 use super::*;
 use muxy_protocol::{WorktreeHook, WorktreeOptions};
 
+/// A hook as `sh` runs it on Unix, or as `cmd.exe` runs it on Windows. There
+/// `<nul set /p =text` writes text without a newline, and fails, so a hook
+/// that ends with it exits explicitly.
+fn hook(unix: &'static str, windows: &'static str) -> &'static str {
+    if cfg!(windows) { windows } else { unix }
+}
+
 fn configure(repo: &Repo, setup: &[&str], teardown: &[&str]) {
     std::fs::create_dir_all(repo.path.join(".muxy")).unwrap();
     std::fs::write(
@@ -29,7 +36,7 @@ fn create_request(repo: &Repo, hooks: Option<Vec<WorktreeHook>>) -> GitRequest {
             }),
             action: WorktreeAction::Create {
                 project: ProjectId::new(),
-                directory: server_path(&repo.path.join("nested/trees/feature")),
+                directory: server_path(&repo.path.join("nested/trees/feature")).unwrap(),
                 branch: "feature".into(),
                 base: Some("main".into()),
             },
@@ -61,16 +68,36 @@ fn remove_request(repo: &Repo, project: ProjectId, hooks: Option<Vec<WorktreeHoo
 #[test]
 fn worktree_hooks_use_the_source_config_environment_order_and_run_once() {
     let repo = Repo::new(true);
-    std::fs::write(repo.path.join("machine-worktree.json"), r#"{"setup":["printf global > order"],"teardown":["printf global >> \"$MUXY_PROJECT_PATH/removed\""]}"#).unwrap();
+    std::fs::write(
+        repo.path.join("machine-worktree.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "setup": [hook("printf global > order", "<nul set /p =global> order& exit /b 0")],
+            "teardown": [hook(
+                "printf global >> \"$MUXY_PROJECT_PATH/removed\"",
+                r#"<nul set /p =global>> "%MUXY_PROJECT_PATH%\removed"& exit /b 0"#,
+            )],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     configure(
         &repo,
         &[
-            "printf project >> order",
-            "printf '%s\n' \"$MUXY_PROJECT_PATH\" \"$MUXY_WORKTREE_PATH\" \"$MUXY_WORKTREE_NAME\" \"$MUXY_WORKTREE_BRANCH\" \"$MUXY_WORKTREE_ID\" > environment",
+            hook(
+                "printf project >> order",
+                "<nul set /p =project>> order& exit /b 0",
+            ),
+            hook(
+                "printf '%s\n' \"$MUXY_PROJECT_PATH\" \"$MUXY_WORKTREE_PATH\" \"$MUXY_WORKTREE_NAME\" \"$MUXY_WORKTREE_BRANCH\" \"$MUXY_WORKTREE_ID\" > environment",
+                "(echo %MUXY_PROJECT_PATH%& echo %MUXY_WORKTREE_PATH%& echo %MUXY_WORKTREE_NAME%& echo %MUXY_WORKTREE_BRANCH%& echo %MUXY_WORKTREE_ID%)> environment",
+            ),
         ],
         &[
-            "printf project > \"$MUXY_PROJECT_PATH/removed\"",
-            "rm order",
+            hook(
+                "printf project > \"$MUXY_PROJECT_PATH/removed\"",
+                r#"<nul set /p =project> "%MUXY_PROJECT_PATH%\removed"& exit /b 0"#,
+            ),
+            hook("rm order", "del order"),
         ],
     );
     let request = create_request(&repo, Some(preview(&repo, false)));
@@ -78,7 +105,7 @@ fn worktree_hooks_use_the_source_config_environment_order_and_run_once() {
         panic!("project")
     };
     assert_eq!(project.name, "Friendly name");
-    let target = path(&project.directory);
+    let target = path(&project.directory).unwrap();
     assert_eq!(
         std::fs::read_to_string(target.join("order")).unwrap(),
         "globalproject"
@@ -114,9 +141,13 @@ fn worktree_hooks_use_the_source_config_environment_order_and_run_once() {
 #[test]
 fn worktree_hooks_are_opt_in_and_changed_approval_is_rejected_before_creation() {
     let repo = Repo::new(true);
-    configure(&repo, &["touch setup-ran"], &["touch teardown-ran"]);
+    configure(
+        &repo,
+        &[hook("touch setup-ran", "type nul > setup-ran")],
+        &[hook("touch teardown-ran", "type nul > teardown-ran")],
+    );
     let approved = preview(&repo, false);
-    configure(&repo, &["touch changed"], &[]);
+    configure(&repo, &[hook("touch changed", "type nul > changed")], &[]);
     let request = create_request(&repo, Some(approved));
     assert!(
         repo.registry
@@ -132,7 +163,7 @@ fn worktree_hooks_are_opt_in_and_changed_approval_is_rejected_before_creation() 
     else {
         panic!("project")
     };
-    assert!(!path(&project.directory).join("setup-ran").exists());
+    assert!(!path(&project.directory).unwrap().join("setup-ran").exists());
     repo.registry
         .git(&remove_request(&repo, project.id, None))
         .unwrap();
@@ -144,8 +175,11 @@ fn worktree_setup_failure_keeps_a_registered_checkout_and_reports_it_on_replay()
     configure(
         &repo,
         &[
-            "printf once >> attempted; echo setup-failure >&2; exit 1",
-            "touch should-not-run",
+            hook(
+                "printf once >> attempted; echo setup-failure >&2; exit 1",
+                "<nul set /p =once>> attempted& echo setup-failure 1>&2 & exit /b 1",
+            ),
+            hook("touch should-not-run", "type nul > should-not-run"),
         ],
         &[],
     );
@@ -156,11 +190,16 @@ fn worktree_setup_failure_keeps_a_registered_checkout_and_reports_it_on_replay()
     };
     assert!(message.contains("setup-failure"));
     assert_eq!(repo.registry.catalog.project(project.id).unwrap(), *project);
-    assert!(path(&project.directory).join(".git").is_file());
-    assert!(!path(&project.directory).join("should-not-run").exists());
+    assert!(path(&project.directory).unwrap().join(".git").is_file());
+    assert!(
+        !path(&project.directory)
+            .unwrap()
+            .join("should-not-run")
+            .exists()
+    );
     assert_eq!(repo.registry.git(&request).unwrap(), reply);
     assert_eq!(
-        std::fs::read_to_string(path(&project.directory).join("attempted")).unwrap(),
+        std::fs::read_to_string(path(&project.directory).unwrap().join("attempted")).unwrap(),
         "once"
     );
 }
@@ -170,7 +209,14 @@ fn worktree_teardown_failure_preserves_files_and_changed_hooks_require_new_appro
     let repo = Repo::new(true);
     let (id, target, _) = repo.create();
     std::fs::write(target.join("keep"), "keep").unwrap();
-    configure(&repo, &[], &["echo teardown-failure >&2; exit 1"]);
+    configure(
+        &repo,
+        &[],
+        &[hook(
+            "echo teardown-failure >&2; exit 1",
+            "echo teardown-failure 1>&2 & exit /b 1",
+        )],
+    );
     let failed = remove_request(&repo, id, Some(preview(&repo, true)));
     assert!(
         repo.registry
@@ -182,7 +228,11 @@ fn worktree_teardown_failure_preserves_files_and_changed_hooks_require_new_appro
     assert!(target.join("keep").exists());
     assert!(repo.registry.catalog.project(id).is_ok());
     let changed = remove_request(&repo, id, Some(preview(&repo, true)));
-    configure(&repo, &[], &["touch unexpected"]);
+    configure(
+        &repo,
+        &[],
+        &[hook("touch unexpected", "type nul > unexpected")],
+    );
     assert!(
         repo.registry
             .git(&changed)
@@ -198,7 +248,14 @@ fn worktree_teardown_failure_preserves_files_and_changed_hooks_require_new_appro
 #[test]
 fn worktree_recovery_does_not_repeat_an_interrupted_hook() {
     let repo = Repo::new(true);
-    configure(&repo, &["printf x >> attempts"], &[]);
+    configure(
+        &repo,
+        &[hook(
+            "printf x >> attempts",
+            "<nul set /p =x>> attempts& exit /b 0",
+        )],
+        &[],
+    );
     let request = create_request(&repo, Some(preview(&repo, false)));
     let GitReply::Project(project) = repo.registry.git(&request).unwrap() else {
         panic!("project")
@@ -215,7 +272,7 @@ fn worktree_recovery_does_not_repeat_an_interrupted_hook() {
     };
     assert!(message.contains("interrupted"));
     assert_eq!(
-        std::fs::read_to_string(path(&project.directory).join("attempts")).unwrap(),
+        std::fs::read_to_string(path(&project.directory).unwrap().join("attempts")).unwrap(),
         "x"
     );
 }

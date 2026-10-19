@@ -2,10 +2,8 @@
 //! from another computer. They live in a private folder in the system's
 //! temporary folder, which the system clears, under `<session>/`.
 
-use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use muxy_protocol::{ErrorCode, ServerPath, UploadChunk};
@@ -21,10 +19,14 @@ pub(crate) struct Uploads {
 }
 
 impl Uploads {
-    /// This user's folder in the system's temporary folder.
+    /// This user's folder in the system's temporary folder, which Windows
+    /// already keeps per user.
     pub(crate) fn system() -> Self {
-        let user = rustix::process::geteuid().as_raw();
-        Self::in_directory(std::env::temp_dir().join(format!("muxy-uploads-{user}")))
+        #[cfg(unix)]
+        let name = format!("muxy-uploads-{}", rustix::process::geteuid().as_raw());
+        #[cfg(windows)]
+        let name = "muxy-uploads".to_owned();
+        Self::in_directory(std::env::temp_dir().join(name))
     }
 
     pub(crate) fn in_directory(directory: PathBuf) -> Self {
@@ -56,7 +58,9 @@ impl Uploads {
         if kept.is_err() {
             let _ = fs::remove_file(&partial);
         }
-        Ok(Some(ServerPath(kept?.as_os_str().as_bytes().to_vec())))
+        ServerPath::from_path(&kept?)
+            .map(Some)
+            .map_err(|_| failed("the path is not valid Unicode"))
     }
 }
 
@@ -64,30 +68,55 @@ impl Uploads {
 /// Other users can create names first in a shared temporary folder, so a
 /// link, a file, or someone else's folder is refused.
 fn private_folder(path: &Path) -> io::Result<()> {
-    match DirBuilder::new().recursive(true).mode(0o700).create(path) {
-        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
-        _ => {}
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+        match fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)
+        {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+            _ => {}
+        }
+        let metadata = fs::symlink_metadata(path)?;
+        if !metadata.is_dir() || metadata.uid() != rustix::process::geteuid().as_raw() {
+            return Err(not_own(path));
+        }
+        if metadata.mode() & 0o077 != 0 {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(())
     }
-    let metadata = fs::symlink_metadata(path)?;
-    if !metadata.is_dir() || metadata.uid() != rustix::process::geteuid().as_raw() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("{} isn't this user's own folder", path.display()),
-        ));
+    #[cfg(windows)]
+    {
+        // The temporary folder is this user's own, and new folders inherit
+        // its permissions; only a link or a file in the way is refused.
+        match fs::create_dir_all(path) {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+            _ => {}
+        }
+        let metadata = fs::symlink_metadata(path)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(not_own(path));
+        }
+        Ok(())
     }
-    if metadata.mode() & 0o077 != 0 {
-        fs::set_permissions(path, Permissions::from_mode(0o700))?;
-    }
-    Ok(())
+}
+
+fn not_own(path: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("{} isn't this user's own folder", path.display()),
+    )
 }
 
 /// Starts the file at offset 0, otherwise continues it where it ended.
 fn open(partial: &Path, offset: u64) -> Result<File, ServerError> {
     let file = if offset == 0 {
-        OpenOptions::new()
+        muxy_core::files::private_file()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(partial)
     } else {
         OpenOptions::new().append(true).open(partial)
@@ -111,7 +140,7 @@ fn keep(partial: &Path, folder: &Path, name: &str) -> Result<PathBuf, ServerErro
     for copy in 1..=10_000 {
         let path = folder.join(numbered(name, copy));
         match take_name(partial, &path) {
-            Ok(()) => return path.canonicalize().map_err(failed),
+            Ok(()) => return muxy_core::files::canonicalize(&path).map_err(failed),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(failed(error)),
         }
@@ -125,21 +154,27 @@ fn keep(partial: &Path, folder: &Path, name: &str) -> Result<PathBuf, ServerErro
 /// Moves the partial file to `path`, unless something already has that name.
 /// Some file systems can't refuse to replace a file; a hard link can.
 fn take_name(partial: &Path, path: &Path) -> io::Result<()> {
-    use rustix::fs::{CWD, RenameFlags, renameat_with};
-    use rustix::io::Errno;
-    match renameat_with(CWD, partial, CWD, path, RenameFlags::NOREPLACE) {
-        Err(Errno::INVAL | Errno::NOSYS | Errno::NOTSUP) => {
-            fs::hard_link(partial, path)?;
-            fs::remove_file(partial)
+    #[cfg(unix)]
+    {
+        use rustix::fs::{CWD, RenameFlags, renameat_with};
+        use rustix::io::Errno;
+        match renameat_with(CWD, partial, CWD, path, RenameFlags::NOREPLACE) {
+            Err(Errno::INVAL | Errno::NOSYS | Errno::NOTSUP) => {}
+            result => return result.map_err(io::Error::from),
         }
-        result => result.map_err(io::Error::from),
     }
+    fs::hard_link(partial, path)?;
+    fs::remove_file(partial)
 }
 
 /// The last component of `name`, without control characters, short enough
-/// to number. A name that would mean a folder is `upload`.
+/// to number. A name that would mean a folder is `upload`. On Windows it is
+/// also a name Windows can hold.
 pub(crate) fn file_name(name: &str) -> String {
-    let last = name.rsplit('/').next().unwrap_or_default();
+    let last = name
+        .rsplit(['/', std::path::MAIN_SEPARATOR])
+        .next()
+        .unwrap_or_default();
     let cleaned: String = last
         .chars()
         .map(|character| {
@@ -154,6 +189,8 @@ pub(crate) fn file_name(name: &str) -> String {
     if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
         return "upload".into();
     }
+    #[cfg(windows)]
+    let cleaned = &crate::files::names::windows_safe(cleaned);
     if cleaned.len() <= NAME_BYTES {
         return cleaned.into();
     }
@@ -220,10 +257,12 @@ mod tests {
     }
 
     fn text(path: &ServerPath) -> PathBuf {
-        PathBuf::from(std::ffi::OsStr::from_bytes(&path.0))
+        path.to_path_buf().unwrap()
     }
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
         fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
@@ -245,9 +284,12 @@ mod tests {
         assert!(path.is_absolute());
         assert!(path.ends_with("uploads/7/shot.png"), "{}", path.display());
         assert_eq!(fs::read(&path).unwrap(), b"abcd");
-        assert_eq!(mode(&path), 0o600);
-        assert_eq!(mode(path.parent().unwrap()), 0o700);
-        assert_eq!(mode(&root.join("uploads")), 0o700);
+        #[cfg(unix)]
+        {
+            assert_eq!(mode(&path), 0o600);
+            assert_eq!(mode(path.parent().unwrap()), 0o700);
+            assert_eq!(mode(&root.join("uploads")), 0o700);
+        }
         let second = OperationId::new();
         let copy = text(
             &uploads
@@ -276,6 +318,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn uploads_go_to_a_private_folder_of_this_user_in_the_temporary_folder() {
         let system = Uploads::system();
@@ -298,7 +341,10 @@ mod tests {
         );
         fs::remove_file(root.join("uploads")).unwrap();
         fs::create_dir(root.join("uploads")).unwrap();
-        fs::set_permissions(root.join("uploads"), Permissions::from_mode(0o777)).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(root.join("uploads"), fs::Permissions::from_mode(0o777)).unwrap();
+        }
         uploads
             .receive(&chunk(OperationId::new(), 0, b"x", true))
             .unwrap();
@@ -329,5 +375,43 @@ mod tests {
         assert_eq!(Path::new(&kept).extension(), Some("png".as_ref()));
         assert_eq!(numbered(".env", 2), ".env-2");
         assert_eq!(numbered("a.tar.gz", 3), "a.tar-3.gz");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_uploads_refuse_a_link_or_file_in_place_of_the_folder() {
+        let system = Uploads::system();
+        assert!(system.directory.starts_with(std::env::temp_dir()));
+        let (root, uploads) = uploads();
+        fs::create_dir_all(&root).unwrap();
+        let linked = std::os::windows::fs::symlink_dir(std::env::temp_dir(), root.join("uploads"));
+        // Creating links needs Developer Mode or a privilege (error 1314).
+        if !linked
+            .as_ref()
+            .is_err_and(|error| error.raw_os_error() == Some(1314))
+        {
+            linked.unwrap();
+            assert!(
+                uploads
+                    .receive(&chunk(OperationId::new(), 0, b"x", true))
+                    .is_err()
+            );
+            fs::remove_dir(root.join("uploads")).unwrap();
+        }
+        fs::write(root.join("uploads"), "").unwrap();
+        assert!(
+            uploads
+                .receive(&chunk(OperationId::new(), 0, b"x", true))
+                .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_upload_names_avoid_streams_devices_and_trailing_dots() {
+        assert_eq!(file_name(r"C:\shots\a:b.png"), "a_b.png");
+        assert_eq!(file_name("con.txt"), "_con.txt");
+        assert_eq!(file_name("notes. "), "notes");
     }
 }

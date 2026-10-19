@@ -5,14 +5,17 @@ pub mod bundle;
     reason = "posix_spawn with a disclaimed responsible process"
 )]
 pub mod host;
+#[cfg(windows)]
+#[allow(unsafe_code, reason = "Win32 process and token queries")]
+mod windows;
 
 use crate::{Client, ClientError};
 use muxy_core::file_lock::FileLock;
 use muxy_protocol::transport::ByteStream;
 use std::ffi::OsString;
 use std::io;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -27,7 +30,19 @@ pub fn server_executable() -> io::Result<PathBuf> {
         }
         return Ok(path.into());
     }
-    Ok(muxy_core::executable::current_path()?.with_file_name("muxy-server"))
+    Ok(muxy_core::executable::sibling(
+        &muxy_core::executable::current_path()?,
+        "muxy-server",
+    ))
+}
+
+/// Connects to the local server's socket. On Windows it refuses a server in
+/// another Windows session or at another elevation than this program.
+pub fn connect(socket: &Path) -> Result<Box<dyn ByteStream>, ClientError> {
+    let stream = muxy_protocol::transport::connect_local(socket)?;
+    #[cfg(windows)]
+    windows::check_server(&stream)?;
+    Ok(Box::new(stream))
 }
 
 pub fn ensure_running(socket: &Path, executable: &Path) -> Result<Client, ClientError> {
@@ -52,9 +67,7 @@ pub fn ensure_listening(
     socket: &Path,
     executable: &Path,
 ) -> Result<Box<dyn ByteStream>, ClientError> {
-    start_and_connect(socket, executable, spawn, |socket, _| {
-        Ok(muxy_protocol::transport::connect(socket)?)
-    })
+    start_and_connect(socket, executable, spawn, |socket, _| connect(socket))
 }
 
 /// Connects, first starting the server if nothing listens on `socket`.
@@ -107,19 +120,39 @@ fn server_arguments(socket: &Path) -> [OsString; 6] {
 }
 
 fn spawn(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
-    let mut child = Command::new(executable)
-        .args(arguments)
-        .process_group(0)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+    let mut child = spawn_detached(executable, arguments)?;
     thread::Builder::new()
         .name("muxy-server-wait".into())
         .spawn(move || {
             let _ = child.wait();
         })?;
     Ok(())
+}
+
+/// A program started by [`spawn_detached`].
+#[cfg(unix)]
+pub type Detached = std::process::Child;
+#[cfg(windows)]
+pub use windows::Detached;
+
+/// Starts `program` with no input or output, away from this program's
+/// terminal, so it outlives the terminal.
+pub fn spawn_detached(program: &Path, arguments: &[OsString]) -> io::Result<Detached> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Command::new(program)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+    }
+    #[cfg(windows)]
+    {
+        windows::spawn_detached(program, arguments)
+    }
 }
 
 fn spawn_hosted(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
