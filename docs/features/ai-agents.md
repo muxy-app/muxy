@@ -76,6 +76,8 @@ focus. Use the arrow keys and Return to open a row.
   or the icon of its project. Worktrees show their project's icon.
 - **Settings → Appearance → Show project colors** marks each row with its
   project's color.
+- **Settings → Appearance → Show idle time** shows how long ago each completed
+  or idle agent finished. It needs a finish the server saw since it started.
 
 ## Saved agent sessions
 

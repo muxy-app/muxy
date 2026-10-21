@@ -206,18 +206,25 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel icon")) {
         rows.push(agents_panel_icon(pane, cx));
     }
-    if category == Category::Appearance && pane.matches(category, tr_key!("Show project colors")) {
-        let value = appearance.agents_panel_project_colors;
-        rows.push(pane.row(
+    for (id, label, value) in [
+        (
             "agents-panel-project-colors",
             tr_key!("Show project colors"),
-            pane.toggle(
-                "agents-panel-project-colors",
-                value,
-                Change::AgentsPanelOption("agents-panel-project-colors", !value),
-                cx,
-            ),
-        ));
+            appearance.agents_panel_project_colors,
+        ),
+        (
+            "agents-panel-idle-time",
+            tr_key!("Show idle time"),
+            appearance.agents_panel_idle_time,
+        ),
+    ] {
+        if category == Category::Appearance && pane.matches(category, label) {
+            rows.push(pane.row(
+                id,
+                label,
+                pane.toggle(id, value, Change::AgentsPanelOption(id, !value), cx),
+            ));
+        }
     }
     if category == Category::General && pane.matches(category, tr_key!("Open files with")) {
         rows.push(pane.row(

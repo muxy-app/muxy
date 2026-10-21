@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use gpui::Context;
 use muxy_app_core::{PaneId, ServerId, TabId};
@@ -17,6 +17,7 @@ pub(crate) struct ActivityView {
     pub(crate) loaded: bool,
     pub(super) navigation: Option<u64>,
     pub(super) pane_sessions: Vec<SessionId>,
+    pub(crate) finished: HashMap<SessionId, u64>,
     acknowledging: HashSet<u64>,
     ended_during_read: HashSet<SessionId>,
     ack_failed: bool,
@@ -198,6 +199,15 @@ impl AppModel {
                 snapshot
                     .agents
                     .retain(|agent| !activity.ended_during_read.contains(&agent.session));
+                activity.finished = snapshot
+                    .events
+                    .iter()
+                    .filter(|event| {
+                        event.kind == muxy_protocol::ActivityKind::Completed
+                            && !activity.ended_during_read.contains(&event.session)
+                    })
+                    .map(|event| (event.session, event.timestamp))
+                    .collect();
                 snapshot.events.retain(|event| {
                     !event.read && !activity.ended_during_read.contains(&event.session)
                 });
@@ -294,6 +304,7 @@ impl AppModel {
             .snapshot
             .events
             .retain(|event| event.session != session);
+        activity.finished.remove(&session);
         activity.acknowledging.retain(|id| !ids.contains(id));
         if activity.navigation.is_some_and(|id| ids.contains(&id)) {
             activity.navigation = None;

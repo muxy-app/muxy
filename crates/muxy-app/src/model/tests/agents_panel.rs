@@ -127,6 +127,75 @@ fn the_panel_lists_each_shown_session_once_most_urgent_first(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn idle_time_comes_from_the_last_finish_of_resting_agents(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [root_pane, _, worktree_pane, home_pane] = fixture.panes;
+    let finished_at = |model: &AppModel| {
+        model
+            .running_agents()
+            .into_iter()
+            .map(|agent| (agent.pane, agent.status, agent.finished_at))
+            .collect::<Vec<_>>()
+    };
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            finished_at(model),
+            [
+                (worktree_pane, AgentStatus::Blocked, None),
+                (root_pane, AgentStatus::Working, None),
+                (home_pane, AgentStatus::Completed, Some(0)),
+            ],
+            "a working agent's earlier finish is not its idle time"
+        );
+    });
+    view.update(cx, |model, cx| {
+        let session = |id| SessionId::new(id).expect("session");
+        let event = |id, session, timestamp, kind, read| ActivityEvent {
+            id,
+            session,
+            project: fixture.root,
+            provider: AgentProvider::Claude,
+            timestamp,
+            kind,
+            read,
+        };
+        let agent = |id, state| AgentActivity {
+            session: session(id),
+            project: fixture.root,
+            provider: AgentProvider::Claude,
+            state,
+        };
+        model.receive_activity(
+            ServerId::local(),
+            Ok(ActivitySnapshot {
+                revision: 2,
+                agents: vec![
+                    agent(1, AgentState::Idle),
+                    agent(2, AgentState::Idle),
+                    agent(3, AgentState::Idle),
+                ],
+                events: vec![
+                    event(3, session(1), 300, ActivityKind::Attention, false),
+                    event(4, session(3), 100, ActivityKind::Completed, true),
+                ],
+            }),
+            cx,
+        );
+    });
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            finished_at(model),
+            [
+                (home_pane, AgentStatus::Idle, Some(100)),
+                (root_pane, AgentStatus::Idle, None),
+                (worktree_pane, AgentStatus::Idle, None),
+            ],
+            "a read finish keeps its time, and an attention request is not a finish"
+        );
+    });
+}
+
+#[gpui::test]
 fn the_active_card_follows_tabs_and_projects_without_a_fallback(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
     view.update_in(cx, |model, window, cx| {

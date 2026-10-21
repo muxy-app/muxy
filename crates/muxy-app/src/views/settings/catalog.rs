@@ -438,6 +438,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Agents Panel"),
     },
     Setting {
+        id: "agents-panel-idle-time",
+        label: tr_key!("Show idle time"),
+        description: tr_key!("Show how long ago each completed or idle agent finished working."),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
         id: "font-family",
         label: tr_key!("Font family"),
         description: tr_key!("The typeface used to render text in every terminal pane."),

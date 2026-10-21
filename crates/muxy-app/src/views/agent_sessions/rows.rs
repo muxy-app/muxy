@@ -79,7 +79,10 @@ fn section(recency: Recency, model: &AppModel) -> Div {
 }
 
 fn age(session: &Session) -> SharedString {
-    let age = session.modified.elapsed().unwrap_or_default().as_secs();
+    age_label(session.modified.elapsed().unwrap_or_default().as_secs())
+}
+
+pub(crate) fn age_label(age: u64) -> SharedString {
     match age {
         0..60 => tr!("Just now"),
         60..3600 => tr!("%lldm ago", age / 60),

@@ -86,10 +86,33 @@ impl AppModel {
     }
 }
 
+fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
+    if !model.appearance.agents_panel_idle_time {
+        return None;
+    }
+    let finished_at = agent.finished_at?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let key = EntryKey::Agent(agent.server, agent.session);
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-idle-{key}"))
+            .flex_none()
+            .text_size(model.metrics.font_footnote())
+            .text_color(model.theme.fg_dim)
+            .child(super::agent_sessions::age_label(
+                now.saturating_sub(finished_at),
+            ))
+            .into_any_element(),
+    )
+}
+
 fn trailing(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     let m = model.metrics;
     match entry {
-        Entry::Agent(_) => None,
+        Entry::Agent(agent) => idle_time(agent, model),
         Entry::Worktree { counts, .. } => Some(
             div()
                 .flex()

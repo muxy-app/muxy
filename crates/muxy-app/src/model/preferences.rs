@@ -404,6 +404,7 @@ impl AppModel {
                     "agents-panel-project-colors" => {
                         settings.appearance.agents_panel_project_colors = value;
                     }
+                    "agents-panel-idle-time" => settings.appearance.agents_panel_idle_time = value,
                     _ => return Ok(()),
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
