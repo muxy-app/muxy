@@ -121,6 +121,7 @@ pub(crate) enum Change {
     SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
     AgentsPanel(bool),
     AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
+    AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
     StatusBar(bool),
     Tips(bool),
     ConfirmProcess(bool),

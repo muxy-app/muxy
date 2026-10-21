@@ -4,7 +4,7 @@ use gpui::{
     MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
-use muxy_app_core::settings::AgentsPanelDock;
+use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelIcon};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::panel::{PanelFrame, PanelSizeBounds, PanelSizing, PanelStyle};
@@ -121,24 +121,49 @@ fn trailing(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     }
 }
 
+fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    let project = match entry {
+        Entry::Agent(agent) => agent.project,
+        Entry::Worktree { project, .. } => *project,
+    };
+    let project = model.state.project(project)?;
+    let root = project
+        .parent_id
+        .and_then(|parent| model.state.project(parent))
+        .unwrap_or(project);
+    let key = entry.key();
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-project-{key}"))
+            .child(super::sidebar::project_tile(
+                root,
+                model,
+                model.metrics.icon_xl(),
+                None,
+            ))
+            .into_any_element(),
+    )
+}
+
 fn leading(entry: &Entry, owner: gpui::EntityId, model: &AppModel) -> AnyElement {
     let m = model.metrics;
     let key = entry.key();
-    match entry {
-        Entry::Agent(agent) => div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(m.spacing2())
-            .child(status_glyph(key, agent.status, owner, model))
-            .child(super::tab_activity::provider_icon(
-                agent.provider,
-                m.icon_sm(),
-                model,
-            ))
-            .into_any_element(),
-        Entry::Worktree { .. } => status_glyph(key, entry.status(), owner, model),
-    }
+    let icon =
+        match (model.appearance.agents_panel_icon, entry) {
+            (AgentsPanelIcon::Project, _) => project_icon(entry, model),
+            (AgentsPanelIcon::Agent, Entry::Agent(agent)) => Some(
+                super::tab_activity::provider_icon(agent.provider, m.icon_sm(), model),
+            ),
+            (AgentsPanelIcon::Agent, Entry::Worktree { .. }) => None,
+        };
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(m.spacing2())
+        .child(status_glyph(key, entry.status(), owner, model))
+        .children(icon)
+        .into_any_element()
 }
 
 fn entry_row(

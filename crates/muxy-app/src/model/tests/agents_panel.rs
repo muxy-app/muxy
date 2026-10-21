@@ -2,7 +2,7 @@ use super::worktrees::{Sent, connected, pruning_fixture};
 use super::*;
 use crate::model::agents_panel::{AgentStatus, Entry, EntryKey, Placement};
 use gpui::Modifiers;
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping, AppLayout};
+use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping, AgentsPanelIcon, AppLayout};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_protocol::{
     ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity, AgentProvider, AgentState,
@@ -285,13 +285,19 @@ fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppCon
         (AgentsPanelDock::Left, false, false),
         (AgentsPanelDock::Left, true, true),
     ] {
-        for grouping in [AgentsPanelGrouping::Agents, AgentsPanelGrouping::Worktrees] {
+        for (grouping, icon) in [
+            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Agent),
+            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Project),
+            (AgentsPanelGrouping::Worktrees, AgentsPanelIcon::Agent),
+            (AgentsPanelGrouping::Worktrees, AgentsPanelIcon::Project),
+        ] {
             view.update(cx, |model, cx| {
                 model.appearance.agents_panel_visible = true;
                 model.appearance.agents_panel_dock = dock;
                 model.appearance.sidebar_expanded = expanded;
                 model.appearance.agents_panel_detached = detached;
                 model.appearance.agents_panel_grouping = grouping;
+                model.appearance.agents_panel_icon = icon;
                 model.appearance.agents_panel_right_width = Some(220.0);
                 model.appearance.agents_panel_frame = Some([80.0, 80.0, 220.0, 360.0]);
                 model.overlay = (!expanded).then_some(Overlay::Agents);
@@ -309,6 +315,15 @@ fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppCon
             let panel = cx.debug_bounds("agents-panel").expect("panel");
             let max_line_height = view.read_with(cx, |model, _| model.metrics.font_body() * 2.0);
             assert!(row.right() <= panel.right(), "card fits in the panel");
+            if icon == AgentsPanelIcon::Project {
+                let tile = cx
+                    .debug_bounds(format!("agents-panel-project-{key}").leak())
+                    .expect("project icon");
+                assert!(
+                    tile.left() >= row.left() && tile.bottom() <= row.bottom(),
+                    "project icon fits inside the card"
+                );
+            }
             for label in ["title", "detail"] {
                 if label == "detail" && grouping == AgentsPanelGrouping::Worktrees {
                     continue;

@@ -72,6 +72,8 @@ focus. Use the arrow keys and Return to open a row.
   needs input, working, completed, and idle, where Return opens its pane; or
   each project and worktree running agents, with counts, where Return opens
   the worktree.
+- **Settings → Appearance → Agents panel icon** shows each row's agent icon,
+  or the icon of its project. Worktrees show their project's icon.
 
 ## Saved agent sessions
 
