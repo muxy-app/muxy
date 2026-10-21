@@ -23,6 +23,30 @@ pub(crate) struct ActivityView {
     ack_failed: bool,
 }
 
+impl ActivityView {
+    fn remember_finishes(&mut self, snapshot: &ActivitySnapshot) {
+        self.finished.extend(
+            snapshot
+                .events
+                .iter()
+                .filter(|event| event.kind == muxy_protocol::ActivityKind::Completed)
+                .map(|event| (event.session, event.timestamp)),
+        );
+        let resting: HashSet<_> = snapshot
+            .agents
+            .iter()
+            .filter(|agent| {
+                !matches!(
+                    agent.state,
+                    muxy_protocol::AgentState::Working | muxy_protocol::AgentState::Blocked
+                )
+            })
+            .map(|agent| agent.session)
+            .collect();
+        self.finished.retain(|session, _| resting.contains(session));
+    }
+}
+
 /// Each server numbers its own events, so another computer's carry its server.
 fn notification_id(server: ServerId, id: u64) -> String {
     if server.is_local() {
@@ -199,15 +223,7 @@ impl AppModel {
                 snapshot
                     .agents
                     .retain(|agent| !activity.ended_during_read.contains(&agent.session));
-                activity.finished = snapshot
-                    .events
-                    .iter()
-                    .filter(|event| {
-                        event.kind == muxy_protocol::ActivityKind::Completed
-                            && !activity.ended_during_read.contains(&event.session)
-                    })
-                    .map(|event| (event.session, event.timestamp))
-                    .collect();
+                activity.remember_finishes(&snapshot);
                 snapshot.events.retain(|event| {
                     !event.read && !activity.ended_during_read.contains(&event.session)
                 });

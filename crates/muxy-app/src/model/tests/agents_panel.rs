@@ -148,49 +148,61 @@ fn idle_time_comes_from_the_last_finish_of_resting_agents(cx: &mut TestAppContex
             "a working agent's earlier finish is not its idle time"
         );
     });
-    view.update(cx, |model, cx| {
-        let session = |id| SessionId::new(id).expect("session");
-        let event = |id, session, timestamp, kind, read| ActivityEvent {
-            id,
-            session,
-            project: fixture.root,
-            provider: AgentProvider::Claude,
-            timestamp,
-            kind,
-            read,
-        };
-        let agent = |id, state| AgentActivity {
-            session: session(id),
-            project: fixture.root,
-            provider: AgentProvider::Claude,
-            state,
-        };
-        model.receive_activity(
-            ServerId::local(),
-            Ok(ActivitySnapshot {
-                revision: 2,
-                agents: vec![
-                    agent(1, AgentState::Idle),
-                    agent(2, AgentState::Idle),
-                    agent(3, AgentState::Idle),
-                ],
-                events: vec![
-                    event(3, session(1), 300, ActivityKind::Attention, false),
-                    event(4, session(3), 100, ActivityKind::Completed, true),
-                ],
-            }),
-            cx,
-        );
-    });
+    let receive = |view: &Entity<AppModel>,
+                   cx: &mut VisualTestContext,
+                   revision,
+                   home: AgentState,
+                   events: Vec<ActivityEvent>| {
+        view.update(cx, |model, cx| {
+            let agent = |id, state| AgentActivity {
+                session: SessionId::new(id).expect("session"),
+                project: fixture.root,
+                provider: AgentProvider::Claude,
+                state,
+            };
+            model.receive_activity(
+                ServerId::local(),
+                Ok(ActivitySnapshot {
+                    revision,
+                    agents: vec![
+                        agent(1, AgentState::Idle),
+                        agent(2, AgentState::Idle),
+                        agent(3, home),
+                    ],
+                    events,
+                }),
+                cx,
+            );
+        });
+    };
+    let attention = ActivityEvent {
+        id: 3,
+        session: SessionId::new(1).expect("session"),
+        project: fixture.root,
+        provider: AgentProvider::Claude,
+        timestamp: 300,
+        kind: ActivityKind::Attention,
+        read: false,
+    };
+    receive(&view, cx, 2, AgentState::Idle, vec![attention]);
     view.read_with(cx, |model, _| {
         assert_eq!(
             finished_at(model),
             [
-                (home_pane, AgentStatus::Idle, Some(100)),
+                (home_pane, AgentStatus::Idle, Some(0)),
                 (root_pane, AgentStatus::Idle, None),
                 (worktree_pane, AgentStatus::Idle, None),
             ],
-            "a read finish keeps its time, and an attention request is not a finish"
+            "an acknowledged finish keeps its time, and an attention request is not a finish"
+        );
+    });
+    receive(&view, cx, 3, AgentState::Working, Vec::new());
+    receive(&view, cx, 4, AgentState::Idle, Vec::new());
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            finished_at(model).first(),
+            Some(&(home_pane, AgentStatus::Idle, None)),
+            "work that ends without a finish does not reuse the previous one"
         );
     });
 }
