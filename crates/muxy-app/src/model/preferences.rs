@@ -399,6 +399,15 @@ impl AppModel {
                 settings.appearance.agents_panel_icon = icon;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::AgentsPanelOption(key, value) => {
+                match key {
+                    "agents-panel-project-colors" => {
+                        settings.appearance.agents_panel_project_colors = value;
+                    }
+                    _ => return Ok(()),
+                }
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::SidebarVibrancy(value) => {
                 settings.appearance.sidebar_vibrancy = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
@@ -966,7 +975,7 @@ fn change_id(change: &Change) -> &str {
         Change::SidebarVibrancy(_) => "sidebar-vibrancy",
         Change::ExtensionSidebar(_) => "extension-sidebar",
         Change::Language(_) => "app-language",
-        Change::Worktrees(key, _) => key,
+        Change::Worktrees(key, _) | Change::AgentsPanelOption(key, _) => key,
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
         Change::AgentsPanel(_) => "agents-panel",
         Change::AgentsPanelGrouping(_) => "agents-panel-grouping",

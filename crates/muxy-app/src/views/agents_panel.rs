@@ -121,16 +121,41 @@ fn trailing(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     }
 }
 
-fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+fn root_project<'a>(entry: &Entry, model: &'a AppModel) -> Option<&'a muxy_app_core::Project> {
     let project = match entry {
         Entry::Agent(agent) => agent.project,
         Entry::Worktree { project, .. } => *project,
     };
     let project = model.state.project(project)?;
-    let root = project
-        .parent_id
-        .and_then(|parent| model.state.project(parent))
-        .unwrap_or(project);
+    Some(
+        project
+            .parent_id
+            .and_then(|parent| model.state.project(parent))
+            .unwrap_or(project),
+    )
+}
+
+fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    if !model.appearance.agents_panel_project_colors {
+        return None;
+    }
+    let root = root_project(entry, model)?;
+    let m = model.metrics;
+    let key = entry.key();
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-color-{key}"))
+            .flex_none()
+            .w(m.scaled(3.0))
+            .h(m.icon_xl())
+            .rounded_full()
+            .bg(super::sidebar::project_color(root, model))
+            .into_any_element(),
+    )
+}
+
+fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    let root = root_project(entry, model)?;
     let key = entry.key();
     Some(
         div()
@@ -161,6 +186,7 @@ fn leading(entry: &Entry, owner: gpui::EntityId, model: &AppModel) -> AnyElement
         .flex()
         .items_center()
         .gap(m.spacing2())
+        .children(project_stripe(entry, model))
         .child(status_glyph(key, entry.status(), owner, model))
         .children(icon)
         .into_any_element()

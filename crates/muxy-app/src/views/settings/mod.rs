@@ -122,6 +122,7 @@ pub(crate) enum Change {
     AgentsPanel(bool),
     AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
     AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
+    AgentsPanelOption(&'static str, bool),
     StatusBar(bool),
     Tips(bool),
     ConfirmProcess(bool),

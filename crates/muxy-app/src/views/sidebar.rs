@@ -979,6 +979,14 @@ pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -
         .into_any_element()
 }
 
+pub(crate) fn project_color(project: &Project, model: &AppModel) -> gpui::Rgba {
+    if project.home && project.server_id.is_local() {
+        model.theme.accent.to_rgb()
+    } else {
+        parse_hex(project.color.as_str()).unwrap_or(gpui::rgb(0x80_80_80))
+    }
+}
+
 pub(crate) fn project_tile(
     project: &Project,
     model: &AppModel,
@@ -987,11 +995,7 @@ pub(crate) fn project_tile(
 ) -> AnyElement {
     let m = model.metrics;
     let scale = f32::from(size) / f32::from(m.icon_xxl());
-    let color = if project.home && project.server_id.is_local() {
-        model.theme.accent.to_rgb()
-    } else {
-        parse_hex(project.color.as_str()).unwrap_or(gpui::rgb(0x80_80_80))
-    };
+    let color = project_color(project, model);
     let foreground = contrasting_foreground(color);
     let glyph = if let Some((_, logo)) = model.project_logos.get(&project.id) {
         gpui::img(logo.clone())

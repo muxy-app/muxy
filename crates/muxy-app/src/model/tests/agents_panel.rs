@@ -285,11 +285,15 @@ fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppCon
         (AgentsPanelDock::Left, false, false),
         (AgentsPanelDock::Left, true, true),
     ] {
-        for (grouping, icon) in [
-            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Agent),
-            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Project),
-            (AgentsPanelGrouping::Worktrees, AgentsPanelIcon::Agent),
-            (AgentsPanelGrouping::Worktrees, AgentsPanelIcon::Project),
+        for (grouping, icon, colors) in [
+            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Agent, true),
+            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Project, true),
+            (AgentsPanelGrouping::Worktrees, AgentsPanelIcon::Agent, true),
+            (
+                AgentsPanelGrouping::Worktrees,
+                AgentsPanelIcon::Project,
+                false,
+            ),
         ] {
             view.update(cx, |model, cx| {
                 model.appearance.agents_panel_visible = true;
@@ -298,6 +302,7 @@ fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppCon
                 model.appearance.agents_panel_detached = detached;
                 model.appearance.agents_panel_grouping = grouping;
                 model.appearance.agents_panel_icon = icon;
+                model.appearance.agents_panel_project_colors = colors;
                 model.appearance.agents_panel_right_width = Some(220.0);
                 model.appearance.agents_panel_frame = Some([80.0, 80.0, 220.0, 360.0]);
                 model.overlay = (!expanded).then_some(Overlay::Agents);
@@ -315,6 +320,15 @@ fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppCon
             let panel = cx.debug_bounds("agents-panel").expect("panel");
             let max_line_height = view.read_with(cx, |model, _| model.metrics.font_body() * 2.0);
             assert!(row.right() <= panel.right(), "card fits in the panel");
+            if colors {
+                let stripe = cx
+                    .debug_bounds(format!("agents-panel-color-{key}").leak())
+                    .expect("project color");
+                assert!(
+                    stripe.left() >= row.left() && stripe.bottom() <= row.bottom(),
+                    "project color fits inside the card"
+                );
+            }
             if icon == AgentsPanelIcon::Project {
                 let tile = cx
                     .debug_bounds(format!("agents-panel-project-{key}").leak())

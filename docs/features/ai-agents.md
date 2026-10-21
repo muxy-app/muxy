@@ -74,6 +74,8 @@ focus. Use the arrow keys and Return to open a row.
   the worktree.
 - **Settings → Appearance → Agents panel icon** shows each row's agent icon,
   or the icon of its project. Worktrees show their project's icon.
+- **Settings → Appearance → Show project colors** marks each row with its
+  project's color.
 
 ## Saved agent sessions
 

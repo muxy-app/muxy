@@ -206,6 +206,19 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel icon")) {
         rows.push(agents_panel_icon(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Show project colors")) {
+        let value = appearance.agents_panel_project_colors;
+        rows.push(pane.row(
+            "agents-panel-project-colors",
+            tr_key!("Show project colors"),
+            pane.toggle(
+                "agents-panel-project-colors",
+                value,
+                Change::AgentsPanelOption("agents-panel-project-colors", !value),
+                cx,
+            ),
+        ));
+    }
     if category == Category::General && pane.matches(category, tr_key!("Open files with")) {
         rows.push(pane.row(
             "file-opener",

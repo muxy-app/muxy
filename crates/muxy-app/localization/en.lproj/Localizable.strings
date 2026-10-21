@@ -820,6 +820,7 @@
 "Manage scheduled update…" = "Manage scheduled update…";
 "Manage the local server that keeps your terminal sessions running." = "Manage the local server that keeps your terminal sessions running.";
 "Manual Order" = "Manual Order";
+"Mark each agent with the color of the project it runs in." = "Mark each agent with the color of the project it runs in.";
 "Maximize" = "Maximize";
 "Maximize Pane" = "Maximize Pane";
 "Merge" = "Merge";
@@ -1291,6 +1292,7 @@
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
 "Show each agent's icon, or the icon of the project it runs in." = "Show each agent's icon, or the icon of the project it runs in.";
 "Show in File Manager" = "Show in File Manager";
+"Show project colors" = "Show project colors";
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
 "Show project names alongside their icons in the workspace sidebar." = "Show project names alongside their icons in the workspace sidebar.";
 "Show status bar" = "Show status bar";
