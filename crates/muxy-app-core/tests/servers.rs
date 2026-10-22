@@ -484,3 +484,47 @@ fn backups_leave_remote_projects_out_and_restoring_keeps_them() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn the_remote_servers_tab_opens_once_and_survives_a_restart() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let tab = state.show_servers_tab(home, "Remote Servers")?;
+    state.open_terminal_tab(home)?;
+    assert_eq!(
+        state.show_servers_tab(home, "Remote Servers")?,
+        tab,
+        "opening it again shows the one already open"
+    );
+    assert_eq!(state.window().selected_tab.get(&home), Some(&tab));
+    let pane = state.window().active_pane.ok_or("pane")?;
+    assert!(state.is_servers_pane(pane));
+
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    store::save(&path, &state)?;
+    let loaded = store::load(&path)?;
+    assert_eq!(loaded, state);
+    assert_eq!(loaded.servers_tab(), Some((home, tab)));
+    Ok(())
+}
+
+#[test]
+fn the_remote_servers_tab_moves_to_home_when_its_folder_is_gone() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let folder = directory.path().join("app");
+    std::fs::create_dir(&folder)?;
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let project = state.add_project(LOCAL, folder.clone())?;
+    let first = state.show_servers_tab(project, "Remote Servers")?;
+    assert_eq!(state.servers_tab(), Some((project, first)));
+
+    std::fs::rename(&folder, directory.path().join("moved"))?;
+    state.refresh_project_statuses();
+    let second = state.show_servers_tab(project, "Remote Servers")?;
+    assert_ne!(second, first, "the tab in the missing folder stays there");
+    assert_eq!(state.servers_tab(), Some((home, second)));
+    assert_eq!(state.current_project().id, home);
+    Ok(())
+}

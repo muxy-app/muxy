@@ -202,11 +202,18 @@ impl AppModel {
             self.open_project_picker(window, cx);
             return;
         }
-        let devices = self
-            .settings
-            .servers
-            .iter()
-            .map(|entry| Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id)))
+        let server = |entry: &muxy_app_core::settings::ServerEntry| {
+            Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id))
+        };
+        let devices = crate::model::by_group(&self.settings.servers, |entry| entry)
+            .into_iter()
+            .flat_map(|(group, entries)| match group {
+                Some(group) => vec![Item::submenu(
+                    group.to_owned(),
+                    entries.into_iter().map(server).collect(),
+                )],
+                None => entries.into_iter().map(server).collect(),
+            })
             .chain(std::iter::once(
                 Item::action(tr!("Manage Remote Servers…"), Command::ManageRemoteDevices)
                     .separated(),

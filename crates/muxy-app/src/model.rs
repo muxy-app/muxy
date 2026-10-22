@@ -20,7 +20,7 @@ mod reconnect;
 pub(crate) mod remote_files;
 mod remote_servers;
 pub(crate) use remote_servers::{
-    ConnectionTest, DeviceForm, Install, PendingRemote, RemoteIntent, RemoteServer,
+    ConnectionTest, DeviceForm, Install, PendingRemote, RemoteIntent, RemoteServer, by_group,
     join_destination, released_version, split_destination,
 };
 mod server_status;
@@ -139,6 +139,11 @@ pub(crate) struct AppModel {
     server_probe_generation: u64,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
+    /// Servers selected in the Remote Servers tab, and where a ⇧-click range
+    /// starts.
+    pub(crate) remote_selection: Vec<ServerId>,
+    pub(crate) remote_selection_anchor: Option<ServerId>,
+    pub(crate) servers_tab: crate::views::servers_tab::ServersTab,
     pub(crate) pending_remote: Option<PendingRemote>,
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
@@ -240,7 +245,11 @@ impl AppModel {
             });
         }
         self.refresh_quick_terminal(cx);
-        if let Some(input) = &self.agent_sessions.input {
+        let inputs = [
+            self.agent_sessions.input.as_ref(),
+            self.servers_tab.search_input(),
+        ];
+        for input in inputs.into_iter().flatten() {
             input.update(cx, |input, cx| {
                 input.set_style(
                     muxy_ui::text_input::InputStyle::compact(&self.theme, &self.metrics),
@@ -534,6 +543,9 @@ impl AppModel {
             server_probe_generation: 0,
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
+            remote_selection: Vec::new(),
+            remote_selection_anchor: None,
+            servers_tab: crate::views::servers_tab::ServersTab::new(cx),
             pending_remote: None,
             pending_folders: Vec::new(),
             remote_links: remote_files::RemoteLinks::default(),
@@ -608,6 +620,7 @@ impl AppModel {
             let _ = model.state.select_project(home);
         }
         model.sync_agents_panel(cx);
+        model.ensure_servers_search(cx);
         model.bind_extension_keys(cx);
         model.refresh_installed_extensions(cx);
         #[cfg(not(test))]
@@ -1429,7 +1442,10 @@ impl AppModel {
             .find(|pane| pane.id == id)
             .and_then(|pane| match pane.content {
                 PaneContent::Terminal { session } => session,
-                PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => None,
+                PaneContent::Settings
+                | PaneContent::Webview(_)
+                | PaneContent::Browser(_)
+                | PaneContent::Servers => None,
             })
     }
 

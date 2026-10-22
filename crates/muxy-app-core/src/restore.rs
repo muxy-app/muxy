@@ -42,7 +42,8 @@ pub fn plan(state: &AppState, server: ServerId, sessions: &[SessionInfo]) -> Res
             PaneContent::Terminal { session: None }
             | PaneContent::Settings
             | PaneContent::Webview(_)
-            | PaneContent::Browser(_) => {}
+            | PaneContent::Browser(_)
+            | PaneContent::Servers => {}
         }
     }
     plan

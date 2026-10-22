@@ -13,8 +13,12 @@ pub struct Pane {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PaneContent {
-    Terminal { session: Option<SessionId> },
+    Terminal {
+        session: Option<SessionId>,
+    },
     Settings,
     Webview(crate::webview::WebviewDescriptor),
     Browser(crate::browser::BrowserPane),
+    /// The Remote Servers tab, which manages other computers' servers.
+    Servers,
 }

@@ -36,6 +36,20 @@ On Linux hosts that end your processes when you log out, run
 - Passwords are asked when connecting and kept only in memory until you quit.
 - A dropped server reconnects on its own, waiting longer each time. It stops
   retrying when it needs you, for example for a password or a new host key.
+- Right-click a server in the **Remote** popover for its actions, or hover it
+  and use its pencil to edit it.
+- Put servers in a **Group** from **Add Server…** or **Edit…**, or with
+  **Move to Group** in their menu. The popover and **Add Project → Remote** list
+  them by group. In `settings.toml`, it is `group = "…"`.
+- **Manage Servers…** opens the **Remote Servers** tab, with every server by
+  group:
+  - Tick servers' boxes, or **Select all**, to act on several; `Shift`-click a
+    box to tick a range. The bar above the list connects, disconnects,
+    regroups, or forgets the ticked servers, and so does right-clicking one.
+  - Each group heading connects its servers, and renames or deletes the group.
+    Deleting a group keeps its servers.
+- **Disconnect** hangs up without ending terminals there. The server stays
+  disconnected until you connect it or open one of its projects.
 - **Forget** a server to remove it and its projects from this app. Nothing on
   the server changes.
 - The status bar shows the current project's server, with connect, restart, and

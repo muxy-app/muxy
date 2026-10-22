@@ -509,6 +509,9 @@ fn split_bounds(
 }
 
 fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    if !model.grids.contains_key(&id) && model.state.is_servers_pane(id) {
+        return super::servers_tab::render(id, model, cx);
+    }
     if let Some(surface) = model.webviews.panes.get(&id) {
         return surface.view.clone().into_any_element();
     }

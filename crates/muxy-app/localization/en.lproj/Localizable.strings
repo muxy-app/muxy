@@ -67,6 +67,7 @@
 "%lld offline" = "%lld offline";
 "%lld passed" = "%lld passed";
 "%lld running" = "%lld running";
+"%lld selected" = "%lld selected";
 "%lld unread notifications" = "%lld unread notifications";
 "%lld working" = "%lld working";
 "%lld%%" = "%lld%%";
@@ -113,6 +114,7 @@
 "Add Remote Server" = "Add Remote Server";
 "Add Server…" = "Add Server…";
 "Add a GitHub remote named origin to open a pull request" = "Add a GitHub remote named origin to open a pull request";
+"Add a computer you reach over SSH to work with its projects here." = "Add a computer you reach over SSH to work with its projects here.";
 "Add space between terminal lines using pixels or a percentage, such as 10%%." = "Add space between terminal lines using pixels or a percentage, such as 10%%.";
 "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"" = "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"";
 "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged." = "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged.";
@@ -381,6 +383,7 @@
 "Conflict" = "Conflict";
 "Conflicts" = "Conflicts";
 "Connect" = "Connect";
+"Connect %lld Servers" = "Connect %lld Servers";
 "Connect to server" = "Connect to server";
 "Connect to the server before changing mobile access" = "Connect to the server before changing mobile access";
 "Connect to the server before editing its settings" = "Connect to the server before editing its settings";
@@ -526,10 +529,13 @@
 "Default worktree folder" = "Default worktree folder";
 "Default worktree path template" = "Default worktree path template";
 "Delete" = "Delete";
+"Delete Group?" = "Delete Group?";
+"Delete Group…" = "Delete Group…";
 "Delete Workspace?" = "Delete Workspace?";
 "Delete Workspace…" = "Delete Workspace…";
 "Delete “%@”?" = "Delete “%@”?";
 "Delete “%@”? Its projects will not be removed." = "Delete “%@”? Its projects will not be removed.";
+"Delete “%@”? Its servers will not be removed." = "Delete “%@”? Its servers will not be removed.";
 "Deny & Remember" = "Deny & Remember";
 "Desktop notifications are not available on this platform yet." = "Desktop notifications are not available on this platform yet.";
 "Desktop notifications need Muxy to run from its app bundle." = "Desktop notifications need Muxy to run from its app bundle.";
@@ -549,6 +555,8 @@
 "Discard" = "Discard";
 "Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved." = "Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.";
 "Discard the draft when closing Composer or switching projects." = "Discard the draft when closing Composer or switching projects.";
+"Disconnect" = "Disconnect";
+"Disconnect %lld Servers" = "Disconnect %lld Servers";
 "Disconnected" = "Disconnected";
 "Disconnected before settings were confirmed. Reconnect and reload before retrying." = "Disconnected before settings were confirmed. Reconnect and reload before retrying.";
 "Dismiss" = "Dismiss";
@@ -583,6 +591,7 @@
 "English is built in. Additional languages can be provided by enabled extensions." = "English is built in. Additional languages can be provided by enabled extensions.";
 "Enter a branch name." = "Enter a branch name.";
 "Enter a commit message of up to 10,000 characters" = "Enter a commit message of up to 10,000 characters";
+"Enter a group name" = "Enter a group name";
 "Enter a path on %@…" = "Enter a path on %@…";
 "Enter a summary of up to 10,000 characters" = "Enter a summary of up to 10,000 characters";
 "Enter a title of up to 256 characters" = "Enter a title of up to 256 characters";
@@ -657,12 +666,15 @@
 "For example ../{base-dir}.{branch}. Must include {branch}; also supports {project-name}. Relative paths start in the project folder. Overrides the default folder." = "For example ../{base-dir}.{branch}. Must include {branch}; also supports {project-name}. Relative paths start in the project folder. Overrides the default folder.";
 "Forget" = "Forget";
 "Forget %@?" = "Forget %@?";
+"Forget %lld Servers?" = "Forget %lld Servers?";
 "Forward" = "Forward";
 "General" = "General";
 "Global X11 shortcuts cannot cover a Wayland desktop." = "Global X11 shortcuts cannot cover a Wayland desktop.";
 "Global folder: %@" = "Global folder: %@";
 "Global template: %@" = "Global template: %@";
 "Green" = "Green";
+"Group" = "Group";
+"Group Actions" = "Group Actions";
 "Has an update" = "Has an update";
 "Height" = "Height";
 "Height in pixels for a new workspace window when no saved bounds exist." = "Height in pixels for a new workspace window when no saved bounds exist.";
@@ -845,12 +857,15 @@
 "Mobile" = "Mobile";
 "Mobile access error" = "Mobile access error";
 "Mobile settings may contain only enabled and port" = "Mobile settings may contain only enabled and port";
+"More Actions" = "More Actions";
 "More Composer Actions" = "More Composer Actions";
 "More languages" = "More languages";
 "Mouse wheel scroll speed" = "Mouse wheel scroll speed";
 "Move %@.app to Applications and reopen it before installing its command line tool." = "Move %@.app to Applications and reopen it before installing its command line tool.";
 "Move %@.app to Applications and reopen it before updating" = "Move %@.app to Applications and reopen it before updating";
 "Move to Bottom" = "Move to Bottom";
+"Move to Group" = "Move to Group";
+"Move to Group…" = "Move to Group…";
 "Move to Left Sidebar" = "Move to Left Sidebar";
 "Move to Right" = "Move to Right";
 "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there." = "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there.";
@@ -889,6 +904,8 @@
 "New Branch" = "New Branch";
 "New Branch…" = "New Branch…";
 "New Browser Tab" = "New Browser Tab";
+"New Group" = "New Group";
+"New Group…" = "New Group…";
 "New Home Tab" = "New Home Tab";
 "New Tab" = "New Tab";
 "New Tab (⌘T)" = "New Tab (⌘T)";
@@ -907,6 +924,7 @@
 "Next Tab" = "Next Tab";
 "Next Tip" = "Next Tip";
 "Next match" = "Next match";
+"No Group" = "No Group";
 "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead." = "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.";
 "No Shortcut" = "No Shortcut";
 "No agent sessions in this project" = "No agent sessions in this project";
@@ -924,6 +942,7 @@
 "No matching extensions" = "No matching extensions";
 "No matching folders" = "No matching folders";
 "No matching languages" = "No matching languages";
+"No matching servers" = "No matching servers";
 "No matching sessions" = "No matching sessions";
 "No matching terminals" = "No matching terminals";
 "No matching worktrees" = "No matching worktrees";
@@ -939,6 +958,7 @@
 "No pending updates." = "No pending updates.";
 "No permissions requested." = "No permissions requested.";
 "No providers selected" = "No providers selected";
+"No remote servers yet" = "No remote servers yet";
 "No remote servers yet." = "No remote servers yet.";
 "No saved rules. When you choose to remember an answer to a permission request, it appears here." = "No saved rules. When you choose to remember an answer to a permission request, it appears here.";
 "No settings found. Try another search." = "No settings found. Try another search.";
@@ -1083,6 +1103,7 @@
 "Rebase and Merge" = "Rebase and Merge";
 "Recently Active" = "Recently Active";
 "Reconnect" = "Reconnect";
+"Reconnect %lld Servers" = "Reconnect %lld Servers";
 "Reconnect to load project layouts" = "Reconnect to load project layouts";
 "Reconnect to see existing terminals" = "Reconnect to see existing terminals";
 "Reconnect to use Git" = "Reconnect to use Git";
@@ -1107,10 +1128,12 @@
 "Remote Servers…" = "Remote Servers…";
 "Remote project on %@" = "Remote project on %@";
 "Remove" = "Remove";
+"Remove %lld Servers…" = "Remove %lld Servers…";
 "Remove Icon" = "Remove Icon";
 "Remove Logo" = "Remove Logo";
 "Remove Project?" = "Remove Project?";
 "Remove Project…" = "Remove Project…";
+"Remove Server…" = "Remove Server…";
 "Remove Worktree and Files…" = "Remove Worktree and Files…";
 "Remove Worktree?" = "Remove Worktree?";
 "Remove Worktree…" = "Remove Worktree…";
@@ -1125,6 +1148,8 @@
 "Remove…" = "Remove…";
 "Removing worktree" = "Removing worktree";
 "Removing…" = "Removing…";
+"Rename Group" = "Rename Group";
+"Rename Group…" = "Rename Group…";
 "Rename Project" = "Rename Project";
 "Rename Tab" = "Rename Tab";
 "Rename Workspace" = "Rename Workspace";
@@ -1147,6 +1172,7 @@
 "Restart" = "Restart";
 "Restart Server" = "Restart Server";
 "Restart Server?" = "Restart Server?";
+"Restart Server…" = "Restart Server…";
 "Restart server…" = "Restart server…";
 "Restart the Server on %@?" = "Restart the Server on %@?";
 "Restart the app to install the update. Your terminal sessions will keep running. You can update the server afterward." = "Restart the app to install the update. Your terminal sessions will keep running. You can update the server afterward.";
@@ -1218,6 +1244,7 @@
 "Search options…" = "Search options…";
 "Search or enter address" = "Search or enter address";
 "Search providers…" = "Search providers…";
+"Search servers…" = "Search servers…";
 "Search sessions…" = "Search sessions…";
 "Search settings…" = "Search settings…";
 "Search sidebars…" = "Search sidebars…";
@@ -1323,6 +1350,7 @@
 "Stop" = "Stop";
 "Stop Server" = "Stop Server";
 "Stop Server?" = "Stop Server?";
+"Stop Server…" = "Stop Server…";
 "Stop server…" = "Stop server…";
 "Stop the Server on %@?" = "Stop the Server on %@?";
 "Stopped" = "Stopped";
@@ -1418,6 +1446,7 @@
 "The user data folder is unavailable. Set XDG_DATA_HOME or HOME to use offline dictation." = "The user data folder is unavailable. Set XDG_DATA_HOME or HOME to use offline dictation.";
 "The working tree is clean" = "The working tree is clean";
 "The working tree is clean." = "The working tree is clean.";
+"Their projects and layouts leave this app; nothing on the servers changes." = "Their projects and layouts leave this app; nothing on the servers changes.";
 "Theme %@ needs valid background and foreground colors" = "Theme %@ needs valid background and foreground colors";
 "Theme Picker" = "Theme Picker";
 "Themes" = "Themes";
@@ -1479,6 +1508,7 @@
 "Unexpected layout file response" = "Unexpected layout file response";
 "Unexpected remote branches reply" = "Unexpected remote branches reply";
 "Unexpected update download location" = "Unexpected update download location";
+"Ungrouped" = "Ungrouped";
 "Uninstall" = "Uninstall";
 "Uninstalling…" = "Uninstalling…";
 "Unknown app setting" = "Unknown app setting";

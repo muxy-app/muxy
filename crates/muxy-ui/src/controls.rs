@@ -79,6 +79,61 @@ pub fn toggle(
         .into_any_element()
 }
 
+/// A box ticked when `checked`. `mixed` shows a dash instead, for a box that
+/// stands for several where only some are ticked.
+pub fn checkbox(
+    style: Style,
+    id: &str,
+    checked: bool,
+    mixed: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let Style { theme, metrics } = style;
+    let on = checked || mixed;
+    div()
+        .id(SharedString::from(format!("checkbox-{id}")))
+        .debug_selector({
+            let selector = format!("checkbox-{id}");
+            move || selector.clone()
+        })
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(metrics.scaled(16.0))
+        .rounded(metrics.radius_sm())
+        .cursor_pointer()
+        .bg(if on { theme.accent } else { theme.surface })
+        .border_1()
+        .border_color(if on {
+            theme.accent
+        } else {
+            theme.border_solid()
+        })
+        .when(checked, |checkbox| {
+            checkbox.child(crate::components::IconGlyph::new(
+                crate::icon::Icon::Check,
+                metrics.scaled(12.0),
+                theme.accent_foreground,
+            ))
+        })
+        .when(mixed && !checked, |checkbox| {
+            checkbox.child(
+                div()
+                    .w(metrics.scaled(8.0))
+                    .h(metrics.scaled(2.0))
+                    .rounded_full()
+                    .bg(theme.accent_foreground),
+            )
+        })
+        .focus(|focus| focus.border_color(theme.accent))
+        // Like a macOS checkbox, a click ticks it without focusing it; Tab
+        // still does.
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+        .button_interaction(on_click)
+        .into_any_element()
+}
+
 pub fn button(
     style: Style,
     id: &str,

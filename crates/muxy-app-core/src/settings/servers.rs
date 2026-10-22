@@ -26,6 +26,9 @@ pub struct ServerEntry {
     /// Logs in with a password, which the app asks for and never saves.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub password_login: bool,
+    /// The group the app lists it under; `None` leaves it ungrouped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 impl ServerEntry {
@@ -37,6 +40,7 @@ impl ServerEntry {
             ssh_command: None,
             identity_file: None,
             password_login: false,
+            group: None,
         }
     }
 
@@ -85,6 +89,14 @@ impl ServerEntry {
                 "enter an identity file path without control characters",
             ));
         }
+        if self.group.as_ref().is_some_and(|group| {
+            group.trim().is_empty() || group.len() > 256 || group.chars().any(char::is_control)
+        }) {
+            return Err(Error::new(
+                "servers",
+                "enter a group name of 1–256 bytes without control characters",
+            ));
+        }
         Ok(())
     }
 }
@@ -115,12 +127,71 @@ impl Settings {
         Ok(())
     }
 
-    pub fn remove_server(&mut self, id: ServerId, path: &Path) -> Result<()> {
+    pub fn remove_servers(&mut self, ids: &[ServerId], path: &Path) -> Result<()> {
         self.servers = edit_servers(path, |servers| {
-            servers.retain(|server| server.id != id);
+            servers.retain(|server| !ids.contains(&server.id));
             Ok(())
         })?;
         Ok(())
+    }
+
+    /// Moves the listed servers into `group`, or out of theirs, in their
+    /// order, before `before` or at the end. Servers no longer listed are
+    /// skipped.
+    pub fn place_servers(
+        &mut self,
+        ids: &[ServerId],
+        group: Option<&str>,
+        before: Option<ServerId>,
+        path: &Path,
+    ) -> Result<()> {
+        self.servers = edit_servers(path, |servers| {
+            let (mut moved, mut kept): (Vec<_>, Vec<_>) = std::mem::take(servers)
+                .into_iter()
+                .partition(|server| ids.contains(&server.id));
+            for server in &mut moved {
+                server.group = group.map(str::to_owned);
+            }
+            let at = before
+                .and_then(|before| kept.iter().position(|server| server.id == before))
+                .unwrap_or(kept.len());
+            kept.splice(at..at, moved);
+            *servers = kept;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Puts each listed server in `group`, or none, where it is. Servers no
+    /// longer listed are skipped.
+    pub fn set_servers_group(
+        &mut self,
+        ids: &[ServerId],
+        group: Option<&str>,
+        path: &Path,
+    ) -> Result<()> {
+        self.servers = edit_servers(path, |servers| {
+            for server in servers.iter_mut().filter(|server| ids.contains(&server.id)) {
+                server.group = group.map(str::to_owned);
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Every group a server is in, in the order they are listed.
+    pub fn server_groups(&self) -> Vec<&str> {
+        let mut groups = Vec::new();
+        for group in self
+            .servers
+            .iter()
+            .filter_map(|server| server.group.as_deref())
+        {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        groups
     }
 
     pub(super) fn validate_servers(&self) -> Result<()> {

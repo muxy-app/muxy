@@ -147,6 +147,16 @@ pub(crate) async fn prompt_forget_server(
     server_prompt(window, &title, &tr!("Forget"), &message, cx).await
 }
 
+pub(crate) async fn prompt_forget_servers(
+    window: AnyWindowHandle,
+    count: usize,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = tr!("Forget %lld Servers?", count);
+    let message = tr!("Their projects and layouts leave this app; nothing on the servers changes.");
+    server_prompt(window, &title, &tr!("Forget"), &message, cx).await
+}
+
 pub(crate) async fn prompt_revoke(
     window: AnyWindowHandle,
     device: &str,

@@ -1137,6 +1137,12 @@ impl AppModel {
         if matches!(pane.content, PaneContent::Browser(_)) {
             return Some(self.browser_glyph(pane.id, size, foreground, cx));
         }
+        if pane.content == PaneContent::Servers {
+            return Some(
+                muxy_ui::components::IconGlyph::new(muxy_ui::icon::Icon::Network, size, foreground)
+                    .into_any_element(),
+            );
+        }
         if !matches!(pane.content, PaneContent::Webview(_)) {
             return None;
         }

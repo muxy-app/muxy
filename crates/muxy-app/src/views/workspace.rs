@@ -280,6 +280,15 @@ impl AppModel {
             return;
         }
         self.blur_webviews(cx);
+        if self
+            .active_pane()
+            .is_some_and(|pane| self.state.is_servers_pane(pane))
+        {
+            if !self.servers_tab.focus.contains_focused(window, cx) {
+                self.servers_tab.focus.focus(window);
+            }
+            return;
+        }
         if let Some(surface) = self
             .active_pane()
             .and_then(|id| self.webviews.panes.get(&id))

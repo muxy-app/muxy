@@ -32,6 +32,13 @@ impl Retry {
         self.held = false;
     }
 
+    /// The user hung up: nothing connects until Connect, or until one of its
+    /// projects is opened.
+    pub(super) fn hold(&mut self) {
+        self.timer = None;
+        self.held = true;
+    }
+
     /// A connection came: the next drop starts waiting from the shortest.
     pub(super) fn connected(&mut self) {
         self.attempts = 0;

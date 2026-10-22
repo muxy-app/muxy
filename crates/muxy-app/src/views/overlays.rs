@@ -83,7 +83,10 @@ impl AppModel {
         if matches!(self.overlay, Some(Overlay::Password(_))) {
             self.pending_remote = None;
         }
-        self.focus_return = match self.overlay.take() {
+        let closed = self.overlay.take();
+        let back_to_remote =
+            matches!(&closed, Some(Overlay::Menu(menu)) if menu.over_remote_servers);
+        self.focus_return = match closed {
             Some(Overlay::Menu(menu)) => menu.returns_focus_to,
             Some(Overlay::SessionProviders) if self.appearance.agent_sessions_visible => self
                 .agent_sessions
@@ -94,6 +97,9 @@ impl AppModel {
         };
         self.overlay_subscription = None;
         self.focus_requested = true;
+        if back_to_remote {
+            self.overlay = Some(Overlay::RemoteServers);
+        }
         cx.notify();
     }
 
@@ -123,6 +129,16 @@ fn marked(content: AnyElement, model: &AppModel) -> AnyElement {
         .child(content)
         .child(model.webview_occlusion())
         .into_any_element()
+}
+
+/// The Remote popover above the sidebar's Remote section.
+fn remote_servers(content: AnyElement, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let content = marked(content, model);
+    let anchor = model.remote_anchor.clone();
+    let model = cx.entity().downgrade();
+    muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
+        let _ = model.update(cx, AppModel::dismiss_overlay);
+    })
 }
 
 fn centered(content: AnyElement) -> AnyElement {
@@ -181,12 +197,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             })
         }
         Some(Overlay::RemoteServers) => {
-            let content = marked(super::remote_servers::popover(model, window, cx), model);
-            let anchor = model.remote_anchor.clone();
-            let model = cx.entity().downgrade();
-            muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
-                let _ = model.update(cx, AppModel::dismiss_overlay);
-            })
+            remote_servers(super::remote_servers::popover(model, window, cx), model, cx)
         }
         Some(Overlay::Agents) => super::agents_panel::popup(model, window, cx),
         Some(Overlay::SessionProviders) => {
@@ -250,6 +261,40 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                 },
             )
         }
+        Some(Overlay::Menu(menu)) if menu.over_remote_servers => div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .child(remote_servers(
+                super::remote_servers::list(model, window, cx).into_any_element(),
+                model,
+                cx,
+            ))
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .occlude()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|model, _, _, cx| {
+                            model.dismiss_overlay(cx);
+                            cx.stop_propagation();
+                        }),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|model, _, _, cx| {
+                            model.dismiss_overlay(cx);
+                            cx.stop_propagation();
+                        }),
+                    ),
+            )
+            .child(menu::render(menu, model, window, cx))
+            .into_any_element(),
         Some(Overlay::Menu(menu)) => menu::render(menu, model, window, cx),
         Some(Overlay::ProjectEditor(editor)) => {
             super::project_editor::render(editor, model, window, cx)

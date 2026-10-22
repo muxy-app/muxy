@@ -7,7 +7,9 @@ use muxy_app_core::settings::{ServerEntry, Settings};
 
 mod commands;
 mod forms;
+mod groups;
 mod picker;
+mod tab;
 
 /// A stub boot listing `servers`, both in settings and in its settings.toml.
 fn boot_with(servers: Vec<ServerEntry>) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>, Remotes) {
@@ -113,7 +115,9 @@ fn remote_devices_are_added_edited_and_forgotten_in_settings_and_the_runtime(
     );
 
     view.update(cx, |model, cx| {
-        model.forget_remote_server(device, cx).expect("forgotten");
+        model
+            .forget_remote_servers(&[device], cx)
+            .expect("forgotten");
         assert!(listed(&path).iter().all(|entry| entry.id != device));
         assert!(model.server_name(device).is_none());
         assert!(model.servers.get(device).is_none());
@@ -335,7 +339,7 @@ fn saving_a_device_also_takes_in_devices_edited_by_hand(cx: &mut TestAppContext)
     );
 
     Settings::default()
-        .remove_server(by_hand.id, &path)
+        .remove_servers(&[by_hand.id], &path)
         .expect("hand edit");
     view.update(cx, |model, cx| {
         model
@@ -619,7 +623,9 @@ fn a_remote_home_tab_waits_for_the_password_and_opens_once_connected(cx: &mut Te
         let tabs = model.state.project(home).expect("Home").tabs.len();
         assert_eq!(tabs, 1, "a later catalog opens no other tab");
 
-        model.forget_remote_server(remote, cx).expect("forgotten");
+        model
+            .forget_remote_servers(&[remote], cx)
+            .expect("forgotten");
         assert!(!model.state.remote_servers_selected());
         assert!(model.project_listed(model.state.current_project()));
     });

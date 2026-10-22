@@ -10,6 +10,7 @@ use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
 
 use super::overlays::{Overlay, clamp};
+use super::server_menu::Servers;
 use crate::model::AppModel;
 
 #[derive(Clone, Copy, Debug)]
@@ -24,6 +25,10 @@ enum Target {
     Tab(TabId),
     Workspace(WorkspaceId),
     NewWorkspace(Option<ProjectId>),
+    /// A new remote server group for these servers.
+    NewServerGroup(Servers),
+    /// The remote server group at an index of `Settings::server_groups`.
+    ServerGroup(usize),
 }
 
 pub(crate) struct Editor {
@@ -98,6 +103,30 @@ impl AppModel {
         self.open_metadata_editor(target, String::new(), position, window, cx);
     }
 
+    pub(crate) fn open_server_group_editor(
+        &mut self,
+        servers: Servers,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = Target::NewServerGroup(servers);
+        self.open_metadata_editor(target, String::new(), position, window, cx);
+    }
+
+    pub(crate) fn open_group_rename_editor(
+        &mut self,
+        index: usize,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(group) = self.settings.server_groups().get(index) {
+            let text = (*group).to_owned();
+            self.open_metadata_editor(Target::ServerGroup(index), text, position, window, cx);
+        }
+    }
+
     fn open_metadata_editor(
         &mut self,
         target: Target,
@@ -149,6 +178,10 @@ impl AppModel {
                 }
                 created.is_some()
             }
+            Target::NewServerGroup(servers) => self.name_server_group(servers, &text, cx),
+            Target::ServerGroup(index) => {
+                self.name_server_group(Servers::Group(Some(index)), &text, cx)
+            }
         };
         if saved {
             self.dismiss_overlay(cx);
@@ -186,6 +219,8 @@ pub(crate) fn render(
                 Target::Project(_) => tr!("Rename Project"),
                 Target::Workspace(_) => tr!("Rename Workspace"),
                 Target::NewWorkspace(_) => tr!("New Workspace"),
+                Target::NewServerGroup(_) => tr!("New Group"),
+                Target::ServerGroup(_) => tr!("Rename Group"),
             }),
         )
         .child(
@@ -225,11 +260,16 @@ pub(crate) fn render(
                         .bg(theme.accent)
                         .text_color(theme.accent_foreground)
                         .text_size(m.font_body())
-                        .child(if matches!(editor.target, Target::NewWorkspace(_)) {
-                            tr!("Create")
-                        } else {
-                            tr!("Save")
-                        })
+                        .child(
+                            if matches!(
+                                editor.target,
+                                Target::NewWorkspace(_) | Target::NewServerGroup(_)
+                            ) {
+                                tr!("Create")
+                            } else {
+                                tr!("Save")
+                            },
+                        )
                         .on_click(cx.listener(|model, _, _, cx| model.submit_project_editor(cx))),
                 ),
         )

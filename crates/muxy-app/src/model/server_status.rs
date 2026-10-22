@@ -50,7 +50,7 @@ impl AppModel {
         self.control_enabled(self.status_server())
     }
 
-    pub(super) fn control_enabled(&self, server: ServerId) -> bool {
+    pub(crate) fn control_enabled(&self, server: ServerId) -> bool {
         self.server_actions_enabled(server) && self.ready(server)
     }
 

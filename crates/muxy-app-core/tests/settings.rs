@@ -566,6 +566,7 @@ fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
             ssh_command: None,
             identity_file: None,
             password_login: false,
+            group: None,
         }]
     );
     assert_eq!(
@@ -608,13 +609,134 @@ fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
     let backup: Settings = toml::from_str(&muxy_app_core::backup::settings_source(&loaded)?)?;
     assert_eq!(backup.servers, settings.servers);
 
-    settings.remove_server(first, &path)?;
+    settings.remove_servers(&[first], &path)?;
     assert_eq!(server_names(&settings), ["builder", "hand"]);
-    settings.remove_server(build.id, &path)?;
-    settings.remove_server(hand.id, &path)?;
+    settings.remove_servers(&[build.id, hand.id], &path)?;
     assert!(settings.servers.is_empty());
     assert!(!fs::read_to_string(&path)?.contains("servers"));
     assert!(!Settings::load(&path)?.window.confirm_running_process);
+    Ok(())
+}
+
+#[test]
+fn server_groups_are_set_in_one_write_and_keep_hand_edits() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    let api = ServerEntry::new("api".into(), "deploy@api".into());
+    let db = ServerEntry::new("db".into(), "deploy@db".into());
+    let devbox = ServerEntry {
+        group: Some("personal".into()),
+        ..ServerEntry::new("devbox".into(), "me@devbox".into())
+    };
+    for server in [&api, &db, &devbox] {
+        settings.add_server(server.clone(), &path)?;
+    }
+    let source = fs::read_to_string(&path)?;
+    assert_eq!(
+        source.matches("group = ").count(),
+        1,
+        "no group is left out"
+    );
+    let hand = ServerEntry::new("hand".into(), "hand@host".into());
+    fs::write(
+        &path,
+        format!(
+            "{source}\n[[servers]]\nid = \"{}\"\nname = \"hand\"\nssh = \"hand@host\"\ngroup = \"Production\"\n",
+            hand.id
+        ),
+    )?;
+
+    settings.set_servers_group(&[api.id, db.id, ServerId::new()], Some("Production"), &path)?;
+    let loaded = Settings::load(&path)?;
+    assert_eq!(loaded.servers, settings.servers);
+    assert_eq!(server_names(&loaded), ["api", "db", "devbox", "hand"]);
+    assert_eq!(loaded.server_groups(), ["Production", "personal"]);
+    let backup: Settings = toml::from_str(&muxy_app_core::backup::settings_source(&loaded)?)?;
+    assert_eq!(backup.servers, loaded.servers);
+
+    settings.set_servers_group(&[devbox.id, hand.id], None, &path)?;
+    assert_eq!(Settings::load(&path)?.server_groups(), ["Production"]);
+    let before = fs::read_to_string(&path)?;
+    for invalid in ["", " ", "Prod\u{7}", &"g".repeat(257)] {
+        assert!(
+            settings
+                .set_servers_group(&[api.id], Some(invalid), &path)
+                .is_err(),
+            "{invalid:?}"
+        );
+        assert_eq!(fs::read_to_string(&path)?, before);
+    }
+    settings.set_servers_group(&[api.id], Some(" Spaced "), &path)?;
+    let spaced = Settings::load(&path)?;
+    assert_eq!(
+        spaced
+            .server(api.id)
+            .and_then(|server| server.group.as_deref()),
+        Some(" Spaced "),
+        "a hand-written group with spaces still loads"
+    );
+    assert!(!spaced.window.confirm_running_process);
+    Ok(())
+}
+
+#[test]
+fn servers_are_placed_and_regrouped_in_one_write_in_listed_order() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    let server = |name: &str, group: Option<&str>| ServerEntry {
+        group: group.map(str::to_owned),
+        ..ServerEntry::new(name.into(), format!("dev@{name}"))
+    };
+    let (a, b, c, d) = (
+        server("a", None),
+        server("b", Some("Build")),
+        server("c", Some("Build")),
+        server("d", Some("Deploy")),
+    );
+    for entry in [&a, &b, &c, &d] {
+        settings.add_server(entry.clone(), &path)?;
+    }
+    let listed = |settings: &Settings| -> Vec<(String, Option<String>)> {
+        settings
+            .servers
+            .iter()
+            .map(|server| (server.name.clone(), server.group.clone()))
+            .collect()
+    };
+    let named = |name: &str, group: Option<&str>| (name.to_owned(), group.map(str::to_owned));
+
+    settings.place_servers(&[d.id], Some("Build"), Some(c.id), &path)?;
+    assert_eq!(
+        listed(&settings),
+        [
+            named("a", None),
+            named("b", Some("Build")),
+            named("d", Some("Build")),
+            named("c", Some("Build")),
+        ]
+    );
+    settings.place_servers(&[a.id, b.id], Some("Deploy"), None, &path)?;
+    assert_eq!(
+        listed(&settings),
+        [
+            named("d", Some("Build")),
+            named("c", Some("Build")),
+            named("a", Some("Deploy")),
+            named("b", Some("Deploy")),
+        ]
+    );
+    assert_eq!(settings.server_groups(), ["Build", "Deploy"]);
+    let loaded = Settings::load(&path)?;
+    assert_eq!(loaded.servers, settings.servers);
+    assert!(!loaded.window.confirm_running_process);
     Ok(())
 }
 

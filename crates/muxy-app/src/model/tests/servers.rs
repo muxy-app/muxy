@@ -10,6 +10,7 @@ pub(super) fn entry(id: ServerId, name: &str) -> ServerEntry {
         ssh_command: None,
         identity_file: None,
         password_login: false,
+        group: None,
     }
 }
 

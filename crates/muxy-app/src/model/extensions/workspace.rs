@@ -471,6 +471,7 @@ impl AppModel {
                         {
                             Some(PaneContent::Webview(_)) => "extensionWebView",
                             Some(PaneContent::Browser(_)) => "browser",
+                            Some(PaneContent::Servers) => "remoteServers",
                             _ => "terminal",
                         };
                         json!({

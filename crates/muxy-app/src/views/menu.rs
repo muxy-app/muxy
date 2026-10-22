@@ -77,6 +77,8 @@ pub(crate) enum Command {
     AddProject,
     AddRemoteProject(muxy_app_core::ServerId),
     ManageRemoteDevices,
+    /// A row of a remote server's menu, from the Remote popover or tab.
+    RemoteServers(super::server_menu::Servers, super::server_menu::Action),
     /// The open remote file link's menu: copy the file here and open it.
     OpenRemoteCopy,
     CopyRemotePath,
@@ -190,6 +192,9 @@ pub(crate) struct Menu {
     /// What takes the keyboard back when the menu closes, instead of the
     /// active pane.
     pub(crate) returns_focus_to: Option<gpui::WeakFocusHandle>,
+    /// It was opened from the Remote popover, which stays shown under it and
+    /// comes back when it closes.
+    pub(crate) over_remote_servers: bool,
     /// The root menu first, then one entry per open submenu, each opened from
     /// the row highlighted in the level before it.
     levels: Vec<Level>,
@@ -221,6 +226,7 @@ impl Menu {
             position,
             drops_from: None,
             returns_focus_to: None,
+            over_remote_servers: false,
             levels: vec![Level::default()],
             pointer: None,
             pending: None,
@@ -662,7 +668,11 @@ impl AppModel {
                 return;
             }
             Command::ManageRemoteDevices => {
-                self.open_remote_servers(None, window, cx);
+                self.open_servers_tab(window, cx);
+                return;
+            }
+            Command::RemoteServers(servers, action) => {
+                self.perform_server_menu(servers, action, position, window, cx);
                 return;
             }
             Command::OpenRemoteCopy => self.open_remote_copy(cx),

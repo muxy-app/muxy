@@ -317,6 +317,8 @@ pub(crate) enum Work {
         request: SearchRequest,
     },
     Connect,
+    /// Hangs up until the next Connect; the worker stays.
+    Disconnect,
     ReconnectAfterUpdate(u64),
     /// A connection attempt finished on its own thread.
     Connected(Box<Result<(Client, Vec<SessionInfo>), ClientError>>),
@@ -397,6 +399,7 @@ impl Work {
             Self::MutateProject(..) => "MutateProject",
             Self::Search { .. } => "Search",
             Self::Connect => "Connect",
+            Self::Disconnect => "Disconnect",
             Self::ReconnectAfterUpdate(..) => "ReconnectAfterUpdate",
             Self::Connected(..) => "Connected",
             Self::ReadServerSettings => "ReadServerSettings",
@@ -587,6 +590,17 @@ pub(crate) fn worker(
                             start_connect(&target, generation, &event_sender, after_update);
                         connecting = failed.is_empty();
                         failed
+                    }
+                    Work::Disconnect => {
+                        generation = requested;
+                        connecting = false;
+                        delivery = delivery::Delivery::default();
+                        requests.reset();
+                        held.clear();
+                        if let Some(client) = client.take() {
+                            Client::disconnect(&client);
+                        }
+                        Vec::new()
                     }
                     Work::Connected(connection) if requested != generation => {
                         if let Ok((stale, _)) = *connection {
@@ -1126,6 +1140,7 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         Work::CellSize(channel, cell) => client.send_cell_size(channel, cell),
         Work::Ack(channel, seq) => client.ack(channel, seq),
         Work::Connect
+        | Work::Disconnect
         | Work::ReconnectAfterUpdate(_)
         | Work::Connected(_)
         | Work::ExtensionClient(_)

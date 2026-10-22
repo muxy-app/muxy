@@ -921,9 +921,10 @@ impl AppState {
                 *current = session;
                 Ok(())
             }
-            PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => {
-                Err(AppError::NotTerminal(pane))
-            }
+            PaneContent::Settings
+            | PaneContent::Webview(_)
+            | PaneContent::Browser(_)
+            | PaneContent::Servers => Err(AppError::NotTerminal(pane)),
         }
     }
 

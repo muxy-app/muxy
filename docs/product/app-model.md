@@ -22,6 +22,11 @@ app offers to install the same version there; when its version can't talk to
 the app, the section explains how to update it. Removing a server only forgets
 its projects in this app.
 
+Servers can be put in groups. **Manage Servers…** opens the Remote Servers
+tab, which lists every server by group and connects, disconnects, regroups,
+or removes several at once. Disconnecting leaves a server's terminals running
+there.
+
 **New Tab in Project…** (⌘⇧N) lists local and remote projects. Picking one
 opens a tab there and switches workspace if needed; a remote server opens in
 its Home, connecting first if needed. Clicking a server in the Remote popover
