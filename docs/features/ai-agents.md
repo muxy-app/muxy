@@ -77,7 +77,8 @@ focus. Use the arrow keys and Return to open a row.
 - **Settings → Appearance → Show project colors** marks each row with its
   project's color.
 - **Settings → Appearance → Show idle time** shows how long ago each completed
-  or idle agent finished. It needs a finish the server saw since it started.
+  or idle agent finished. After the app restarts, an agent whose finish you
+  already saw shows no time until it finishes again.
 
 ## Saved agent sessions
 
