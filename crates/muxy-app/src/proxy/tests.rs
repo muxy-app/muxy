@@ -188,7 +188,13 @@ fn bypassed_hosts_and_subnets_are_reached_directly_by_http_and_ssh()
         ("::1", "::/64"),
     ] {
         for kind in [ProxyKind::Http, ProxyKind::Socks5] {
-            let listener = TcpListener::bind((host, 0))?;
+            let listener = match TcpListener::bind((host, 0)) {
+                Ok(listener) => listener,
+                Err(error) if host == "::1" && error.kind() == io::ErrorKind::AddrNotAvailable => {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             let address = listener.local_addr()?;
             let settings = ProxySettings {
                 bypass: bypass.into(),

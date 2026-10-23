@@ -547,8 +547,6 @@ mod tests {
     #[test]
     fn proxy_routes_are_resolved_when_preparing_commands_and_preserve_ssh_config() -> io::Result<()>
     {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir()?;
         let program = directory.path().join("ssh");
         let called = directory.path().join("called");
@@ -557,13 +555,19 @@ mod tests {
             ("hostname box\nproxyjump bastion", false),
             ("hostname box\nproxycommand nc %h %p", false),
         ] {
-            std::fs::write(
-                &program,
-                format!(
-                    "#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$(dirname \"$0\")/called\"\nprintf '%s\\n' '{config}'\n"
-                ),
-            )?;
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))?;
+            let script = format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$(dirname \"$0\")/called\"\nprintf '%s\\n' '{config}'\n"
+            );
+            let status = Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    r#"printf '%s' "$1" > "$2" && chmod 700 "$2""#,
+                    "sh",
+                    &script,
+                ])
+                .arg(&program)
+                .status()?;
+            assert!(status.success(), "{status}");
             let target = SshTarget::new("box")?
                 .with_program(&program)
                 .with_proxy(proxy());
