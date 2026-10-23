@@ -121,9 +121,13 @@ impl AppState {
     /// The Remote Servers tab, if one is open in a project that can show
     /// it, with that project.
     pub fn servers_tab(&self) -> Option<(ProjectId, TabId)> {
+        self.find_servers_tab(|project| project.status() == ProjectStatus::Available)
+    }
+
+    fn find_servers_tab(&self, within: impl Fn(&Project) -> bool) -> Option<(ProjectId, TabId)> {
         self.projects
             .iter()
-            .filter(|project| project.status() == ProjectStatus::Available)
+            .filter(|project| within(project))
             .find_map(|project| {
                 project
                     .tabs
@@ -146,13 +150,18 @@ impl AppState {
             .any(|candidate| candidate.id == pane && candidate.content == PaneContent::Servers)
     }
 
-    /// Shows the Remote Servers tab. There is only one that can be shown:
-    /// without it, it opens in `project` when that is on this computer and
-    /// available, or else in Home.
+    /// Shows the Remote Servers tab. There is only one: without one that can
+    /// be shown, it closes any left in an unavailable project and opens in
+    /// `project` when that is on this computer and available, or else in Home.
     pub fn show_servers_tab(&mut self, project: ProjectId, title: &str) -> Result<TabId, AppError> {
         let (project, tab) = if let Some(open) = self.servers_tab() {
             open
         } else {
+            if let Some((stale, tab)) =
+                self.find_servers_tab(|project| project.status() != ProjectStatus::Available)
+            {
+                self.close_tab(stale, tab)?;
+            }
             let here = self.project(project).is_some_and(|project| {
                 project.server_id.is_local() && project.status() == ProjectStatus::Available
             });

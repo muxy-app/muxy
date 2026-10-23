@@ -523,8 +523,18 @@ fn the_remote_servers_tab_moves_to_home_when_its_folder_is_gone() -> TestResult 
     std::fs::rename(&folder, directory.path().join("moved"))?;
     state.refresh_project_statuses();
     let second = state.show_servers_tab(project, "Remote Servers")?;
-    assert_ne!(second, first, "the tab in the missing folder stays there");
+    assert_ne!(second, first);
     assert_eq!(state.servers_tab(), Some((home, second)));
     assert_eq!(state.current_project().id, home);
+
+    std::fs::rename(directory.path().join("moved"), &folder)?;
+    state.refresh_project_statuses();
+    assert_eq!(
+        state.servers_tab(),
+        Some((home, second)),
+        "the tab in the folder that came back was closed"
+    );
+    let project = state.project(project).ok_or("project")?;
+    assert!(project.tabs.iter().all(|tab| tab.id != first));
     Ok(())
 }
