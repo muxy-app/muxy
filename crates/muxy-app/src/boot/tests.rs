@@ -54,7 +54,7 @@ fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> Test
     let server = thread::spawn(move || fake_server(&listener, &progress, &gate));
     let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(..)));
     assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
     let session = SessionId::from(std::num::NonZeroU64::MIN);
     work.send((
@@ -359,7 +359,7 @@ fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult 
     let server = thread::spawn(move || withhold_extension_replies(&listener, &started));
     let (work, updates) = local_worker(directory.path().join("server.sock"))?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(..)));
     assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
     let (reply, client) = async_channel::bounded(1);
     work.send((1, Work::ExtensionClient(reply)))?;
@@ -380,7 +380,7 @@ fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult 
         shell: None,
         cwd: None,
         stdin: Vec::new(),
-        env: std::collections::BTreeMap::new(),
+        env: BTreeMap::new(),
         timeout_ms: 30_000,
     });
     for _ in 0..3 {

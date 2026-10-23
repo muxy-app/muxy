@@ -1096,7 +1096,7 @@ fn title(text: &str, model: &AppModel) -> gpui::Div {
         .child(text.to_owned())
 }
 
-fn primary(
+pub(crate) fn primary(
     id: &'static str,
     label: SharedString,
     enabled: bool,

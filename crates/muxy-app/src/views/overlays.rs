@@ -38,6 +38,8 @@ pub(crate) enum Overlay {
     SessionProviders,
     ServerForm(Box<super::remote_servers::ServerForm>),
     Password(Box<super::remote_servers::PasswordPrompt>),
+    /// The status bar's proxy popover.
+    Proxy(Box<super::proxy::ProxyForm>),
 }
 
 impl Overlay {
@@ -61,6 +63,7 @@ impl Overlay {
                 | Self::ProjectIcons(_)
                 | Self::ServerForm(_)
                 | Self::Password(_)
+                | Self::Proxy(_)
         )
     }
 }
@@ -173,6 +176,19 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
                 let _ = model.update(cx, AppModel::dismiss_overlay);
             })
+        }
+        Some(Overlay::Proxy(form)) => {
+            let content = marked(super::proxy::render(form, model, window, cx), model);
+            // Without the status bar, the terminal menu still opens it.
+            if model.appearance.status_bar_visible {
+                let anchor = model.proxy.anchor.clone();
+                let model = cx.entity().downgrade();
+                muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
+                    let _ = model.update(cx, AppModel::dismiss_overlay);
+                })
+            } else {
+                centered(content)
+            }
         }
         Some(Overlay::Updates) => {
             let content = marked(super::updates::render(model, window, cx), model);

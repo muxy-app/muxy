@@ -15,7 +15,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 muxy-core = { path = "../muxy-core" }
 muxy-ui = { path = "../muxy-ui" }
 async-channel = "2"
-reqwest = { package = "zed-reqwest", version = "=0.12.15-zed", default-features = false, features = ["blocking", "rustls-tls-native-roots"] }
+reqwest = { package = "zed-reqwest", version = "=0.12.15-zed", default-features = false, features = ["blocking", "rustls-tls-native-roots", "socks"] }
 serde_json.workspace = true
 tempfile = "3"
 gpui = { version = "=0.2.2", default-features = false, features = ["font-kit"] }

@@ -55,6 +55,7 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .px(px(10.0))
                 .children(update_control(model, cx))
                 .children(super::disconnected::status(model, cx))
+                .child(super::proxy::control(model, cx))
                 .child(super::server_status::control(model, cx))
                 .children(
                     model

@@ -423,12 +423,16 @@ fn ordered_request(
             operation,
             directory,
             size,
-        } => ReplyBody::SessionCreated(registry.create_with_colors(
+            environment,
+        } => ReplyBody::SessionCreated(registry.create_launched(
             project,
             operation,
             Path::new(OsStr::from_bytes(&directory.0)),
             size,
-            outbox.colors(),
+            crate::registry::Launch {
+                colors: outbox.colors(),
+                environment,
+            },
             Some(outbox),
         )?),
         RequestBody::EndSession(session) => {

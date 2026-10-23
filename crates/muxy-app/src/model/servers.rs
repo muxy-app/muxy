@@ -21,6 +21,8 @@ pub(crate) struct Runtime {
     pub(super) generation: u64,
     /// The server's build and instance, as its last connection reported them.
     pub(super) info: Option<muxy_protocol::ServerInfo>,
+    /// What the server can do, as its last connection reported.
+    pub(super) features: Vec<muxy_protocol::Feature>,
     /// Why the last connection attempt failed, for the server's own status.
     pub(super) error: Option<String>,
     /// Another computer's server is stopping or restarting at the user's request.
@@ -52,6 +54,7 @@ impl Runtime {
             connection,
             generation,
             info: None,
+            features: Vec::new(),
             error: None,
             stopping: false,
             failure: None,
@@ -74,18 +77,30 @@ pub(crate) struct Servers {
     workers: Workers,
     /// Passwords typed this session, which ssh asks the app for.
     pub(super) passwords: crate::askpass::Passwords,
+    /// How ssh goes through the app's proxy, when it applies to the whole app.
+    pub(super) proxy: Option<muxy_client::ProxyCommand>,
     /// This computer's server, which is always there.
     pub(crate) local: Runtime,
     remotes: BTreeMap<ServerId, Runtime>,
 }
 
-pub(super) fn ssh_target(entry: &ServerEntry) -> std::io::Result<SshTarget> {
+pub(super) fn ssh_target(
+    entry: &ServerEntry,
+    proxy: Option<&muxy_client::ProxyCommand>,
+) -> std::io::Result<SshTarget> {
     if let Some(command) = &entry.ssh_command {
         return SshTarget::custom_command(command);
     }
     let mut target = SshTarget::new(&entry.ssh)?;
     if let Some(identity) = &entry.identity_file {
         target = target.with_identity(identity);
+    }
+    // A host the user's ssh config reaches its own way, such as through a
+    // jump host, keeps that way.
+    if let Some(proxy) = proxy
+        && !target.has_own_route().unwrap_or(false)
+    {
+        target = target.with_proxy(proxy.clone());
     }
     Ok(target)
 }
@@ -97,6 +112,7 @@ impl Servers {
         Self {
             workers,
             passwords: crate::askpass::Passwords::new(askpass),
+            proxy: None,
             local: Runtime::new(Some(local), ConnectionState::Connecting, 1),
             remotes: BTreeMap::new(),
         }
@@ -150,7 +166,7 @@ impl Servers {
     /// How ssh reaches `entry`: its key file, and asking the app for a
     /// password when it logs in with one.
     pub(super) fn target(&mut self, entry: &ServerEntry) -> std::io::Result<SshTarget> {
-        let mut target = ssh_target(entry)?;
+        let mut target = ssh_target(entry, self.proxy.as_ref())?;
         if entry.password_login {
             let login = target.login()?;
             target = target.with_askpass(self.passwords.askpass(entry.id, login)?);

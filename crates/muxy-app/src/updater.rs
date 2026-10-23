@@ -120,12 +120,14 @@ impl Release {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn client() -> Result<reqwest::blocking::Client> {
-    Ok(reqwest::blocking::Client::builder()
-        .user_agent(concat!("Muxy/", env!("CARGO_PKG_VERSION")))
-        .https_only(true)
-        .connect_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(600))
-        .build()?)
+    Ok(crate::proxy::configure(
+        reqwest::blocking::Client::builder()
+            .user_agent(concat!("Muxy/", env!("CARGO_PKG_VERSION")))
+            .https_only(true)
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(600)),
+    )?
+    .build()?)
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]

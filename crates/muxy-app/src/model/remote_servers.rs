@@ -518,7 +518,8 @@ impl AppModel {
         form: &DeviceForm,
         trusted_host: Option<String>,
     ) -> Result<(SshTarget, Option<String>), String> {
-        let target = super::servers::ssh_target(entry).map_err(|error| error.to_string())?;
+        let target = super::servers::ssh_target(entry, self.servers.proxy.as_ref())
+            .map_err(|error| error.to_string())?;
         if target.is_custom_command() {
             return Ok((target, None));
         }

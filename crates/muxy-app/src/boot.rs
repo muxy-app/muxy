@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -346,6 +346,8 @@ pub(crate) enum Work {
         session: Option<SessionId>,
         directory: PathBuf,
         size: Size,
+        /// More environment for a new terminal, such as a proxy.
+        environment: BTreeMap<String, String>,
     },
     References(Vec<SessionId>),
     Discard(SessionId, muxy_protocol::OperationId),
@@ -487,7 +489,8 @@ pub(crate) enum Update {
         result: Result<(), ClientError>,
     },
     PreparedForInstall(Result<Option<muxy_core::file_lock::FileLock>, ClientError>),
-    ServerInfo(muxy_protocol::ServerInfo),
+    /// The server's build and instance, and what it can do.
+    ServerInfo(muxy_protocol::ServerInfo, Vec<muxy_protocol::Feature>),
     ServerChecked(Result<ServerUpdate, ClientError>),
     /// Why connecting failed, and for another computer, the kind of failure.
     ConnectFailed(String, Option<muxy_client::RemoteReason>),
@@ -614,6 +617,7 @@ pub(crate) fn worker(
                         match *connection {
                             Ok((connected, sessions)) => {
                                 let info = connected.server_info().clone();
+                                let features = connected.features().to_vec();
                                 crate::diagnostics::event(
                                     "connected",
                                     format_args!(
@@ -622,7 +626,10 @@ pub(crate) fn worker(
                                     ),
                                 );
                                 client = Some(connected);
-                                vec![Update::ServerInfo(info), Update::Connected(sessions)]
+                                vec![
+                                    Update::ServerInfo(info, features),
+                                    Update::Connected(sessions),
+                                ]
                             }
                             Err(error) => {
                                 let reason = match &error {
@@ -1066,8 +1073,17 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             session,
             directory,
             size,
+            environment,
         } => {
-            return Some(attach(client, pane, project, session, &directory, size));
+            return Some(attach(
+                client,
+                pane,
+                project,
+                session,
+                &directory,
+                size,
+                environment,
+            ));
         }
         Work::ReadSaved { pane, session } => {
             return Some(Update::Saved {
@@ -1239,11 +1255,18 @@ fn attach(
     existing: Option<SessionId>,
     directory: &std::path::Path,
     size: Size,
+    environment: BTreeMap<String, String>,
 ) -> Update {
     let session = match existing.map_or_else(
         || {
             client
-                .create_project_session(project, pane.creation_token(), directory, size)
+                .create_project_session_with_environment(
+                    project,
+                    pane.creation_token(),
+                    directory,
+                    size,
+                    environment,
+                )
                 .map(|info| info.id)
         },
         Ok,

@@ -219,7 +219,8 @@ impl AppModel {
             split_down,
             zoom,
             equalize,
-            detach.separated(),
+            self.proxy_menu_item(id).separated(),
+            detach,
             close,
         ];
         let model = cx.entity().downgrade();

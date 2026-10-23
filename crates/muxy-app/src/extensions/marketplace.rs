@@ -17,12 +17,14 @@ const MAX_EXPANDED: u64 = 512 * 1024 * 1024;
 type Result<T> = std::result::Result<T, String>;
 
 fn client() -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent("Muxy/2 Extensions")
-        .build()
-        .map_err(|error| error.to_string())
+    crate::proxy::configure(
+        reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(120))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("Muxy/2 Extensions"),
+    )
+    .and_then(reqwest::blocking::ClientBuilder::build)
+    .map_err(|error| error.to_string())
 }
 
 fn bytes(response: reqwest::blocking::Response, limit: u64) -> Result<Vec<u8>> {

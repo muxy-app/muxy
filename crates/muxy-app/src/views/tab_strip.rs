@@ -435,7 +435,21 @@ fn tab_cell(
                             model
                                 .webview_glyph(tab, px(14.0), foreground, cx)
                                 .unwrap_or_else(|| {
-                                    tab_glyph(tab.pinned, settings, bell, foreground, theme)
+                                    tab_glyph(
+                                        if bell {
+                                            Glyph::Bell
+                                        } else if tab.pinned {
+                                            Glyph::Pin
+                                        } else if settings {
+                                            Glyph::Settings
+                                        } else if tab.uses_proxy() {
+                                            Glyph::Proxy
+                                        } else {
+                                            Glyph::Terminal
+                                        },
+                                        foreground,
+                                        theme,
+                                    )
                                 }),
                         )
                     },
@@ -451,28 +465,34 @@ fn tab_cell(
         .into_any_element()
 }
 
-fn tab_glyph(
-    pinned: bool,
-    settings: bool,
-    bell: bool,
-    foreground: gpui::Hsla,
-    theme: &Theme,
-) -> AnyElement {
-    let (icon, selector) = if bell {
-        (Icon::Bell, "tab-bell")
-    } else if pinned {
-        (Icon::Pin, "tab-pin")
-    } else if settings {
-        (Icon::Settings, "tab-settings")
-    } else {
-        (Icon::Terminal, "tab-terminal")
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Glyph {
+    Bell,
+    Pin,
+    Settings,
+    /// A terminal in the tab started with the app's proxy.
+    Proxy,
+    Terminal,
+}
+
+fn tab_glyph(glyph: Glyph, foreground: gpui::Hsla, theme: &Theme) -> AnyElement {
+    let (icon, selector) = match glyph {
+        Glyph::Bell => (Icon::Bell, "tab-bell"),
+        Glyph::Pin => (Icon::Pin, "tab-pin"),
+        Glyph::Settings => (Icon::Settings, "tab-settings"),
+        Glyph::Proxy => (Icon::Network, "tab-proxy"),
+        Glyph::Terminal => (Icon::Terminal, "tab-terminal"),
     };
     div()
         .debug_selector(move || selector.into())
         .child(IconGlyph::new(
             icon,
             px(14.0),
-            if bell { theme.accent } else { foreground },
+            if matches!(glyph, Glyph::Bell | Glyph::Proxy) {
+                theme.accent
+            } else {
+                foreground
+            },
         ))
         .into_any_element()
 }

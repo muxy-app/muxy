@@ -8,10 +8,12 @@ const SIZE: u32 = 64;
 
 /// The icon at `url`, ready to draw, or none if it can't be read.
 pub(crate) fn fetch(url: &str) -> Option<gpui::RenderImage> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .ok()?;
+    let client = crate::proxy::configure(
+        reqwest::blocking::Client::builder().timeout(Duration::from_secs(5)),
+    )
+    .ok()?
+    .build()
+    .ok()?;
     let response = client.get(url).send().ok()?.error_for_status().ok()?;
     let mut bytes = Vec::new();
     response.take(MAX_BYTES).read_to_end(&mut bytes).ok()?;

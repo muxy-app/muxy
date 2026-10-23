@@ -11,7 +11,7 @@ fn clipboard_notifications_stay_coalesced_through_worker_and_ui_queues() -> Test
     let server = thread::spawn(move || clipboard_server(&listener));
     let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(..)));
     assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
     let (reply, client) = async_channel::bounded(1);
     work.send((1, Work::ExtensionClient(reply)))?;

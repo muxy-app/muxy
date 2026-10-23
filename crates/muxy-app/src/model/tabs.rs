@@ -152,6 +152,6 @@ impl AppModel {
             return;
         };
         let tabs = project.closable_tabs(anchor, scope);
-        self.begin_close_tabs(tabs, None, cx);
+        self.begin_close_tabs(tabs, None, None, cx);
     }
 }

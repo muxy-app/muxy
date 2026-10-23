@@ -238,6 +238,7 @@ impl AppState {
             id: PaneId::new(),
             title: "New Tab".into(),
             content: PaneContent::Browser(browser),
+            proxy: false,
         };
         tab.layout.split(pane, new.id, Direction::Right);
         let id = new.id;

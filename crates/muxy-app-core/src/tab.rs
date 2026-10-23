@@ -116,6 +116,13 @@ impl Tab {
             .filter(|title| !title.is_empty());
     }
 
+    /// Whether a terminal in the tab started with the app's proxy.
+    pub fn uses_proxy(&self) -> bool {
+        self.panes
+            .iter()
+            .any(|pane| pane.proxy && matches!(pane.content, PaneContent::Terminal { .. }))
+    }
+
     pub fn visible_panes(&self) -> Vec<PaneId> {
         self.zoomed
             .map_or_else(|| self.layout.leaves(), |pane| vec![pane])
@@ -170,6 +177,7 @@ impl Tab {
             id: PaneId::new(),
             title: title.into(),
             content,
+            proxy: false,
         };
         Self {
             id: TabId::new(),

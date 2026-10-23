@@ -35,15 +35,7 @@ impl Message {
         let mut samples = vec![
             Self::CellSize(crate::CellSize::default()),
             hello_sample(),
-            Self::Request {
-                id: RequestId(1),
-                body: RequestBody::CreateSession {
-                    project: crate::ProjectId::from_u128(1),
-                    operation: crate::OperationId::from_u128(2),
-                    directory: directory.clone(),
-                    size,
-                },
-            },
+            create_session_sample(directory.clone(), size),
             Self::FrameAck { channel, seq: 1 },
             hello_reply_sample(),
             Self::VersionUnsupported,
@@ -385,6 +377,19 @@ fn hello_reply_sample() -> Message {
             instance: 1,
         },
         features: vec![crate::Feature(1)],
+    }
+}
+
+fn create_session_sample(directory: ServerPath, size: Size) -> Message {
+    Message::Request {
+        id: RequestId(1),
+        body: RequestBody::CreateSession {
+            project: crate::ProjectId::from_u128(1),
+            operation: crate::OperationId::from_u128(2),
+            directory,
+            size,
+            environment: [("http_proxy".to_owned(), "http://proxy:8080".to_owned())].into(),
+        },
     }
 }
 

@@ -42,6 +42,27 @@ pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     }
 }
 
+/// Variables a program starts with: at most 128, with names a process can
+/// hold, in 64 KiB together.
+pub fn validate_environment(
+    environment: &std::collections::BTreeMap<String, String>,
+) -> Result<(), ErrorCode> {
+    if environment.len() > 128
+        || environment
+            .iter()
+            .any(|(key, value)| key.is_empty() || key.contains(['=', '\0']) || value.contains('\0'))
+        || environment
+            .iter()
+            .map(|(key, value)| key.len() + value.len())
+            .sum::<usize>()
+            > 64 * 1024
+    {
+        Err(ErrorCode::BadRequest)
+    } else {
+        Ok(())
+    }
+}
+
 pub fn validate_versions(versions: &[Version]) -> Result<(), ErrorCode> {
     if versions.is_empty() {
         Err(ErrorCode::BadRequest)
@@ -183,9 +204,13 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_search(query, *max_results)
         }
         RequestBody::CreateSession {
-            directory, size, ..
+            directory,
+            size,
+            environment,
+            ..
         } => {
             validate_path(directory)?;
+            validate_environment(environment)?;
             validate_size(*size)
         }
         RequestBody::Attach { size, .. } | RequestBody::Resize { size, .. } => validate_size(*size),

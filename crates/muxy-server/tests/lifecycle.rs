@@ -252,6 +252,7 @@ impl Client {
             operation: muxy_protocol::OperationId::new(),
             directory: ServerPath(directory.as_os_str().as_encoded_bytes().to_vec()),
             size: SIZE,
+            environment: std::collections::BTreeMap::new(),
         })? {
             ReplyBody::SessionCreated(info) => Ok(info.id),
             other => Err(format!("expected session, got {other:?}").into()),

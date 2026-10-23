@@ -193,6 +193,11 @@ impl Client {
         &self.shared.server
     }
 
+    /// What the connected server offers; older servers lack newer features.
+    pub fn features(&self) -> &[Feature] {
+        &self.shared.features
+    }
+
     /// Whether the connected server offers `feature`; older servers lack newer features.
     pub fn supports(&self, feature: Feature) -> bool {
         self.shared.features.contains(&feature)
@@ -244,12 +249,32 @@ impl Client {
         directory: &Path,
         size: Size,
     ) -> Result<SessionInfo, ClientError> {
+        self.create_project_session_with_environment(
+            project,
+            operation,
+            directory,
+            size,
+            std::collections::BTreeMap::new(),
+        )
+    }
+
+    /// Starts the shell with `environment` too, such as a proxy. Servers
+    /// without `Feature::SESSION_ENVIRONMENT` ignore it.
+    pub fn create_project_session_with_environment(
+        &self,
+        project: muxy_protocol::ProjectId,
+        operation: muxy_protocol::OperationId,
+        directory: &Path,
+        size: Size,
+        environment: std::collections::BTreeMap<String, String>,
+    ) -> Result<SessionInfo, ClientError> {
         let directory = ServerPath(directory.as_os_str().as_bytes().to_vec());
         match self.request(RequestBody::CreateSession {
             project,
             operation,
             directory,
             size,
+            environment,
         })? {
             ReplyBody::SessionCreated(info) => Ok(info),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),

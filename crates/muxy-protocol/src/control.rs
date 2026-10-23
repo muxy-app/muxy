@@ -42,6 +42,12 @@ pub enum RequestBody {
         directory: ServerPath,
         #[n(3)]
         size: Size,
+        /// More environment for the shell, such as a proxy. Requires
+        /// `Feature::SESSION_ENVIRONMENT`; older servers ignore it.
+        #[n(4)]
+        #[cbor(default)]
+        #[serde(default)]
+        environment: std::collections::BTreeMap<String, String>,
     },
     #[n(6)]
     EndSession(#[n(0)] SessionId),

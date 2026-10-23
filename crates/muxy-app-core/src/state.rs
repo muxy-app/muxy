@@ -176,6 +176,7 @@ impl AppState {
                 id: PaneId::new(),
                 title: "Quick Terminal".into(),
                 content: PaneContent::Terminal { session: None },
+                proxy: false,
             })
             .id
     }
@@ -674,6 +675,7 @@ impl AppState {
             id: PaneId::new(),
             title: "Terminal".into(),
             content: PaneContent::Terminal { session: None },
+            proxy: false,
         };
         tab.layout.split(pane, new.id, edge);
         let id = new.id;
@@ -681,6 +683,47 @@ impl AppState {
         tab.panes.push(new);
         self.focus_pane(id)?;
         Ok(id)
+    }
+
+    /// Puts a new terminal where `pane` is, with its title, and returns it.
+    /// The old terminal's session is the caller's to end.
+    pub fn restart_terminal(&mut self, pane: PaneId) -> Result<PaneId, AppError> {
+        self.cancel_pending_creation(pane);
+        let tab = self.pane_tab_mut(pane)?;
+        let index = tab
+            .panes
+            .iter()
+            .position(|candidate| candidate.id == pane)
+            .ok_or(AppError::UnknownPane(pane))?;
+        if !matches!(tab.panes[index].content, PaneContent::Terminal { .. }) {
+            return Err(AppError::NotTerminal(pane));
+        }
+        let new = Pane {
+            id: PaneId::new(),
+            title: tab.panes[index].title.clone(),
+            content: PaneContent::Terminal { session: None },
+            proxy: false,
+        };
+        let id = new.id;
+        tab.layout.replace(pane, id);
+        tab.panes[index] = new;
+        if tab.zoomed == Some(pane) {
+            tab.zoomed = Some(id);
+        }
+        for previous in &mut self.window.focus_history {
+            if *previous == pane {
+                *previous = id;
+            }
+        }
+        if self.window.active_pane == Some(pane) {
+            self.window.active_pane = Some(id);
+        }
+        Ok(id)
+    }
+
+    pub fn set_pane_proxy(&mut self, pane: PaneId, proxy: bool) -> Result<(), AppError> {
+        self.pane_mut(pane)?.proxy = proxy;
+        Ok(())
     }
 
     pub fn move_pane(

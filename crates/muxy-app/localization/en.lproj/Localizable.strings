@@ -84,6 +84,7 @@
 "A color, cell-foreground, or cell-background. Leave empty to use the theme." = "A color, cell-foreground, or cell-background. Leave empty to use the theme.";
 "A process is still running in these tabs.\nAre you sure you want to close them?" = "A process is still running in these tabs.\nAre you sure you want to close them?";
 "A process is still running in this pane.\nAre you sure you want to close it?" = "A process is still running in this pane.\nAre you sure you want to close it?";
+"A process is still running in this pane.\nRestarting the terminal ends it." = "A process is still running in this pane.\nRestarting the terminal ends it.";
 "A process is still running in this tab.\nAre you sure you want to close it?" = "A process is still running in this tab.\nAre you sure you want to close it?";
 "A process is still running in this terminal." = "A process is still running in this terminal.";
 "A profile needs a name" = "A profile needs a name";
@@ -165,6 +166,7 @@
 "Apply Layout" = "Apply Layout";
 "Apply Layout?" = "Apply Layout?";
 "Apply Layout…" = "Apply Layout…";
+"Apply Proxy" = "Apply Proxy";
 "Apply opacity to colored cells" = "Apply opacity to colored cells";
 "Apply “%@” to “%@”? This replaces all of this project's tabs, including pinned tabs, and runs the layout's commands. Terminals no longer shown by any app will end. Only apply layouts you trust." = "Apply “%@” to “%@”? This replaces all of this project's tabs, including pinned tabs, and runs the layout's commands. Terminals no longer shown by any app will end. Only apply layouts you trust.";
 "Ask before ending a running command. Detaching never requires confirmation." = "Ask before ending a running command. Detaching never requires confirmation.";
@@ -478,6 +480,7 @@
 "Could not update the extension (%@) or restore it (%@). The previous version is saved at %@" = "Could not update the extension (%@) or restore it (%@). The previous version is saved at %@";
 "Could not update the extension; the previous version was restored: %@" = "Could not update the extension; the previous version was restored: %@";
 "Could not update the server: %@" = "Could not update the server: %@";
+"Could not use the proxy for SSH: %@" = "Could not use the proxy for SSH: %@";
 "Could not verify that this branch has no pull request" = "Could not verify that this branch has no pull request";
 "Could not write clipboard data" = "Could not write clipboard data";
 "Couldn't close PR #%lld" = "Couldn't close PR #%lld";
@@ -593,6 +596,7 @@
 "Enter a commit message of up to 10,000 characters" = "Enter a commit message of up to 10,000 characters";
 "Enter a group name" = "Enter a group name";
 "Enter a path on %@…" = "Enter a path on %@…";
+"Enter a port from 1 to 65535" = "Enter a port from 1 to 65535";
 "Enter a summary of up to 10,000 characters" = "Enter a summary of up to 10,000 characters";
 "Enter a title of up to 256 characters" = "Enter a title of up to 256 characters";
 "Enter a user name without @ or :" = "Enter a user name without @ or :";
@@ -600,6 +604,8 @@
 "Enter a worktree name." = "Enter a worktree name.";
 "Enter an SSH host: a ~/.ssh/config alias, a host name, or an address" = "Enter an SSH host: a ~/.ssh/config alias, a host name, or an address";
 "Enter the password to test logging in with it." = "Enter the password to test logging in with it.";
+"Enter the proxy's host name or address, without http://" = "Enter the proxy's host name or address, without http://";
+"Enter the user name for this password" = "Enter the user name for this password";
 "Equalize Splits" = "Equalize Splits";
 "Every setting on the Terminal page, including key bindings, returns to its default." = "Every setting on the Terminal page, including key bindings, returns to its default.";
 "Every target must have a live terminal before sending." = "Every target must have a live terminal before sending.";
@@ -694,6 +700,7 @@
 "Home directory unavailable" = "Home directory unavailable";
 "Home page" = "Home page";
 "Horizontal padding (points)" = "Horizontal padding (points)";
+"Host" = "Host";
 "How much heavier text is drawn when Thicken font is on." = "How much heavier text is drawn when Thicken font is on.";
 "How much of the macOS background effect shows through the theme color, from 0 to 100. Collapsed sidebars stay solid." = "How much of the macOS background effect shows through the theme color, from 0 to 100. Collapsed sidebars stay solid.";
 "How opaque the cursor is." = "How opaque the cursor is.";
@@ -919,6 +926,7 @@
 "New Worktree…" = "New Worktree…";
 "New pane directory" = "New pane directory";
 "New permissions: %@. After updating, review the permissions and enable the extension again." = "New permissions: %@. After updating, review the permissions and enable the extension again.";
+"New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings." = "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings.";
 "Next Project" = "Next Project";
 "Next Prompt" = "Next Prompt";
 "Next Tab" = "Next Tab";
@@ -958,6 +966,7 @@
 "No pending updates." = "No pending updates.";
 "No permissions requested." = "No permissions requested.";
 "No providers selected" = "No providers selected";
+"No proxy for" = "No proxy for";
 "No remote servers yet" = "No remote servers yet";
 "No remote servers yet." = "No remote servers yet.";
 "No saved rules. When you choose to remember an answer to a permission request, it appears here." = "No saved rules. When you choose to remember an answer to a permission request, it appears here.";
@@ -1074,6 +1083,10 @@
 "Project folder is missing" = "Project folder is missing";
 "Project is unavailable" = "Project is unavailable";
 "Project server" = "Project server";
+"Proxy" = "Proxy";
+"Proxy removed" = "Proxy removed";
+"Proxy saved" = "Proxy saved";
+"Proxy · On" = "Proxy · On";
 "Pull Request #%lld" = "Pull Request #%lld";
 "Pull request changed" = "Pull request changed";
 "Pull request changed. Reopen its status." = "Pull request changed. Reopen its status.";
@@ -1133,6 +1146,7 @@
 "Remove Logo" = "Remove Logo";
 "Remove Project?" = "Remove Project?";
 "Remove Project…" = "Remove Project…";
+"Remove Proxy" = "Remove Proxy";
 "Remove Server…" = "Remove Server…";
 "Remove Worktree and Files…" = "Remove Worktree and Files…";
 "Remove Worktree?" = "Remove Worktree?";
@@ -1173,6 +1187,7 @@
 "Restart Server" = "Restart Server";
 "Restart Server?" = "Restart Server?";
 "Restart Server…" = "Restart Server…";
+"Restart Terminal?" = "Restart Terminal?";
 "Restart server…" = "Restart server…";
 "Restart the Server on %@?" = "Restart the Server on %@?";
 "Restart the app to install the update. Your terminal sessions will keep running. You can update the server afterward." = "Restart the app to install the update. Your terminal sessions will keep running. You can update the server afterward.";
@@ -1209,6 +1224,7 @@
 "Revoke %@?" = "Revoke %@?";
 "Rich Input" = "Rich Input";
 "Right" = "Right";
+"Right-click a terminal and choose Apply Proxy to use it there. The terminal restarts in the same folder." = "Right-click a terminal and choose Apply Proxy to use it there. The terminal restarts in the same folder.";
 "Right-click a terminal and choose Detach Terminal to put it away without ending it. By default, ⌘⌥T opens Existing Terminals to bring it back." = "Right-click a terminal and choose Detach Terminal to put it away without ending it. By default, ⌘⌥T opens Existing Terminals to bring it back.";
 "Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette." = "Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette.";
 "Run muxy --help in your terminal." = "Run muxy --help in your terminal.";
@@ -1292,6 +1308,7 @@
 "Session exited · Signal %lld" = "Session exited · Signal %lld";
 "Sessions" = "Sessions";
 "Set Logo…" = "Set Logo…";
+"Set Up Proxy…" = "Set Up Proxy…";
 "Settings" = "Settings";
 "Settings…" = "Settings…";
 "Setup commands" = "Setup commands";
@@ -1422,6 +1439,7 @@
 "The project directory isn't available on this Mac" = "The project directory isn't available on this Mac";
 "The project or home directory could not be found." = "The project or home directory could not be found.";
 "The project's tabs changed. Choose the layout again to confirm replacement." = "The project's tabs changed. Choose the layout again to confirm replacement.";
+"The proxy settings contain characters that can't be used" = "The proxy settings contain characters that can't be used";
 "The selected 1.x configuration contains no supported settings or projects." = "The selected 1.x configuration contains no supported settings or projects.";
 "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI." = "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI.";
 "The selected language extension is unavailable, so Muxy is temporarily using English." = "The selected language extension is unavailable, so Muxy is temporarily using English.";
@@ -1459,6 +1477,7 @@
 "This Mac" = "This Mac";
 "This backup format is not supported by this version of Muxy" = "This backup format is not supported by this version of Muxy";
 "This branch already has a pull request" = "This branch already has a pull request";
+"This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it." = "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it.";
 "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop." = "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop.";
 "This extension is up to date." = "This extension is up to date.";
 "This is not a released version" = "This is not a released version";
@@ -1490,6 +1509,7 @@
 "Try a different name or clear your search." = "Try a different name or clear your search.";
 "Try a different search to find extensions." = "Try a different search to find extensions.";
 "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours." = "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours.";
+"Type" = "Type";
 "Type or speak…" = "Type or speak…";
 "Unassign" = "Unassign";
 "Unassigned" = "Unassigned";
@@ -1569,6 +1589,7 @@
 "Use both Option keys, neither, or just one as the terminal Alt modifier." = "Use both Option keys, neither, or just one as the terminal Alt modifier.";
 "Use bright ANSI colors for bold text in the first eight palette colors." = "Use bright ANSI colors for bold text in the first eight palette colors.";
 "Use existing branch" = "Use existing branch";
+"Use for the whole app" = "Use for the whole app";
 "Use the filter at the top of the expanded sidebar to show one workspace or Focus Current Project. Right-click a project → Workspaces to add it to one." = "Use the filter at the top of the expanded sidebar to show one workspace or Focus Current Project. Right-click a project → Workspaces to add it to one.";
 "User" = "User";
 "Value" = "Value";

@@ -44,7 +44,32 @@ pub struct SshTarget {
     custom_arguments: Option<Vec<String>>,
     identity: Option<PathBuf>,
     askpass: Option<Askpass>,
+    proxy: Option<ProxyCommand>,
     host_key_prompt: bool,
+}
+
+/// A program that connects ssh to the computer, such as through a proxy. ssh
+/// runs it with the host and port after `arguments` and talks to it over its
+/// standard input and output.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ProxyCommand {
+    pub program: PathBuf,
+    pub arguments: Vec<String>,
+    /// More environment for the program, such as which proxy to use.
+    pub environment: Vec<(OsString, OsString)>,
+}
+
+impl ProxyCommand {
+    /// ssh expands `%` tokens, then runs the line with the user's shell.
+    fn option(&self) -> String {
+        let quote = |value: &str| format!("'{}'", value.replace('\'', r"'\''").replace('%', "%%"));
+        let mut line = quote(&self.program.to_string_lossy());
+        for argument in &self.arguments {
+            line.push(' ');
+            line.push_str(&quote(argument));
+        }
+        format!("ProxyCommand={line} %h %p")
+    }
 }
 
 /// A program that answers ssh's prompts, such as for a saved password. ssh
@@ -79,6 +104,7 @@ impl SshTarget {
             custom_arguments: None,
             identity: None,
             askpass: None,
+            proxy: None,
             host_key_prompt: false,
         })
     }
@@ -94,6 +120,7 @@ impl SshTarget {
             custom_arguments: Some(arguments.collect()),
             identity: None,
             askpass: None,
+            proxy: None,
             host_key_prompt: false,
         })
     }
@@ -114,6 +141,14 @@ impl SshTarget {
     #[must_use]
     pub fn with_askpass(mut self, askpass: Askpass) -> Self {
         self.askpass = Some(askpass);
+        self
+    }
+
+    /// Reaches the computer through `proxy`. Custom commands manage their
+    /// own way there.
+    #[must_use]
+    pub fn with_proxy(mut self, proxy: ProxyCommand) -> Self {
+        self.proxy = Some(proxy);
         self
     }
 
@@ -146,6 +181,12 @@ impl SshTarget {
         login_from(&self.config()?).ok_or_else(|| {
             io::Error::other(format!("no SSH user or host for {}", self.destination))
         })
+    }
+
+    /// Whether ssh's config already reaches this destination its own way,
+    /// with `ProxyJump` or `ProxyCommand`.
+    pub fn has_own_route(&self) -> io::Result<bool> {
+        Ok(route_from(&self.config()?))
     }
 
     pub fn default_identity(&self) -> io::Result<Option<PathBuf>> {
@@ -214,6 +255,9 @@ impl SshTarget {
                 arguments.extend(["-o".into(), option.into()]);
             }
         }
+        if let Some(proxy) = &self.proxy {
+            arguments.extend(["-o".into(), proxy.option().into()]);
+        }
         if let Some(identity) = &self.identity {
             arguments.extend([
                 "-i".into(),
@@ -232,8 +276,12 @@ impl SshTarget {
         if self.is_custom_command() {
             return Vec::new();
         }
+        let proxy = self
+            .proxy
+            .iter()
+            .flat_map(|proxy| proxy.environment.iter().cloned());
         let Some(askpass) = &self.askpass else {
-            return Vec::new();
+            return proxy.collect();
         };
         [
             (
@@ -244,6 +292,7 @@ impl SshTarget {
         ]
         .into_iter()
         .chain(askpass.environment.iter().cloned())
+        .chain(proxy)
         .collect()
     }
 }
@@ -264,6 +313,14 @@ impl fmt::Display for SshTarget {
 
 /// `user@host` from `ssh -G` output. ssh names a host key alias in its
 /// prompts instead of the host name, when there is one.
+fn route_from(config: &str) -> bool {
+    config.lines().any(|line| {
+        line.split_once(' ').is_some_and(|(key, value)| {
+            matches!(key, "proxyjump" | "proxycommand") && value.trim() != "none"
+        })
+    })
+}
+
 fn login_from(config: &str) -> Option<String> {
     let value = |key: &str| {
         config.lines().find_map(|line| {
@@ -442,6 +499,60 @@ mod tests {
             target.default_identity().err().map(|error| error.kind()),
             Some(io::ErrorKind::Unsupported)
         );
+        Ok(())
+    }
+
+    fn proxy() -> ProxyCommand {
+        ProxyCommand {
+            program: "/usr/bin/printf".into(),
+            arguments: vec!["%s|".into(), "it's".into()],
+            environment: vec![("MUXY_PROXY".into(), "secret".into())],
+        }
+    }
+
+    #[test]
+    fn a_proxy_reaches_ssh_as_an_option_and_its_environment() -> io::Result<()> {
+        let target = SshTarget::new("box")?.with_proxy(proxy());
+        let command = target.command("true")?;
+        let arguments: Vec<_> = command.get_args().collect();
+        assert!(arguments.windows(2).any(|pair| pair
+            == [
+                "-o",
+                r"ProxyCommand='/usr/bin/printf' '%%s|' 'it'\''s' %h %p"
+            ]));
+        assert_eq!(
+            command.get_envs().collect::<Vec<_>>(),
+            [("MUXY_PROXY".as_ref(), Some("secret".as_ref()))]
+        );
+        let custom = SshTarget::custom_command("vm ssh box")?.with_proxy(proxy());
+        let command = custom.command("true")?;
+        assert!(command.get_args().all(|argument| argument != "-o"));
+        assert_eq!(command.get_envs().count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn jump_hosts_and_proxy_commands_in_ssh_config_are_their_own_route() {
+        assert!(route_from("user me\nproxyjump bastion.example\nport 22\n"));
+        assert!(route_from("proxycommand nc -X 5 %h %p\n"));
+        assert!(!route_from("user me\nproxycommand none\nport 22\n"));
+        assert!(!route_from("user me\nhostname box\n"));
+    }
+
+    /// Expands the line as ssh does, then runs it the way ssh runs it.
+    #[test]
+    fn the_proxy_line_survives_ssh_expansion_and_the_shell() -> io::Result<()> {
+        let option = proxy().option();
+        let line = option
+            .trim_start_matches("ProxyCommand=")
+            .replace("%h", "box.example")
+            .replace("%p", "22")
+            .replace("%%", "%");
+        let output = Command::new("/bin/sh")
+            .args(["-c", &format!("exec {line}")])
+            .output()?;
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"it's|box.example|22|");
         Ok(())
     }
 

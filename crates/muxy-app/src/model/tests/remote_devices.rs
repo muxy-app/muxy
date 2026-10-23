@@ -152,7 +152,7 @@ fn the_status_bar_shows_and_restarts_the_current_projects_server(cx: &mut TestAp
             (
                 remote,
                 1,
-                Update::ServerInfo(muxy_protocol::ServerInfo::current()),
+                Update::ServerInfo(muxy_protocol::ServerInfo::current(), Vec::new()),
             ),
             cx,
         );

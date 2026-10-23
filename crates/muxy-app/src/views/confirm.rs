@@ -20,20 +20,29 @@ impl AppModel {
         }
         self.dismiss_overlay(cx);
         let window = self.window;
-        let (title, message) = if self.closing_multiple_tabs() {
+        let (title, message, action) = if self.restarting_terminal() {
+            (
+                tr_key!("Restart Terminal?"),
+                tr_key!(
+                    "A process is still running in this pane.\nRestarting the terminal ends it."
+                ),
+                tr_key!("Restart"),
+            )
+        } else if self.closing_multiple_tabs() {
             (
                 tr_key!("Close Tabs?"),
                 tr_key!(
                     "A process is still running in these tabs.\nAre you sure you want to close them?"
                 ),
+                tr_key!("Close"),
             )
         } else if self.closing_one_pane() {
-            (PANE_TITLE, PANE_MESSAGE)
+            (PANE_TITLE, PANE_MESSAGE, tr_key!("Close"))
         } else {
-            (TITLE, MESSAGE)
+            (TITLE, MESSAGE, tr_key!("Close"))
         };
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = prompt(window, title, message, cx).await;
+            let response = prompt(window, title, message, action, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_close_prompt(tab, response, cx);
             });
@@ -46,6 +55,7 @@ async fn prompt(
     window: AnyWindowHandle,
     title: &'static str,
     message: &'static str,
+    action: &'static str,
     cx: &mut AsyncApp,
 ) -> Result<ConfirmationResponse, String> {
     let (sender, receiver) = async_channel::bounded(1);
@@ -56,7 +66,7 @@ async fn prompt(
                 cx,
                 &muxy_ui::l10n::translate(title),
                 &muxy_ui::l10n::translate(message),
-                &tr!("Close"),
+                &muxy_ui::l10n::translate(action),
                 Some(&tr!("Don't ask again")),
                 move |response| {
                     let _ = sender.try_send(response);
@@ -76,6 +86,7 @@ async fn prompt(
     window: AnyWindowHandle,
     title: &'static str,
     message: &'static str,
+    _action: &'static str,
     cx: &mut AsyncApp,
 ) -> Result<ConfirmationResponse, String> {
     let answer = window

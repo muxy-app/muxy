@@ -239,6 +239,7 @@ impl Terminal {
             id,
             title: crate::title::sanitize_or_default(title),
             content: PaneContent::Terminal { session: None },
+            proxy: false,
         }
     }
 }

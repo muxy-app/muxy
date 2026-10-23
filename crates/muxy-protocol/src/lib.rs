@@ -37,7 +37,8 @@ pub use session::{
 };
 pub use validate::{
     MAX_CLIPBOARD_TEXT, MAX_COLS, MAX_INPUT, MAX_LINK_SPANS, MAX_LINK_URI, MAX_ROWS,
-    validate_input, validate_path, validate_search, validate_size, validate_versions,
+    validate_environment, validate_input, validate_path, validate_search, validate_size,
+    validate_versions,
 };
 pub use version::{CURRENT, FEATURES, Feature, SUPPORTED, V1, V2, Version};
 

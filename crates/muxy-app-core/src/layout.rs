@@ -108,6 +108,18 @@ impl<L: Copy + Eq> Layout<L> {
         }
     }
 
+    /// Puts `new` where `pane` is.
+    pub fn replace(&mut self, pane: L, new: L) {
+        match self {
+            Self::Leaf(id) if *id == pane => *id = new,
+            Self::Leaf(_) => {}
+            Self::Split { first, second, .. } => {
+                first.replace(pane, new);
+                second.replace(pane, new);
+            }
+        }
+    }
+
     fn swap(&mut self, pane: L, target: L) {
         match self {
             Self::Leaf(id) if *id == pane => *id = target,

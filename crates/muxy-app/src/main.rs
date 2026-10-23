@@ -14,6 +14,7 @@ mod navigation;
 mod opener;
 mod picker;
 mod profiler;
+mod proxy;
 mod remote_install;
 mod repository_actions;
 mod server;
@@ -39,6 +40,7 @@ mod views {
     pub(crate) mod project_layouts;
     pub(crate) mod project_menu;
     pub(crate) mod project_picker;
+    pub(crate) mod proxy;
     pub(crate) mod quick_terminal;
     pub(crate) mod remote_servers;
     pub(crate) mod server_menu;
@@ -112,6 +114,12 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => ExitCode::FAILURE,
         };
+    }
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == proxy::TUNNEL)
+    {
+        return proxy::run_tunnel(std::env::args_os().skip(2));
     }
     run()
 }

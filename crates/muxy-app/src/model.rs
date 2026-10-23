@@ -15,6 +15,7 @@ mod links;
 mod mobile;
 mod preferences;
 pub(crate) mod project_layouts;
+pub(crate) mod proxy;
 mod quick_terminal;
 mod reconnect;
 pub(crate) mod remote_files;
@@ -36,7 +37,7 @@ mod workspaces;
 mod worktrees;
 pub(crate) use worktrees::removes_worktree;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -103,6 +104,8 @@ struct CloseRequest {
     checking: usize,
     whole_tab: bool,
     behavior: muxy_app_core::settings::CloseBehavior,
+    /// The pane gets a new terminal in its place, with the proxy or without.
+    restart: Option<bool>,
 }
 
 pub(crate) struct AppModel {
@@ -116,6 +119,7 @@ pub(crate) struct AppModel {
     pub(crate) git: git::GitState,
     pub(crate) ai: ai::Runtime,
     pub(crate) servers: servers::Servers,
+    pub(crate) proxy: proxy::ProxyState,
     project_layouts: project_layouts::ProjectLayouts,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
     pub(crate) quick: quick_terminal::QuickTerminalRuntime,
@@ -517,6 +521,7 @@ impl AppModel {
                 boot.state_path
                     .with_file_name(format!("askpass-{}.sock", std::process::id())),
             ),
+            proxy: proxy::ProxyState::load(boot.state_path.with_file_name("proxy.toml")),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
             quick: quick_terminal::QuickTerminalRuntime::new(&boot.settings.quick_terminal, cx),
             window: window.window_handle(),
@@ -637,6 +642,7 @@ impl AppModel {
         }
         Self::start_diagnostics(cx);
         model.start_update_checks(cx);
+        model.sync_ssh_proxy(cx);
         model.start_servers(cx);
         model
     }
@@ -708,6 +714,9 @@ impl AppModel {
             return;
         }
         self.initial_directories.insert(pane, directory);
+        if self.pane_uses_proxy(source) {
+            self.proxy.choices.insert(pane, true);
+        }
         self.split_resize.end();
         self.sync_visible(cx);
         self.focus_requested = true;
@@ -1079,12 +1088,12 @@ impl AppModel {
     }
 
     pub(crate) fn close_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
-        self.begin_close_tabs(vec![tab], None, cx);
+        self.begin_close_tabs(vec![tab], None, None, cx);
     }
 
     pub(crate) fn close_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if let Some(tab) = self.pane_tab(pane) {
-            self.begin_close_tabs(vec![tab], Some(pane), cx);
+            self.begin_close_tabs(vec![tab], Some(pane), None, cx);
         }
     }
 
@@ -1125,7 +1134,13 @@ impl AppModel {
         cx.notify();
     }
 
-    fn begin_close_tabs(&mut self, tabs: Vec<TabId>, pane: Option<PaneId>, cx: &mut Context<Self>) {
+    fn begin_close_tabs(
+        &mut self,
+        tabs: Vec<TabId>,
+        pane: Option<PaneId>,
+        restart: Option<bool>,
+        cx: &mut Context<Self>,
+    ) {
         if self.quitting != Quitting::Idle
             || self.close_request.is_some()
             || self.pending_close.is_some()
@@ -1148,9 +1163,10 @@ impl AppModel {
             .filter(|target| tabs.contains(&target.id))
             .collect();
         if targets.len() != tabs.len()
-            || targets
-                .iter()
-                .any(|target| target.pinned && (pane.is_none() || target.panes.len() == 1))
+            || restart.is_none()
+                && targets
+                    .iter()
+                    .any(|target| target.pinned && (pane.is_none() || target.panes.len() == 1))
         {
             return;
         }
@@ -1169,7 +1185,12 @@ impl AppModel {
             panes,
             checking: 0,
             whole_tab: pane.is_none(),
-            behavior: self.settings.window.close_behavior,
+            behavior: if restart.is_some() {
+                muxy_app_core::settings::CloseBehavior::CloseSession
+            } else {
+                self.settings.window.close_behavior
+            },
+            restart,
         });
         self.check_webview_closes(cx);
     }
@@ -1251,6 +1272,12 @@ impl AppModel {
             .is_some_and(|request| !request.whole_tab)
     }
 
+    pub(crate) fn restarting_terminal(&self) -> bool {
+        self.close_request
+            .as_ref()
+            .is_some_and(|request| request.restart.is_some())
+    }
+
     pub(crate) fn closing_multiple_tabs(&self) -> bool {
         self.close_request
             .as_ref()
@@ -1329,8 +1356,11 @@ impl AppModel {
         };
         if project.status() == ProjectStatus::Missing
             || request.tabs.iter().any(|id| {
-                self.tab(*id)
-                    .is_none_or(|tab| tab.pinned && (request.whole_tab || tab.panes.len() == 1))
+                self.tab(*id).is_none_or(|tab| {
+                    request.restart.is_none()
+                        && tab.pinned
+                        && (request.whole_tab || tab.panes.len() == 1)
+                })
             })
         {
             return;
@@ -1343,7 +1373,23 @@ impl AppModel {
             .filter_map(|pane| self.pane_session(*pane))
             .collect();
         let detach = request.behavior == muxy_app_core::settings::CloseBehavior::Detach;
-        let result = if detach {
+        let restart = request.restart.map(|proxy| {
+            let pane = request.panes[0];
+            let view = self.terminal(&pane).map(|pane| pane.view.read(cx));
+            let directory = view
+                .and_then(TerminalPane::directory)
+                .unwrap_or_else(|| project.directory.clone());
+            let size = view
+                .and_then(TerminalPane::viewport)
+                .unwrap_or(Size { cols: 80, rows: 24 });
+            (proxy, directory, size)
+        });
+        let mut restarted = None;
+        let result = if let Some((proxy, ..)) = restart {
+            self.state.restart_terminal(request.panes[0]).map(|pane| {
+                restarted = Some((pane, proxy));
+            })
+        } else if detach {
             request
                 .panes
                 .iter()
@@ -1363,6 +1409,20 @@ impl AppModel {
         }
         if result.is_err() || !self.save(cx) {
             self.state = previous;
+            return;
+        }
+        if let (Some((pane, proxy)), Some((_, directory, size))) = (restarted, restart) {
+            self.initial_directories.insert(pane, directory);
+            self.proxy.choices.insert(pane, proxy);
+            self.sync_visible(cx);
+            self.discard_pending(server, cx);
+            match self.connection(server) {
+                ConnectionState::Ready => self.start_attach(pane, size, cx),
+                ConnectionState::Disconnected => self.connect_server(server, cx),
+                ConnectionState::Connecting => {}
+            }
+            self.focus_requested = true;
+            cx.notify();
             return;
         }
         if detach {
@@ -1654,6 +1714,7 @@ impl AppModel {
         }
         self.font_sizes.retain(|id, _| panes.contains(id));
         self.initial_directories.retain(|id, _| panes.contains(id));
+        self.proxy.choices.retain(|id, _| panes.contains(id));
         self.snapshots.retain(|id, _| panes.contains(id));
         self.scrolls.retain(|id, _| panes.contains(id));
         self.retained.retain(|id| panes.contains(id));
@@ -1918,6 +1979,12 @@ impl AppModel {
             .clone();
         let project_id = project.id;
         let directory = self.state.prepare_creation(pane, &directory);
+        let session = self.pane_session(pane);
+        let environment = if session.is_none() {
+            self.creation_environment(pane, server)
+        } else {
+            BTreeMap::new()
+        };
         if !self.save(cx) {
             return;
         }
@@ -1933,9 +2000,10 @@ impl AppModel {
             Work::Attach {
                 pane,
                 project: project_id,
-                session: self.pane_session(pane),
+                session,
                 directory,
                 size,
+                environment,
             },
             cx,
         );
@@ -2123,9 +2191,10 @@ impl AppModel {
             Update::ProjectMutated { operation, result } => {
                 self.receive_project_mutation(server, operation, result, cx);
             }
-            Update::ServerInfo(info) => {
+            Update::ServerInfo(info, features) => {
                 if let Some(runtime) = self.servers.get_mut(server) {
                     runtime.info = Some(info.clone());
+                    runtime.features = features;
                 }
                 if local {
                     self.receive_server_info(info, cx);
@@ -2283,6 +2352,7 @@ impl AppModel {
         );
         self.pending.remove(&pane);
         self.initial_directories.remove(&pane);
+        self.proxy.choices.remove(&pane);
         let detached = self.detached_pending.remove(&pane);
         if detached {
             if let Some(runtime) = self.servers.get_mut(server) {
@@ -2750,6 +2820,7 @@ mod tests {
     mod project_layouts;
     mod project_order;
     mod projects;
+    mod proxy;
     mod quick_terminal;
     mod remote_devices;
     mod remote_parity;

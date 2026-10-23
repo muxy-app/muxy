@@ -789,6 +789,7 @@ fn import_layout(
                 id,
                 title: tab["paneTitle"].as_str().unwrap_or("Terminal").into(),
                 content: PaneContent::Terminal { session: None },
+                proxy: false,
             });
             Layout::Leaf(id)
         }));

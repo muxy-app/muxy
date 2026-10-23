@@ -804,9 +804,22 @@ fn webview_tab_icon(tab: &Tab, model: &AppModel, active: bool, cx: &gpui::App) -
     } else {
         model.theme.fg_muted
     };
+    let id = tab.id;
     model
         .webview_glyph(tab, model.metrics.font_footnote(), color, cx)
         .unwrap_or_else(|| {
-            SymbolGlyph::new("terminal", model.metrics.font_footnote(), color).into_any_element()
+            if tab.uses_proxy() {
+                div()
+                    .debug_selector(move || format!("sidebar-tab-proxy-{id}"))
+                    .child(SymbolGlyph::new(
+                        "network",
+                        model.metrics.font_footnote(),
+                        model.theme.accent,
+                    ))
+                    .into_any_element()
+            } else {
+                SymbolGlyph::new("terminal", model.metrics.font_footnote(), color)
+                    .into_any_element()
+            }
         })
 }

@@ -27,6 +27,14 @@ struct State {
     stopping: bool,
 }
 
+/// How a requested session's terminal starts.
+#[derive(Debug, Default)]
+pub(crate) struct Launch {
+    pub(crate) colors: Option<TerminalColors>,
+    /// More environment for the shell, such as a proxy.
+    pub(crate) environment: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ServerEvent {
     SessionEnded { id: SessionId, reason: ExitReason },
@@ -440,16 +448,16 @@ impl Registry {
         directory: &Path,
         size: Size,
     ) -> Result<SessionInfo, ServerError> {
-        self.create_with_colors(project, operation, directory, size, None, None)
+        self.create_launched(project, operation, directory, size, Launch::default(), None)
     }
 
-    pub(crate) fn create_with_colors(
+    pub(crate) fn create_launched(
         &self,
         project: muxy_protocol::ProjectId,
         operation: muxy_protocol::OperationId,
         directory: &Path,
         size: Size,
-        colors: Option<TerminalColors>,
+        launch: Launch,
         requester: Option<&crate::connection::Outbox>,
     ) -> Result<SessionInfo, ServerError> {
         let _operation = self.session_operation();
@@ -494,6 +502,7 @@ impl Registry {
             directory,
             size.into(),
             (self.catalog.identity(), id),
+            &launch.environment,
         )
         .and_then(|pty| {
             session::start(
@@ -502,7 +511,7 @@ impl Registry {
                 size,
                 budget,
                 self.archive.clone(),
-                colors,
+                launch.colors,
                 Arc::clone(&self.activity),
                 move |reason| {
                     let status = if saved.contains(id) {

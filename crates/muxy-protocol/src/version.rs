@@ -31,7 +31,9 @@ pub struct Feature(#[n(0)] pub u16);
 impl Feature {
     /// Server-side key encoding, paste framing, focus reports and ordered screen clearing.
     pub const TERMINAL_INPUT: Self = Self(1);
+    /// New sessions start with the environment their request names.
+    pub const SESSION_ENVIRONMENT: Self = Self(2);
 }
 
 /// Features this build's server supports.
-pub const FEATURES: &[Feature] = &[Feature::TERMINAL_INPUT];
+pub const FEATURES: &[Feature] = &[Feature::TERMINAL_INPUT, Feature::SESSION_ENVIRONMENT];

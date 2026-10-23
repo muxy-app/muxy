@@ -125,6 +125,7 @@ fn restored_terminal_titles_are_filtered_without_changing_other_tab_types() -> R
         id: PaneId::new(),
         title: "🚀 Settings".into(),
         content: PaneContent::Settings,
+        proxy: false,
     };
     let tab: Tab = serde_json::from_value(json!({
         "id": state.home().tabs[0].id,

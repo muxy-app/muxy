@@ -121,6 +121,7 @@ fn probe(path: &Path) -> Result {
             operation: muxy_protocol::OperationId::new(),
             directory: ServerPath(env::current_dir()?.as_os_str().as_bytes().to_vec()),
             size: SIZE,
+            environment: std::collections::BTreeMap::new(),
         },
     )? {
         ReplyBody::SessionCreated(info) => info,

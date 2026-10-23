@@ -282,6 +282,7 @@ fn a_paired_device_reconnects_and_uses_a_terminal() -> TestResult {
         operation: OperationId::new(),
         directory: ServerPath(b"/tmp".to_vec()),
         size,
+        environment: std::collections::BTreeMap::new(),
     })? {
         ReplyBody::SessionCreated(session) => session,
         other => return Err(format!("expected session, got {other:?}").into()),

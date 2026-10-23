@@ -102,6 +102,16 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 The status bar shows the current project's server, with connect, restart, and
 stop.
 
+## Proxy
+
+The status bar's **Proxy** popover sets up one HTTP or SOCKS5 proxy, with an
+optional login, kept privately and left out of backups. **Use for the whole app**
+sends new terminals on this computer, Muxy's own downloads, and SSH to remote
+servers through it. Otherwise, right-click a terminal and choose **Apply
+Proxy**: it restarts in the same folder with the proxy, and its tab shows a
+proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
+`all_proxy`, and `no_proxy`. Running terminals keep what they started with.
+
 ## Settings
 
 - Settings is one window, separate from projects. It works while offline, and

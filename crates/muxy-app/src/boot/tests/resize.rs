@@ -23,7 +23,7 @@ fn check_resize_delivery(saturated: bool) -> TestResult {
     let server = thread::spawn(move || resize_server(&listener, &progress, &gate));
     let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(..)));
     assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
     let session = SessionId::from(std::num::NonZeroU64::MIN);
     let read = || Work::ReadSaved {
@@ -184,7 +184,7 @@ fn reconnect_discards_old_resizes_and_stale_completion_unblocks_new_work() -> Te
     let server = thread::spawn(move || reconnect_server(&listener, &started));
     let (work, updates) = local_worker(socket)?;
     work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
+    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(..)));
     assert!(matches!(
         updates.recv_blocking()?,
         (_, 1, Update::Connected(_))
@@ -224,7 +224,7 @@ fn reconnect_discards_old_resizes_and_stale_completion_unblocks_new_work() -> Te
     let mut flushed = false;
     while !flushed && Instant::now() < deadline {
         match updates.try_recv() {
-            Ok((_, 2, Update::ServerInfo(_))) => {}
+            Ok((_, 2, Update::ServerInfo(..))) => {}
             Ok((_, 2, Update::Connected(_))) => connected = true,
             Ok((_, 2, Update::Flushed)) => {
                 assert!(connected);

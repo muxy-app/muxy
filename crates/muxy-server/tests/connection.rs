@@ -134,11 +134,20 @@ impl Fixture {
     }
 
     fn create(&self, client: &mut Client) -> TestResult<SessionInfo> {
+        self.create_with(client, std::collections::BTreeMap::new())
+    }
+
+    fn create_with(
+        &self,
+        client: &mut Client,
+        environment: std::collections::BTreeMap<String, String>,
+    ) -> TestResult<SessionInfo> {
         match client.request(RequestBody::CreateSession {
             project: self.registry.home_project(),
             operation: muxy_protocol::OperationId::new(),
             directory: ServerPath(self.directory.as_os_str().as_bytes().to_vec()),
             size: SIZE,
+            environment,
         })? {
             ReplyBody::SessionCreated(info) => Ok(info),
             other => Err(format!("expected created, got {other:?}").into()),
@@ -423,6 +432,20 @@ fn ending_a_session_notifies_attached_and_unattached_connections_once() -> TestR
     ));
     observer.disconnect()?;
     attached.disconnect()
+}
+
+#[test]
+fn new_sessions_start_with_the_requested_environment() -> TestResult {
+    let fixture = Fixture::new()?;
+    let mut client = fixture.client(true)?;
+    let info = fixture.create_with(
+        &mut client,
+        [("MUXY_TEST_PROXY".to_owned(), "proxied-shell".to_owned())].into(),
+    )?;
+    let channel = client.attach(info.id)?.channel;
+    client.input(channel, b"echo \"seen-$MUXY_TEST_PROXY\"\n")?;
+    client.frame(channel, "seen-proxied-shell")?;
+    client.disconnect()
 }
 
 #[test]

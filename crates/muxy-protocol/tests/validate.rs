@@ -32,6 +32,7 @@ fn every_request_with_a_size_validates_it() {
                 operation: muxy_protocol::OperationId::from_u128(2),
                 directory: directory(),
                 size,
+                environment: std::collections::BTreeMap::new(),
             },
             RequestBody::Attach {
                 session: session_id(),
@@ -45,6 +46,30 @@ fn every_request_with_a_size_validates_it() {
             assert_eq!(request(body).validate(), expected);
         }
     }
+}
+
+#[test]
+fn new_sessions_refuse_environment_a_process_cannot_hold() {
+    let create = |environment: &[(&str, &str)]| {
+        request(RequestBody::CreateSession {
+            project: muxy_protocol::ProjectId::from_u128(1),
+            operation: muxy_protocol::OperationId::from_u128(2),
+            directory: directory(),
+            size: Size { cols: 80, rows: 24 },
+            environment: environment
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect(),
+        })
+        .validate()
+    };
+    assert_eq!(create(&[]), Ok(()));
+    assert_eq!(create(&[("http_proxy", "http://proxy:8080")]), Ok(()));
+    for environment in [[("", "value")], [("A=B", "value")], [("NAME", "nul\0")]] {
+        assert_eq!(create(&environment), Err(ErrorCode::BadRequest));
+    }
+    let large = "x".repeat(64 * 1024);
+    assert_eq!(create(&[("LARGE", &large)]), Err(ErrorCode::BadRequest));
 }
 
 #[test]
