@@ -144,8 +144,6 @@ impl SshTarget {
         self
     }
 
-    /// Reaches the computer through `proxy`. Custom commands manage their
-    /// own way there.
     #[must_use]
     pub fn with_proxy(mut self, proxy: ProxyCommand) -> Self {
         self.proxy = Some(proxy);
@@ -220,16 +218,20 @@ impl SshTarget {
     /// such as an installer. Its output is the caller's to read.
     pub fn command(&self, remote: &str) -> io::Result<Command> {
         let program = program(self.program.as_deref(), std::env::var_os("MUXY_SSH"))?;
+        let proxy = self
+            .proxy
+            .as_ref()
+            .filter(|_| !self.has_own_route().unwrap_or(false));
         let mut command = Command::new(program);
         command
-            .args(self.arguments_for(remote))
-            .envs(self.environment());
+            .args(self.arguments_for(remote, proxy))
+            .envs(self.environment(proxy));
         Ok(command)
     }
 
     /// Prompts only reach an askpass program, since nobody may be there to
     /// answer them.
-    fn arguments_for(&self, remote: &str) -> Vec<OsString> {
+    fn arguments_for(&self, remote: &str, proxy: Option<&ProxyCommand>) -> Vec<OsString> {
         if let Some(arguments) = &self.custom_arguments {
             return arguments
                 .iter()
@@ -255,8 +257,13 @@ impl SshTarget {
                 arguments.extend(["-o".into(), option.into()]);
             }
         }
-        if let Some(proxy) = &self.proxy {
-            arguments.extend(["-o".into(), proxy.option().into()]);
+        if let Some(proxy) = proxy {
+            arguments.extend([
+                "-o".into(),
+                "ControlPath=none".into(),
+                "-o".into(),
+                proxy.option().into(),
+            ]);
         }
         if let Some(identity) = &self.identity {
             arguments.extend([
@@ -272,13 +279,12 @@ impl SshTarget {
 
     /// `SSH_ASKPASS_REQUIRE=force` makes ssh use the program even without
     /// a display or a terminal.
-    fn environment(&self) -> Vec<(OsString, OsString)> {
+    fn environment(&self, proxy: Option<&ProxyCommand>) -> Vec<(OsString, OsString)> {
         if self.is_custom_command() {
             return Vec::new();
         }
-        let proxy = self
-            .proxy
-            .iter()
+        let proxy = proxy
+            .into_iter()
             .flat_map(|proxy| proxy.environment.iter().cloned());
         let Some(askpass) = &self.askpass else {
             return proxy.collect();
@@ -512,9 +518,16 @@ mod tests {
 
     #[test]
     fn a_proxy_reaches_ssh_as_an_option_and_its_environment() -> io::Result<()> {
-        let target = SshTarget::new("box")?.with_proxy(proxy());
+        let target = SshTarget::new("box")?
+            .with_program("/usr/bin/true")
+            .with_proxy(proxy());
         let command = target.command("true")?;
         let arguments: Vec<_> = command.get_args().collect();
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-o", "ControlPath=none"])
+        );
         assert!(arguments.windows(2).any(|pair| pair
             == [
                 "-o",
@@ -528,6 +541,51 @@ mod tests {
         let command = custom.command("true")?;
         assert!(command.get_args().all(|argument| argument != "-o"));
         assert_eq!(command.get_envs().count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn proxy_routes_are_resolved_when_preparing_commands_and_preserve_ssh_config() -> io::Result<()>
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir()?;
+        let program = directory.path().join("ssh");
+        let called = directory.path().join("called");
+        for (config, proxied) in [
+            ("hostname box\nproxycommand none", true),
+            ("hostname box\nproxyjump bastion", false),
+            ("hostname box\nproxycommand nc %h %p", false),
+        ] {
+            std::fs::write(
+                &program,
+                format!(
+                    "#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$(dirname \"$0\")/called\"\nprintf '%s\\n' '{config}'\n"
+                ),
+            )?;
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))?;
+            let target = SshTarget::new("box")?
+                .with_program(&program)
+                .with_proxy(proxy());
+            assert!(!called.exists());
+            let command = target.command("true")?;
+            assert_eq!(std::fs::read_to_string(&called)?, "-G\n");
+            let arguments: Vec<_> = command.get_args().collect();
+            assert_eq!(
+                arguments
+                    .iter()
+                    .any(|argument| argument.to_string_lossy().starts_with("ProxyCommand=")),
+                proxied
+            );
+            assert_eq!(
+                arguments
+                    .iter()
+                    .any(|argument| *argument == "ControlPath=none"),
+                proxied
+            );
+            assert_eq!(command.get_envs().count(), usize::from(proxied));
+            std::fs::remove_file(&called)?;
+        }
         Ok(())
     }
 
@@ -592,7 +650,7 @@ mod tests {
     #[test]
     fn host_key_prompts_keep_verification_and_disable_shared_connections() -> io::Result<()> {
         let target = SshTarget::new("ssh://dev@box:2222")?.with_host_key_prompt();
-        let args = target.arguments_for(bridge::command(Start::IfNeeded));
+        let args = target.arguments_for(bridge::command(Start::IfNeeded), None);
         for option in [
             "StrictHostKeyChecking=ask",
             "FingerprintHash=sha256",

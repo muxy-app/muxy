@@ -130,7 +130,8 @@ fn a_whole_app_proxy_reaches_new_terminals_and_their_splits(cx: &mut TestAppCont
         let created = new_terminals(&requests);
         assert_eq!(created.len(), 1);
         assert_eq!(created[0].1["all_proxy"], "http://127.0.0.1:8080");
-        assert!(!created[0].1.contains_key("no_proxy"));
+        assert_eq!(created[0].1["no_proxy"], "");
+        assert_eq!(created[0].1["NO_PROXY"], "");
 
         model.set_proxy(Some(proxy(false)), cx).expect("saved");
         attach(model, pane, 100, cx);
@@ -187,6 +188,65 @@ fn the_proxy_is_saved_privately_and_removed(cx: &mut TestAppContext) {
         );
         assert!(model.proxy.settings.is_none());
     });
+}
+
+#[gpui::test]
+fn the_proxy_can_be_configured_saved_and_removed_with_only_the_keyboard(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1000.0), px(1000.0)));
+    view.update_in(cx, AppModel::open_proxy_popover);
+    cx.run_until_parked();
+    let host = view.update_in(cx, |_, window, cx| window.focused(cx).expect("host focus"));
+    for direction in ["tab", "shift-tab"] {
+        let mut visited = Vec::new();
+        for _ in 0..10 {
+            cx.simulate_keystrokes(direction);
+            let focused = view.update_in(cx, |model, window, cx| {
+                assert!(model.overlay_focus.contains_focused(window, cx));
+                window.focused(cx).expect("form focus")
+            });
+            assert!(!visited.contains(&focused));
+            visited.push(focused);
+        }
+        assert_eq!(visited.last(), Some(&host));
+    }
+    cx.simulate_keystrokes("shift-tab space tab");
+    cx.simulate_input("127.0.0.1");
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("1080");
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("review");
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("test password");
+    cx.simulate_keystrokes("tab tab space tab space");
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        let settings = model.proxy.settings.as_ref().expect("saved proxy");
+        assert_eq!(settings.kind, muxy_app_core::settings::ProxyKind::Socks5);
+        assert_eq!(settings.host, "127.0.0.1");
+        assert_eq!(settings.port, 1080);
+        assert_eq!(settings.username, "review");
+        assert_eq!(settings.password, "test password");
+        assert!(settings.global);
+        assert_eq!(
+            ProxySettings::load(&model.path.with_file_name("proxy.toml")).expect("load"),
+            Some(settings.clone())
+        );
+    });
+    view.update_in(cx, AppModel::open_proxy_popover);
+    cx.run_until_parked();
+    cx.simulate_keystrokes("shift-tab shift-tab shift-tab shift-tab shift-tab space");
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert!(model.proxy.settings.is_none());
+        assert!(!model.path.with_file_name("proxy.toml").exists());
+    });
+    view.update_in(cx, AppModel::open_proxy_popover);
+    cx.run_until_parked();
+    cx.simulate_keystrokes("shift-tab shift-tab shift-tab space");
+    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
 }
 
 #[gpui::test]

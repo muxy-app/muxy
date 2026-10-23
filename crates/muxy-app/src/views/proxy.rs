@@ -32,30 +32,6 @@ pub(crate) struct ProxyForm {
 }
 
 impl ProxyForm {
-    fn inputs(&self) -> [&Entity<TextInput>; 5] {
-        [
-            &self.host,
-            &self.port,
-            &self.username,
-            &self.password,
-            &self.bypass,
-        ]
-    }
-
-    fn advance_focus(&self, backwards: bool, window: &mut Window, cx: &gpui::App) {
-        let inputs = self.inputs();
-        let current = inputs
-            .iter()
-            .position(|input| input.focus_handle(cx).is_focused(window));
-        let next = match (current, backwards) {
-            (None, false) => 0,
-            (None, true) => inputs.len() - 1,
-            (Some(index), false) => (index + 1) % inputs.len(),
-            (Some(index), true) => (index + inputs.len() - 1) % inputs.len(),
-        };
-        inputs[next].focus_handle(cx).focus(window);
-    }
-
     fn submitted(&self, cx: &gpui::App) -> Result<ProxySettings, String> {
         let text = |input: &Entity<TextInput>| input.read(cx).text().trim().to_owned();
         let port = text(&self.port);
@@ -163,8 +139,21 @@ pub(crate) fn render(
                     && !modifiers.platform
                     && !modifiers.function
                 {
-                    if let Some(Overlay::Proxy(form)) = &model.overlay {
-                        form.advance_focus(modifiers.shift, window, cx);
+                    let advance = |window: &mut Window| {
+                        if modifiers.shift {
+                            window.focus_prev();
+                        } else {
+                            window.focus_next();
+                        }
+                    };
+                    advance(window);
+                    let first = window.focused(cx);
+                    while !model.overlay_focus.contains_focused(window, cx) {
+                        advance(window);
+                        if window.focused(cx) == first {
+                            model.overlay_focus.focus(window);
+                            break;
+                        }
                     }
                     window.prevent_default();
                     cx.stop_propagation();

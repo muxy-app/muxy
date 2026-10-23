@@ -391,6 +391,47 @@ fn lifecycle_serves_shell_logs_and_stops_every_session() -> TestResult {
 }
 
 #[test]
+fn shells_without_a_charset_locale_decode_utf8() -> TestResult {
+    assert_shell_decodes_utf8(&[])
+}
+
+#[test]
+fn shells_with_blank_charset_locales_decode_utf8() -> TestResult {
+    for values in [
+        vec![("LANG", ""), ("LC_ALL", ""), ("LC_CTYPE", " \t ")],
+        vec![("LC_ALL", " \t ")],
+    ] {
+        assert_shell_decodes_utf8(&values)?;
+    }
+    Ok(())
+}
+
+fn assert_shell_decodes_utf8(values: &[(&str, &str)]) -> TestResult {
+    let mut fixture = Fixture::new()?;
+    let mut command = fixture.command();
+    command
+        .env("HOME", &fixture.directory)
+        .env_remove("LANG")
+        .env_remove("LC_ALL")
+        .env_remove("LC_CTYPE")
+        .envs(values.iter().copied());
+    fixture.start_command(command, &fixture.socket())?;
+    let mut client = Client::new(&fixture.socket())?;
+    let session = client.create(&fixture.directory)?;
+    let channel = client.attach(session)?;
+    client.encoder.send(
+        channel,
+        &Message::Input(
+            b"charset=$(/usr/bin/locale charmap); count=$(printf '\\344\\270\\255' | wc -m); printf '\\nlocale:%s:%s\\n' \"$charset\" \"$((count))\"\n".to_vec(),
+        ),
+    )?;
+    client
+        .wait_for_output("locale:UTF-8:1")
+        .map_err(|error| format!("charset locale {values:?}: {error}"))?;
+    fixture.stop("-TERM")
+}
+
+#[test]
 fn second_instance_exits_successfully_and_preserves_the_first() -> TestResult {
     let mut fixture = Fixture::new()?;
     fixture.start()?;

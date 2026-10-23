@@ -160,7 +160,6 @@ fn http_connect(
     }
     request.push_str("\r\n");
     stream.write_all(request.as_bytes())?;
-    // One byte at a time, so the computer's first bytes stay in the stream.
     let mut reply = Vec::new();
     while !reply.ends_with(b"\r\n\r\n") {
         if reply.len() == MAX_REPLY {

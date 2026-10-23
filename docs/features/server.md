@@ -75,7 +75,10 @@ fi
 ```
 
 Every terminal gets `TERM=xterm-256color`, `COLORTERM=truecolor`,
-`TERM_PROGRAM=muxy`, `MUXY_SERVER_ID`, and `MUXY_SESSION_ID`.
+`TERM_PROGRAM=muxy`, `MUXY_SERVER_ID`, and `MUXY_SESSION_ID`. If `LANG`,
+`LC_ALL`, and `LC_CTYPE` are all unset or empty, Muxy sets `LANG` to an
+installed UTF-8 locale for the system language, or `C.UTF-8`, so non-ASCII text
+displays correctly. If neither is installed, it leaves them unset.
 
 ## Files
 

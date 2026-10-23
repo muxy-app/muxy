@@ -95,11 +95,7 @@ pub(super) fn ssh_target(
     if let Some(identity) = &entry.identity_file {
         target = target.with_identity(identity);
     }
-    // A host the user's ssh config reaches its own way, such as through a
-    // jump host, keeps that way.
-    if let Some(proxy) = proxy
-        && !target.has_own_route().unwrap_or(false)
-    {
+    if let Some(proxy) = proxy {
         target = target.with_proxy(proxy.clone());
     }
     Ok(target)

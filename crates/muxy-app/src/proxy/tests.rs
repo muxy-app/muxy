@@ -180,17 +180,52 @@ fn the_apps_own_requests_use_the_proxy_only_when_it_is_global()
 }
 
 #[test]
-fn bypassed_hosts_are_reached_directly() -> io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    let settings = ProxySettings {
-        bypass: "127.0.0.1".into(),
-        ..proxy(ProxyKind::Http, 9)
-    };
-    let mut stream = connect(&settings, "127.0.0.1", port)?;
-    let (mut accepted, _) = listener.accept()?;
-    stream.write_all(b"direct")?;
-    assert_eq!(read(&mut accepted, 6)?, b"direct");
+fn bypassed_hosts_and_subnets_are_reached_directly_by_http_and_ssh()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (host, bypass) in [
+        ("127.0.0.1", "127.0.0.1"),
+        ("127.0.0.1", "127.0.0.0/8"),
+        ("::1", "::/64"),
+    ] {
+        for kind in [ProxyKind::Http, ProxyKind::Socks5] {
+            let listener = TcpListener::bind((host, 0))?;
+            let address = listener.local_addr()?;
+            let settings = ProxySettings {
+                bypass: bypass.into(),
+                global: true,
+                ..proxy(kind, 9)
+            };
+            let mut stream = connect(&settings, host, address.port())?;
+            let (mut accepted, _) = listener.accept()?;
+            stream.write_all(b"direct")?;
+            assert_eq!(read(&mut accepted, 6)?, b"direct");
+            let server = thread::spawn(move || -> io::Result<Vec<u8>> {
+                let (mut stream, _) = listener.accept()?;
+                let request = http_request(&mut stream)?;
+                stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\ndirect",
+                )?;
+                Ok(request)
+            });
+            use_for_app(Some(&settings));
+            let builder = configure(reqwest::blocking::Client::builder());
+            use_for_app(None);
+            let client = builder?
+                .timeout(std::time::Duration::from_secs(2))
+                .build()?;
+            let body = client
+                .get(format!("http://{address}/update"))
+                .send()?
+                .text()?;
+            assert_eq!(body, "direct");
+            assert!(
+                server
+                    .join()
+                    .expect("direct server")?
+                    .starts_with(b"GET /update HTTP/1.1\r\n")
+            );
+        }
+    }
     Ok(())
 }
 

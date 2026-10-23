@@ -179,7 +179,6 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         }
         Some(Overlay::Proxy(form)) => {
             let content = marked(super::proxy::render(form, model, window, cx), model);
-            // Without the status bar, the terminal menu still opens it.
             if model.appearance.status_bar_visible {
                 let anchor = model.proxy.anchor.clone();
                 let model = cx.entity().downgrade();

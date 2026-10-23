@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
+use std::net::IpAddr;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
@@ -46,8 +47,19 @@ impl ProxySettings {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(Error::new(path.display().to_string(), error)),
         };
-        let proxy: Self = toml::from_str(&source)
-            .map_err(|error| Error::new(path.display().to_string(), error))?;
+        let proxy: Self = toml::from_str(&source).map_err(|error: toml::de::Error| {
+            let message = error
+                .span()
+                .and_then(|span| source.get(..span.start))
+                .map_or_else(
+                    || "invalid proxy settings".to_owned(),
+                    |prefix| {
+                        let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+                        format!("invalid proxy settings at line {line}")
+                    },
+                );
+            Error::new(path.display().to_string(), message)
+        })?;
         proxy.validate()?;
         Ok(Some(proxy))
     }
@@ -165,13 +177,13 @@ impl ProxySettings {
             .collect()
     }
 
-    /// Whether `host` is reached directly, as `no_proxy` matches: `*`, the
-    /// host itself, or a domain it is under, with or without a leading dot.
     pub fn bypasses(&self, host: &str) -> bool {
         let host = host.trim_start_matches('[').trim_end_matches(']');
+        let address = host.parse::<IpAddr>().ok();
         self.bypass_hosts().into_iter().any(|entry| {
             let domain = entry.trim_start_matches('.');
             entry == "*"
+                || address.is_some_and(|address| subnet_contains(entry, address))
                 || host.eq_ignore_ascii_case(domain)
                 || host
                     .len()
@@ -193,12 +205,32 @@ impl ProxySettings {
             environment.insert(name.to_uppercase(), url.clone());
         }
         let bypass = self.bypass_hosts().join(",");
-        if !bypass.is_empty() {
-            environment.insert("no_proxy".to_owned(), bypass.clone());
-            environment.insert("NO_PROXY".to_owned(), bypass);
-        }
+        environment.insert("no_proxy".to_owned(), bypass.clone());
+        environment.insert("NO_PROXY".to_owned(), bypass);
         environment
     }
+}
+
+fn subnet_contains(entry: &str, address: IpAddr) -> bool {
+    let Some((network, prefix)) = entry.split_once('/') else {
+        return false;
+    };
+    let (Ok(network), Ok(prefix)) = (network.parse::<IpAddr>(), prefix.parse::<u32>()) else {
+        return false;
+    };
+    let (address, network, bits) = match (address, network) {
+        (IpAddr::V4(address), IpAddr::V4(network)) => (
+            u128::from(u32::from(address)),
+            u128::from(u32::from(network)),
+            32_u32,
+        ),
+        (IpAddr::V6(address), IpAddr::V6(network)) => {
+            (u128::from(address), u128::from(network), 128_u32)
+        }
+        _ => return false,
+    };
+    bits.checked_sub(prefix)
+        .is_some_and(|shift| (address ^ network).checked_shr(shift).unwrap_or(0) == 0)
 }
 
 /// Keeps only unreserved URL characters as they are.
@@ -271,7 +303,9 @@ mod tests {
         }
         assert_eq!(environment["no_proxy"], "localhost,127.0.0.1,.internal");
         assert_eq!(environment["NO_PROXY"], "localhost,127.0.0.1,.internal");
-        assert!(!self::proxy().environment().contains_key("no_proxy"));
+        let cleared = self::proxy().environment();
+        assert_eq!(cleared["no_proxy"], "");
+        assert_eq!(cleared["NO_PROXY"], "");
     }
 
     #[test]
@@ -301,6 +335,55 @@ mod tests {
         };
         assert!(everything.bypasses("anything"));
         assert!(!self::proxy().bypasses("localhost"));
+    }
+
+    #[test]
+    fn cidr_bypasses_respect_address_families_and_subnet_boundaries() {
+        for (bypass, host, expected) in [
+            ("10.20.30.0/24", "10.20.30.255", true),
+            ("10.20.30.100/24", "10.20.30.1", true),
+            ("10.20.30.0/24", "10.20.31.0", false),
+            ("10.20.30.0/32", "10.20.30.0", true),
+            ("10.20.30.0/32", "10.20.30.1", false),
+            ("0.0.0.0/0", "192.0.2.1", true),
+            ("0.0.0.0/0", "::1", false),
+            ("2001:db8::/33", "2001:db8:7fff::1", true),
+            ("2001:db8::/33", "2001:db8:8000::1", false),
+            ("2001:db8::1/128", "[2001:db8::1]", true),
+            ("2001:db8::1/128", "2001:db8::2", false),
+            ("::/0", "2001:db8::1", true),
+            ("::/0", "127.0.0.1", false),
+            ("127.0.0.0/8", "localhost", false),
+            ("127.0.0.1/33", "127.0.0.1", false),
+            ("::1/129", "::1", false),
+            ("::1/-1", "::1", false),
+            ("invalid/8", "127.0.0.1", false),
+        ] {
+            let proxy = ProxySettings {
+                bypass: bypass.into(),
+                ..proxy()
+            };
+            assert_eq!(proxy.bypasses(host), expected, "{bypass}: {host}");
+        }
+    }
+
+    #[test]
+    fn malformed_settings_do_not_expose_credentials() -> Result<()> {
+        let directory = tempfile::tempdir().map_err(|error| Error::new("test", error))?;
+        let path = directory.path().join("proxy.toml");
+        for source in [
+            "username = \"me\"\npassword = \"FAKE_REVIEW_SECRET\" extra\n",
+            "port = \"FAKE_REVIEW_SECRET\"\n",
+        ] {
+            fs::write(&path, source).map_err(|error| Error::new("test", error))?;
+            let error = ProxySettings::load(&path)
+                .expect_err("invalid settings")
+                .to_string();
+            assert!(!error.contains("FAKE_REVIEW_SECRET"));
+            assert!(error.contains("invalid proxy settings"));
+            assert!(error.contains("proxy.toml"));
+        }
+        Ok(())
     }
 
     #[test]
