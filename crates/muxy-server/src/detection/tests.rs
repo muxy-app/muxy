@@ -183,6 +183,64 @@ fn bundled_manifests_compile_and_classify_provider_screens() {
 }
 
 #[test]
+fn claude_background_shells_keep_the_agent_working() {
+    let prompt = "\n────────────────────\n❯ \n────────────────────\n  ⏵⏵ auto mode on";
+    let cases = [
+        (
+            "✻ Baked for 1m 25s · done 2:38 PM · 1 shell still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Cooked for 4m 2s · 3 shells still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Brewed for 12s · 2 shells, 1 monitor still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Churned for 3m 40s · done 11:02 AM · 2 shells\n  still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Baked for 9s · 1 monitor still running",
+            prompt,
+            AgentState::Idle,
+        ),
+        (
+            "❯ why does it say · 1 shell still running",
+            prompt,
+            AgentState::Idle,
+        ),
+        (
+            "✻ Baked for 1m 25s · 1 shell still running",
+            "\n Bash command\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel",
+            AgentState::Blocked,
+        ),
+    ];
+    for (summary, below, expected) in cases {
+        let screen = format!("{summary}\n{below}");
+        assert_eq!(
+            detect(
+                AgentProvider::Claude,
+                DetectionInput {
+                    screen: &screen,
+                    osc_title: "✳ Claude Code",
+                    osc_progress: ""
+                }
+            )
+            .map(|r| r.0),
+            Some(expected),
+            "{summary}"
+        );
+    }
+}
+
+#[test]
 fn process_identity_uses_executable_positions_not_prompt_text() {
     assert_eq!(
         identify(
