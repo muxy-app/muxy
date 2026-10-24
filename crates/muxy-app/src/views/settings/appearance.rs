@@ -1,7 +1,9 @@
 use super::{Category, Change, PickerKind, SettingsEvent, SettingsView, Snapshot};
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
 use muxy_app_core::localization;
-use muxy_app_core::settings::{AgentsPanelGrouping, CloseBehavior, SidebarCollapsedStyle};
+use muxy_app_core::settings::{
+    AgentsPanelGrouping, AgentsPanelIcon, CloseBehavior, SidebarCollapsedStyle,
+};
 use muxy_ui::controls::{self, Choice};
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
@@ -201,6 +203,29 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel rows")) {
         rows.push(agents_panel_grouping(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel icon")) {
+        rows.push(agents_panel_icon(pane, cx));
+    }
+    for (id, label, value) in [
+        (
+            "agents-panel-project-colors",
+            tr_key!("Show project colors"),
+            appearance.agents_panel_project_colors,
+        ),
+        (
+            "agents-panel-idle-time",
+            tr_key!("Show idle time"),
+            appearance.agents_panel_idle_time,
+        ),
+    ] {
+        if category == Category::Appearance && pane.matches(category, label) {
+            rows.push(pane.row(
+                id,
+                label,
+                pane.toggle(id, value, Change::AgentsPanelOption(id, !value), cx),
+            ));
+        }
+    }
     if category == Category::General && pane.matches(category, tr_key!("Open files with")) {
         rows.push(pane.row(
             "file-opener",
@@ -321,6 +346,35 @@ fn agents_panel_grouping(pane: &SettingsView, cx: &mut Context<SettingsView>) ->
                         AgentsPanelGrouping::Worktrees
                     } else {
                         AgentsPanelGrouping::Agents
+                    },
+                )));
+            }),
+        ),
+    )
+}
+
+fn agents_panel_icon(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    let appearance = &pane.snapshot.settings.appearance;
+    pane.row(
+        "agents-panel-icon",
+        tr_key!("Agents panel icon"),
+        controls::segmented(
+            pane.style(),
+            "agents-panel-icon",
+            &[
+                Choice::new("agent", tr!("Agent")),
+                Choice::new("project", tr!("Project")),
+            ],
+            match appearance.agents_panel_icon {
+                AgentsPanelIcon::Agent => "agent",
+                AgentsPanelIcon::Project => "project",
+            },
+            cx.listener(|_, selected: &gpui::SharedString, _, cx| {
+                cx.emit(SettingsEvent::Change(Change::AgentsPanelIcon(
+                    if selected.as_ref() == "project" {
+                        AgentsPanelIcon::Project
+                    } else {
+                        AgentsPanelIcon::Agent
                     },
                 )));
             }),

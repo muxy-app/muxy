@@ -4,7 +4,7 @@ use gpui::{
     MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
-use muxy_app_core::settings::AgentsPanelDock;
+use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelIcon};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::panel::{PanelFrame, PanelSizeBounds, PanelSizing, PanelStyle};
@@ -86,10 +86,33 @@ impl AppModel {
     }
 }
 
+fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
+    if !model.appearance.agents_panel_idle_time {
+        return None;
+    }
+    let finished_at = agent.finished_at?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let key = EntryKey::Agent(agent.server, agent.session);
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-idle-{key}"))
+            .flex_none()
+            .text_size(model.metrics.font_footnote())
+            .text_color(model.theme.fg_dim)
+            .child(super::agent_sessions::age_label(
+                now.saturating_sub(finished_at),
+            ))
+            .into_any_element(),
+    )
+}
+
 fn trailing(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     let m = model.metrics;
     match entry {
-        Entry::Agent(_) => None,
+        Entry::Agent(agent) => idle_time(agent, model),
         Entry::Worktree { counts, .. } => Some(
             div()
                 .flex()
@@ -121,24 +144,75 @@ fn trailing(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     }
 }
 
+fn root_project<'a>(entry: &Entry, model: &'a AppModel) -> Option<&'a muxy_app_core::Project> {
+    let project = match entry {
+        Entry::Agent(agent) => agent.project,
+        Entry::Worktree { project, .. } => *project,
+    };
+    let project = model.state.project(project)?;
+    Some(
+        project
+            .parent_id
+            .and_then(|parent| model.state.project(parent))
+            .unwrap_or(project),
+    )
+}
+
+fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    if !model.appearance.agents_panel_project_colors {
+        return None;
+    }
+    let root = root_project(entry, model)?;
+    let m = model.metrics;
+    let key = entry.key();
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-color-{key}"))
+            .flex_none()
+            .w(m.scaled(3.0))
+            .h(m.icon_xl())
+            .rounded_full()
+            .bg(super::sidebar::project_color(root, model))
+            .into_any_element(),
+    )
+}
+
+fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    let root = root_project(entry, model)?;
+    let key = entry.key();
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-project-{key}"))
+            .child(super::sidebar::project_tile(
+                root,
+                model,
+                model.metrics.icon_xl(),
+                None,
+            ))
+            .into_any_element(),
+    )
+}
+
 fn leading(entry: &Entry, owner: gpui::EntityId, model: &AppModel) -> AnyElement {
     let m = model.metrics;
     let key = entry.key();
-    match entry {
-        Entry::Agent(agent) => div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(m.spacing2())
-            .child(status_glyph(key, agent.status, owner, model))
-            .child(super::tab_activity::provider_icon(
-                agent.provider,
-                m.icon_sm(),
-                model,
-            ))
-            .into_any_element(),
-        Entry::Worktree { .. } => status_glyph(key, entry.status(), owner, model),
-    }
+    let icon =
+        match (model.appearance.agents_panel_icon, entry) {
+            (AgentsPanelIcon::Project, _) => project_icon(entry, model),
+            (AgentsPanelIcon::Agent, Entry::Agent(agent)) => Some(
+                super::tab_activity::provider_icon(agent.provider, m.icon_sm(), model),
+            ),
+            (AgentsPanelIcon::Agent, Entry::Worktree { .. }) => None,
+        };
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(m.spacing2())
+        .children(project_stripe(entry, model))
+        .child(status_glyph(key, entry.status(), owner, model))
+        .children(icon)
+        .into_any_element()
 }
 
 fn entry_row(

@@ -2,6 +2,7 @@ mod filters;
 mod rows;
 
 pub(crate) use filters::providers;
+pub(crate) use rows::age_label;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{

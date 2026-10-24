@@ -424,6 +424,27 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Agents Panel"),
     },
     Setting {
+        id: "agents-panel-icon",
+        label: tr_key!("Agents panel icon"),
+        description: tr_key!("Show each agent's icon, or the icon of the project it runs in."),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-project-colors",
+        label: tr_key!("Show project colors"),
+        description: tr_key!("Mark each agent with the color of the project it runs in."),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-idle-time",
+        label: tr_key!("Show idle time"),
+        description: tr_key!("Show how long ago each completed or idle agent finished working."),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
         id: "font-family",
         label: tr_key!("Font family"),
         description: tr_key!("The typeface used to render text in every terminal pane."),

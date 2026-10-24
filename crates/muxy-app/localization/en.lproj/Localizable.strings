@@ -128,10 +128,12 @@
 "Adjust smooth scrolling speed." = "Adjust smooth scrolling speed.";
 "Adjust the space above and below terminal text." = "Adjust the space above and below terminal text.";
 "Adjust the space to the left and right of terminal text." = "Adjust the space to the left and right of terminal text.";
+"Agent" = "Agent";
 "Agent Sessions" = "Agent Sessions";
 "Agents" = "Agents";
 "Agents Focused" = "Agents Focused";
 "Agents Panel" = "Agents Panel";
+"Agents panel icon" = "Agents panel icon";
 "Agents panel rows" = "Agents panel rows";
 "All Projects" = "All Projects";
 "All extensions are up to date." = "All extensions are up to date.";
@@ -837,6 +839,7 @@
 "Manage scheduled update…" = "Manage scheduled update…";
 "Manage the local server that keeps your terminal sessions running." = "Manage the local server that keeps your terminal sessions running.";
 "Manual Order" = "Manual Order";
+"Mark each agent with the color of the project it runs in." = "Mark each agent with the color of the project it runs in.";
 "Maximize" = "Maximize";
 "Maximize Pane" = "Maximize Pane";
 "Merge" = "Merge";
@@ -1331,7 +1334,11 @@
 "Show all" = "Show all";
 "Show an enabled extension's sidebar in place of the built-in one." = "Show an enabled extension's sidebar in place of the built-in one.";
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
+"Show each agent's icon, or the icon of the project it runs in." = "Show each agent's icon, or the icon of the project it runs in.";
+"Show how long ago each completed or idle agent finished working." = "Show how long ago each completed or idle agent finished working.";
+"Show idle time" = "Show idle time";
 "Show in File Manager" = "Show in File Manager";
+"Show project colors" = "Show project colors";
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
 "Show project names alongside their icons in the workspace sidebar." = "Show project names alongside their icons in the workspace sidebar.";
 "Show status bar" = "Show status bar";

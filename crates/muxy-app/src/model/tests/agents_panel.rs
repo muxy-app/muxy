@@ -2,7 +2,7 @@ use super::worktrees::{Sent, connected, pruning_fixture};
 use super::*;
 use crate::model::agents_panel::{AgentStatus, Entry, EntryKey, Placement};
 use gpui::Modifiers;
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping, AppLayout};
+use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping, AgentsPanelIcon, AppLayout};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_protocol::{
     ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity, AgentProvider, AgentState,
@@ -123,6 +123,87 @@ fn the_panel_lists_each_shown_session_once_most_urgent_first(cx: &mut TestAppCon
             Entry::Worktree { project, counts: [0, 1, 0, 0] } if *project == fixture.root
         )));
         assert_eq!(entries.len(), 3);
+    });
+}
+
+#[gpui::test]
+fn idle_time_comes_from_the_last_finish_of_resting_agents(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [root_pane, _, worktree_pane, home_pane] = fixture.panes;
+    let finished_at = |model: &AppModel| {
+        model
+            .running_agents()
+            .into_iter()
+            .map(|agent| (agent.pane, agent.status, agent.finished_at))
+            .collect::<Vec<_>>()
+    };
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            finished_at(model),
+            [
+                (worktree_pane, AgentStatus::Blocked, None),
+                (root_pane, AgentStatus::Working, None),
+                (home_pane, AgentStatus::Completed, Some(0)),
+            ],
+            "a working agent's earlier finish is not its idle time"
+        );
+    });
+    let receive = |view: &Entity<AppModel>,
+                   cx: &mut VisualTestContext,
+                   revision,
+                   home: AgentState,
+                   events: Vec<ActivityEvent>| {
+        view.update(cx, |model, cx| {
+            let agent = |id, state| AgentActivity {
+                session: SessionId::new(id).expect("session"),
+                project: fixture.root,
+                provider: AgentProvider::Claude,
+                state,
+            };
+            model.receive_activity(
+                ServerId::local(),
+                Ok(ActivitySnapshot {
+                    revision,
+                    agents: vec![
+                        agent(1, AgentState::Idle),
+                        agent(2, AgentState::Idle),
+                        agent(3, home),
+                    ],
+                    events,
+                }),
+                cx,
+            );
+        });
+    };
+    let attention = ActivityEvent {
+        id: 3,
+        session: SessionId::new(1).expect("session"),
+        project: fixture.root,
+        provider: AgentProvider::Claude,
+        timestamp: 300,
+        kind: ActivityKind::Attention,
+        read: false,
+    };
+    receive(&view, cx, 2, AgentState::Idle, vec![attention]);
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            finished_at(model),
+            [
+                (home_pane, AgentStatus::Idle, Some(0)),
+                (root_pane, AgentStatus::Idle, None),
+                (worktree_pane, AgentStatus::Idle, None),
+            ],
+            "an acknowledged finish keeps its time, and an attention request is not a finish"
+        );
+    });
+    receive(&view, cx, 3, AgentState::Working, Vec::new());
+    receive(&view, cx, 4, AgentState::Idle, Vec::new());
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            finished_at(model).first(),
+            Some(&(home_pane, AgentStatus::Idle, None)),
+            "work that ends without a finish does not reuse the previous one"
+        );
     });
 }
 
@@ -285,13 +366,24 @@ fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppCon
         (AgentsPanelDock::Left, false, false),
         (AgentsPanelDock::Left, true, true),
     ] {
-        for grouping in [AgentsPanelGrouping::Agents, AgentsPanelGrouping::Worktrees] {
+        for (grouping, icon, colors) in [
+            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Agent, true),
+            (AgentsPanelGrouping::Agents, AgentsPanelIcon::Project, true),
+            (AgentsPanelGrouping::Worktrees, AgentsPanelIcon::Agent, true),
+            (
+                AgentsPanelGrouping::Worktrees,
+                AgentsPanelIcon::Project,
+                false,
+            ),
+        ] {
             view.update(cx, |model, cx| {
                 model.appearance.agents_panel_visible = true;
                 model.appearance.agents_panel_dock = dock;
                 model.appearance.sidebar_expanded = expanded;
                 model.appearance.agents_panel_detached = detached;
                 model.appearance.agents_panel_grouping = grouping;
+                model.appearance.agents_panel_icon = icon;
+                model.appearance.agents_panel_project_colors = colors;
                 model.appearance.agents_panel_right_width = Some(220.0);
                 model.appearance.agents_panel_frame = Some([80.0, 80.0, 220.0, 360.0]);
                 model.overlay = (!expanded).then_some(Overlay::Agents);
@@ -309,6 +401,24 @@ fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppCon
             let panel = cx.debug_bounds("agents-panel").expect("panel");
             let max_line_height = view.read_with(cx, |model, _| model.metrics.font_body() * 2.0);
             assert!(row.right() <= panel.right(), "card fits in the panel");
+            if colors {
+                let stripe = cx
+                    .debug_bounds(format!("agents-panel-color-{key}").leak())
+                    .expect("project color");
+                assert!(
+                    stripe.left() >= row.left() && stripe.bottom() <= row.bottom(),
+                    "project color fits inside the card"
+                );
+            }
+            if icon == AgentsPanelIcon::Project {
+                let tile = cx
+                    .debug_bounds(format!("agents-panel-project-{key}").leak())
+                    .expect("project icon");
+                assert!(
+                    tile.left() >= row.left() && tile.bottom() <= row.bottom(),
+                    "project icon fits inside the card"
+                );
+            }
             for label in ["title", "detail"] {
                 if label == "detail" && grouping == AgentsPanelGrouping::Worktrees {
                     continue;
