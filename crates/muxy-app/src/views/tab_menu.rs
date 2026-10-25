@@ -1,4 +1,4 @@
-use muxy_app_core::{Color, Project, TabCloseScope, TabId, TabSide};
+use muxy_app_core::{Color, PaneId, Project, TabCloseScope, TabId, TabSide};
 
 use muxy_ui::tr;
 
@@ -17,7 +17,7 @@ pub(crate) enum Action {
     CloseTabs(TabCloseScope),
 }
 
-pub(crate) fn items(project: &Project, id: TabId) -> Vec<Item> {
+pub(crate) fn items(project: &Project, id: TabId, pin: Option<PaneId>) -> Vec<Item> {
     let Some(tab) = project.tabs.iter().find(|tab| tab.id == id) else {
         return Vec::new();
     };
@@ -49,6 +49,12 @@ pub(crate) fn items(project: &Project, id: TabId) -> Vec<Item> {
         )
         .separated(),
     );
+    if let Some(pane) = pin {
+        items.push(Item::action(
+            tr!("Pin to Side Panel"),
+            Command::PinTerminal(pane),
+        ));
+    }
     if !tab.pinned {
         items.push(item(tr!("Close Tab"), Action::Close).separated());
     }

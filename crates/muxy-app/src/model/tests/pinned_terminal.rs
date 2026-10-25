@@ -175,3 +175,26 @@ fn a_restart_without_the_pinned_session_closes_the_pinned_terminal(cx: &mut Test
         assert!(!model.grids.contains_key(&pane));
     });
 }
+
+#[gpui::test]
+fn the_tab_menu_pins_the_tab_terminal(cx: &mut TestAppContext) {
+    let (state, _, pane, _) = pinned_state();
+    let tab = state.home().tabs[0].id;
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, connect);
+    view.update_in(cx, |model, window, cx| {
+        model.open_tab_menu(tab, gpui::point(px(10.0), px(10.0)), window, cx);
+        assert!(
+            model.menu_outline()[0]
+                .iter()
+                .any(|row| row.contains("Pin to Side Panel"))
+        );
+        model.dismiss_overlay(cx);
+        model.pin_terminal(pane, cx);
+        assert_eq!(
+            model.state.pinned_terminal().map(|pinned| pinned.id),
+            Some(pane)
+        );
+    });
+}
