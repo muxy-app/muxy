@@ -48,6 +48,31 @@ fn showing_a_terminal_opens_one_tab_and_then_selects_it(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn showing_a_terminal_reveals_its_project_workspace(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    let work = state.create_workspace("Work").expect("workspace");
+    state
+        .set_workspace_member(work, project, true)
+        .expect("member");
+    let other = state.create_workspace("Other").expect("workspace");
+    state
+        .select_workspace(Some(other))
+        .expect("other workspace");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        acknowledge_catalog(model, cx);
+        show(model, "7", project, cx).expect("shown");
+        assert_eq!(model.state.current_project().id, project);
+        assert_eq!(model.state.window().workspace, Some(work));
+    });
+}
+
+#[gpui::test]
 fn showing_waits_for_the_server_and_rejects_bad_ids(cx: &mut TestAppContext) {
     let state = AppState::bootstrap().expect("state");
     let project = state.home().id;

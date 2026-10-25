@@ -426,6 +426,7 @@ impl AppModel {
                 return Err(message);
             }
         };
+        self.state.reveal_current_project();
         if !self.save(cx) {
             self.state = previous;
             return Err("could not save tabs".into());
