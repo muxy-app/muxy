@@ -1,8 +1,10 @@
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::mpsc::RecvTimeoutError;
+use std::thread;
 use std::time::{Duration, Instant};
 
+use muxy_app_core::browser::api;
 use muxy_client::{Attachment, Client, ClientError, ClientEvent, RunGrid};
 use muxy_protocol::{
     ErrorCode, ExitReason, ProjectDescriptor, ProjectId, ProjectSession, SearchSource, SessionId,
@@ -12,6 +14,10 @@ use serde_json::{Value, json};
 
 use super::args::{Session, Until};
 use super::{Output, Paths, Result, local_path, path_text, projects};
+
+/// How long `session show` waits for the desktop app to load the session's
+/// project, after it starts listening.
+const SHOW_WAIT: Duration = Duration::from_secs(10);
 
 pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Paths) -> Result {
     match command {
@@ -40,6 +46,7 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             client.discard_session(calling(client, session)?)?;
             output.ok()
         }
+        Session::Show(session) => show(client, calling(client, session)?, output, paths),
         Session::Send { session, text } => {
             input(client, calling(client, session)?, text.into_bytes(), output)
         }
@@ -116,6 +123,50 @@ fn calling(client: &Client, session: Option<SessionId>) -> Result<SessionId> {
         Some(session) => Ok(session),
         None => crate::worker::hosting_session(client.catalog_page(None, None)?.server)
             .ok_or_else(|| "give a session ID; this isn't a Muxy terminal on that server".into()),
+    }
+}
+
+/// Shows `session` in a tab of the desktop app on this computer, which starts
+/// the app if needed and waits for it to load the session's project.
+fn show(client: &Client, session: SessionId, output: &Output, paths: Paths) -> Result {
+    if paths == Paths::Remote {
+        return Err(
+            "session show uses the desktop app on this computer; it doesn't take --host".into(),
+        );
+    }
+    let mut found = None;
+    for project in client.catalog()?.projects {
+        if let Some(entry) = list(client, project.id)?
+            .into_iter()
+            .find(|entry| entry.info.id == session)
+        {
+            found = Some(entry);
+            break;
+        }
+    }
+    let entry = found.ok_or_else(|| format!("session {} not found", session.get()))?;
+    if !matches!(entry.status, SessionStatus::Live | SessionStatus::Starting) {
+        return Err(format!("session {} has ended", session.get()).into());
+    }
+    let mut args = serde_json::Map::new();
+    args.insert("session".into(), session.get().to_string().into());
+    args.insert("project".into(), entry.info.project.to_string().into());
+    let deadline = Instant::now() + SHOW_WAIT;
+    loop {
+        match crate::browser::call_app("session.show", args.clone(), true, Duration::ZERO) {
+            Err(error) if error.to_string() == api::NOT_READY && Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            reply => {
+                reply?;
+                break;
+            }
+        }
+    }
+    if output.json {
+        Output::json(&json!({"id":session.get().to_string(), "project_id":entry.info.project}))
+    } else {
+        output.ok()
     }
 }
 

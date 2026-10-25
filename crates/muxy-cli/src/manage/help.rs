@@ -119,11 +119,15 @@ pub(crate) const SESSION: &str = "Usage: muxy session <action> [--json]
   wait [id] --text TEXT [--ignore-case] | --exit [--timeout-ms N]
   end [id] --yes                   End the process, keeping saved output
   discard [id] --yes               End the process and delete saved output
+  show [id]                        Show it in a desktop app tab and raise the app
 
 Create prints the new session ID and types COMMAND into it, then Return.
 COMMAND words are joined with spaces without shell quoting; quote the whole
 command to preserve its quotes and shell syntax.
 Sessions outlive this command; the apps list them under Existing Terminals.
+Show opens the session in a new tab of its project in the desktop app on this
+computer, or selects the tab that already shows it, starting the app if needed;
+it doesn't take --host.
 Inside a Muxy terminal, the ID defaults to that terminal and the project to its
 project. Wait prints the first visible line containing TEXT, or how the session
 ended; it fails after the timeout (default 30000ms, maximum 3600000ms).

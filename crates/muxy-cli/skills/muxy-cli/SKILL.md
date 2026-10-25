@@ -8,7 +8,8 @@ description: How to drive Muxy 2 from a shell with the `muxy` command — start 
 Muxy keeps terminals in a background server. The `muxy` command talks to that
 server directly; the desktop app doesn't need to be open. Terminals you start
 keep running after your command returns, and the user can open them in the
-desktop app or the terminal UI from **Existing Terminals**.
+desktop app or the terminal UI from **Existing Terminals**, or you can show
+one to them with `muxy session show`.
 
 Run `muxy --help` and `muxy <command> --help` for every option. Add `--json`
 to any management command for machine-readable output.
@@ -98,6 +99,16 @@ muxy session end "$WEB" --yes
 Only end terminals you created. A terminal the user is looking at closes in
 their app too.
 
+## Show a terminal to the user
+
+```bash
+muxy session show "$WEB"
+```
+
+This opens the terminal in a new tab of its project in the desktop app and
+raises the app, or selects the tab that already shows it. Use it when the user
+should watch or take over a terminal, not for every terminal you start.
+
 ## Projects and worktrees
 
 ```bash
@@ -147,6 +158,6 @@ Put `--host user@computer` before a server-backed command, such as `project`,
 `session`, or `worktree`, to use another computer's server over SSH. Directories
 are then absolute paths on that computer.
 
-Folder-opening commands, `browser`, and `install-skills` do not support
-`--host`.
+Folder-opening commands, `browser`, `session show`, and `install-skills` do
+not support `--host`.
 `install-skills --dir DIR` always installs into a local directory.

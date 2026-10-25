@@ -47,7 +47,7 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy <folder>` | Opens the folder as a project in the desktop app. On Linux, over SSH, or without the desktop app, opens it in the terminal UI. |
 | `muxy server start\|status\|stop` | Starts, inspects, or stops the server. `stop` refuses while terminals run; add `--force` to end them. |
 | `muxy project list\|add\|rename\|set-color\|set-icon\|delete` | Manages projects. Deleting ends its terminals but keeps files on disk. |
-| `muxy session list\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard` | Creates terminals, sends input, reads output, and waits for text or exit. |
+| `muxy session list\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show` | Creates terminals, sends input, reads output, waits for text or exit, and shows a terminal in the desktop app. |
 | `muxy worktree list\|create\|checkout-pr\|register\|remove` | Manages Git worktree projects, including checking out pull requests. |
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy activity list\|ack` | Reads or clears [AI agent](ai-agents.md) activity. |
@@ -77,6 +77,9 @@ muxy session end "$id" --yes
   the output.
 - Sessions created here outlive the command and appear in every app under
   **Existing Terminals**.
+- `show` opens a session in a new tab of its project in the desktop app on
+  this computer and raises the app, starting it if needed. When a tab already
+  shows the session, `show` selects that tab instead.
 - Inside a Muxy terminal, session commands default to that terminal, and
   `create` to its project.
 - `create` can take a `--directory` and a command to run after `--`.

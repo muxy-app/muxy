@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{Context, Entity, Pixels, Point, Subscription, Window};
+use gpui::{Context, Entity, Pixels, Point, Subscription, Task, Window};
 use muxy_app_core::browser::BrowserPane;
 use muxy_app_core::{PaneContent, PaneId, ProjectId, Tab};
 use muxy_ui::browser::polybrowser::ProfileManager;
@@ -49,7 +49,7 @@ pub(crate) struct Browsers {
     /// Panes a page opened, which may close themselves.
     opened_by_page: HashSet<PaneId>,
     /// Saves addresses once pages stop changing them.
-    save: Option<gpui::Task<()>>,
+    save: Option<Task<()>>,
     /// Panes whose view could not be created, with why.
     failures: HashMap<PaneId, String>,
     shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
@@ -307,7 +307,8 @@ impl AppModel {
         }
     }
 
-    /// Answers `muxy browser` on the profile's app socket.
+    /// Answers `muxy browser` and `muxy session show` on the profile's app
+    /// socket.
     pub(crate) fn start_app_socket(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let path = muxy_app_core::browser::api::socket_path(
             self.path
@@ -325,13 +326,18 @@ impl AppModel {
         cx.spawn_in(window, async move |model, cx| {
             while let Ok(incoming) = requests.recv().await {
                 let verb = incoming.request.verb.clone();
-                if !verb.starts_with("browser.") {
+                let shows_session = verb == "session.show";
+                if !shows_session && !verb.starts_with("browser.") {
                     incoming.reply(Err(format!("unknown command {verb}")));
                     continue;
                 }
                 let args = incoming.request.args.clone();
                 let Ok(reply) = model.update_in(cx, |model, window, cx| {
-                    model.browser_call(&verb, &args, window, cx)
+                    if shows_session {
+                        Task::ready(model.show_session(&args, cx))
+                    } else {
+                        model.browser_call(&verb, &args, window, cx)
+                    }
                 }) else {
                     incoming.reply(Err("Muxy is closing".into()));
                     break;
