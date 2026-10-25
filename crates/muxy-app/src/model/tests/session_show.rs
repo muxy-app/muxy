@@ -69,6 +69,16 @@ fn showing_a_terminal_reveals_its_project_workspace(cx: &mut TestAppContext) {
         show(model, "7", project, cx).expect("shown");
         assert_eq!(model.state.current_project().id, project);
         assert_eq!(model.state.window().workspace, Some(work));
+
+        let home = model.state.home().id;
+        model.select_project(home, cx);
+        model
+            .state
+            .select_workspace(Some(other))
+            .expect("other workspace");
+        show(model, "7", project, cx).expect("shown again");
+        assert_eq!(model.state.current_project().id, project);
+        assert_eq!(model.state.window().workspace, Some(work));
     });
 }
 
