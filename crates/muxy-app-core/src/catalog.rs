@@ -284,13 +284,9 @@ impl AppState {
             .collect();
         self.window.focus_history.retain(|id| panes.contains(id));
         self.startup_commands.retain(|id, _| panes.contains(id));
-        self.starting_directories.retain(|id, _| {
-            panes.contains(id)
-                || self
-                    .quick_terminal
-                    .as_ref()
-                    .is_some_and(|pane| pane.id == *id)
-        });
+        let loose: HashSet<_> = self.loose_panes().map(|pane| pane.id).collect();
+        self.starting_directories
+            .retain(|id, _| panes.contains(id) || loose.contains(id));
         if !projects.contains(&self.window.current_project) {
             self.window.current_project = page.home;
         }

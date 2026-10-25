@@ -135,6 +135,9 @@ impl AppModel {
         if self.quick.visible {
             panes.extend(self.state.quick_terminal().map(|pane| pane.id));
         }
+        if self.pinned_terminal_shown() {
+            panes.extend(self.state.pinned_terminal().map(|pane| pane.id));
+        }
         panes
     }
 

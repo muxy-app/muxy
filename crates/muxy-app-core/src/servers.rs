@@ -242,11 +242,7 @@ impl AppState {
                     .flat_map(|tab| &tab.panes)
                     .map(|pane| (project.server_id, pane))
             })
-            .chain(
-                self.quick_terminal
-                    .iter()
-                    .map(|pane| (ServerId::local(), pane)),
-            )
+            .chain(self.loose_panes().map(|pane| (ServerId::local(), pane)))
     }
 }
 

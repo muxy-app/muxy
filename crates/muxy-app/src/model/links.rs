@@ -16,7 +16,7 @@ use crate::views::{
 impl AppModel {
     pub(super) fn opener_context(&self, pane: PaneId) -> Option<OpenContext> {
         let project = self.state.projects().iter().find(|project| {
-            (self.is_quick_terminal(pane) && project.id == self.state.home().id)
+            (self.state.is_loose_pane(pane) && project.id == self.state.home().id)
                 || project
                     .tabs
                     .iter()
@@ -181,6 +181,10 @@ impl AppModel {
         if !self.can_detach_terminal(id) {
             detach = detach.disabled();
         }
+        let mut pin = Item::action(tr!("Pin to Side Panel"), Command::PinTerminal(id));
+        if !self.can_pin_terminal(id) {
+            pin = pin.disabled();
+        }
         let mut split_right =
             Item::action(tr!("Split Right"), Command::SplitPane(id, Direction::Right)).separated();
         let mut split_down =
@@ -220,6 +224,7 @@ impl AppModel {
             zoom,
             equalize,
             self.proxy_menu_item(id).separated(),
+            pin,
             detach,
             close,
         ];

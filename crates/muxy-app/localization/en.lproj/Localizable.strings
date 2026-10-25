@@ -330,6 +330,7 @@
 "Close Tabs to the Left" = "Close Tabs to the Left";
 "Close Tabs to the Right" = "Close Tabs to the Right";
 "Close Tabs?" = "Close Tabs?";
+"Close Terminal" = "Close Terminal";
 "Close Window" = "Close Window";
 "Close active terminal?" = "Close active terminal?";
 "Close pull request #%lld (%@) without merging?" = "Close pull request #%lld (%@) without merging?";
@@ -656,6 +657,7 @@
 "Focus Pane Left" = "Focus Pane Left";
 "Focus Pane Right" = "Focus Pane Right";
 "Focus Pane Up" = "Focus Pane Up";
+"Focus Pinned Terminal" = "Focus Pinned Terminal";
 "Focus Project" = "Focus Project";
 "Focused Project" = "Focused Project";
 "Folder" = "Folder";
@@ -690,6 +692,7 @@
 "Hide" = "Hide";
 "Hide %@" = "Hide %@";
 "Hide Others" = "Hide Others";
+"Hide Pinned Terminal" = "Hide Pinned Terminal";
 "Hide Tips" = "Hide Tips";
 "Hide Tips?" = "Hide Tips?";
 "Hide agents panel" = "Hide agents panel";
@@ -878,6 +881,7 @@
 "Move to Group…" = "Move to Group…";
 "Move to Left Sidebar" = "Move to Left Sidebar";
 "Move to Right" = "Move to Right";
+"Move to Tab" = "Move to Tab";
 "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there." = "Muxy %@ is downloaded from GitHub and installed in ~/.local/bin on %@. It needs curl and glibc 2.35 or newer there.";
 "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain." = "Muxy %@ requires a server restart. You can update automatically when all terminal sessions end, or end them now. Terminal panes will close. App-only panes and settings will remain.";
 "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions." = "Muxy %@ will install and restart the app when all terminal sessions end. Currently %lld sessions are running, including idle shells and detached sessions.";
@@ -1062,7 +1066,9 @@
 "Permission rules" = "Permission rules";
 "Phones that can connect. Revoking one disconnects it immediately." = "Phones that can connect. Revoking one disconnects it immediately.";
 "Pin Tab" = "Pin Tab";
+"Pin to Side Panel" = "Pin to Side Panel";
 "Pink" = "Pink";
+"Pinned Terminal" = "Pinned Terminal";
 "Pixels" = "Pixels";
 "Points to change the font size by, such as 1." = "Points to change the font size by, such as 1.";
 "Port" = "Port";
@@ -1505,6 +1511,7 @@
 "Toggle Composer" = "Toggle Composer";
 "Toggle Full Screen" = "Toggle Full Screen";
 "Toggle Pane Zoom" = "Toggle Pane Zoom";
+"Toggle Pinned Terminal" = "Toggle Pinned Terminal";
 "Toggle Sidebar" = "Toggle Sidebar";
 "Toggle Voice Recording" = "Toggle Voice Recording";
 "Top" = "Top";
@@ -1695,6 +1702,7 @@
 "focus pane left" = "focus pane left";
 "focus pane right" = "focus pane right";
 "focus pane up" = "focus pane up";
+"focus pinned terminal" = "focus pinned terminal";
 "hide app" = "hide app";
 "hide others" = "hide others";
 "host, address, or ~/.ssh/config alias" = "host, address, or ~/.ssh/config alias";
@@ -1817,6 +1825,7 @@
 "toggle command palette" = "toggle command palette";
 "toggle composer" = "toggle composer";
 "toggle full screen" = "toggle full screen";
+"toggle pinned terminal" = "toggle pinned terminal";
 "toggle sidebar" = "toggle sidebar";
 "toggle theme picker" = "toggle theme picker";
 "toggle voice recording" = "toggle voice recording";

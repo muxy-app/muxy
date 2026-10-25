@@ -58,6 +58,10 @@ pub(crate) enum Command {
     ExistingSessions(muxy_app_core::ProjectId),
     ProjectLayouts(muxy_app_core::ProjectId),
     DetachTerminal(muxy_app_core::PaneId),
+    PinTerminal(muxy_app_core::PaneId),
+    UnpinTerminal,
+    HidePinnedTerminal,
+    ClosePinnedTerminal,
     /// Restarts the terminal with the app's proxy, or without it.
     RestartWithProxy(muxy_app_core::PaneId, bool),
     /// Opens the status bar's proxy popover.
@@ -622,6 +626,13 @@ impl AppModel {
                 return;
             }
             Command::DetachTerminal(pane) => self.detach_terminal(pane, cx),
+            Command::PinTerminal(pane) => self.pin_terminal(pane, cx),
+            Command::UnpinTerminal => self.unpin_terminal(cx),
+            Command::HidePinnedTerminal => {
+                self.toggle_pinned_terminal(window, cx);
+                return;
+            }
+            Command::ClosePinnedTerminal => self.close_pinned_terminal(cx),
             Command::RestartWithProxy(pane, proxy) => self.restart_terminal(pane, proxy, cx),
             Command::ProxySettings => {
                 self.open_proxy_popover(window, cx);

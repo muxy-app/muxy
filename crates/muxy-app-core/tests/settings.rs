@@ -152,6 +152,7 @@ fn every_default_binding_round_trips_and_resolves_both_directions() -> Result {
             ShortcutId::SelectCommandOutput
                 | ShortcutId::DetachTerminal
                 | ShortcutId::ToggleAgentSessions
+                | ShortcutId::TogglePinnedTerminal
         ) {
             assert!(keymap.chord(action).is_none());
             continue;

@@ -30,6 +30,7 @@ impl AppState {
         state.startup_commands.clear();
         state.starting_directories.clear();
         state.quick_terminal = None;
+        state.pinned_terminal = None;
         for pane in state
             .projects
             .iter_mut()

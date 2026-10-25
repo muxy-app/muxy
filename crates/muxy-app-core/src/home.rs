@@ -23,6 +23,7 @@ impl AppState {
             starting_directories: BTreeMap::new(),
             startup_commands: BTreeMap::new(),
             quick_terminal: None,
+            pinned_terminal: None,
             version: crate::state::VERSION,
             projects: vec![home],
             workspaces: Vec::new(),

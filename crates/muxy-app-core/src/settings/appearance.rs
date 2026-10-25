@@ -115,6 +115,8 @@ pub struct Appearance {
     pub agent_sessions_width: Option<f32>,
     pub agent_sessions_height: Option<f32>,
     pub agent_sessions_providers: Vec<muxy_protocol::AgentProvider>,
+    pub pinned_terminal_hidden: bool,
+    pub pinned_terminal_width: Option<f32>,
 }
 
 impl Default for Appearance {
@@ -160,6 +162,8 @@ impl Default for Appearance {
                 .into_iter()
                 .filter(|provider| crate::agent_sessions::supported(*provider))
                 .collect(),
+            pinned_terminal_hidden: false,
+            pinned_terminal_width: None,
         }
     }
 }

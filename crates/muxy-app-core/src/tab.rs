@@ -173,12 +173,15 @@ impl Tab {
     }
 
     pub(crate) fn with_content(content: PaneContent, title: &str) -> Self {
-        let pane = Pane {
+        Self::with_pane(Pane {
             id: PaneId::new(),
             title: title.into(),
             content,
             proxy: false,
-        };
+        })
+    }
+
+    pub(crate) fn with_pane(pane: Pane) -> Self {
         Self {
             id: TabId::new(),
             custom_title: None,
