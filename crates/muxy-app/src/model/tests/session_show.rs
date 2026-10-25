@@ -83,6 +83,39 @@ fn showing_a_terminal_reveals_its_project_workspace(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_terminal_that_ended_before_showing_closes_its_tab(cx: &mut TestAppContext) {
+    let state = AppState::bootstrap().expect("state");
+    let project = state.home().id;
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        acknowledge_catalog(model, cx);
+        let tabs = tab_count(model, project);
+        let session = SessionId::new(7).expect("session");
+        show(model, "7", project, cx).expect("shown");
+        let (_, _, pane) = model
+            .session_pane(ServerId::local(), session)
+            .expect("a pane shows the terminal");
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::AttachFailed {
+                    pane,
+                    session: Some(session),
+                    created: false,
+                    error: missing_session_error(),
+                },
+            ),
+            cx,
+        );
+        assert!(model.session_pane(ServerId::local(), session).is_none());
+        assert_eq!(tab_count(model, project), tabs);
+    });
+}
+
+#[gpui::test]
 fn showing_waits_for_the_server_and_rejects_bad_ids(cx: &mut TestAppContext) {
     let state = AppState::bootstrap().expect("state");
     let project = state.home().id;
