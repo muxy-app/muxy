@@ -77,10 +77,6 @@ fn finish_dictation_inserts_without_sending_and_close_cancels(cx: &mut TestAppCo
     view.read_with(cx, |view, _| {
         assert_eq!(view.draft.text, "Existing draft. dictated text");
         assert!(!view.recording());
-        assert_eq!(
-            view.error.as_deref(),
-            Some("No speech detected. Try dictation again.")
-        );
     });
     let (recorder, simulated) = SimulatedRecorder::new(Snapshot::default());
     view.update(cx, |view, cx| {

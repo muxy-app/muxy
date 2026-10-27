@@ -22,11 +22,6 @@ pub(super) fn prepare(
     let pixel = px(1.0 / scale);
     let cp = u32::from(ch);
     if (0x2800..=0x28ff).contains(&cp) {
-        #[cfg(test)]
-        if paths.legacy_dots {
-            braille(cp, bounds, pixel, color, paths);
-            return true;
-        }
         dots::prepare(cp - 0x2800, bounds, pixel, color, paths);
         return true;
     }
@@ -61,57 +56,6 @@ pub(super) fn prepare(
     true
 }
 
-#[cfg(test)]
-fn braille(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths: &mut Paths) {
-    let mask = cp - 0x2800;
-    let radius = (bounds.size.width / 8.0).max(pixel / 2.0);
-    let disjoint =
-        radius * 2.0 < bounds.size.width / 2.0 && radius * 2.0 < bounds.size.height / 4.0;
-    let mut dots = Vec::with_capacity(mask.count_ones() as usize);
-    for (bit, col, row) in [
-        (0, 0_u8, 0_u8),
-        (1, 0, 1),
-        (2, 0, 2),
-        (3, 1, 0),
-        (4, 1, 1),
-        (5, 1, 2),
-        (6, 0, 3),
-        (7, 1, 3),
-    ] {
-        if mask & (1 << bit) == 0 {
-            continue;
-        }
-        let x = bounds.left() + bounds.size.width * (0.25 + 0.5 * f32::from(col));
-        let y = bounds.top() + bounds.size.height * (0.125 + 0.25 * f32::from(row));
-        let mut path = PathBuilder::fill();
-        path.move_to(point(x - radius, y));
-        path.arc_to(
-            point(radius, radius),
-            px(0.0),
-            false,
-            true,
-            point(x + radius, y),
-        );
-        path.arc_to(
-            point(radius, radius),
-            px(0.0),
-            false,
-            true,
-            point(x - radius, y),
-        );
-        path.close();
-        if let Ok(path) = path.build() {
-            dots.push((path, color));
-        }
-    }
-    if disjoint {
-        paths.extend_disjoint(bounds, dots);
-    } else {
-        for dot in dots {
-            paths.push(dot);
-        }
-    }
-}
 fn powerline(cp: u32, bounds: Bounds<Pixels>, pixel: Pixels, color: Hsla, paths: &mut Paths) {
     let center = bounds.center();
     let right = matches!(cp, 0xe0b0 | 0xe0b1 | 0xe0b4 | 0xe0b5);

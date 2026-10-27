@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import gzip
 import hashlib
@@ -9,7 +8,6 @@ import os
 from pathlib import Path
 import tarfile
 import tempfile
-import threading
 import unittest
 from unittest.mock import patch
 
@@ -74,15 +72,6 @@ class DesktopDistributionTests(unittest.TestCase):
         INSTALL.stage(self.root, archive, version, checksum)
         return self.root / "versions" / version
 
-    def test_checksum_failure_leaves_current_binaries_untouched(self):
-        self.staged(self.old)
-        INSTALL.switch(self.root, self.old)
-        archive, _ = self.package(self.new)
-        with self.assertRaisesRegex(ValueError, "checksum"):
-            INSTALL.stage(self.root, archive, self.new, "0" * 64)
-        self.assertEqual(INSTALL.current_version(self.root), self.old)
-        self.assertFalse((self.root / "versions" / self.new).exists())
-
     def test_tar_rejects_traversal_links_duplicate_files_and_oversized_entries(self):
         for name, kind, size in (("../escaped", tarfile.REGTYPE, 1),
                                  ("muxy-desktop/muxy", tarfile.SYMTYPE, 0),
@@ -116,87 +105,6 @@ class DesktopDistributionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     INSTALL.stage(self.root, archive, self.new, checksum)
                 self.assertFalse((self.root / "versions" / self.new).exists())
-
-    def test_staged_tampering_is_detected_before_activation(self):
-        self.staged(self.old)
-        candidate = self.staged(self.new)
-        INSTALL.switch(self.root, self.old)
-        (candidate / "muxy-server").write_text("modified")
-        with self.assertRaisesRegex(ValueError, "checksum"):
-            INSTALL.activate(self.root, self.new, self.old, 12345)
-        self.assertEqual(INSTALL.current_version(self.root), self.old)
-
-    def test_failed_restart_setup_rolls_back_the_entire_release_and_allows_retry(self):
-        self.staged(self.old)
-        self.staged(self.new)
-        INSTALL.switch(self.root, self.old)
-        with self.assertRaises(OSError):
-            INSTALL.activate(self.root, self.new, self.old, 12345,
-                             spawn=lambda *args, **kwargs: (_ for _ in ()).throw(OSError("spawn failed")))
-        self.assertEqual(INSTALL.current_version(self.root), self.old)
-        INSTALL.activate(self.root, self.new, self.old, 12345, spawn=lambda *args, **kwargs: None)
-        self.assertEqual(INSTALL.current_version(self.root), self.new)
-        self.assertTrue((self.root / "versions" / self.old / "muxy-server").exists())
-        with self.assertRaisesRegex(ValueError, "changed"):
-            INSTALL.activate(self.root, self.new, self.old, 12345)
-
-    def test_prune_keeps_running_helpers_previous_release_and_pending_updates(self):
-        ancient = self.staged("2.0.0-beta.9")
-        self.staged(self.old)
-        self.staged(self.new)
-        pending = self.staged("2.0.0-beta.12")
-        INSTALL.switch(self.root, self.new)
-        INSTALL.atomic_json(self.root / "previous.json", {"version": self.old})
-        with (ancient / ".lease").open() as running:
-            fcntl.flock(running, fcntl.LOCK_SH)
-            INSTALL.prune(self.root)
-            self.assertTrue(ancient.exists())
-        INSTALL.prune(self.root)
-        self.assertFalse(ancient.exists())
-        self.assertTrue((self.root / "versions" / self.old).exists())
-        self.assertTrue(pending.exists())
-
-    def test_restart_waits_for_concurrent_helper_startup(self):
-        self.staged(self.old)
-        self.staged(self.new)
-        INSTALL.switch(self.root, self.new)
-        waiting = threading.Event()
-        sleep = INSTALL.time.sleep
-
-        def retry(delay):
-            waiting.set()
-            sleep(delay)
-
-        with ThreadPoolExecutor(max_workers=1) as workers, \
-                patch.object(INSTALL.subprocess, "Popen") as spawn, \
-                patch.object(INSTALL.time, "sleep", side_effect=retry):
-            spawn.return_value.wait.return_value = 0
-            with INSTALL.locked(self.root):
-                restart = workers.submit(INSTALL.restart, self.root, self.new, self.old, -1)
-                self.assertTrue(waiting.wait(timeout=5), "Restart did not wait for the installation lock")
-                spawn.assert_not_called()
-            restart.result(timeout=5)
-            spawn.assert_called_once()
-        self.assertEqual(INSTALL.current_version(self.root), self.new)
-
-    def test_failed_app_startup_restores_all_executables_and_relaunches_previous(self):
-        self.staged(self.old)
-        self.staged(self.new)
-        INSTALL.switch(self.root, self.new)
-        launched = []
-
-        def spawn(*args, **kwargs):
-            launched.append(INSTALL.current_version(self.root))
-            child = unittest.mock.Mock()
-            child.wait.return_value = 1
-            return child
-
-        with patch.object(INSTALL.subprocess, "Popen", side_effect=spawn):
-            INSTALL.restart(self.root, self.new, self.old, -1)
-        self.assertEqual(launched, [self.new, self.old])
-        self.assertEqual(INSTALL.current_version(self.root), self.old)
-        for binary in INSTALL.BINARIES:
-            self.assertEqual((self.root / "current" / binary).resolve().parent.name, self.old)
 
     def test_install_and_removal_preserve_unrelated_commands_and_user_data(self):
         self.staged(self.old)

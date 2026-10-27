@@ -1306,4 +1306,4 @@ mod project_layouts;
 mod requests;
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

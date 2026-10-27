@@ -2801,7 +2801,6 @@ impl Drop for AppModel {
 #[cfg(test)]
 mod tests {
     mod capabilities;
-    pub(super) mod extensions;
     mod webviews;
     use muxy_protocol::ExitReason;
     mod activity;
@@ -2826,7 +2825,6 @@ mod tests {
     mod remote_parity;
     mod servers;
     mod session_ownership;
-    mod shortcut_hints;
     mod splits;
     mod tab_groups;
     mod tab_menu;
@@ -2834,16 +2832,12 @@ mod tests {
     mod updates;
     mod worktrees;
 
-    use muxy_client::Client;
-    use std::io::{self, Write};
-    use std::thread;
-    use std::time::{Duration, Instant};
+    use std::io;
+    use std::time::Duration;
 
     use gpui::{Keystroke, Modifiers, TestAppContext, VisualTestContext, px, size};
 
     use super::*;
-
-    type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
     pub(in crate::model) fn acknowledge_catalog(model: &mut AppModel, cx: &mut Context<AppModel>) {
         if let Some(sessions) = &mut model.servers.local.catalog.restore {
@@ -3827,88 +3821,6 @@ mod tests {
         });
     }
 
-    fn active_process<'a>(
-        model: &'a AppModel,
-        cx: &'a gpui::App,
-    ) -> Option<&'a muxy_protocol::ForegroundProcess> {
-        model
-            .active_pane()
-            .and_then(|pane| model.terminal(&pane))
-            .and_then(|pane| pane.view.read(cx).process.as_ref())
-    }
-
-    fn active_session(view: &Entity<AppModel>, cx: &VisualTestContext) -> Result<SessionId> {
-        view.read_with(cx, |model, _| {
-            model
-                .active_pane()
-                .and_then(|pane| model.pane_session(pane))
-        })
-        .ok_or_else(|| io::Error::other("no active session").into())
-    }
-
-    fn wait_live(cx: &mut VisualTestContext, view: &Entity<AppModel>) -> Result {
-        wait(cx, view, |model, cx| {
-            model
-                .active_pane()
-                .and_then(|id| model.terminal(&id))
-                .is_some_and(|pane| pane.view.read(cx).channel().is_some())
-        })
-    }
-
-    fn active_grid<'a>(model: &'a AppModel, cx: &'a gpui::App) -> Option<&'a RunGrid> {
-        model
-            .terminal(&model.active_pane()?)?
-            .view
-            .read(cx)
-            .grid
-            .as_ref()
-    }
-
-    fn screen(view: &Entity<AppModel>, cx: &VisualTestContext) -> String {
-        view.read_with(cx, |model, cx| {
-            active_grid(model, cx)
-                .map(|grid| {
-                    (0..grid.rows.len())
-                        .map(|row| grid.row_text(row))
-                        .filter(|row| !row.trim().is_empty())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default()
-        })
-    }
-
-    fn wait(
-        cx: &mut VisualTestContext,
-        view: &Entity<AppModel>,
-        condition: impl Fn(&AppModel, &gpui::App) -> bool,
-    ) -> Result {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            cx.run_until_parked();
-            if view.read_with(cx, &condition) {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                return Err(io::Error::other(format!(
-                    "verification timed out; error={:?}; screen={} ",
-                    view.read_with(cx, |model, _| model.error.clone()),
-                    screen(view, cx)
-                ))
-                .into());
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    fn wait_text(cx: &mut VisualTestContext, view: &Entity<AppModel>, expected: &str) -> Result {
-        wait(cx, view, |model, cx| {
-            active_grid(model, cx).is_some_and(|grid| {
-                (0..grid.rows.len()).any(|row| grid.row_text(row).contains(expected))
-            })
-        })
-    }
-
     fn type_text(cx: &mut VisualTestContext, text: &str) {
         for ch in text.chars() {
             let key = Keystroke {
@@ -3921,16 +3833,6 @@ mod tests {
             });
         }
         cx.run_until_parked();
-    }
-
-    fn shell(cx: &mut VisualTestContext, command: &str) {
-        type_text(cx, command);
-        cx.simulate_keystrokes("enter");
-    }
-
-    fn report(message: &str) -> Result {
-        writeln!(io::stdout(), "{message}")?;
-        Ok(())
     }
 }
 

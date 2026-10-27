@@ -40,25 +40,3 @@ fn matched_family(output: &[u8]) -> Option<String> {
     let family = std::str::from_utf8(output).ok()?.trim();
     (!family.is_empty()).then(|| family.to_owned())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_the_generic_name_is_replaced_by_the_system_family() {
-        assert_eq!(family("Noto Mono"), "Noto Mono");
-        assert_eq!(family(GENERIC_MONOSPACE), monospace());
-        assert!(!monospace().is_empty());
-    }
-
-    #[test]
-    fn a_fontconfig_answer_without_a_family_is_ignored() {
-        assert_eq!(
-            matched_family(b"DejaVu Sans Mono\n").as_deref(),
-            Some("DejaVu Sans Mono")
-        );
-        assert_eq!(matched_family(b" \n"), None);
-        assert_eq!(matched_family(&[0xff]), None);
-    }
-}

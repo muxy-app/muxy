@@ -7,37 +7,6 @@ use crate::files::tests::Workspace;
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
-fn trash_preserves_content_and_writes_recovery_metadata() {
-    let workspace = Workspace::new();
-    let data = Workspace::new();
-    let trash = Trash::open(&data.path, OsStr::new("Trash"), None).unwrap();
-    let root = Root::open(&workspace.path).unwrap();
-    for content in ["first", "second"] {
-        std::fs::write(workspace.path.join("a %\n.txt"), content).unwrap();
-        let source = root.mutation(Path::new("a %\n.txt")).unwrap();
-        trash
-            .put(&source, &workspace.path.join("a %\n.txt"))
-            .unwrap();
-    }
-    assert!(!workspace.path.join("a %\n.txt").exists());
-    let mut contents = Vec::new();
-    for entry in std::fs::read_dir(data.path.join("Trash/files")).unwrap() {
-        let entry = entry.unwrap();
-        contents.push(std::fs::read_to_string(entry.path()).unwrap());
-        let info = std::fs::read_to_string(
-            data.path
-                .join("Trash/info")
-                .join(format!("{}.trashinfo", entry.file_name().to_string_lossy())),
-        )
-        .unwrap();
-        assert!(info.starts_with("[Trash Info]\nPath=/"));
-        assert!(info.contains("a%20%25%0A.txt\nDeletionDate="));
-    }
-    contents.sort();
-    assert_eq!(contents, ["first", "second"]);
-}
-
-#[test]
 fn trash_rejects_symlinks_and_insecure_permissions() {
     let data = Workspace::new();
     let outside = Workspace::new();

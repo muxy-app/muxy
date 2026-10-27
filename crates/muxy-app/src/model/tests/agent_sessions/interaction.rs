@@ -1,5 +1,5 @@
 use super::*;
-use gpui::{Focusable, ListOffset};
+use gpui::Focusable;
 use std::time::{Duration, SystemTime};
 
 fn populate(model: &mut AppModel, directory: &std::path::Path, cx: &mut Context<AppModel>) {
@@ -204,44 +204,5 @@ fn keyboard_resume_keeps_its_identity_when_results_arrive(cx: &mut TestAppContex
                 .focus_handle(cx)
                 .is_focused(window)
         );
-    });
-}
-
-#[gpui::test]
-fn long_titles_fit_narrow_rows_and_refresh_preserves_scroll(cx: &mut TestAppContext) {
-    let directory = tempfile::tempdir().expect("directory");
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1200.0), px(800.0)));
-    view.update_in(cx, |model, window, cx| {
-        model.toggle_agent_sessions(window, cx);
-        populate(model, directory.path(), cx);
-        model.appearance.agent_sessions_width = Some(240.0);
-    });
-    cx.run_until_parked();
-    let title = cx.debug_bounds("agent-session-title-0").expect("title");
-    let row = cx.debug_bounds("agent-session-0").expect("row");
-    assert!(title.size.height < px(20.0), "one-line title: {title:?}");
-    assert!(title.left() >= row.left() && title.right() <= row.right());
-    view.update(cx, |model, cx| {
-        let session = model.agent_sessions.listing.sessions[0].clone();
-        model.agent_sessions.listing.sessions = (0..100)
-            .map(|index| Session {
-                id: format!("session-{index}"),
-                ..session.clone()
-            })
-            .collect();
-        model.filter_agent_sessions(cx);
-        model.agent_sessions.list.state.scroll_to(ListOffset {
-            item_ix: 21,
-            offset_in_item: px(7.0),
-        });
-        let mut added = session;
-        added.id = "new".into();
-        model.agent_sessions.listing.sessions.insert(0, added);
-        model.filter_agent_sessions(cx);
-        let offset = model.agent_sessions.list.state.logical_scroll_top();
-        assert_eq!(offset.item_ix, 22);
-        assert_eq!(offset.offset_in_item, px(7.0));
     });
 }

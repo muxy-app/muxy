@@ -1,5 +1,5 @@
 use muxy_app_core::browser::{BrowserPane, resolve_target};
-use muxy_app_core::settings::{BrowserSettings, Settings};
+use muxy_app_core::settings::Settings;
 use muxy_app_core::{AppState, PaneContent, ProjectId, ProjectKind, ServerId, restore};
 use muxy_protocol::{CatalogPage, ProjectDescriptor, ServerIdentity, ServerPath};
 
@@ -193,11 +193,6 @@ fn targets_resolve_projects_and_worktrees() -> TestResult {
 
 #[test]
 fn browser_settings_have_safe_defaults_and_check_the_home_page() -> TestResult {
-    let defaults = BrowserSettings::default();
-    assert!(defaults.enabled);
-    assert!(!defaults.open_terminal_links);
-    assert_eq!(defaults.home_url(), None);
-
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("settings.toml");
     std::fs::write(

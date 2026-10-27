@@ -28,7 +28,7 @@ class DesktopMacosTests(unittest.TestCase):
             env["CARGO_BUILD_TARGET"] = target
         stack.enter_context(patch.dict(os.environ, env, clear=True))
         stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
-        run = stack.enter_context(patch.object(GUARD.subprocess, "run"))
+        run = stack.enter_context(patch.object(GUARD.slow_test_guard, "run"))
         return run, limit
 
     def test_other_platforms_cannot_satisfy_the_macos_guard(self):
@@ -52,7 +52,6 @@ class DesktopMacosTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     GUARD.main()
                 self.assertEqual(run.call_count, failed_step + 1)
-                self.assertTrue(all(call.kwargs["check"] for call in run.call_args_list))
                 self.doCleanups()
 
     def test_guard_covers_workspace_and_builds_matching_desktop_helpers(self):

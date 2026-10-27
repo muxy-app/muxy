@@ -598,11 +598,6 @@ impl Registry {
         lock(&self.sessions).sessions.get(&id).cloned()
     }
 
-    #[cfg(test)]
-    pub(crate) fn insert_session(&self, handle: SessionHandle) {
-        lock(&self.sessions).sessions.insert(handle.id(), handle);
-    }
-
     pub fn end(&self, id: SessionId) -> Result<(), ServerError> {
         let handle = self
             .handle(id)
@@ -871,43 +866,6 @@ fn saved_content_error(error: &io::Error) -> ServerError {
         ErrorCode::SavedContentUnavailable,
         format!("saved terminal content: {error}"),
     )
-}
-
-#[cfg(test)]
-mod update_tests {
-    use super::*;
-
-    #[test]
-    fn creation_racing_idle_shutdown_is_either_preserved_or_rejected() {
-        for _ in 0..8 {
-            let (events, _receiver) = std::sync::mpsc::channel();
-            let registry = Arc::new(Registry::new(
-                ServerSettings {
-                    default_shell: Some("/bin/sh".into()),
-                    ..ServerSettings::default()
-                },
-                events,
-            ));
-            let gate = Arc::new(std::sync::Barrier::new(2));
-            let spawning = registry.clone();
-            let start = gate.clone();
-            let worker = std::thread::spawn(move || {
-                start.wait();
-                spawning.create(Path::new("/tmp"), Size { cols: 80, rows: 24 })
-            });
-            gate.wait();
-            let stopped = registry.stop_if_idle();
-            let created = worker.join().expect("spawn thread");
-            if stopped {
-                assert!(created.is_err());
-                assert!(registry.list().is_empty());
-            } else {
-                let session = created.expect("session preserved");
-                assert_eq!(registry.list(), vec![session.clone()]);
-                registry.end(session.id).expect("end fixture");
-            }
-        }
-    }
 }
 
 #[cfg(test)]

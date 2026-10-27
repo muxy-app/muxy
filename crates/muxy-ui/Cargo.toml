@@ -50,6 +50,3 @@ workspace = true
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["test-support"] }
-
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-x11rb = { version = "0.13", features = ["xtest"] }

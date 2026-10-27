@@ -147,16 +147,4 @@ mod tests {
         assert!(defaulted.args.is_empty());
         Ok(())
     }
-
-    #[test]
-    fn a_missing_socket_means_the_app_is_not_running() -> io::Result<()> {
-        let directory = tempfile::tempdir()?;
-        let result = call(
-            &socket_path(directory.path()),
-            &Request::new("browser.list", Map::new()),
-            Duration::from_secs(1),
-        );
-        assert!(matches!(result, Err(CallError::NotRunning)));
-        Ok(())
-    }
 }

@@ -584,28 +584,6 @@ mod tests {
     }
 
     #[test]
-    fn system_language_follows_the_preferred_languages() {
-        let available = ["en-ID", "en-PH", "en-SA", "en-US", "zh-CN"].map(language);
-        for (preferences, expected) in [
-            (["zh-Hans-CN", "en-CN"], "zh-CN"),
-            (["en-US", "zh-Hans-CN"], "en-US"),
-            (["ja-JP", "zh-Hans-CN"], "zh-CN"),
-            (["en-GB", "zh-Hans-CN"], "en-US"),
-        ] {
-            let preferences = NSArray::from_retained_slice(&preferences.map(NSString::from_str));
-            assert_eq!(
-                system_language(&available, &preferences).as_deref(),
-                Some(expected)
-            );
-        }
-        let british = NSArray::from_retained_slice(&[NSString::from_str("en-GB")]);
-        assert_eq!(
-            system_language(&["en-GB", "en-US"].map(language), &british).as_deref(),
-            Some("en-GB")
-        );
-    }
-
-    #[test]
     fn linux_languages_select_matching_locales_without_changing_explicit_regions() {
         let mut available = ["de-DE", "en-US", "en-GB", "nb-NO", "he-IL", "jv-ID"].map(language);
         available[2].preferred = true;

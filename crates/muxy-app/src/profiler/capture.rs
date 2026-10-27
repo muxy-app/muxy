@@ -316,30 +316,3 @@ fn parse_usage(value: &str) -> Option<(Duration, u64)> {
         rss,
     ))
 }
-
-#[cfg(all(test, target_os = "macos"))]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[cfg(target_os = "macos")]
-    #[ignore = "manual verification of macOS sampling; samples only this headless test process"]
-    fn native_stack_capture_samples_this_process() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut capture = Capture::new(directory.path(), false, StackMode::Always).unwrap();
-        capture.start_sample(Instant::now()).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while capture.sample.is_some() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(50));
-            capture.poll_sample().unwrap();
-        }
-        assert!(capture.sample.is_none());
-        let sample = fs::read_to_string(capture.directory.join("stacks-0.txt")).unwrap();
-        assert!(
-            sample.contains(&format!("pid {}", std::process::id())),
-            "{sample}"
-        );
-        assert!(sample.contains("Call graph:"));
-    }
-}

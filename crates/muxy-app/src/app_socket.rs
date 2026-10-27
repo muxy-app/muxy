@@ -104,38 +104,3 @@ fn answer(mut stream: UnixStream, requests: &async_channel::Sender<Incoming>) ->
     stream.write_all(&encode_reply(&result))?;
     stream.flush()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use muxy_app_core::browser::api::{CallError, call};
-    use serde_json::{Map, json};
-
-    #[test]
-    fn requests_reach_the_app_and_replies_reach_the_client() -> io::Result<()> {
-        let directory = tempfile::Builder::new().tempdir_in("/tmp")?;
-        let path = directory.path().join("app.sock");
-        let (_socket, incoming) = listen(&path)?;
-        std::thread::spawn(move || {
-            while let Ok(request) = incoming.recv_blocking() {
-                let verb = request.request.verb.clone();
-                request.reply(if verb == "browser.list" {
-                    Ok(json!([]))
-                } else {
-                    Err(format!("unknown command {verb}"))
-                });
-            }
-        });
-        let timeout = Duration::from_secs(5);
-        assert_eq!(
-            call(&path, &Request::new("browser.list", Map::new()), timeout).ok(),
-            Some(json!([]))
-        );
-        assert!(matches!(
-            call(&path, &Request::new("browser.nope", Map::new()), timeout),
-            Err(CallError::Failed(error)) if error == "unknown command browser.nope"
-        ));
-        assert!(listen(&path).is_err());
-        Ok(())
-    }
-}

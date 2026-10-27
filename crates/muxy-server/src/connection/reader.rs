@@ -634,6 +634,3 @@ fn attach(
         },
     )
 }
-
-#[cfg(test)]
-mod tests;

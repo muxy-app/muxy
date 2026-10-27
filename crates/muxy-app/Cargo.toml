@@ -29,7 +29,6 @@ gpui = { version = "=0.2.2", default-features = false, features = ["x11", "wayla
 [dev-dependencies]
 muxy-core = { path = "../muxy-core", features = ["test-support"] }
 muxy-ui = { path = "../muxy-ui", features = ["test-support"] }
-muxy-server = { path = "../muxy-server" }
 muxy-terminal = { path = "../muxy-terminal" }
 gpui = { version = "=0.2.2", default-features = false, features = ["test-support"] }
 

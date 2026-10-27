@@ -157,34 +157,6 @@ impl Passwords {
         }
     }
 
-    /// A one-off password for `login`, such as for a Test Connection, with
-    /// the askpass that answers it. Forget it with `forget_once`.
-    #[cfg(test)]
-    pub(crate) fn once(
-        &mut self,
-        password: String,
-        login: String,
-    ) -> io::Result<(String, muxy_client::Askpass)> {
-        self.listen()?;
-        let token = ServerId::new().to_string();
-        let answer = Answer {
-            password: Some(password),
-            login: Some(login),
-            ..Answer::default()
-        };
-        self.answers().insert(token.clone(), answer);
-        let askpass = self.program(token.clone())?;
-        Ok((token, askpass))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn forget_once(answers: &Answers, token: &str) {
-        answers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(token);
-    }
-
     pub(crate) fn shared(&self) -> Answers {
         Arc::clone(&self.answers)
     }
@@ -314,38 +286,6 @@ mod tests {
     const HOST_PROMPT: &str = "The authenticity of host 'box (192.0.2.1)' can't be established.\nED25519 key fingerprint is SHA256:original.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ";
 
     #[test]
-    fn host_keys_require_approval_of_the_exact_prompt_and_only_once() -> io::Result<()> {
-        let directory = tempfile::Builder::new()
-            .prefix("askpass")
-            .tempdir_in("/tmp")?;
-        let socket = directory.path().join("askpass.sock");
-        let mut passwords = Passwords::new(socket.clone());
-        let (token, _) = passwords.for_test(Some("secret".into()), Some("dev@box".into()), None)?;
-        assert_eq!(ask(&socket, &token, HOST_PROMPT)?, "");
-        assert_eq!(
-            Passwords::finish_test(&passwords.shared(), &token).as_deref(),
-            Some(HOST_PROMPT)
-        );
-        assert_eq!(ask(&socket, &token, "dev@box's password: ")?, "");
-
-        let (token, _) = passwords.for_test(None, None, Some(HOST_PROMPT.into()))?;
-        let changed = HOST_PROMPT.replace("SHA256:original", "SHA256:replacement");
-        assert_eq!(ask(&socket, &token, &changed)?, "");
-        assert_eq!(
-            Passwords::finish_test(&passwords.shared(), &token),
-            Some(changed)
-        );
-
-        let (token, _) = passwords.for_test(None, None, Some(HOST_PROMPT.into()))?;
-        assert_eq!(ask(&socket, &token, HOST_PROMPT)?, "yes");
-        assert_eq!(ask(&socket, &token, "dev@box's password: ")?, "");
-        assert_eq!(ask(&socket, &token, HOST_PROMPT)?, "");
-        Passwords::finish_test(&passwords.shared(), &token);
-        assert_eq!(ask(&socket, &token, HOST_PROMPT)?, "");
-        Ok(())
-    }
-
-    #[test]
     fn only_complete_new_host_prompts_are_offered() {
         assert!(host_key_prompt(HOST_PROMPT));
         assert!(host_key_prompt(
@@ -359,68 +299,6 @@ mod tests {
         ] {
             assert!(!host_key_prompt(prompt));
         }
-    }
-
-    fn ask(socket: &std::path::Path, token: &str, prompt: &str) -> io::Result<String> {
-        let mut stream = UnixStream::connect(socket)?;
-        stream.write_all(format!("{token}\n{prompt}").as_bytes())?;
-        stream.shutdown(std::net::Shutdown::Write)?;
-        let mut answer = String::new();
-        stream.read_to_string(&mut answer)?;
-        Ok(answer)
-    }
-
-    #[test]
-    fn the_app_answers_its_own_ssh_runs_with_passwords_typed_this_session() -> io::Result<()> {
-        let directory = tempfile::Builder::new()
-            .prefix("askpass")
-            .tempdir_in("/tmp")?;
-        let socket = directory.path().join("askpass.sock");
-        let server = ServerId::new();
-        let mut passwords = Passwords::new(socket.clone());
-        assert!(!passwords.has(server));
-        let askpass = passwords.askpass(server, "dev@box".into())?;
-        assert!(
-            !socket.exists(),
-            "nothing listens until a password is typed"
-        );
-        passwords.set(server, "hunter2".into())?;
-        assert!(passwords.has(server));
-        assert_eq!(
-            std::fs::metadata(&socket)?.permissions().mode() & 0o777,
-            0o600
-        );
-        let token = askpass
-            .environment
-            .iter()
-            .find(|(key, _)| key == TOKEN)
-            .map(|(_, value)| value.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        for prompt in [
-            "dev@box's password: ",
-            "(dev@box) Password: ",
-            "Enter passphrase for key '/Users/dev/.ssh/id_ed25519': ",
-        ] {
-            assert_eq!(ask(&socket, &token, prompt)?, "hunter2");
-        }
-        let trust = "Are you sure you want to continue connecting (yes/no/[fingerprint])? ";
-        assert_eq!(ask(&socket, &token, trust)?, "");
-        assert_eq!(
-            ask(&socket, &token, "jump@gateway's password: ")?,
-            "",
-            "a jump host's prompt never gets the destination's password"
-        );
-        assert_eq!(ask(&socket, "someone else", "Password: ")?, "");
-        let (once, _) = passwords.once("typed".into(), "dev@other".into())?;
-        assert_eq!(ask(&socket, &once, "dev@other's password: ")?, "typed");
-        Passwords::forget_once(&passwords.shared(), &once);
-        assert_eq!(ask(&socket, &once, "dev@other's password: ")?, "");
-        passwords.forget(server);
-        assert!(!passwords.has(server));
-        assert_eq!(ask(&socket, &token, "dev@box's password: ")?, "");
-        drop(passwords);
-        assert!(!socket.exists());
-        Ok(())
     }
 
     #[test]

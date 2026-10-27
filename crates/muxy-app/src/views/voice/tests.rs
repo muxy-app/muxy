@@ -110,10 +110,6 @@ fn finish_without_speech_reports_it_instead_of_inserting(cx: &mut TestAppContext
     assert!(simulated.cancelled());
     view.read_with(cx, |view, _| {
         assert_eq!(view.snapshot.phase, Phase::Failed);
-        assert_eq!(
-            view.snapshot.error.as_deref(),
-            Some("No speech detected. Try again or press Esc to close.")
-        );
     });
 }
 

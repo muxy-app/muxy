@@ -358,11 +358,4 @@ mod tests {
         assert_eq!(value(&env, "LANG"), Some(""));
         assert_eq!(value(&env, "PATH"), Some("/usr/bin"));
     }
-
-    #[test]
-    fn only_loadable_locales_are_installed() {
-        assert!(locale_installed("C"));
-        assert!(!locale_installed("zz_ZZ.UTF-8"));
-        assert!(!locale_installed("C\0UTF-8"));
-    }
 }

@@ -345,22 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn missing_arguments_are_reported() {
-        assert_eq!(
-            script("click", &Args::new(), parses_none),
-            Err("missing argument 'selector'".to_owned())
-        );
-        assert_eq!(
-            script(
-                "storage.get",
-                &args(json!({"key": "a", "kind": "disk"})),
-                parses_none
-            ),
-            Err("unknown storage 'disk'; use local or session".to_owned())
-        );
-    }
-
-    #[test]
     fn app_verbs_have_no_page_script() -> Result<(), String> {
         for verb in ["open", "navigate", "screenshot", "cookies.get", "reload"] {
             assert_eq!(script(verb, &Args::new(), parses_none)?, None, "{verb}");

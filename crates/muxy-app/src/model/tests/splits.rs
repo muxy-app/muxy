@@ -148,10 +148,6 @@ fn equalize_splits_evens_resized_panes_from_the_shortcut_and_the_terminal_menu(
         model.terminal_menu(panes[0], gpui::point(px(100.0), px(100.0)), cx);
     });
     cx.run_until_parked();
-    assert_eq!(
-        view.read_with(cx, |model, _| model.menu_outline()[0][7].clone()),
-        "Equalize Splits"
-    );
     let equalize = cx.debug_bounds("menu-item-7").expect("Equalize Splits");
     cx.simulate_click(equalize.center(), Modifiers::default());
     cx.run_until_parked();

@@ -55,7 +55,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config zsh fish binutils vim-tiny less
+      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config binutils
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
@@ -87,7 +87,7 @@ jobs:
           build-essential pkg-config clang cmake libssl-dev libfontconfig1-dev libfreetype-dev
           libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev
           libwebkit2gtk-4.1-0 xvfb
-          zsh fish binutils vim-tiny less unzip
+          binutils unzip
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0

@@ -4579,7 +4579,6 @@ dependencies = [
  "muxy-client",
  "muxy-core",
  "muxy-protocol",
- "muxy-server",
  "muxy-terminal",
  "muxy-ui",
  "serde_json",
@@ -4621,7 +4620,6 @@ dependencies = [
  "muxy-client",
  "muxy-core",
  "muxy-protocol",
- "muxy-terminal",
  "ratatui",
  "rustix 1.1.4",
  "serde",
@@ -4637,7 +4635,6 @@ dependencies = [
  "libc",
  "muxy-core",
  "muxy-protocol",
- "muxy-server",
  "serde_json",
  "tempfile",
 ]
@@ -4658,7 +4655,6 @@ version = "2.0.0-beta-0"
 dependencies = [
  "muxy-client",
  "muxy-protocol",
- "muxy-server",
  "uniffi",
 ]
 
@@ -4668,7 +4664,6 @@ version = "2.0.0-beta-0"
 dependencies = [
  "minicbor",
  "postcard",
- "rcgen",
  "ring",
  "rustix 1.1.4",
  "rustls",

@@ -6,6 +6,9 @@ import resource
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import slow_test_guard  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -38,7 +41,7 @@ def main():
     ]
     for command in commands:
         print("+ " + " ".join(command), flush=True)
-        subprocess.run(command, cwd=ROOT, env=env, check=True)
+        slow_test_guard.run(command, cwd=ROOT, env=env)
     print(f"macOS automated guard passed on {host}; record required human checks separately.", flush=True)
 
 

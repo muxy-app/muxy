@@ -9,8 +9,6 @@ mod operations;
 mod processes;
 mod read;
 mod snapshot;
-#[cfg(test)]
-mod tests;
 pub(crate) mod watch;
 mod worktree;
 

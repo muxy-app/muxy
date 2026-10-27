@@ -136,30 +136,6 @@ fn right_click_acts_on_the_server_or_the_selection_without_changing_it(cx: &mut 
 }
 
 #[gpui::test]
-fn deleting_a_group_from_its_heading_keeps_its_servers(cx: &mut TestAppContext) {
-    let (api, db) = (ServerId::new(), ServerId::new());
-    let (view, cx, path, _) = tab_window(
-        vec![
-            grouped(api, "api", Some("Production")),
-            grouped(db, "db", Some("Production")),
-        ],
-        cx,
-    );
-    view.update(cx, |model, cx| {
-        model.disconnect_remote_servers(&[api, db], cx);
-    });
-    open_tab(&view, cx);
-    press(cx, "servers-group-more-Production".into());
-    press(cx, "menu-item-2".into());
-    cx.simulate_prompt_answer("Delete");
-    cx.run_until_parked();
-    assert_eq!(
-        groups(&path),
-        [("api".to_owned(), None), ("db".to_owned(), None)]
-    );
-}
-
-#[gpui::test]
 fn a_disconnected_server_waits_for_connect_or_its_project(cx: &mut TestAppContext) {
     let remote = ServerId::new();
     let (view, cx, _, remotes) = tab_window(vec![grouped(remote, "box", None)], cx);

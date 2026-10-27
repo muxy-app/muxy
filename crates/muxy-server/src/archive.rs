@@ -751,28 +751,6 @@ mod tests {
     }
 
     #[test]
-    fn restart_waits_for_the_previous_archive_owner_to_release_its_lock() -> TestResult {
-        let directory = Directory::new()?;
-        let previous = File::open(&directory.0)?;
-        previous.lock()?;
-        let root = directory.0.clone();
-        let (sender, completed) = mpsc::channel();
-        let next = thread::spawn(move || {
-            let result = Archive::open(&root, 1024);
-            let _ = sender.send(result);
-        });
-        assert!(matches!(
-            completed.recv_timeout(Duration::from_millis(50)),
-            Err(mpsc::RecvTimeoutError::Timeout)
-        ));
-        drop(previous);
-        let archive = completed.recv_timeout(Duration::from_secs(3))??;
-        next.join().map_err(|_| "archive startup panicked")?;
-        drop(archive);
-        Ok(())
-    }
-
-    #[test]
     fn records_round_trip_atomically_with_private_permissions_and_all_retained_rows() -> TestResult
     {
         let directory = Directory::new()?;

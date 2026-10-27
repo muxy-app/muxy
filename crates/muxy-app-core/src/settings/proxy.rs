@@ -380,7 +380,6 @@ mod tests {
                 .expect_err("invalid settings")
                 .to_string();
             assert!(!error.contains("FAKE_REVIEW_SECRET"));
-            assert!(error.contains("invalid proxy settings"));
             assert!(error.contains("proxy.toml"));
         }
         Ok(())

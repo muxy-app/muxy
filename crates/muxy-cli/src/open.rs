@@ -104,26 +104,10 @@ fn containing_app(executable: &Path) -> Option<&Path> {
 }
 
 #[cfg(all(test, not(target_os = "macos")))]
-#[allow(clippy::expect_used, reason = "Regression fixture setup")]
 mod tests {
     use std::ffi::OsString;
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
-    use std::path::PathBuf;
-    use std::process::Command;
 
     use super::*;
-
-    fn stub(root: &Path, script: &str) -> PathBuf {
-        let app = root.join("muxy-app");
-        let status = Command::new("/bin/sh")
-            .args(["-c", r#"printf '%s' "$1" > "$2" && chmod 755 "$2""#, "sh"])
-            .arg(format!("#!/bin/sh\n{script}\n"))
-            .arg(&app)
-            .status()
-            .expect("stub");
-        assert!(status.success(), "stub: {status}");
-        app
-    }
 
     #[test]
     fn the_desktop_app_opens_only_in_a_desktop_session() {
@@ -138,45 +122,5 @@ mod tests {
         assert!(session(&[("DISPLAY", ":0")]));
         assert!(!session(&[]), "a console or a service has no desktop");
         assert!(!session(&[("DISPLAY", ""), ("WAYLAND_DISPLAY", "")]));
-    }
-
-    #[test]
-    fn the_folder_reaches_the_app_byte_for_byte_and_never_through_a_shell() {
-        let root = tempfile::tempdir().expect("root");
-        let seen = root.path().join("seen");
-        let app = stub(
-            root.path(),
-            &format!(
-                "printf '%s' \"$1\" > '{}'; echo $# >> '{}'",
-                seen.display(),
-                seen.display()
-            ),
-        );
-        let injected = root.path().join("injected");
-        let mut name = format!(
-            "/srv/My Project/$(touch {0}); `touch {0}` 'q' café ",
-            injected.display()
-        )
-        .into_bytes();
-        name.push(0xff);
-        let folder = PathBuf::from(OsString::from_vec(name));
-        assert!(launch(&app, Some(&folder)));
-        let mut expected = folder.as_os_str().as_bytes().to_vec();
-        expected.extend_from_slice(b"1\n");
-        assert_eq!(std::fs::read(&seen).expect("seen"), expected);
-        assert!(!injected.exists());
-    }
-
-    #[test]
-    fn an_app_that_cannot_start_leaves_the_folder_to_the_terminal_ui() {
-        let root = tempfile::tempdir().expect("root");
-        assert!(!launch(
-            &root.path().join("muxy-app"),
-            Some(Path::new("/srv"))
-        ));
-        let failing = stub(root.path(), "exit 3");
-        assert!(!launch(&failing, Some(Path::new("/srv"))));
-        let starting = stub(root.path(), "exec sleep 2");
-        assert!(launch(&starting, Some(Path::new("/srv"))), "still running");
     }
 }

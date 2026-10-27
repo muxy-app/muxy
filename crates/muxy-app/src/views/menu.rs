@@ -758,34 +758,3 @@ impl AppModel {
 fn palette_color(index: usize) -> Option<muxy_app_core::Color> {
     PROJECT_COLORS.get(index)?.1.parse().ok()
 }
-
-#[cfg(test)]
-impl AppModel {
-    /// The open menu's rows per level, with `>` before the highlighted row and
-    /// `✓` before checked ones.
-    pub(crate) fn menu_outline(&self) -> Vec<Vec<String>> {
-        let Some(Overlay::Menu(menu)) = &self.overlay else {
-            return Vec::new();
-        };
-        (0..menu.levels.len())
-            .map(|level| {
-                let items = menu.items_at(level).unwrap_or_default();
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(index, item)| {
-                        let mut row = String::new();
-                        if menu.levels[level].highlighted == Some(index) {
-                            row.push('>');
-                        }
-                        if item.checked == Some(true) {
-                            row.push('✓');
-                        }
-                        row.push_str(&item.label);
-                        row
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-}

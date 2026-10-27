@@ -643,7 +643,7 @@ impl AppModel {
         self.set_terminal_vibrancy_available(self.terminal_background.native.is_some(), cx);
     }
 
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(all(target_os = "macos", not(test)))]
     pub(super) fn set_terminal_vibrancy_available(
         &mut self,
         available: bool,

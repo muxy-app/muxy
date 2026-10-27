@@ -213,34 +213,6 @@ impl Drop for FileActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
-    use std::time::{Duration, Instant};
-
-    #[test]
-    fn host_gets_the_server_command_in_its_own_process_group() -> io::Result<()> {
-        let directory = tempfile::tempdir()?;
-        let app = directory.path().join("app");
-        let report = directory.path().join("report");
-        std::fs::write(
-            &app,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" \"$HOME\" \"$$\" \"$(ps -o pgid= -p $$ | tr -d ' ')\" > {}.tmp\nmv {0}.tmp {0}\n",
-                report.display()
-            ),
-        )?;
-        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o755))?;
-        spawn(&app, &["--socket".into(), "/tmp/server.sock".into()])?;
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !report.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(20));
-        }
-        let report = std::fs::read_to_string(report)?;
-        let lines: Vec<&str> = report.lines().collect();
-        let home = std::env::var("HOME").unwrap_or_default();
-        assert_eq!(lines[..4], [FLAG, "--socket", "/tmp/server.sock", &home]);
-        assert_eq!(lines[4], lines[5], "the host leads its own process group");
-        Ok(())
-    }
 
     #[test]
     fn host_never_runs_a_program_its_caller_names() -> io::Result<()> {

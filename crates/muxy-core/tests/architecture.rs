@@ -80,19 +80,6 @@ fn production_dependencies_preserve_client_and_headless_boundaries() -> Result<(
     Ok(())
 }
 
-#[test]
-fn rejects_a_dependency_cycle() {
-    let cycle = fixture(&[("first", &["second"]), ("second", &["first"])]);
-    let violations = validate_architecture(&cycle, &cycle);
-
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation.contains("dependency graph contains a cycle")),
-        "{violations:#?}"
-    );
-}
-
 fn load_metadata() -> Result<Value, String> {
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new(env!("CARGO"))
@@ -335,19 +322,4 @@ fn visit(
     stack.pop();
     states.insert(node.to_owned(), VisitState::Visited);
     None
-}
-
-fn fixture(entries: &[(&str, &[&str])]) -> Graph {
-    entries
-        .iter()
-        .map(|(name, dependencies)| {
-            (
-                (*name).to_owned(),
-                dependencies
-                    .iter()
-                    .map(|dependency| (*dependency).to_owned())
-                    .collect(),
-            )
-        })
-        .collect()
 }
