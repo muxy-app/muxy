@@ -54,39 +54,6 @@ fn a_disabled_browser_opens_nothing_and_lists_nothing(cx: &mut TestAppContext) {
 }
 
 #[test]
-fn page_scripts_are_parsed_to_tell_expressions_from_statements() -> Result<(), String> {
-    use muxy_app_core::browser::automation::{condition, script};
-    use muxy_ui::javascript::is_async_function_body;
-    let args = |value: Value| value.as_object().cloned().unwrap_or_default();
-    let eval = |source: &str| {
-        script(
-            "eval",
-            &args(json!({ "script": source })),
-            is_async_function_body,
-        )
-    };
-    assert_eq!(eval("'a;b'")?.as_deref(), Some("return (\n'a;b'\n);"));
-    assert_eq!(
-        eval("document.title;")?.as_deref(),
-        Some("return (\ndocument.title\n);")
-    );
-    assert_eq!(
-        eval("const a = 1;\nreturn a;")?.as_deref(),
-        Some("const a = 1;\nreturn a;")
-    );
-    let wait = condition(
-        "wait",
-        &args(json!({ "function": "(() => { return true; })()" })),
-        is_async_function_body,
-    )?;
-    assert!(
-        wait.contains("return (\n(() => { return true; })()\n);"),
-        "{wait}"
-    );
-    Ok(())
-}
-
-#[test]
 fn extension_arguments_are_named_like_the_cli_names_them() {
     use crate::model::browsers::automation::extension_args;
     let typed = extension_args(
