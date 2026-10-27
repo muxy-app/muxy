@@ -18,10 +18,11 @@ WORKFLOW = (ROOT / ".github/workflows/ci.yml").read_text()
 
 
 class DesktopLinuxTests(unittest.TestCase):
-    def environment(self, system="Linux", machine="aarch64", host=TARGET, zig="/opt/zig/zig", env=None):
+    def environment(self, system="Linux", machine="aarch64", host=TARGET, zig="/opt/zig/zig", env=None, part=None):
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch.object(sys, "argv", ["check-desktop-linux.py", "--target", TARGET]))
+        arguments = ["--part", part] if part else []
+        stack.enter_context(patch.object(sys, "argv", ["check-desktop-linux.py", "--target", TARGET, *arguments]))
         stack.enter_context(patch.object(CHECK.platform, "system", return_value=system))
         stack.enter_context(patch.object(CHECK.platform, "machine", return_value=machine))
         stack.enter_context(patch.object(CHECK.subprocess, "check_output", return_value=f"host: {host}\n"))
@@ -48,7 +49,7 @@ class DesktopLinuxTests(unittest.TestCase):
                 self.doCleanups()
 
     def test_any_failed_check_stops_the_run(self):
-        for failed_step in range(6):
+        for failed_step in range(5):
             with self.subTest(failed_step=failed_step):
                 run = self.environment()
                 run.side_effect = [None] * failed_step + [subprocess.CalledProcessError(1, "check")]
@@ -64,9 +65,8 @@ class DesktopLinuxTests(unittest.TestCase):
             [sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests"],
             ["cargo", "fmt", "--all", "--check"],
             ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features"],
             ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "build", "--locked", "-p", "muxy-app", "-p", "muxy-cli", "-p", "muxy-server"],
+            ["cargo", "test", "--locked", "--workspace", "--all-features"],
         ])
         for call in run.call_args_list:
             env = call.kwargs["env"]
@@ -74,6 +74,13 @@ class DesktopLinuxTests(unittest.TestCase):
             self.assertEqual(env["MUXY_ZIG"], "/opt/zig/zig")
             self.assertEqual(env["PATH"], f"{ROOT / 'scripts/zig'}{os.pathsep}/usr/bin")
             self.assertEqual(env["RUSTDOCFLAGS"], "--cfg regression_guard -D warnings")
+        self.doCleanups()
+        for part in ["lint", "test"]:
+            with self.subTest(part=part):
+                run = self.environment(part=part)
+                CHECK.main()
+                self.assertEqual([call.args[0] for call in run.call_args_list], CHECK.PARTS[part])
+                self.doCleanups()
 
     def test_ci_runs_desktop_checks_on_both_architectures_beside_the_headless_and_macos_jobs(self):
         for expected in [
@@ -84,8 +91,8 @@ class DesktopLinuxTests(unittest.TestCase):
             "runner: ubuntu-22.04-arm\n",
             "runner: ubuntu-24.04\n",
             "runner: ubuntu-24.04-arm\n",
-            "xvfb-run -a python3 scripts/check-desktop-linux.py",
-            "libwebkit2gtk-4.1-0",
+            "part: [lint, test]",
+            '--part "${{ matrix.part }}"',
         ]:
             self.assertIn(expected, WORKFLOW)
         self.assertNotIn("continue-on-error", WORKFLOW)
