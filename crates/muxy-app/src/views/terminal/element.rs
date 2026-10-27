@@ -2,8 +2,6 @@ mod background;
 mod block;
 mod box_drawing;
 mod cache;
-#[cfg(test)]
-mod cache_tests;
 mod decoration;
 mod dots;
 mod glyph;
@@ -39,10 +37,6 @@ struct RowPainting {
 
 #[derive(Default)]
 struct Painting {
-    #[cfg(test)]
-    unbatched: bool,
-    #[cfg(test)]
-    sequential_quads: bool,
     rows: Vec<Rc<RowPainting>>,
     thicken: f32,
     shade_sprites: Vec<shade::Sprite>,
@@ -874,9 +868,6 @@ fn push_quad(quads: &mut Vec<(Bounds<Pixels>, Hsla)>, bounds: Bounds<Pixels>, co
     reason = "Keep the terminal paint order explicit"
 )]
 fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut App) {
-    #[cfg(test)]
-    let layered = !painting.unbatched;
-    #[cfg(not(test))]
     let layered = true;
     images::paint(&painting.images, i64::MIN..i64::from(i32::MIN / 2), window);
     for row in &painting.rows {
@@ -904,11 +895,6 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
         window.paint_quad(fill(bounds, color));
     }
     for row in &painting.rows {
-        #[cfg(test)]
-        if painting.sequential_quads {
-            layers::quads(&row.blocks, 1.0, layered, window);
-            continue;
-        }
         row.block_layers.paint(&row.blocks, None, layered, window);
     }
     shade::paint(&painting.shade_sprites, window);
@@ -1008,13 +994,6 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
                         row.paths.paint(Some(painting.cursor_text), layered, window);
                     }
                     for row in &painting.rows {
-                        #[cfg(test)]
-                        if painting.sequential_quads {
-                            for &(bounds, _) in &row.blocks {
-                                window.paint_quad(fill(bounds, painting.cursor_text));
-                            }
-                            continue;
-                        }
                         row.block_layers.paint(
                             &row.blocks,
                             Some(painting.cursor_text),

@@ -737,7 +737,7 @@ fn project_row(
             )
         })
         .map_or_else(
-            || project_tile(project, model, group.clone()),
+            || project_tile(project, model, m.icon_xxl(), Some(group.clone())),
             |label| {
                 div()
                     .debug_selector(move || format!("project-shortcut-{id}"))
@@ -986,18 +986,28 @@ pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -
         .into_any_element()
 }
 
-fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> AnyElement {
-    let m = model.metrics;
-    let color = if project.home && project.server_id.is_local() {
+pub(crate) fn project_color(project: &Project, model: &AppModel) -> gpui::Rgba {
+    if project.home && project.server_id.is_local() {
         model.theme.accent.to_rgb()
     } else {
         parse_hex(project.color.as_str()).unwrap_or(gpui::rgb(0x80_80_80))
-    };
+    }
+}
+
+pub(crate) fn project_tile(
+    project: &Project,
+    model: &AppModel,
+    size: Pixels,
+    group: Option<SharedString>,
+) -> AnyElement {
+    let m = model.metrics;
+    let scale = f32::from(size) / f32::from(m.icon_xxl());
+    let color = project_color(project, model);
     let foreground = contrasting_foreground(color);
     let glyph = if let Some((_, logo)) = model.project_logos.get(&project.id) {
         gpui::img(logo.clone())
-            .size(m.icon_xxl())
-            .rounded(m.radius_md())
+            .size(size)
+            .rounded(m.radius_md() * scale)
             .object_fit(gpui::ObjectFit::Cover)
             .into_any_element()
     } else if let Some(icon) = project
@@ -1006,19 +1016,28 @@ fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> Any
         .filter(|icon| muxy_ui::symbols::PROJECT_ICONS || !icon.starts_with("sf:"))
     {
         if let Some(symbol) = icon.strip_prefix("sf:") {
-            SymbolGlyph::new(symbol.to_owned(), m.font_title_large(), foreground.into())
-                .into_any_element()
+            SymbolGlyph::new(
+                symbol.to_owned(),
+                m.font_title_large() * scale,
+                foreground.into(),
+            )
+            .into_any_element()
         } else {
             div()
-                .text_size(m.font_title_large())
+                .text_size(m.font_title_large() * scale)
                 .child(icon.clone())
                 .into_any_element()
         }
     } else if project.home && project.server_id.is_local() {
-        SymbolGlyph::new("house.fill", m.font_title_large(), foreground.into()).into_any_element()
+        SymbolGlyph::new(
+            "house.fill",
+            m.font_title_large() * scale,
+            foreground.into(),
+        )
+        .into_any_element()
     } else {
         div()
-            .text_size(m.font_emphasis())
+            .text_size(m.font_emphasis() * scale)
             .font_weight(FontWeight::BOLD)
             .text_color(foreground)
             .child(muxy_app_core::initial(&model.project_title(project)).to_uppercase())
@@ -1029,13 +1048,15 @@ fn project_tile(project: &Project, model: &AppModel, group: SharedString) -> Any
         .flex_none()
         .items_center()
         .justify_center()
-        .size(m.icon_xxl())
-        .rounded(m.radius_md())
+        .size(size)
+        .rounded(m.radius_md() * scale)
         .when(!model.project_logos.contains_key(&project.id), |tile| {
             tile.bg(color)
         })
         .overflow_hidden()
-        .group_hover(group, |style| style.opacity(0.85))
+        .when_some(group, |tile, group| {
+            tile.group_hover(group, |style| style.opacity(0.85))
+        })
         .child(glyph)
         .into_any_element()
 }

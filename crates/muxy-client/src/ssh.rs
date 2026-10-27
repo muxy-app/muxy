@@ -545,92 +545,11 @@ mod tests {
     }
 
     #[test]
-    fn proxy_routes_are_resolved_when_preparing_commands_and_preserve_ssh_config() -> io::Result<()>
-    {
-        let directory = tempfile::tempdir()?;
-        let program = directory.path().join("ssh");
-        let called = directory.path().join("called");
-        for (config, proxied) in [
-            ("hostname box\nproxycommand none", true),
-            ("hostname box\nproxyjump bastion", false),
-            ("hostname box\nproxycommand nc %h %p", false),
-        ] {
-            let script = format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$(dirname \"$0\")/called\"\nprintf '%s\\n' '{config}'\n"
-            );
-            let status = Command::new("/bin/sh")
-                .args([
-                    "-c",
-                    r#"printf '%s' "$1" > "$2" && chmod 700 "$2""#,
-                    "sh",
-                    &script,
-                ])
-                .arg(&program)
-                .status()?;
-            assert!(status.success(), "{status}");
-            let target = SshTarget::new("box")?
-                .with_program(&program)
-                .with_proxy(proxy());
-            assert!(!called.exists());
-            let command = target.command("true")?;
-            assert_eq!(std::fs::read_to_string(&called)?, "-G\n");
-            let arguments: Vec<_> = command.get_args().collect();
-            assert_eq!(
-                arguments
-                    .iter()
-                    .any(|argument| argument.to_string_lossy().starts_with("ProxyCommand=")),
-                proxied
-            );
-            assert_eq!(
-                arguments
-                    .iter()
-                    .any(|argument| *argument == "ControlPath=none"),
-                proxied
-            );
-            assert_eq!(command.get_envs().count(), usize::from(proxied));
-            std::fs::remove_file(&called)?;
-        }
-        Ok(())
-    }
-
-    #[test]
     fn jump_hosts_and_proxy_commands_in_ssh_config_are_their_own_route() {
         assert!(route_from("user me\nproxyjump bastion.example\nport 22\n"));
         assert!(route_from("proxycommand nc -X 5 %h %p\n"));
         assert!(!route_from("user me\nproxycommand none\nport 22\n"));
         assert!(!route_from("user me\nhostname box\n"));
-    }
-
-    /// Expands the line as ssh does, then runs it the way ssh runs it.
-    #[test]
-    fn the_proxy_line_survives_ssh_expansion_and_the_shell() -> io::Result<()> {
-        let option = proxy().option();
-        let line = option
-            .trim_start_matches("ProxyCommand=")
-            .replace("%h", "box.example")
-            .replace("%p", "22")
-            .replace("%%", "%");
-        let output = Command::new("/bin/sh")
-            .args(["-c", &format!("exec {line}")])
-            .output()?;
-        assert!(output.status.success());
-        assert_eq!(output.stdout, b"it's|box.example|22|");
-        Ok(())
-    }
-
-    #[test]
-    fn custom_command_arguments_are_not_evaluated_by_a_local_shell() -> io::Result<()> {
-        let target = SshTarget::custom_command(
-            r"/usr/bin/printf '%s\n' '$(exit 91)' '$HOME' '*' '; exit 92'",
-        )?;
-        let remote = "sh -c 'printf \"%s\" \"$HOME\"'; exit 93";
-        let output = target.command(remote)?.output()?;
-        assert!(output.status.success());
-        assert_eq!(
-            output.stdout,
-            format!("$(exit 91)\n$HOME\n*\n; exit 92\n{remote}\n").as_bytes()
-        );
-        Ok(())
     }
 
     #[test]

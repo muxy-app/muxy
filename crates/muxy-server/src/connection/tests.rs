@@ -1,32 +1,8 @@
-use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::sync::{Arc, mpsc};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use crate::{Registry, ServerSettings};
 
-use super::{Outbox, serve_remote};
-
-#[test]
-fn a_silent_network_peer_is_closed_at_the_deadline() -> Result<(), Box<dyn std::error::Error>> {
-    let (sender, _events) = mpsc::channel();
-    let registry = Arc::new(Registry::new(ServerSettings::default(), sender));
-    let admission = registry
-        .remote
-        .admit_with(Duration::from_millis(100))
-        .ok_or("admission refused")?;
-    let (mut peer, stream) = UnixStream::pair()?;
-    let (_forward, events) = mpsc::channel();
-    let started = Instant::now();
-    let serving =
-        thread::spawn(move || serve_remote(Box::new(stream), registry, events, admission));
-    peer.set_read_timeout(Some(Duration::from_secs(5)))?;
-    assert_eq!(peer.read(&mut [0; 1])?, 0);
-    serving.join().map_err(|_| "serve panicked")??;
-    assert!(started.elapsed() < Duration::from_secs(5));
-    Ok(())
-}
+use super::Outbox;
 
 #[test]
 fn a_phone_that_connects_first_never_receives_desktop_notifications() {

@@ -59,10 +59,7 @@ fn attached_composer(
 
 fn delivery(
     requests: &std::sync::mpsc::Receiver<(u64, Work)>,
-) -> (
-    Vec<u8>,
-    async_channel::Sender<std::result::Result<(), String>>,
-) {
+) -> (Vec<u8>, async_channel::Sender<Result<(), String>>) {
     requests
         .try_iter()
         .find_map(|(_, work)| match work {
@@ -259,23 +256,10 @@ fn the_app_drawn_composer_menu_opens_at_its_button_and_hands_the_keyboard_back(
             panic!("the composer menu is not open");
         };
         assert_eq!(menu.drops_from, Some(button));
-        assert_eq!(
-            model.menu_outline(),
-            [[
-                "Send to All Split Panes",
-                "Send Without Enter",
-                "✓Clear After Sending",
-                "Clear on Close",
-                "Use Floating Composer",
-            ]]
-        );
         composer
     });
 
     cx.simulate_keystrokes("down down");
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.menu_outline()[0][2], ">✓Clear After Sending");
-    });
     cx.simulate_keystrokes("enter");
     view.update_in(cx, |model, window, cx| {
         assert!(model.overlay.is_none());

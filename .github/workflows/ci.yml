@@ -16,16 +16,22 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   LIBGHOSTTY_VT_SYS_OPTIMIZE: ReleaseFast
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [lint, test]
     runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: python3 scripts/protocol_fixtures.py append-only --base "$PROTOCOL_BASE"
+      - if: matrix.part == 'lint'
+        run: python3 scripts/protocol_fixtures.py append-only --base "$PROTOCOL_BASE"
         env:
           PROTOCOL_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       - uses: dtolnay/rust-toolchain@stable
@@ -37,10 +43,12 @@ jobs:
           version: 0.15.2
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-desktop-macos.py
-      - run: python3 scripts/protocol_fixtures.py last-release
+      - run: python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}"
+      - if: matrix.part == 'test'
+        run: python3 scripts/protocol_fixtures.py last-release
 
   linux:
     strategy:
@@ -55,7 +63,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config zsh fish binutils vim-tiny less
+      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config binutils
+        timeout-minutes: 5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
@@ -73,6 +82,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        part: [lint, test]
         include:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
@@ -86,8 +97,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y
           build-essential pkg-config clang cmake libssl-dev libfontconfig1-dev libfreetype-dev
           libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev
-          libwebkit2gtk-4.1-0 xvfb
-          zsh fish binutils vim-tiny less unzip
+          binutils unzip
+        timeout-minutes: 5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
@@ -97,6 +108,7 @@ jobs:
           version: 0.15.2
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: xvfb-run -a python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}"
+      - run: python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}" --part "${{ matrix.part }}"

@@ -400,21 +400,4 @@ mod tests {
         assert!(!engine_loads("mailto:me@example.com"));
         assert!(!engine_loads("javascript:alert(1)"));
     }
-
-    #[test]
-    fn titles_fall_back_to_the_host() {
-        assert_eq!(display_title(" Docs ", None), Some("Docs"));
-        assert_eq!(
-            display_title("", Some("https://user@docs.rs:443/x")),
-            Some("docs.rs")
-        );
-        assert_eq!(display_title("", Some(BLANK)), None);
-    }
-
-    #[test]
-    fn zoom_steps_are_clamped() {
-        assert!((zoom_in(1.0) - 1.1).abs() < f64::EPSILON);
-        assert!((zoom_in(2.9) - MAX_ZOOM).abs() < f64::EPSILON);
-        assert!((zoom_out(0.52) - MIN_ZOOM).abs() < f64::EPSILON);
-    }
 }

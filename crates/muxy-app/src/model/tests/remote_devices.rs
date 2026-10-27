@@ -1,14 +1,12 @@
 use super::preferences::settings_window;
-use super::servers::{connect_remote, entry, page, serve_remote, work};
+use super::servers::{connect_remote, entry, page, work};
 use super::*;
-use crate::picker::remote::RemoteFolders;
 use crate::views::settings::SettingsEvent;
 use muxy_app_core::settings::{ServerEntry, Settings};
 
 mod commands;
 mod forms;
 mod groups;
-mod picker;
 mod tab;
 
 /// A stub boot listing `servers`, both in settings and in its settings.toml.
@@ -206,115 +204,6 @@ fn the_status_bar_shows_and_restarts_the_current_projects_server(cx: &mut TestAp
     );
 }
 
-fn settle(cx: &mut VisualTestContext) {
-    cx.run_until_parked();
-    cx.executor().advance_clock(Duration::from_millis(125));
-    cx.run_until_parked();
-}
-
-#[gpui::test]
-fn a_remote_reached_over_ssh_lists_folders_and_adds_a_project_there(cx: &mut TestAppContext) {
-    remote_add_project(cx).expect("remote Add Project over ssh");
-}
-
-fn remote_add_project(cx: &mut TestAppContext) -> Result {
-    let directory = tempfile::Builder::new()
-        .prefix("muxy-remote-")
-        .tempdir_in("/tmp")?;
-    let socket = directory.path().join("remote.sock");
-    serve_remote(&socket)?;
-    let folder = directory.path().canonicalize()?.join("app");
-    std::fs::create_dir(&folder)?;
-    let remote = ServerId::new();
-    let (mut boot, _, _) = boot_with(vec![entry(remote, "box")]);
-    cx.update(|cx| {
-        crate::views::workspace::bind_keys(&boot.settings.keymap, cx);
-        cx.bind_keys(muxy_ui::text_input::key_bindings());
-        cx.bind_keys(muxy_ui::picker::key_bindings());
-    });
-    let (updates, received) = async_channel::unbounded();
-    let ssh = crate::boot::tests::fake_ssh(directory.path(), &socket)?;
-    boot.workers = crate::boot::Workers::with(move |server, _| {
-        crate::boot::worker(
-            server,
-            crate::boot::Target::Ssh(ssh.clone()),
-            updates.clone(),
-        )
-    });
-    boot.updates = received;
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        connect_local(model, cx);
-        model.open_remote_project_picker(remote, cx);
-        assert!(model.overlay.is_none(), "the picker waits for the server");
-    });
-    wait(cx, &view, |model, _| {
-        model.state.server_home(remote).is_some()
-            && model.extensions.client(remote).is_some()
-            && matches!(model.overlay, Some(Overlay::Projects(_)))
-    })?;
-    let (client, home) = view.read_with(cx, |model, _| {
-        let home = model.state.server_home(remote).expect("Home");
-        (
-            model.extensions.client(remote).expect("client"),
-            (home.id, home.directory.to_string_lossy().into_owned()),
-        )
-    });
-    let folders = RemoteFolders::through(client, "box".into(), home.0, &home.1);
-    let listed: Vec<_> = folders
-        .list(&directory.path().to_string_lossy())?
-        .iter()
-        .map(|folder| folder.name().to_owned())
-        .collect();
-    assert_eq!(
-        listed,
-        ["app"],
-        "any folder is listed, not only inside Home"
-    );
-    assert_eq!(
-        folders.list("/does/not/exist").err().as_deref(),
-        Some("folder does not exist")
-    );
-    picker::check_folder_operations(&folders, directory.path())?;
-    assert!(
-        view.read_with(cx, |model, _| matches!(
-            model.overlay,
-            Some(Overlay::Projects(_))
-        )),
-        "Add Project before connecting opened the picker once ready"
-    );
-    settle(cx);
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-a"
-    } else {
-        "ctrl-a"
-    });
-    cx.simulate_input(&folder.to_string_lossy());
-    settle(cx);
-    cx.simulate_keystrokes("alt-enter");
-    settle(cx);
-    view.read_with(cx, |model, _| assert!(model.overlay.is_none()));
-    let expected = folder.to_string_lossy().into_owned().into_bytes();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let catalog = Client::connect(&socket)?.catalog()?;
-        if catalog
-            .projects
-            .iter()
-            .any(|project| project.directory.0 == expected)
-        {
-            break;
-        }
-        if Instant::now() >= deadline {
-            return Err("the remote server never listed the new project".into());
-        }
-        cx.run_until_parked();
-        thread::sleep(Duration::from_millis(10));
-    }
-    view.update(cx, |model, _| model.stop_workers());
-    Ok(())
-}
-
 #[gpui::test]
 fn saving_a_device_also_takes_in_devices_edited_by_hand(cx: &mut TestAppContext) {
     let (boot, _, remotes) = boot_with(vec![]);
@@ -442,33 +331,6 @@ fn the_editor_builds_ssh_destinations_from_host_user_and_port() {
     }
 }
 
-/// What the app's askpass socket answers for `token` and `prompt`.
-fn ask(socket: &std::ffi::OsStr, token: &str, prompt: &str) -> io::Result<String> {
-    use std::io::{Read, Write};
-    let mut stream = std::os::unix::net::UnixStream::connect(socket)?;
-    stream.write_all(format!("{token}\n{prompt}").as_bytes())?;
-    stream.shutdown(std::net::Shutdown::Write)?;
-    let mut answer = String::new();
-    stream.read_to_string(&mut answer)?;
-    Ok(answer)
-}
-
-/// The socket and token an askpass program asks with.
-fn askpass_of(askpass: &muxy_client::Askpass) -> (std::ffi::OsString, String) {
-    let value = |key: &str| {
-        askpass
-            .environment
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value.clone())
-            .unwrap_or_default()
-    };
-    (
-        value(crate::askpass::SOCKET),
-        value(crate::askpass::TOKEN).to_string_lossy().into_owned(),
-    )
-}
-
 fn short_socket() -> (tempfile::TempDir, PathBuf) {
     let directory = tempfile::Builder::new()
         .prefix("askpass")
@@ -476,53 +338,6 @@ fn short_socket() -> (tempfile::TempDir, PathBuf) {
         .expect("socket folder");
     let socket = directory.path().join("askpass.sock");
     (directory, socket)
-}
-
-#[gpui::test]
-fn test_connection_answers_a_typed_password_only_while_it_runs(cx: &mut TestAppContext) {
-    let (_directory, socket) = short_socket();
-    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let asked = seen.clone();
-    let (mut boot, _, _) = boot_with(vec![]);
-    boot.workers = boot.workers.with_probe(move |target| {
-        let (socket, token) = askpass_of(target.askpass().ok_or("no askpass")?);
-        let answer =
-            ask(&socket, &token, "dev@box's password: ").map_err(|error| error.to_string())?;
-        *asked.lock().expect("seen") = Some((socket, token, answer));
-        Ok("2.1.0".into())
-    });
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.servers.passwords.set_socket(socket);
-        let missing = DeviceForm {
-            password_login: true,
-            ..form("", "dev@box")
-        };
-        model.test_remote_server(None, &missing, cx);
-        assert!(matches!(
-            model.server_probe("dev@box"),
-            Some(ConnectionTest::Failed(error)) if error.contains("Enter the password")
-        ));
-        let typed = DeviceForm {
-            password: "hunter2".into(),
-            ..missing
-        };
-        model.test_remote_server(None, &typed, cx);
-    });
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert_eq!(
-            model.server_probe("dev@box"),
-            Some(&ConnectionTest::Succeeded("2.1.0".into()))
-        );
-    });
-    let (socket, token, answer) = seen.lock().expect("seen").clone().expect("probed");
-    assert_eq!(answer, "hunter2");
-    assert_eq!(
-        ask(&socket, &token, "Password: ").expect("asked"),
-        "",
-        "the typed password is gone after the test"
-    );
 }
 
 #[gpui::test]

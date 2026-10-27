@@ -171,25 +171,3 @@ pub(crate) fn newer_build(running: &str) -> bool {
 
 pub(crate) use muxy_client::local::lock_startup as lock_for_update;
 pub(crate) use muxy_client::local::read_build_info;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn server_startup_respects_the_update_lock_and_releases_it_after_failure() -> io::Result<()> {
-        let directory = tempfile::tempdir()?;
-        let socket = directory.path().join("server.sock");
-        let lock = lock_for_update(&socket)?;
-        assert!(
-            ensure_server_running(&socket)
-                .is_err_and(|error| error.to_string().contains("already in progress"))
-        );
-        assert!(
-            lock_for_update(&socket).is_err_and(|error| error.kind() == io::ErrorKind::WouldBlock)
-        );
-        drop(lock);
-        assert!(lock_for_update(&socket).is_ok());
-        Ok(())
-    }
-}

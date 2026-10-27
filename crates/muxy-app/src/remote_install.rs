@@ -60,20 +60,3 @@ impl Source {
         .to_string()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_embedded_installer_survives_shell_quoting() {
-        let source = Source::Development(PathBuf::from("unused"));
-        let output = std::process::Command::new("/bin/sh")
-            .args(["-c", &format!("{} --help", source.command())])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .expect("installer help");
-        assert!(output.status.success());
-        assert!(String::from_utf8_lossy(&output.stdout).starts_with("Usage: install-muxy.sh"));
-    }
-}

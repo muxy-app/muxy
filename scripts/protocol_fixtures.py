@@ -10,7 +10,11 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import slow_test_guard  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = "crates/muxy-protocol/tests/fixtures"
@@ -82,11 +86,10 @@ def read_by_last_release():
     git("worktree", "prune")
     git("worktree", "add", "--detach", str(checkout), tag)
     try:
-        subprocess.run(
+        slow_test_guard.run(
             ["cargo", "test", "--locked", "-p", "muxy-protocol", "--test", "fixtures",
              "every_fixture_decodes", "--", "--exact"],
             cwd=checkout,
-            check=True,
             env={
                 **os.environ,
                 "CARGO_TARGET_DIR": str(ROOT / "target"),

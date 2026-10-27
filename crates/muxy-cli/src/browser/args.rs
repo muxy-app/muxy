@@ -832,12 +832,8 @@ mod tests {
 
     #[test]
     fn wrong_arguments_name_the_usage() {
-        let error = command(&["click", "T"]).map(|_| ()).err();
-        assert_eq!(
-            error.map(|error| error.to_string()),
-            Some("usage: muxy browser click <tab-id> <selector>".to_owned())
-        );
         for words in [
+            vec!["click", "T"],
             vec!["frobnicate", "T"],
             vec!["storage"],
             vec!["cookies", "eat", "T"],

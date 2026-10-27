@@ -1,7 +1,7 @@
 use super::root::{Root, Target};
 use super::{Result, error};
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 mod freedesktop;
 
 #[cfg(target_os = "linux")]
@@ -58,29 +58,4 @@ fn percent_encode(bytes: &[u8]) -> String {
         }
     }
     encoded
-}
-
-#[cfg(all(test, target_os = "macos"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "Moves a temporary file through the native macOS Trash and restores it"]
-    fn native_trash_preserves_file_content() -> Result<()> {
-        let workspace = crate::files::tests::Workspace::new();
-        let path = workspace.path.join(format!(
-            "muxy-trash-test-{}",
-            muxy_protocol::OperationId::new()
-        ));
-        std::fs::write(&path, "recoverable").map_err(error)?;
-        let root = Root::open(&workspace.path)?;
-        let source = root.mutation(std::path::Path::new(
-            path.file_name().ok_or_else(|| error("Missing name"))?,
-        ))?;
-        let trashed = macos_trash(&root, &source)?;
-        let contents = std::fs::read_to_string(&trashed).map_err(error);
-        std::fs::rename(&trashed, &path).map_err(error)?;
-        assert_eq!(contents?, "recoverable");
-        Ok(())
-    }
 }

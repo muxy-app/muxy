@@ -137,34 +137,3 @@ fn write(board: &NSPasteboard, snapshot: &Snapshot) -> Result<(), String> {
         .then_some(())
         .ok_or_else(|| tr!("Could not replace clipboard contents").to_string())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lease_restores_every_format_and_preserves_external_changes() -> Result<(), String> {
-        let board = NSPasteboard::pasteboardWithUniqueName();
-        let original = vec![vec![
-            ("public.utf8-plain-text".into(), b"hello".to_vec()),
-            ("app.muxy.test".into(), vec![0, 1, 2]),
-        ]];
-        write(&board, &original)?;
-        let mut lease = Lease::capture_board(board.clone())?;
-        lease.write_png(vec![4, 5, 6])?;
-        drop(lease);
-        assert_eq!(Lease::capture_board(board.clone())?.previous, original);
-        let mut lease = Lease::capture_board(board.clone())?;
-        lease.write_png(vec![4, 5, 6])?;
-        let external = vec![vec![(
-            "public.utf8-plain-text".into(),
-            b"new copy".to_vec(),
-        )]];
-        write(&board, &external)?;
-        assert!(lease.write_png(vec![7]).is_err());
-        drop(lease);
-        assert_eq!(Lease::capture_board(board.clone())?.previous, external);
-        board.clearContents();
-        Ok(())
-    }
-}

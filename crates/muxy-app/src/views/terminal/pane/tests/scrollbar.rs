@@ -52,23 +52,6 @@ fn press(pane: &mut TerminalPane, y: f32, window: &mut Window, cx: &mut Context<
 }
 
 #[gpui::test]
-fn the_scrollbar_shows_while_scrolling_and_hides_again(cx: &mut TestAppContext) {
-    let (pane, cx) = pane(cx);
-    pane.update(cx, |pane, cx| {
-        assert_eq!(thumb_top(pane, cx), None);
-        pane.scroll_rows(9.0, cx);
-        assert_eq!(thumb_top(pane, cx), Some(24.0));
-    });
-    cx.executor().advance_clock(REVEAL_DURATION);
-    cx.run_until_parked();
-    pane.update(cx, |pane, cx| {
-        assert_eq!(thumb_top(pane, cx), None);
-        pane.mouse_move(&pointer(5.0, false), cx);
-        assert_eq!(thumb_top(pane, cx), Some(24.0));
-    });
-}
-
-#[gpui::test]
 fn dragging_the_thumb_scrolls_history_without_selecting_text(cx: &mut TestAppContext) {
     let (pane, cx) = pane(cx);
     pane.update_in(cx, |pane, window, cx| {

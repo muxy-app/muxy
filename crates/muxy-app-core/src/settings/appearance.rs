@@ -45,6 +45,14 @@ pub enum AgentsPanelGrouping {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum AgentsPanelIcon {
+    #[default]
+    Agent,
+    Project,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentsPanelDock {
     #[default]
     Left,
@@ -98,6 +106,9 @@ pub struct Appearance {
     pub agents_panel_frame: Option<[f32; 4]>,
     pub agents_panel_docked_height: Option<f32>,
     pub agents_panel_grouping: AgentsPanelGrouping,
+    pub agents_panel_icon: AgentsPanelIcon,
+    pub agents_panel_project_colors: bool,
+    pub agents_panel_idle_time: bool,
     pub agent_sessions_visible: bool,
     pub agent_sessions_position: AgentSessionsPosition,
     pub agent_sessions_pinned: bool,
@@ -137,6 +148,9 @@ impl Default for Appearance {
             agents_panel_frame: None,
             agents_panel_docked_height: None,
             agents_panel_grouping: AgentsPanelGrouping::default(),
+            agents_panel_icon: AgentsPanelIcon::default(),
+            agents_panel_project_colors: false,
+            agents_panel_idle_time: false,
             agent_sessions_visible: false,
             agent_sessions_position: AgentSessionsPosition::default(),
             agent_sessions_pinned: true,

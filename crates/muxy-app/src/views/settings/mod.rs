@@ -121,6 +121,8 @@ pub(crate) enum Change {
     SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
     AgentsPanel(bool),
     AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
+    AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
+    AgentsPanelOption(&'static str, bool),
     StatusBar(bool),
     Tips(bool),
     ConfirmProcess(bool),
@@ -399,11 +401,6 @@ impl SettingsView {
             self.fields.insert(id, input);
             self.subscriptions.push(changed);
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn browser_profiles(&self) -> &[browser::Profile] {
-        &self.snapshot.browser_profiles
     }
 
     pub(crate) fn sync(&mut self, snapshot: Snapshot, theme: Theme, cx: &mut Context<Self>) {

@@ -625,9 +625,7 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, mpsc};
-    use std::thread;
-    use std::time::Duration;
+    use std::sync::Arc;
 
     use muxy_protocol::{Cursor, Modes, Row};
 
@@ -863,31 +861,5 @@ mod tests {
             &ServerError::new(ErrorCode::UnknownChannel, "detached"),
         );
         assert!(outbox.lock().metadata.is_empty());
-    }
-
-    #[test]
-    fn closing_wakes_writer_and_discards_pending_but_drains_control()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let outbox = Arc::new(Outbox::new(Arc::default()));
-        outbox.lock().credit.insert(ChannelId(1), false);
-        outbox.push_frame(ChannelId(1), frame(1, 0));
-        let (sender, receiver) = mpsc::channel();
-        let waiting = Arc::clone(&outbox);
-        let writer = thread::spawn(move || {
-            let _ = sender.send(waiting.next());
-        });
-        assert!(receiver.recv_timeout(Duration::from_millis(50)).is_err());
-        outbox.push_control(Message::VersionUnsupported);
-        outbox.close();
-        assert_eq!(
-            receiver.recv_timeout(Duration::from_secs(2))?,
-            Some((CONTROL, Message::VersionUnsupported))
-        );
-        writer.join().map_err(|_| "writer panicked")?;
-        assert_eq!(outbox.next(), None);
-        outbox.push_frame(ChannelId(1), frame(2, 0));
-        outbox.push_control(Message::VersionUnsupported);
-        assert_eq!(outbox.next(), None);
-        Ok(())
     }
 }

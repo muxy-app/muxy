@@ -14,9 +14,6 @@ use crate::tr;
 
 pub const CAPABILITY: Capability = Capability::Supported;
 
-#[cfg(test)]
-static X11_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 pub(super) fn wayland_session() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty())
         || std::env::var("XDG_SESSION_TYPE").is_ok_and(|value| value == "wayland")

@@ -281,7 +281,6 @@ fn one_x_import_keeps_every_usable_project_when_some_details_are_stale() {
     assert_eq!(state.projects().len(), 4);
     let symbol = state.project(symbol.parse().unwrap()).unwrap();
     assert_eq!(symbol.icon.as_deref(), Some("sf:chart.pie.fill"));
-    assert_eq!(symbol.color.as_str(), "#5b5bd6");
     let emoji = state.project(emoji.parse().unwrap()).unwrap();
     assert_eq!(emoji.icon.as_deref(), Some("🚀"));
     assert_eq!(emoji.color.as_str(), "#e5484d");

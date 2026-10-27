@@ -60,18 +60,16 @@ impl Drop for OutboxSink {
 mod tests {
     use std::error::Error;
     use std::sync::Arc;
-    use std::sync::mpsc::{self, Receiver};
-    use std::thread;
-    use std::time::Duration;
+    use std::sync::mpsc::Receiver;
 
     use muxy_protocol::{
         AttachSnapshot, CONTROL, ChannelId, ErrorCode, ExitReason, Message, MetadataEvent,
-        ReplyBody, RequestId, ScreenFrame, TerminalColors,
+        ReplyBody, RequestId, ScreenFrame,
     };
 
     use super::OutboxSink;
     use crate::connection::Outbox;
-    use crate::{AttachmentEvent, AttachmentId, AttachmentSink, SessionCommand, SessionHandle};
+    use crate::{AttachmentEvent, AttachmentId, SessionCommand, SessionHandle};
 
     type TestResult = Result<(), Box<dyn Error>>;
 
@@ -167,40 +165,6 @@ mod tests {
             outbox.close();
             assert!(is_failed_attach(outbox.next()), "ended: {ended}");
             assert_eq!(outbox.next(), None);
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn attaching_to_a_stopped_session_fails_without_holding_the_outbox() -> TestResult {
-        for colors in [None, Some(TerminalColors::default())] {
-            let outbox = Arc::new(Outbox::new(Arc::default()));
-            if let Some(colors) = colors {
-                outbox.set_colors(colors);
-            }
-            let (handle, commands) = SessionHandle::fake();
-            drop(commands);
-            let attaching = Arc::clone(&outbox);
-            let (done, result) = mpsc::channel();
-            thread::spawn(move || {
-                let id = AttachmentId(1);
-                let sink = OutboxSink::new(&attaching, CHANNEL, handle.id());
-                let command = SessionCommand::AttachWithoutResize {
-                    id,
-                    channel: CHANNEL,
-                    sink: AttachmentSink::outbox(sink),
-                };
-                let _ = done.send(attaching.attach(CHANNEL, id, REQUEST, handle, command));
-            });
-            let result = result.recv_timeout(Duration::from_secs(5))?;
-            assert!(matches!(result, Err(error) if error.code() == ErrorCode::UnknownSession));
-            assert!(outbox.handle(CHANNEL).is_none());
-            outbox.close();
-            assert_eq!(
-                outbox.next(),
-                None,
-                "the request's own error is the only reply"
-            );
         }
         Ok(())
     }

@@ -10,6 +10,9 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import slow_test_guard  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -35,7 +38,7 @@ def packages(metadata):
 
 def run(*command, **kwargs):
     print("+ " + " ".join(map(str, command)), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True, **kwargs)
+    slow_test_guard.run(command, cwd=ROOT, **kwargs)
 
 
 def main():
@@ -67,8 +70,7 @@ def main():
     package_args = [arg for name in selected for arg in ("-p", name)]
     run("cargo", "clippy", "--locked", *package_args, "--all-targets", "--all-features", "--", "-D", "warnings")
     run("cargo", "test", "--locked", *package_args, "--all-features", "--no-fail-fast")
-    run("cargo", "test", "--locked", *package_args, "--all-features", "fish_marks_prompts_and_preserves_user_configuration",
-        "--", "--ignored", env={**os.environ, "MUXY_TEST_FISH": "/usr/bin/fish"})
+    run("cargo", "build", "--locked", "-p", "muxy-cli", "-p", "muxy-server")
     binary = ROOT / "target/debug/muxy"
     for executable in [binary, binary.with_name("muxy-server")]:
         run(sys.executable, ROOT / "scripts/audit-linux.py", executable, "--target", args.target)

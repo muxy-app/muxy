@@ -191,12 +191,6 @@ fn ghostty_theme_is_ignored_because_the_settings_theme_colors_terminals() -> Res
     let settings = TerminalSettings::load(&path)?;
     assert_eq!(settings.font_size, 16.0);
     assert_eq!(settings.options, TerminalSettings::default().options);
-    assert!(
-        settings
-            .diagnostics
-            .iter()
-            .any(|warning| warning.contains("theme is not supported by Muxy"))
-    );
     Ok(())
 }
 

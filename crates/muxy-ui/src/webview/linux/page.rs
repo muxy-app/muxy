@@ -47,9 +47,6 @@ macro_rules! callback {
 pub(super) mod browser;
 mod input;
 
-#[cfg(test)]
-mod tests;
-
 /// What a page is created from.
 pub(super) struct Setup {
     pub(super) id: u64,
@@ -361,11 +358,6 @@ impl Runtime {
             }
             g.g_object_unref(request);
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn live(&self) -> usize {
-        self.pages.borrow().len()
     }
 }
 

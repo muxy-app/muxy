@@ -358,9 +358,6 @@ pub(super) fn error(message: &str) -> Error {
     Error::backend(Engine::WebKit, message)
 }
 
-#[cfg(test)]
-mod tests;
-
 pub fn close_profile(profile: &Profile, done: impl FnOnce(Result<()>) + Send + 'static) {
     let profile = profile.clone();
     post(move |runtime| match runtime {

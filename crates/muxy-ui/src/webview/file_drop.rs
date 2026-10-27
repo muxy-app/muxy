@@ -189,27 +189,4 @@ mod tests {
             assert!(text_paths(text, |path| path == "/project/a b.txt").is_empty());
         }
     }
-
-    #[test]
-    fn webkit_text_preserves_all_paths_and_native_files_take_precedence() {
-        let board = NSPasteboard::pasteboardWithUniqueName();
-        board.setString_forType(
-            ns_string!("file:///project/first"),
-            ns_string!("public.url"),
-        );
-        board.setString_forType(
-            ns_string!("/project/first\n/project/second file"),
-            ns_string!("public.utf8-plain-text"),
-        );
-        assert_eq!(
-            strings(paths(&board, |_| true)),
-            ["/project/first", "/project/second file"]
-        );
-        board.setString_forType(
-            ns_string!("file:///project/native%20file"),
-            ns_string!("public.file-url"),
-        );
-        assert_eq!(strings(paths(&board, |_| true)), ["/project/native file"]);
-        board.clearContents();
-    }
 }

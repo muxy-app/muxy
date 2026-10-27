@@ -27,6 +27,3 @@ workspace = true
 muxy-client = { path = "../muxy-client" }
 muxy-protocol = { path = "../muxy-protocol" }
 uniffi = "=0.32.2"
-
-[dev-dependencies]
-muxy-server = { path = "../muxy-server" }

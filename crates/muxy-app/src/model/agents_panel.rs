@@ -33,6 +33,7 @@ pub(crate) struct RunningAgent {
     pub(crate) pane: PaneId,
     pub(crate) provider: AgentProvider,
     pub(crate) status: AgentStatus,
+    pub(crate) finished_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -117,6 +118,7 @@ pub(crate) struct AgentsPanel {
     pub(crate) resize: PanelResizeState,
     pub(crate) docked_height: std::rc::Rc<std::cell::Cell<Pixels>>,
     pub(crate) owner: gpui::Entity<()>,
+    pub(crate) clock: Option<gpui::Task<()>>,
 }
 
 impl AgentsPanel {
@@ -129,6 +131,7 @@ impl AgentsPanel {
             resize: PanelResizeState::default(),
             docked_height: std::rc::Rc::default(),
             owner: cx.new(|_| ()),
+            clock: None,
         }
     }
 }
@@ -138,6 +141,7 @@ impl AppModel {
         type Index<'a> = (
             std::collections::HashMap<SessionId, &'a muxy_protocol::AgentActivity>,
             std::collections::HashSet<SessionId>,
+            &'a std::collections::HashMap<SessionId, u64>,
         );
         let mut servers: Vec<(ServerId, Option<Index<'_>>)> = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
@@ -149,9 +153,9 @@ impl AppModel {
                 .unwrap_or_else(|| {
                     let index = self
                         .activity(project.server_id)
-                        .map(|activity| &activity.snapshot)
-                        .filter(|snapshot| !snapshot.agents.is_empty())
-                        .map(|snapshot| {
+                        .filter(|activity| !activity.snapshot.agents.is_empty())
+                        .map(|activity| {
+                            let snapshot = &activity.snapshot;
                             let agents = snapshot
                                 .agents
                                 .iter()
@@ -166,12 +170,12 @@ impl AppModel {
                                 })
                                 .map(|event| event.session)
                                 .collect();
-                            (agents, finished)
+                            (agents, finished, &activity.finished)
                         });
                     servers.push((project.server_id, index));
                     servers.len() - 1
                 });
-            let Some((by_session, finished)) = &servers[position].1 else {
+            let Some((by_session, finished, finished_at)) = &servers[position].1 else {
                 continue;
             };
             for tab in &project.tabs {
@@ -194,6 +198,10 @@ impl AppModel {
                         _ if finished.contains(&session) => AgentStatus::Completed,
                         _ => AgentStatus::Idle,
                     };
+                    let finished_at = finished_at
+                        .get(&session)
+                        .copied()
+                        .filter(|_| matches!(status, AgentStatus::Completed | AgentStatus::Idle));
                     agents.push(RunningAgent {
                         server: project.server_id,
                         session,
@@ -202,6 +210,7 @@ impl AppModel {
                         pane: pane.id,
                         provider: agent.provider,
                         status,
+                        finished_at,
                     });
                 }
             }
@@ -443,6 +452,36 @@ impl AppModel {
             self.panels.remove(&id);
             self.agents_panel.resize.end();
         }
+        self.sync_agents_panel_clock(cx);
+    }
+
+    fn sync_agents_panel_clock(&mut self, cx: &mut Context<Self>) {
+        if !(self.appearance.agents_panel_visible && self.appearance.agents_panel_idle_time) {
+            self.agents_panel.clock = None;
+            return;
+        }
+        if self.agents_panel.clock.is_some() {
+            return;
+        }
+        self.agents_panel.clock = Some(cx.spawn(async move |model, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(60))
+                    .await;
+                let tick = model.update(cx, |model, cx| {
+                    if model
+                        .running_agents()
+                        .iter()
+                        .any(|agent| agent.finished_at.is_some())
+                    {
+                        cx.notify();
+                    }
+                });
+                if tick.is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     pub(crate) fn agents_right_placement() -> PanelPlacement {

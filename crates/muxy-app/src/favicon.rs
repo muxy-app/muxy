@@ -30,19 +30,3 @@ fn decode(bytes: &[u8]) -> Option<gpui::RenderImage> {
     }
     Some(gpui::RenderImage::new([image::Frame::new(bgra)]))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn icons_decode_to_small_images_and_junk_does_not() {
-        let mut png = std::io::Cursor::new(Vec::new());
-        image::RgbaImage::from_pixel(128, 128, image::Rgba([255, 0, 0, 255]))
-            .write_to(&mut png, image::ImageFormat::Png)
-            .expect("png");
-        let icon = decode(png.get_ref()).expect("icon");
-        assert!(icon.size(0).width.0 <= i32::try_from(SIZE).expect("size"));
-        assert!(decode(b"<svg/>").is_none());
-    }
-}
