@@ -1,4 +1,5 @@
-use super::new_tab::Target as TerminalTarget;
+mod targets;
+
 use super::overlays::Overlay;
 use crate::model::{AppModel, PendingRemote, RemoteIntent};
 use crate::picker::path_service::{self, DirectoryItem, TypedPathState};
@@ -9,14 +10,14 @@ use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
     Subscription,
 };
-use muxy_app_core::{ServerId, settings::Keymap};
+use muxy_app_core::{ProjectStatus, ServerId, settings::Keymap};
 use muxy_core::shortcuts::{ShortcutId, ShortcutSettings};
 use muxy_ui::command_palette::Registry;
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::picker::{
-    Picker, PickerAction, PickerConfig, PickerEvent as ListEvent, PickerItem, PickerLeading,
-    PickerRow, PickerStatus,
+    Picker, PickerAction, PickerConfig, PickerEvent as ListEvent, PickerFooterStyle, PickerItem,
+    PickerLeading, PickerRow, PickerStatus,
 };
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
@@ -26,6 +27,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
+use targets::Target;
 
 const RELOAD_DELAY: Duration = Duration::from_millis(100);
 const LOADING_MESSAGE_DELAY: Duration = Duration::from_millis(500);
@@ -34,13 +36,14 @@ const DIRECTORY_CACHE_LIMIT: usize = 64;
 const DIRECTORY_CACHE_ITEMS: usize = 50_000;
 
 pub(crate) enum PickerEvent {
-    OpenTerminal(TerminalTarget),
-    OpenHomeTerminal {
-        path: String,
+    ConfirmTarget {
+        target: Target,
+        home_terminal: bool,
     },
     Confirm {
         path: String,
         create_if_missing: bool,
+        home_terminal: bool,
     },
     ChooseFinder {
         directory: String,
@@ -54,8 +57,8 @@ pub(crate) enum PickerEvent {
 pub(crate) struct ProjectPicker {
     session: Session,
     search: SearchService,
-    terminals: Option<Registry<TerminalTarget>>,
-    terminal_shortcuts: [Option<String>; 2],
+    targets: Registry<Target>,
+    shortcuts: [Option<String>; 2],
     /// Another computer's folders, instead of this one's.
     remote: Option<RemoteFolders>,
     /// Why the folder couldn't be listed, when the server said.
@@ -138,6 +141,7 @@ impl ProjectPicker {
                 PickerConfig {
                     completion_on_tab: true,
                     confirm_on_click: false,
+                    footer_style: PickerFooterStyle::Compact,
                     ..PickerConfig::new("project-picker", placeholder)
                 },
                 theme,
@@ -153,11 +157,8 @@ impl ProjectPicker {
                         project_picker.session.set_input(query.as_ref());
                         project_picker.reload(cx);
                     }
-                    ListEvent::Confirmed(_) if project_picker.opens_terminal() => {
+                    ListEvent::Confirmed(_) | ListEvent::Submitted { secondary: false } => {
                         project_picker.confirm(false, cx);
-                    }
-                    ListEvent::Confirmed(selection) => {
-                        project_picker.activate(selection.id.as_ref(), cx);
                     }
                     ListEvent::RowClicked { row, .. } => {
                         project_picker.activate(row.as_ref(), cx);
@@ -168,16 +169,13 @@ impl ProjectPicker {
                     ListEvent::SecondaryConfirmed(_) | ListEvent::Submitted { secondary: true } => {
                         project_picker.confirm(true, cx);
                     }
-                    ListEvent::Submitted { secondary: false } => {
-                        project_picker.confirm(false, cx);
-                    }
                     ListEvent::CompletionRequested => {
                         project_picker.complete_highlighted(cx);
                     }
                     ListEvent::NavigateBackRequested => project_picker.go_back(cx),
                     ListEvent::FooterAction(action) => match action.as_ref() {
-                        "open-terminal" => project_picker.confirm(false, cx),
-                        "confirm-path" => project_picker.confirm(true, cx),
+                        "open-terminal" => project_picker.confirm(true, cx),
+                        "confirm-path" => project_picker.confirm(false, cx),
                         "finder" => project_picker.choose_finder(cx),
                         "location" => project_picker.edit_search_location(cx),
                         _ => {}
@@ -189,8 +187,8 @@ impl ProjectPicker {
         let mut project_picker = Self {
             session,
             search,
-            terminals: None,
-            terminal_shortcuts: [None, None],
+            targets: Registry::default(),
+            shortcuts: [None, None],
             remote,
             listing_error: None,
             picker,
@@ -207,45 +205,35 @@ impl ProjectPicker {
         project_picker
     }
 
-    pub(crate) fn opens_terminal(&self) -> bool {
-        self.terminals.is_some()
-    }
-
-    pub(crate) fn set_terminal_targets(
-        &mut self,
-        targets: Registry<TerminalTarget>,
-        keymap: &Keymap,
-        cx: &mut Context<Self>,
-    ) {
-        self.terminals = Some(targets);
-        self.terminal_shortcuts = [
+    fn set_shortcuts(&mut self, keymap: &Keymap) {
+        self.shortcuts = [
             ShortcutId::PopoverConfirm,
             ShortcutId::PopoverSecondaryConfirm,
         ]
-        .map(|id| terminal_shortcut(keymap, id));
-        self.picker.update(cx, |picker, cx| {
-            picker.set_placeholder(tr!("Search projects, folders or enter a path…"), cx);
-        });
-        self.reload(cx);
+        .map(|id| confirmation_shortcut(keymap, id));
     }
 
-    fn sync_terminal_targets(&self, cx: &mut Context<Self>) -> bool {
+    fn sync_targets(&mut self, cx: &mut Context<Self>) -> bool {
         if self.session.input_mode() != InputMode::FolderSearch {
             return false;
         }
-        let Some(targets) = &self.terminals else {
-            return false;
-        };
-        let items = targets.items(self.session.search_query());
+        let items = self.targets.items(self.session.search_query());
         if items.is_empty() {
             return false;
         }
+        self.session.apply_search_snapshot(Snapshot::default());
         self.picker.update(cx, |picker, cx| {
             picker.set_items(items, cx);
             picker.set_status(PickerStatus::Ready, cx);
             picker.set_can_navigate_back(false, cx);
             picker.set_footer_actions(
-                self.terminal_footer_actions(true, picker.selected_row_id().is_none()),
+                self.footer_actions(
+                    picker
+                        .selected_row_id()
+                        .and_then(|id| self.targets.action(id))
+                        .copied(),
+                    picker.selected_row_id().is_none(),
+                ),
                 cx,
             );
             picker
@@ -258,7 +246,7 @@ impl ProjectPicker {
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.listing_error = None;
         self.generation = self.generation.wrapping_add(1);
-        if self.sync_terminal_targets(cx) {
+        if self.sync_targets(cx) {
             return;
         }
         let generation = self.generation;
@@ -450,7 +438,7 @@ impl ProjectPicker {
             LoadState::Loaded => PickerStatus::Ready,
         };
         let ghost = self.session.ghost_text();
-        let actions = self.footer_actions();
+        let actions = self.footer_actions(None, self.session.confirmation_path().is_none());
         self.picker.update(cx, |picker, cx| {
             picker.set_items(items, cx);
             picker.set_status(status, cx);
@@ -469,63 +457,49 @@ impl ProjectPicker {
         });
     }
 
-    /// Another computer has no Finder or search location.
-    fn footer_actions(&self) -> Vec<PickerAction> {
-        if self.opens_terminal() {
-            return self.terminal_footer_actions(false, self.session.confirmation_path().is_none());
-        }
-        let title = if self
-            .session
-            .confirmation_path()
-            .is_some_and(|path| self.missing_remote_folder(&path).is_some())
-        {
-            tr_key!("Create & Add Project")
-        } else {
-            self.session.top_right_action_title()
+    fn footer_actions(&self, target: Option<Target>, disabled: bool) -> Vec<PickerAction> {
+        let title = match target {
+            Some(Target::Project(_)) => tr_key!("Open Project"),
+            Some(Target::Server(_)) => tr_key!("Browse Folders…"),
+            None if self
+                .session
+                .confirmation_path()
+                .is_some_and(|path| self.missing_remote_folder(&path).is_some()) =>
+            {
+                tr_key!("Create & Add Project")
+            }
+            None => self.session.top_right_action_title(),
         };
-        let mut actions = vec![
-            PickerAction::new("confirm-path", muxy_ui::l10n::translate(title))
-                .icon(PickerLeading::Icon(Icon::Plus))
-                .disabled(self.session.confirmation_path().is_none()),
-        ];
-        if self.remote.is_none() {
-            actions.push(PickerAction::new("finder", crate::opener::browse_label()));
-            actions.push(PickerAction::new("location", tr!("Search Location…")));
-        }
-        actions
-    }
-
-    fn terminal_footer_actions(&self, saved: bool, disabled: bool) -> Vec<PickerAction> {
-        [
-            PickerAction::new(
-                "open-terminal",
-                if saved {
-                    tr!("Open Terminal")
-                } else {
-                    tr!("Terminal in Home")
-                },
-            ),
-            PickerAction::new("confirm-path", tr!("Add Project & Open")),
+        let mut actions: Vec<_> = [
+            PickerAction::new("confirm-path", muxy_ui::l10n::translate(title)),
+            PickerAction::new("open-terminal", tr!("Terminal in Home")),
         ]
         .into_iter()
-        .take(if saved { 1 } else { 2 })
-        .zip(&self.terminal_shortcuts)
+        .zip(&self.shortcuts)
         .map(|(mut action, shortcut)| {
             if let Some(shortcut) = shortcut {
                 action.label = format!("{} ({shortcut})", action.label).into();
             }
             action.disabled(disabled)
         })
-        .collect()
+        .collect();
+        if self.remote.is_none() {
+            actions.push(
+                PickerAction::new("finder", crate::opener::browse_label()).icon_only(Icon::Folder),
+            );
+            actions.push(
+                PickerAction::new("location", tr!("Search Location…")).icon_only(Icon::Search),
+            );
+        }
+        actions
     }
 
     fn activate(&mut self, id: &str, cx: &mut Context<Self>) {
-        if let Some(target) = self
-            .terminals
-            .as_ref()
-            .and_then(|targets| targets.action(id))
-        {
-            cx.emit(PickerEvent::OpenTerminal(*target));
+        if let Some(target) = self.targets.action(id) {
+            cx.emit(PickerEvent::ConfirmTarget {
+                target: *target,
+                home_terminal: false,
+            });
             return;
         }
         let index = id
@@ -548,6 +522,12 @@ impl ProjectPicker {
     }
 
     fn select(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(target) = self.targets.action(id).copied() {
+            let actions = self.footer_actions(Some(target), false);
+            self.picker
+                .update(cx, |picker, cx| picker.set_footer_actions(actions, cx));
+            return;
+        }
         let Some(index) = id
             .split_once('-')
             .and_then(|(_, index)| index.parse::<usize>().ok())
@@ -579,30 +559,30 @@ impl ProjectPicker {
         self.apply_input(cx);
     }
 
-    fn confirm(&self, allow_create: bool, cx: &mut Context<Self>) {
+    fn confirm(&self, home_terminal: bool, cx: &mut Context<Self>) {
         if let Some(target) = self
-            .terminals
-            .as_ref()
-            .and_then(|targets| targets.action(self.picker.read(cx).selected_row_id()?))
+            .picker
+            .read(cx)
+            .selected_row_id()
+            .and_then(|id| self.targets.action(id))
         {
-            cx.emit(PickerEvent::OpenTerminal(*target));
+            cx.emit(PickerEvent::ConfirmTarget {
+                target: *target,
+                home_terminal,
+            });
             return;
         }
         let Some(path) = self.session.confirmation_path() else {
             return;
         };
-        if self.opens_terminal() && !allow_create {
-            cx.emit(PickerEvent::OpenHomeTerminal { path });
-            return;
-        }
-        let create_if_missing = allow_create
-            && !self.opens_terminal()
+        let create_if_missing = !home_terminal
             && self.session.input_mode() == InputMode::Path
             && (self.remote.is_some()
                 || self.session.typed_path_state() == TypedPathState::Missing);
         cx.emit(PickerEvent::Confirm {
             path,
             create_if_missing,
+            home_terminal,
         });
     }
 
@@ -673,6 +653,13 @@ impl AppModel {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
+        if self.close_prompt.is_some() {
+            return;
+        }
+        if matches!(self.overlay, Some(Overlay::Projects(_))) {
+            self.dismiss_overlay(cx);
+            return;
+        }
         let root = self
             .settings
             .projects
@@ -682,6 +669,7 @@ impl AppModel {
             .to_string_lossy()
             .into_owned();
         let paths = self.project_paths(ServerId::local());
+        let targets = targets::registry(self);
         let picker = cx.new(|cx| {
             ProjectPicker::new(
                 self.picker_search.clone(),
@@ -691,6 +679,12 @@ impl AppModel {
                 self.metrics,
                 cx,
             )
+        });
+        picker.update(cx, |picker, cx| {
+            picker.targets = targets;
+            picker.picker.update(cx, |picker, cx| {
+                picker.set_placeholder(tr!("Search projects, folders or enter a path…"), cx);
+            });
         });
         picker.focus_handle(cx).focus(window);
         self.show_project_picker(ServerId::local(), picker, cx);
@@ -750,43 +744,48 @@ impl AppModel {
         picker: Entity<ProjectPicker>,
         cx: &mut Context<Self>,
     ) {
+        picker.update(cx, |picker, cx| {
+            picker.set_shortcuts(&self.settings.keymap);
+            picker.reload(cx);
+        });
         self.focus_later(picker.focus_handle(cx), cx);
         self.overlay_subscription =
             Some(
                 cx.subscribe(&picker, move |model, picker, event, cx| match event {
-                    PickerEvent::OpenTerminal(target) => {
-                        model.dismiss_overlay(cx);
-                        match target {
-                            TerminalTarget::Project(project) => model.new_tab_in(*project, cx),
-                            TerminalTarget::Server(server) => {
-                                model.new_remote_home_tab(*server, cx);
-                            }
-                        }
-                    }
-                    PickerEvent::OpenHomeTerminal { path } => {
-                        model.open_home_terminal(path, cx);
+                    PickerEvent::ConfirmTarget {
+                        target,
+                        home_terminal,
+                    } => {
+                        model.confirm_project_target(*target, *home_terminal, cx);
                     }
                     PickerEvent::Confirm {
                         path,
                         create_if_missing,
+                        home_terminal,
                     } if !server.is_local() => {
                         model.confirm_remote_project_path(
                             server,
                             picker,
                             path,
                             *create_if_missing,
+                            *home_terminal,
                             cx,
                         );
                     }
                     PickerEvent::Confirm {
                         path,
-                        create_if_missing,
-                    } => model.confirm_project_path(
+                        home_terminal: true,
+                        ..
+                    } => {
+                        model.open_home_terminal(ServerId::local(), path, cx);
+                    }
+                    PickerEvent::Confirm {
                         path,
-                        *create_if_missing,
-                        picker.read(cx).opens_terminal(),
-                        cx,
-                    ),
+                        create_if_missing,
+                        ..
+                    } => {
+                        model.confirm_project_path(path, *create_if_missing, cx);
+                    }
                     PickerEvent::ChooseFinder { directory } => {
                         model.choose_project_folder(directory.clone(), false, cx);
                     }
@@ -800,12 +799,50 @@ impl AppModel {
         cx.notify();
     }
 
+    fn confirm_project_target(
+        &mut self,
+        target: Target,
+        home_terminal: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.close_prompt.is_some() {
+            return;
+        }
+        match target {
+            Target::Project(id) if home_terminal => {
+                let Some(project) = self.state.project(id) else {
+                    return;
+                };
+                if project.status() == ProjectStatus::Missing {
+                    self.project_picker_error(
+                        tr!("Choose an existing folder for the terminal.").to_string(),
+                        cx,
+                    );
+                    return;
+                }
+                let server = project.server_id;
+                let path = project.directory.to_string_lossy().into_owned();
+                self.open_home_terminal(server, &path, cx);
+            }
+            Target::Project(id) => self.show_project(id, cx),
+            Target::Server(server) => {
+                self.dismiss_overlay(cx);
+                if home_terminal {
+                    self.new_remote_home_tab(server, cx);
+                } else {
+                    self.open_remote_project_picker(server, cx);
+                }
+            }
+        }
+    }
+
     fn confirm_remote_project_path(
         &mut self,
         server: ServerId,
         picker: Entity<ProjectPicker>,
         path: &str,
         allow_create: bool,
+        home_terminal: bool,
         cx: &mut Context<Self>,
     ) {
         if self.close_prompt.is_some() {
@@ -835,7 +872,11 @@ impl AppModel {
                     })
                     .unwrap_or(false)
             };
-            if current(cx) && allow_create && result == Ok(Some(TypedPathState::Missing)) {
+            if current(cx)
+                && allow_create
+                && !home_terminal
+                && result == Ok(Some(TypedPathState::Missing))
+            {
                 let message = tr!(
                     "Muxy will create \"%@\" on %@ and add it as a project.",
                     &path,
@@ -863,8 +904,19 @@ impl AppModel {
                     return;
                 }
                 match result {
+                    Ok(Some(TypedPathState::Directory)) if home_terminal => {
+                        model.open_home_terminal(server, &path, cx);
+                    }
                     Ok(Some(TypedPathState::Directory)) => {
                         model.open_remote_project_path(server, &path, cx);
+                    }
+                    Ok(Some(TypedPathState::Missing | TypedPathState::NotDirectory))
+                        if home_terminal =>
+                    {
+                        model.project_picker_error(
+                            tr!("Choose an existing folder for the terminal.").to_string(),
+                            cx,
+                        );
                     }
                     Ok(Some(TypedPathState::Missing)) => model.project_picker_error(
                         tr!("Choose an existing folder, or use Create & Add Project.").to_string(),
@@ -909,7 +961,7 @@ impl AppModel {
             self.select_project(id, cx);
             self.dismiss_overlay(cx);
         } else if self
-            .add_project_on(server, PathBuf::from(path), cx)
+            .add_project_on(server, PathBuf::from(path), true, cx)
             .is_some()
         {
             self.dismiss_overlay(cx);
@@ -918,19 +970,19 @@ impl AppModel {
         }
     }
 
-    fn open_home_terminal(&mut self, path: &str, cx: &mut Context<Self>) {
+    fn open_home_terminal(&mut self, server: ServerId, path: &str, cx: &mut Context<Self>) {
         if self.close_prompt.is_some() {
             return;
         }
         let path = PathBuf::from(path_service::standardize(path));
-        if !path.is_dir() {
+        if server.is_local() && !path.is_dir() {
             self.project_picker_error(
                 tr!("Choose an existing folder for the terminal.").to_string(),
                 cx,
             );
             return;
         }
-        if self.new_home_tab_at(&path, cx) {
+        if self.new_home_tab_at(server, &path, cx) {
             self.dismiss_overlay(cx);
         } else if let Some(error) = self.error.clone() {
             self.project_picker_error(error, cx);
@@ -941,7 +993,6 @@ impl AppModel {
         &mut self,
         path: &str,
         create_if_missing: bool,
-        open_terminal: bool,
         cx: &mut Context<Self>,
     ) {
         if self.close_prompt.is_some() {
@@ -966,7 +1017,7 @@ impl AppModel {
                     let _ = model.update(cx, |model, cx| {
                         model.finish_confirmation(cx);
                         match result {
-                            Ok(()) => model.open_project_path(path, open_terminal, cx),
+                            Ok(()) => model.open_project_path(path, true, cx),
                             Err(error) => model.project_picker_error(
                                 tr!("Could not create folder: %@", error.to_string()).to_string(),
                                 cx,
@@ -984,7 +1035,7 @@ impl AppModel {
                 }
             }));
         } else {
-            self.open_project_path(path, open_terminal, cx);
+            self.open_project_path(path, true, cx);
         }
     }
 
@@ -1041,13 +1092,9 @@ impl AppModel {
         }
     }
 
-    fn open_project_path(&mut self, path: PathBuf, open_terminal: bool, cx: &mut Context<Self>) {
+    fn open_project_path(&mut self, path: PathBuf, initial_terminal: bool, cx: &mut Context<Self>) {
         if !path.is_dir() {
-            let message = if open_terminal {
-                tr!("Choose an existing folder for the terminal.")
-            } else {
-                tr!("Choose an existing folder, or use Create & Add Project.")
-            };
+            let message = tr!("Choose an existing folder, or use Create & Add Project.");
             self.project_picker_error(message.to_string(), cx);
             return;
         }
@@ -1061,20 +1108,15 @@ impl AppModel {
                         == path.to_string_lossy()
             })
             .map(|project| project.id);
-        let project = if let Some(id) = existing {
+        if let Some(id) = existing {
             self.show_project(id, cx);
-            Some(id)
-        } else if let Some(id) = self.add_project(path, cx) {
+        } else if self
+            .add_project_on(ServerId::local(), path, initial_terminal, cx)
+            .is_some()
+        {
             self.dismiss_overlay(cx);
-            Some(id)
-        } else {
-            if let Some(error) = self.error.clone() {
-                self.project_picker_error(error, cx);
-            }
-            None
-        };
-        if open_terminal && let Some(project) = project {
-            self.new_tab_in(project, cx);
+        } else if let Some(error) = self.error.clone() {
+            self.project_picker_error(error, cx);
         }
     }
 
@@ -1114,7 +1156,7 @@ impl AppModel {
                 model.finish_confirmation(cx);
                 match response {
                     Ok(Some(path)) if search_location => model.save_project_search_root(path, cx),
-                    Ok(Some(path)) => model.open_project_path(path, false, cx),
+                    Ok(Some(path)) => model.open_project_path(path, true, cx),
                     Ok(None) => {}
                     Err(error) => model.fail(error, cx),
                 }
@@ -1124,7 +1166,7 @@ impl AppModel {
     }
 }
 
-fn terminal_shortcut(keymap: &Keymap, id: ShortcutId) -> Option<String> {
+fn confirmation_shortcut(keymap: &Keymap, id: ShortcutId) -> Option<String> {
     let keys = keymap.keys(id.name(), Some("Picker"));
     let preferred = if cfg!(target_os = "macos") {
         "cmd-enter"
@@ -1278,7 +1320,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terminal_shortcut_hints_follow_active_aliases_and_overrides() {
+    fn confirmation_shortcut_hints_follow_active_aliases_and_overrides() {
         let keymap = Keymap::default();
         let secondary = ShortcutId::PopoverSecondaryConfirm;
         let preferred = if cfg!(target_os = "macos") {
@@ -1287,7 +1329,10 @@ mod tests {
             "ctrl-shift-enter"
         };
         let displayed = |key| Some(gpui::Keystroke::parse(key).expect("keystroke").to_string());
-        assert_eq!(terminal_shortcut(&keymap, secondary), displayed(preferred));
+        assert_eq!(
+            confirmation_shortcut(&keymap, secondary),
+            displayed(preferred)
+        );
         let remapped = keymap
             .with_binding(
                 secondary.name(),
@@ -1295,7 +1340,7 @@ mod tests {
             )
             .expect("remapped secondary confirmation");
         assert_eq!(
-            terminal_shortcut(&remapped, secondary),
+            confirmation_shortcut(&remapped, secondary),
             displayed("ctrl-alt-enter")
         );
         let claimed = keymap
@@ -1305,11 +1350,11 @@ mod tests {
             )
             .expect("reassigned alias");
         assert_eq!(
-            terminal_shortcut(&claimed, secondary),
+            confirmation_shortcut(&claimed, secondary),
             displayed("alt-enter")
         );
         assert_eq!(
-            terminal_shortcut(&claimed, ShortcutId::PopoverConfirm),
+            confirmation_shortcut(&claimed, ShortcutId::PopoverConfirm),
             displayed(preferred)
         );
     }

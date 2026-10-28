@@ -27,10 +27,17 @@ tab, which lists every server by group and connects, disconnects, regroups,
 or removes several at once. Disconnecting leaves a server's terminals running
 there.
 
-**New Tab in Project…** (⌘⇧N) lists local and remote projects. Picking one
-opens a tab there and switches workspace if needed; a remote server opens in
-its Home, connecting first if needed. Clicking a server in the Remote popover
-offers **New Tab** too.
+**Add Project** (the **+** beside **Remote**) offers **Local** (⌘O) and
+**Remote**. ⌘O lists saved local and remote projects and servers, searches
+folders when no project matches, and completes typed paths with Tab. Enter
+adds a project with its first terminal, or selects an existing project without
+opening another terminal; ⌘Enter opens a terminal at that folder in its
+computer's Home project without adding a project. Missing folders require an
+explicit creation confirmation when adding a project and cannot open a
+terminal. The local picker also offers Finder browsing and a search location.
+Selecting a server browses its folders; ⌘Enter opens a terminal in its Home,
+connecting first if needed. Clicking a server in the Remote popover offers
+**New Tab** too.
 
 Files and images dropped or pasted on a remote terminal, or sent from the
 composer, are copied to that computer and its path is pasted. Clicking a file

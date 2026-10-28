@@ -152,9 +152,6 @@ pub(super) fn contents(
     for project in model.sidebar_projects() {
         rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
     }
-    if !model.appearance.sidebar_focus {
-        rows = rows.child(add_project_button(model, cx));
-    }
     div()
         .debug_selector(|| "tab-sidebar".into())
         .flex()
@@ -175,46 +172,6 @@ pub(super) fn contents(
             tab_strip::drag::Source::Sidebar,
             cx,
         ))
-        .into_any_element()
-}
-
-fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
-    let theme = &model.theme;
-    div()
-        .id("add-project")
-        .debug_selector(|| "tab-add-project".into())
-        .mx(m.spacing3())
-        .my(m.spacing1())
-        .px(m.spacing3())
-        .h(m.control_large())
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(m.spacing3())
-        .rounded(m.radius_lg())
-        .cursor_pointer()
-        .text_size(m.font_headline())
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.fg_muted)
-        .hover(|style| style.bg(theme.hover).text_color(theme.fg))
-        .on_click(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-            model.choose_project_source(event.position(), window, cx);
-        }))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .size(m.control_small())
-                .child(IconGlyph::new(
-                    Icon::Plus,
-                    m.font_headline(),
-                    theme.fg_muted,
-                )),
-        )
-        .child(tr!("Add Project"))
         .into_any_element()
 }
 

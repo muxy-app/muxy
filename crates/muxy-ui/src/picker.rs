@@ -1,8 +1,8 @@
 use muxy_core::shortcuts::ShortcutId;
 
-use crate::components::IconGlyph;
 #[cfg(target_os = "macos")]
 use crate::components::SymbolGlyph;
+use crate::components::{IconGlyph, Tooltip};
 use crate::controls::{self, Style};
 use crate::icon::Icon;
 use crate::popover;
@@ -59,6 +59,12 @@ pub enum PickerPresentation {
     Modal,
     Popover,
     Embedded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PickerFooterStyle {
+    Standard,
+    Compact,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -332,6 +338,7 @@ pub struct PickerAction {
     pub id: SharedString,
     pub label: SharedString,
     pub icon: Option<PickerLeading>,
+    pub icon_only: bool,
     pub destructive: bool,
     pub disabled: bool,
 }
@@ -342,6 +349,7 @@ impl PickerAction {
             id: id.into(),
             label: label.into(),
             icon: None,
+            icon_only: false,
             destructive: false,
             disabled: false,
         }
@@ -349,6 +357,12 @@ impl PickerAction {
 
     pub fn icon(mut self, icon: PickerLeading) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    pub fn icon_only(mut self, icon: Icon) -> Self {
+        self.icon = Some(PickerLeading::Icon(icon));
+        self.icon_only = true;
         self
     }
 
@@ -707,6 +721,7 @@ pub struct PickerConfig {
     pub tabs: Vec<PickerTab>,
     pub placeholder: SharedString,
     pub footer_actions: Vec<PickerAction>,
+    pub footer_style: PickerFooterStyle,
     pub width: Option<f32>,
     pub compact: bool,
     pub completion_on_tab: bool,
@@ -721,6 +736,7 @@ impl PickerConfig {
             tabs: vec![PickerTab::new("items", tr!("Items"))],
             placeholder: placeholder.into(),
             footer_actions: Vec::new(),
+            footer_style: PickerFooterStyle::Standard,
             width: None,
             compact: false,
             completion_on_tab: false,
@@ -1120,20 +1136,20 @@ impl Picker {
         }
     }
 
-    fn fitted_height(&self, layout: PickerLayout) -> f32 {
+    fn fitted_height(&self, mut layout: PickerLayout) -> f32 {
+        if self.config.footer_style == PickerFooterStyle::Compact {
+            layout.footer_height = 29.0;
+        }
+        let has_footer = !self.config.footer_actions.is_empty();
         let logical_height = content_height(
             layout,
             self.config.tabs.len(),
             self.state.items(),
             self.state.status(),
             self.detail.as_ref().map(|(_, lines)| lines.len()),
-            !self.config.footer_actions.is_empty(),
+            has_footer,
         );
-        let borders = if self.config.footer_actions.is_empty() {
-            2.0
-        } else {
-            3.0
-        };
+        let borders = 2.0 + f32::from(has_footer);
         f32::from(self.metrics.scaled(logical_height - borders)) + borders
     }
 
@@ -1721,7 +1737,7 @@ impl Picker {
         if self.config.footer_actions.is_empty() {
             return None;
         }
-        let mut footer = if self.config.presentation == PickerPresentation::Popover {
+        let footer = if self.config.presentation == PickerPresentation::Popover {
             popover::footer(&self.theme, self.metrics)
         } else {
             div()
@@ -1734,38 +1750,81 @@ impl Picker {
                 .border_t_1()
                 .border_color(self.theme.border)
         };
-        for action in self.config.footer_actions.clone() {
-            let action_id = action.id.clone();
-            let id = format!("picker-footer-{}", action.id);
-            let button = controls::button(
-                Style {
-                    theme: &self.theme,
-                    metrics: &self.metrics,
-                },
-                &id,
-                &action.label,
-                !action.disabled,
-                cx.listener(move |_, _, _, cx| {
-                    cx.emit(PickerEvent::FooterAction(action_id.clone()));
-                }),
-            )
-            .debug_selector(move || id.clone())
-            .gap(self.metrics.spacing2())
-            .text_color(if action.destructive {
-                self.theme.danger
-            } else {
-                self.theme.fg
-            })
-            .when_some(action.icon, |element, icon| {
-                element.child(Self::render_leading(
-                    &icon,
-                    self.theme.fg_muted,
-                    self.metrics,
-                ))
-            });
-            footer = footer.child(button);
-        }
-        Some(footer.into_any_element())
+        Some(
+            footer
+                .debug_selector(|| "picker-footer".into())
+                .when(
+                    self.config.footer_style == PickerFooterStyle::Compact,
+                    |footer| footer.p(self.metrics.spacing2()),
+                )
+                .children(
+                    self.config
+                        .footer_actions
+                        .iter()
+                        .map(|action| self.render_footer_action(action, cx)),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn render_footer_action(&self, action: &PickerAction, cx: &mut Context<Self>) -> AnyElement {
+        let action_id = action.id.clone();
+        let id = format!("picker-footer-{}", action.id);
+        controls::button(
+            Style {
+                theme: &self.theme,
+                metrics: &self.metrics,
+            },
+            &id,
+            if action.icon_only { "" } else { &action.label },
+            !action.disabled,
+            cx.listener(move |_, _, _, cx| {
+                cx.emit(PickerEvent::FooterAction(action_id.clone()));
+            }),
+        )
+        .debug_selector(move || id.clone())
+        .gap(self.metrics.spacing2())
+        .text_color(if action.destructive {
+            self.theme.danger
+        } else {
+            self.theme.fg
+        })
+        .when(
+            self.config.footer_style == PickerFooterStyle::Compact,
+            |button| {
+                button
+                    .h(self.metrics.control_small())
+                    .px(self.metrics.spacing3())
+            },
+        )
+        .when_some(action.icon.clone(), |element, icon| {
+            element.child(Self::render_leading(
+                &icon,
+                self.theme.fg_muted,
+                self.metrics,
+            ))
+        })
+        .when(action.icon_only, |button| {
+            let label = action.label.clone();
+            let theme = self.theme.clone();
+            button
+                .w(self.metrics.control_small())
+                .px_0()
+                .gap_0()
+                .tooltip(move |_, cx| {
+                    cx.new(|_| {
+                        Tooltip::new(
+                            label.clone(),
+                            theme.raised(),
+                            theme.fg,
+                            theme.border,
+                            theme.bg,
+                        )
+                    })
+                    .into()
+                })
+        })
+        .into_any_element()
     }
 
     #[allow(
@@ -2262,6 +2321,7 @@ mod gpui_regression_tests {
                         ],
                         placeholder: "Search".into(),
                         footer_actions: Vec::new(),
+                        footer_style: PickerFooterStyle::Standard,
 
                         width: None,
                         compact: false,
@@ -2286,6 +2346,37 @@ mod gpui_regression_tests {
         cx.update(|window, cx| window.focus(&popover.read(cx).input.focus_handle(cx)));
         cx.run_until_parked();
         (host, cx)
+    }
+
+    #[gpui::test]
+    fn icon_footer_actions_remain_independently_clickable(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, PickerPresentation::Modal, true);
+        let popover = host.read_with(cx, |host, _| host.popover.clone());
+        popover.update(cx, |popover, cx| {
+            popover.config.footer_style = PickerFooterStyle::Compact;
+            popover.set_footer_actions(
+                vec![
+                    PickerAction::new("finder", "Finder…").icon_only(Icon::Folder),
+                    PickerAction::new("location", "Search Location…").icon_only(Icon::Search),
+                ],
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        for id in ["picker-footer-finder", "picker-footer-location"] {
+            let bounds = cx.debug_bounds(id).expect("icon button");
+            cx.simulate_click(bounds.center(), gpui::Modifiers::none());
+            cx.run_until_parked();
+        }
+        host.read_with(cx, |host, _| {
+            assert_eq!(
+                host.events,
+                [
+                    PickerEvent::FooterAction("finder".into()),
+                    PickerEvent::FooterAction("location".into()),
+                ]
+            );
+        });
     }
 
     #[gpui::test]

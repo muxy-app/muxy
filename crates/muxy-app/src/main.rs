@@ -34,7 +34,6 @@ mod views {
     pub(crate) mod git;
     pub(crate) mod menu;
     pub(crate) mod native_modal;
-    pub(crate) mod new_tab;
     pub(crate) mod overlays;
     pub(crate) mod project_editor;
     pub(crate) mod project_layouts;
@@ -95,9 +94,9 @@ use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
     FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
-    NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject, NextPrompt,
-    NextTab, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput,
-    SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions,
+    NewBrowserTab, NewHomeTab, NewTab, NewWorktree, NextProject, NextPrompt, NextTab, OpenSettings,
+    PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput, SelectProject,
+    SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions,
     ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
     ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
 };
@@ -383,7 +382,6 @@ fn menus() -> Vec<Menu> {
                 MenuItem::action(tr!("New Tab"), NewTab),
                 MenuItem::action(tr!("New Browser Tab"), NewBrowserTab),
                 MenuItem::action(tr!("New Home Tab"), NewHomeTab),
-                MenuItem::action(tr!("New Tab in Project…"), NewTabInProject),
                 MenuItem::action(tr!("New Worktree…"), NewWorktree),
                 MenuItem::action(tr!("Switch Worktree…"), SwitchWorktree),
                 MenuItem::action(tr!("Open Project…"), AddProject),

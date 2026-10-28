@@ -844,7 +844,7 @@ impl AppModel {
         directory: PathBuf,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
-        self.add_project_on(ServerId::local(), directory, cx)
+        self.add_project_on(ServerId::local(), directory, false, cx)
     }
 
     /// Adds `directory` on `server` as a project; another computer's must be
@@ -853,12 +853,17 @@ impl AppModel {
         &mut self,
         server: ServerId,
         directory: PathBuf,
+        initial_terminal: bool,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
         let mut added = None;
         if !self.edit_project(
             |state| {
-                added = Some(state.add_project(server, directory)?);
+                let project = state.add_project(server, directory)?;
+                if initial_terminal {
+                    state.open_terminal_tab(project)?;
+                }
+                added = Some(project);
                 Ok(())
             },
             cx,
@@ -867,6 +872,9 @@ impl AppModel {
         }
         let project = added?;
         self.hide_new_project_worktrees(project, cx);
+        if initial_terminal && self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
+        }
         Some(project)
     }
 
@@ -1027,12 +1035,19 @@ impl AppModel {
 
     pub(crate) fn new_home_tab_at(
         &mut self,
+        server: ServerId,
         directory: &std::path::Path,
         cx: &mut Context<Self>,
     ) -> bool {
         if !self.edit_tab(
             |state| {
-                state.open_terminal_tab(state.home().id)?;
+                let home = state
+                    .server_home(server)
+                    .ok_or_else(|| {
+                        muxy_app_core::AppError::InvalidState("server has no Home project".into())
+                    })?
+                    .id;
+                state.open_terminal_tab(home)?;
                 let pane = state.window().active_pane.ok_or_else(|| {
                     muxy_app_core::AppError::InvalidState("terminal has no active pane".into())
                 })?;
@@ -1045,7 +1060,6 @@ impl AppModel {
         }
         self.changed(cx);
         self.focus_requested = true;
-        let server = ServerId::local();
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
         }

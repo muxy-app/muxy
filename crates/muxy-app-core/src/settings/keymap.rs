@@ -27,10 +27,9 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 65] = [
+    pub const ACTIONS: [ShortcutId; 64] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
-        ShortcutId::NewTabInProject,
         ShortcutId::NewWorktree,
         ShortcutId::SwitchWorktree,
         ShortcutId::ToggleSidebar,
@@ -267,7 +266,8 @@ impl<'de> Deserialize<'de> for Keymap {
 }
 
 /// Actions that no longer exist. Older settings files that bind them still load.
-const RETIRED: [&str; 4] = [
+const RETIRED: [&str; 5] = [
+    "new_tab_in_project",
     "project_colors.previous_color",
     "project_colors.next_color",
     "project_colors.choose_color",
@@ -275,10 +275,9 @@ const RETIRED: [&str; 4] = [
 ];
 
 /// Built-in defaults that give way to a key a user binding already has.
-const YIELDING: [ShortcutId; 55] = [
+const YIELDING: [ShortcutId; 54] = [
     ShortcutId::OpenSettings,
     ShortcutId::NewHomeTab,
-    ShortcutId::NewTabInProject,
     ShortcutId::NewWorktree,
     ShortcutId::SwitchWorktree,
     ShortcutId::ToggleSidebar,

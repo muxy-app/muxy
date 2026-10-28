@@ -1,15 +1,8 @@
-//! New Tab in Project: every top-level project, this computer's then other
-//! computers', or a local folder found by the project picker.
-
-use std::rc::Rc;
-
-use gpui::{Context, SharedString, Window};
+use gpui::SharedString;
 use muxy_app_core::{Project, ProjectId, ProjectStatus, ServerId};
 use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::tr;
 
-use super::command_palette::Handler;
-use super::overlays::Overlay;
 use crate::model::AppModel;
 
 #[derive(Clone, Copy)]
@@ -18,14 +11,7 @@ pub(crate) enum Target {
     Server(ServerId),
 }
 
-pub(crate) fn command() -> Command<Handler> {
-    let handler: Handler = Rc::new(AppModel::toggle_new_tab_list);
-    Command::new("new_tab_in_project", tr!("New Tab in Project…"), handler)
-        .keywords("New Tab in Project")
-}
-
-/// Local projects, then each remote server, by its name, and its projects.
-fn targets(model: &AppModel) -> Registry<Target> {
+pub(super) fn registry(model: &AppModel) -> Registry<Target> {
     let mut commands = Registry::default();
     let local = tr!("Local");
     for project in projects(model, ServerId::local()) {
@@ -55,7 +41,6 @@ fn targets(model: &AppModel) -> Registry<Target> {
     commands
 }
 
-/// `server`'s top-level projects in the sidebar's order, Home first.
 fn projects(model: &AppModel, server: ServerId) -> Vec<&Project> {
     let mut projects: Vec<_> = model
         .state
@@ -76,26 +61,4 @@ fn project_command(project: &Project, title: String, badge: &SharedString) -> Co
         .keywords(project.directory.to_string_lossy())
         .disabled(project.status() == ProjectStatus::Missing)
         .badge(badge.clone())
-}
-
-impl AppModel {
-    /// Opens New Tab in Project, or closes it when it is open.
-    pub(crate) fn toggle_new_tab_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
-            return;
-        }
-        if let Some(Overlay::Projects(picker)) = &self.overlay
-            && picker.read(cx).opens_terminal()
-        {
-            self.dismiss_overlay(cx);
-            return;
-        }
-        let targets = targets(self);
-        self.open_project_picker(window, cx);
-        if let Some(Overlay::Projects(picker)) = &self.overlay {
-            picker.update(cx, |picker, cx| {
-                picker.set_terminal_targets(targets, &self.settings.keymap, cx);
-            });
-        }
-    }
 }

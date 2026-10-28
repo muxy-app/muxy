@@ -408,11 +408,7 @@ fn command_o_opens_the_picker_and_existing_paths_select_the_project(cx: &mut Tes
     cx.simulate_input(&root.join("Alpha").to_string_lossy());
     cx.executor().advance_clock(Duration::from_millis(125));
     cx.run_until_parked();
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-enter"
-    } else {
-        "ctrl-shift-enter"
-    });
+    cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().id, project);
@@ -603,11 +599,7 @@ fn creating_a_project_folder_requires_the_explicit_create_confirmation(cx: &mut 
     cx.simulate_input(&root.join("New").to_string_lossy());
     cx.executor().advance_clock(Duration::from_millis(125));
     cx.run_until_parked();
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-enter"
-    } else {
-        "ctrl-shift-enter"
-    });
+    cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     assert!(cx.has_pending_prompt());
     assert!(!root.join("New").exists());
@@ -618,18 +610,16 @@ fn creating_a_project_folder_requires_the_explicit_create_confirmation(cx: &mut 
         view.read_with(cx, |model, _| model.state.projects().len()),
         1
     );
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-enter"
-    } else {
-        "ctrl-shift-enter"
-    });
+    cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     cx.simulate_prompt_answer("Create & Add");
     cx.run_until_parked();
     assert!(root.join("New").is_dir());
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().directory, root.join("New"));
-        assert!(model.state.current_project().tabs.is_empty());
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+        assert!(model.active_pane().is_some());
+        assert_eq!(store::load(&model.path).expect("saved state"), model.state);
         assert!(model.overlay.is_none());
     });
     std::fs::remove_dir_all(root).expect("cleanup");

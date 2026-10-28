@@ -110,7 +110,6 @@
 "Add Map" = "Add Map";
 "Add Profile" = "Add Profile";
 "Add Project" = "Add Project";
-"Add Project & Open" = "Add Project & Open";
 "Add Project…" = "Add Project…";
 "Add Prompt" = "Add Prompt";
 "Add Remote Server" = "Add Remote Server";
@@ -231,6 +230,7 @@
 "Bring history, bookmarks, or sign-ins from a browser on this computer." = "Bring history, bookmarks, or sign-ins from a browser on this computer.";
 "Broadcast to Split Panes" = "Broadcast to Split Panes";
 "Browse" = "Browse";
+"Browse Folders…" = "Browse Folders…";
 "Browse extensions" = "Browse extensions";
 "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it." = "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it.";
 "Browse extensions to add tools to Muxy, or load an unpacked extension folder." = "Browse extensions to add tools to Muxy, or load an unpacked extension folder.";
@@ -921,7 +921,6 @@
 "New Home Tab" = "New Home Tab";
 "New Tab" = "New Tab";
 "New Tab (⌘T)" = "New Tab (⌘T)";
-"New Tab in Project…" = "New Tab in Project…";
 "New Tab to the Left" = "New Tab to the Left";
 "New Tab to the Right" = "New Tab to the Right";
 "New Terminal Tab" = "New Terminal Tab";
@@ -1008,7 +1007,6 @@
 "Open Quick Terminal" = "Open Quick Terminal";
 "Open Quick Terminal settings" = "Open Quick Terminal settings";
 "Open Settings" = "Open Settings";
-"Open Terminal" = "Open Terminal";
 "Open a Copy" = "Open a Copy";
 "Open a live terminal before sending." = "Open a live terminal before sending.";
 "Open a live terminal before starting dictation." = "Open a live terminal before starting dictation.";
@@ -1724,7 +1722,6 @@
 "new browser tab" = "new browser tab";
 "new home tab" = "new home tab";
 "new tab" = "new tab";
-"new tab in project" = "new tab in project";
 "new worktree" = "new worktree";
 "next project" = "next project";
 "next prompt" = "next prompt";
