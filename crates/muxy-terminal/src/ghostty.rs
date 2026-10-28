@@ -107,6 +107,7 @@ pub struct Terminal {
 impl Terminal {
     pub fn new(size: Size, history_budget_bytes: usize) -> Result<Self, TerminalError> {
         let create = |error| TerminalError::wrap(TerminalStep::Create, error);
+        crate::graphics::install_png_decoder().map_err(create)?;
         let mut engine = Engine::new(size.cols, size.rows).map_err(create)?;
         engine
             .set_scrollback_max_bytes(Some(history_budget_bytes))
@@ -344,9 +345,7 @@ impl Terminal {
         if self.events.directory.replace(false)
             && let Ok(directory) = self.engine.pwd()
         {
-            events.push(TerminalEvent::Directory(
-                String::from_utf8_lossy(directory).into_owned(),
-            ));
+            events.push(TerminalEvent::Directory(directory.to_vec()));
         }
         if let Some(text) = self.events.clipboard_write.borrow_mut().take() {
             events.push(TerminalEvent::ClipboardWrite(text));

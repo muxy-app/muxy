@@ -93,6 +93,7 @@ impl Pending {
 #[derive(Debug)]
 enum Operation {
     Save(Pending),
+    Write(Record),
     Discard,
 }
 
@@ -345,11 +346,15 @@ impl Archive {
         snapshot: TerminalSnapshot,
         reason: Option<ExitReason>,
     ) -> io::Result<()> {
-        self.submit(
-            session,
-            Operation::Save(Pending { snapshot, reason }),
-            reason.is_some(),
-        )
+        let pending = Pending { snapshot, reason };
+        // An ending session waits for its save; converting here keeps it from
+        // queueing behind other sessions' conversions on the single writer.
+        let operation = if reason.is_some() {
+            Operation::Write(pending.record()?)
+        } else {
+            Operation::Save(pending)
+        };
+        self.submit(session, operation, reason.is_some())
     }
 
     pub(crate) fn discard(&self, session: SessionId) -> io::Result<()> {
@@ -362,6 +367,10 @@ impl Archive {
                 match operation {
                     Operation::Save(pending) => {
                         let record = pending.record()?;
+                        record.validate()?;
+                        lock(records).insert(session, record);
+                    }
+                    Operation::Write(record) => {
                         record.validate()?;
                         lock(records).insert(session, record);
                     }
@@ -512,6 +521,7 @@ fn write_jobs(directory: &Path, queue: &Queue, wake: &Receiver<()>) {
                 Operation::Save(pending) => pending
                     .record()
                     .and_then(|record| write_record(directory, session, &record)),
+                Operation::Write(record) => write_record(directory, session, &record),
                 Operation::Discard => discard_record(directory, session),
             }
             .map_err(|error| error.to_string());

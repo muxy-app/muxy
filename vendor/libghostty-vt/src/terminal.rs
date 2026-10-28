@@ -400,7 +400,8 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
     /// Clear the primary screen and scrollback without resetting modes or the VT parser.
     ///
     /// Returns true at a semantic prompt: the caller should send form feed (0x0C)
-    /// to the shell to repaint its input. Otherwise, removes rows above the cursor.
+    /// to the shell to repaint its input. Otherwise, removes rows above the cursor
+    /// and deletes every Kitty image, as Ghostty's own clear does.
     /// Does nothing on the alternate screen. Does not invoke the PTY callback.
     pub fn clear_screen(&mut self) -> bool {
         // SAFETY: The terminal is live and exclusively borrowed for this mutation.

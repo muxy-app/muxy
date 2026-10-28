@@ -21,15 +21,17 @@ pub(crate) struct Cache {
     images: BTreeMap<u32, GraphicImage>,
 }
 
-pub(crate) fn configure(engine: &mut Terminal<'_, '_>) -> Result<()> {
+/// Must run before this process makes any other libghostty call.
+pub(crate) fn install_png_decoder() -> Result<()> {
     static PNG_DECODER: OnceLock<Result<()>> = OnceLock::new();
     #[allow(unsafe_code)]
-    // SAFETY: The decoder is process-global and unsynchronized. It is installed
-    // once, while creating the first terminal, and never replaced while other
-    // terminals parse images.
-    let installed = *PNG_DECODER
-        .get_or_init(|| unsafe { graphics::set_png_decoder(Some(Box::new(PngDecoder))) });
-    installed?;
+    // SAFETY: The decoder is process-global and unsynchronized. Every libghostty
+    // call in this process goes through a terminal, and `Terminal::new` calls this
+    // first. A concurrent first call waits on the lock until the install is done.
+    *PNG_DECODER.get_or_init(|| unsafe { graphics::set_png_decoder(Some(Box::new(PngDecoder))) })
+}
+
+pub(crate) fn configure(engine: &mut Terminal<'_, '_>) -> Result<()> {
     engine.set_kitty_image_storage_limit(MAX_GRAPHICS_BYTES as u64)?;
     engine.set_kitty_image_from_file_allowed(false)?;
     engine.set_kitty_image_temp_file_dir(None)?;

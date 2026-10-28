@@ -126,11 +126,22 @@ mod tests {
         let handle = spawn_reader(Box::new(Cursor::new(input)), sender);
         let mut held = Vec::new();
         let mut unconsumed = 0;
-        while let Ok(PtyEvent::Output(output)) = receiver.recv_timeout(Duration::from_millis(200)) {
+        while unconsumed < MAX_UNCONSUMED_BYTES {
+            let Ok(PtyEvent::Output(output)) = receiver.recv_timeout(Duration::from_secs(10))
+            else {
+                panic!("the reader stopped before the budget filled");
+            };
             unconsumed += output.len();
             held.push(output);
         }
-        assert!(unconsumed >= MAX_UNCONSUMED_BYTES);
+        // Give a reader that ignored the budget time to send more.
+        thread::sleep(Duration::from_millis(200));
+        for event in receiver.try_iter() {
+            if let PtyEvent::Output(output) = event {
+                unconsumed += output.len();
+                held.push(output);
+            }
+        }
         assert!(unconsumed < MAX_UNCONSUMED_BYTES + READ_BUFFER_SIZE);
         assert!(!handle.is_finished());
 

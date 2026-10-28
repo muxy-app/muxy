@@ -1,8 +1,8 @@
 diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
-index b58655659..07ece62f9 100644
+index b58655659..37f4bded3 100644
 --- a/include/ghostty/vt/terminal.h
 +++ b/include/ghostty/vt/terminal.h
-@@ -3245,6 +3245,18 @@ GHOSTTY_API GhosttyResult ghostty_terminal_new(const GhosttyAllocator* allocator
+@@ -3245,6 +3245,19 @@ GHOSTTY_API GhosttyResult ghostty_terminal_new(const GhosttyAllocator* allocator
   */
  GHOSTTY_API void ghostty_terminal_free(GhosttyTerminal terminal);
  
@@ -11,7 +11,8 @@ index b58655659..07ece62f9 100644
 + *
 + * At a semantic prompt, clears the display and returns true so the caller can
 + * send form feed (0x0C) to the shell to repaint. Otherwise, removes rows above
-+ * the cursor and returns false. On the alternate screen or a NULL terminal,
++ * the cursor, deletes every Kitty image as Ghostty's own clear does, and
++ * returns false. On the alternate screen or a NULL terminal,
 + * does nothing and returns false. Does not write to the PTY callback.
 + *
 + * @ingroup terminal

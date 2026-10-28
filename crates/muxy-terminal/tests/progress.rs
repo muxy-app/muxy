@@ -61,6 +61,11 @@ fn malformed_unrelated_cancelled_and_oversized_strings_do_not_report_progress() 
         terminal.take_events(),
         [progress(ProgressState::Indeterminate, None)]
     );
+    terminal.feed(b"\x1b]9;4;1\x07");
+    assert_eq!(
+        terminal.take_events(),
+        [progress(ProgressState::Running, Some(0))]
+    );
     Ok(())
 }
 

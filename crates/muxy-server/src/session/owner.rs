@@ -23,7 +23,6 @@ use crate::session::{
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECKPOINT: Duration = Duration::from_secs(1);
-const CHECKPOINT_RETRY: Duration = Duration::from_millis(100);
 /// CAN ends any unfinished escape sequence or character.
 const CANCEL: &[u8] = b"\x18";
 const METADATA_POLL: Duration = Duration::from_millis(100);
@@ -885,11 +884,8 @@ impl Owner {
         }
         let result = match snapshot {
             Ok(Some(snapshot)) => self.archive.save(self.info.id, snapshot, reason),
-            Ok(None) if reason.is_none() => {
-                // Output stopped inside a sequence; save once it completes.
-                self.next_checkpoint = Some(Instant::now() + CHECKPOINT_RETRY);
-                return;
-            }
+            // Output stopped inside a sequence; the output that completes it schedules the save.
+            Ok(None) if reason.is_none() => return,
             Ok(None) => Err(io::Error::other("output ended inside a sequence")),
             Err(error) => Err(io::Error::other(error)),
         };
