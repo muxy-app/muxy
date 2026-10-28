@@ -32,6 +32,52 @@ pub struct TerminalArchive {
     pub history: Vec<Vec<Run>>,
 }
 
+/// A copy of a terminal that can move to another thread and become an archive there.
+#[derive(Debug)]
+pub struct TerminalSnapshot {
+    bytes: Vec<u8>,
+    size: Size,
+    cell: crate::CellSize,
+}
+
+impl TerminalSnapshot {
+    /// Renders the copy, so converting history never blocks the live terminal.
+    pub fn archive(&self) -> Result<TerminalArchive, TerminalError> {
+        let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
+        let mut decoder = libghostty_vt::snapshot::Decoder::new_buf(&self.bytes)
+            .map_err(failed)?
+            .ready()
+            .map_err(failed)?;
+        // Restored pages are counted uncompressed, so the live budget would drop older rows.
+        decoder
+            .terminal_mut()
+            .set_scrollback_max_bytes(None)
+            .map_err(failed)?;
+        while decoder.next().map_err(failed)?.is_some() {}
+        let engine = decoder.into_terminal();
+        let mut terminal = Terminal::wrap(
+            engine,
+            self.size,
+            Rc::default(),
+            Events::default(),
+            Rc::default(),
+        )?;
+        terminal.cell = self.cell;
+        let graphics = terminal.graphics()?;
+        let rows = terminal.screen()?;
+        let cursor = terminal.cursor()?;
+        // The primary screen keeps its history while a program uses the alternate one.
+        terminal.engine.vt_write(b"\x1b[?47l");
+        Ok(TerminalArchive {
+            graphics,
+            size: self.size,
+            rows,
+            cursor,
+            history: terminal.capture_history()?,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Terminal {
     engine: Engine<'static, 'static>,
@@ -40,14 +86,12 @@ pub struct Terminal {
     cells: CellIterator<'static>,
     pty_output: Rc<RefCell<Vec<u8>>>,
     events: Events,
-    progress: crate::progress::Progress,
+    progress: Rc<RefCell<crate::progress::Progress>>,
     row_hashes: Vec<Option<u64>>,
     links: Vec<crate::links::CachedRow>,
     text: String,
     redraw_all: bool,
     size: Size,
-    screen_switch: ScreenSwitch,
-    primary_history: Result<Vec<Vec<Run>>, String>,
     history_generation: u64,
     history_anchor: Option<(TrackedGridRef, PointCoordinate)>,
     history_screen: Screen,
@@ -115,6 +159,15 @@ impl Terminal {
             })
             .map_err(create)?;
         engine.on_bell(move |_| bell.set(true)).map_err(create)?;
+        let progress = Rc::new(RefCell::new(crate::progress::Progress::default()));
+        let reports = Rc::clone(&progress);
+        engine
+            .on_progress_report(move |_, report| {
+                if let Ok(state) = report.state() {
+                    reports.borrow_mut().report(state, report.progress());
+                }
+            })
+            .map_err(create)?;
         engine
             .on_color_scheme(|terminal| {
                 terminal
@@ -123,6 +176,17 @@ impl Terminal {
                     .map(|background| background.map_or(ColorScheme::Dark, color_scheme))
             })
             .map_err(create)?;
+        Self::wrap(engine, size, pty_output, events, progress)
+    }
+
+    fn wrap(
+        engine: Engine<'static, 'static>,
+        size: Size,
+        pty_output: Rc<RefCell<Vec<u8>>>,
+        events: Events,
+        progress: Rc<RefCell<crate::progress::Progress>>,
+    ) -> Result<Self, TerminalError> {
+        let create = |error| TerminalError::wrap(TerminalStep::Create, error);
         Ok(Self {
             engine,
             render: RenderState::new().map_err(create)?,
@@ -130,14 +194,12 @@ impl Terminal {
             cells: CellIterator::new().map_err(create)?,
             pty_output,
             events,
-            progress: crate::progress::Progress::default(),
+            progress,
             row_hashes: Vec::new(),
             links: Vec::new(),
             text: String::new(),
             redraw_all: true,
             size,
-            screen_switch: ScreenSwitch::default(),
-            primary_history: Ok(Vec::new()),
             history_generation: 0,
             history_anchor: None,
             history_screen: Screen::Primary,
@@ -244,19 +306,7 @@ impl Terminal {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
-        self.progress.feed(bytes);
-        let mut start = 0;
-        for (index, byte) in bytes.iter().copied().enumerate() {
-            if self.screen_switch.advance(byte) {
-                self.engine.vt_write(&bytes[start..index]);
-                start = index;
-                if matches!(self.engine.active_screen(), Ok(Screen::Primary)) {
-                    self.primary_history =
-                        self.capture_history().map_err(|error| error.to_string());
-                }
-            }
-        }
-        self.engine.vt_write(&bytes[start..]);
+        self.engine.vt_write(bytes);
     }
 
     /// Clear the primary screen and history; queue a shell redraw only at a semantic prompt.
@@ -272,7 +322,6 @@ impl Terminal {
         if self.engine.clear_screen() {
             self.pty_output.borrow_mut().push(0x0c);
         }
-        self.primary_history = Ok(Vec::new());
         self.history_generation = self.history_generation.wrapping_add(1);
         self.history_anchor = None;
         self.history_count = 0;
@@ -282,7 +331,7 @@ impl Terminal {
 
     pub fn take_events(&mut self) -> Vec<TerminalEvent> {
         let mut events = Vec::new();
-        if let Some(progress) = self.progress.take(std::time::Instant::now()) {
+        if let Some(progress) = self.progress.borrow_mut().take(std::time::Instant::now()) {
             events.push(progress);
         }
         if self.events.title.replace(false)
@@ -626,24 +675,27 @@ impl Terminal {
             .map_err(|error| TerminalError::wrap(TerminalStep::History, error))
     }
 
-    pub fn archive(&mut self) -> Result<TerminalArchive, TerminalError> {
-        let history = match self
-            .engine
-            .active_screen()
-            .map_err(|error| TerminalError::wrap(TerminalStep::History, error))?
-        {
-            Screen::Primary => self.capture_history()?,
-            Screen::Alternate => self.primary_history.clone().map_err(|message| {
-                TerminalError::wrap(TerminalStep::History, std::io::Error::other(message))
-            })?,
-        };
-        Ok(TerminalArchive {
-            graphics: self.graphics()?,
+    /// Returns `None` while output stops inside an escape sequence or character.
+    pub fn snapshot(&mut self) -> Result<Option<TerminalSnapshot>, TerminalError> {
+        let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
+        if !self.engine.is_vt_ground().map_err(failed)? {
+            return Ok(None);
+        }
+        let mut bytes = Vec::new();
+        self.engine.encode_snapshot(&mut bytes).map_err(failed)?;
+        Ok(Some(TerminalSnapshot {
+            bytes,
             size: self.size,
-            rows: self.screen()?,
-            cursor: self.cursor()?,
-            history,
-        })
+            cell: self.cell,
+        }))
+    }
+
+    pub fn archive(&mut self) -> Result<TerminalArchive, TerminalError> {
+        self.snapshot()?
+            .ok_or_else(|| {
+                TerminalError::wrap(TerminalStep::Snapshot, "output stops inside a sequence")
+            })?
+            .archive()
     }
 
     pub fn history_generation(&mut self) -> Result<u64, TerminalError> {
@@ -764,65 +816,6 @@ fn mouse_modifiers(modifiers: Modifiers) -> key::Mods {
     mods.set(key::Mods::ALT, modifiers.alt);
     mods.set(key::Mods::CTRL, modifiers.ctrl);
     mods
-}
-
-#[derive(Debug, Default)]
-enum ScreenSwitch {
-    #[default]
-    Ground,
-    Escape,
-    Csi,
-    Private {
-        parameter: u32,
-        alternate: bool,
-    },
-}
-
-impl ScreenSwitch {
-    fn advance(&mut self, byte: u8) -> bool {
-        if byte == 0x1b {
-            *self = Self::Escape;
-            return false;
-        }
-        if byte == 0x9b {
-            *self = Self::Csi;
-            return false;
-        }
-        if matches!(byte, 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f) {
-            return false;
-        }
-        match self {
-            Self::Escape if byte == b'[' => *self = Self::Csi,
-            Self::Csi if byte == b'?' => {
-                *self = Self::Private {
-                    parameter: 0,
-                    alternate: false,
-                };
-            }
-            Self::Private { parameter, .. } if byte.is_ascii_digit() => {
-                *parameter = parameter
-                    .saturating_mul(10)
-                    .saturating_add(u32::from(byte - b'0'));
-            }
-            Self::Private {
-                parameter,
-                alternate,
-            } if byte == b';' => {
-                *alternate |= matches!(*parameter, 47 | 1047 | 1049);
-                *parameter = 0;
-            }
-            Self::Private {
-                parameter,
-                alternate,
-            } if byte == b'h' => {
-                let switch = *alternate || matches!(*parameter, 47 | 1047 | 1049);
-                *self = Self::Ground;
-                return switch;
-            }
-            _ => *self = Self::Ground,
-        }
-        false
-    }
 }
 
 fn row_runs(

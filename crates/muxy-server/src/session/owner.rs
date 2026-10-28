@@ -23,6 +23,9 @@ use crate::session::{
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECKPOINT: Duration = Duration::from_secs(1);
+const CHECKPOINT_RETRY: Duration = Duration::from_millis(100);
+/// CAN ends any unfinished escape sequence or character.
+const CANCEL: &[u8] = b"\x18";
 const METADATA_POLL: Duration = Duration::from_millis(100);
 
 type Fault = Box<dyn Error + Send + Sync>;
@@ -874,11 +877,22 @@ impl Owner {
     fn checkpoint(&mut self, reason: Option<ExitReason>) {
         self.next_checkpoint = None;
         self.compress_pending = true;
-        let result = self
-            .terminal
-            .archive()
-            .map_err(io::Error::other)
-            .and_then(|terminal| self.archive.save(self.info.id, terminal, reason));
+        let mut snapshot = self.terminal.snapshot();
+        if reason.is_some() && matches!(snapshot, Ok(None)) {
+            // The program ended inside a sequence; cancel it so its last screen is kept.
+            self.terminal.feed(CANCEL);
+            snapshot = self.terminal.snapshot();
+        }
+        let result = match snapshot {
+            Ok(Some(snapshot)) => self.archive.save(self.info.id, snapshot, reason),
+            Ok(None) if reason.is_none() => {
+                // Output stopped inside a sequence; save once it completes.
+                self.next_checkpoint = Some(Instant::now() + CHECKPOINT_RETRY);
+                return;
+            }
+            Ok(None) => Err(io::Error::other("output ended inside a sequence")),
+            Err(error) => Err(io::Error::other(error)),
+        };
         if let Err(error) = result {
             log::error!(
                 "session {} could not save terminal content: {error}",

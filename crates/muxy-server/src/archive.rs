@@ -20,7 +20,7 @@ use muxy_protocol::{
     ErrorCode, ExitReason, HistoryCursor, HistoryPage, Message, ReplyBody, RequestId, Row, Run,
     SavedScreen, SearchPage, SessionId,
 };
-use muxy_terminal::TerminalArchive;
+use muxy_terminal::{TerminalArchive, TerminalSnapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::ServerError;
@@ -76,9 +76,23 @@ fn validate_screen(screen: &SavedScreen) -> io::Result<()> {
     .map_err(|error| io::Error::other(format!("invalid saved screen: {error:?}")))
 }
 
+/// A terminal copy waiting to become a record, off the session's thread.
+#[derive(Debug)]
+struct Pending {
+    snapshot: TerminalSnapshot,
+    reason: Option<ExitReason>,
+}
+
+impl Pending {
+    fn record(&self) -> io::Result<Record> {
+        let terminal = self.snapshot.archive().map_err(io::Error::other)?;
+        Ok(Record::new(terminal, self.reason))
+    }
+}
+
 #[derive(Debug)]
 enum Operation {
-    Save(Record),
+    Save(Pending),
     Discard,
 }
 
@@ -328,12 +342,12 @@ impl Archive {
     pub(crate) fn save(
         &self,
         session: SessionId,
-        terminal: TerminalArchive,
+        snapshot: TerminalSnapshot,
         reason: Option<ExitReason>,
     ) -> io::Result<()> {
         self.submit(
             session,
-            Operation::Save(Record::new(terminal, reason)),
+            Operation::Save(Pending { snapshot, reason }),
             reason.is_some(),
         )
     }
@@ -346,7 +360,8 @@ impl Archive {
         match self.0.as_ref() {
             Backend::Memory { records, revision } => {
                 match operation {
-                    Operation::Save(record) => {
+                    Operation::Save(pending) => {
+                        let record = pending.record()?;
                         record.validate()?;
                         lock(records).insert(session, record);
                     }
@@ -494,7 +509,9 @@ fn write_jobs(directory: &Path, queue: &Queue, wake: &Receiver<()>) {
             let job = lock(queue).pop_first();
             let Some((session, job)) = job else { break };
             let result = match job.operation {
-                Operation::Save(record) => write_record(directory, session, &record),
+                Operation::Save(pending) => pending
+                    .record()
+                    .and_then(|record| write_record(directory, session, &record)),
                 Operation::Discard => discard_record(directory, session),
             }
             .map_err(|error| error.to_string());
@@ -632,13 +649,15 @@ mod tests {
         }
     }
 
-    fn capture(marker: &str) -> Result<TerminalArchive, Box<dyn Error>> {
+    fn capture(marker: &str) -> Result<TerminalSnapshot, Box<dyn Error>> {
         let mut terminal = Terminal::new(Size { cols: 30, rows: 3 }, 1024 * 1024)?;
         for row in 0..100 {
             terminal.feed(format!("\x1b[31mhistory-{row:03}\r\n").as_bytes());
         }
         terminal.feed(marker.as_bytes());
-        Ok(terminal.archive()?)
+        Ok(terminal
+            .snapshot()?
+            .ok_or("output stops inside a sequence")?)
     }
 
     #[test]
@@ -771,7 +790,7 @@ mod tests {
             0o700
         );
         let record = StoredRecord::open(&path, 512)?;
-        assert_eq!(record.total(), capture("last")?.history.len());
+        assert_eq!(record.total(), capture("last")?.archive()?.history.len());
         assert_eq!(*record.screen(), archive.read(session)?);
         assert_eq!(record.screen().reason, Some(ExitReason::Exited(7)));
         drop(archive);
@@ -790,7 +809,7 @@ mod tests {
         let path = record_path(&directory.0, second);
         fs::write(&path, b"broken")?;
         assert!(archive.read(second).is_err());
-        let mut unsupported = Record::new(capture("unsupported")?, None);
+        let mut unsupported = Record::new(capture("unsupported")?.archive()?, None);
         unsupported.version = VERSION + 1;
         fs::write(&path, postcard::to_stdvec(&unsupported)?)?;
         assert!(archive.read(second).is_err());
@@ -857,7 +876,10 @@ mod tests {
         assert!(storage::serialized_size(&expected.history)? > budget as u64);
         let session = SessionId::from(std::num::NonZeroU64::MIN);
         let archive = Archive::open(&directory.0, budget as u64)?;
-        archive.save(session, terminal.archive()?, Some(ExitReason::Ended))?;
+        let snapshot = terminal
+            .snapshot()?
+            .ok_or("output stops inside a sequence")?;
+        archive.save(session, snapshot, Some(ExitReason::Ended))?;
         drop(archive);
         let archive = Archive::open(&directory.0, budget as u64)?;
         assert_eq!(archive.read(session)?, expected.screen);
