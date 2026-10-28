@@ -2,11 +2,18 @@ mod patch;
 
 use std::env;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
+use std::thread;
+use std::time::Duration;
 
 /// Pinned ghostty commit. Update this to pull a newer version.
 const GHOSTTY_REPO: &str = "https://github.com/ghostty-org/ghostty.git";
 const GHOSTTY_COMMIT: &str = "83fb95624b0439ee660c2679b43b38c8b63769cd";
+
+/// Ghostty's source and Zig packages come from GitHub and Ghostty's package
+/// host. Each download gets this many tries, so one dropped connection does
+/// not fail the whole Cargo build.
+const DOWNLOAD_ATTEMPTS: u64 = 3;
 
 /// File name of the static archive on Windows. Ghostty installs it under this
 /// name for every Windows ABI so it does not collide with `ghostty-vt.lib`,
@@ -256,6 +263,12 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
         build.arg(format!("-Dtarget={zig_target}"));
     }
 
+    // Zig downloads the packages a build needs while configuring it. Configure
+    // alone first, with retries, so the build itself has nothing to download.
+    let mut configure = configure_only(&build);
+    retry_download("zig build package fetch", || {
+        exit_status(&mut configure, "zig build --list-steps")
+    });
     run(build, "zig build");
 
     // The emit also installs host-native flat artifacts; replace them with the
@@ -450,12 +463,6 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
         return src_dir;
     }
 
-    // Clean and clone fresh.
-    if src_dir.exists() {
-        std::fs::remove_dir_all(&src_dir)
-            .unwrap_or_else(|e| panic!("failed to remove {}: {e}", src_dir.display()));
-    }
-
     eprintln!("Fetching ghostty {GHOSTTY_COMMIT} ...");
 
     let mut clone = Command::new("git");
@@ -469,25 +476,80 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
         .arg("--no-checkout")
         .arg(GHOSTTY_REPO)
         .arg(&src_dir);
-    run(clone, "git clone ghostty");
 
+    // The blobless clone downloads file contents during checkout.
     let mut checkout = Command::new("git");
     checkout
         .arg("checkout")
         .arg(GHOSTTY_COMMIT)
         .current_dir(&src_dir);
-    run(checkout, "git checkout ghostty commit");
+
+    retry_download("fetching ghostty", || {
+        // Clean and clone fresh: git won't clone over a failed attempt.
+        if src_dir.exists() {
+            std::fs::remove_dir_all(&src_dir)
+                .unwrap_or_else(|e| panic!("failed to remove {}: {e}", src_dir.display()));
+        }
+        let cloned = exit_status(&mut clone, "git clone ghostty");
+        if !cloned.success() {
+            return cloned;
+        }
+        exit_status(&mut checkout, "git checkout ghostty commit")
+    });
 
     std::fs::write(&stamp, GHOSTTY_COMMIT).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
 
     src_dir
 }
 
+/// A copy of a `zig build` command that stops once the build graph is
+/// configured, after Zig has fetched every package the graph needs.
+fn configure_only(build: &Command) -> Command {
+    let mut configure = Command::new(build.get_program());
+    configure
+        .args(build.get_args())
+        .arg("--list-steps")
+        .stdout(Stdio::null());
+    for (key, value) in build.get_envs() {
+        match value {
+            Some(value) => configure.env(key, value),
+            None => configure.env_remove(key),
+        };
+    }
+    if let Some(dir) = build.get_current_dir() {
+        configure.current_dir(dir);
+    }
+    configure
+}
+
+/// Run `download` until it succeeds, waiting a little longer after each
+/// failure, and panic once all `DOWNLOAD_ATTEMPTS` have failed.
+fn retry_download(context: &str, mut download: impl FnMut() -> ExitStatus) {
+    let mut attempt = 1;
+    loop {
+        let status = download();
+        if status.success() {
+            return;
+        }
+        assert!(
+            attempt < DOWNLOAD_ATTEMPTS,
+            "{context} failed with status {status} after {attempt} attempts"
+        );
+        eprintln!("{context} failed with status {status}; retrying");
+        thread::sleep(Duration::from_secs(5 * attempt));
+        attempt += 1;
+    }
+}
+
 fn run(mut command: Command, context: &str) {
-    let status = command
-        .status()
-        .unwrap_or_else(|error| panic!("failed to execute {context}: {error}"));
+    let status = exit_status(&mut command, context);
     assert!(status.success(), "{context} failed with status {status}");
+}
+
+fn exit_status(command: &mut Command, context: &str) -> ExitStatus {
+    command
+        .status()
+        .unwrap_or_else(|error| panic!("failed to execute {context}: {error}"))
 }
 
 /// Returns directories to search for the built library artifact.
