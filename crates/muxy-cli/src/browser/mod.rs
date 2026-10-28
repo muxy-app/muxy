@@ -10,7 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_app_core::browser::api::{self, CallError, Request};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use args::Output;
 pub(crate) use args::{Invocation, parse};
@@ -22,17 +22,32 @@ const APP_START_TIME: Duration = Duration::from_secs(20);
 const INVALID_REPLY: &str = "invalid reply from Muxy";
 
 pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
-    let socket = api::socket_path(&muxy_core::dirs::muxy_dir()?);
-    let timeout = reply_time()? + invocation.extra_time;
     let starts_app = invocation.verb == "browser.open";
-    let request = Request::new(invocation.verb, invocation.args);
+    let reply = call_app(
+        invocation.verb,
+        invocation.args,
+        starts_app,
+        invocation.extra_time,
+    )?;
+    print(invocation.output, reply)
+}
+
+pub(crate) fn call_app(
+    verb: &str,
+    args: Map<String, Value>,
+    starts_app: bool,
+    extra_time: Duration,
+) -> Result<Value, Box<dyn Error>> {
+    let socket = api::socket_path(&muxy_core::dirs::muxy_dir()?);
+    let timeout = reply_time()? + extra_time;
+    let request = Request::new(verb, args);
     let reply = match api::call(&socket, &request, timeout) {
         Err(CallError::NotRunning) if starts_app && start_app() => {
             call_once_listening(&socket, &request, timeout)
         }
         reply => reply,
     }?;
-    print(invocation.output, reply)
+    Ok(reply)
 }
 
 /// Starts the desktop app as `muxy <folder>` does, but never over SSH,

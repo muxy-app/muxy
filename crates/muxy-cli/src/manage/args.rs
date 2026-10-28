@@ -89,6 +89,7 @@ pub(crate) enum Session {
     },
     End(Option<SessionId>),
     Discard(Option<SessionId>),
+    Show(Option<SessionId>),
     Send {
         session: Option<SessionId>,
         text: String,
@@ -339,7 +340,7 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     }
     let arguments = match verb {
         "send" | "send-keys" | "search" => 1,
-        "end" | "discard" | "read-screen" | "history" | "wait" => 0,
+        "end" | "discard" | "show" | "read-screen" | "history" | "wait" => 0,
         _ => return Err(invalid(help::SESSION)),
     };
     // The session ID comes first and may be left out inside a Muxy terminal.
@@ -371,6 +372,7 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
             o.confirm()?;
             Ok(Session::Discard(session))
         }
+        "show" => Ok(Session::Show(session)),
         "send" => Ok(Session::Send {
             session,
             text: argument()?.into(),
@@ -662,6 +664,8 @@ mod tests {
             vec!["session", "create", "Home", "Other"],
             vec!["session", "create", "Home", "--"],
             vec!["session", "send", "1", "two", "three"],
+            vec!["session", "show", "1", "2"],
+            vec!["session", "show", "tab"],
             vec!["session", "wait", "1"],
             vec!["session", "wait", "--text", "a", "--exit"],
             vec!["session", "wait", "--exit", "--ignore-case"],
@@ -698,6 +702,14 @@ mod tests {
         assert_eq!(
             action(&["session", "end", "--yes"])?,
             Action::Session(Session::End(None))
+        );
+        assert_eq!(
+            action(&["session", "show", "5"])?,
+            Action::Session(Session::Show(id))
+        );
+        assert_eq!(
+            action(&["session", "show"])?,
+            Action::Session(Session::Show(None))
         );
         assert_eq!(
             action(&["session", "search", "5", "error"])?,

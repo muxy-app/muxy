@@ -1,9 +1,12 @@
 use super::{AppModel, ConnectionState, Work};
 use gpui::Context;
-use muxy_app_core::{AppError, ServerId};
+use muxy_app_core::browser::api;
+use muxy_app_core::browser::automation::{Args, string};
+use muxy_app_core::{AppError, PaneId, ServerId};
 use muxy_client::ClientError;
-use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation};
+use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation, SessionId};
 use muxy_ui::tr;
+use serde_json::Value;
 
 impl AppModel {
     fn created_project(&self, server: ServerId, operation: OperationId) -> Option<ProjectId> {
@@ -259,7 +262,7 @@ impl AppModel {
     pub(super) fn receive_discarded(
         &mut self,
         server: ServerId,
-        session: muxy_protocol::SessionId,
+        session: SessionId,
         result: Result<(), ClientError>,
         cx: &mut Context<Self>,
     ) {
@@ -343,6 +346,62 @@ impl AppModel {
         ) {
             return;
         }
+        let _ = self.open_session_tab(project, session.info.id, cx);
+    }
+
+    pub(crate) fn show_session(
+        &mut self,
+        args: &Args,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let server = ServerId::local();
+        let session = string(args, "session")?
+            .parse()
+            .ok()
+            .and_then(SessionId::new)
+            .ok_or("invalid session ID")?;
+        let project = string(args, "project")?;
+        let loading = !self.ready(server)
+            || self
+                .servers
+                .get(server)
+                .is_none_or(|runtime| runtime.catalog.restore.is_some() || runtime.catalog.pending);
+        if loading {
+            return Err(api::NOT_READY.into());
+        }
+        let shown = self
+            .session_pane(server, session)
+            .map(|(project, tab, pane)| (project.id, tab, pane));
+        let pane = if let Some((project, tab, pane)) = shown {
+            self.select_project(project, cx);
+            self.select_tab(tab, cx);
+            self.focus_pane(pane, cx);
+            pane
+        } else {
+            let project = self
+                .state
+                .projects()
+                .iter()
+                .find(|candidate| {
+                    candidate.server_id == server && candidate.id.to_string() == project
+                })
+                .map(|candidate| candidate.id)
+                .ok_or(api::NOT_READY)?;
+            self.open_session_tab(project, session, cx)?
+        };
+        self.dismiss_overlay(cx);
+        self.focus_requested = true;
+        cx.activate(true);
+        self.raise_window(cx);
+        Ok(pane.to_string().into())
+    }
+
+    fn open_session_tab(
+        &mut self,
+        project: ProjectId,
+        session: SessionId,
+        cx: &mut Context<Self>,
+    ) -> Result<PaneId, String> {
         let previous = self.state.clone();
         let result = self.state.open_terminal_tab(project).and_then(|_| {
             let pane = self
@@ -350,19 +409,25 @@ impl AppModel {
                 .window()
                 .active_pane
                 .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))?;
-            self.state.set_pane_session(pane, Some(session.info.id))?;
+            self.state.set_pane_session(pane, Some(session))?;
             Ok(pane)
         });
-        if let Err(error) = result {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return;
-        }
+        let pane = match result {
+            Ok(pane) => pane,
+            Err(error) => {
+                self.state = previous;
+                let message = error.to_string();
+                self.fail(message.clone(), cx);
+                return Err(message);
+            }
+        };
+        self.state.reveal_current_project();
         if !self.save(cx) {
             self.state = previous;
-            return;
+            return Err("could not save tabs".into());
         }
         self.dismiss_overlay(cx);
         self.sync_visible(cx);
+        Ok(pane)
     }
 }

@@ -2825,6 +2825,7 @@ mod tests {
     mod remote_parity;
     mod servers;
     mod session_ownership;
+    mod session_show;
     mod splits;
     mod tab_groups;
     mod tab_menu;
