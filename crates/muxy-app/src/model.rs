@@ -1025,6 +1025,33 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn new_home_tab_at(
+        &mut self,
+        directory: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.edit_tab(
+            |state| {
+                state.open_terminal_tab(state.home().id)?;
+                let pane = state.window().active_pane.ok_or_else(|| {
+                    muxy_app_core::AppError::InvalidState("terminal has no active pane".into())
+                })?;
+                state.prepare_creation(pane, directory);
+                Ok(())
+            },
+            cx,
+        ) {
+            return false;
+        }
+        self.changed(cx);
+        self.focus_requested = true;
+        let server = ServerId::local();
+        if self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
+        }
+        true
+    }
+
     pub(crate) fn select_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
         if self.active_tab() == Some(tab) {
             return;
@@ -2815,6 +2842,7 @@ mod tests {
     mod git;
     mod layout_drag;
     mod links;
+    mod new_tab;
     mod preferences;
     mod project_layouts;
     mod project_order;

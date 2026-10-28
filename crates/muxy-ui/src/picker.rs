@@ -861,6 +861,10 @@ impl Picker {
         self.state.items()
     }
 
+    pub fn selected_row_id(&self) -> Option<&str> {
+        self.state.selected_row_id()
+    }
+
     pub fn set_placeholder(&self, placeholder: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.input
             .update(cx, |input, _| input.set_placeholder(placeholder.into()));

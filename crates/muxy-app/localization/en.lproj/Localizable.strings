@@ -110,6 +110,7 @@
 "Add Map" = "Add Map";
 "Add Profile" = "Add Profile";
 "Add Project" = "Add Project";
+"Add Project & Open" = "Add Project & Open";
 "Add Project…" = "Add Project…";
 "Add Prompt" = "Add Prompt";
 "Add Remote Server" = "Add Remote Server";
@@ -286,6 +287,7 @@
 "Choose a readable multilingual GGML voice model in Settings → Composer." = "Choose a readable multilingual GGML voice model in Settings → Composer.";
 "Choose a supported dictation language in Settings → Composer." = "Choose a supported dictation language in Settings → Composer.";
 "Choose a target branch that exists on the remote" = "Choose a target branch that exists on the remote";
+"Choose an existing folder for the terminal." = "Choose an existing folder for the terminal.";
 "Choose an existing folder, or use Create & Add Project." = "Choose an existing folder, or use Create & Add Project.";
 "Choose an extension folder containing package.json or a built dist folder" = "Choose an extension folder containing package.json or a built dist folder";
 "Choose an image smaller than 20 MB." = "Choose an image smaller than 20 MB.";
@@ -1006,6 +1008,7 @@
 "Open Quick Terminal" = "Open Quick Terminal";
 "Open Quick Terminal settings" = "Open Quick Terminal settings";
 "Open Settings" = "Open Settings";
+"Open Terminal" = "Open Terminal";
 "Open a Copy" = "Open a Copy";
 "Open a live terminal before sending." = "Open a live terminal before sending.";
 "Open a live terminal before starting dictation." = "Open a live terminal before starting dictation.";
@@ -1262,6 +1265,7 @@
 "Search openers…" = "Search openers…";
 "Search options…" = "Search options…";
 "Search or enter address" = "Search or enter address";
+"Search projects, folders or enter a path…" = "Search projects, folders or enter a path…";
 "Search providers…" = "Search providers…";
 "Search servers…" = "Search servers…";
 "Search sessions…" = "Search sessions…";
@@ -1398,6 +1402,7 @@
 "Terminal" = "Terminal";
 "Terminal %lld" = "Terminal %lld";
 "Terminal connection closed before delivery was confirmed" = "Terminal connection closed before delivery was confirmed";
+"Terminal in Home" = "Terminal in Home";
 "Terminal size" = "Terminal size";
 "Terminal transparency" = "Terminal transparency";
 "Test Connection" = "Test Connection";
