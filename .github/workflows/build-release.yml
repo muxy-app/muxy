@@ -80,7 +80,7 @@ jobs:
         run: arch -x86_64 /usr/bin/true || sudo softwareupdate --install-rosetta --agree-to-license
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -234,7 +234,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
       - uses: Swatinem/rust-cache@v2
         with:
           key: desktop-release-${{ matrix.target }}

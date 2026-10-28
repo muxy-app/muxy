@@ -8,7 +8,7 @@ use libghostty_vt::render::{
 use libghostty_vt::screen::{CellContentTag, CellWide, Screen, TrackedGridRef};
 use libghostty_vt::style::{PaletteIndex, RgbColor, StyleColor, Underline as EngineUnderline};
 use libghostty_vt::terminal::{
-    ClipboardLocation, ClipboardWriteError, ColorScheme, CompressionMode, Mode, Options, Point,
+    ClipboardLocation, ClipboardWriteError, ColorScheme, CompressionMode, Mode, Point,
     PointCoordinate, PointSpace, ScrollViewport, Terminal as Engine,
 };
 use libghostty_vt::{key, mouse};
@@ -63,16 +63,13 @@ pub struct Terminal {
 impl Terminal {
     pub fn new(size: Size, history_budget_bytes: usize) -> Result<Self, TerminalError> {
         let create = |error| TerminalError::wrap(TerminalStep::Create, error);
-        let mut engine = Engine::new(Options {
-            cols: size.cols,
-            rows: size.rows,
-            max_scrollback: history_budget_bytes,
-        })
-        .map_err(create)?;
+        let mut engine = Engine::new(size.cols, size.rows).map_err(create)?;
         engine
+            .set_scrollback_max_bytes(Some(history_budget_bytes))
+            .map_err(create)?
             .set_default_cursor_blink(Some(true))
             .map_err(create)?
-            .set_default_grapheme_cluster(Some(true))
+            .set_default_mode(Mode::GRAPHEME_CLUSTER, true)
             .map_err(create)?;
         crate::graphics::configure(&mut engine).map_err(create)?;
         engine.resize(size.cols, size.rows, 8, 16).map_err(create)?;
@@ -94,23 +91,27 @@ impl Terminal {
             .map_err(create)?;
         engine
             .on_clipboard_write(move |_, write| {
-                if write.location() != ClipboardLocation::Standard {
-                    return Err(ClipboardWriteError::Unsupported);
-                }
-                let Some(content) = write
-                    .contents()
-                    .find(|content| content.mime == b"text/plain")
-                else {
-                    return Err(ClipboardWriteError::Unsupported);
-                };
-                if content.data.is_empty() || content.data.len() > muxy_protocol::MAX_CLIPBOARD_TEXT
-                {
-                    return Err(ClipboardWriteError::InvalidData);
-                }
-                let text = std::str::from_utf8(content.data)
-                    .map_err(|_| ClipboardWriteError::InvalidData)?;
-                clipboard_write.borrow_mut().replace(text.to_owned());
-                Ok(())
+                let result = (|| {
+                    if write.location() != ClipboardLocation::Standard {
+                        return Err(ClipboardWriteError::Unsupported);
+                    }
+                    let Some(content) = write
+                        .contents()
+                        .find(|content| content.mime == b"text/plain")
+                    else {
+                        return Err(ClipboardWriteError::Unsupported);
+                    };
+                    if content.data.is_empty()
+                        || content.data.len() > muxy_protocol::MAX_CLIPBOARD_TEXT
+                    {
+                        return Err(ClipboardWriteError::InvalidData);
+                    }
+                    let text = std::str::from_utf8(content.data)
+                        .map_err(|_| ClipboardWriteError::InvalidData)?;
+                    clipboard_write.borrow_mut().replace(text.to_owned());
+                    Ok(())
+                })();
+                write.reply(result, false);
             })
             .map_err(create)?;
         engine.on_bell(move |_| bell.set(true)).map_err(create)?;
@@ -287,12 +288,16 @@ impl Terminal {
         if self.events.title.replace(false)
             && let Ok(title) = self.engine.title()
         {
-            events.push(TerminalEvent::Title(title.to_owned()));
+            events.push(TerminalEvent::Title(
+                String::from_utf8_lossy(title).into_owned(),
+            ));
         }
         if self.events.directory.replace(false)
             && let Ok(directory) = self.engine.pwd()
         {
-            events.push(TerminalEvent::Directory(directory.to_owned()));
+            events.push(TerminalEvent::Directory(
+                String::from_utf8_lossy(directory).into_owned(),
+            ));
         }
         if let Some(text) = self.events.clipboard_write.borrow_mut().take() {
             events.push(TerminalEvent::ClipboardWrite(text));

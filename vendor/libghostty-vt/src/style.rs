@@ -115,7 +115,7 @@ impl PaletteIndex {
 }
 
 /// Underline style types.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, int_enum::IntEnum)]
 #[non_exhaustive]
 #[expect(missing_docs, reason = "self-explanatory")]
@@ -147,9 +147,7 @@ impl TryFrom<ffi::Style> for Style {
             invisible: value.invisible,
             strikethrough: value.strikethrough,
             overline: value.overline,
-            #[expect(clippy::cast_sign_loss, reason = "bindgen ain't perfect")]
-            underline: Underline::try_from(value.underline as u32)
-                .map_err(|_| Error::InvalidValue)?,
+            underline: Underline::try_from(value.underline).map_err(|_| Error::InvalidValue)?,
         })
     }
 }
@@ -169,8 +167,7 @@ impl From<Style> for ffi::Style {
             invisible: value.invisible,
             strikethrough: value.strikethrough,
             overline: value.overline,
-            #[expect(clippy::cast_possible_wrap, reason = "bindgen ain't perfect")]
-            underline: u32::from(value.underline) as i32,
+            underline: i32::from(value.underline),
         }
     }
 }
@@ -254,6 +251,7 @@ impl Default for Palette {
 
 impl Palette {
     /// Get the color at the given palette index.
+    #[must_use]
     pub fn get(&self, index: PaletteIndex) -> RgbColor {
         self.0[index.0 as usize]
     }
@@ -496,6 +494,7 @@ impl X11ColorNames {
     }
 
     /// Iterate over the X11 color name table.
+    #[must_use]
     pub fn iter(self) -> X11ColorNamesIter {
         X11ColorNamesIter {
             entries: self.entries.iter(),

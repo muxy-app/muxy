@@ -10,7 +10,7 @@ pub fn prepare(source: &Path, out_dir: &Path) -> PathBuf {
     }
     copy_tree(source, &patched);
     let patches = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("patches");
-    for name in ["clear-screen.patch", "grapheme-cluster.patch"] {
+    for name in ["clear-screen.patch"] {
         let status = Command::new("git")
             .current_dir(&patched)
             .env("GIT_CEILING_DIRECTORIES", out_dir)
