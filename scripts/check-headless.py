@@ -62,7 +62,7 @@ def main():
     print(f"Native verification: {args.target}, {glibc}; packages: {', '.join(selected)}", flush=True)
     zig = shutil.which("zig")
     if not zig:
-        raise ValueError("Install Zig 0.15.2 before running headless verification")
+        raise ValueError("Install Zig 0.17.0 before running headless verification")
     os.environ["MUXY_ZIG"] = zig
     os.environ["PATH"] = str(ROOT / "scripts/zig") + os.pathsep + os.environ["PATH"]
     # Cargo cannot detect that a cached native Zig library targets another CPU.

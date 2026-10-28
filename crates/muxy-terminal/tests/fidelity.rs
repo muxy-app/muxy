@@ -13,7 +13,10 @@ fn kitty_pixels_placements_replacement_png_and_deletion_survive_fragmented_outpu
     assert_eq!(first.images[0].rgba.as_ref(), &[255, 0, 0, 255]);
     assert_eq!(first.placements[0].size, [16, 16]);
     assert_eq!(first.placements[0].source, [0, 0, 1, 1]);
-    assert_eq!(terminal.archive()?.graphics, first);
+    // A restored copy numbers image generations afresh; pixels and placements must match.
+    let mut archived = terminal.archive()?.graphics;
+    archived.images[0].generation = first.images[0].generation;
+    assert_eq!(archived, first);
     terminal.feed(b"\x1b[H\x1b_Ga=T,f=32,s=1,v=1,i=1,c=2,r=1;AAD//w==\x1b\\");
     let replacement = terminal.graphics()?;
     assert_eq!(replacement.images[0].rgba.as_ref(), &[0, 0, 255, 255]);

@@ -130,7 +130,7 @@ Clipboard image submission is unavailable because the current
 clipboard API cannot safely preserve all MIME types and detect ownership
 changes. Use inline image paths instead.
 
-To build on Ubuntu, install Rust from `rust-toolchain.toml`, Zig 0.15.2, and the
+To build on Ubuntu, install Rust from `rust-toolchain.toml`, Zig 0.17.0, and the
 development packages `build-essential pkg-config clang cmake libssl-dev
 libfontconfig1-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev
 libwayland-dev libxcb1-dev libvulkan-dev`. Runtime packages include

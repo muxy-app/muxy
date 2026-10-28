@@ -14,7 +14,7 @@ mod screen;
 
 pub use error::{TerminalError, TerminalStep};
 pub use events::TerminalEvent;
-pub use ghostty::{Terminal, TerminalArchive};
+pub use ghostty::{Terminal, TerminalArchive, TerminalSnapshot};
 pub use links::{LinkRow, LinkSpan, MAX_LINK_SPANS, MAX_LINK_URI};
 pub use screen::{
     Color, Cursor, CursorShape, InputModes, Modes, Modifiers, MouseAction, MouseButton, MouseEvent,

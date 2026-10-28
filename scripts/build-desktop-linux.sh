@@ -9,7 +9,7 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export MUXY_ZIG="${MUXY_ZIG:-$(command -v zig || true)}"
 if [ ! -x "$MUXY_ZIG" ] || [ "$MUXY_ZIG" = "$ROOT/scripts/zig/zig" ]; then
-    echo "Set MUXY_ZIG to the real Zig 0.15.2 executable." >&2
+    echo "Set MUXY_ZIG to the real Zig 0.17.0 executable." >&2
     exit 1
 fi
 export PATH="$ROOT/scripts/zig:$PATH"

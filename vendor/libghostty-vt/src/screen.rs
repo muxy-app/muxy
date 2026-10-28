@@ -15,8 +15,8 @@ use crate::{
 /// Terminal screen identifier.
 ///
 /// Identifies which screen buffer is active in the terminal.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[repr(u32)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, int_enum::IntEnum)]
+#[repr(i32)]
 pub enum Screen {
     /// The primary (normal) screen.
     #[default]
@@ -177,6 +177,7 @@ impl TrackedGridRef {
     ///
     /// If the terminal that created the tracked reference has been dropped,
     /// this returns false.
+    #[must_use]
     pub fn has_value(&self) -> bool {
         unsafe { ffi::ghostty_tracked_grid_ref_has_value(self.inner.as_ptr()) }
     }
@@ -400,7 +401,7 @@ impl Cell {
 /// Row semantic prompt state.
 ///
 /// Indicates whether any cells in a row are part of a shell prompt, as reported by OSC 133 sequences.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 pub enum RowSemanticPrompt {
     /// No prompt cells in this row.
@@ -414,7 +415,7 @@ pub enum RowSemanticPrompt {
 /// Cell content tag.
 ///
 /// Describes what kind of content a cell holds.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 pub enum CellContentTag {
     /// A single codepoint (may be zero for empty).
@@ -430,7 +431,7 @@ pub enum CellContentTag {
 /// Cell wide property.
 ///
 /// Describes the width behavior of a cell.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 pub enum CellWide {
     /// Not a wide character, cell width 1.
@@ -447,7 +448,7 @@ pub enum CellWide {
 ///
 /// Set by semantic prompt sequences (OSC 133) to distinguish between
 /// command output, user input, and shell prompt text.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 pub enum CellSemanticContent {
     /// Regular output content, such as command output.

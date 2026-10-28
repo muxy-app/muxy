@@ -40,7 +40,7 @@ jobs:
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}
@@ -71,7 +71,7 @@ jobs:
           components: clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -105,7 +105,7 @@ jobs:
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}

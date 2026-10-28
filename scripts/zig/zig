@@ -3,11 +3,17 @@ set -eu
 : "${MUXY_ZIG:?Set MUXY_ZIG to the real Zig executable}"
 
 # The pinned native VT build otherwise specializes code to the build host CPU.
+# Zig rejects -Dcpu given twice, so keep a CPU the caller already chose.
 if [ "${1:-}" = build ]; then
+    lib_vt=false
     for argument in "$@"; do
-        if [ "$argument" = -Demit-lib-vt=true ]; then
-            exec "$MUXY_ZIG" "$@" -Dcpu=baseline
-        fi
+        case "$argument" in
+            -Dcpu=*) exec "$MUXY_ZIG" "$@" ;;
+            -Demit-lib-vt=true) lib_vt=true ;;
+        esac
     done
+    if [ "$lib_vt" = true ]; then
+        exec "$MUXY_ZIG" "$@" -Dcpu=baseline
+    fi
 fi
 exec "$MUXY_ZIG" "$@"

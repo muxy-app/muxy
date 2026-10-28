@@ -101,12 +101,13 @@ impl Metadata {
     }
 }
 
-fn terminal_directory(value: &str) -> Option<ServerPath> {
-    if value.starts_with('/') {
-        return (!value.contains('\0')).then(|| ServerPath(value.as_bytes().to_vec()));
+fn terminal_directory(value: &[u8]) -> Option<ServerPath> {
+    if value.starts_with(b"/") {
+        return (!value.contains(&0)).then(|| ServerPath(value.to_vec()));
     }
-    let (_, path) = value.strip_prefix("file://")?.split_once('/')?;
-    let mut bytes = path.bytes();
+    let rest = value.strip_prefix(b"file://")?;
+    let path = &rest[rest.iter().position(|byte| *byte == b'/')? + 1..];
+    let mut bytes = path.iter().copied();
     let mut path = vec![b'/'];
     while let Some(byte) = bytes.next() {
         let byte = if byte == b'%' {
@@ -122,4 +123,27 @@ fn terminal_directory(value: &str) -> Option<ServerPath> {
         path.push(byte);
     }
     Some(ServerPath(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_directories_keep_raw_and_percent_encoded_bytes() {
+        assert_eq!(
+            terminal_directory(b"file://host/tmp/caf\xe9"),
+            Some(ServerPath(b"/tmp/caf\xe9".to_vec()))
+        );
+        assert_eq!(
+            terminal_directory(b"file://host/tmp/caf%E9"),
+            Some(ServerPath(b"/tmp/caf\xe9".to_vec()))
+        );
+        assert_eq!(
+            terminal_directory(b"/plain/path"),
+            Some(ServerPath(b"/plain/path".to_vec()))
+        );
+        assert_eq!(terminal_directory(b"file://host/a%00b"), None);
+        assert_eq!(terminal_directory(b"relative"), None);
+    }
 }

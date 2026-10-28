@@ -66,6 +66,8 @@ class HeadlessTests(unittest.TestCase):
                 (["build", "-Dother=true"], ["build", "-Dother=true"]),
                 (["build", "-Demit-lib-vt=true", "--prefix", "a path"],
                  ["build", "-Demit-lib-vt=true", "--prefix", "a path", "-Dcpu=baseline"]),
+                (["build", "-Demit-lib-vt=true", "-Dcpu=baseline"],
+                 ["build", "-Demit-lib-vt=true", "-Dcpu=baseline"]),
             ]:
                 output = subprocess.check_output(
                     [ROOT / "scripts/zig/zig", *arguments],

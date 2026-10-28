@@ -12,6 +12,7 @@ pub enum TerminalStep {
     History,
     Input,
     Colors,
+    Snapshot,
 }
 
 impl fmt::Display for TerminalStep {
@@ -26,6 +27,7 @@ impl fmt::Display for TerminalStep {
             Self::History => "history",
             Self::Input => "input",
             Self::Colors => "colors",
+            Self::Snapshot => "snapshot",
         };
         formatter.write_str(name)
     }
