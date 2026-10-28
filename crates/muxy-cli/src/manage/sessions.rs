@@ -15,8 +15,6 @@ use serde_json::{Value, json};
 use super::args::{Session, Until};
 use super::{Output, Paths, Result, local_path, path_text, projects};
 
-/// How long `session show` waits for the desktop app to load the session's
-/// project, after it starts listening.
 const SHOW_WAIT: Duration = Duration::from_secs(10);
 
 pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Paths) -> Result {
@@ -126,8 +124,6 @@ fn calling(client: &Client, session: Option<SessionId>) -> Result<SessionId> {
     }
 }
 
-/// Shows `session` in a tab of the desktop app on this computer, which starts
-/// the app if needed and waits for it to load the session's project.
 fn show(client: &Client, session: SessionId, output: &Output, paths: Paths) -> Result {
     if paths == Paths::Remote {
         return Err(
@@ -151,22 +147,33 @@ fn show(client: &Client, session: SessionId, output: &Output, paths: Paths) -> R
     let mut args = serde_json::Map::new();
     args.insert("session".into(), session.get().to_string().into());
     args.insert("project".into(), entry.info.project.to_string().into());
-    let deadline = Instant::now() + SHOW_WAIT;
-    loop {
-        match crate::browser::call_app("session.show", args.clone(), true, Duration::ZERO) {
-            Err(error) if error.to_string() == api::NOT_READY && Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(100));
-            }
-            reply => {
-                reply?;
-                break;
-            }
-        }
-    }
+    show_when_ready(
+        || crate::browser::call_app("session.show", args.clone(), true, Duration::ZERO),
+        Instant::now,
+    )?;
     if output.json {
         Output::json(&json!({"id":session.get().to_string(), "project_id":entry.info.project}))
     } else {
         output.ok()
+    }
+}
+
+fn show_when_ready(
+    mut call: impl FnMut() -> Result<Value>,
+    mut now: impl FnMut() -> Instant,
+) -> Result {
+    let mut deadline = None;
+    loop {
+        match call() {
+            Err(error) if error.to_string() == api::NOT_READY => {
+                let now = now();
+                if now >= *deadline.get_or_insert(now + SHOW_WAIT) {
+                    return Err(error);
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            reply => return reply.map(|_| ()),
+        }
     }
 }
 
@@ -489,7 +496,53 @@ fn screen_text(grid: &RunGrid, lines: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
+
+    #[test]
+    fn showing_waits_for_the_project_after_a_slow_app_start() -> Result {
+        let now = Cell::new(Instant::now());
+        let mut calls = 0;
+        show_when_ready(
+            || {
+                calls += 1;
+                let delay = if calls == 1 {
+                    SHOW_WAIT + Duration::from_secs(1)
+                } else {
+                    Duration::from_secs(1)
+                };
+                now.set(now.get() + delay);
+                if calls < 3 {
+                    Err(api::NOT_READY.into())
+                } else {
+                    Ok(Value::Null)
+                }
+            },
+            || now.get(),
+        )?;
+        assert_eq!(calls, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn showing_stops_when_the_project_does_not_load() {
+        let now = Cell::new(Instant::now());
+        let mut calls = 0;
+        let error = show_when_ready(
+            || {
+                calls += 1;
+                assert!(calls <= 3, "project readiness must time out");
+                now.set(now.get() + SHOW_WAIT / 2);
+                Err(api::NOT_READY.into())
+            },
+            || now.get(),
+        )
+        .expect_err("project never loaded");
+        assert_eq!(calls, 3);
+        assert_eq!(error.to_string(), api::NOT_READY);
+    }
+
     #[test]
     fn acknowledged_success_survives_terminal_exit_during_detach() -> Result {
         let gone = ClientError::Server(muxy_protocol::ErrorReply {

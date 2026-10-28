@@ -32,8 +32,6 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
     print(invocation.output, reply)
 }
 
-/// Sends one request to the desktop app on this computer, first starting the
-/// app when `starts_app` is set and it isn't running.
 pub(crate) fn call_app(
     verb: &str,
     args: Map<String, Value>,

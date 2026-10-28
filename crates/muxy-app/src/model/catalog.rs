@@ -349,9 +349,6 @@ impl AppModel {
         let _ = self.open_session_tab(project, session.info.id, cx);
     }
 
-    /// Carries out `session.show`: shows a terminal on this computer in a tab
-    /// of its project, opening one unless a pane already shows it, and raises
-    /// the window.
     pub(crate) fn show_session(
         &mut self,
         args: &Args,
@@ -399,8 +396,6 @@ impl AppModel {
         Ok(pane.to_string().into())
     }
 
-    /// Opens `session` in a new terminal tab of `project`, keeping the layout
-    /// as it was when the tab can't be opened or saved.
     fn open_session_tab(
         &mut self,
         project: ProjectId,

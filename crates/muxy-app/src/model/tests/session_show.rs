@@ -7,7 +7,7 @@ fn show(
     session: &str,
     project: ProjectId,
     cx: &mut Context<AppModel>,
-) -> std::result::Result<Value, String> {
+) -> Result<Value, String> {
     let args = json!({"session": session, "project": project.to_string()});
     model.show_session(args.as_object().expect("args"), cx)
 }

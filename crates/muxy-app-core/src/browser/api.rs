@@ -15,8 +15,6 @@ use serde_json::{Map, Value, json};
 pub const SOCKET: &str = "app.sock";
 pub const MAX_REQUEST_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_REPLY_BYTES: u64 = 128 * 1024 * 1024;
-/// The app's answer while it hasn't caught up with the server yet; the
-/// client may ask again.
 pub const NOT_READY: &str = "Muxy hasn't loaded that terminal's project yet";
 
 pub fn socket_path(muxy_dir: &Path) -> PathBuf {
