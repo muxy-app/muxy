@@ -157,7 +157,7 @@ impl RemoteFiles {
     /// Whether a project's folder is there, as this computer checks its own:
     /// a worktree also needs its `.git` file. `None` when the server
     /// couldn't say.
-    fn folder_available(&self, project: ProjectId, worktree: bool) -> Option<bool> {
+    pub(crate) fn folder_available(&self, project: ProjectId, worktree: bool) -> Option<bool> {
         let stat = |path: &[u8]| {
             self.client.files(FilesRequest {
                 project,
@@ -166,9 +166,10 @@ impl RemoteFiles {
         };
         let missing = |error: &ClientError| matches!(error, ClientError::Server(error) if error.code == ErrorCode::BadPath);
         match stat(b"") {
-            Ok(_) => {}
+            Ok(FilesReply::Info(info)) if info.is_directory => {}
+            Ok(FilesReply::Info(_)) => return Some(false),
             Err(error) if missing(&error) => return Some(false),
-            Err(_) => return None,
+            _ => return None,
         }
         if !worktree {
             return Some(true);

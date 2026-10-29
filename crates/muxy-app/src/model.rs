@@ -337,18 +337,6 @@ impl AppModel {
         self.refresh_theme(cx);
     }
 
-    pub(crate) fn save_project_search_root(&mut self, root: PathBuf, cx: &mut Context<Self>) {
-        if let Err(error) = self
-            .settings
-            .set_project_search_root(root, &self.path.with_file_name("settings.toml"))
-        {
-            self.fail(
-                tr!("Could not save search location: %@", error.to_string()).to_string(),
-                cx,
-            );
-        }
-    }
-
     pub(crate) fn save_appearance(&mut self, cx: &mut Context<Self>) {
         match self.appearance.save_changes(
             &self.settings.appearance,
@@ -844,7 +832,7 @@ impl AppModel {
         directory: PathBuf,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
-        self.add_project_on(ServerId::local(), directory, cx)
+        self.add_project_on(ServerId::local(), directory, false, cx)
     }
 
     /// Adds `directory` on `server` as a project; another computer's must be
@@ -853,12 +841,17 @@ impl AppModel {
         &mut self,
         server: ServerId,
         directory: PathBuf,
+        initial_terminal: bool,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
         let mut added = None;
         if !self.edit_project(
             |state| {
-                added = Some(state.add_project(server, directory)?);
+                let project = state.add_project(server, directory)?;
+                if initial_terminal {
+                    state.open_terminal_tab(project)?;
+                }
+                added = Some(project);
                 Ok(())
             },
             cx,
@@ -867,6 +860,9 @@ impl AppModel {
         }
         let project = added?;
         self.hide_new_project_worktrees(project, cx);
+        if initial_terminal && self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
+        }
         Some(project)
     }
 
@@ -1023,6 +1019,39 @@ impl AppModel {
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
         }
+    }
+
+    pub(crate) fn new_home_tab_at(
+        &mut self,
+        server: ServerId,
+        directory: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.edit_tab(
+            |state| {
+                let home = state
+                    .server_home(server)
+                    .ok_or_else(|| {
+                        muxy_app_core::AppError::InvalidState("server has no Home project".into())
+                    })?
+                    .id;
+                state.open_terminal_tab(home)?;
+                let pane = state.window().active_pane.ok_or_else(|| {
+                    muxy_app_core::AppError::InvalidState("terminal has no active pane".into())
+                })?;
+                state.prepare_creation(pane, directory);
+                Ok(())
+            },
+            cx,
+        ) {
+            return false;
+        }
+        self.changed(cx);
+        self.focus_requested = true;
+        if self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
+        }
+        true
     }
 
     pub(crate) fn select_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
@@ -2815,6 +2844,7 @@ mod tests {
     mod git;
     mod layout_drag;
     mod links;
+    mod new_tab;
     mod preferences;
     mod project_layouts;
     mod project_order;

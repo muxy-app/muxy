@@ -24,7 +24,7 @@ use super::{
     menu::{Command, Item},
     tab_sidebar,
 };
-use muxy_ui::components::{IconGlyph, SymbolGlyph};
+use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::theme::{contrasting_foreground, parse_hex};
@@ -182,26 +182,65 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .children(super::agents_panel::docked(model, window, cx))
         .child(
             div()
+                .flex()
                 .flex_none()
+                .items_center()
+                .gap(m.spacing3())
+                .pb(m.spacing3())
+                .when(model.appearance.sidebar_expanded, |footer| {
+                    footer.px(m.spacing3())
+                })
+                .when(!model.appearance.sidebar_expanded, |footer| {
+                    footer.flex_col()
+                })
                 .bg(model.sidebar_background())
-                .child(super::remote_servers::section(model, cx)),
+                .child(super::remote_servers::section(model, cx))
+                .child(add_project_button(model, cx)),
+        )
+        .into_any_element()
+}
+
+fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let m = model.metrics;
+    div()
+        .id("sidebar-add-project")
+        .debug_selector(|| "sidebar-add-project".into())
+        .group("sidebar-add-project")
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(if model.appearance.sidebar_expanded {
+            m.control_large()
+        } else {
+            m.scaled(34.0)
+        })
+        .rounded(m.radius_xl())
+        .bg(model.theme.surface)
+        .cursor_pointer()
+        .hover(|style| style.bg(model.theme.hover))
+        .focus(|style| style.bg(model.theme.hover))
+        .tooltip(super::status_bar::tooltip(
+            tr!("Add Project").to_string(),
+            model,
+        ))
+        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
+            model.choose_project_source(event.position(), window, cx);
+        }))
+        .child(
+            IconGlyph::new(Icon::Plus, m.font_body(), model.theme.fg_muted)
+                .hover_in_group("sidebar-add-project", model.theme.fg),
         )
         .into_any_element()
 }
 
 impl AppModel {
-    /// Add Project opens the picker on this computer, or, with remote
-    /// devices, a menu to choose where the project is.
     pub(crate) fn choose_project_source(
         &mut self,
         position: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings.servers.is_empty() {
-            self.open_project_picker(window, cx);
-            return;
-        }
         let server = |entry: &muxy_app_core::settings::ServerEntry| {
             Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id))
         };
@@ -695,9 +734,6 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                     let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
                     worktrees::group(project, index, shortcut, model, cx)
                 }))
-                .when(!model.appearance.sidebar_focus, |list| {
-                    list.child(add_project_button(model, cx))
-                })
                 .on_children_prepainted(move |bounds, _, _| {
                     measured.borrow_mut().0 = ids
                         .iter()
@@ -937,53 +973,6 @@ pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyEl
             ))
             .into_any_element(),
     )
-}
-
-pub(super) fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
-    let theme = &model.theme;
-    let wide = model.appearance.sidebar_expanded;
-    div()
-        .id("add-project")
-        .flex()
-        .flex_none()
-        .items_center()
-        .cursor_pointer()
-        .when(wide, |row| {
-            row.p(m.spacing2())
-                .gap(m.spacing4())
-                .rounded(m.radius_lg())
-                .hover(|style| style.bg(theme.hover))
-        })
-        .when(!wide, |row| row.justify_center().size(m.scaled(34.0)))
-        .on_click(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-            model.choose_project_source(event.position(), window, cx);
-        }))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .size(m.icon_xxl())
-                .rounded(m.radius_md())
-                .bg(theme.surface)
-                .child(IconGlyph::new(
-                    Icon::Plus,
-                    m.font_emphasis(),
-                    theme.fg_muted,
-                )),
-        )
-        .when(wide, |row| {
-            row.child(
-                div()
-                    .text_size(m.font_body())
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.fg_muted)
-                    .child(tr!("Add Project")),
-            )
-        })
-        .into_any_element()
 }
 
 pub(crate) fn project_color(project: &Project, model: &AppModel) -> gpui::Rgba {

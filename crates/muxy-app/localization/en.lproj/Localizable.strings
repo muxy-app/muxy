@@ -230,6 +230,7 @@
 "Bring history, bookmarks, or sign-ins from a browser on this computer." = "Bring history, bookmarks, or sign-ins from a browser on this computer.";
 "Broadcast to Split Panes" = "Broadcast to Split Panes";
 "Browse" = "Browse";
+"Browse Folders…" = "Browse Folders…";
 "Browse extensions" = "Browse extensions";
 "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it." = "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it.";
 "Browse extensions to add tools to Muxy, or load an unpacked extension folder." = "Browse extensions to add tools to Muxy, or load an unpacked extension folder.";
@@ -286,6 +287,7 @@
 "Choose a readable multilingual GGML voice model in Settings → Composer." = "Choose a readable multilingual GGML voice model in Settings → Composer.";
 "Choose a supported dictation language in Settings → Composer." = "Choose a supported dictation language in Settings → Composer.";
 "Choose a target branch that exists on the remote" = "Choose a target branch that exists on the remote";
+"Choose an existing folder for the terminal." = "Choose an existing folder for the terminal.";
 "Choose an existing folder, or use Create & Add Project." = "Choose an existing folder, or use Create & Add Project.";
 "Choose an extension folder containing package.json or a built dist folder" = "Choose an extension folder containing package.json or a built dist folder";
 "Choose an image smaller than 20 MB." = "Choose an image smaller than 20 MB.";
@@ -466,7 +468,6 @@
 "Could not save composer: %@" = "Could not save composer: %@";
 "Could not save panel pin: %@" = "Could not save panel pin: %@";
 "Could not save project prompt: %@" = "Could not save project prompt: %@";
-"Could not save search location: %@" = "Could not save search location: %@";
 "Could not save tabs" = "Could not save tabs";
 "Could not save tabs: %@" = "Could not save tabs: %@";
 "Could not save the update schedule: %@" = "Could not save the update schedule: %@";
@@ -644,7 +645,6 @@
 "Find and install language packs in Extensions." = "Find and install language packs in Extensions.";
 "Find in terminal…" = "Find in terminal…";
 "Find on page" = "Find on page";
-"Finder…" = "Finder…";
 "Finding SSH key…" = "Finding SSH key…";
 "Find…" = "Find…";
 "Finish Dictation" = "Finish Dictation";
@@ -919,7 +919,6 @@
 "New Home Tab" = "New Home Tab";
 "New Tab" = "New Tab";
 "New Tab (⌘T)" = "New Tab (⌘T)";
-"New Tab in Project…" = "New Tab in Project…";
 "New Tab to the Left" = "New Tab to the Left";
 "New Tab to the Right" = "New Tab to the Right";
 "New Terminal Tab" = "New Terminal Tab";
@@ -1250,7 +1249,6 @@
 "Scroll to bottom when typing" = "Scroll to bottom when typing";
 "Scroll to top" = "Scroll to top";
 "Scrolling" = "Scrolling";
-"Search Location…" = "Search Location…";
 "Search branches…" = "Search branches…";
 "Search changes…" = "Search changes…";
 "Search commands…" = "Search commands…";
@@ -1262,6 +1260,7 @@
 "Search openers…" = "Search openers…";
 "Search options…" = "Search options…";
 "Search or enter address" = "Search or enter address";
+"Search projects, folders or enter a path…" = "Search projects, folders or enter a path…";
 "Search providers…" = "Search providers…";
 "Search servers…" = "Search servers…";
 "Search sessions…" = "Search sessions…";
@@ -1275,10 +1274,8 @@
 "Select All" = "Select All";
 "Select Command Output" = "Select Command Output";
 "Select a local project to browse its saved agent sessions." = "Select a local project to browse its saved agent sessions.";
-"Select a project folder" = "Select a project folder";
 "Select all" = "Select all";
 "Select an element to copy its HTML and text" = "Select an element to copy its HTML and text";
-"Select where Muxy searches for project folders" = "Select where Muxy searches for project folders";
 "Selection" = "Selection";
 "Selection color" = "Selection color";
 "Selection text color" = "Selection text color";
@@ -1398,6 +1395,7 @@
 "Terminal" = "Terminal";
 "Terminal %lld" = "Terminal %lld";
 "Terminal connection closed before delivery was confirmed" = "Terminal connection closed before delivery was confirmed";
+"Terminal in Home" = "Terminal in Home";
 "Terminal size" = "Terminal size";
 "Terminal transparency" = "Terminal transparency";
 "Test Connection" = "Test Connection";
@@ -1719,7 +1717,6 @@
 "new browser tab" = "new browser tab";
 "new home tab" = "new home tab";
 "new tab" = "new tab";
-"new tab in project" = "new tab in project";
 "new worktree" = "new worktree";
 "next project" = "next project";
 "next prompt" = "next prompt";

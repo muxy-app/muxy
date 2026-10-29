@@ -26,7 +26,6 @@ actions!(
         ExistingTerminals,
         DetachTerminal,
         NewHomeTab,
-        NewTabInProject,
         NewWorktree,
         SwitchWorktree,
         CloseTab,
@@ -105,7 +104,6 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     let mut registry = muxy_ui::shortcuts::Registry::new(keymap);
     registry.register(ShortcutId::OpenSettings, &OpenSettings);
     registry.register(ShortcutId::NewHomeTab, &NewHomeTab);
-    registry.register(ShortcutId::NewTabInProject, &NewTabInProject);
     registry.register(ShortcutId::NewWorktree, &NewWorktree);
     registry.register(ShortcutId::SwitchWorktree, &SwitchWorktree);
     registry.register(ShortcutId::ToggleSidebar, &ToggleSidebar);
@@ -423,9 +421,6 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         .on_action(cx.listener(|model, _: &NewHomeTab, _, cx| {
             model.select_project(model.state.home().id, cx);
             model.new_tab(cx);
-        }))
-        .on_action(cx.listener(|model, _: &NewTabInProject, window, cx| {
-            model.toggle_new_tab_list(window, cx);
         }))
         .on_action(cx.listener(|model, _: &NewWorktree, window, cx| {
             if model.close_prompt.is_none()

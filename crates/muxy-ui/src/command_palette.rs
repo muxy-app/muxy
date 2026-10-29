@@ -189,7 +189,18 @@ impl<A> Registry<A> {
         self.commands.iter().find(|command| command.id == id)
     }
 
-    fn items(&self, query: &str) -> Vec<PickerItem> {
+    pub fn action(&self, id: &str) -> Option<&A> {
+        let command = self
+            .commands
+            .iter()
+            .find(|command| command.id == id && !command.disabled)?;
+        match &command.target {
+            Target::Action(action) => Some(action),
+            Target::List(_) => None,
+        }
+    }
+
+    pub fn items(&self, query: &str) -> Vec<PickerItem> {
         let query = query.to_lowercase();
         self.commands
             .iter()
