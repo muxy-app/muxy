@@ -24,6 +24,8 @@ pub struct AppState {
     pub(crate) startup_commands: BTreeMap<PaneId, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) quick_terminal: Option<Pane>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) pinned_terminal: Option<Pane>,
     pub(crate) version: u32,
     pub(crate) projects: Vec<Project>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -41,6 +43,8 @@ struct StoredState {
     startup_commands: BTreeMap<PaneId, String>,
     #[serde(default)]
     quick_terminal: Option<Pane>,
+    #[serde(default)]
+    pinned_terminal: Option<Pane>,
     version: u32,
     projects: Vec<Project>,
     #[serde(default)]
@@ -88,6 +92,7 @@ impl TryFrom<StoredState> for AppState {
             starting_directories: stored.starting_directories,
             startup_commands: stored.startup_commands,
             quick_terminal: stored.quick_terminal,
+            pinned_terminal: stored.pinned_terminal,
             version: VERSION,
             projects: stored.projects,
             workspaces: stored.workspaces,
@@ -192,6 +197,89 @@ impl AppState {
             ..
         }) = self.quick_terminal.take()
         {
+            self.discard_unreferenced(ServerId::local(), session);
+        }
+    }
+
+    pub fn pinned_terminal(&self) -> Option<&Pane> {
+        self.pinned_terminal.as_ref()
+    }
+
+    pub fn loose_panes(&self) -> impl Iterator<Item = &Pane> {
+        self.quick_terminal.iter().chain(&self.pinned_terminal)
+    }
+
+    pub fn is_loose_pane(&self, pane: PaneId) -> bool {
+        self.loose_panes().any(|candidate| candidate.id == pane)
+    }
+
+    pub fn pin_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+        let project = self
+            .projects
+            .iter()
+            .find(|project| project.tabs.iter().any(|tab| tab.layout.contains(pane)))
+            .ok_or(AppError::UnknownPane(pane))?;
+        if !project.server_id.is_local() {
+            return Err(AppError::InvalidState(
+                "only this computer's terminals can be pinned".into(),
+            ));
+        }
+        let project = project.id;
+        let moved = self
+            .pane_tab_mut(pane)?
+            .panes
+            .iter()
+            .find(|candidate| candidate.id == pane)
+            .cloned()
+            .ok_or(AppError::UnknownPane(pane))?;
+        if !matches!(moved.content, PaneContent::Terminal { session: Some(_) }) {
+            return Err(AppError::InvalidState(
+                "only a running terminal can be pinned".into(),
+            ));
+        }
+        self.remove_pane(pane)?;
+        if self.pinned_terminal.is_some() {
+            self.unpin_pane(project)?;
+        }
+        self.pinned_terminal = Some(moved);
+        Ok(())
+    }
+
+    pub fn unpin_pane(&mut self, project: ProjectId) -> Result<TabId, AppError> {
+        let target = self
+            .project(project)
+            .ok_or(AppError::UnknownProject(project))?;
+        target.require_available()?;
+        if !target.server_id.is_local() {
+            return Err(AppError::InvalidState(
+                "a pinned terminal can only move to this computer's projects".into(),
+            ));
+        }
+        let pane = self
+            .pinned_terminal
+            .take()
+            .ok_or_else(|| AppError::InvalidState("no pinned terminal".into()))?;
+        let tab = Tab::with_pane(pane);
+        let id = tab.id;
+        let near = self.window.selected_tab.get(&project).copied();
+        self.window.activate(tab.layout.leaves().first().copied());
+        self.add_tab(project, tab, near)?;
+        self.window.selected_tab.insert(project, id);
+        self.window.current_project = project;
+        self.sync_groups(project);
+        Ok(id)
+    }
+
+    pub fn close_pinned_terminal(&mut self) {
+        if let Some(Pane {
+            id,
+            content: PaneContent::Terminal {
+                session: Some(session),
+            },
+            ..
+        }) = self.pinned_terminal.take()
+        {
+            self.starting_directories.remove(&id);
             self.discard_unreferenced(ServerId::local(), session);
         }
     }
@@ -607,6 +695,7 @@ impl AppState {
     pub fn clear_terminal_panes(&mut self, server: ServerId) -> Result<(), AppError> {
         if server.is_local() {
             self.close_quick_terminal();
+            self.close_pinned_terminal();
         }
         let terminals: Vec<_> = self
             .projects
@@ -1007,6 +1096,7 @@ impl AppState {
             .flat_map(|project| &mut project.tabs)
             .flat_map(|tab| &mut tab.panes)
             .chain(self.quick_terminal.iter_mut())
+            .chain(self.pinned_terminal.iter_mut())
             .find(|pane| pane.id == id)
             .ok_or(AppError::UnknownPane(id))
     }
@@ -1076,6 +1166,13 @@ impl AppState {
             && (!panes.insert(pane.id) || !matches!(pane.content, PaneContent::Terminal { .. }))
         {
             return Err(AppError::InvalidState("invalid Quick Terminal pane".into()));
+        }
+        if let Some(pane) = &self.pinned_terminal
+            && (!panes.insert(pane.id) || !matches!(pane.content, PaneContent::Terminal { .. }))
+        {
+            return Err(AppError::InvalidState(
+                "invalid pinned terminal pane".into(),
+            ));
         }
         if let Some(active) = self.window.active_pane {
             let selected = self.window.selected_tab.get(&self.window.current_project);

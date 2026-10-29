@@ -13,6 +13,7 @@ pub(crate) mod git;
 mod language;
 mod links;
 mod mobile;
+pub(crate) mod pinned_terminal;
 mod preferences;
 pub(crate) mod project_layouts;
 pub(crate) mod proxy;
@@ -123,6 +124,7 @@ pub(crate) struct AppModel {
     project_layouts: project_layouts::ProjectLayouts,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
     pub(crate) quick: quick_terminal::QuickTerminalRuntime,
+    pub(crate) pinned: pinned_terminal::PinnedTerminal,
     pub(crate) window: gpui::AnyWindowHandle,
     pub(crate) state: AppState,
     pub(crate) grids: HashMap<PaneId, PaneView>,
@@ -524,6 +526,7 @@ impl AppModel {
             proxy: proxy::ProxyState::load(boot.state_path.with_file_name("proxy.toml")),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
             quick: quick_terminal::QuickTerminalRuntime::new(&boot.settings.quick_terminal, cx),
+            pinned: pinned_terminal::PinnedTerminal::new(cx),
             window: window.window_handle(),
             state: boot.state,
             grids: HashMap::new(),
@@ -739,6 +742,7 @@ impl AppModel {
             return;
         }
         if self.state.focus_pane(pane).is_ok() {
+            self.pinned.focused = false;
             self.focus_requested = true;
             self.changed(cx);
         }
@@ -1258,7 +1262,7 @@ impl AppModel {
             .iter()
             .flat_map(|project| &project.tabs)
             .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
+            .chain(self.state.loose_panes())
             .any(|pane| {
                 !closing.contains(&pane.id)
                     && self.pane_session(pane.id) == Some(session)
@@ -1488,7 +1492,7 @@ impl AppModel {
             .iter()
             .flat_map(|project| &project.tabs)
             .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
+            .chain(self.state.loose_panes())
             .any(|pane| pane.id == id && matches!(pane.content, PaneContent::Terminal { .. }))
     }
 
@@ -1498,7 +1502,7 @@ impl AppModel {
             .iter()
             .flat_map(|project| &project.tabs)
             .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
+            .chain(self.state.loose_panes())
             .find(|pane| pane.id == id)
             .and_then(|pane| match pane.content {
                 PaneContent::Terminal { session } => session,
@@ -1701,7 +1705,7 @@ impl AppModel {
             .iter()
             .flat_map(|project| &project.tabs)
             .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
+            .chain(self.state.loose_panes())
             .map(|pane| pane.id)
             .collect();
         self.completions.retain(|id| panes.contains(id));
@@ -1768,6 +1772,8 @@ impl AppModel {
             PaneEvent::ContextMenu(position) => {
                 if model.is_quick_terminal(id) {
                     model.quick_terminal_menu(*position, cx);
+                } else if model.is_pinned_terminal(id) {
+                    model.pinned_terminal_menu(id, *position, cx);
                 } else {
                     model.terminal_menu(id, *position, cx);
                 }
@@ -1778,7 +1784,16 @@ impl AppModel {
             PaneEvent::Bell => cx.notify(),
             PaneEvent::Focused => {
                 model.blur_webviews(cx);
-                if !model.is_quick_terminal(id) {
+                if model.is_pinned_terminal(id) {
+                    if !model.pinned.focused {
+                        model.pinned.focused = true;
+                        cx.notify();
+                    }
+                } else if !model.is_quick_terminal(id) {
+                    if model.pinned.focused {
+                        model.pinned.focused = false;
+                        cx.notify();
+                    }
                     model.focus_pane(id, cx);
                 }
             }
@@ -1817,7 +1832,7 @@ impl AppModel {
                 _subscription: subscription,
             },
         );
-        if !self.is_quick_terminal(id) && self.pane_tab(id) == self.active_tab() {
+        if !self.state.is_loose_pane(id) && self.pane_tab(id) == self.active_tab() {
             self.focus_requested = true;
         }
     }
@@ -1864,6 +1879,7 @@ impl AppModel {
     ) {
         if server.is_local() {
             self.restore_quick_terminal(sessions, cx);
+            self.restore_pinned_terminal(sessions, cx);
         }
         let plan = restore::plan(&self.state, server, sessions);
         let active = self.active_pane();
@@ -1961,7 +1977,7 @@ impl AppModel {
             return;
         }
         let Some(project) = self.state.projects().iter().find(|project| {
-            (self.is_quick_terminal(pane) && project.id == self.state.home().id)
+            (self.state.is_loose_pane(pane) && project.id == self.state.home().id)
                 || project
                     .tabs
                     .iter()
@@ -2432,6 +2448,10 @@ impl AppModel {
             self.close_quick_terminal(cx);
             return;
         }
+        if server.is_local() && self.is_pinned_terminal(pane) && missing_session(error) {
+            self.close_pinned_terminal(cx);
+            return;
+        }
         if let Some(session) = session {
             self.initial_directories.remove(&pane);
             if self.state.pane_server(pane) != Some(server)
@@ -2444,7 +2464,7 @@ impl AppModel {
             }
             self.save(cx);
         }
-        if self.pane_tab(pane).is_none() && !self.is_quick_terminal(pane) {
+        if self.pane_tab(pane).is_none() && !self.state.is_loose_pane(pane) {
             return;
         }
         if missing_session(error) {
@@ -2717,6 +2737,14 @@ impl AppModel {
         {
             self.close_quick_terminal(cx);
         }
+        if server.is_local()
+            && self
+                .state
+                .pinned_terminal()
+                .is_some_and(|pane| self.pane_session(pane.id) == Some(session))
+        {
+            self.close_pinned_terminal(cx);
+        }
         let active = self.active_pane();
         if let Err(error) = self.state.close_session_panes(server, session) {
             self.fail(error.to_string(), cx);
@@ -2815,6 +2843,7 @@ mod tests {
     mod git;
     mod layout_drag;
     mod links;
+    mod pinned_terminal;
     mod preferences;
     mod project_layouts;
     mod project_order;

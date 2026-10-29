@@ -36,6 +36,7 @@ mod views {
     pub(crate) mod native_modal;
     pub(crate) mod new_tab;
     pub(crate) mod overlays;
+    pub(crate) mod pinned_terminal;
     pub(crate) mod project_editor;
     pub(crate) mod project_layouts;
     pub(crate) mod project_menu;
@@ -94,12 +95,13 @@ use muxy_ui::tr;
 use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
-    FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
-    NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject, NextPrompt,
-    NextTab, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput,
-    SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions,
-    ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
-    ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
+    FocusPaneUp, FocusPinnedTerminal, HideApp, HideOthers, IncreaseFontSize,
+    InstallCommandLineTool, Minimize, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject,
+    NewWorktree, NextProject, NextPrompt, NextTab, OpenSettings, PreviousProject, PreviousPrompt,
+    PreviousTab, Quit, SelectCommandOutput, SelectProject, SelectTab, ShowAll, SplitDown,
+    SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel, ToggleCommandPalette,
+    ToggleComposer, ToggleFullScreen, TogglePinnedTerminal, ToggleSidebar, ToggleThemePicker,
+    ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
 };
 
 fn main() -> ExitCode {
@@ -344,6 +346,8 @@ fn menus() -> Vec<Menu> {
         MenuItem::action(tr!("Toggle Sidebar"), ToggleSidebar),
         MenuItem::action(tr!("Toggle Agents Panel"), ToggleAgentsPanel),
         MenuItem::action(tr!("Toggle Agent Sessions"), ToggleAgentSessions),
+        MenuItem::action(tr!("Toggle Pinned Terminal"), TogglePinnedTerminal),
+        MenuItem::action(tr!("Focus Pinned Terminal"), FocusPinnedTerminal),
         MenuItem::action(tr!("Toggle Full Screen"), ToggleFullScreen),
         MenuItem::separator(),
         MenuItem::action(tr!("Theme Picker"), ToggleThemePicker),

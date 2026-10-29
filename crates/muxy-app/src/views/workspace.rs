@@ -47,6 +47,8 @@ actions!(
         ToggleSidebar,
         ToggleAgentsPanel,
         ToggleAgentSessions,
+        TogglePinnedTerminal,
+        FocusPinnedTerminal,
         ToggleFullScreen,
         ToggleThemePicker,
         ToggleCommandPalette,
@@ -111,6 +113,8 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     registry.register(ShortcutId::ToggleSidebar, &ToggleSidebar);
     registry.register(ShortcutId::ToggleAgentsPanel, &ToggleAgentsPanel);
     registry.register(ShortcutId::ToggleAgentSessions, &ToggleAgentSessions);
+    registry.register(ShortcutId::TogglePinnedTerminal, &TogglePinnedTerminal);
+    registry.register(ShortcutId::FocusPinnedTerminal, &FocusPinnedTerminal);
     registry.register(ShortcutId::ToggleFullScreen, &ToggleFullScreen);
     registry.register(ShortcutId::ToggleThemePicker, &ToggleThemePicker);
     registry.register(ShortcutId::ToggleCommandPalette, &ToggleCommandPalette);
@@ -469,6 +473,18 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         .on_action(cx.listener(|model, _: &ToggleAgentSessions, window, cx| {
             model.toggle_agent_sessions(window, cx);
         }))
+        .on_action(cx.listener(|model, _: &TogglePinnedTerminal, window, cx| {
+            model.toggle_pinned_terminal(window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &FocusPinnedTerminal, window, cx| {
+            if model.pinned.focused {
+                model.pinned.focused = false;
+                model.focus_requested = true;
+                cx.notify();
+            } else {
+                model.focus_pinned_terminal(window, cx);
+            }
+        }))
         .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| window.toggle_fullscreen()))
         .on_action(cx.listener(|model, _: &ToggleThemePicker, window, cx| {
             model.open_theme_picker(window, cx);
@@ -718,6 +734,20 @@ fn register_panel_commands(
             ToggleAgentSessions,
         )
         .keywords("harness history resume providers"),
+        action(
+            model,
+            ShortcutId::TogglePinnedTerminal,
+            tr_key!("Toggle Pinned Terminal"),
+            TogglePinnedTerminal,
+        )
+        .disabled(model.state.pinned_terminal().is_none()),
+        action(
+            model,
+            ShortcutId::FocusPinnedTerminal,
+            tr_key!("Focus Pinned Terminal"),
+            FocusPinnedTerminal,
+        )
+        .disabled(model.state.pinned_terminal().is_none()),
     ] {
         registry.register(command);
     }
@@ -873,12 +903,18 @@ impl AppModel {
         if self.overlay.is_some() || self.close_prompt.is_some() {
             self.split_resize.end();
         }
+        let pinned = self.pinned.focused;
         for (id, pane) in &self.grids {
             if self.is_quick_terminal(*id) {
                 continue;
             }
+            let focused = if self.is_pinned_terminal(*id) {
+                pinned
+            } else {
+                !pinned && Some(*id) == active
+            };
             pane.view.update(cx, |pane, cx| {
-                pane.set_focused(Some(*id) == active, cx);
+                pane.set_focused(focused, cx);
                 let border = (pane.focused && split).then_some(self.theme.accent);
                 let radius = if zoomed.contains(id) {
                     (self.metrics.radius_lg() - px(1.0)).max(px(0.0))
@@ -915,9 +951,21 @@ impl AppModel {
 impl AppModel {
     fn prepare_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspacePrepare);
+        if let Some(pane) = self
+            .state
+            .pinned_terminal()
+            .and_then(|pane| self.grids.get(&pane.id))
+        {
+            let focused = pane.view.read(cx).focus.contains_focused(window, cx);
+            if self.pinned.focused != focused {
+                self.pinned.focused = focused;
+                cx.notify();
+            }
+        }
         if self.overlay.is_none()
             && (self.focus_requested
                 || (self.active_pane().is_none()
+                    && !self.pinned.focused
                     && self.composer.view.is_none()
                     && self.webviews.panels.is_empty()
                     && !self.agents_panel.focus.contains_focused(window, cx)
@@ -931,6 +979,7 @@ impl AppModel {
                 None => self.focus_active(window, cx),
             }
             self.focus_requested = false;
+            self.pinned.focused = false;
         }
         if self.overlay.is_some() || self.close_prompt.is_some() {
             self.cancel_titlebar_drag(cx);
@@ -983,6 +1032,7 @@ impl Render for AppModel {
         let content = self.webview_panel_content(content, window, cx);
         let content = super::agents_panel::right_panel_content(content, self, window, cx);
         let content = super::agent_sessions::panel_content(content, self, window, cx);
+        let content = super::pinned_terminal::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
         let workspace = action_handlers(cx)
             .on_action(cx.listener(|model, _: &ToggleVoiceRecording, window, cx| {

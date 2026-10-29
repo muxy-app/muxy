@@ -118,6 +118,8 @@ pub enum ShortcutId {
     ToggleSidebar,
     ToggleAgentsPanel,
     ToggleAgentSessions,
+    TogglePinnedTerminal,
+    FocusPinnedTerminal,
     ToggleFullScreen,
     ToggleThemePicker,
     NavigateBack,
@@ -585,6 +587,18 @@ pub const ALL: &[Shortcut] = &[
         keys: &[],
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[],
+    },
+    Shortcut {
+        id: "toggle_pinned_terminal",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "focus_pinned_terminal",
+        keys: platform_keys!(&["cmd-alt-p"], &["ctrl-shift-alt-p"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
     },
     Shortcut {
         id: "toggle_full_screen",

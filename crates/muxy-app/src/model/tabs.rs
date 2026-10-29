@@ -138,7 +138,17 @@ impl AppModel {
         else {
             return;
         };
-        let items = crate::views::tab_menu::items(project, id);
+        let pin = project
+            .tabs
+            .iter()
+            .find(|tab| tab.id == id)
+            .and_then(|tab| {
+                self.active_pane()
+                    .filter(|pane| tab.layout.contains(*pane))
+                    .or_else(|| (tab.panes.len() == 1).then(|| tab.panes[0].id))
+            })
+            .filter(|pane| self.can_pin_terminal(*pane));
+        let items = crate::views::tab_menu::items(project, id, pin);
         self.open_menu(items, position, window, cx);
     }
 
