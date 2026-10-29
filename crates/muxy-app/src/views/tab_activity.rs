@@ -18,6 +18,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use crate::model::AppModel;
+use crate::model::agents_panel::RunningAgent;
 use gpui::AppContext;
 use gpui::InteractiveElement;
 
@@ -101,6 +102,17 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
         tab.panes
             .iter()
             .any(|pane| model.completions.contains(&pane.id)),
+        false,
+        model,
+    )
+}
+
+/// What the tab row of an agent's pane shows for that agent.
+pub(super) fn agent_status(agent: &RunningAgent, model: &AppModel) -> Status {
+    resolve(
+        agent.server,
+        &[agent.session],
+        model.completions.contains(&agent.pane),
         false,
         model,
     )
@@ -485,13 +497,26 @@ pub(super) fn status_glyph(
     size: Pixels,
     model: &AppModel,
 ) -> AnyElement {
+    status_glyph_in(id, status, size, None, model)
+}
+
+/// A status glyph whose spinner stays visible over content `owner` paints.
+pub(super) fn status_glyph_in(
+    id: String,
+    status: Status,
+    size: Pixels,
+    owner: Option<gpui::EntityId>,
+    model: &AppModel,
+) -> AnyElement {
     let theme = &model.theme;
     let (kind, tooltip, glyph) = match status {
         Status::None => return div().into_any_element(),
         Status::Busy(key) => (
             "busy",
             translate(key).to_string(),
-            model.spinners.glyph(id.clone(), size, theme.accent),
+            model
+                .spinners
+                .glyph_in(id.clone(), size, theme.accent, owner),
         ),
         Status::Progress(progress) => {
             let tooltip = match progress.state {
@@ -504,7 +529,7 @@ pub(super) fn status_glyph(
             (
                 "progress",
                 tooltip.to_string(),
-                progress_circle(&id, progress, size, model),
+                progress_circle(&id, progress, size, owner, model),
             )
         }
         Status::Blocked | Status::Completed => {
@@ -519,11 +544,13 @@ pub(super) fn status_glyph(
                 if blocked { "blocked" } else { "completion" },
                 tooltip.to_string(),
                 div()
-                    .size(
-                        model
-                            .metrics
-                            .scaled(if id.starts_with("tab-") { 7.0 } else { 8.0 }),
-                    )
+                    .size(model.metrics.scaled(
+                        if id.starts_with("tab-") || id.starts_with("agents-panel-") {
+                            7.0
+                        } else {
+                            8.0
+                        },
+                    ))
                     .rounded_full()
                     .bg(color)
                     .into_any_element(),
@@ -581,6 +608,7 @@ fn progress_circle(
     id: &str,
     progress: TerminalProgress,
     size: Pixels,
+    owner: Option<gpui::EntityId>,
     model: &AppModel,
 ) -> AnyElement {
     let theme = &model.theme;
@@ -592,7 +620,7 @@ fn progress_circle(
         }
     };
     if progress.state == ProgressState::Indeterminate {
-        return model.spinners.glyph(id.to_owned(), size, color);
+        return model.spinners.glyph_in(id.to_owned(), size, color, owner);
     }
     progress_ring(
         size,

@@ -439,6 +439,12 @@ impl AppModel {
                 settings.appearance.tips_visible = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::RememberProjectsWithoutTabs(value) => {
+                settings.appearance.remember_projects_without_tabs = value;
+                settings.appearance.projects_without_tabs_shown =
+                    value && self.projects_without_tabs_shown;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::ConfirmProcess(value) => {
                 settings.window.confirm_running_process = value;
                 settings.save_window(&path)?;
@@ -983,6 +989,7 @@ fn change_id(change: &Change) -> &str {
         Change::AgentsPanelIcon(_) => "agents-panel-icon",
         Change::StatusBar(_) => "status-bar",
         Change::Tips(_) => "tips",
+        Change::RememberProjectsWithoutTabs(_) => "remember-projects-without-tabs",
         Change::ConfirmProcess(_) => "confirm-process",
         Change::CloseBehavior(_) => "close-behavior",
         Change::FileOpener(_) => "file-opener",

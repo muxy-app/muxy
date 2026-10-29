@@ -43,7 +43,8 @@ pub(crate) enum Command {
     Tab(muxy_app_core::TabId, super::tab_menu::Action),
     Layout(muxy_app_core::settings::AppLayout),
     AgentsPanel(bool),
-    FocusProject(bool),
+    /// Shows only this top-level project in the sidebar, or every project again.
+    FocusProject(Option<muxy_app_core::ProjectId>),
     SelectWorkspace(Option<muxy_app_core::WorkspaceId>),
     SelectRemoteServers,
     NewWorkspace(Option<muxy_app_core::ProjectId>),
@@ -571,7 +572,7 @@ impl AppModel {
                 self.hide_agents_panel(window, cx);
                 return;
             }
-            Command::FocusProject(focused) => self.set_project_focus(focused, cx),
+            Command::FocusProject(project) => self.set_project_focus(project, cx),
             Command::SelectWorkspace(workspace) => self.select_workspace(workspace, cx),
             Command::SelectRemoteServers => self.select_remote_servers(cx),
             Command::NewWorkspace(project) => {

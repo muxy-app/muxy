@@ -107,6 +107,32 @@ impl AppModel {
         })
     }
 
+    /// The projects the sidebar lists, and how many of them have no tabs; those
+    /// are left out until shown. The current project is always listed.
+    pub(crate) fn tab_sidebar_projects(&self) -> (Vec<&Project>, usize) {
+        let current = self.state.current_project().id;
+        let listed = |project: &&Project| {
+            self.appearance.sidebar_focus
+                || project.id == current
+                || self.sidebar_tabs(project).next().is_some()
+        };
+        let mut projects = self.sidebar_projects();
+        let without_tabs = projects.iter().filter(|project| !listed(project)).count();
+        if !self.projects_without_tabs_shown {
+            projects.retain(listed);
+        }
+        (projects, without_tabs)
+    }
+
+    pub(crate) fn toggle_projects_without_tabs(&mut self, cx: &mut Context<Self>) {
+        self.projects_without_tabs_shown = !self.projects_without_tabs_shown;
+        if self.appearance.remember_projects_without_tabs {
+            self.appearance.projects_without_tabs_shown = self.projects_without_tabs_shown;
+            self.save_appearance(cx);
+        }
+        cx.notify();
+    }
+
     pub(crate) fn navigation_tabs(&self) -> Vec<TabId> {
         let project = self.state.current_project();
         if project.groups().is_some()
@@ -149,8 +175,12 @@ pub(super) fn contents(
         .flex_col()
         .pt(model.metrics.spacing5())
         .pb(model.metrics.spacing3());
-    for project in model.sidebar_projects() {
+    let (projects, without_tabs) = model.tab_sidebar_projects();
+    for project in projects {
         rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
+    }
+    if without_tabs > 0 {
+        rows = rows.child(projects_without_tabs_toggle(without_tabs, model, cx));
     }
     div()
         .debug_selector(|| "tab-sidebar".into())
@@ -172,6 +202,44 @@ pub(super) fn contents(
             tab_strip::drag::Source::Sidebar,
             cx,
         ))
+        .into_any_element()
+}
+
+fn projects_without_tabs_toggle(
+    count: usize,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let m = model.metrics;
+    let theme = &model.theme;
+    let label = if model.projects_without_tabs_shown {
+        tr!("Hide projects without tabs")
+    } else if count == 1 {
+        tr!("1 more project")
+    } else {
+        tr!("%lld more projects", count)
+    };
+    div()
+        .my(m.spacing1())
+        .h(row_height(model))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .id("tab-sidebar-projects-without-tabs")
+                .debug_selector(|| "tab-sidebar-projects-without-tabs".into())
+                .cursor_pointer()
+                .text_size(m.font_footnote())
+                .text_color(theme.fg_dim)
+                .hover(|style| style.text_color(theme.fg_muted))
+                .on_click(cx.listener(|model, _, window, cx| {
+                    model.toggle_projects_without_tabs(cx);
+                    model.focus_active(window, cx);
+                }))
+                .child(label),
+        )
         .into_any_element()
 }
 
@@ -221,37 +289,20 @@ fn project_group(
 
 fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let id = project.id;
-    let theme = &model.theme;
-    let missing = project.status() == ProjectStatus::Missing;
-    let active = model.state.current_project().id == id;
     let m = model.metrics;
-    let group = SharedString::from(format!("tab-project-{id}"));
+    let missing = project.status() == ProjectStatus::Missing;
     div()
-        .id(group.clone())
-        .group(group.clone())
-        .relative()
+        .id(SharedString::from(format!("tab-project-{id}")))
         .debug_selector(move || format!("tab-project-{id}"))
         .mx(m.spacing3())
         .my(m.spacing1())
-        .px(m.spacing3())
-        .h(m.control_large())
+        .pl(m.spacing4())
+        .h(m.control_medium())
         .flex()
         .flex_none()
         .items_center()
         .gap(m.spacing3())
-        .rounded(m.radius_lg())
-        .cursor_pointer()
         .when(missing, |row| row.opacity(0.5))
-        .hover(|style| style.bg(theme.hover))
-        .on_click(cx.listener(move |model, _, window, cx| {
-            if !missing {
-                model.select_project(id, cx);
-                if !model.project_expanded(id) {
-                    model.toggle_project_tabs(id, cx);
-                }
-                model.focus_active(window, cx);
-            }
-        }))
         .on_mouse_down(
             MouseButton::Right,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
@@ -260,24 +311,67 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 }
             }),
         )
-        .child(project_disclosure(project, model, cx))
         .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .truncate()
-                .text_size(m.font_headline())
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(if active { theme.fg } else { theme.fg_muted })
-                .when(model.appearance.sidebar_focus, |label| {
-                    label.pr(m.control_small() * 2.0)
-                })
-                .group_hover(group.clone(), |style| {
-                    style.text_color(theme.fg).pr(m.control_small() * 2.0)
-                })
-                .child(model.project_title(project)),
+            group_label(model.project_title(project), model)
+                .debug_selector(move || format!("tab-project-title-{id}")),
         )
-        .child(project_accessory(project, group, model, cx))
+        .child(project_accessory(project, model))
+        .when(!missing, |row| {
+            row.child(new_tab_button(id, model, cx))
+                .child(project_disclosure(project, model, cx))
+        })
+        .into_any_element()
+}
+
+/// The height of a tab row, shared with the agents panel's rows.
+pub(super) fn row_height(model: &AppModel) -> gpui::Pixels {
+    model.metrics.control_small() + model.metrics.spacing2() * 2.0
+}
+
+/// The dim name above a project's rows, shared with the agents panel.
+pub(super) fn group_label(text: impl Into<SharedString>, model: &AppModel) -> gpui::Div {
+    div()
+        .flex_1()
+        .min_w(px(0.0))
+        .truncate()
+        .text_size(model.metrics.font_footnote())
+        .text_color(model.theme.fg_dim)
+        .child(text.into())
+}
+
+fn header_button(id: String, icon: Icon, model: &AppModel) -> IconButton {
+    let theme = &model.theme;
+    IconButton::new(
+        SharedString::from(id),
+        icon,
+        model.metrics.icon_xs(),
+        model.metrics.control_small(),
+        theme.fg_dim,
+        theme.fg_muted,
+    )
+}
+
+fn new_tab_button(id: ProjectId, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let theme = &model.theme;
+    div()
+        .debug_selector(move || format!("project-new-tab-{id}"))
+        .flex_none()
+        .child(
+            header_button(format!("project-new-tab-{id}"), Icon::Plus, model)
+                .tooltip(
+                    tr!("New Terminal Tab"),
+                    theme.raised(),
+                    theme.fg,
+                    theme.border,
+                    theme.bg,
+                )
+                .on_click(cx.listener(move |model, _, window, cx| {
+                    cx.stop_propagation();
+                    model.select_project(id, cx);
+                    model.new_tab(cx);
+                    model.focus_active(window, cx);
+                })),
+        )
         .into_any_element()
 }
 
@@ -288,25 +382,19 @@ fn project_disclosure(
 ) -> AnyElement {
     let id = project.id;
     let expanded = model.project_expanded(id);
-    let missing = project.status() == ProjectStatus::Missing;
-    let m = model.metrics;
     let theme = &model.theme;
     div()
         .debug_selector(move || format!("tab-project-toggle-{id}"))
         .flex_none()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
-            IconButton::new(
-                SharedString::from(format!("tab-project-toggle-{id}")),
+            header_button(
+                format!("tab-project-toggle-{id}"),
                 if expanded {
                     Icon::ChevronDown
                 } else {
                     Icon::ChevronRight
                 },
-                m.icon_xs(),
-                m.control_small(),
-                theme.fg_muted,
-                theme.fg,
+                model,
             )
             .tooltip(
                 if expanded {
@@ -321,152 +409,38 @@ fn project_disclosure(
             )
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
-                if !missing {
-                    model.toggle_project_tabs(id, cx);
-                    model.focus_active(window, cx);
-                }
+                model.toggle_project_tabs(id, cx);
+                model.focus_active(window, cx);
             })),
         )
         .into_any_element()
 }
 
-fn project_accessory(
-    project: &Project,
-    group: SharedString,
-    model: &AppModel,
-    cx: &mut Context<AppModel>,
-) -> AnyElement {
+fn project_accessory(project: &Project, model: &AppModel) -> AnyElement {
     let id = project.id;
     let m = model.metrics;
     let activity = tab_activity::project_status(id, model);
     let has_activity = activity != tab_activity::Status::None;
     div()
-        .relative()
         .flex()
         .flex_none()
         .items_center()
-        .h(m.control_small())
         .gap(m.spacing3())
-        .child(
-            div()
-                .absolute()
-                .right_full()
-                .top_0()
-                .opacity(if model.appearance.sidebar_focus {
-                    1.0
-                } else {
-                    0.0
-                })
-                .group_hover(group, |style| style.opacity(1.0))
-                .child(project_controls(project, model, cx)),
-        )
         .children(super::sidebar::remote_marker(project, model))
         .when(project.parent_id.is_some() && !has_activity, |row| {
             row.child(IconGlyph::new(
                 Icon::GitBranch,
-                m.icon_sm(),
-                model.theme.fg_muted,
+                m.icon_xs(),
+                model.theme.fg_dim,
             ))
         })
         .when(has_activity, |row| {
-            row.child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .min_w(m.control_small())
-                    .h(m.control_small())
-                    .child(tab_activity::status_glyph(
-                        format!("project-activity-{id}"),
-                        activity,
-                        m.icon_sm(),
-                        model,
-                    )),
-            )
-        })
-        .into_any_element()
-}
-
-fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let id = project.id;
-    let theme = &model.theme;
-    let missing = project.status() == ProjectStatus::Missing;
-    div()
-        .flex()
-        .flex_none()
-        .when(
-            (!missing || model.appearance.sidebar_focus) && project.parent_id.is_none(),
-            |row| {
-                row.child(
-                    IconButton::new(
-                        SharedString::from(format!("focus-project-{id}")),
-                        Icon::Eye,
-                        model.metrics.icon_sm(),
-                        model.metrics.control_small(),
-                        theme.fg_muted,
-                        theme.fg,
-                    )
-                    .tooltip(
-                        if model.appearance.sidebar_focus {
-                            model.state.active_workspace().map_or_else(
-                                || tr!("Show All Projects"),
-                                |workspace| tr!("Show “%@”", &workspace.name),
-                            )
-                        } else {
-                            tr!("Focus Project")
-                        },
-                        theme.raised(),
-                        theme.fg,
-                        theme.border,
-                        theme.bg,
-                    )
-                    .on_click(cx.listener(move |model, _, window, cx| {
-                        cx.stop_propagation();
-                        let focus = !model.appearance.sidebar_focus;
-                        if focus {
-                            let selected = model.preferred_worktree(id);
-                            model.select_project(selected, cx);
-                            model.appearance.tab_focused_expanded.insert(selected, true);
-                        }
-                        model.appearance.sidebar_focus = focus;
-                        model.save_appearance(cx);
-                        model.focus_active(window, cx);
-                        cx.notify();
-                    })),
-                )
-            },
-        )
-        .when(!missing, |row| {
-            row.child(
-                div()
-                    .debug_selector(move || format!("project-new-tab-{id}"))
-                    .child(
-                        IconButton::new(
-                            SharedString::from(format!("project-new-tab-{id}")),
-                            Icon::Plus,
-                            model.metrics.icon_sm(),
-                            model.metrics.control_small(),
-                            theme.fg_muted,
-                            theme.fg,
-                        )
-                        .tooltip(
-                            tr!("New Terminal Tab"),
-                            theme.raised(),
-                            theme.fg,
-                            theme.border,
-                            theme.bg,
-                        )
-                        .on_click(cx.listener(
-                            move |model, _, window, cx| {
-                                cx.stop_propagation();
-                                model.select_project(id, cx);
-                                model.new_tab(cx);
-                                model.focus_active(window, cx);
-                            },
-                        )),
-                    ),
-            )
+            row.child(tab_activity::status_glyph(
+                format!("project-activity-{id}"),
+                activity,
+                m.icon_sm(),
+                model,
+            ))
         })
         .into_any_element()
 }
@@ -514,17 +488,16 @@ fn tab_row(
         .when(!model.tab_drag.is_active(), |row| row.group(group.clone()))
         .mx(m.spacing3())
         .my(m.spacing1())
-        .pl(m.control_small() + m.spacing3() * 2.0)
-        .pr(m.spacing3())
-        .h(m.control_large())
+        .pl(m.spacing4())
+        .h(row_height(model))
         .flex()
         .flex_none()
         .items_center()
         .gap(m.spacing3())
-        .rounded(m.radius_lg())
+        .rounded(m.radius_md())
         .cursor_pointer()
-        .text_size(m.font_headline())
-        .text_color(if active { theme.fg } else { theme.fg_muted })
+        .text_size(m.font_body())
+        .text_color(theme.fg)
         .when(active, |row| row.bg(theme.surface))
         .when_some(color, |row, color| {
             row.bg(color.opacity(if active { 0.18 } else { 0.04 }))
@@ -563,18 +536,18 @@ fn tab_row(
         .child(
             div()
                 .debug_selector(move || format!("sidebar-tab-icon-{id}"))
-                .size(m.icon_md())
+                .size(m.icon_sm())
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_center()
                 .child(if let Some((_, agent)) = agent {
-                    tab_activity::provider_icon(agent.provider, m.icon_md(), model)
+                    tab_activity::provider_icon(agent.provider, m.icon_sm(), model)
                 } else {
                     tab_activity::icon(
                         tab,
                         model,
-                        m.icon_md(),
+                        m.icon_sm(),
                         webview_tab_icon(tab, model, active, cx),
                     )
                 }),
@@ -650,7 +623,7 @@ fn close_tab_button(
     div()
         .id(SharedString::from(format!("sidebar-close-{id}")))
         .debug_selector(move || format!("sidebar-close-{id}"))
-        .size(model.metrics.control_small())
+        .size_full()
         .flex()
         .items_center()
         .justify_center()
@@ -684,13 +657,12 @@ fn close_tab_button(
 }
 
 impl AppModel {
-    pub(crate) fn set_project_focus(&mut self, focused: bool, cx: &mut Context<Self>) {
-        self.appearance.sidebar_focus = focused;
-        if focused {
-            let project = self.state.current_project();
-            self.appearance
-                .tab_focused_expanded
-                .insert(project.id, true);
+    pub(crate) fn set_project_focus(&mut self, project: Option<ProjectId>, cx: &mut Context<Self>) {
+        self.appearance.sidebar_focus = project.is_some();
+        if let Some(project) = project {
+            let selected = self.preferred_worktree(project);
+            self.select_project(selected, cx);
+            self.appearance.tab_focused_expanded.insert(selected, true);
         }
         self.save_appearance(cx);
         cx.notify();

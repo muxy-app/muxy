@@ -91,6 +91,9 @@ pub struct Appearance {
     pub project_recent: Vec<crate::ProjectId>,
     pub hidden_worktrees: std::collections::BTreeSet<crate::ProjectId>,
     pub tab_focused_expanded: std::collections::BTreeMap<crate::ProjectId, bool>,
+    pub remember_projects_without_tabs: bool,
+    /// Kept only while `remember_projects_without_tabs` is on.
+    pub projects_without_tabs_shown: bool,
     #[serde(rename = "tab_focused_focus")]
     pub sidebar_focus: bool,
     #[serde(rename = "tab_focused_project_order")]
@@ -137,6 +140,8 @@ impl Default for Appearance {
             project_recent: Vec::new(),
             hidden_worktrees: std::collections::BTreeSet::new(),
             tab_focused_expanded: std::collections::BTreeMap::new(),
+            remember_projects_without_tabs: false,
+            projects_without_tabs_shown: false,
             sidebar_focus: false,
             sidebar_project_order: ProjectOrder::default(),
             extension_sidebar: String::new(),

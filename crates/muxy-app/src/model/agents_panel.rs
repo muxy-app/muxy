@@ -67,17 +67,16 @@ impl Entry {
             Self::Worktree { project, .. } => EntryKey::Worktree(*project),
         }
     }
+}
 
-    pub(crate) fn status(&self) -> AgentStatus {
-        match self {
-            Self::Agent(agent) => agent.status,
-            Self::Worktree { counts, .. } => AgentStatus::ALL
-                .into_iter()
-                .zip(counts)
-                .find(|(_, count)| **count > 0)
-                .map_or(AgentStatus::Idle, |(status, _)| status),
-        }
-    }
+/// Whether the agent at `index` is the first listed for its project, so a
+/// project heading goes above it. Project rows have no headings.
+pub(crate) fn starts_project_group(entries: &[Entry], index: usize) -> bool {
+    let Entry::Agent(agent) = &entries[index] else {
+        return false;
+    };
+    index == 0
+        || !matches!(&entries[index - 1], Entry::Agent(previous) if previous.project == agent.project)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -223,8 +222,13 @@ impl AppModel {
         self.agents_panel_entries_from(self.running_agents())
     }
 
-    pub(crate) fn agents_panel_entries_from(&self, agents: Vec<RunningAgent>) -> Vec<Entry> {
+    /// Agents grouped by project in sidebar order, most urgent first within a
+    /// project; or one row per project running agents.
+    pub(crate) fn agents_panel_entries_from(&self, mut agents: Vec<RunningAgent>) -> Vec<Entry> {
+        let order = self.agents_project_order();
+        let rank = |project: &ProjectId| order.get(project).copied().unwrap_or(usize::MAX);
         if self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents {
+            agents.sort_by_key(|agent| (rank(&agent.project), agent.status));
             return agents.into_iter().map(Entry::Agent).collect();
         }
         let mut entries: Vec<(ProjectId, [usize; 4])> = Vec::new();
@@ -241,15 +245,28 @@ impl AppModel {
                 entries.push((agent.project, counts));
             }
         }
-        let mut entries: Vec<_> = entries
+        entries.sort_by_key(|(project, _)| rank(project));
+        entries
             .into_iter()
             .map(|(project, counts)| Entry::Worktree { project, counts })
+            .collect()
+    }
+
+    /// Each project's position in the sidebar, with worktrees after their project.
+    fn agents_project_order(&self) -> std::collections::HashMap<ProjectId, usize> {
+        let mut parents: Vec<_> = self
+            .state
+            .projects()
+            .iter()
+            .filter(|project| project.parent_id.is_none())
             .collect();
-        entries.sort_by_key(|entry| match entry {
-            Entry::Worktree { counts, .. } => (entry.status(), std::cmp::Reverse(*counts)),
-            Entry::Agent(_) => (entry.status(), std::cmp::Reverse([0; 4])),
-        });
-        entries
+        self.sort_parents(&mut parents);
+        parents
+            .into_iter()
+            .flat_map(|parent| std::iter::once(parent).chain(self.worktree_children(parent.id)))
+            .enumerate()
+            .map(|(index, project)| (project.id, index))
+            .collect()
     }
 
     pub(crate) fn agents_panel_placement(&self) -> Placement {
@@ -375,9 +392,8 @@ impl AppModel {
             .unwrap_or(0);
         let next = current.saturating_add_signed(delta).min(entries.len() - 1);
         self.agents_panel.selected = Some(entries[next].key());
-        let headings = 1 + entries[..=next]
-            .windows(2)
-            .filter(|pair| pair[0].status() != pair[1].status())
+        let headings = (0..=next)
+            .filter(|index| starts_project_group(&entries, *index))
             .count();
         self.agents_panel.scroll.scroll_to_item(next + headings);
         cx.notify();
