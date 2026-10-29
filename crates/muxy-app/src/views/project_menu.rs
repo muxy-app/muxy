@@ -10,7 +10,12 @@ use crate::model::{AppModel, git::Repository};
 
 /// The menu of a top-level project. `worktrees` is `None` when its folder is not
 /// a Git repository, and otherwise whether its worktrees are shown.
-pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>) -> Vec<Item> {
+pub(crate) fn items(
+    state: &AppState,
+    project: &Project,
+    worktrees: Option<bool>,
+    focus: Item,
+) -> Vec<Item> {
     let id = project.id;
     if project.status() != ProjectStatus::Available {
         return removal(project);
@@ -19,6 +24,7 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
         Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
         Item::action(tr!("Existing Terminals…"), Command::ExistingSessions(id)),
         Item::action(tr!("Apply Layout…"), Command::ProjectLayouts(id)),
+        focus.separated(),
     ];
     let icon = Item::submenu(tr!("Icon"), icon_items(project));
     // Another computer's Home goes by its server's name.
@@ -183,10 +189,25 @@ impl AppModel {
                 .projects
                 .get(&project.id)
                 .is_some_and(Repository::not_a_repository);
+        let focus = if self.appearance.sidebar_focus {
+            Item::action(
+                self.state.active_workspace().map_or_else(
+                    || tr!("Show All Projects"),
+                    |workspace| tr!("Show “%@”", &workspace.name),
+                ),
+                Command::FocusProject(None),
+            )
+        } else {
+            Item::action(
+                tr!("Focus Project"),
+                Command::FocusProject(Some(project.id)),
+            )
+        };
         items(
             &self.state,
             project,
             repository.then(|| self.worktrees_visible(project.id)),
+            focus,
         )
     }
 

@@ -147,6 +147,20 @@ pub(super) fn rows(
             ),
         ));
     }
+    if category == Category::Appearance
+        && pane.matches(category, tr_key!("Remember shown projects without tabs"))
+    {
+        rows.push(pane.row(
+            "remember-projects-without-tabs",
+            tr_key!("Remember shown projects without tabs"),
+            pane.toggle(
+                "remember-projects-without-tabs",
+                appearance.remember_projects_without_tabs,
+                Change::RememberProjectsWithoutTabs(!appearance.remember_projects_without_tabs),
+                cx,
+            ),
+        ));
+    }
     for (id, label, value) in [
         (
             "auto-expand-worktrees",

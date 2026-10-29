@@ -1,6 +1,8 @@
 use super::worktrees::{Sent, connected, pruning_fixture};
 use super::*;
-use crate::model::agents_panel::{AgentStatus, Entry, EntryKey, Placement};
+use crate::model::agents_panel::{
+    AgentStatus, Entry, EntryKey, Placement, RunningAgent, starts_project_group,
+};
 use gpui::Modifiers;
 use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
 use muxy_core::shortcuts::ShortcutId;
@@ -91,7 +93,7 @@ fn agents(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext,
 }
 
 #[gpui::test]
-fn the_panel_lists_each_shown_session_once_most_urgent_first(cx: &mut TestAppContext) {
+fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
     let [root_pane, _, worktree_pane, home_pane] = fixture.panes;
     view.read_with(cx, |model, _| {
@@ -112,17 +114,77 @@ fn the_panel_lists_each_shown_session_once_most_urgent_first(cx: &mut TestAppCon
         );
     });
     view.update(cx, |model, _| {
+        let home = model.state.home().id;
+        let entries = model.agents_panel_entries();
+        let panes: Vec<_> = entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Agent(agent) => agent.pane,
+                Entry::Worktree { .. } => unreachable!("agent rows"),
+            })
+            .collect();
+        assert_eq!(
+            panes,
+            [home_pane, root_pane, worktree_pane],
+            "agents follow sidebar order, with a worktree after its project"
+        );
+        assert!(
+            (0..entries.len()).all(|index| starts_project_group(&entries, index)),
+            "each project gets its own heading"
+        );
+
+        let resting = |pane, project, session, status| RunningAgent {
+            server: ServerId::local(),
+            session: SessionId::new(session).expect("session"),
+            project,
+            tab: model.state.project(project).expect("project").tabs[0].id,
+            pane,
+            provider: AgentProvider::Codex,
+            status,
+            finished_at: None,
+        };
+        let entries = model.agents_panel_entries_from(vec![
+            resting(root_pane, fixture.root, 1, AgentStatus::Idle),
+            resting(home_pane, home, 3, AgentStatus::Idle),
+            resting(worktree_pane, fixture.root, 2, AgentStatus::Blocked),
+        ]);
+        let order: Vec<_> = entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Agent(agent) => (agent.project, agent.status),
+                Entry::Worktree { .. } => unreachable!("agent rows"),
+            })
+            .collect();
+        assert_eq!(
+            order,
+            [
+                (home, AgentStatus::Idle),
+                (fixture.root, AgentStatus::Blocked),
+                (fixture.root, AgentStatus::Idle),
+            ],
+            "the most urgent agent leads its project"
+        );
+        assert_eq!(
+            (0..entries.len())
+                .map(|index| starts_project_group(&entries, index))
+                .collect::<Vec<_>>(),
+            [true, true, false]
+        );
+
         model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
         let entries = model.agents_panel_entries();
         assert!(matches!(
-            entries.first(),
-            Some(Entry::Worktree { project, counts: [1, 0, 0, 0] }) if *project == fixture.worktree
+            entries.as_slice(),
+            [
+                Entry::Worktree { project: first, counts: [0, 0, 1, 0] },
+                Entry::Worktree { project: second, counts: [0, 1, 0, 0] },
+                Entry::Worktree { project: third, counts: [1, 0, 0, 0] },
+            ] if *first == home && *second == fixture.root && *third == fixture.worktree
         ));
-        assert!(entries.iter().any(|entry| matches!(
-            entry,
-            Entry::Worktree { project, counts: [0, 1, 0, 0] } if *project == fixture.root
-        )));
-        assert_eq!(entries.len(), 3);
+        assert!(
+            !starts_project_group(&entries, 0),
+            "project rows have no headings"
+        );
     });
 }
 
@@ -595,4 +657,81 @@ fn the_floating_panel_moves_by_its_header_and_resizes_by_its_corner(cx: &mut Tes
         "the header moves it: {x},{y}"
     );
     assert!((width - 380.0).abs() < 0.5, "moving keeps the size");
+}
+
+#[gpui::test]
+fn rows_sit_under_their_project_heading_with_status_on_the_right(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("agents-panel").is_some(), "panel");
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| cx.debug_bounds(selector.leak());
+    let heading = bounds(cx, format!("agents-panel-heading-{}", fixture.root)).expect("heading");
+    let title = bounds(cx, format!("agents-panel-title-{key}")).expect("title");
+    let status = bounds(cx, format!("agents-panel-status-{key}")).expect("status");
+    assert!(heading.bottom() <= title.top());
+    assert!(
+        status.left() >= title.right(),
+        "status sits right of the title"
+    );
+    let name = cx.debug_bounds("agents-panel-name").expect("panel name");
+    let hide = cx.debug_bounds("agents-panel-hide").expect("hide button");
+    assert_eq!(
+        heading.left(),
+        name.left(),
+        "headings line up with the panel name"
+    );
+    assert_eq!(
+        status.right(),
+        hide.right(),
+        "status lines up with the hide button"
+    );
+    assert!(
+        bounds(cx, format!("agents-panel-{key}-progress")).is_some(),
+        "a working agent shows the tab's progress glyph"
+    );
+}
+
+#[gpui::test]
+fn the_docked_panel_matches_the_agents_focused_sidebar(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let tab = view.update(cx, |model, cx| {
+        model.appearance.layout = muxy_app_core::settings::AppLayout::AgentsFocused;
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model
+            .appearance
+            .tab_focused_expanded
+            .insert(fixture.root, true);
+        cx.notify();
+        let root = model.state.project(fixture.root).expect("root");
+        model.sidebar_tabs(root).next().expect("agent tab").id
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| {
+        cx.debug_bounds(selector.leak()).expect("bounds")
+    };
+    let sidebar_row = bounds(cx, format!("sidebar-tab-{tab}"));
+    let panel_row = bounds(cx, format!("agents-panel-row-{key}"));
+    assert_eq!(panel_row.left(), sidebar_row.left());
+    assert_eq!(panel_row.right(), sidebar_row.right());
+    assert_eq!(panel_row.size.height, sidebar_row.size.height);
+    assert_eq!(
+        bounds(cx, format!("agents-panel-heading-{}", fixture.root)).left(),
+        bounds(cx, format!("tab-project-title-{}", fixture.root)).left()
+    );
+    assert_eq!(
+        bounds(cx, format!("agents-panel-status-{key}")).right(),
+        bounds(cx, format!("sidebar-tab-accessory-{tab}")).right()
+    );
 }

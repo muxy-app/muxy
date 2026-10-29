@@ -26,6 +26,9 @@ can't be removed. `Cmd+N` opens a tab in Home.
   - **Project Focused** (default): projects, with worktrees under them.
   - **Tab Focused**: projects with their tabs listed in the sidebar.
   - **Agents Focused**: only tabs running an [AI agent](ai-agents.md).
+- In Tab Focused and Agents Focused, projects without tabs hide behind **N more
+  projects** at the bottom. Turn on **Settings → Appearance → Remember shown
+  projects without tabs** to keep them shown after a restart.
 - Sort by **Manual Order** and drag to reorder, or by **Name**.
 - `Ctrl+1`–`Ctrl+9` jumps to a project. Hold a modifier to see the numbers.
 

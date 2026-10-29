@@ -387,6 +387,12 @@ impl AppModel {
                     && self.project_listed(project)
             })
             .collect();
+        self.sort_parents(&mut parents);
+        parents
+    }
+
+    /// Sorts top-level projects as the sidebar lists them.
+    pub(crate) fn sort_parents(&self, parents: &mut [&Project]) {
         let server = |project: &Project| {
             self.settings
                 .servers
@@ -394,13 +400,12 @@ impl AppModel {
                 .position(|entry| entry.id == project.server_id)
                 .map_or(0, |index| index + 1)
         };
-        self.sort_projects(&mut parents);
+        self.sort_projects(parents);
         if self.state.remote_servers_selected()
             || self.appearance.sidebar_project_order != ProjectOrder::Manual
         {
             parents.sort_by_cached_key(|project| server(project));
         }
-        parents
     }
 
     pub(crate) fn sort_projects(&self, projects: &mut [&Project]) {
@@ -548,6 +553,11 @@ fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
+fn current_parent(model: &AppModel) -> ProjectId {
+    let project = model.state.current_project();
+    project.parent_id.unwrap_or(project.id)
+}
+
 fn filter_items(model: &AppModel) -> Vec<Item> {
     let focused = model.appearance.sidebar_focus;
     let active = model.state.active_workspace().map(|workspace| workspace.id);
@@ -570,9 +580,12 @@ fn filter_items(model: &AppModel) -> Vec<Item> {
         .checked_if(!focused && active == Some(workspace.id))
     }));
     items.push(
-        Item::action(tr!("Focus Current Project"), Command::FocusProject(true))
-            .checked_if(focused)
-            .separated(),
+        Item::action(
+            tr!("Focus Current Project"),
+            Command::FocusProject(Some(current_parent(model))),
+        )
+        .checked_if(focused)
+        .separated(),
     );
     items.push(Item::action(tr!("New Workspace…"), Command::NewWorkspace(None)).separated());
     if let Some(id) = active {

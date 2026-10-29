@@ -108,6 +108,10 @@ struct CloseRequest {
     restart: Option<bool>,
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent window state flags"
+)]
 pub(crate) struct AppModel {
     pub(crate) extensions: extensions::Runtime,
     pub(crate) sidebar_view: Entity<crate::views::cached::CachedView<Self>>,
@@ -180,6 +184,7 @@ pub(crate) struct AppModel {
     pub(crate) project_logos: crate::views::project_editor::logo::Cache,
     pub(crate) expanded_worktrees: HashSet<ProjectId>,
     pub(crate) tab_sidebar_selection: Option<(ProjectId, Option<TabId>)>,
+    pub(crate) projects_without_tabs_shown: bool,
     pub(crate) shortcut_hints: crate::views::shortcut_hints::ShortcutHints,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
@@ -527,6 +532,8 @@ impl AppModel {
             project_logos: HashMap::new(),
             expanded_worktrees: HashSet::new(),
             tab_sidebar_selection: None,
+            projects_without_tabs_shown: boot.settings.appearance.remember_projects_without_tabs
+                && boot.settings.appearance.projects_without_tabs_shown,
             shortcut_hints: crate::views::shortcut_hints::ShortcutHints::default(),
             settings: boot.settings,
             terminal: boot.terminal,
@@ -2859,6 +2866,7 @@ mod tests {
     mod splits;
     mod tab_groups;
     mod tab_menu;
+    mod tab_sidebar;
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     mod updates;
     mod worktrees;

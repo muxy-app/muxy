@@ -125,6 +125,7 @@ pub(crate) enum Change {
     AgentsPanelOption(&'static str, bool),
     StatusBar(bool),
     Tips(bool),
+    RememberProjectsWithoutTabs(bool),
     ConfirmProcess(bool),
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
     Terminal(&'static str, String),

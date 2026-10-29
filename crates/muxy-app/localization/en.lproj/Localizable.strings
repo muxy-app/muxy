@@ -61,6 +61,7 @@
 "%lld Changes" = "%lld Changes";
 "%lld Existing Terminals" = "%lld Existing Terminals";
 "%lld failing" = "%lld failing";
+"%lld more projects" = "%lld more projects";
 "%lld need input" = "%lld need input";
 "%lld of %lld" = "%lld of %lld";
 "%lld of %lld…" = "%lld of %lld…";
@@ -78,6 +79,7 @@
 "%lldm ago" = "%lldm ago";
 "1 Change" = "1 Change";
 "1 Existing Terminal" = "1 Existing Terminal";
+"1 more project" = "1 more project";
 "1 unread notification" = "1 unread notification";
 "A Git action is already pending" = "A Git action is already pending";
 "A Unicode range, such as U+E000-U+F8FF." = "A Unicode range, such as U+E000-U+F8FF.";
@@ -370,7 +372,6 @@
 "Committed and pushed" = "Committed and pushed";
 "Committed locally" = "Committed locally";
 "Committing" = "Committing";
-"Completed" = "Completed";
 "Composer" = "Composer";
 "Composer font" = "Composer font";
 "Composer image storage is unavailable" = "Composer image storage is unavailable";
@@ -693,6 +694,7 @@
 "Hide Tips" = "Hide Tips";
 "Hide Tips?" = "Hide Tips?";
 "Hide agents panel" = "Hide agents panel";
+"Hide projects without tabs" = "Hide projects without tabs";
 "Hides the panel" = "Hides the panel";
 "Hiding apps is not available on this platform." = "Hiding apps is not available on this platform.";
 "History & Bookmarks" = "History & Bookmarks";
@@ -710,7 +712,6 @@
 "Icons" = "Icons";
 "Identity file" = "Identity file";
 "Identity file (automatic)" = "Identity file (automatic)";
-"Idle" = "Idle";
 "Ignore key" = "Ignore key";
 "Image submission" = "Image submission";
 "Import cancelled." = "Import cancelled.";
@@ -782,6 +783,7 @@
 "Its projects and layouts leave this app; nothing on the server changes." = "Its projects and layouts leave this app; nothing on the server changes.";
 "Just now" = "Just now";
 "Keep Waiting" = "Keep Waiting";
+"Keep projects without tabs shown after a restart in Tab Focused and Agents Focused." = "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused.";
 "Key" = "Key";
 "Key bindings" = "Key bindings";
 "Keyboard" = "Keyboard";
@@ -906,7 +908,6 @@
 "Name" = "Name";
 "Name (A–Z)" = "Name (A–Z)";
 "Name (Z–A)" = "Name (Z–A)";
-"Needs input" = "Needs input";
 "Needs your attention" = "Needs your attention";
 "Neither" = "Neither";
 "Network port phones connect to, from 1024 to 65535." = "Network port phones connect to, from 1024 to 65535.";
@@ -1138,6 +1139,7 @@
 "Reload terminal settings" = "Reload terminal settings";
 "Reloaded" = "Reloaded";
 "Reloading…" = "Reloading…";
+"Remember shown projects without tabs" = "Remember shown projects without tabs";
 "Remote" = "Remote";
 "Remote Servers" = "Remote Servers";
 "Remote Servers…" = "Remote Servers…";

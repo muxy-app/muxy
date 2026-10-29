@@ -378,6 +378,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "remember-projects-without-tabs",
+        label: tr_key!("Remember shown projects without tabs"),
+        description: tr_key!(
+            "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "auto-expand-worktrees",
         label: tr_key!("Expand worktrees when switching projects"),
         description: tr_key!("Reveal worktrees when selecting a project in Project Focused."),

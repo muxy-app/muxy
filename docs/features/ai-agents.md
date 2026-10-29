@@ -68,10 +68,10 @@ focus. Use the arrow keys and Return to open a row.
   edges or corner to resize it; Muxy remembers where. **Reattach to Sidebar** or
   **Reattach to Right Panel** docks it on its last side. The other side's move
   button is also available while floating.
-- **Settings → Appearance → Agents panel rows** lists each agent, grouped as
-  needs input, working, completed, and idle, where Return opens its pane; or
-  each project and worktree running agents, with counts, where Return opens
-  the worktree.
+- **Settings → Appearance → Agents panel rows** lists each agent under its
+  project, most urgent first, with its status on the right like its tab, where
+  Return opens its pane; or each project and worktree running agents, with
+  counts, where Return opens the worktree.
 - **Settings → Appearance → Agents panel icon** shows each row's agent icon,
   or the icon of its project. Worktrees show their project's icon.
 - **Settings → Appearance → Show project colors** marks each row with its
