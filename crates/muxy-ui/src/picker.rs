@@ -337,6 +337,7 @@ pub enum PickerLeading {
 pub struct PickerAction {
     pub id: SharedString,
     pub label: SharedString,
+    pub shortcut: Option<SharedString>,
     pub icon: Option<PickerLeading>,
     pub icon_only: bool,
     pub destructive: bool,
@@ -348,6 +349,7 @@ impl PickerAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             icon: None,
             icon_only: false,
             destructive: false,
@@ -1776,7 +1778,11 @@ impl Picker {
                 metrics: &self.metrics,
             },
             &id,
-            if action.icon_only { "" } else { &action.label },
+            if action.icon_only || action.shortcut.is_some() {
+                ""
+            } else {
+                &action.label
+            },
             !action.disabled,
             cx.listener(move |_, _, _, cx| {
                 cx.emit(PickerEvent::FooterAction(action_id.clone()));
@@ -1795,8 +1801,16 @@ impl Picker {
                 button
                     .h(self.metrics.control_small())
                     .px(self.metrics.spacing3())
+                    .when(!action.icon_only, |button| {
+                        button.flex_initial().min_w(px(0.0))
+                    })
             },
         )
+        .when_some(action.shortcut.as_ref(), |button, shortcut| {
+            button
+                .gap_0()
+                .child(self.render_footer_label(action, shortcut))
+        })
         .when_some(action.icon.clone(), |element, icon| {
             element.child(Self::render_leading(
                 &icon,
@@ -1805,26 +1819,54 @@ impl Picker {
             ))
         })
         .when(action.icon_only, |button| {
-            let label = action.label.clone();
+            button.w(self.metrics.control_small()).px_0().gap_0()
+        })
+        .when(action.icon_only || action.shortcut.is_some(), |button| {
+            let label = action.shortcut.as_ref().map_or_else(
+                || action.label.clone(),
+                |shortcut| format!("{} ({shortcut})", action.label).into(),
+            );
             let theme = self.theme.clone();
-            button
-                .w(self.metrics.control_small())
-                .px_0()
-                .gap_0()
-                .tooltip(move |_, cx| {
-                    cx.new(|_| {
-                        Tooltip::new(
-                            label.clone(),
-                            theme.raised(),
-                            theme.fg,
-                            theme.border,
-                            theme.bg,
-                        )
-                    })
-                    .into()
+            button.tooltip(move |_, cx| {
+                cx.new(|_| {
+                    Tooltip::new(
+                        label.clone(),
+                        theme.raised(),
+                        theme.fg,
+                        theme.border,
+                        theme.bg,
+                    )
                 })
+                .into()
+            })
         })
         .into_any_element()
+    }
+
+    fn render_footer_label(&self, action: &PickerAction, shortcut: &SharedString) -> AnyElement {
+        let label_id = format!("picker-footer-label-{}", action.id);
+        let shortcut_id = format!("picker-footer-shortcut-{}", action.id);
+        div()
+            .flex()
+            .min_w(px(0.0))
+            .items_center()
+            .gap(self.metrics.spacing2())
+            .child(
+                div()
+                    .debug_selector(move || label_id.clone())
+                    .min_w(px(0.0))
+                    .truncate()
+                    .child(action.label.clone()),
+            )
+            .child(
+                div()
+                    .debug_selector(move || shortcut_id.clone())
+                    .flex_none()
+                    .text_size(self.metrics.font_caption())
+                    .text_color(self.theme.fg_muted)
+                    .child(shortcut.clone()),
+            )
+            .into_any_element()
     }
 
     #[allow(
@@ -2375,6 +2417,88 @@ mod gpui_regression_tests {
                     PickerEvent::FooterAction("finder".into()),
                     PickerEvent::FooterAction("location".into()),
                 ]
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn compact_footer_keeps_long_shortcuts_visible_when_the_panel_narrows(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, PickerPresentation::Modal, true);
+        let popover = host.read_with(cx, |host, _| host.popover.clone());
+        popover.update(cx, |popover, cx| {
+            popover.config.footer_style = PickerFooterStyle::Compact;
+            let mut primary = PickerAction::new("primary", "Create & Add Project");
+            primary.shortcut = Some("ctrl-alt-enter".into());
+            let mut secondary = PickerAction::new("secondary", "Terminal in Home");
+            secondary.shortcut = Some("ctrl-shift-enter".into());
+            popover.set_footer_actions(
+                vec![
+                    primary,
+                    secondary,
+                    PickerAction::new("finder", "Finder…").icon_only(Icon::Folder),
+                    PickerAction::new("location", "Search Location…").icon_only(Icon::Search),
+                ],
+                cx,
+            );
+        });
+        let ids = [
+            "picker-footer-primary",
+            "picker-footer-secondary",
+            "picker-footer-finder",
+            "picker-footer-location",
+        ];
+        let mut hint_widths = None;
+        for width in [600.0, 360.0] {
+            cx.simulate_resize(gpui::size(px(width), px(600.0)));
+            cx.run_until_parked();
+            let panel = cx.debug_bounds("tested-popover").expect("panel");
+            let actions = ids.map(|id| cx.debug_bounds(id).expect("button"));
+            for action in actions {
+                assert!(action.left() >= panel.left());
+                assert!(action.right() <= panel.right());
+                assert_eq!(action.top(), actions[0].top());
+                assert_eq!(action.size.height, px(20.0));
+            }
+            for pair in actions.windows(2) {
+                assert!(pair[0].right() < pair[1].left());
+            }
+            let hints = [
+                (
+                    "picker-footer-label-primary",
+                    "picker-footer-shortcut-primary",
+                ),
+                (
+                    "picker-footer-label-secondary",
+                    "picker-footer-shortcut-secondary",
+                ),
+            ]
+            .map(|(label, shortcut)| {
+                let label = cx.debug_bounds(label).expect("label");
+                let shortcut = cx.debug_bounds(shortcut).expect("shortcut");
+                assert!(label.size.width > px(0.0));
+                assert!(label.right() < shortcut.left());
+                shortcut
+            });
+            for (hint, action) in hints.into_iter().zip(actions) {
+                assert!(hint.left() >= action.left());
+                assert!(hint.right() <= action.right());
+            }
+            let widths = hints.map(|hint| hint.size.width);
+            if let Some(previous) = hint_widths {
+                assert_eq!(widths, previous);
+            }
+            hint_widths = Some(widths);
+        }
+        for id in ids {
+            let bounds = cx.debug_bounds(id).expect("button");
+            cx.simulate_click(bounds.center(), gpui::Modifiers::none());
+            cx.run_until_parked();
+        }
+        host.read_with(cx, |host, _| {
+            assert_eq!(
+                host.events,
+                ["primary", "secondary", "finder", "location"]
+                    .map(|id| PickerEvent::FooterAction(id.into()))
             );
         });
     }

@@ -477,9 +477,7 @@ impl ProjectPicker {
         .into_iter()
         .zip(&self.shortcuts)
         .map(|(mut action, shortcut)| {
-            if let Some(shortcut) = shortcut {
-                action.label = format!("{} ({shortcut})", action.label).into();
-            }
+            action.shortcut = shortcut.clone().map(Into::into);
             action.disabled(disabled)
         })
         .collect();
