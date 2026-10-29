@@ -188,7 +188,7 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
                 .gap(m.spacing3())
                 .pb(m.spacing3())
                 .when(model.appearance.sidebar_expanded, |footer| {
-                    footer.px(m.spacing3())
+                    footer.justify_between().px(m.spacing3())
                 })
                 .when(!model.appearance.sidebar_expanded, |footer| {
                     footer.flex_col()
@@ -198,6 +198,15 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
                 .child(add_project_button(model, cx)),
         )
         .into_any_element()
+}
+
+/// The side of the square icon buttons at the bottom of the sidebar.
+pub(super) fn footer_button_size(model: &AppModel) -> Pixels {
+    if model.appearance.sidebar_expanded {
+        model.metrics.control_large()
+    } else {
+        model.metrics.scaled(34.0)
+    }
 }
 
 fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -210,13 +219,8 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .flex_none()
         .items_center()
         .justify_center()
-        .size(if model.appearance.sidebar_expanded {
-            m.control_large()
-        } else {
-            m.scaled(34.0)
-        })
+        .size(footer_button_size(model))
         .rounded(m.radius_xl())
-        .bg(model.theme.surface)
         .cursor_pointer()
         .hover(|style| style.bg(model.theme.hover))
         .focus(|style| style.bg(model.theme.hover))

@@ -795,6 +795,7 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
         div()
             .id("agents-panel-button")
             .debug_selector(|| "agents-panel-button".into())
+            .group("agents-panel-button")
             .relative()
             .flex()
             .flex_none()
@@ -804,7 +805,7 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
             .mb(m.spacing2())
             .size(m.scaled(34.0))
             .rounded(m.radius_xl())
-            .bg(if open { theme.hover } else { theme.surface })
+            .when(open, |button| button.bg(theme.hover))
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover))
             .tooltip(super::status_bar::tooltip(tr!("Agents").to_string(), model))
@@ -816,11 +817,14 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
                     model.toggle_agents_panel(window, cx);
                 }
             }))
-            .child(IconGlyph::new(
-                Icon::TerminalStack,
-                m.font_body(),
-                theme.fg_muted,
-            ))
+            .child(
+                IconGlyph::new(
+                    Icon::TerminalStack,
+                    m.font_body(),
+                    if open { theme.fg } else { theme.fg_muted },
+                )
+                .hover_in_group("agents-panel-button", theme.fg),
+            )
             .children(urgent.map(|status| {
                 div()
                     .absolute()
