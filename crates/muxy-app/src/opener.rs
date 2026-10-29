@@ -37,15 +37,6 @@ pub(crate) fn reveal_label() -> gpui::SharedString {
     }
 }
 
-/// The action that picks a folder in the system's own dialog.
-pub(crate) fn browse_label() -> gpui::SharedString {
-    if cfg!(target_os = "macos") {
-        tr!("Finder…")
-    } else {
-        tr!("Browse…")
-    }
-}
-
 pub(crate) fn submit<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> io::Result<async_channel::Receiver<T>> {

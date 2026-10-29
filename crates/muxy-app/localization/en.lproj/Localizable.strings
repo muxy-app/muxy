@@ -468,7 +468,6 @@
 "Could not save composer: %@" = "Could not save composer: %@";
 "Could not save panel pin: %@" = "Could not save panel pin: %@";
 "Could not save project prompt: %@" = "Could not save project prompt: %@";
-"Could not save search location: %@" = "Could not save search location: %@";
 "Could not save tabs" = "Could not save tabs";
 "Could not save tabs: %@" = "Could not save tabs: %@";
 "Could not save the update schedule: %@" = "Could not save the update schedule: %@";
@@ -646,7 +645,6 @@
 "Find and install language packs in Extensions." = "Find and install language packs in Extensions.";
 "Find in terminal…" = "Find in terminal…";
 "Find on page" = "Find on page";
-"Finder…" = "Finder…";
 "Finding SSH key…" = "Finding SSH key…";
 "Find…" = "Find…";
 "Finish Dictation" = "Finish Dictation";
@@ -1251,7 +1249,6 @@
 "Scroll to bottom when typing" = "Scroll to bottom when typing";
 "Scroll to top" = "Scroll to top";
 "Scrolling" = "Scrolling";
-"Search Location…" = "Search Location…";
 "Search branches…" = "Search branches…";
 "Search changes…" = "Search changes…";
 "Search commands…" = "Search commands…";
@@ -1277,10 +1274,8 @@
 "Select All" = "Select All";
 "Select Command Output" = "Select Command Output";
 "Select a local project to browse its saved agent sessions." = "Select a local project to browse its saved agent sessions.";
-"Select a project folder" = "Select a project folder";
 "Select all" = "Select all";
 "Select an element to copy its HTML and text" = "Select an element to copy its HTML and text";
-"Select where Muxy searches for project folders" = "Select where Muxy searches for project folders";
 "Selection" = "Selection";
 "Selection color" = "Selection color";
 "Selection text color" = "Selection text color";

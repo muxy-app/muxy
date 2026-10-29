@@ -256,7 +256,7 @@ impl AppModel {
             .unwrap_or_else(ServerId::local)
     }
 
-    pub(super) fn generation(&self, server: ServerId) -> u64 {
+    pub(crate) fn generation(&self, server: ServerId) -> u64 {
         self.servers
             .get(server)
             .map_or(0, |runtime| runtime.generation)

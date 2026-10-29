@@ -34,7 +34,7 @@ adds a project with its first terminal, or selects an existing project without
 opening another terminal; ⌘Enter opens a terminal at that folder in its
 computer's Home project without adding a project. Missing folders require an
 explicit creation confirmation when adding a project and cannot open a
-terminal. The local picker also offers Finder browsing and a search location.
+terminal.
 Selecting a server browses its folders; ⌘Enter opens a terminal in its Home,
 connecting first if needed. Clicking a server in the Remote popover offers
 **New Tab** too.

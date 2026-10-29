@@ -337,18 +337,6 @@ impl AppModel {
         self.refresh_theme(cx);
     }
 
-    pub(crate) fn save_project_search_root(&mut self, root: PathBuf, cx: &mut Context<Self>) {
-        if let Err(error) = self
-            .settings
-            .set_project_search_root(root, &self.path.with_file_name("settings.toml"))
-        {
-            self.fail(
-                tr!("Could not save search location: %@", error.to_string()).to_string(),
-                cx,
-            );
-        }
-    }
-
     pub(crate) fn save_appearance(&mut self, cx: &mut Context<Self>) {
         match self.appearance.save_changes(
             &self.settings.appearance,

@@ -45,12 +45,6 @@ pub(crate) enum PickerEvent {
         create_if_missing: bool,
         home_terminal: bool,
     },
-    ChooseFinder {
-        directory: String,
-    },
-    EditSearchLocation {
-        directory: String,
-    },
     Dismiss,
 }
 
@@ -176,8 +170,6 @@ impl ProjectPicker {
                     ListEvent::FooterAction(action) => match action.as_ref() {
                         "open-terminal" => project_picker.confirm(true, cx),
                         "confirm-path" => project_picker.confirm(false, cx),
-                        "finder" => project_picker.choose_finder(cx),
-                        "location" => project_picker.edit_search_location(cx),
                         _ => {}
                     },
                     ListEvent::Dismissed => cx.emit(PickerEvent::Dismiss),
@@ -218,28 +210,14 @@ impl ProjectPicker {
             return false;
         }
         let items = self.targets.items(self.session.search_query());
-        if items.is_empty() {
+        let has_project = items.iter().any(|item| {
+            matches!(item, PickerItem::Row(row) if matches!(self.targets.action(&row.id), Some(Target::Project(_))))
+        });
+        if !has_project {
             return false;
         }
         self.session.apply_search_snapshot(Snapshot::default());
-        self.picker.update(cx, |picker, cx| {
-            picker.set_items(items, cx);
-            picker.set_status(PickerStatus::Ready, cx);
-            picker.set_can_navigate_back(false, cx);
-            picker.set_footer_actions(
-                self.footer_actions(
-                    picker
-                        .selected_row_id()
-                        .and_then(|id| self.targets.action(id))
-                        .copied(),
-                    picker.selected_row_id().is_none(),
-                ),
-                cx,
-            );
-            picker
-                .input()
-                .update(cx, |input, cx| input.set_ghost("", cx));
-        });
+        self.sync_picker(cx);
         true
     }
 
@@ -299,7 +277,17 @@ impl ProjectPicker {
                     let snapshot = cx
                         .background_executor()
                         .spawn(async move {
-                            search.search(&query, &root, &paths, SEARCH_RESULT_LIMIT, &cancelled)
+                            let mut snapshot = search.search(
+                                &query,
+                                &root,
+                                &paths,
+                                SEARCH_RESULT_LIMIT,
+                                &cancelled,
+                            );
+                            snapshot
+                                .results
+                                .retain(|result| Path::new(&result.path).is_dir());
+                            snapshot
                         })
                         .await;
                     let _ = picker.update(cx, |picker, cx| {
@@ -420,7 +408,15 @@ impl ProjectPicker {
             row.disabled = true;
             items.push(PickerItem::Row(row));
         }
+        let targets = if self.session.input_mode() == InputMode::FolderSearch {
+            self.targets.items(self.session.search_query())
+        } else {
+            Vec::new()
+        };
+        let has_targets = !targets.is_empty();
+        items.splice(..0, targets);
         let status = match self.session.load_state {
+            _ if has_targets => PickerStatus::Ready,
             LoadState::Loading {
                 shows_message: true,
             } => PickerStatus::Loading(tr!("Loading folders…")),
@@ -438,23 +434,41 @@ impl ProjectPicker {
             LoadState::Loaded => PickerStatus::Ready,
         };
         let ghost = self.session.ghost_text();
-        let actions = self.footer_actions(None, self.session.confirmation_path().is_none());
         self.picker.update(cx, |picker, cx| {
             picker.set_items(items, cx);
             picker.set_status(status, cx);
-            if let Some(index) = self.session.highlighted_index {
-                let prefix = match self.session.input_mode() {
-                    InputMode::FolderSearch => "search",
-                    InputMode::Path => "path",
-                };
-                let _ = picker.select_row(&format!("{prefix}-{index}"), cx);
-            }
-            picker.set_footer_actions(actions, cx);
+            self.sync_selection(picker, cx);
             picker.set_can_navigate_back(self.session.input_mode() == InputMode::Path, cx);
             picker
                 .input()
                 .update(cx, |input, cx| input.set_ghost(ghost, cx));
         });
+    }
+
+    fn sync_selection(&self, picker: &mut Picker, cx: &mut Context<Picker>) {
+        if picker
+            .selected_row_id()
+            .and_then(|id| self.targets.action(id))
+            .is_none()
+            && let Some(index) = self.session.highlighted_index
+        {
+            let prefix = match self.session.input_mode() {
+                InputMode::FolderSearch => "search",
+                InputMode::Path => "path",
+            };
+            let _ = picker.select_row(&format!("{prefix}-{index}"), cx);
+        }
+        let target = picker
+            .selected_row_id()
+            .and_then(|id| self.targets.action(id))
+            .copied();
+        picker.set_footer_actions(
+            self.footer_actions(
+                target,
+                target.is_none() && self.session.confirmation_path().is_none(),
+            ),
+            cx,
+        );
     }
 
     fn footer_actions(&self, target: Option<Target>, disabled: bool) -> Vec<PickerAction> {
@@ -470,7 +484,7 @@ impl ProjectPicker {
             }
             None => self.session.top_right_action_title(),
         };
-        let mut actions: Vec<_> = [
+        [
             PickerAction::new("confirm-path", muxy_ui::l10n::translate(title)),
             PickerAction::new("open-terminal", tr!("Terminal in Home")),
         ]
@@ -480,16 +494,7 @@ impl ProjectPicker {
             action.shortcut = shortcut.clone().map(Into::into);
             action.disabled(disabled)
         })
-        .collect();
-        if self.remote.is_none() {
-            actions.push(
-                PickerAction::new("finder", crate::opener::browse_label()).icon_only(Icon::Folder),
-            );
-            actions.push(
-                PickerAction::new("location", tr!("Search Location…")).icon_only(Icon::Search),
-            );
-        }
-        actions
+        .collect()
     }
 
     fn activate(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -534,10 +539,13 @@ impl ProjectPicker {
         };
         self.session.select_row(index);
         let ghost = self.session.ghost_text();
-        self.picker
-            .read(cx)
-            .input()
-            .update(cx, |input, cx| input.set_ghost(ghost, cx));
+        let actions = self.footer_actions(None, self.session.confirmation_path().is_none());
+        self.picker.update(cx, |picker, cx| {
+            picker.set_footer_actions(actions, cx);
+            picker
+                .input()
+                .update(cx, |input, cx| input.set_ghost(ghost, cx));
+        });
     }
 
     fn apply_input(&mut self, cx: &mut Context<Self>) {
@@ -553,6 +561,15 @@ impl ProjectPicker {
     }
 
     fn complete_highlighted(&mut self, cx: &mut Context<Self>) {
+        if self
+            .picker
+            .read(cx)
+            .selected_row_id()
+            .and_then(|id| self.targets.action(id))
+            .is_some()
+        {
+            return;
+        }
         self.session.complete_highlighted();
         self.apply_input(cx);
     }
@@ -596,24 +613,6 @@ impl ProjectPicker {
         }
         let parent = self.session.path_service.abbreviated_display_path(&parent);
         Some(tr!("There is no folder named %@ in %@", name, &parent).to_string())
-    }
-
-    fn choose_finder(&self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            return;
-        }
-        cx.emit(PickerEvent::ChooseFinder {
-            directory: self.session.path_state().directory_path,
-        });
-    }
-
-    fn edit_search_location(&self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            return;
-        }
-        cx.emit(PickerEvent::EditSearchLocation {
-            directory: self.session.search_root_path.clone(),
-        });
     }
 
     fn cache_items(&mut self, directory: &str, items: Vec<DirectoryItem>) {
@@ -754,7 +753,7 @@ impl AppModel {
                         target,
                         home_terminal,
                     } => {
-                        model.confirm_project_target(*target, *home_terminal, cx);
+                        model.confirm_project_target(picker, *target, *home_terminal, cx);
                     }
                     PickerEvent::Confirm {
                         path,
@@ -775,7 +774,11 @@ impl AppModel {
                         home_terminal: true,
                         ..
                     } => {
-                        model.open_home_terminal(ServerId::local(), path, cx);
+                        model.open_home_terminal(
+                            ServerId::local(),
+                            Path::new(&path_service::standardize(path)),
+                            cx,
+                        );
                     }
                     PickerEvent::Confirm {
                         path,
@@ -783,12 +786,6 @@ impl AppModel {
                         ..
                     } => {
                         model.confirm_project_path(path, *create_if_missing, cx);
-                    }
-                    PickerEvent::ChooseFinder { directory } => {
-                        model.choose_project_folder(directory.clone(), false, cx);
-                    }
-                    PickerEvent::EditSearchLocation { directory } => {
-                        model.choose_project_folder(directory.clone(), true, cx);
                     }
                     PickerEvent::Dismiss => model.dismiss_overlay(cx),
                 }),
@@ -799,6 +796,7 @@ impl AppModel {
 
     fn confirm_project_target(
         &mut self,
+        picker: Entity<ProjectPicker>,
         target: Target,
         home_terminal: bool,
         cx: &mut Context<Self>,
@@ -819,8 +817,51 @@ impl AppModel {
                     return;
                 }
                 let server = project.server_id;
-                let path = project.directory.to_string_lossy().into_owned();
-                self.open_home_terminal(server, &path, cx);
+                let path = project.directory.clone();
+                if server.is_local() {
+                    self.open_home_terminal(server, &path, cx);
+                    return;
+                }
+                let files = match self.remote_files(server, cx) {
+                    Ok(files) => files,
+                    Err(error) => {
+                        self.project_picker_error(error, cx);
+                        return;
+                    }
+                };
+                let generation = picker.read(cx).generation;
+                let connection = self.generation(server);
+                picker.read(cx).picker.clone().update(cx, |picker, cx| {
+                    picker.set_status(PickerStatus::Loading(tr!("Checking folder…")), cx);
+                });
+                self.close_prompt = Some(cx.spawn(async move |model, cx| {
+                    let available = cx
+                        .background_executor()
+                        .spawn(async move { files.folder_available(id, false) })
+                        .await;
+                    let _ = model.update(cx, |model, cx| {
+                        model.finish_confirmation(cx);
+                        if !current_picker(model, &picker, generation, cx) {
+                            return;
+                        }
+                        let current = model.generation(server) == connection
+                            && model.server_ready(server)
+                            && model.state.project(id).is_some_and(|project| {
+                                project.server_id == server && project.directory == path
+                            });
+                        match available {
+                            Some(true) if current => model.open_home_terminal(server, &path, cx),
+                            Some(false) => model.project_picker_error(
+                                tr!("Choose an existing folder for the terminal.").to_string(),
+                                cx,
+                            ),
+                            _ => model.project_picker_error(
+                                tr!("Could not read this folder").to_string(),
+                                cx,
+                            ),
+                        }
+                    });
+                }));
             }
             Target::Project(id) => self.show_project(id, cx),
             Target::Server(server) => {
@@ -903,7 +944,11 @@ impl AppModel {
                 }
                 match result {
                     Ok(Some(TypedPathState::Directory)) if home_terminal => {
-                        model.open_home_terminal(server, &path, cx);
+                        model.open_home_terminal(
+                            server,
+                            Path::new(&path_service::standardize(&path)),
+                            cx,
+                        );
                     }
                     Ok(Some(TypedPathState::Directory)) => {
                         model.open_remote_project_path(server, &path, cx);
@@ -968,11 +1013,10 @@ impl AppModel {
         }
     }
 
-    fn open_home_terminal(&mut self, server: ServerId, path: &str, cx: &mut Context<Self>) {
+    fn open_home_terminal(&mut self, server: ServerId, path: &Path, cx: &mut Context<Self>) {
         if self.close_prompt.is_some() {
             return;
         }
-        let path = PathBuf::from(path_service::standardize(path));
         if server.is_local() && !path.is_dir() {
             self.project_picker_error(
                 tr!("Choose an existing folder for the terminal.").to_string(),
@@ -980,7 +1024,7 @@ impl AppModel {
             );
             return;
         }
-        if self.new_home_tab_at(server, &path, cx) {
+        if self.new_home_tab_at(server, path, cx) {
             self.dismiss_overlay(cx);
         } else if let Some(error) = self.error.clone() {
             self.project_picker_error(error, cx);
@@ -1136,32 +1180,6 @@ impl AppModel {
             self.fail(error, cx);
         }
     }
-
-    fn choose_project_folder(
-        &mut self,
-        directory: String,
-        search_location: bool,
-        cx: &mut Context<Self>,
-    ) {
-        if self.close_prompt.is_some() {
-            return;
-        }
-        self.dismiss_overlay(cx);
-        let window = self.window;
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = folder_prompt(window, directory.into(), search_location, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                match response {
-                    Ok(Some(path)) if search_location => model.save_project_search_root(path, cx),
-                    Ok(Some(path)) => model.open_project_path(path, true, cx),
-                    Ok(None) => {}
-                    Err(error) => model.fail(error, cx),
-                }
-                cx.notify();
-            });
-        }));
-    }
 }
 
 fn confirmation_shortcut(keymap: &Keymap, id: ShortcutId) -> Option<String> {
@@ -1243,60 +1261,6 @@ async fn create_prompt(
         })
         .map_err(|error| error.to_string())?;
     Ok(response.await == Ok(0))
-}
-
-#[cfg(not(test))]
-async fn folder_prompt(
-    window: gpui::AnyWindowHandle,
-    directory: PathBuf,
-    search_location: bool,
-    cx: &mut gpui::AsyncApp,
-) -> Result<Option<PathBuf>, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, _, cx| {
-            muxy_ui::dialog::choose_folder(
-                cx,
-                &if search_location {
-                    tr!("Select where Muxy searches for project folders")
-                } else {
-                    tr!("Select a project folder")
-                },
-                &directory,
-                move |path| {
-                    let _ = sender.try_send(path);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())?;
-    match receiver.recv().await {
-        Ok(answer) => answer.map_err(|error| error.to_string()),
-        Err(_) => Ok(None),
-    }
-}
-
-#[cfg(test)]
-async fn folder_prompt(
-    _: gpui::AnyWindowHandle,
-    _: PathBuf,
-    _: bool,
-    cx: &mut gpui::AsyncApp,
-) -> Result<Option<PathBuf>, String> {
-    let response = cx.update(|cx| {
-        cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: None,
-        })
-    });
-    response
-        .map_err(|error| error.to_string())?
-        .await
-        .map_err(|error| error.to_string())?
-        .map(|paths| paths.and_then(|paths| paths.into_iter().next()))
-        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn display_path(path: &Path) -> String {

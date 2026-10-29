@@ -1,5 +1,7 @@
 use super::*;
 use muxy_core::shortcuts::ShortcutId;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 fn open_picker(cx: &mut VisualTestContext) {
     cx.simulate_keystrokes(ShortcutId::AddProject.definition().keys[0]);
@@ -33,11 +35,11 @@ fn replace_query(cx: &mut VisualTestContext, query: &str) {
 #[gpui::test]
 fn saved_project_matches_win_over_folders_and_pending_searches(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().expect("root");
-    std::fs::create_dir(root.path().join("Saved")).expect("saved folder");
+    std::fs::create_dir(root.path().join("Needle saved")).expect("saved folder");
     std::fs::create_dir(root.path().join("Needle other")).expect("other folder");
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), root.path().join("Saved"))
+        .add_project(ServerId::local(), root.path().join("Needle saved"))
         .expect("project");
     state.rename_project(project, "Needle").expect("rename");
     state.select_project(state.home().id).expect("home");
@@ -77,22 +79,121 @@ fn saved_project_matches_win_over_folders_and_pending_searches(cx: &mut TestAppC
         let mut saved = store::load(&model.path).expect("saved state");
         assert_eq!(
             saved.prepare_creation(pane, root.path()).0,
-            root.path().join("Saved").as_os_str().as_encoded_bytes()
+            root.path()
+                .join("Needle saved")
+                .as_os_str()
+                .as_encoded_bytes()
         );
     });
-    std::fs::remove_dir(root.path().join("Saved")).expect("remove saved folder");
+    std::fs::remove_dir(root.path().join("Needle saved")).expect("remove saved folder");
     view.update(cx, AppModel::refresh_project_statuses);
     open_picker(cx);
     cx.simulate_input("other");
     load_folders(cx);
     replace_query(cx, "Needle");
     load_folders(cx);
-    let state = view.read_with(cx, |model, _| model.state.clone());
-    cx.simulate_keystrokes("enter");
     open_home_terminal(cx);
     view.read_with(cx, |model, _| {
-        assert_eq!(model.state, state);
-        assert!(matches!(model.overlay, Some(Overlay::Projects(_))));
+        assert_eq!(model.state.projects().len(), 2);
+        assert_eq!(model.state.home().tabs.len(), 2);
+        assert!(model.overlay.is_none());
+        let pane = model.active_pane().expect("home pane");
+        let mut saved = store::load(&model.path).expect("saved state");
+        assert_eq!(
+            saved.prepare_creation(pane, root.path()).0,
+            root.path()
+                .join("Needle other")
+                .as_os_str()
+                .as_encoded_bytes()
+        );
+    });
+}
+
+#[gpui::test]
+fn server_matches_keep_matching_folders_selectable_and_completable(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("root");
+    let first = root.path().join("buildbox one");
+    let second = root.path().join("buildbox two");
+    for folder in [&first, &second] {
+        std::fs::create_dir(folder).expect("folder");
+    }
+    let server = ServerId::new();
+    let (mut boot, _requests, _remotes) = remote_boot(
+        AppState::bootstrap().expect("state"),
+        vec![servers::entry(server, "buildbox")],
+    );
+    boot.settings.projects.search_root = Some(root.path().into());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+
+    open_picker(cx);
+    cx.simulate_input("buildbox");
+    load_folders(cx);
+    cx.simulate_keystrokes("tab");
+    load_folders(cx);
+    assert!(cx.debug_bounds("picker-row-search-0").is_some());
+    assert!(cx.debug_bounds("picker-row-search-1").is_some());
+    cx.simulate_keystrokes("down tab");
+    load_folders(cx);
+    open_home_terminal(cx);
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert!(model.pending_remote.is_none());
+        assert_eq!(model.state.projects().len(), 1);
+        assert_eq!(model.state.home().tabs.len(), 1);
+        let pane = model.active_pane().expect("home pane");
+        let mut saved = store::load(&model.path).expect("saved state");
+        assert_eq!(
+            saved.prepare_creation(pane, root.path()).0,
+            first.as_os_str().as_encoded_bytes()
+        );
+    });
+
+    open_picker(cx);
+    cx.simulate_input("buildbox");
+    load_folders(cx);
+    cx.simulate_keystrokes("down down");
+    cx.run_until_parked();
+    let primary = cx
+        .debug_bounds("picker-footer-confirm-path")
+        .expect("Add Project");
+    cx.simulate_click(primary.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert!(model.pending_remote.is_none());
+        assert_eq!(model.state.projects().len(), 2);
+        assert_eq!(model.state.current_project().directory, second);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+    });
+}
+
+#[gpui::test]
+fn saved_local_paths_keep_trailing_spaces_when_opening_home_terminals(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("root");
+    let folder = root.path().join("Saved ");
+    std::fs::create_dir(&folder).expect("folder");
+    let mut state = AppState::bootstrap().expect("state");
+    state
+        .add_project(ServerId::local(), folder.clone())
+        .expect("project");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.projects.search_root = Some(root.path().into());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    open_picker(cx);
+    cx.simulate_input("Saved");
+    open_home_terminal(cx);
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert_eq!(model.state.home().tabs.len(), 1);
+        let pane = model.active_pane().expect("home pane");
+        let mut saved = store::load(&model.path).expect("saved state");
+        assert_eq!(
+            saved.prepare_creation(pane, root.path()).0,
+            folder.as_os_str().as_encoded_bytes()
+        );
     });
 }
 
@@ -311,14 +412,11 @@ fn typed_paths_keep_home_and_persist_each_terminal_directory_before_connecting(
     }
 }
 
-fn compact_footer_bounds(cx: &mut VisualTestContext) -> [gpui::Bounds<gpui::Pixels>; 4] {
-    let actions = [
-        "picker-footer-confirm-path",
-        "picker-footer-open-terminal",
-        "picker-footer-finder",
-        "picker-footer-location",
-    ]
-    .map(|id| cx.debug_bounds(id).expect("footer action"));
+fn compact_footer_bounds(cx: &mut VisualTestContext) -> [gpui::Bounds<gpui::Pixels>; 2] {
+    assert!(cx.debug_bounds("picker-footer-finder").is_none());
+    assert!(cx.debug_bounds("picker-footer-location").is_none());
+    let actions = ["picker-footer-confirm-path", "picker-footer-open-terminal"]
+        .map(|id| cx.debug_bounds(id).expect("footer action"));
     let footer = cx.debug_bounds("picker-footer").expect("footer");
     let panel = cx.debug_bounds("project-picker").expect("picker panel");
     assert!(footer.size.height <= px(29.0));
@@ -365,7 +463,7 @@ fn folder_clicks_still_browse_and_footer_actions_choose_home_or_project(cx: &mut
             model.overlay,
             Some(Overlay::Projects(_))
         )));
-        let [primary, secondary, _, _] = compact_footer_bounds(cx);
+        let [primary, secondary] = compact_footer_bounds(cx);
         cx.simulate_click(
             if add_project {
                 primary.center()
@@ -471,8 +569,78 @@ fn invalid_terminal_paths_never_create_folders_projects_or_tabs(cx: &mut TestApp
     assert!(view.read_with(cx, |model, _| model.overlay.is_none()));
 }
 
+fn install_folder_checks(
+    requests: &std::sync::mpsc::Receiver<(u64, Work)>,
+    project: ProjectId,
+    reply: Arc<Mutex<Result<bool, muxy_protocol::ErrorCode>>>,
+    cx: &mut VisualTestContext,
+) -> Arc<AtomicUsize> {
+    use muxy_protocol::wire::{Decoder, Encoder};
+    use muxy_protocol::{
+        CONTROL, FilesAction, FilesReply, Message, ReplyBody, RequestBody, ServerPath,
+    };
+
+    let (client, server) = muxy_protocol::transport::socket_pair().expect("socket pair");
+    let checks = Arc::new(AtomicUsize::new(0));
+    let checked = checks.clone();
+    std::thread::spawn(move || {
+        let mut decoder = Decoder::new(server.try_clone().expect("reader"));
+        let mut encoder = Encoder::new(server);
+        while let Ok((_, message)) = decoder.next() {
+            let response = match message {
+                Message::Hello { .. } => Message::HelloReply {
+                    versions: muxy_protocol::SUPPORTED.to_vec(),
+                    server: muxy_protocol::ServerInfo::current(),
+                    features: vec![],
+                },
+                Message::Request {
+                    id,
+                    body: RequestBody::Files(request),
+                } => {
+                    assert_eq!(request.project, project);
+                    assert_eq!(request.action, FilesAction::Stat(ServerPath(vec![])));
+                    checked.fetch_add(1, Ordering::SeqCst);
+                    let body = match *reply.lock().expect("reply") {
+                        Ok(is_directory) => {
+                            ReplyBody::Files(FilesReply::Info(muxy_protocol::FileInfo {
+                                name: ServerPath(vec![]),
+                                path: ServerPath(vec![]),
+                                is_directory,
+                                size: 0,
+                            }))
+                        }
+                        Err(code) => ReplyBody::Error(muxy_protocol::ErrorReply {
+                            code,
+                            message: "folder check failed".into(),
+                        }),
+                    };
+                    Message::Reply { id, body }
+                }
+                other => panic!("unexpected request: {other:?}"),
+            };
+            if encoder.send(CONTROL, &response).is_err() {
+                break;
+            }
+        }
+    });
+    let client = muxy_client::Client::from_stream(Box::new(client)).expect("client");
+    let connection = requests
+        .try_iter()
+        .find_map(|(_, work)| match work {
+            Work::ExtensionConnection(reply) => Some(reply),
+            _ => None,
+        })
+        .expect("extension connection");
+    connection.try_send(Ok(client)).expect("connected");
+    cx.run_until_parked();
+    assert_eq!(checks.load(Ordering::SeqCst), 1);
+    checks
+}
+
 #[gpui::test]
 fn saved_remote_projects_select_or_open_terminals_in_their_servers_home(cx: &mut TestAppContext) {
+    use std::os::unix::ffi::OsStringExt;
+
     let root = tempfile::tempdir().expect("root");
     let server = ServerId::new();
     let project = ProjectId::new();
@@ -489,6 +657,20 @@ fn saved_remote_projects_select_or_open_terminals_in_their_servers_home(cx: &mut
         acknowledge_catalog(model, cx);
         servers::connect_remote(model, server, vec![], &[(project, "api")], cx)
     });
+    let odd = PathBuf::from(std::ffi::OsString::from_vec(b"/srv/caf\xe9 \xff ".to_vec()));
+    view.update(cx, |model, cx| {
+        let mut page = servers::page(2, home, &[(project, "api")]);
+        page.revision = 2;
+        page.projects[1].directory =
+            muxy_protocol::ServerPath(odd.as_os_str().as_encoded_bytes().to_vec());
+        model.receive((server, 1, Update::Catalog(Ok(page))), cx);
+    });
+    let checks = install_folder_checks(
+        &remotes.borrow()[&server],
+        project,
+        Arc::new(Mutex::new(Ok(true))),
+        cx,
+    );
 
     open_picker(cx);
     cx.simulate_input("buildbox api");
@@ -501,15 +683,20 @@ fn saved_remote_projects_select_or_open_terminals_in_their_servers_home(cx: &mut
     });
 
     for (index, (query, path)) in [
-        ("buildbox api", "/home/dev/api"),
-        ("buildbox", "/home/dev/Home"),
+        ("buildbox api", odd.as_path()),
+        ("buildbox", std::path::Path::new("/home/dev/Home")),
     ]
     .into_iter()
     .enumerate()
     {
         open_picker(cx);
         cx.simulate_input(query);
+        let checked = checks.load(Ordering::SeqCst);
         open_home_terminal(cx);
+        assert_eq!(
+            checks.load(Ordering::SeqCst),
+            checked + usize::from(index == 0)
+        );
         view.update(cx, |model, cx| {
             assert_eq!(model.state.current_project().id, home);
             assert_eq!(model.state.current_project().server_id, server);
@@ -531,13 +718,13 @@ fn saved_remote_projects_select_or_open_terminals_in_their_servers_home(cx: &mut
                     saved
                         .prepare_creation(pane, std::path::Path::new("/wrong"))
                         .0,
-                    path.as_bytes()
+                    path.as_os_str().as_encoded_bytes()
                 );
             }
             model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
         });
         assert!(remotes.borrow()[&server].try_iter().any(|(_, work)| matches!(work,
-            Work::Attach { project, directory, session: None, .. } if project == home && directory == std::path::Path::new(path)
+            Work::Attach { project, directory, session: None, .. } if project == home && directory == path
         )));
     }
     assert!(
@@ -688,7 +875,7 @@ fn the_command_palette_opens_the_unified_picker_and_the_old_shortcut_is_retired(
 fn show_remote_folder_picker(
     view: &Entity<AppModel>,
     server: ServerId,
-    created: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    created: Arc<Mutex<Vec<String>>>,
     cx: &mut VisualTestContext,
 ) {
     use crate::picker::path_service::{DirectoryItem, TypedPathState};
@@ -738,7 +925,7 @@ fn remote_paths_use_server_checks_and_only_primary_confirmation_can_create_proje
         acknowledge_catalog(model, cx);
         servers::connect_remote(model, server, vec![], &[], cx)
     });
-    let created = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let created = Arc::new(Mutex::new(Vec::new()));
     let show = |cx: &mut VisualTestContext| {
         show_remote_folder_picker(&view, server, created.clone(), cx);
     };
@@ -929,6 +1116,74 @@ fn remote_projects_that_become_missing_cannot_open_home_terminals_from_stale_pic
         );
         assert!(matches!(model.overlay, Some(Overlay::Projects(_))));
     });
+    assert!(
+        !local_requests
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Attach { .. }))
+    );
+    assert!(
+        !remotes.borrow()[&server]
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Attach { .. }))
+    );
+}
+
+#[gpui::test]
+fn saved_remote_projects_are_checked_again_before_persisting_home_terminals(
+    cx: &mut TestAppContext,
+) {
+    let root = tempfile::tempdir().expect("root");
+    let server = ServerId::new();
+    let project = ProjectId::new();
+    let (mut boot, local_requests, remotes) = remote_boot(
+        AppState::bootstrap().expect("state"),
+        vec![servers::entry(server, "buildbox")],
+    );
+    boot.settings.projects.search_root = Some(root.path().into());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive(local(1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        servers::connect_remote(model, server, vec![], &[(project, "api")], cx);
+    });
+    let reply = Arc::new(Mutex::new(Ok(true)));
+    let checks = install_folder_checks(&remotes.borrow()[&server], project, reply.clone(), cx);
+    let (state, persisted) = view.read_with(cx, |model, _| {
+        assert_eq!(
+            model.state.project(project).expect("project").status(),
+            ProjectStatus::Available
+        );
+        (
+            model.state.clone(),
+            std::fs::read(&model.path).expect("persisted state"),
+        )
+    });
+    for (index, result) in [
+        Err(muxy_protocol::ErrorCode::BadPath),
+        Ok(false),
+        Err(muxy_protocol::ErrorCode::Unauthorized),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        open_picker(cx);
+        cx.simulate_input("buildbox api");
+        *reply.lock().expect("reply") = result;
+        open_home_terminal(cx);
+        assert_eq!(checks.load(Ordering::SeqCst), index + 2);
+        view.read_with(cx, |model, _| {
+            assert_eq!(model.state, state);
+            assert_eq!(
+                std::fs::read(&model.path).expect("persisted state"),
+                persisted
+            );
+            assert!(matches!(model.overlay, Some(Overlay::Projects(_))));
+            assert!(model.close_prompt.is_none());
+        });
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+    }
     assert!(
         !local_requests
             .try_iter()
