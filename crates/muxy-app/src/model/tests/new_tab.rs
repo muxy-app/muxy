@@ -110,6 +110,82 @@ fn saved_project_matches_win_over_folders_and_pending_searches(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn folder_search_runs_below_saved_project_matches_and_without_them(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("root");
+    let saved = root.path().join("Saved");
+    let folder = root.path().join("nested/Needle Unsaved");
+    for path in [&saved, &folder] {
+        std::fs::create_dir_all(path).expect("folder");
+    }
+    let mut state = AppState::bootstrap().expect("state");
+    let project = state
+        .add_project(ServerId::local(), saved)
+        .expect("project");
+    state
+        .rename_project(project, "Needle Saved")
+        .expect("rename");
+    state.select_project(state.home().id).expect("home");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.projects.search_root = Some(root.path().into());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let project_row: &str = format!("picker-row-{project}").leak();
+
+    open_picker(cx);
+    cx.simulate_input("Needle");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds(project_row).is_some());
+    assert!(cx.debug_bounds("picker-row-search-0").is_none());
+    load_folders(cx);
+    let saved_row = cx.debug_bounds(project_row).expect("saved project");
+    let folder_row = cx
+        .debug_bounds("picker-row-search-0")
+        .expect("matching folder");
+    assert!(saved_row.bottom() <= folder_row.top());
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().id, project);
+        assert!(model.state.current_project().tabs.is_empty());
+        assert!(model.overlay.is_none());
+    });
+
+    open_picker(cx);
+    cx.simulate_input("Needle");
+    load_folders(cx);
+    cx.simulate_keystrokes("down tab");
+    load_folders(cx);
+    open_home_terminal(cx);
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert_eq!(model.state.projects().len(), 2);
+        assert_eq!(model.state.home().tabs.len(), 1);
+        let pane = model.active_pane().expect("home pane");
+        let mut saved = store::load(&model.path).expect("saved state");
+        assert_eq!(
+            saved.prepare_creation(pane, root.path()).0,
+            folder.as_os_str().as_encoded_bytes()
+        );
+    });
+
+    open_picker(cx);
+    cx.simulate_input("Needle");
+    replace_query(cx, "Needle Unsaved");
+    load_folders(cx);
+    assert!(cx.debug_bounds("picker-row-search-0").is_some());
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert_eq!(model.state.projects().len(), 3);
+        assert_eq!(model.state.current_project().directory, folder);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+        assert_eq!(model.state.home().tabs.len(), 1);
+    });
+}
+
+#[gpui::test]
 fn server_matches_keep_matching_folders_selectable_and_completable(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().expect("root");
     let first = root.path().join("buildbox one");

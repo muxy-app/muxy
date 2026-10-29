@@ -205,28 +205,9 @@ impl ProjectPicker {
         .map(|id| confirmation_shortcut(keymap, id));
     }
 
-    fn sync_targets(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.session.input_mode() != InputMode::FolderSearch {
-            return false;
-        }
-        let items = self.targets.items(self.session.search_query());
-        let has_project = items.iter().any(|item| {
-            matches!(item, PickerItem::Row(row) if matches!(self.targets.action(&row.id), Some(Target::Project(_))))
-        });
-        if !has_project {
-            return false;
-        }
-        self.session.apply_search_snapshot(Snapshot::default());
-        self.sync_picker(cx);
-        true
-    }
-
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.listing_error = None;
         self.generation = self.generation.wrapping_add(1);
-        if self.sync_targets(cx) {
-            return;
-        }
         let generation = self.generation;
         let mode = self.session.input_mode();
         let query = self.session.search_query().to_owned();
