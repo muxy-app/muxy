@@ -856,15 +856,11 @@ fn sidebar_add_project_menu_and_remote_button_remain_separate_in_each_layout(
             assert!(button.top() >= sidebar.top());
             assert!(button.bottom() <= sidebar.bottom());
         }
+        assert_eq!(remote.size, add_project.size);
         if expanded {
-            assert!(remote.right() < add_project.left());
+            assert!(remote.left() - sidebar.left() < remote.size.width);
+            assert!(sidebar.right() - add_project.right() < add_project.size.width);
             assert_eq!(remote.top(), add_project.top());
-            assert_eq!(remote.bottom(), add_project.bottom());
-            let offline = cx
-                .debug_bounds("remote-servers-offline")
-                .expect("offline status");
-            assert!(offline.left() >= remote.left());
-            assert!(offline.right() <= remote.right());
         } else {
             assert!(remote.bottom() < add_project.top());
             assert_eq!(remote.left(), add_project.left());

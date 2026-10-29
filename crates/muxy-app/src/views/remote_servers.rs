@@ -150,39 +150,38 @@ fn offline(servers: &[RemoteServer]) -> (usize, bool) {
 pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
-    let wide = model.appearance.sidebar_expanded;
     let anchor = model.remote_anchor.clone();
     let open = matches!(model.overlay, Some(Overlay::RemoteServers));
     let (offline, failed) = offline(&model.remote_servers());
-    let attention = if failed { theme.danger } else { theme.fg_dim };
-    let summary = (offline > 0).then(|| tr!("%lld offline", offline));
-    let tooltip = summary.as_ref().map_or_else(
-        || tr!("Remote Servers").to_string(),
-        |summary| format!("{} · {summary}", tr!("Remote Servers")),
-    );
+    let color = match (offline, failed) {
+        (0, _) => theme.fg_muted,
+        (_, true) => theme.danger,
+        (_, false) => theme.fg_dim,
+    };
+    let tooltip = if offline > 0 {
+        format!(
+            "{} · {}",
+            tr!("Remote Servers"),
+            tr!("%lld offline", offline)
+        )
+    } else {
+        tr!("Remote Servers").to_string()
+    };
     div()
         .id("remote-servers-section")
         .debug_selector(|| "remote-servers-section".into())
+        .group("remote-servers-section")
         .relative()
         .flex()
         .flex_none()
         .items_center()
-        .gap(m.spacing3())
-        .when(wide, |row| {
-            row.flex_1()
-                .min_w(px(0.0))
-                .px(m.spacing4())
-                .h(m.control_large())
-        })
-        .when(!wide, |row| row.justify_center().size(m.scaled(34.0)))
+        .justify_center()
+        .size(super::sidebar::footer_button_size(model))
         .rounded(m.radius_xl())
-        .bg(if open { theme.hover } else { theme.surface })
-        .text_color(if open { theme.fg } else { theme.fg_muted })
+        .when(open, |button| button.bg(theme.hover))
         .cursor_pointer()
-        .hover(|style| style.bg(theme.hover).text_color(theme.fg))
-        .when(!wide, |row| {
-            row.tooltip(super::status_bar::tooltip(tooltip, model))
-        })
+        .hover(|style| style.bg(theme.hover))
+        .tooltip(super::status_bar::tooltip(tooltip, model))
         .button_interaction(cx.listener(|model, _, window, cx| {
             model.toggle_remote_popover(window, cx);
         }))
@@ -196,43 +195,16 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
             .left_0()
             .size_full(),
         )
-        .child(IconGlyph::new(
-            Icon::Network,
-            m.font_body(),
-            if !wide && offline > 0 {
-                attention
-            } else {
-                theme.fg_muted
-            },
-        ))
-        .when(wide, |row| {
-            row.child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .truncate()
-                    .text_size(m.font_body())
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(tr!("Remote")),
+        .child(
+            IconGlyph::new(
+                Icon::Network,
+                m.font_body(),
+                if open { theme.fg } else { color },
             )
-            .children(summary.map(|summary| {
-                div()
-                    .debug_selector(|| "remote-servers-offline".into())
-                    .flex_none()
-                    .text_size(m.font_footnote())
-                    .text_color(attention)
-                    .child(summary)
-            }))
-            .child(IconGlyph::new(
-                if open {
-                    Icon::ChevronDown
-                } else {
-                    Icon::ChevronUp
-                },
-                m.font_caption(),
-                theme.fg_dim,
-            ))
-        })
+            .when(offline == 0, |icon| {
+                icon.hover_in_group("remote-servers-section", theme.fg)
+            }),
+        )
         .into_any_element()
 }
 
