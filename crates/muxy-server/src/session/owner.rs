@@ -748,6 +748,7 @@ impl Owner {
         let now = Instant::now();
         if now >= self.next_detection {
             self.next_detection = now + METADATA_POLL;
+            self.seen_reports = self.terminal.program_reports();
             if let Some(agent) = agent {
                 let completed = if let Some(status) = status {
                     self.detector.report(agent, status.state)
@@ -788,8 +789,7 @@ impl Owner {
         if shell || group != self.program_group {
             self.terminal.end_program_status();
         }
-        let reports = self.terminal.program_reports();
-        let unseen = std::mem::replace(&mut self.seen_reports, reports) != reports;
+        let unseen = self.terminal.program_reports() != self.seen_reports;
         let reporter_running = !shell && self.program_group == group;
         self.terminal
             .program_status()
