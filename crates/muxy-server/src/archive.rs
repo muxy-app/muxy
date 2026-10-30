@@ -468,23 +468,29 @@ pub(crate) fn bound_history_page(
         )
     };
     let screen_size = postcard::experimental::serialized_size(&page.screen).map_err(size_error)?;
-    let links_size = page.links.iter().flatten().fold(0_u64, |size, row| {
-        row.spans.iter().fold(size.saturating_add(8), |size, span| {
+    let link_size = |row: &muxy_protocol::LinkRow| {
+        row.spans.iter().fold(8_u64, |size, span| {
             size.saturating_add(span.uri.len() as u64)
                 .saturating_add(16)
         })
-    });
+    };
+    let mut links = page.links.iter().flatten().rev().peekable();
     let mut used = u64::try_from(screen_size)
         .unwrap_or(u64::MAX)
         .saturating_add(128)
-        .saturating_add(links_size)
         .saturating_add(
             u64::try_from(page.prompts.len())
                 .unwrap_or(u64::MAX)
                 .saturating_mul(3),
         );
+    while let Some(row) = links.next_if(|row| usize::from(row.row) >= page.rows.len()) {
+        used = used.saturating_add(link_size(row));
+    }
     let mut keep = 0_u16;
     for row in page.rows.iter().rev() {
+        if let Some(row) = links.next_if(|links| links.row == row.index) {
+            used = used.saturating_add(link_size(row));
+        }
         let size = postcard::experimental::serialized_size(row).map_err(size_error)?;
         used = used.saturating_add(u64::try_from(size).unwrap_or(u64::MAX));
         if used > SCREEN_LIMIT {

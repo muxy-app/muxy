@@ -805,6 +805,72 @@ fn history_links_reject_out_of_page_rows_and_invalid_spans() {
 }
 
 #[test]
+fn history_and_screen_link_budgets_are_independent_and_bounded()
+-> Result<(), Box<dyn std::error::Error>> {
+    use muxy_protocol::{HistoryPage, LinkRow, LinkSpan, MAX_LINK_SPANS, SavedScreen};
+    let mut snapshot = snapshot();
+    snapshot.history = snapshot.rows.clone();
+    snapshot.history_total = 1;
+    let spans = (0..=MAX_LINK_SPANS)
+        .map(|column| {
+            Ok(LinkSpan {
+                start: u16::try_from(column)?,
+                end: u16::try_from(column + 1)?,
+                uri: "https://test".into(),
+            })
+        })
+        .collect::<Result<Vec<_>, std::num::TryFromIntError>>()?;
+    for (history, screen, expected) in [
+        (MAX_LINK_SPANS, MAX_LINK_SPANS, Ok(())),
+        (MAX_LINK_SPANS + 1, 1, Err(ErrorCode::BadRequest)),
+        (1, MAX_LINK_SPANS + 1, Err(ErrorCode::BadRequest)),
+    ] {
+        snapshot.links = Some(vec![
+            LinkRow {
+                row: 0,
+                spans: spans[..history].to_vec(),
+            },
+            LinkRow {
+                row: 1,
+                spans: spans[..screen].to_vec(),
+            },
+        ]);
+        assert_eq!(
+            reply(ReplyBody::Attached {
+                snapshot: Box::new(snapshot.clone()),
+                process: None,
+            })
+            .validate(),
+            expected
+        );
+        let mut page = HistoryPage {
+            links: snapshot.links.clone(),
+            prompts: vec![],
+            rows: snapshot.history.clone(),
+            next: None,
+            total_rows: 1,
+            screen: Some(SavedScreen {
+                graphics: snapshot.graphics.clone(),
+                size: snapshot.size,
+                rows: snapshot.rows.clone(),
+                cursor: snapshot.cursor,
+                reason: None,
+            }),
+        };
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(page.clone())).validate(),
+            expected
+        );
+        page.links.as_mut().ok_or("missing links")?.reverse();
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(page)).validate(),
+            Err(ErrorCode::BadRequest)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn clipboard_writes_require_nonempty_bounded_text() {
     for (text, expected) in [
         ("copied text".into(), Ok(())),

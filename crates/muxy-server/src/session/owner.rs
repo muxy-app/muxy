@@ -551,7 +551,8 @@ impl Owner {
         };
         let generation = self.terminal.history_generation().map_err(terminal_error)?;
         let total = self.terminal.history_rows().map_err(terminal_error)?;
-        let (range, next) = history_range(self.info.id, generation, before, max_rows, total)?;
+        let (range, mut next) = history_range(self.info.id, generation, before, max_rows, total)?;
+        let requested = range.len();
         self.compress_pending = true;
         let muxy_terminal::TerminalHistory {
             rows: history,
@@ -561,12 +562,14 @@ impl Owner {
             .terminal
             .history_with_links(range)
             .map_err(terminal_error)?;
+        if history.len() < requested {
+            let kept = u16::try_from(history.len()).unwrap_or(max_rows);
+            next = history_range(self.info.id, generation, before, kept, total)?.1;
+        }
         let screen = if before.0 == 0 {
-            let budget = muxy_protocol::MAX_LINK_SPANS
-                - links.iter().map(|row| row.spans.len()).sum::<usize>();
             links.extend(
                 self.terminal
-                    .read_screen_links(budget)
+                    .read_screen_links(muxy_protocol::MAX_LINK_SPANS)
                     .map_err(terminal_error)?
                     .into_iter()
                     .filter_map(|mut row| {

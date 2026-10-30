@@ -767,7 +767,7 @@ impl Terminal {
     fn history_with_metadata(
         &mut self,
         range: Range<usize>,
-        mut links: Option<&mut Vec<crate::LinkRow>>,
+        links: Option<&mut Vec<crate::LinkRow>>,
     ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
         let end = range.end.min(self.history_rows()?);
         if range.start >= end {
@@ -784,36 +784,62 @@ impl Terminal {
         let captured = (|| {
             let mut history = Vec::with_capacity(end - range.start);
             let mut prompts = Vec::new();
-            for start in (range.start..end).step_by(usize::from(self.size.rows)) {
+            let mut history_links = Vec::new();
+            let mut link_count = 0;
+            'viewports: for start in (range.start..end)
+                .step_by(usize::from(self.size.rows))
+                .rev()
+            {
                 self.engine.scroll_viewport(ScrollViewport::Row(start));
                 let (screen, screen_prompts) = self.screen_with_prompts()?;
-                if let Some(links) = &mut links {
-                    let budget = crate::MAX_LINK_SPANS
-                        - links.iter().map(|row| row.spans.len()).sum::<usize>();
-                    let rows = u16::try_from(end - start)
-                        .unwrap_or(u16::MAX)
-                        .min(self.size.rows);
-                    for mut row in
-                        crate::links::viewport(&self.engine, self.size.cols, rows, budget)
-                            .map_err(query)?
-                    {
-                        if let Ok(index) = u16::try_from(history.len() + usize::from(row.row)) {
-                            row.row = index;
-                            links.push(row);
+                for row in screen.into_iter().take(end - start).rev() {
+                    if links.is_some() {
+                        let mut cached = crate::links::CachedRow::default();
+                        cached
+                            .refresh(
+                                &self.engine,
+                                row.index,
+                                self.size.cols,
+                                true,
+                                crate::MAX_LINK_SPANS,
+                            )
+                            .map_err(query)?;
+                        if link_count + cached.spans.len() > crate::MAX_LINK_SPANS {
+                            break 'viewports;
+                        }
+                        if !cached.spans.is_empty() {
+                            link_count += cached.spans.len();
+                            history_links.push((history.len(), cached.spans));
                         }
                     }
-                }
-                prompts.extend(
-                    screen_prompts
-                        .into_iter()
-                        .filter(|row| usize::from(*row) < end - start)
-                        .filter_map(|row| u16::try_from(history.len() + usize::from(row)).ok()),
-                );
-                for mut row in screen.into_iter().take(end - start) {
-                    row.index = u16::try_from(history.len()).unwrap_or(u16::MAX);
+                    if screen_prompts.binary_search(&row.index).is_ok() {
+                        prompts.push(history.len());
+                    }
                     history.push(row);
                 }
             }
+            history.reverse();
+            for (index, row) in history.iter_mut().enumerate() {
+                row.index = u16::try_from(index).unwrap_or(u16::MAX);
+            }
+            if let Some(links) = links {
+                links.extend(
+                    history_links
+                        .into_iter()
+                        .rev()
+                        .filter_map(|(index, spans)| {
+                            Some(crate::LinkRow {
+                                row: u16::try_from(history.len() - index - 1).ok()?,
+                                spans,
+                            })
+                        }),
+                );
+            }
+            let prompts = prompts
+                .into_iter()
+                .rev()
+                .filter_map(|index| u16::try_from(history.len() - index - 1).ok())
+                .collect();
             Ok((history, prompts))
         })();
         self.engine.scroll_viewport(ScrollViewport::Bottom);

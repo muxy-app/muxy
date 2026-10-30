@@ -92,11 +92,13 @@ fn history_link_budget_is_shared_across_viewports_and_renewed_for_each_page() ->
     for index in 0..MAX_LINK_SPANS + 10 {
         terminal.feed(format!("{}\r\n", osc(&format!("https://test/{index}"), "link")).as_bytes());
     }
-    let links = terminal.history_with_links(0..MAX_LINK_SPANS + 5)?.links;
-    assert_eq!(
-        links.iter().map(|row| row.spans.len()).sum::<usize>(),
-        MAX_LINK_SPANS
-    );
+    let history = terminal.history_with_links(0..MAX_LINK_SPANS + 5)?;
+    assert_eq!(history.rows.len(), MAX_LINK_SPANS);
+    assert_eq!(history.links.len(), history.rows.len());
+    for (index, row) in history.links.iter().enumerate() {
+        assert_eq!(usize::from(row.row), index);
+        assert_eq!(row.spans[0].uri, format!("https://test/{}", index + 5));
+    }
     let links = terminal
         .history_with_links(MAX_LINK_SPANS..MAX_LINK_SPANS + 5)?
         .links;
@@ -106,6 +108,49 @@ fn history_link_budget_is_shared_across_viewports_and_renewed_for_each_page() ->
         links[0].spans[0].uri,
         format!("https://test/{MAX_LINK_SPANS}")
     );
+    Ok(())
+}
+
+#[test]
+fn dense_history_keeps_whole_recent_rows_and_rebases_prompts() -> Result {
+    let mut terminal = Terminal::new(Size { cols: 80, rows: 3 }, 1_000_000)?;
+    for row in 0..220 {
+        if row % 7 == 0 {
+            terminal.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07");
+        }
+        for column in 0..6 {
+            terminal.feed(osc(&format!("https://test/{row}/{column}"), "x ").as_bytes());
+        }
+        terminal.feed(b"\x1b]133;C\x07\r\n\x1b]133;D;0\x07");
+    }
+    terminal.take_changed_rows()?;
+    let history = terminal.history_with_links(0..218)?;
+    assert_eq!(history.rows.len(), MAX_LINK_SPANS / 6);
+    assert_eq!(history.links.len(), history.rows.len());
+    let start = 218 - history.rows.len();
+    for (index, row) in history.links.iter().enumerate() {
+        assert_eq!(usize::from(row.row), index);
+        assert_eq!(row.spans.len(), 6);
+        for (column, span) in row.spans.iter().enumerate() {
+            assert_eq!(span.uri, format!("https://test/{}/{column}", start + index));
+        }
+    }
+    let prompts = |start, end| {
+        (start..end)
+            .enumerate()
+            .filter(|(_, row)| row % 7 == 0)
+            .map(|(index, _)| u16::try_from(index))
+            .collect::<std::result::Result<Vec<_>, _>>()
+    };
+    assert_eq!(history.prompts, prompts(start, 218)?);
+    let older = terminal.history_with_links(0..start)?;
+    assert_eq!(older.rows.len(), start);
+    assert_eq!(older.links.len(), start);
+    assert_eq!(older.prompts, prompts(0, start)?);
+    let (rows, unbounded_prompts) = terminal.history_with_prompts(0..218)?;
+    assert_eq!(rows.len(), 218);
+    assert_eq!(unbounded_prompts, prompts(0, 218)?);
+    assert!(terminal.take_changed_rows()?.is_empty());
     Ok(())
 }
 

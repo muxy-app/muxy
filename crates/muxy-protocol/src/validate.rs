@@ -319,8 +319,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
                 snapshot.history_total,
                 200,
             )?;
-            validate_links(
+            validate_content_links(
                 snapshot.links.as_deref().unwrap_or_default(),
+                snapshot.history.len(),
                 snapshot.history.len() + usize::from(snapshot.size.rows),
             )?;
             validate_prompts(
@@ -338,7 +339,11 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
                     .screen
                     .as_ref()
                     .map_or(0, |screen| usize::from(screen.size.rows));
-            validate_links(page.links.as_deref().unwrap_or_default(), count)?;
+            validate_content_links(
+                page.links.as_deref().unwrap_or_default(),
+                page.rows.len(),
+                count,
+            )?;
             validate_prompts(&page.prompts, count)
         }
         ReplyBody::SavedScreen(screen) => validate_saved_screen(screen),
@@ -416,6 +421,19 @@ fn validate_saved_screen(screen: &SavedScreen) -> Result<(), ErrorCode> {
         return Err(ErrorCode::BadRequest);
     }
     Ok(())
+}
+
+fn validate_content_links(
+    rows: &[crate::LinkRow],
+    history: usize,
+    count: usize,
+) -> Result<(), ErrorCode> {
+    let split = rows
+        .iter()
+        .position(|row| usize::from(row.row) >= history)
+        .unwrap_or(rows.len());
+    validate_links(&rows[..split], history)?;
+    validate_links(&rows[split..], count)
 }
 
 fn validate_links(rows: &[crate::LinkRow], count: usize) -> Result<(), ErrorCode> {
