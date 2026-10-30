@@ -19,6 +19,7 @@ use std::time::Duration;
 pub(crate) enum BridgeAction {
     Close,
     OpenSettings,
+    TogglePin,
 }
 
 pub(crate) struct QuickTerminalViewModel {
@@ -28,6 +29,7 @@ pub(crate) struct QuickTerminalViewModel {
     pub metrics: Metrics,
     pub status: String,
     pub shortcut: String,
+    pub pinned: bool,
 }
 
 pub(crate) struct QuickTerminalView {
@@ -44,8 +46,8 @@ pub(crate) struct QuickTerminalView {
     _bounds_subscription: Subscription,
 }
 
-fn hide_for_activation_change(visible: bool, active: bool) -> bool {
-    visible && !active
+fn hide_for_activation_change(visible: bool, pinned: bool, active: bool) -> bool {
+    visible && !pinned && !active
 }
 
 fn set_window_appearance(window: &mut Window, appearance: EffectiveAppearance) {
@@ -65,12 +67,17 @@ impl QuickTerminalView {
                 |_| window.is_window_active(),
                 |panel| panel.is_active(window),
             );
-            if hide_for_activation_change(view.visible, active) {
+            if hide_for_activation_change(view.visible, view.model.pinned, active) {
                 view.visible = false;
                 let owner = view.owner.clone();
                 cx.defer(move |cx| {
                     let _ = owner.update(cx, |model, cx| model.hide_quick_terminal(false, cx));
                 });
+            } else if view.visible
+                && !active
+                && let Ok(panel) = &mut view.panel
+            {
+                panel.forget_previous_focus();
             }
         });
         let panel = PanelAdapter::configure(window);
@@ -102,7 +109,8 @@ impl QuickTerminalView {
     ) {
         set_window_appearance(window, model.appearance);
         if let Ok(panel) = &mut self.panel {
-            panel.install_accessibility(&model.status, &model.shortcut);
+            panel.install_accessibility(&model.status, &model.shortcut, model.pinned);
+            panel.set_pinned(model.pinned);
         }
         self.model = model;
         self.terminal = terminal;
@@ -215,6 +223,8 @@ impl Render for QuickTerminalView {
         let menu = self.render_menu(window, cx);
         let owner_settings = self.owner.clone();
         let owner_close = self.owner.clone();
+        let owner_pin = self.owner.clone();
+        let pinned = self.model.pinned;
         let owner_shortcut = self.owner.clone();
         let status = self.model.status.clone();
         let shortcut = self.model.shortcut.clone();
@@ -397,6 +407,31 @@ impl Render for QuickTerminalView {
                     )
                     .child(
                         IconButton::new(
+                            "quick-terminal-pin",
+                            Icon::Pin,
+                            metrics.icon_sm(),
+                            metrics.control_medium(),
+                            if pinned {
+                                bridge_foreground
+                            } else {
+                                bridge_muted
+                            },
+                            bridge_foreground,
+                        )
+                        .selected(pinned, bridge_control, px(5.0))
+                        .tooltip(
+                            if pinned { tr!("Unpin") } else { tr!("Pin") },
+                            theme.raised(),
+                            theme.fg,
+                            theme.border,
+                            theme.bg,
+                        )
+                        .on_click(move |_, _, cx| {
+                            dispatch_bridge_action(&owner_pin, BridgeAction::TogglePin, cx);
+                        }),
+                    )
+                    .child(
+                        IconButton::new(
                             "quick-terminal-close",
                             Icon::X,
                             metrics.icon_sm(),
@@ -474,6 +509,7 @@ fn dispatch_bridge_action(owner: &WeakEntity<AppModel>, action: BridgeAction, cx
         let _ = owner.update(cx, |model, cx| match action {
             BridgeAction::Close => model.hide_quick_terminal(true, cx),
             BridgeAction::OpenSettings => model.open_quick_terminal_settings(cx),
+            BridgeAction::TogglePin => model.toggle_quick_terminal_pin(cx),
         });
     });
 }
@@ -690,4 +726,17 @@ fn resolve_confirmation(owner: &WeakEntity<AppModel>, approved: bool, cx: &mut A
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hide_for_activation_change;
+
+    #[test]
+    fn losing_focus_hides_only_an_unpinned_visible_panel() {
+        assert!(hide_for_activation_change(true, false, false));
+        assert!(!hide_for_activation_change(true, true, false));
+        assert!(!hide_for_activation_change(true, false, true));
+        assert!(!hide_for_activation_change(false, false, false));
+    }
 }

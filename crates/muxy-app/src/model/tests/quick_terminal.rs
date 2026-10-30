@@ -102,3 +102,25 @@ fn quick_terminal_close_prompts_only_for_commands(cx: &mut TestAppContext) {
         assert!(model.quick.closing.is_none());
     });
 }
+
+#[gpui::test]
+fn quick_terminal_pin_is_saved_and_survives_reopening(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        let saved = |model: &AppModel| {
+            muxy_app_core::settings::Settings::load(&model.path.with_file_name("settings.toml"))
+                .expect("settings")
+                .quick_terminal
+                .pinned
+        };
+        assert!(!model.settings.quick_terminal.pinned);
+        model.toggle_quick_terminal_pin(cx);
+        assert!(model.settings.quick_terminal.pinned);
+        assert!(saved(model));
+        model.hide_quick_terminal(false, cx);
+        assert!(model.settings.quick_terminal.pinned);
+        model.toggle_quick_terminal_pin(cx);
+        assert!(!saved(model));
+    });
+}

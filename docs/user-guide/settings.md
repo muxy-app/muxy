@@ -8,7 +8,7 @@ immediately, and Settings works while the server is offline.
 | Section | What's in it |
 | --- | --- |
 | General | Closing behavior, the app that opens files, window size, worktree locations |
-| Quick Terminal | Global shortcut, size, transparency |
+| Quick Terminal | Global shortcut, pinning, size, transparency |
 | Composer | Dictation, clearing, image submission, font |
 | Appearance | Language, light and dark themes, sidebar, status bar, tips |
 | Keyboard | Every shortcut. See [Keyboard shortcuts](keyboard-shortcuts.md) |

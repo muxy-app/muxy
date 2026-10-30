@@ -86,8 +86,9 @@ A terminal that drops down from the top of the screen from anywhere. Record a
 global shortcut in **Settings → Quick Terminal** first; none is set by default.
 
 It keeps one terminal in Home, hides when it loses focus, and has its own size
-and transparency settings. `Cmd+W` closes it and ends its terminal, whatever
-the close setting, unless another pane still shows it.
+and transparency settings. Click the pin button to keep it open and above other
+windows on every desktop; Muxy remembers the choice. `Cmd+W` closes it and ends
+its terminal, whatever the close setting, unless another pane still shows it.
 
 ## Appearance and configuration
 

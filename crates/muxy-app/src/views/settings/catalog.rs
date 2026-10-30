@@ -205,6 +205,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("General"),
     },
     Setting {
+        id: "quick-pinned",
+        label: tr_key!("Pin Quick Terminal"),
+        description: tr_key!(
+            "Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button."
+        ),
+        category: Category::QuickTerminal,
+        section: tr_key!("General"),
+    },
+    Setting {
         id: "quick-shortcut",
         label: tr_key!("Open Quick Terminal"),
         description: tr_key!("Record a system-wide shortcut to open Quick Terminal."),

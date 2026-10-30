@@ -325,12 +325,7 @@ impl PanelAdapter {
         let original_window_class = native_window.class();
         let class = panel_class(original_window_class)?;
         native_window.setStyleMask(NSWindowStyleMask::NonactivatingPanel);
-        native_window.setCollectionBehavior(
-            NSWindowCollectionBehavior::MoveToActiveSpace
-                | NSWindowCollectionBehavior::CanJoinAllApplications
-                | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::IgnoresCycle,
-        );
+        native_window.setCollectionBehavior(collection_behavior(false));
         native_window.setHidesOnDeactivate(false);
         native_window.setMovable(false);
         native_window.setOpaque(false);
@@ -574,6 +569,15 @@ impl PanelAdapter {
         }
     }
 
+    pub fn forget_previous_focus(&mut self) {
+        self.focus_snapshot = None;
+    }
+
+    pub fn set_pinned(&self, pinned: bool) {
+        self.window
+            .setCollectionBehavior(collection_behavior(pinned));
+    }
+
     pub fn telemetry(&self) -> Option<&PanelTelemetry> {
         self.telemetry.as_ref()
     }
@@ -713,6 +717,19 @@ pub fn accessibility_preferences() -> AccessibilityPreferences {
         reduce_transparency: workspace.accessibilityDisplayShouldReduceTransparency(),
         increase_contrast: workspace.accessibilityDisplayShouldIncreaseContrast(),
     }
+}
+
+/// A pinned panel stays on every Space; otherwise it opens on the active one.
+fn collection_behavior(pinned: bool) -> NSWindowCollectionBehavior {
+    let spaces = if pinned {
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+    } else {
+        NSWindowCollectionBehavior::MoveToActiveSpace
+    };
+    spaces
+        | NSWindowCollectionBehavior::CanJoinAllApplications
+        | NSWindowCollectionBehavior::FullScreenAuxiliary
+        | NSWindowCollectionBehavior::IgnoresCycle
 }
 
 fn screen_index(screens: &NSArray<NSScreen>, candidate: &NSScreen) -> Option<usize> {
@@ -1042,4 +1059,20 @@ unsafe extern "C-unwind" {
     ) -> i32;
     #[link_name = "UnregisterEventHotKey"]
     fn unregister_event_hot_key(hot_key: EventHotKeyRef) -> i32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collection_behavior;
+    use objc2_app_kit::NSWindowCollectionBehavior;
+
+    #[test]
+    fn pinned_panel_joins_every_space_instead_of_moving_to_the_active_one() {
+        let pinned = collection_behavior(true);
+        assert!(pinned.contains(NSWindowCollectionBehavior::CanJoinAllSpaces));
+        assert!(!pinned.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
+        let unpinned = collection_behavior(false);
+        assert!(unpinned.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
+        assert!(!unpinned.contains(NSWindowCollectionBehavior::CanJoinAllSpaces));
+    }
 }

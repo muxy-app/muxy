@@ -17,7 +17,11 @@ pub struct AccessibilityNode {
     pub announces_changes: bool,
 }
 
-pub fn bridge_accessibility_model(status: &str, shortcut: &str) -> Vec<AccessibilityNode> {
+pub fn bridge_accessibility_model(
+    status: &str,
+    shortcut: &str,
+    pinned: bool,
+) -> Vec<AccessibilityNode> {
     let definitions = [
         (
             "quick-terminal",
@@ -45,6 +49,22 @@ pub fn bridge_accessibility_model(status: &str, shortcut: &str) -> Vec<Accessibi
             AccessibilityRole::Button,
             tr!("Open Quick Terminal settings"),
             tr!("Opens Settings").to_string(),
+            false,
+        ),
+        (
+            "quick-terminal-pin",
+            AccessibilityRole::Button,
+            if pinned {
+                tr!("Unpin Quick Terminal")
+            } else {
+                tr!("Pin Quick Terminal")
+            },
+            if pinned {
+                tr!("Stays open when it loses focus")
+            } else {
+                tr!("Hides when it loses focus")
+            }
+            .to_string(),
             false,
         ),
         (
