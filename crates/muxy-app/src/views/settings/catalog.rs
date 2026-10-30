@@ -875,43 +875,6 @@ pub(super) const SETTINGS: &[Setting] = &[
         category: Category::Server,
         section: tr_key!("Server control"),
     },
-    Setting {
-        id: "mobile-access",
-        label: tr_key!("Allow mobile devices"),
-        description: tr_key!(
-            "Let paired phones reach this device's server over the local network or a VPN. A paired phone gets full terminal access."
-        ),
-        category: Category::Mobile,
-        section: tr_key!("Access"),
-    },
-    Setting {
-        id: "mobile-port",
-        label: tr_key!("Port"),
-        description: tr_key!("Network port phones connect to, from 1024 to 65535."),
-        category: Category::Mobile,
-        section: tr_key!("Access"),
-    },
-    Setting {
-        id: "mobile-status",
-        label: tr_key!("Status"),
-        description: tr_key!("Whether phones can reach this device right now."),
-        category: Category::Mobile,
-        section: tr_key!("Access"),
-    },
-    Setting {
-        id: "mobile-pair",
-        label: tr_key!("Pair a phone"),
-        description: tr_key!("Show a one-time code to scan with the Muxy app."),
-        category: Category::Mobile,
-        section: tr_key!("Pairing"),
-    },
-    Setting {
-        id: "mobile-devices",
-        label: tr_key!("Paired devices"),
-        description: tr_key!("Phones that can connect. Revoking one disconnects it immediately."),
-        category: Category::Mobile,
-        section: tr_key!("Devices"),
-    },
 ];
 
 pub(super) fn setting(id: &str) -> Option<&'static Setting> {

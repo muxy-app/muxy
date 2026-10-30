@@ -267,8 +267,7 @@ impl AppModel {
                 None => entries.into_iter().map(server).collect(),
             })
             .chain(std::iter::once(
-                Item::action(tr!("Manage Remote Servers…"), Command::ManageRemoteDevices)
-                    .separated(),
+                Item::action(tr!("Manage Devices…"), Command::ManageRemoteDevices).separated(),
             ))
             .collect();
         let mut items = vec![

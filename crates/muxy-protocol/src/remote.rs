@@ -6,6 +6,7 @@ use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::wire::cbor::open::{self, Variant};
+use crate::wire::cbor::open_enum;
 use crate::{DeviceId, ErrorCode, ServerIdentity};
 
 pub const DEFAULT_REMOTE_PORT: u16 = 7419;
@@ -84,6 +85,18 @@ impl<'b, C> Decode<'b, C> for ListenerStatus {
     }
 }
 
+open_enum! {
+    /// What a paired device is, which decides what it may ask the server for.
+    /// Unrecognized kinds get a phone's rights.
+    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+    pub enum DeviceKind {
+        #[default]
+        Phone = 0,
+        /// Another computer's desktop app, with the rights of one on this computer.
+        Computer = 1,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PairedDevice {
     #[n(0)]
@@ -98,6 +111,10 @@ pub struct PairedDevice {
     pub last_seen: Option<u64>,
     #[n(4)]
     pub connected: bool,
+    #[n(5)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub kind: DeviceKind,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -240,6 +257,12 @@ pub struct PairRequest {
     pub secret: [u8; 16],
     #[n(1)]
     pub name: String,
+    /// A computer requires `Feature::PAIRED_COMPUTERS`; older servers ignore
+    /// it and pair a phone.
+    #[n(2)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub kind: DeviceKind,
 }
 
 impl fmt::Debug for PairRequest {
@@ -247,6 +270,7 @@ impl fmt::Debug for PairRequest {
         formatter
             .debug_struct("PairRequest")
             .field("name", &self.name)
+            .field("kind", &self.kind)
             .finish_non_exhaustive()
     }
 }

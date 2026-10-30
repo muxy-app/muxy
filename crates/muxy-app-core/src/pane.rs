@@ -22,6 +22,7 @@ pub enum PaneContent {
     Settings,
     Webview(crate::webview::WebviewDescriptor),
     Browser(crate::browser::BrowserPane),
-    /// The Remote Servers tab, which manages other computers' servers.
+    /// The Devices tab: the servers this computer connects to, and the devices
+    /// paired with it.
     Servers,
 }

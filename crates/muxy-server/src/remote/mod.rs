@@ -12,9 +12,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::transport::tls::TlsIdentity;
 use muxy_protocol::{
-    ClientId, DeviceCredential, DeviceId, ErrorCode, ListenerStatus, MAX_DEVICES, PairRequest,
-    Paired, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings, RemoteAccessState,
-    ServerIdentity,
+    ClientId, DeviceCredential, DeviceId, DeviceKind, ErrorCode, ListenerStatus, MAX_DEVICES,
+    PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings,
+    RemoteAccessState, ServerIdentity,
 };
 
 use crate::ServerError;
@@ -143,6 +143,7 @@ impl RemoteAccess {
                     paired_at: device.paired_at,
                     last_seen: device.last_seen,
                     connected: connected.contains(&device.id),
+                    kind: device.kind,
                 })
                 .collect(),
         }
@@ -225,10 +226,10 @@ impl RemoteAccess {
         let hosts = hosts::candidates(given);
         let mut state = self.lock();
         let Some(identity) = state.stored.identity.as_ref() else {
-            return Err(unavailable("Mobile access is off"));
+            return Err(unavailable("Device access is off"));
         };
         if !state.stored.settings.enabled || state.status != ListenerStatus::Listening {
-            return Err(unavailable("Mobile access is not listening"));
+            return Err(unavailable("Device access is not listening"));
         }
         if state.stored.devices.len() >= MAX_DEVICES {
             return Err(unavailable("Revoke a paired device before pairing another"));
@@ -299,6 +300,7 @@ impl RemoteAccess {
             token_hash: hash(&token),
             paired_at: now,
             last_seen: Some(now),
+            kind: store::StoredKind::from(request.kind).into(),
         });
         if let Err(error) = self.save(&stored) {
             log::error!("pairing not saved: {error}");
@@ -325,7 +327,10 @@ impl RemoteAccess {
     }
 
     /// The same answer for every failure, and the same work whether or not the device exists.
-    pub(crate) fn authenticate(&self, credential: &DeviceCredential) -> Option<DeviceId> {
+    pub(crate) fn authenticate(
+        &self,
+        credential: &DeviceCredential,
+    ) -> Option<(DeviceId, DeviceKind)> {
         let presented = hash(&credential.token);
         let now = now();
         let mut state = self.lock();
@@ -338,6 +343,7 @@ impl RemoteAccess {
         let expected = device.map_or([0; 32], |index| state.stored.devices[index].token_hash);
         let matched = same(&presented, &expected);
         let index = device.filter(|_| usable && matched)?;
+        let kind = state.stored.devices[index].kind;
         let mut stored = state.stored.clone();
         stored.devices[index].last_seen = Some(now);
         if let Err(error) = self.save(&stored) {
@@ -347,7 +353,7 @@ impl RemoteAccess {
         }
         drop(state);
         self.changed();
-        Some(credential.device)
+        Some((credential.device, kind))
     }
 
     pub(crate) fn authorized(&self, device: DeviceId) -> bool {
@@ -396,7 +402,7 @@ impl RemoteAccess {
             Some(path) => store::save(path, stored).map_err(|error| {
                 ServerError::new(
                     ErrorCode::PersistenceFailed,
-                    format!("could not save mobile access: {error}"),
+                    format!("could not save device access: {error}"),
                 )
             }),
             None => Ok(()),

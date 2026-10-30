@@ -9,7 +9,6 @@ pub(crate) mod extensions;
 mod keyboard;
 mod languages;
 mod layout;
-pub(crate) mod mobile;
 mod pickers;
 mod quick_terminal;
 mod results;
@@ -64,13 +63,12 @@ pub(crate) enum Category {
     Commands,
     Browser,
     Server,
-    Mobile,
     Extensions,
     Backup,
 }
 
 impl Category {
-    pub(crate) const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 12] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -80,7 +78,6 @@ impl Category {
         Self::Terminal,
         Self::Browser,
         Self::Server,
-        Self::Mobile,
         Self::Extensions,
         Self::Ai,
         Self::Backup,
@@ -99,7 +96,6 @@ impl Category {
             Self::Commands => tr_key!("Commands"),
             Self::Browser => tr_key!("Browser"),
             Self::Server => tr_key!("Server"),
-            Self::Mobile => tr_key!("Mobile"),
             Self::Extensions => tr_key!("Extensions"),
             Self::Backup => tr_key!("Backup & Restore"),
         }
@@ -141,7 +137,6 @@ pub(crate) enum Change {
     /// Removes an extension command's shortcut.
     Unassign(String),
     ShellIntegration(bool),
-    MobileAccess(bool),
     Browser(BrowserChange),
 }
 
@@ -154,10 +149,6 @@ pub(crate) enum SettingsEvent {
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
     ReadServer,
-    ReadMobile,
-    PairPhone,
-    CancelPairing,
-    RevokeDevice(muxy_protocol::DeviceId),
     Connect,
     OpenConfiguration(&'static str),
     DismissProblem,
@@ -174,10 +165,6 @@ pub(crate) struct Snapshot {
     pub(crate) server_busy: bool,
     pub(crate) server_update: Option<String>,
     pub(crate) pending_server_fields: HashSet<String>,
-    pub(crate) mobile: Option<muxy_protocol::RemoteAccessState>,
-    pub(crate) mobile_pairing: Option<mobile::Pairing>,
-    pub(crate) mobile_busy: bool,
-    pub(crate) mobile_error: Option<String>,
     pub(crate) ai_installed: Vec<&'static str>,
     /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) sidebars: Vec<(String, String)>,
@@ -350,7 +337,6 @@ impl SettingsView {
             "height",
             "default-shell",
             "history-budget",
-            "mobile-port",
             "browser-home-page",
             "browser-profile-name",
         ]
@@ -432,11 +418,6 @@ impl SettingsView {
         let budget = server.map_or_else(String::new, |server| {
             (server.history_budget_bytes / (1024 * 1024)).to_string()
         });
-        let mobile_port = self
-            .snapshot
-            .mobile
-            .as_ref()
-            .map_or_else(String::new, |mobile| mobile.settings.port.to_string());
         for (id, value) in [
             ("composer-font", settings.composer.font_family.clone()),
             (
@@ -465,7 +446,6 @@ impl SettingsView {
             ("height", settings.window.default_size[1].to_string()),
             ("default-shell", shell),
             ("history-budget", budget),
-            ("mobile-port", mobile_port),
             ("browser-home-page", settings.browser.home_page.clone()),
         ]
         .into_iter()
@@ -627,13 +607,12 @@ impl SettingsView {
         }
     }
 
-    /// The file behind this category's settings; mobile access is managed only here.
-    fn configuration_file(&self) -> Option<&'static str> {
+    /// The file behind this category's settings.
+    fn configuration_file(&self) -> &'static str {
         match self.category {
-            Category::Server => Some("server.toml"),
-            Category::Terminal => Some("terminal.toml"),
-            Category::Mobile => None,
-            _ => Some("settings.toml"),
+            Category::Server => "server.toml",
+            Category::Terminal => "terminal.toml",
+            _ => "settings.toml",
         }
     }
 

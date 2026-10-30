@@ -4581,6 +4581,7 @@ dependencies = [
  "muxy-protocol",
  "muxy-terminal",
  "muxy-ui",
+ "rustix 1.1.4",
  "serde_json",
  "tempfile",
  "xim-ctext",

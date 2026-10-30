@@ -11,6 +11,8 @@ mod config;
 mod error;
 mod ghostty;
 mod keymap;
+mod paired;
+mod private_file;
 mod proxy;
 mod quick_terminal;
 mod servers;
@@ -39,6 +41,7 @@ pub use ghostty::{
     TerminalColor, TerminalEdit, TerminalOptions, TerminalSettings,
 };
 pub use keymap::Keymap;
+pub use paired::PairingTokens;
 pub use proxy::{DEFAULT_PROXY_BYPASS, ProxyKind, ProxySettings};
 pub use quick_terminal::QuickTerminalSettings;
-pub use servers::ServerEntry;
+pub use servers::{PairedServer, ServerEntry};

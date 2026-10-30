@@ -11,6 +11,7 @@ pub(super) fn entry(id: ServerId, name: &str) -> ServerEntry {
         identity_file: None,
         password_login: false,
         group: None,
+        paired: None,
     }
 }
 

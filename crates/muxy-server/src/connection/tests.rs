@@ -29,6 +29,7 @@ fn a_phone_that_connects_first_never_receives_desktop_notifications() {
     let phone = Arc::new(Outbox::for_device(
         Arc::clone(&changes),
         muxy_protocol::DeviceId::new(),
+        muxy_protocol::DeviceKind::Phone,
     ));
     registry.register_connection(&phone);
     let desktop = Arc::new(Outbox::new(changes));

@@ -1,4 +1,4 @@
-//! The sidebar's Remote section: other computers' servers with their state,
+//! The sidebar's Devices section: other computers' servers with their state,
 //! and the popover, form, password prompt, and list that manage them.
 
 use std::rc::Rc;
@@ -159,13 +159,9 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         (_, false) => theme.fg_dim,
     };
     let tooltip = if offline > 0 {
-        format!(
-            "{} · {}",
-            tr!("Remote Servers"),
-            tr!("%lld offline", offline)
-        )
+        format!("{} · {}", tr!("Devices"), tr!("%lld offline", offline))
     } else {
-        tr!("Remote Servers").to_string()
+        tr!("Devices").to_string()
     };
     div()
         .id("remote-servers-section")
@@ -397,7 +393,7 @@ pub(crate) fn list(
         .w(width)
         .max_h((window.viewport_size().height - m.status_bar_height() - px(16.0)).max(px(0.0)))
         .overflow_y_scroll()
-        .child(muxy_ui::popover::header(theme, m).child(tr!("Remote Servers")))
+        .child(muxy_ui::popover::header(theme, m).child(tr!("Devices")))
         .when(servers.is_empty(), |list| {
             list.child(
                 div()
@@ -414,10 +410,22 @@ pub(crate) fn list(
                 .on_click(cx.listener(|model, _, _, cx| model.open_server_form(None, cx))),
         )
         .child(
+            action("remote-pair-server", Icon::Network, tr!("Pair with Link…"))
+                .on_click(cx.listener(|model, _, _, cx| model.open_pair_form(None, cx))),
+        )
+        .child(
+            action(
+                "remote-copy-pair-link",
+                Icon::Overlap,
+                tr!("Copy My Pair Link"),
+            )
+            .on_click(cx.listener(|model, _, _, cx| model.copy_pairing_link(cx))),
+        )
+        .child(
             action(
                 "remote-manage-servers",
                 Icon::Settings,
-                tr!("Manage Servers…"),
+                tr!("Manage Devices…"),
             )
             .on_click(cx.listener(|model, _, window, cx| {
                 model.open_servers_tab(window, cx);
@@ -425,20 +433,31 @@ pub(crate) fn list(
         )
 }
 
-/// "Remote Servers…" in the command palette: Add Server…, then each server.
+/// "Devices…" in the command palette: Add Server…, Pair with Link…, Copy My
+/// Pair Link, Manage Devices…, then each server.
 pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handler> {
     let _ = model;
     let model = cx.weak_entity();
-    Command::list("remote_servers", tr!("Remote Servers…"), move |cx| {
+    Command::list("remote_servers", tr!("Devices…"), move |cx| {
         let mut servers = Registry::default();
         let add: Handler = Rc::new(|model, _, cx| model.open_server_form(None, cx));
         servers.register(
             Command::new("remote-add-server", tr!("Add Server…"), add).keywords("Add Server"),
         );
+        let pair: Handler = Rc::new(|model, _, cx| model.open_pair_form(None, cx));
+        servers.register(
+            Command::new("remote-pair-server", tr!("Pair with Link…"), pair)
+                .keywords("Pair with Link Computer"),
+        );
+        let copy: Handler = Rc::new(|model, _, cx| model.copy_pairing_link(cx));
+        servers.register(
+            Command::new("remote-copy-pair-link", tr!("Copy My Pair Link"), copy)
+                .keywords("Copy My Pair Link Pairing Code Computer Phone"),
+        );
         let manage: Handler = Rc::new(AppModel::open_servers_tab);
         servers.register(
-            Command::new("remote-manage-servers", tr!("Manage Servers…"), manage)
-                .keywords("Manage Servers"),
+            Command::new("remote-manage-servers", tr!("Manage Devices…"), manage)
+                .keywords("Manage Devices Servers Pairing"),
         );
         let Some(model) = model.upgrade() else {
             return servers;
@@ -448,7 +467,7 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
         }
         servers
     })
-    .keywords("Remote Servers")
+    .keywords("Devices Remote Servers Pairing")
 }
 
 /// One server's page: what can be done with it now.
@@ -567,7 +586,7 @@ fn server_command(server: &RemoteServer, model: gpui::WeakEntity<AppModel>) -> C
     )
 }
 
-fn input(
+pub(super) fn input(
     model: &AppModel,
     cx: &mut Context<AppModel>,
     placeholder: &'static str,
@@ -640,9 +659,24 @@ impl AppModel {
         self.show_palette(registry, Some(&format!("remote-{server}")), window, cx);
     }
 
+    /// Opens the form that adds a server over SSH, or edits `device` in
+    /// the form for how it is reached.
     pub(crate) fn open_server_form(&mut self, device: Option<ServerId>, cx: &mut Context<Self>) {
-        self.clear_server_probe();
         let entry = device.and_then(|id| self.settings.server(id).cloned());
+        if entry.as_ref().is_some_and(|entry| entry.paired.is_some()) {
+            self.open_pair_form(device, cx);
+        } else {
+            self.open_ssh_form(device, entry.as_ref(), cx);
+        }
+    }
+
+    fn open_ssh_form(
+        &mut self,
+        device: Option<ServerId>,
+        entry: Option<&muxy_app_core::settings::ServerEntry>,
+        cx: &mut Context<Self>,
+    ) {
+        self.clear_server_probe();
         let custom_command = entry
             .as_ref()
             .is_some_and(|entry| entry.ssh_command.is_some());
@@ -1035,11 +1069,15 @@ impl AppModel {
     }
 }
 
-fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
+pub(super) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
     super::git::form_field(label, input, model)
 }
 
-fn modal(model: &AppModel, window: &Window, id: &'static str) -> gpui::Stateful<gpui::Div> {
+pub(super) fn modal(
+    model: &AppModel,
+    window: &Window,
+    id: &'static str,
+) -> gpui::Stateful<gpui::Div> {
     let m = model.metrics;
     let theme = &model.theme;
     muxy_ui::popover::surface(theme, m)
@@ -1056,7 +1094,7 @@ fn modal(model: &AppModel, window: &Window, id: &'static str) -> gpui::Stateful<
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
-fn title(text: &str, model: &AppModel) -> gpui::Div {
+pub(super) fn title(text: &str, model: &AppModel) -> gpui::Div {
     div()
         .text_size(model.metrics.font_headline())
         .font_weight(FontWeight::SEMIBOLD)

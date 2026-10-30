@@ -5,8 +5,10 @@ use crate::views::settings::SettingsEvent;
 use muxy_app_core::settings::{ServerEntry, Settings};
 
 mod commands;
+mod device_access;
 mod forms;
 mod groups;
+mod pairing;
 mod tab;
 
 /// A stub boot listing `servers`, both in settings and in its settings.toml.

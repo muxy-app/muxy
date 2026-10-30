@@ -54,6 +54,14 @@ impl AppModel {
         self.server_actions_enabled(server) && self.ready(server)
     }
 
+    /// A paired computer's server can be stopped from here but not started
+    /// again, so it can't be restarted.
+    pub(crate) fn restartable(&self, server: ServerId) -> bool {
+        self.settings
+            .server(server)
+            .is_none_or(|entry| entry.paired.is_none())
+    }
+
     pub(crate) fn server_connect_enabled(&self) -> bool {
         let server = self.status_server();
         self.server_actions_enabled(server)

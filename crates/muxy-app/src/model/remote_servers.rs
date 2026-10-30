@@ -348,7 +348,7 @@ impl AppModel {
     /// in hand edits made since launch. A new server, or one reached in a new
     /// way, gets a worker and connects. One no longer listed stops, and its
     /// projects stay hidden until it returns.
-    fn sync_servers(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sync_servers(&mut self, cx: &mut Context<Self>) {
         let listed = self.settings.servers.clone();
         let unlisted: Vec<_> = self
             .servers
@@ -595,10 +595,12 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return Err(tr!("Muxy is quitting").to_string());
         }
+        let taken = self.take_pairings(servers)?;
         let path = self.path.with_file_name("settings.toml");
-        self.settings
-            .remove_servers(servers, &path)
-            .map_err(|error| error.to_string())?;
+        if let Err(error) = self.settings.remove_servers(servers, &path) {
+            self.restore_pairings(&taken);
+            return Err(error.to_string());
+        }
         for server in servers {
             self.servers.passwords.forget(*server);
         }
@@ -771,7 +773,7 @@ impl AppModel {
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
         };
-        let Some(target) = runtime.target.clone() else {
+        let Some(crate::boot::Target::Ssh(target)) = runtime.target.clone() else {
             return;
         };
         if runtime.install == Some(Install::Running) {
@@ -814,7 +816,7 @@ impl AppModel {
             return;
         };
         runtime.error = Some(incompatible_guidance(&name, None));
-        let Some(target) = runtime.target.clone() else {
+        let Some(crate::boot::Target::Ssh(target)) = runtime.target.clone() else {
             return;
         };
         let generation = runtime.generation;
@@ -851,13 +853,13 @@ impl AppModel {
         }
     }
 
-    /// Shows the Remote Servers tab, opening it in the current project when
-    /// it isn't open.
+    /// Shows the Devices tab, opening it in the current project when it
+    /// isn't open, and reads this computer's device access.
     pub(crate) fn open_servers_tab(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         self.ensure_servers_search(cx);
         let previous = self.state.clone();
         let project = self.state.current_project().id;
-        if let Err(error) = self.state.show_servers_tab(project, &tr!("Remote Servers")) {
+        if let Err(error) = self.state.show_servers_tab(project, &tr!("Devices")) {
             self.fail(error.to_string(), cx);
             return;
         }
@@ -867,6 +869,7 @@ impl AppModel {
         }
         self.dismiss_overlay(cx);
         self.changed(cx);
+        self.sync_devices_tab(true, cx);
         self.focus_active(window, cx);
         self.focus_requested = false;
     }

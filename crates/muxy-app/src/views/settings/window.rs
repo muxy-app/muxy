@@ -587,20 +587,6 @@ impl SettingsWindow {
             SettingsEvent::ReadServer => {
                 let _ = self.model.update(cx, AppModel::read_server_settings);
             }
-            SettingsEvent::ReadMobile => {
-                let _ = self.model.update(cx, AppModel::read_remote_access);
-            }
-            SettingsEvent::PairPhone => {
-                let _ = self.model.update(cx, AppModel::pair_phone);
-            }
-            SettingsEvent::CancelPairing => {
-                let _ = self.model.update(cx, AppModel::cancel_pairing);
-            }
-            SettingsEvent::RevokeDevice(device) => {
-                let _ = self.model.update(cx, |model, cx| {
-                    model.confirm_revoke(*device, window.window_handle(), cx);
-                });
-            }
             SettingsEvent::Connect => {
                 let _ = self.model.update(cx, AppModel::connect);
             }
@@ -759,9 +745,8 @@ impl Render for SettingsWindow {
             )
             .on_action(
                 cx.listener(|root, _: &workspace::OpenConfiguration, _, cx| {
-                    if let Some(file) = root.view.read(cx).configuration_file() {
-                        root.open_configuration(file, cx);
-                    }
+                    let file = root.view.read(cx).configuration_file();
+                    root.open_configuration(file, cx);
                 }),
             )
             .on_action(cx.listener(|root, _: &BeginWindowMove, window, _| {

@@ -6,7 +6,7 @@ How apps and the server talk. The exact messages live in `crates/muxy-protocol`.
 
 - The connection is a reliable byte stream: a Unix socket on the same computer,
   SSH to `muxy stdio` on another computer, or TLS for
-  [paired phones](./mobile.md).
+  [paired phones and computers](./mobile.md).
 - Traffic is split into channels. Channel 0 carries control messages, and each
   attached session gets its own channel for screen updates and input.
 - Every frame starts with a small header: length, protocol version, channel, and

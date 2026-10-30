@@ -5,7 +5,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use muxy_protocol::transport::tls::TlsIdentity;
-use muxy_protocol::{DeviceId, MAX_DEVICES, RemoteAccessSettings, validate_device_name};
+use muxy_protocol::{
+    DeviceId, DeviceKind, MAX_DEVICES, RemoteAccessSettings, validate_device_name,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
@@ -16,6 +18,8 @@ pub(super) struct Device {
     pub(super) token_hash: [u8; 32],
     pub(super) paired_at: u64,
     pub(super) last_seen: Option<u64>,
+    /// Only kinds this build knows; anything else is kept as a phone.
+    pub(super) kind: DeviceKind,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -41,6 +45,35 @@ struct DocumentDevice {
     token_sha256: String,
     paired_at: u64,
     last_seen: Option<u64>,
+    /// Missing in files from before computers could pair.
+    #[serde(default)]
+    kind: StoredKind,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum StoredKind {
+    #[default]
+    Phone,
+    Computer,
+}
+
+impl From<StoredKind> for DeviceKind {
+    fn from(kind: StoredKind) -> Self {
+        match kind {
+            StoredKind::Phone => Self::Phone,
+            StoredKind::Computer => Self::Computer,
+        }
+    }
+}
+
+impl From<DeviceKind> for StoredKind {
+    fn from(kind: DeviceKind) -> Self {
+        match kind {
+            DeviceKind::Computer => Self::Computer,
+            DeviceKind::Phone | DeviceKind::Unrecognized(_) => Self::Phone,
+        }
+    }
 }
 
 pub(super) fn load(path: &Path) -> io::Result<Stored> {
@@ -86,6 +119,7 @@ fn stored(document: Document) -> Option<Stored> {
                 token_hash: unhex(&device.token_sha256)?.try_into().ok()?,
                 paired_at: device.paired_at,
                 last_seen: device.last_seen,
+                kind: device.kind.into(),
             })
         })
         .collect::<Option<Vec<_>>>()?;
@@ -117,6 +151,7 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
                 token_sha256: hex(&device.token_hash),
                 paired_at: device.paired_at,
                 last_seen: device.last_seen,
+                kind: device.kind.into(),
             })
             .collect(),
     };
@@ -197,6 +232,7 @@ mod tests {
                 token_hash: [7; 32],
                 paired_at: 10,
                 last_seen: Some(11),
+                kind: DeviceKind::Computer,
             }],
         };
         save(&path, &stored)?;
@@ -207,6 +243,24 @@ mod tests {
         assert_eq!(loaded.devices.len(), 1);
         assert_eq!(loaded.devices[0].token_hash, [7; 32]);
         assert_eq!(loaded.devices[0].last_seen, Some(11));
+        assert_eq!(loaded.devices[0].kind, DeviceKind::Computer);
+        fs::remove_dir_all(directory)
+    }
+
+    #[test]
+    fn devices_saved_before_computers_could_pair_are_phones() -> io::Result<()> {
+        let directory = directory()?;
+        let path = directory.join("remote.json");
+        fs::write(
+            &path,
+            format!(
+                r#"{{"enabled":false,"port":7419,"certificate":null,"private_key":null,
+                "devices":[{{"id":"{}","name":"Phone","token_sha256":"{}","paired_at":1,"last_seen":null}}]}}"#,
+                DeviceId::from_u128(9),
+                "07".repeat(32)
+            ),
+        )?;
+        assert_eq!(load(&path)?.devices[0].kind, DeviceKind::Phone);
         fs::remove_dir_all(directory)
     }
 }

@@ -6,7 +6,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::{Error, Result, Settings};
 use crate::ServerId;
 
-/// Another computer whose Muxy server this app reaches over SSH.
+/// Another computer whose Muxy server this app reaches over SSH, or over the
+/// network after pairing with it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerEntry {
@@ -29,6 +30,50 @@ pub struct ServerEntry {
     /// The group the app lists it under; `None` leaves it ungrouped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Reached over the network as a paired computer instead of over SSH.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired: Option<PairedServer>,
+}
+
+/// Where a paired server listens and the certificate it must present. Its
+/// token for this computer is kept apart, in `paired-servers.toml`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PairedServer {
+    pub hosts: Vec<String>,
+    pub port: u16,
+    /// SHA-256 of its TLS certificate, in hex.
+    pub fingerprint: String,
+    /// This computer's ID there.
+    pub device: muxy_protocol::DeviceId,
+}
+
+impl PairedServer {
+    pub fn fingerprint(&self) -> Option<[u8; 32]> {
+        super::paired::unhex(&self.fingerprint)
+    }
+
+    /// Whether it presents `fingerprint`, however its hex is spelled.
+    pub fn has_certificate(&self, fingerprint: &[u8; 32]) -> bool {
+        self.fingerprint().as_ref() == Some(fingerprint)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let invalid = || {
+            Error::new(
+                "servers",
+                "a paired server needs its addresses, port, and fingerprint",
+            )
+        };
+        if self.hosts.is_empty()
+            || self.port < 1024
+            || self.fingerprint().is_none()
+            || muxy_protocol::validate_pairing_hosts(&self.hosts).is_err()
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
 }
 
 impl ServerEntry {
@@ -41,11 +86,25 @@ impl ServerEntry {
             identity_file: None,
             password_login: false,
             group: None,
+            paired: None,
         }
     }
 
+    pub fn paired(name: String, paired: PairedServer) -> Self {
+        Self {
+            paired: Some(paired),
+            ..Self::new(name, String::new())
+        }
+    }
+
+    /// How the user knows where it is: its SSH destination or command, or
+    /// the first address it was paired at.
     pub fn destination(&self) -> &str {
-        self.ssh_command.as_deref().unwrap_or(&self.ssh)
+        match (&self.paired, &self.ssh_command) {
+            (Some(paired), _) => paired.hosts.first().map_or("", String::as_str),
+            (None, Some(command)) => command,
+            (None, None) => &self.ssh,
+        }
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -55,16 +114,20 @@ impl ServerEntry {
                 "this computer's server ID cannot be listed",
             ));
         }
-        if self.name.trim().is_empty()
-            || self.name.len() > 256
-            || self.name.chars().any(char::is_control)
-        {
-            return Err(Error::new(
-                "servers",
-                "enter a name of 1–256 bytes without control characters",
-            ));
-        }
-        if let Some(command) = &self.ssh_command {
+        Self::validate_name(&self.name)?;
+        if let Some(paired) = &self.paired {
+            if !self.ssh.is_empty()
+                || self.ssh_command.is_some()
+                || self.identity_file.is_some()
+                || self.password_login
+            {
+                return Err(Error::new(
+                    "servers",
+                    "a paired server cannot also have an SSH destination, command, identity file, or password login",
+                ));
+            }
+            paired.validate()?;
+        } else if let Some(command) = &self.ssh_command {
             if !self.ssh.is_empty() || self.identity_file.is_some() || self.password_login {
                 return Err(Error::new(
                     "servers",
@@ -89,9 +152,24 @@ impl ServerEntry {
                 "enter an identity file path without control characters",
             ));
         }
-        if self.group.as_ref().is_some_and(|group| {
-            group.trim().is_empty() || group.len() > 256 || group.chars().any(char::is_control)
-        }) {
+        if let Some(group) = &self.group {
+            Self::validate_group(group)?;
+        }
+        Ok(())
+    }
+
+    pub fn validate_name(name: &str) -> Result<()> {
+        if name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            return Err(Error::new(
+                "servers",
+                "enter a name of 1–256 bytes without control characters",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_group(group: &str) -> Result<()> {
+        if group.trim().is_empty() || group.len() > 256 || group.chars().any(char::is_control) {
             return Err(Error::new(
                 "servers",
                 "enter a group name of 1–256 bytes without control characters",

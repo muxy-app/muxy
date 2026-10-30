@@ -27,6 +27,7 @@ fn request(secret: [u8; 16]) -> PairRequest {
     PairRequest {
         secret,
         name: " Phone ".into(),
+        kind: DeviceKind::Phone,
     }
 }
 
@@ -145,5 +146,34 @@ fn turning_access_off_keeps_an_unreadable_store_for_recovery()
     })?;
     assert!(store::load(&path)?.identity.is_some());
     std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn a_computer_keeps_its_kind_and_unknown_kinds_pair_as_phones() -> Result<(), ServerError> {
+    let remote = enabled()?;
+    let mut kinds = Vec::new();
+    for kind in [DeviceKind::Computer, DeviceKind::Unrecognized(9)] {
+        let secret = offer(&remote, ClientId::new());
+        let paired = remote
+            .pair(
+                &PairRequest {
+                    kind,
+                    ..request(secret)
+                },
+                server(),
+            )
+            .ok_or_else(|| ServerError::new(ErrorCode::BadRequest, "not paired"))?;
+        let authenticated = remote.authenticate(&paired.credential);
+        kinds.push(authenticated.map(|(_, kind)| kind));
+    }
+    assert_eq!(kinds, [Some(DeviceKind::Computer), Some(DeviceKind::Phone)]);
+    let listed: Vec<_> = remote
+        .state(&HashSet::new())
+        .devices
+        .iter()
+        .map(|device| device.kind)
+        .collect();
+    assert_eq!(listed, [DeviceKind::Computer, DeviceKind::Phone]);
     Ok(())
 }

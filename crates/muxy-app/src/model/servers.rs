@@ -32,7 +32,7 @@ pub(crate) struct Runtime {
     /// Installing Muxy there, at the user's request.
     pub(super) install: Option<super::remote_servers::Install>,
     /// How the worker reaches another computer.
-    pub(super) target: Option<SshTarget>,
+    pub(super) target: Option<Target>,
     /// Connecting again after a drop.
     pub(super) retry: super::reconnect::Retry,
     /// Checks of its project folders started, so only the latest applies.
@@ -79,6 +79,8 @@ pub(crate) struct Servers {
     pub(super) passwords: crate::askpass::Passwords,
     /// How ssh goes through the app's proxy, when it applies to the whole app.
     pub(super) proxy: Option<muxy_client::ProxyCommand>,
+    /// `paired-servers.toml`, with the tokens for servers this computer paired with.
+    pub(super) tokens: std::path::PathBuf,
     /// This computer's server, which is always there.
     pub(crate) local: Runtime,
     remotes: BTreeMap<ServerId, Runtime>,
@@ -104,11 +106,17 @@ pub(super) fn ssh_target(
 impl Servers {
     /// Boot already asked the local worker to connect, as generation 1.
     /// ssh asks for passwords on `askpass`, a socket path.
-    pub(super) fn new(workers: Workers, local: Worker, askpass: std::path::PathBuf) -> Self {
+    pub(super) fn new(
+        workers: Workers,
+        local: Worker,
+        askpass: std::path::PathBuf,
+        tokens: std::path::PathBuf,
+    ) -> Self {
         Self {
             workers,
             passwords: crate::askpass::Passwords::new(askpass),
             proxy: None,
+            tokens,
             local: Runtime::new(Some(local), ConnectionState::Connecting, 1),
             remotes: BTreeMap::new(),
         }
@@ -142,7 +150,7 @@ impl Servers {
             .chain(self.remotes.iter().map(|(id, runtime)| (*id, runtime)))
     }
 
-    /// Starts the worker for a server reached over SSH. An invalid entry
+    /// Starts the worker for another computer's server. An invalid entry
     /// leaves the server without a worker, and its error says why. A server
     /// that had a worker before keeps counting from its `generation`, so
     /// updates from that worker are never taken for the new one's.
@@ -151,7 +159,7 @@ impl Servers {
         runtime.password_login = entry.password_login;
         match self.target(entry).and_then(|target| {
             runtime.target = Some(target.clone());
-            self.workers.start(entry.id, Target::Ssh(target))
+            self.workers.start(entry.id, target)
         }) {
             Ok(work) => runtime.work = Some(work),
             Err(error) => runtime.error = Some(format!("{}: {error}", entry.destination())),
@@ -159,15 +167,49 @@ impl Servers {
         self.remotes.insert(entry.id, runtime);
     }
 
-    /// How ssh reaches `entry`: its key file, and asking the app for a
-    /// password when it logs in with one.
-    pub(super) fn target(&mut self, entry: &ServerEntry) -> std::io::Result<SshTarget> {
+    /// How the worker reaches `entry`: as a paired computer with its saved
+    /// token, or over ssh with its key file, asking the app for a password
+    /// when it logs in with one.
+    pub(super) fn target(&mut self, entry: &ServerEntry) -> std::io::Result<Target> {
+        if let Some(paired) = &entry.paired {
+            return self.paired_target(entry, paired);
+        }
         let mut target = ssh_target(entry, self.proxy.as_ref())?;
         if entry.password_login {
             let login = target.login()?;
             target = target.with_askpass(self.passwords.askpass(entry.id, login)?);
         }
-        Ok(target)
+        Ok(Target::Ssh(target))
+    }
+
+    fn paired_target(
+        &self,
+        entry: &ServerEntry,
+        paired: &muxy_app_core::settings::PairedServer,
+    ) -> std::io::Result<Target> {
+        let token = muxy_app_core::settings::PairingTokens::load(&self.tokens)
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+            .token(entry.id)
+            .ok_or_else(|| {
+                std::io::Error::other(
+                    tr!("This computer has no pairing for it. Pair again with a new link.")
+                        .to_string(),
+                )
+            })?;
+        let fingerprint = paired.fingerprint().ok_or_else(|| {
+            std::io::Error::other(tr!("Its saved certificate fingerprint is invalid.").to_string())
+        })?;
+        Ok(Target::Paired {
+            endpoint: muxy_client::RemoteEndpoint {
+                hosts: paired.hosts.clone(),
+                port: paired.port,
+                fingerprint,
+            },
+            credential: muxy_protocol::DeviceCredential {
+                device: paired.device,
+                token,
+            },
+        })
     }
 
     /// Stops another computer's worker and drops what its connection kept.

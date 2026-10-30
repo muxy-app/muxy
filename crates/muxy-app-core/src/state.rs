@@ -861,7 +861,7 @@ impl AppState {
         Ok(())
     }
 
-    fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab, AppError> {
+    pub(crate) fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab, AppError> {
         let project = self
             .projects
             .iter_mut()

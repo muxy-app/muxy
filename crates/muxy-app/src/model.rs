@@ -13,6 +13,8 @@ pub(crate) mod git;
 mod language;
 mod links;
 mod mobile;
+mod pairing;
+pub(crate) use pairing::PairingForm;
 mod preferences;
 pub(crate) mod project_layouts;
 pub(crate) mod proxy;
@@ -145,9 +147,10 @@ pub(crate) struct AppModel {
     /// The last Test Connection in Settings, with the destination it tried.
     server_probe: Option<(String, ConnectionTest)>,
     server_probe_generation: u64,
+    pub(crate) pairing: pairing::Pairing,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
-    /// Servers selected in the Remote Servers tab, and where a ⇧-click range
+    /// Servers selected in the Devices tab, and where a ⇧-click range
     /// starts.
     pub(crate) remote_selection: Vec<ServerId>,
     pub(crate) remote_selection_anchor: Option<ServerId>,
@@ -262,6 +265,14 @@ impl AppModel {
             input.update(cx, |input, cx| {
                 input.set_style(
                     muxy_ui::text_input::InputStyle::compact(&self.theme, &self.metrics),
+                    cx,
+                );
+            });
+        }
+        if let Some(input) = self.servers_tab.port_input() {
+            input.update(cx, |input, cx| {
+                input.set_style(
+                    muxy_ui::text_input::InputStyle::field(&self.theme, &self.metrics),
                     cx,
                 );
             });
@@ -513,6 +524,7 @@ impl AppModel {
                 boot.work,
                 boot.state_path
                     .with_file_name(format!("askpass-{}.sock", std::process::id())),
+                boot.state_path.with_file_name("paired-servers.toml"),
             ),
             proxy: proxy::ProxyState::load(boot.state_path.with_file_name("proxy.toml")),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
@@ -541,6 +553,7 @@ impl AppModel {
             mobile: mobile::MobileAccess::default(),
             server_probe: None,
             server_probe_generation: 0,
+            pairing: pairing::Pairing::default(),
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
             remote_selection: Vec::new(),
@@ -1714,6 +1727,7 @@ impl AppModel {
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
         self.sync_voice(cx);
+        self.sync_devices_tab(false, cx);
         self.sync_git(cx);
         self.sync_references(cx);
         self.refresh_existing_sessions(cx);
@@ -2208,7 +2222,9 @@ impl AppModel {
         self.refresh_catalog(server, cx);
         if server.is_local() && self.settings_window.is_some() {
             self.read_server_settings(cx);
-            self.read_remote_access(cx);
+        }
+        if server.is_local() {
+            self.sync_devices_tab(true, cx);
         }
         cx.notify();
     }
@@ -2292,6 +2308,7 @@ impl AppModel {
                     self.update_connect_failed();
                 }
                 self.disconnect(server, cx);
+                let error = self.name_unpaired(server, reason).unwrap_or(error);
                 if let Some(runtime) = self.servers.get_mut(server) {
                     runtime.failure = reason;
                     runtime.error = Some(error.clone());

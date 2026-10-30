@@ -183,10 +183,14 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
             .debug_selector(|| "connect-server".into()),
         );
     } else {
+        let restartable = model.restartable(model.status_server());
         for (restart, id, label) in [
             (true, "restart-project-server", tr!("Restart server…")),
             (false, "stop-project-server", tr!("Stop server…")),
-        ] {
+        ]
+        .into_iter()
+        .filter(|(restart, ..)| restartable || !restart)
+        {
             actions = actions.child(
                 controls::button(
                     Style { theme, metrics: &m },

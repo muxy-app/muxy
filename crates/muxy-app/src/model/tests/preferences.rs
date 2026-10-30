@@ -1,7 +1,5 @@
 #![allow(clippy::float_cmp)]
 
-mod mobile;
-
 use super::*;
 use crate::model::banners::BannerKind;
 use crate::views::settings::Change;

@@ -6,7 +6,7 @@ How people use Muxy: the apps, navigation, settings, and updates.
 
 | App | Connects to |
 | --- | --- |
-| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of remote devices over SSH. |
+| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of remote devices over SSH or after pairing with them. |
 | `muxy` terminal UI | The server on the same computer, starting it if needed, or with `--host`, the server on another computer over SSH. Ships with the desktop app and also on its own. |
 | Phone app | A paired computer's server, over the local network or a VPN, or any computer's server over SSH. |
 
@@ -14,20 +14,29 @@ Every project knows which server it lives on, so the desktop app shows
 projects from several servers in one sidebar. Remote projects are marked with
 their server and path. There is no global "current server".
 
-The **Remote** section at the bottom of the sidebar shows each remote server's
+The **Devices** section at the bottom of the sidebar shows each remote server's
 state. Its popover adds servers (host, user, port, key file, or a password that
-Muxy asks for and keeps only in memory) and manages them. **Add Project →
+Muxy asks for and keeps only in memory) and manages them. **Pair with Link…**
+adds another computer from the link its **Devices** tab shows instead, with no
+SSH setup. A paired computer can't be restarted from here, and pairing again
+from its **Edit…** form recovers one that was revoked or reset. **Add Project →
 Remote** browses that server's folders. When a server lacks Muxy, a released
 app offers to install the same version there; when its version can't talk to
 the app, the section explains how to update it. Removing a server only forgets
 its projects in this app.
 
-Servers can be put in groups. **Manage Servers…** opens the Remote Servers
-tab, which lists every server by group and connects, disconnects, regroups,
-or removes several at once. Disconnecting leaves a server's terminals running
-there.
+**Manage Devices…** opens the **Devices** tab, where everything about remote
+connections lives:
 
-**Add Project** (the folder beside **Remote**) offers **Local** (⌘O),
+- **This Computer** lets phones and other computers pair: it turns access on,
+  shows a pairing code and link, and lists paired devices to revoke. The code
+  is withdrawn when the tab closes. `muxy mobile` does the same without the
+  desktop app.
+- **Connects To** lists every server by group, and connects, disconnects,
+  regroups, or removes several at once. Disconnecting leaves a server's
+  terminals running there.
+
+**Add Project** (the folder beside **Devices**) offers **Local** (⌘O),
 **Remote**, and **Recently Removed** projects. ⌘O searches folders that aren't
 projects yet and completes typed paths with Tab. Enter adds the folder as a
 project with a terminal, or opens a terminal in the project it already is.
@@ -37,7 +46,7 @@ Missing folders require an explicit creation confirmation.
 folders. Enter opens a terminal in the project, or at a folder in its
 computer's Home; ⌘Enter adds the folder as a project with a terminal. Selecting
 a server browses its folders; ⌘Enter opens a terminal in its Home, connecting
-first if needed. Clicking a server in the Remote popover offers **New Tab** too.
+first if needed. Clicking a server in the Devices popover offers **New Tab** too.
 
 Files and images dropped or pasted on a remote terminal, or sent from the
 composer, are copied to that computer and its path is pasted. Clicking a file
@@ -136,8 +145,6 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
 - Server settings, such as the shell and history size, apply to this
   computer's server. `muxy --host` changes another computer's. Stopping or
   restarting it asks first.
-- **Settings → Mobile** turns phone access on, shows a pairing code, and lists
-  paired phones. `muxy mobile` does the same without the desktop app.
 - **Settings → Backup & Restore** exports settings, themes, extension preferences,
   projects, and layouts. Restore applies on the next launch and keeps a recovery
   copy in `Backups`. Existing projects are kept; matching projects receive the
