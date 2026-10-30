@@ -477,6 +477,7 @@
 "Could not save project prompt: %@" = "Could not save project prompt: %@";
 "Could not save tabs" = "Could not save tabs";
 "Could not save tabs: %@" = "Could not save tabs: %@";
+"Could not save the default app: %@" = "Could not save the default app: %@";
 "Could not save the update schedule: %@" = "Could not save the update schedule: %@";
 "Could not save theme: %@" = "Could not save theme: %@";
 "Could not send %@ to %@: %@" = "Could not send %@ to %@: %@";

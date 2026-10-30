@@ -76,10 +76,11 @@ pub(crate) fn tab_strip(
         .into_any_element()
 }
 
-/// Whether the built-in sidebar lists tabs, each project with its own new tab
-/// button, so the strip needs none.
-fn sidebar_opens_tabs(model: &AppModel) -> bool {
+/// Whether the built-in sidebar shows tabs, each project with its own new tab
+/// button, so the titlebar needs none.
+pub(super) fn sidebar_opens_tabs(model: &AppModel) -> bool {
     model.appearance.layout != muxy_app_core::settings::AppLayout::ProjectFocused
+        && model.appearance.sidebar_expanded
         && !model.extension_sidebar_active()
 }
 

@@ -146,6 +146,7 @@ impl AppModel {
         let open = Arc::clone(&self.project_apps.open);
         let result = crate::opener::submit(move || open(&directory, &app));
         let failed = |model: &mut Self, error: String, cx: &mut Context<Self>| {
+            model.forget_uninstalled_project_apps();
             model.fail(tr!("Could not open project: %@", error).to_string(), cx);
         };
         match result {
@@ -159,6 +160,14 @@ impl AppModel {
                 })
                 .detach(),
             Err(error) => failed(self, error.to_string(), cx),
+        }
+    }
+
+    /// Drops editors deleted since they were found, so the main button and
+    /// the menu offer only apps that are still installed.
+    fn forget_uninstalled_project_apps(&mut self) {
+        if let Some(listed) = &mut self.project_apps.listed {
+            listed.retain(|listed| listed.app.is_file_manager() || listed.app.path.exists());
         }
     }
 

@@ -286,11 +286,19 @@ impl AppModel {
             }
         } else {
             let theme_change = matches!(change, Change::Theme(..));
+            let target_change = matches!(change, Change::ProjectTarget(_));
             let result = self.apply_preference(change, cx);
             let error = result.err().map(|error| error.to_string());
             self.preference_result(&id, error.as_deref(), cx);
-            if theme_change && let Some(error) = error {
-                self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
+            if let Some(error) = error {
+                if theme_change {
+                    self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
+                } else if target_change {
+                    self.fail(
+                        tr!("Could not save the default app: %@", &error).to_string(),
+                        cx,
+                    );
+                }
             }
         }
         self.sync_preferences(cx);
