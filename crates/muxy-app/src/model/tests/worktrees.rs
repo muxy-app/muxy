@@ -5,6 +5,17 @@ use muxy_ui::picker::{Picker, PickerItem, PickerRow};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+const NEW_WORKTREE: &str = if cfg!(target_os = "macos") {
+    "cmd-alt-n"
+} else {
+    "ctrl-shift-alt-n"
+};
+const SWITCH_WORKTREE: &str = if cfg!(target_os = "macos") {
+    "cmd-alt-w"
+} else {
+    "ctrl-shift-alt-w"
+};
+
 /// Work the model sent, kept so worktree syncs stay pending until a test answers them.
 pub(super) struct Sent(std::sync::mpsc::Receiver<(u64, Work)>, Vec<Work>);
 
@@ -708,7 +719,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
     });
     assert_eq!(order.len(), 4);
     let [first, below, removed] = [order[1], order[2], order[3]];
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     assert!(switcher(&view, cx).is_some());
     assert!(
         in_order(&order, cx),
@@ -727,7 +738,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
         cx.notify();
     });
     cx.run_until_parked();
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     assert!(
         in_order(&[below, first, root, removed], cx),
         "the current worktree, then the most recently used, then never-used ones"
@@ -741,7 +752,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
         );
     });
 
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     let picker = switcher(&view, cx).expect("switcher");
     sent.take();
     picker.update(cx, |_, cx| {
@@ -770,7 +781,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
         model.dismiss_overlay(cx);
         model.select_project(model.state.home().id, cx);
     });
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     assert!(switcher(&view, cx).is_none(), "Home has no worktrees");
 }
 
@@ -894,7 +905,7 @@ fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_wor
             _ => None,
         })
     };
-    cx.simulate_keystrokes("cmd-alt-n");
+    cx.simulate_keystrokes(NEW_WORKTREE);
     assert_eq!(
         form(&view, cx),
         Some((root, true)),
@@ -903,7 +914,7 @@ fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_wor
     cx.simulate_keystrokes("escape");
     assert_eq!(form(&view, cx), None, "escape closes the form it opened");
 
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     cx.run_until_parked();
     let create = cx
         .debug_bounds("picker-footer-new-worktree")
@@ -927,7 +938,7 @@ fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_wor
             model.dismiss_overlay(cx);
             setup(model, cx);
         });
-        cx.simulate_keystrokes("cmd-alt-n");
+        cx.simulate_keystrokes(NEW_WORKTREE);
         assert_eq!(form(&view, cx), None);
     }
 }
@@ -956,7 +967,7 @@ fn new_worktree_form_stays_closed_when_the_parent_is_no_longer_a_repository(
         model.git.projects.entry(root).or_default().loaded = true;
         assert_eq!(model.new_worktree_target(), None, "the command is disabled");
     });
-    cx.simulate_keystrokes("cmd-alt-n");
+    cx.simulate_keystrokes(NEW_WORKTREE);
     view.update(cx, |model, cx| {
         assert!(model.overlay.is_none(), "the shortcut opens no form");
         model.open_git_form(root, true, cx);
