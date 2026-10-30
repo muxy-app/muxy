@@ -43,17 +43,18 @@ fn row(cx: &mut VisualTestContext, selector: String) -> Option<gpui::Bounds<gpui
 }
 
 #[gpui::test]
-fn projects_without_tabs_wait_behind_a_toggle_and_the_current_one_stays(cx: &mut TestAppContext) {
+fn projects_without_tabs_wait_behind_a_toggle_even_when_current(cx: &mut TestAppContext) {
     let (state, [with_tab, current, idle], _) = three_projects();
     let (view, cx) = open(state, AppLayout::TabFocused, cx);
     view.read_with(cx, |model, _| {
         let home = model.state.home().id;
         assert!(model.state.home().tabs.is_empty());
-        assert_eq!(listed(model), [with_tab, current]);
+        assert_eq!(model.state.current_project().id, current);
+        assert_eq!(listed(model), [with_tab]);
         assert_eq!(
             model.tab_sidebar_projects().1,
-            2,
-            "Home and idle are hidden"
+            3,
+            "Home, current, and idle are hidden"
         );
         assert!(!listed(model).contains(&home));
     });
@@ -67,7 +68,7 @@ fn projects_without_tabs_wait_behind_a_toggle_and_the_current_one_stays(cx: &mut
     assert!(row(cx, format!("tab-project-{idle}")).is_some());
     view.read_with(cx, |model, _| {
         assert_eq!(listed(model).len(), 4);
-        assert_eq!(model.tab_sidebar_projects().1, 2);
+        assert_eq!(model.tab_sidebar_projects().1, 3);
     });
 
     let toggle = cx
@@ -78,18 +79,34 @@ fn projects_without_tabs_wait_behind_a_toggle_and_the_current_one_stays(cx: &mut
     view.update(cx, |model, cx| {
         assert!(!listed(model).contains(&idle));
         model.set_layout(AppLayout::AgentsFocused, cx);
-        assert_eq!(
-            listed(model),
-            [current],
+        assert!(
+            listed(model).is_empty(),
             "a terminal tab without an agent does not count"
         );
-        assert_eq!(model.tab_sidebar_projects().1, 3);
+        assert_eq!(model.tab_sidebar_projects().1, 4);
+    });
+}
+
+#[gpui::test]
+fn closing_the_last_tab_hides_the_current_project_at_once(cx: &mut TestAppContext) {
+    let (state, [with_tab, _, _], tab) = three_projects();
+    let (view, cx) = open(state, AppLayout::TabFocused, cx);
+    view.update(cx, |model, cx| {
+        model.select_project(with_tab, cx);
+        assert_eq!(listed(model), [with_tab]);
+        model.close_tab(tab, cx);
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().id, with_tab);
+        assert!(listed(model).is_empty());
     });
 }
 
 #[gpui::test]
 fn project_rows_line_up_with_the_header_and_focus_from_their_menu(cx: &mut TestAppContext) {
-    let (state, [with_tab, current, _], tab) = three_projects();
+    let (mut state, [with_tab, current, _], tab) = three_projects();
+    state.open_terminal_tab(current).expect("tab");
     let (view, cx) = open(state, AppLayout::TabFocused, cx);
     view.update(cx, |model, cx| {
         model.appearance.tab_focused_expanded.insert(with_tab, true);
@@ -131,15 +148,26 @@ fn project_rows_line_up_with_the_header_and_focus_from_their_menu(cx: &mut TestA
     }
     assert!(chevron.left() > header.center().x);
 
-    cx.simulate_click(header.center(), Modifiers::none());
+    cx.simulate_click(title.center(), Modifiers::none());
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert_eq!(
             model.state.current_project().id,
             current,
-            "a project header does nothing on click"
+            "a project name does not select the project"
+        );
+        assert!(
+            !model.appearance.tab_focused_expanded[&with_tab],
+            "a project name toggles its tabs"
         );
     });
+    let title = row(cx, format!("tab-project-title-{with_tab}")).expect("project title");
+    cx.simulate_click(title.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        view.read_with(cx, |model, _| model.appearance.tab_focused_expanded
+            [&with_tab])
+    );
     cx.simulate_click(chevron.center(), Modifiers::none());
     cx.run_until_parked();
     assert!(
@@ -227,4 +255,58 @@ fn the_shown_choice_lasts_the_session_unless_remembered(cx: &mut TestAppContext)
             remember
         );
     }
+}
+
+#[gpui::test]
+fn project_rows_are_tab_sized_with_one_line_and_worktrees_line_up(cx: &mut TestAppContext) {
+    let (state, root, [worktree, ..], _directory) = pruning_fixture();
+    let (view, cx) = open(state, AppLayout::ProjectFocused, cx);
+    view.update(cx, |model, cx| {
+        model.expanded_worktrees.insert(root);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let metrics = view.read_with(cx, |model, _| model.metrics);
+    let row_height = metrics.control_small() + metrics.spacing2() * 2.0;
+    let index = view.read_with(cx, |model, _| {
+        model
+            .sidebar_projects()
+            .iter()
+            .position(|project| project.id == root)
+            .expect("listed")
+    });
+    let project = row(cx, format!("project-row-{index}")).expect("project row");
+    let worktree = row(cx, format!("worktree-{worktree}")).expect("worktree row");
+    assert_eq!(project.size.height, row_height);
+    assert_eq!(worktree.size.height, row_height);
+    assert!(row(cx, format!("project-worktree-label-{root}")).is_none());
+}
+
+#[gpui::test]
+fn collapsed_project_tiles_fill_their_squares(cx: &mut TestAppContext) {
+    let (state, [with_tab, ..], _) = three_projects();
+    let (view, cx) = open(state, AppLayout::ProjectFocused, cx);
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = false;
+        model.appearance.sidebar_collapsed_style =
+            muxy_app_core::settings::SidebarCollapsedStyle::Icons;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let metrics = view.read_with(cx, |model, _| model.metrics);
+    let sidebar = cx.debug_bounds("workspace-sidebar").expect("sidebar");
+    assert_eq!(sidebar.size.width, metrics.sidebar_collapsed_width());
+    let square = metrics.scaled(34.0);
+    for selector in [
+        "project-row-0",
+        "remote-servers-section",
+        "sidebar-add-project",
+    ] {
+        let bounds = cx.debug_bounds(selector).expect(selector);
+        assert_eq!(bounds.size, size(square, square), "{selector}");
+    }
+    let tile = cx
+        .debug_bounds(format!("project-tile-{with_tab}").leak())
+        .expect("tile");
+    assert_eq!(tile.size, size(metrics.icon_xxl(), metrics.icon_xxl()));
 }

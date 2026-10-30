@@ -920,6 +920,7 @@
 "New Home Tab" = "New Home Tab";
 "New Tab" = "New Tab";
 "New Tab (⌘T)" = "New Tab (⌘T)";
+"New Tab in Project…" = "New Tab in Project…";
 "New Tab to the Left" = "New Tab to the Left";
 "New Tab to the Right" = "New Tab to the Right";
 "New Terminal Tab" = "New Terminal Tab";
@@ -1118,6 +1119,7 @@
 "Rebase" = "Rebase";
 "Rebase and Merge" = "Rebase and Merge";
 "Recently Active" = "Recently Active";
+"Recently Removed" = "Recently Removed";
 "Reconnect" = "Reconnect";
 "Reconnect %lld Servers" = "Reconnect %lld Servers";
 "Reconnect to load project layouts" = "Reconnect to load project layouts";
@@ -1719,6 +1721,7 @@
 "new browser tab" = "new browser tab";
 "new home tab" = "new home tab";
 "new tab" = "new tab";
+"new tab in project" = "new tab in project";
 "new worktree" = "new worktree";
 "next project" = "next project";
 "next prompt" = "next prompt";
@@ -1740,7 +1743,6 @@
 "previous project" = "previous project";
 "previous prompt" = "previous prompt";
 "previous tab" = "previous tab";
-"primary" = "primary";
 "pushed %@/%@" = "pushed %@/%@";
 "quit" = "quit";
 "scroll to bottom" = "scroll to bottom";

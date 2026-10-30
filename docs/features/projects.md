@@ -13,6 +13,8 @@ workspaces, and project order are kept by each app.
 - Right-click a project to rename it, or change its icon, logo, or color.
 - **Remove Project…** removes it from every app and ends its terminals. Files
   stay on disk.
+- **Add Project → Recently Removed** brings back one of the last 10 removed
+  projects with its name, icon, and color.
 - If a project's folder disappears, it shows as missing and can only be
   removed.
 

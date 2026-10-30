@@ -108,13 +108,10 @@ impl AppModel {
     }
 
     /// The projects the sidebar lists, and how many of them have no tabs; those
-    /// are left out until shown. The current project is always listed.
+    /// are left out until shown.
     pub(crate) fn tab_sidebar_projects(&self) -> (Vec<&Project>, usize) {
-        let current = self.state.current_project().id;
         let listed = |project: &&Project| {
-            self.appearance.sidebar_focus
-                || project.id == current
-                || self.sidebar_tabs(project).next().is_some()
+            self.appearance.sidebar_focus || self.sidebar_tabs(project).next().is_some()
         };
         let mut projects = self.sidebar_projects();
         let without_tabs = projects.iter().filter(|project| !listed(project)).count();
@@ -311,15 +308,46 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 }
             }),
         )
-        .child(
-            group_label(model.project_title(project), model)
-                .debug_selector(move || format!("tab-project-title-{id}")),
-        )
+        .child(project_title(project, model, cx))
         .child(project_accessory(project, model))
         .when(!missing, |row| {
             row.child(new_tab_button(id, model, cx))
                 .child(project_disclosure(project, model, cx))
         })
+        .into_any_element()
+}
+
+/// Text color is fixed when text is laid out, before hover is known, so the
+/// hovered color is a second layer shown on hover, as icons do.
+fn project_title(project: &Project, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let id = project.id;
+    let title = SharedString::from(model.project_title(project));
+    let group = SharedString::from(format!("tab-project-title-{id}"));
+    div()
+        .id(group.clone())
+        .debug_selector(move || format!("tab-project-title-{id}"))
+        .group(group.clone())
+        .relative()
+        .flex()
+        .flex_1()
+        .min_w(px(0.0))
+        .on_click(cx.listener(move |model, _, window, cx| {
+            cx.stop_propagation();
+            model.toggle_project_tabs(id, cx);
+            model.focus_active(window, cx);
+        }))
+        .child(
+            group_label(title.clone(), model)
+                .group_hover(group.clone(), |style| style.opacity(0.0)),
+        )
+        .child(
+            group_label(title, model)
+                .absolute()
+                .inset_0()
+                .text_color(model.theme.fg_muted)
+                .opacity(0.0)
+                .group_hover(group, |style| style.opacity(1.0)),
+        )
         .into_any_element()
 }
 

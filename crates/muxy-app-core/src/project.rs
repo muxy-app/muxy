@@ -91,6 +91,32 @@ pub struct Project {
     pub(crate) status: ProjectStatus,
 }
 
+/// A project removed from this app, kept so it can be added back as it was.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RemovedProject {
+    pub server_id: ServerId,
+    #[serde(with = "crate::catalog::directory")]
+    pub directory: PathBuf,
+    pub name: String,
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub logo: Option<std::sync::Arc<[u8]>>,
+    pub color: Color,
+}
+
+impl From<&Project> for RemovedProject {
+    fn from(project: &Project) -> Self {
+        Self {
+            server_id: project.server_id,
+            directory: project.directory.clone(),
+            name: project.name.clone(),
+            icon: project.icon.clone(),
+            logo: project.logo.clone(),
+            color: project.color.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProjectStatus {
     #[default]

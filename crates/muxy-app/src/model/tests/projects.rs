@@ -624,3 +624,43 @@ fn creating_a_project_folder_requires_the_explicit_create_confirmation(cx: &mut 
     });
     std::fs::remove_dir_all(root).expect("cleanup");
 }
+
+#[gpui::test]
+fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut TestAppContext) {
+    let (mut state, first, _, _, _) = two_projects();
+    state.rename_project(first, "Removed").expect("rename");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.sidebar_expanded = true;
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    let add_project = cx.debug_bounds("sidebar-add-project").expect("add project");
+    cx.simulate_click(add_project.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("menu-label-Local").is_some());
+    assert!(cx.debug_bounds("menu-label-Recently Removed").is_none());
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+
+    view.update(cx, |model, cx| model.remove_project_confirmed(first, cx));
+    cx.run_until_parked();
+    cx.simulate_click(add_project.center(), Modifiers::none());
+    cx.run_until_parked();
+    let removed = cx
+        .debug_bounds("menu-label-Recently Removed")
+        .expect("Recently Removed");
+    cx.simulate_click(removed.center(), Modifiers::none());
+    cx.run_until_parked();
+    let entry = cx
+        .debug_bounds("menu-label-Removed")
+        .expect("removed entry");
+    cx.simulate_click(entry.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        let project = model.state.current_project();
+        assert_eq!(project.name, "Removed");
+        assert_eq!(project.directory, std::env::temp_dir());
+        assert_eq!(project.tabs.len(), 1);
+        assert!(model.state.removed_projects().is_empty());
+    });
+}

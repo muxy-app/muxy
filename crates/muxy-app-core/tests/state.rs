@@ -112,3 +112,41 @@ fn legacy_settings_are_removed_without_losing_terminal_splits_or_sessions() -> T
     );
     Ok(())
 }
+
+#[test]
+fn removed_projects_are_kept_newest_first_and_come_back_as_they_were() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let directory = std::env::temp_dir();
+    let project = state.add_project(ServerId::local(), directory.clone())?;
+    state.rename_project(project, "Muxy")?;
+    state.set_project_icon(project, Some("sf:star".into()))?;
+    let color: Color = "#3e63dd".parse()?;
+    state.set_project_color(project, color.clone())?;
+    state.remove_project(project)?;
+
+    let mut state: AppState = serde_json::from_value(serde_json::to_value(&state)?)?;
+    let removed = &state.removed_projects()[0];
+    assert_eq!(removed.name, "Muxy");
+    assert_eq!(removed.directory, directory);
+
+    let restored = state.restore_removed_project(0)?;
+    assert_ne!(restored, project);
+    let project = state.project(restored).ok_or("restored")?;
+    assert_eq!(project.name, "Muxy");
+    assert_eq!(project.icon.as_deref(), Some("sf:star"));
+    assert_eq!(project.color, color);
+    assert!(state.removed_projects().is_empty());
+
+    for _ in 0..12 {
+        let project = state.add_project(ServerId::local(), directory.clone())?;
+        state.remove_project(project)?;
+    }
+    assert_eq!(state.removed_projects().len(), 1, "one entry per folder");
+    state.add_project(ServerId::local(), directory)?;
+    assert!(
+        state.removed_projects().is_empty(),
+        "adding the folder again drops it"
+    );
+    assert!(state.restore_removed_project(0).is_err());
+    Ok(())
+}
