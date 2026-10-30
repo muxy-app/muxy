@@ -324,3 +324,25 @@ fn a_floating_composer_closed_by_its_menu_row_leaves_the_keyboard_to_the_termina
         assert!(model.overlay.is_none());
     });
 }
+
+#[cfg(target_os = "macos")]
+#[gpui::test]
+fn focused_terminal_and_composer_are_text_inputs(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    view.update_in(cx, |model, window, cx| {
+        assert_eq!(
+            model.focused_text_input(window, cx),
+            Some("Composer".into())
+        );
+    });
+    cx.simulate_keystrokes("cmd-i");
+    cx.executor()
+        .advance_clock(crate::views::composer::TRANSITION * 2);
+    cx.run_until_parked();
+    view.update_in(cx, |model, window, cx| {
+        assert_eq!(
+            model.focused_text_input(window, cx),
+            Some("Terminal".into())
+        );
+    });
+}
