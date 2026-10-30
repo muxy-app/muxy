@@ -175,6 +175,38 @@ fn folder_search_runs_below_saved_project_matches_and_without_them(cx: &mut Test
 }
 
 #[gpui::test]
+fn add_project_search_excludes_saved_folders_before_limiting_results(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("root");
+    let mut state = AppState::bootstrap().expect("state");
+    for index in 0..50 {
+        let folder = root.path().join(format!("Needle {index:02}"));
+        std::fs::create_dir(&folder).expect("saved folder");
+        state
+            .add_project(ServerId::local(), folder)
+            .expect("project");
+    }
+    let folder = root.path().join("Needle unsaved");
+    std::fs::create_dir(&folder).expect("unsaved folder");
+    state.select_project(state.home().id).expect("home");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.projects.search_root = Some(root.path().into());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+
+    open_add_project(cx);
+    cx.simulate_input("Needle");
+    load_folders(cx);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert!(model.overlay.is_none());
+        assert_eq!(model.state.projects().len(), 52);
+        assert_eq!(model.state.current_project().directory, folder);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+    });
+}
+
+#[gpui::test]
 fn server_matches_keep_matching_folders_selectable_and_completable(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().expect("root");
     let first = root.path().join("buildbox one");

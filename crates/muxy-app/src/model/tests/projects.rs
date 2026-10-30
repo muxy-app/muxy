@@ -87,6 +87,92 @@ fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &m
 }
 
 #[gpui::test]
+fn rejected_remote_restoration_keeps_recovery_until_a_retry_is_accepted(cx: &mut TestAppContext) {
+    let server = ServerId::new();
+    let project = ProjectId::new();
+    let (boot, _requests, _remotes) = remote_boot(
+        AppState::bootstrap().expect("state"),
+        vec![servers::entry(server, "box")],
+    );
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive(local(1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        let home = servers::connect_remote(model, server, vec![], &[(project, "api")], cx);
+        model
+            .state
+            .rename_project(project, "Custom name")
+            .expect("name");
+        model
+            .state
+            .set_project_icon(project, Some("sf:star".into()))
+            .expect("icon");
+        model
+            .state
+            .set_project_logo(
+                project,
+                Some(
+                    include_bytes!("../../../../muxy-protocol/tests/fixtures/project-logo.png")
+                        .as_slice()
+                        .into(),
+                ),
+            )
+            .expect("logo");
+        model
+            .state
+            .set_project_color(project, "#3e63dd".parse().expect("color"))
+            .expect("color");
+        model.remove_project_confirmed(project, cx);
+        while let Some(intent) = model.state.project_intents(server).first().cloned() {
+            model.receive_project_mutation(server, intent.operation, Ok(2), cx);
+        }
+        let mut page = servers::page(2, home, &[]);
+        page.revision = 2;
+        model.receive_catalog(server, Ok(page.clone()), cx);
+        let removed = model.state.removed_projects().to_vec();
+        assert_eq!(removed.len(), 1);
+
+        model.restore_removed_project(0, cx);
+        let restored = model.state.current_project().id;
+        let operation = model.state.project_intents(server)[0].operation;
+        model.receive_project_mutation(
+            server,
+            operation,
+            Err(muxy_client::ClientError::Server(
+                muxy_protocol::ErrorReply {
+                    code: ErrorCode::BadPath,
+                    message: "project folder does not exist".into(),
+                },
+            )),
+            cx,
+        );
+        model.receive_catalog(server, Ok(page), cx);
+        assert!(model.state.project(restored).is_none());
+        assert_eq!(model.state.removed_projects(), removed);
+        model.state = store::load(&model.path).expect("saved recovery");
+        assert_eq!(model.state.removed_projects(), removed);
+
+        model.restore_removed_project(0, cx);
+        let restored = model.state.current_project();
+        assert_eq!(restored.name, removed[0].name);
+        assert_eq!(restored.icon, removed[0].icon);
+        assert_eq!(restored.logo, removed[0].logo);
+        assert_eq!(restored.color, removed[0].color);
+        assert_eq!(restored.tabs.len(), 1);
+        assert_eq!(model.state.removed_projects(), removed);
+        let operation = model.state.project_intents(server)[0].operation;
+        model.receive_project_mutation(server, operation, Ok(3), cx);
+        assert!(model.state.removed_projects().is_empty());
+        assert!(
+            store::load(&model.path)
+                .expect("saved restoration")
+                .removed_projects()
+                .is_empty()
+        );
+    });
+}
+
+#[gpui::test]
 fn one_x_projects_join_the_running_app_and_keep_what_is_there(cx: &mut TestAppContext) {
     let legacy = tempfile::tempdir().expect("1.x folder");
     let first = tempfile::tempdir().expect("first folder");
@@ -661,6 +747,84 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
         assert_eq!(project.name, "Removed");
         assert_eq!(project.directory, std::env::temp_dir());
         assert_eq!(project.tabs.len(), 1);
+        assert_eq!(model.state.removed_projects().len(), 1);
+        assert!(model.overlay.is_none());
+    });
+    let add_project = cx.debug_bounds("sidebar-add-project").expect("add project");
+    cx.simulate_click(add_project.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        let Some(Overlay::Menu(menu)) = &model.overlay else {
+            panic!("Add Project menu");
+        };
+        assert_eq!(menu.items.len(), 2);
+        acknowledge_catalog(model, cx);
         assert!(model.state.removed_projects().is_empty());
+    });
+}
+
+#[gpui::test]
+fn restoration_acknowledgements_dismiss_stale_recovery_menus(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("temporary folder");
+    let mut state = AppState::bootstrap().expect("state");
+    for name in ["C", "B", "A"] {
+        let directory = root.path().join(name);
+        std::fs::create_dir(&directory).expect("mkdir");
+        let project = state
+            .add_project(ServerId::local(), directory)
+            .expect("project");
+        state.remove_project(project).expect("remove");
+    }
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.sidebar_expanded = true;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        acknowledge_catalog(model, cx);
+        model.restore_removed_project(0, cx);
+        assert_eq!(model.state.current_project().name, "A");
+    });
+    cx.run_until_parked();
+    let open_removed = |cx: &mut VisualTestContext| {
+        let add_project = cx.debug_bounds("sidebar-add-project").expect("add project");
+        cx.simulate_click(add_project.center(), Modifiers::none());
+        cx.run_until_parked();
+        let removed = cx
+            .debug_bounds("menu-label-Recently Removed")
+            .expect("Recently Removed");
+        cx.simulate_click(removed.center(), Modifiers::none());
+        cx.run_until_parked();
+    };
+    open_removed(cx);
+    view.read_with(cx, |model, _| {
+        assert!(
+            matches!(&model.overlay, Some(Overlay::Menu(menu)) if menu.restores_removed_projects())
+        );
+    });
+    let entry = cx.debug_bounds("menu-label-B").expect("B");
+    view.update(cx, |model, cx| {
+        let operation = model.state.project_intents(ServerId::local())[0].operation;
+        model.receive_project_mutation(ServerId::local(), operation, Ok(2), cx);
+        assert_eq!(model.state.removed_projects().len(), 2);
+        assert_eq!(model.state.removed_projects()[0].name, "B");
+        assert!(model.overlay.is_none());
+    });
+    cx.run_until_parked();
+    cx.simulate_click(entry.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().name, "A");
+        assert_eq!(model.state.projects().len(), 2);
+        assert!(model.overlay.is_none());
+    });
+    open_removed(cx);
+    let entry = cx.debug_bounds("menu-label-B").expect("B");
+    cx.simulate_click(entry.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().name, "B");
+        assert_eq!(
+            model.state.current_project().directory,
+            root.path().join("B")
+        );
     });
 }

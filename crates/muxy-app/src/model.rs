@@ -859,7 +859,6 @@ impl AppModel {
         )
     }
 
-    /// Adds back a project from Recently Removed, with a terminal open in it.
     pub(crate) fn restore_removed_project(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(removed) = self.state.removed_projects().get(index) {
             let server = removed.server_id;
@@ -2923,7 +2922,7 @@ mod tests {
         {
             model
                 .state
-                .complete_project_intent(ServerId::local(), intent.operation)
+                .complete_project_intent(ServerId::local(), intent.operation, true)
                 .expect("fixture server acknowledged project");
         }
         let page = muxy_protocol::CatalogPage {

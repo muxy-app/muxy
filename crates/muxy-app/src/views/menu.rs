@@ -81,7 +81,6 @@ pub(crate) enum Command {
     RemoveProject(muxy_app_core::ProjectId),
     AddProject,
     AddRemoteProject(muxy_app_core::ServerId),
-    /// Adds back the project at this index of Recently Removed.
     RestoreRemovedProject(usize),
     ManageRemoteDevices,
     /// A row of a remote server's menu, from the Remote popover or tab.
@@ -240,6 +239,14 @@ impl Menu {
             grace: None,
             panels: RefCell::default(),
         }
+    }
+
+    pub(crate) fn restores_removed_projects(&self) -> bool {
+        self.items
+            .iter()
+            .filter_map(Item::submenu_items)
+            .flatten()
+            .any(|item| matches!(item.command(), Some(Command::RestoreRemovedProject(_))))
     }
 
     fn items_at(&self, level: usize) -> Option<&[Item]> {

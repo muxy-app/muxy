@@ -38,7 +38,6 @@ pub(crate) struct PendingRemote {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RemoteIntent {
-    /// Its folder picker opens for this purpose.
     Folders(crate::views::project_picker::Purpose),
     /// A terminal tab opens in its Home.
     HomeTab,

@@ -284,7 +284,6 @@ impl Icon {
 
 #[cfg(target_os = "macos")]
 impl Icon {
-    /// SF Symbols has no open folder, so that one is always drawn from its SVG.
     pub fn sf_symbol(self) -> Option<&'static str> {
         Some(match self {
             Self::FolderOpen => return None,

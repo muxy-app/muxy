@@ -111,6 +111,7 @@ impl SearchService {
         query: &str,
         root_path: &str,
         existing_project_paths: &[String],
+        include_existing_projects: bool,
         limit: usize,
         cancelled: &AtomicBool,
     ) -> Snapshot {
@@ -131,7 +132,15 @@ impl SearchService {
         };
         drop(guard);
 
-        run_search(query, &root, existing_project_paths, &index, &home, limit)
+        run_search(
+            query,
+            &root,
+            existing_project_paths,
+            include_existing_projects,
+            &index,
+            &home,
+            limit,
+        )
     }
 }
 
@@ -429,6 +438,7 @@ fn run_search(
     query: &str,
     root: &str,
     existing_project_paths: &[String],
+    include_existing_projects: bool,
     index: &Index,
     home: &str,
     limit: usize,
@@ -460,7 +470,7 @@ fn run_search(
             ranked.truncate(limit);
         }
     };
-    for path in &existing {
+    for path in existing.iter().filter(|_| include_existing_projects) {
         let name = if path == "/" {
             "/"
         } else {
@@ -605,7 +615,7 @@ mod tests {
                 .is_empty()
         );
         cancelled.store(false, Ordering::Relaxed);
-        let snapshot = search.search("alpha", &root_path, &[], 50, &cancelled);
+        let snapshot = search.search("alpha", &root_path, &[], true, 50, &cancelled);
         assert_eq!(snapshot.results.len(), 1);
         assert_eq!(
             snapshot.results[0].path,

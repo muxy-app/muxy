@@ -35,15 +35,9 @@ const SEARCH_RESULT_LIMIT: usize = 50;
 const DIRECTORY_CACHE_LIMIT: usize = 64;
 const DIRECTORY_CACHE_ITEMS: usize = 50_000;
 
-/// What the picker is for, which decides its rows and what confirming does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Purpose {
-    /// Open Project…: folders only. A folder is added as a project, or its
-    /// project is selected, with a new terminal tab.
     AddProject,
-    /// New Tab in Project…: projects, servers, and folders. A terminal tab
-    /// opens in the project, or at a folder in its computer's Home; secondary
-    /// confirmation adds the folder as a project first.
     NewTab,
 }
 
@@ -276,24 +270,17 @@ impl ProjectPicker {
                     let snapshot = cx
                         .background_executor()
                         .spawn(async move {
-                            let saved = match purpose {
-                                Purpose::AddProject => &[][..],
-                                Purpose::NewTab => &paths[..],
-                            };
                             let mut snapshot = search.search(
                                 &query,
                                 &root,
-                                saved,
+                                &paths,
+                                purpose == Purpose::NewTab,
                                 SEARCH_RESULT_LIMIT,
                                 &cancelled,
                             );
-                            snapshot.results.retain(|result| {
-                                Path::new(&result.path).is_dir()
-                                    && (purpose == Purpose::NewTab
-                                        || !paths.iter().any(|path| {
-                                            path_service::standardize(path) == result.path
-                                        }))
-                            });
+                            snapshot
+                                .results
+                                .retain(|result| Path::new(&result.path).is_dir());
                             snapshot
                         })
                         .await;
@@ -680,7 +667,6 @@ impl AppModel {
         self.toggle_project_picker(Purpose::NewTab, window, cx);
     }
 
-    /// Opens this computer's picker for `purpose`, or closes it when it is open.
     fn toggle_project_picker(
         &mut self,
         purpose: Purpose,
@@ -726,14 +712,10 @@ impl AppModel {
         self.show_project_picker(ServerId::local(), picker, cx);
     }
 
-    /// Add Project's picker on another computer's folders.
     pub(crate) fn open_remote_project_picker(&mut self, server: ServerId, cx: &mut Context<Self>) {
         self.open_remote_folders(server, Purpose::AddProject, cx);
     }
 
-    /// Opens the picker on another computer's folders, from its Home.
-    /// A server that isn't ready yet connects first, asking for its password
-    /// if needed, and the picker opens once it is.
     pub(crate) fn open_remote_folders(
         &mut self,
         server: ServerId,
@@ -872,7 +854,6 @@ impl AppModel {
         }
     }
 
-    /// Selects a saved project and opens a terminal tab in it.
     fn open_tab_in_project(&mut self, id: muxy_app_core::ProjectId, cx: &mut Context<Self>) {
         self.refresh_project_statuses(cx);
         if self
@@ -1019,8 +1000,6 @@ impl AppModel {
         }
     }
 
-    /// Opens a terminal tab in the project at `path`, or at `path` in its
-    /// computer's Home when it isn't a project.
     fn open_terminal_at(&mut self, server: ServerId, path: &Path, cx: &mut Context<Self>) {
         if self.close_prompt.is_some() {
             return;
@@ -1167,7 +1146,6 @@ impl AppModel {
         }
     }
 
-    /// The project on `server` whose folder is `path`.
     fn project_at(&self, server: ServerId, path: &str) -> Option<muxy_app_core::ProjectId> {
         let path = path_service::standardize(path);
         self.state

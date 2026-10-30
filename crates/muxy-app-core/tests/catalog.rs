@@ -19,7 +19,7 @@ fn snapshot(state: &AppState) -> CatalogPage {
 }
 fn acknowledge(state: &mut AppState) -> Result {
     while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
-        state.complete_project_intent(ServerId::local(), intent.operation)?;
+        state.complete_project_intent(ServerId::local(), intent.operation, true)?;
     }
     Ok(())
 }
@@ -152,6 +152,32 @@ fn migration_preserves_original_file_and_pending_creation_directory_and_token() 
         [pane.creation_token()]
     );
     fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn restoration_acknowledgements_do_not_erase_newer_removals() -> Result {
+    let directory = tempfile::tempdir()?;
+    let mut state = AppState::bootstrap()?;
+    let project = state.add_project(ServerId::local(), directory.path().into())?;
+    acknowledge(&mut state)?;
+    state.remove_project(project)?;
+    acknowledge(&mut state)?;
+
+    let restored = state.restore_removed_project(0)?;
+    state.rename_project(restored, "Removed again")?;
+    state.remove_project(restored)?;
+    let removed = state.removed_projects().to_vec();
+    let mut state: AppState = serde_json::from_value(serde_json::to_value(&state)?)?;
+    acknowledge(&mut state)?;
+    assert_eq!(state.removed_projects(), removed);
+    let restored = state.restore_removed_project(0)?;
+    assert_eq!(
+        state.project(restored).ok_or("restored")?.name,
+        "Removed again"
+    );
+    acknowledge(&mut state)?;
+    assert!(state.removed_projects().is_empty());
     Ok(())
 }
 

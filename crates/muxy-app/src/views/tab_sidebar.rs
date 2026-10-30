@@ -107,8 +107,6 @@ impl AppModel {
         })
     }
 
-    /// The projects the sidebar lists, and how many of them have no tabs; those
-    /// are left out until shown.
     pub(crate) fn tab_sidebar_projects(&self) -> (Vec<&Project>, usize) {
         let listed = |project: &&Project| {
             self.appearance.sidebar_focus || self.sidebar_tabs(project).next().is_some()
@@ -317,8 +315,6 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
         .into_any_element()
 }
 
-/// Text color is fixed when text is laid out, before hover is known, so the
-/// hovered color is a second layer shown on hover, as icons do.
 fn project_title(project: &Project, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let id = project.id;
     let title = SharedString::from(model.project_title(project));

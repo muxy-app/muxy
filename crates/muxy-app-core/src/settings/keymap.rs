@@ -262,7 +262,16 @@ impl Keymap {
 
 impl<'de> Deserialize<'de> for Keymap {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        Self::from_overrides(BTreeMap::deserialize(deserializer)?).map_err(de::Error::custom)
+        let mut overrides = BTreeMap::deserialize(deserializer)?;
+        let action = ShortcutId::NewTabInProject.name();
+        let Some(legacy) = overrides.remove(action) else {
+            return Self::from_overrides(overrides).map_err(de::Error::custom);
+        };
+        let mut restored = overrides.clone();
+        restored.insert(action.to_owned(), legacy);
+        Self::from_overrides(restored)
+            .or_else(|_| Self::from_overrides(overrides))
+            .map_err(de::Error::custom)
     }
 }
 

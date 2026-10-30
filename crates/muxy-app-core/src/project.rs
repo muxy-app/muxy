@@ -91,7 +91,6 @@ pub struct Project {
     pub(crate) status: ProjectStatus,
 }
 
-/// A project removed from this app, kept so it can be added back as it was.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RemovedProject {
     pub server_id: ServerId,

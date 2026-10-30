@@ -135,6 +135,10 @@ fn removed_projects_are_kept_newest_first_and_come_back_as_they_were() -> TestRe
     assert_eq!(project.name, "Muxy");
     assert_eq!(project.icon.as_deref(), Some("sf:star"));
     assert_eq!(project.color, color);
+    assert_eq!(state.removed_projects().len(), 1);
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
+        state.complete_project_intent(ServerId::local(), intent.operation, true)?;
+    }
     assert!(state.removed_projects().is_empty());
 
     for _ in 0..12 {
@@ -143,9 +147,13 @@ fn removed_projects_are_kept_newest_first_and_come_back_as_they_were() -> TestRe
     }
     assert_eq!(state.removed_projects().len(), 1, "one entry per folder");
     state.add_project(ServerId::local(), directory)?;
+    assert_eq!(state.removed_projects().len(), 1);
+    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
+        state.complete_project_intent(ServerId::local(), intent.operation, true)?;
+    }
     assert!(
         state.removed_projects().is_empty(),
-        "adding the folder again drops it"
+        "acknowledging the added folder drops it"
     );
     assert!(state.restore_removed_project(0).is_err());
     Ok(())

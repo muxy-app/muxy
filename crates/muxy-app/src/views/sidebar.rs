@@ -214,7 +214,6 @@ pub(super) fn footer_button_size(model: &AppModel) -> Pixels {
     }
 }
 
-/// The side of each square item in the collapsed sidebar.
 pub(super) fn collapsed_item_size(model: &AppModel) -> Pixels {
     model.metrics.scaled(34.0)
 }
@@ -283,8 +282,6 @@ impl AppModel {
         self.open_menu(items, position, window, cx);
     }
 
-    /// Recently Removed, without projects added back since or on servers this
-    /// app no longer knows.
     fn restorable_projects(&self) -> Vec<Item> {
         self.state
             .removed_projects()
@@ -936,8 +933,6 @@ fn project_row(
         .into_any_element()
 }
 
-/// The side of a project's tile: it fills a tab-sized row in the expanded
-/// sidebar, and most of its square in the collapsed one.
 pub(super) fn tile_size(model: &AppModel) -> Pixels {
     if model.appearance.sidebar_expanded {
         model.metrics.control_small()
@@ -1053,9 +1048,6 @@ pub(crate) fn project_tile(
         .into_any_element()
 }
 
-/// A tile's fill and the color of its mark. Dark themes tint the tile with
-/// the project's color and draw the mark in a lighter shade of it, like
-/// dark-mode badges; light themes fill the tile.
 fn tile_colors(color: gpui::Rgba, theme: &muxy_ui::theme::Theme) -> (Hsla, Hsla) {
     const TINT: f32 = 0.2;
     const MARK_LIGHTNESS: f32 = 0.75;

@@ -15,7 +15,6 @@ use crate::{
 /// and pending work at the top level; version 3 keeps them per server.
 pub(crate) const VERSION: u32 = 3;
 
-/// How many removed projects Recently Removed keeps.
 const REMOVED_PROJECTS: usize = 10;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -31,7 +30,6 @@ pub struct AppState {
     pub(crate) projects: Vec<Project>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) workspaces: Vec<Workspace>,
-    /// Newest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) removed_projects: Vec<RemovedProject>,
     pub(crate) window: WindowState,
@@ -278,12 +276,10 @@ impl AppState {
         self.create_project(server, directory, |_| {})
     }
 
-    /// Projects removed from this app, newest first.
     pub fn removed_projects(&self) -> &[RemovedProject] {
         &self.removed_projects
     }
 
-    /// Adds back the removed project at `index`, with its name, icon, and color.
     pub fn restore_removed_project(&mut self, index: usize) -> Result<ProjectId, AppError> {
         let removed = self
             .removed_projects
@@ -319,8 +315,6 @@ impl AppState {
                 "connect to the server before adding projects to it".into(),
             ));
         }
-        self.removed_projects
-            .retain(|removed| removed.server_id != server || removed.directory != directory);
         let mut descriptor = muxy_protocol::ProjectDescriptor::new(
             muxy_protocol::ServerPath(directory.into_os_string().into_vec()),
             self.projects
@@ -407,7 +401,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Recently Removed keeps projects, not worktrees.
     pub fn remove_project(&mut self, id: ProjectId) -> Result<Vec<SessionId>, AppError> {
         let removed = self
             .project(id)
