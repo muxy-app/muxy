@@ -92,6 +92,7 @@ struct Owner {
     /// The foreground process group when the program status last changed.
     program_group: Option<u32>,
     program_reports: u64,
+    seen_reports: u64,
     size: Size,
     events: Receiver<OwnerEvent>,
     input: Sender<InputWrite>,
@@ -186,6 +187,7 @@ pub(crate) fn start(
                 detection_progress: String::new(),
                 program_group: None,
                 program_reports: 0,
+                seen_reports: 0,
                 info: session,
                 pty,
                 terminal,
@@ -734,12 +736,11 @@ impl Owner {
                     .send(AttachmentEvent::Metadata(event.clone()))
             });
         }
-        let status = self.reported_status();
-        let agent = self.metadata.agent.or_else(|| {
-            status
-                .as_ref()
-                .and_then(|status| crate::detection::reported(&status.app))
-        });
+        let (agent, status) = crate::detection::reporting_agent(
+            self.metadata.agent,
+            self.detector.provider,
+            self.reported_status(),
+        );
         if agent != self.detector.provider {
             self.detection_dirty = true;
             self.detection_progress.clear();
@@ -778,18 +779,21 @@ impl Owner {
             };
     }
 
-    /// The status the foreground program reported itself (OSC 7501), if any.
+    /// The status the foreground program reported itself (OSC 7501). A report
+    /// the detector hasn't seen counts once after its program has gone, so a
+    /// final `done` still finishes the agent's work.
     fn reported_status(&mut self) -> Option<muxy_terminal::ProgramStatus> {
+        let group = self.pty.foreground_pid();
         let shell = self.metadata.shell_foreground;
-        if shell {
+        if shell || group != self.program_group {
             self.terminal.end_program_status();
         }
-        // Finished work outlives its program, but only says what that program
-        // did, and the shell itself is never the program.
-        let group = self.pty.foreground_pid();
+        let reports = self.terminal.program_reports();
+        let unseen = std::mem::replace(&mut self.seen_reports, reports) != reports;
+        let reporter_running = !shell && self.program_group == group;
         self.terminal
             .program_status()
-            .filter(|_| !shell && self.program_group == group)
+            .filter(|_| group.is_some() && (unseen || reporter_running))
     }
 
     fn detect_on_screen(&mut self, agent: muxy_protocol::AgentProvider, now: Instant) -> bool {

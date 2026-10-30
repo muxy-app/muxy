@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use muxy_protocol::{AgentProvider, AgentState};
-use muxy_terminal::ProgramState;
+use muxy_terminal::{ProgramState, ProgramStatus};
 use regex::Regex;
 use serde::Deserialize;
 
@@ -258,7 +258,6 @@ impl Detector {
                 ..Self::default()
             };
         }
-        // The screen is read afresh once the agent stops reporting.
         self.last_input = None;
         self.settle(match state {
             ProgramState::Working => AgentState::Working,
@@ -281,10 +280,26 @@ impl Detector {
     }
 }
 
-/// The agent a program status report (OSC 7501) names in its `app`, such as
-/// `claude-code`, so agents behind SSH are recognized too.
-pub(crate) fn reported(app: &str) -> Option<AgentProvider> {
-    alias(app)
+/// The agent to update and the status report it made, from the agent
+/// running in the foreground, the agent last seen, and the latest report
+/// (OSC 7501). A report naming another program, or another agent, is not
+/// the agent's; one naming an agent recognizes it even behind SSH.
+pub(crate) fn reporting_agent(
+    running: Option<AgentProvider>,
+    previous: Option<AgentProvider>,
+    status: Option<ProgramStatus>,
+) -> (Option<AgentProvider>, Option<ProgramStatus>) {
+    let Some(status) = status else {
+        return (running, None);
+    };
+    if status.app.is_empty() {
+        return (running.or(previous), Some(status));
+    }
+    match (running, alias(&status.app)) {
+        (_, None) => (running, None),
+        (Some(running), Some(named)) if running != named => (Some(running), None),
+        (_, named) => (named, Some(status)),
+    }
 }
 
 pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {

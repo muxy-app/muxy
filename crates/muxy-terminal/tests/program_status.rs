@@ -145,11 +145,23 @@ fn finished_work_left_by_an_ended_program_yields_to_later_progress() -> TestResu
         terminal.take_events(),
         [progress(Some((ProgressState::Running, Some(30))), 0)]
     );
-    // While its program runs, a record still outranks progress reports.
     terminal.feed(b"\x1b]7501;state=done\x1b\\\x1b]9;4;1;40\x07");
     assert_eq!(
         terminal.program_status(),
         Some(status(ProgramState::Done, None, ""))
     );
+    Ok(())
+}
+
+#[test]
+fn progress_reported_before_a_program_ended_does_not_come_back() -> TestResult {
+    for record in ["state=working:progress=40", "state=error"] {
+        let mut terminal = terminal()?;
+        terminal.feed(format!("\x1b]9;4;1;10\x07\x1b]7501;{record}\x1b\\").as_bytes());
+        terminal.take_events();
+        terminal.feed(b"\x1b]133;A\x07");
+        terminal.feed(b"\x1b]7501;state=clear\x1b\\");
+        assert_eq!(terminal.take_events(), [progress(None, 1)], "{record}");
+    }
     Ok(())
 }

@@ -25,9 +25,10 @@ Usage: muxy [--host DESTINATION] [COMMAND]
 Run muxy <command> --help or muxy help <command> for usage. Management
 commands accept --json.
 Commands connect directly to the server, starting it if needed, except server
-status/stop, which never start it. --host uses the server on another computer
-over SSH (user@host, an ssh_config alias or ssh://user@host:port); Muxy must be
-installed there, and directories are absolute paths on that computer.
+status/stop, which never start it, and status, which needs no server. --host
+uses the server on another computer over SSH (user@host, an ssh_config alias or
+ssh://user@host:port); Muxy must be installed there, and directories are
+absolute paths on that computer.
 MUXY_DIR selects the local profile, which also keeps the terminal UI layouts
 for other computers. No desktop app is required, except by browser commands.
 Tabs, panes and workspaces belong to UI clients.
@@ -107,7 +108,8 @@ pub(crate) const STATUS: &str = "Usage: muxy status <state> [--app APP] [--id ID
 
 Tells the terminal what a script is doing (OSC 7501). It needs no server, so it
 also works over SSH. Muxy clears working and blocked when the program that
-reported them exits; clear removes a record and the parts beneath it.";
+reported them exits, and shows only reports without --id; clear removes a
+record and the parts beneath it.";
 pub(crate) const SERVER: &str = "Usage: muxy server start|status|stop [--json]
   stop [--force]  Stop only if idle; --force ends all running terminals.";
 pub(crate) const PROJECT: &str = "Usage: muxy project <action> [--json]

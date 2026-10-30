@@ -42,18 +42,17 @@ impl Metadata {
         let previous_directory = self.directory.clone();
         let group = pty.foreground_pid();
         let member = group.and_then(foreground_member);
+        self.shell_foreground = group == Some(pty.child_pid())
+            && member.as_ref().is_some_and(|(_, name)| {
+                matches!(
+                    name.trim_start_matches('-'),
+                    "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh"
+                )
+            });
         if self.next_agent <= std::time::Instant::now() || self.agent_group != group {
             self.next_agent = std::time::Instant::now() + std::time::Duration::from_millis(500);
             self.agent_group = group;
-            let session_shell = group == Some(pty.child_pid())
-                && member.as_ref().is_some_and(|(_, name)| {
-                    matches!(
-                        name.trim_start_matches('-'),
-                        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh"
-                    )
-                });
-            self.shell_foreground = session_shell;
-            self.agent = if session_shell {
+            self.agent = if self.shell_foreground {
                 None
             } else {
                 group.and_then(agent_provider)

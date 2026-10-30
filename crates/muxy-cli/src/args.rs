@@ -98,7 +98,7 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
             install_skills(rest).map(Command::InstallSkills)
         }
         [command, rest @ ..] if command == "browser" => crate::browser::parse(rest),
-        [command, .., flag] if command == "status" && (flag == "--help" || flag == "-h") => {
+        [command, rest @ ..] if command == "status" && asks_help(rest) => {
             Ok(Command::Usage(help::STATUS))
         }
         [command, rest @ ..] if command == "status" => {
@@ -115,6 +115,15 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
             crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
         }
     }
+}
+
+/// Whether `--help` or `-h` stands where `muxy status` reads its state or an
+/// option, not where it reads an option's value.
+fn asks_help(arguments: &[OsString]) -> bool {
+    arguments
+        .iter()
+        .enumerate()
+        .any(|(index, word)| (index == 0 || index % 2 == 1) && (word == "--help" || word == "-h"))
 }
 
 fn names_folder(word: &OsStr) -> bool {
@@ -231,6 +240,14 @@ mod tests {
             words(&["status", "--help"])?.1,
             Command::Usage(help::STATUS)
         );
+        assert_eq!(
+            words(&["status", "working", "--help"])?.1,
+            Command::Usage(help::STATUS)
+        );
+        assert!(matches!(
+            words(&["status", "working", "--msg", "--help"])?.1,
+            Command::Status(_)
+        ));
         assert_eq!(words(&["help", "status"])?.1, Command::Usage(help::STATUS));
         assert!(!names_folder(OsStr::new("status")));
         assert!(words(&["--host", "example", "status", "working"]).is_err());

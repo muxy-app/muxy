@@ -66,10 +66,16 @@ impl Progress {
     /// The program that reported its status has exited or the shell is back
     /// at its prompt.
     pub(crate) fn end_program(&mut self) {
-        match &self.program {
-            Some(program) if program.outlives_program() => self.program_ended = true,
-            Some(_) => self.set_program(None),
-            None => {}
+        let Some(program) = &self.program else {
+            return;
+        };
+        self.reported = None;
+        self.deadline = None;
+        if program.outlives_program() {
+            self.program_ended = true;
+            self.refresh();
+        } else {
+            self.set_program(None);
         }
     }
 

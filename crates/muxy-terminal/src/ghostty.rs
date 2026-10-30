@@ -170,7 +170,6 @@ impl Terminal {
             })
             .map_err(create)?;
         let programs = Rc::clone(&progress);
-        // Also makes the engine answer programs that ask whether OSC 7501 is supported.
         engine
             .on_program_status(move |_, report| {
                 use crate::program_status::Change;
