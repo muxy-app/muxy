@@ -26,6 +26,7 @@ pub(crate) struct ServersTab {
     pub(crate) focus: FocusHandle,
     search: Option<(Entity<TextInput>, Subscription)>,
     port: Option<(Entity<TextInput>, Subscription)>,
+    port_edited: bool,
     list: ListState,
 }
 
@@ -35,6 +36,7 @@ impl ServersTab {
             focus: cx.focus_handle(),
             search: None,
             port: None,
+            port_edited: false,
             list: ListState::new(1, ListAlignment::Top, px(0.0)),
         }
     }
@@ -97,11 +99,13 @@ impl AppModel {
                 .map(|state| state.settings.port.to_string())
                 .unwrap_or_default();
             let input = cx.new(|cx| TextInput::new(style, cx).with_text(port));
-            let subscription = cx.subscribe(&input, |model, input, event, cx| {
-                if matches!(event, InputEvent::Submitted) {
+            let subscription = cx.subscribe(&input, |model, input, event, cx| match event {
+                InputEvent::Changed => model.servers_tab.port_edited = true,
+                InputEvent::Submitted => {
                     let port = input.read(cx).text().to_owned();
                     model.set_device_port(&port, cx);
                 }
+                InputEvent::Cancelled => {}
             });
             self.servers_tab.port = Some((input, subscription));
         }
@@ -131,7 +135,9 @@ impl AppModel {
         }
     }
 
-    /// Shows the port the server reports, as the port field's text.
+    /// Shows the port the server reports, as the port field's text, unless
+    /// the field holds an edit not saved yet. Once the server reports the
+    /// field's port, as after saving it, the field is no longer edited.
     pub(crate) fn show_device_port(&mut self, cx: &mut Context<Self>) {
         let Some(port) = self
             .device_access()
@@ -141,9 +147,12 @@ impl AppModel {
         else {
             return;
         };
-        if let Some(input) = self.servers_tab.port_input().cloned()
-            && input.read(cx).text() != port
-        {
+        let Some(input) = self.servers_tab.port_input().cloned() else {
+            return;
+        };
+        if input.read(cx).text() == port {
+            self.servers_tab.port_edited = false;
+        } else if !self.servers_tab.port_edited {
             input.update(cx, |input, cx| input.set_text(port, cx));
         }
     }
@@ -226,9 +235,6 @@ pub(crate) fn render(pane: PaneId, model: &AppModel, cx: &Context<AppModel>) -> 
             cx.listener(move |model, _, _, cx| model.focus_pane(pane, cx)),
         )
         .child(column(header(model, cx), model).flex_none())
-        // A list lays its item out on its own at the tab's width, as Settings
-        // does, so wrapped descriptions never keep a width measured for the
-        // surrounding layout.
         .child(
             list(model.servers_tab.list.clone(), move |_, _, cx| {
                 entity.update(cx, |model, cx| body(model, cx))
@@ -239,7 +245,9 @@ pub(crate) fn render(pane: PaneId, model: &AppModel, cx: &Context<AppModel>) -> 
         .into_any_element()
 }
 
-/// Everything under the header, as the list's only item.
+/// Everything under the header, as the list's only item. A list lays its
+/// item out on its own at the tab's width, as Settings does, so wrapped
+/// descriptions never keep a width measured for the surrounding layout.
 fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let servers = model.remote_servers();
     let shown = shown(&servers, &model.servers_query(cx));

@@ -160,8 +160,8 @@ impl AppModel {
             return;
         }
         self.mobile.copy_link = true;
-        // Away from the tab, the code may have been used or expired unseen.
-        if !self.devices_tab_open() && !self.mobile.busy {
+        let code_may_be_stale = !self.devices_tab_open();
+        if code_may_be_stale && !self.mobile.busy {
             self.read_remote_access(cx);
         }
         self.continue_link_copy(cx);

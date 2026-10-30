@@ -143,18 +143,26 @@ fn remote_access(body: ReplyBody) -> Result<RemoteAccessState, ClientError> {
     }
 }
 
-/// Whether the paired server still takes connections: `Some(false)` once a
-/// host refuses them, `None` when no host answers either way, such as off the
-/// network.
+/// Whether the paired server still takes connections: `Some(false)` only
+/// when every host refuses them, `None` when any host's answer is unknown,
+/// such as a timeout, since that host may be where the server still runs.
 pub fn accepts_connections(endpoint: &RemoteEndpoint) -> Option<bool> {
+    accepting(endpoint.hosts.iter().map(|host| {
+        tls::connect(host, endpoint.port, endpoint.fingerprint, CONNECT_TIMEOUT).map(drop)
+    }))
+}
+
+fn accepting(answers: impl IntoIterator<Item = io::Result<()>>) -> Option<bool> {
     let mut refused = false;
-    for host in &endpoint.hosts {
-        match tls::connect(host, endpoint.port, endpoint.fingerprint, CONNECT_TIMEOUT) {
-            Ok(_) => return Some(true),
-            Err(error) => refused |= error.kind() == io::ErrorKind::ConnectionRefused,
+    let mut unknown = false;
+    for answer in answers {
+        match answer {
+            Ok(()) => return Some(true),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => refused = true,
+            Err(_) => unknown = true,
         }
     }
-    refused.then_some(false)
+    (refused && !unknown).then_some(false)
 }
 
 /// A host presenting another certificate is skipped, never trusted; the
@@ -250,7 +258,6 @@ mod tests {
 
     #[test]
     fn a_stopped_server_refuses_connections() {
-        // Nothing listens on port 1 here, and no other test can take it.
         let stopped = RemoteEndpoint {
             hosts: vec!["127.0.0.1".into()],
             port: 1,
@@ -262,6 +269,21 @@ mod tests {
             ..stopped
         };
         assert_eq!(accepts_connections(&nowhere), None, "unknown, not stopped");
+    }
+
+    #[test]
+    fn a_server_has_stopped_only_when_every_host_refuses() {
+        let refused = || Err(io::Error::from(io::ErrorKind::ConnectionRefused));
+        let timed_out = || Err(io::Error::from(io::ErrorKind::TimedOut));
+        assert_eq!(accepting([refused(), refused()]), Some(false));
+        assert_eq!(
+            accepting([refused(), timed_out()]),
+            None,
+            "the host that timed out may be where the server still runs"
+        );
+        assert_eq!(accepting([timed_out(), refused()]), None);
+        assert_eq!(accepting([refused(), Ok(())]), Some(true));
+        assert_eq!(accepting([]), None);
     }
 
     #[test]

@@ -381,3 +381,42 @@ fn a_code_cancelled_before_it_arrives_is_not_copied(cx: &mut TestAppContext) {
     );
     assert_eq!(clipboard(cx), None);
 }
+
+#[gpui::test]
+fn a_refresh_keeps_a_port_edit_until_it_is_saved(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let input = view.read_with(cx, |model, _| {
+        model.servers_tab.port_input().cloned().expect("port field")
+    });
+    let port = |cx: &mut VisualTestContext| input.read_with(cx, |input, _| input.text().to_owned());
+    let reported = |port: u16| {
+        let mut state = access(true, None, Vec::new());
+        state.settings.port = port;
+        state
+    };
+    input.update(cx, |input, cx| {
+        input.select_all_text(cx);
+        input.replace_selection("7420", cx);
+    });
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(reported(7419)), cx);
+    });
+    assert_eq!(port(cx), "7420", "a device reconnecting keeps the edit");
+    view.update(cx, |model, cx| model.set_device_port("7420", cx));
+    assert!(work(&requests).iter().any(|work| matches!(
+        work,
+        Work::WriteRemoteAccess(RemoteAccessSettings { port: 7420, .. })
+    )));
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(reported(7420)), cx);
+    });
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(reported(7421)), cx);
+    });
+    assert_eq!(
+        port(cx),
+        "7421",
+        "once saved, the field follows the server again"
+    );
+}

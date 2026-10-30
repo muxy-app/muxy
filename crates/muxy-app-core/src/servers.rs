@@ -155,7 +155,6 @@ impl AppState {
     /// `project` when that is on this computer and available, or else in Home.
     pub fn show_servers_tab(&mut self, project: ProjectId, title: &str) -> Result<TabId, AppError> {
         let (project, tab) = if let Some(open) = self.servers_tab() {
-            // A tab saved under an older title takes the current one.
             for pane in &mut self.tab_mut(open.1)?.panes {
                 if pane.content == PaneContent::Servers {
                     title.clone_into(&mut pane.title);
