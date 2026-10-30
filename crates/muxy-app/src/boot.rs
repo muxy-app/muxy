@@ -7,7 +7,7 @@ use muxy_core::worker::WorkerPool;
 use std::thread;
 
 use muxy_app_core::{AppState, PaneId, ServerId, TabId, store};
-use muxy_client::{Attachment, Client, ClientError, ClientEvent, SshTarget, Start};
+use muxy_client::{Attachment, Client, ClientError, ClientEvent, RemoteEndpoint, SshTarget, Start};
 use muxy_protocol::{
     ChannelId, ErrorCode, ForegroundProcess, HistoryPage, MouseEvent, SavedScreen, SearchPage,
     SearchSource, SessionId, SessionInfo, Size, TerminalColors,
@@ -89,12 +89,18 @@ impl Boot {
 }
 
 /// How a worker reaches its server.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Target {
     /// This computer's server, at the socket in the profile.
     Local(PathBuf),
     /// The server on another computer, reached over SSH.
     Ssh(SshTarget),
+    /// The server on another computer that this one paired with, reached
+    /// over the network.
+    Paired {
+        endpoint: RemoteEndpoint,
+        credential: muxy_protocol::DeviceCredential,
+    },
 }
 
 impl Target {
@@ -103,13 +109,18 @@ impl Target {
         match self {
             Self::Local(socket) => Client::connect(socket),
             Self::Ssh(host) => Client::connect_ssh(host, Start::Never),
+            Self::Paired {
+                endpoint,
+                credential,
+                ..
+            } => Client::connect_remote(endpoint, *credential),
         }
     }
 
     fn socket(&self) -> Result<&std::path::Path, ClientError> {
         match self {
             Self::Local(socket) => Ok(socket),
-            Self::Ssh(_) => Err(std::io::Error::other(
+            Self::Ssh(_) | Self::Paired { .. } => Err(std::io::Error::other(
                 tr!("Updates apply only to this computer's server").to_string(),
             )
             .into()),
@@ -632,10 +643,7 @@ pub(crate) fn worker(
                                 ]
                             }
                             Err(error) => {
-                                let reason = match &error {
-                                    ClientError::Remote { reason, .. } => Some(*reason),
-                                    _ => None,
-                                };
+                                let reason = error.remote_reason();
                                 vec![Update::ConnectFailed(explain(&target, &error), reason)]
                             }
                         }
@@ -767,6 +775,7 @@ fn connect(
             None => crate::server::ensure_server_running(socket)?,
         },
         Target::Ssh(host) => Client::connect_ssh(host, Start::IfNeeded)?,
+        Target::Paired { .. } => target.connect()?,
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
     if let Target::Local(socket) = target {
@@ -801,6 +810,18 @@ fn explain(target: &Target, error: &ClientError) -> String {
     match (target, error) {
         (Target::Ssh(host), ClientError::Timeout | ClientError::Disconnected) => {
             format!("{host}: {error}")
+        }
+        (Target::Paired { endpoint, .. }, error) => {
+            let address = endpoint.hosts.first().map_or("", String::as_str);
+            match error.remote_reason() {
+                Some(reason) => ClientError::Remote {
+                    reason,
+                    destination: address.to_owned(),
+                    detail: String::new(),
+                }
+                .to_string(),
+                None => format!("{address}: {error}"),
+            }
         }
         _ => error.to_string(),
     }
@@ -1174,7 +1195,7 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
 fn stop_server(client: &Client, target: &Target) -> Result<(), ClientError> {
     match target {
         Target::Local(socket) => crate::server::stop_server(client, socket),
-        Target::Ssh(_) => match client.stop_server() {
+        Target::Ssh(_) | Target::Paired { .. } => match client.stop_server() {
             Err(ClientError::Disconnected) => Ok(()),
             result => result,
         },

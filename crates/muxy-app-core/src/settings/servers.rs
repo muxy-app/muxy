@@ -6,7 +6,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::{Error, Result, Settings};
 use crate::ServerId;
 
-/// Another computer whose Muxy server this app reaches over SSH.
+/// Another computer whose Muxy server this app reaches over SSH, or over the
+/// network after pairing with it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerEntry {
@@ -29,6 +30,45 @@ pub struct ServerEntry {
     /// The group the app lists it under; `None` leaves it ungrouped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Reached over the network as a paired computer instead of over SSH.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired: Option<PairedServer>,
+}
+
+/// Where a paired server listens and the certificate it must present. Its
+/// token for this computer is kept apart, in `paired-servers.toml`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PairedServer {
+    pub hosts: Vec<String>,
+    pub port: u16,
+    /// SHA-256 of its TLS certificate, in hex.
+    pub fingerprint: String,
+    /// This computer's ID there.
+    pub device: muxy_protocol::DeviceId,
+}
+
+impl PairedServer {
+    pub fn fingerprint(&self) -> Option<[u8; 32]> {
+        super::paired::unhex(&self.fingerprint)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let invalid = || {
+            Error::new(
+                "servers",
+                "a paired server needs its addresses, port, and fingerprint",
+            )
+        };
+        if self.hosts.is_empty()
+            || self.port < 1024
+            || self.fingerprint().is_none()
+            || muxy_protocol::validate_pairing_hosts(&self.hosts).is_err()
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
 }
 
 impl ServerEntry {
@@ -41,11 +81,25 @@ impl ServerEntry {
             identity_file: None,
             password_login: false,
             group: None,
+            paired: None,
         }
     }
 
+    pub fn paired(name: String, paired: PairedServer) -> Self {
+        Self {
+            paired: Some(paired),
+            ..Self::new(name, String::new())
+        }
+    }
+
+    /// How the user knows where it is: its SSH destination or command, or
+    /// the first address it was paired at.
     pub fn destination(&self) -> &str {
-        self.ssh_command.as_deref().unwrap_or(&self.ssh)
+        match (&self.paired, &self.ssh_command) {
+            (Some(paired), _) => paired.hosts.first().map_or("", String::as_str),
+            (None, Some(command)) => command,
+            (None, None) => &self.ssh,
+        }
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -64,7 +118,19 @@ impl ServerEntry {
                 "enter a name of 1–256 bytes without control characters",
             ));
         }
-        if let Some(command) = &self.ssh_command {
+        if let Some(paired) = &self.paired {
+            if !self.ssh.is_empty()
+                || self.ssh_command.is_some()
+                || self.identity_file.is_some()
+                || self.password_login
+            {
+                return Err(Error::new(
+                    "servers",
+                    "a paired server cannot also have an SSH destination, command, identity file, or password login",
+                ));
+            }
+            paired.validate()?;
+        } else if let Some(command) = &self.ssh_command {
             if !self.ssh.is_empty() || self.identity_file.is_some() || self.password_login {
                 return Err(Error::new(
                     "servers",

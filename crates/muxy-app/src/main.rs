@@ -35,6 +35,7 @@ mod views {
     pub(crate) mod menu;
     pub(crate) mod native_modal;
     pub(crate) mod overlays;
+    pub(crate) mod pair_form;
     pub(crate) mod project_editor;
     pub(crate) mod project_layouts;
     pub(crate) mod project_menu;

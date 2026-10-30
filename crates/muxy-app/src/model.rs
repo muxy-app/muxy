@@ -13,6 +13,8 @@ pub(crate) mod git;
 mod language;
 mod links;
 mod mobile;
+mod pairing;
+pub(crate) use pairing::{PairingForm, parse_link};
 mod preferences;
 pub(crate) mod project_layouts;
 pub(crate) mod proxy;
@@ -513,6 +515,7 @@ impl AppModel {
                 boot.work,
                 boot.state_path
                     .with_file_name(format!("askpass-{}.sock", std::process::id())),
+                boot.state_path.with_file_name("paired-servers.toml"),
             ),
             proxy: proxy::ProxyState::load(boot.state_path.with_file_name("proxy.toml")),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
@@ -2265,6 +2268,7 @@ impl AppModel {
                     self.update_connect_failed();
                 }
                 self.disconnect(server, cx);
+                let error = self.name_unpaired(server, reason).unwrap_or(error);
                 if let Some(runtime) = self.servers.get_mut(server) {
                     runtime.failure = reason;
                     runtime.error = Some(error.clone());

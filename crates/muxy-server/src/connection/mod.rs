@@ -68,6 +68,7 @@ pub fn serve_remote(
     let outbox = Arc::new(Outbox::for_device(
         Arc::clone(&registry.attachment_changes),
         admitted.device,
+        admitted.kind,
     ));
     registry.register_connection(&outbox);
     // Registering before this check means a concurrent revoke either sees this
@@ -84,7 +85,11 @@ pub fn serve_remote(
     drop(deadline);
     drop(admission);
     decoder.set_payload_limit(MAX_FRAME);
-    log::info!("device connected: {}", admitted.device);
+    log::info!(
+        "device connected: {} ({:?})",
+        admitted.device,
+        admitted.kind
+    );
     registry.remote.changed();
     let result = run(decoder, encoder, &cancellation, registry, events, &outbox);
     log::info!("device disconnected: {}", admitted.device);

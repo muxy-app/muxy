@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::wire::{Decoder, Encoder, WireError};
 use muxy_protocol::{
-    CONTROL, DeviceId, ErrorCode, ErrorReply, Message, ReplyBody, RequestBody, RequestId,
+    CONTROL, DeviceId, DeviceKind, ErrorCode, ErrorReply, Message, ReplyBody, RequestBody,
+    RequestId,
 };
 
 use crate::{Registry, ServerError};
@@ -13,6 +14,7 @@ use super::handshake::rejection;
 
 pub(super) struct Admitted {
     pub(super) device: DeviceId,
+    pub(super) kind: DeviceKind,
     pub(super) request: RequestId,
     pub(super) reply: ReplyBody,
 }
@@ -53,15 +55,22 @@ pub(super) fn accept(
         RequestBody::Authenticate(credential) => registry
             .remote
             .authenticate(credential)
-            .map(|device| (device, ReplyBody::Authenticated)),
-        RequestBody::Pair(pairing) if pairing.validate().is_ok() => registry
-            .pair_device(pairing)
-            .map(|paired| (paired.credential.device, ReplyBody::Paired(paired))),
+            .map(|(device, kind)| (device, kind, ReplyBody::Authenticated)),
+        RequestBody::Pair(pairing) if pairing.validate().is_ok() => {
+            registry.pair_device(pairing).map(|paired| {
+                (
+                    paired.credential.device,
+                    pairing.kind,
+                    ReplyBody::Paired(paired),
+                )
+            })
+        }
         _ => None,
     };
-    if let Some((device, reply)) = admitted {
+    if let Some((device, kind, reply)) = admitted {
         return Ok(Some(Admitted {
             device,
+            kind,
             request,
             reply,
         }));

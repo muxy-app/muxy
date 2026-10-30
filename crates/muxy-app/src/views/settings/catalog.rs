@@ -877,9 +877,9 @@ pub(super) const SETTINGS: &[Setting] = &[
     },
     Setting {
         id: "mobile-access",
-        label: tr_key!("Allow mobile devices"),
+        label: tr_key!("Allow other devices"),
         description: tr_key!(
-            "Let paired phones reach this device's server over the local network or a VPN. A paired phone gets full terminal access."
+            "Let paired phones and computers reach this computer's server over the local network or a VPN. A paired phone gets full terminal access; a paired computer can also run commands and change or stop this server."
         ),
         category: Category::Mobile,
         section: tr_key!("Access"),
@@ -887,30 +887,34 @@ pub(super) const SETTINGS: &[Setting] = &[
     Setting {
         id: "mobile-port",
         label: tr_key!("Port"),
-        description: tr_key!("Network port phones connect to, from 1024 to 65535."),
+        description: tr_key!("Network port paired devices connect to, from 1024 to 65535."),
         category: Category::Mobile,
         section: tr_key!("Access"),
     },
     Setting {
         id: "mobile-status",
         label: tr_key!("Status"),
-        description: tr_key!("Whether phones can reach this device right now."),
+        description: tr_key!("Whether paired devices can reach this computer right now."),
         category: Category::Mobile,
         section: tr_key!("Access"),
     },
     Setting {
         id: "mobile-pair",
-        label: tr_key!("Pair a phone"),
-        description: tr_key!("Show a one-time code to scan with the Muxy app."),
+        label: tr_key!("Pair a device"),
+        description: tr_key!(
+            "Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer."
+        ),
         category: Category::Mobile,
         section: tr_key!("Pairing"),
     },
     Setting {
         id: "mobile-devices",
         label: tr_key!("Paired devices"),
-        description: tr_key!("Phones that can connect. Revoking one disconnects it immediately."),
+        description: tr_key!(
+            "Phones and computers that can connect. Revoking one disconnects it immediately."
+        ),
         category: Category::Mobile,
-        section: tr_key!("Devices"),
+        section: tr_key!("Paired Devices"),
     },
 ];
 

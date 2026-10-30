@@ -4,10 +4,9 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::net::IpAddr;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -68,25 +67,8 @@ impl ProxySettings {
         self.validate()?;
         let context = || path.display().to_string();
         let source = toml::to_string_pretty(self).map_err(|error| Error::new(context(), error))?;
-        let mut temporary = path.as_os_str().to_owned();
-        temporary.push(".tmp");
-        let temporary = PathBuf::from(temporary);
-        let result = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&temporary)
-            .and_then(|mut file| {
-                file.write_all(source.as_bytes())?;
-                file.sync_all()
-            })
-            .and_then(|()| fs::rename(&temporary, path));
-        if let Err(error) = result {
-            let _ = fs::remove_file(&temporary);
-            return Err(Error::new(context(), error));
-        }
-        Ok(())
+        super::private_file::write(path, source.as_bytes())
+            .map_err(|error| Error::new(context(), error))
     }
 
     pub fn remove(path: &Path) -> Result<()> {

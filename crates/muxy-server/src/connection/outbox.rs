@@ -56,7 +56,7 @@ struct Watches {
 struct State {
     client: muxy_protocol::SessionClient,
     /// The paired device on the other end of a network connection.
-    device: Option<muxy_protocol::DeviceId>,
+    device: Option<(muxy_protocol::DeviceId, muxy_protocol::DeviceKind)>,
     positions: HashMap<SessionId, u64>,
     open_sessions: HashSet<SessionId>,
     created: HashSet<SessionId>,
@@ -91,18 +91,29 @@ impl Outbox {
         }
     }
 
-    pub(super) fn for_device(changes: Arc<AtomicU64>, device: muxy_protocol::DeviceId) -> Self {
+    /// A computer says which app it is once connected, as local apps do.
+    pub(super) fn for_device(
+        changes: Arc<AtomicU64>,
+        device: muxy_protocol::DeviceId,
+        kind: muxy_protocol::DeviceKind,
+    ) -> Self {
         let outbox = Self::new(changes);
         {
             let mut state = outbox.lock();
-            state.device = Some(device);
-            state.client.kind = muxy_protocol::ClientKind::Mobile;
+            state.device = Some((device, kind));
+            if kind != muxy_protocol::DeviceKind::Computer {
+                state.client.kind = muxy_protocol::ClientKind::Mobile;
+            }
         }
         outbox
     }
 
     pub(crate) fn device(&self) -> Option<muxy_protocol::DeviceId> {
-        self.lock().device
+        self.lock().device.map(|(device, _)| device)
+    }
+
+    pub(crate) fn device_kind(&self) -> Option<muxy_protocol::DeviceKind> {
+        self.lock().device.map(|(_, kind)| kind)
     }
 
     pub(crate) fn referenced_sessions(&self) -> Vec<SessionId> {

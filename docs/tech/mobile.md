@@ -62,5 +62,15 @@ such as a cloud server behind NAT, puts that name first with
 - A phone works with any server that shares its protocol version, so phone
   releases only need to follow breaking protocol changes.
 
+## Other computers
+
+A desktop app pairs with another computer the same way, from the pasted link,
+and reaches it like any remote server. It pairs as a computer, so the server
+gives it a desktop's rights: it may also run programs (`exec`), change server
+settings, and stop the server. Managing access stays with the computer itself.
+Its token is kept in `paired-servers.toml`, which only the user can read and
+backups leave out. Servers that predate this lack the `PAIRED_COMPUTERS`
+feature, and the app refuses to pair with them rather than pair as a phone.
+
 The full integration guide, with the API, setup, and error handling, is in
 [`crates/muxy-mobile/README.md`](../../crates/muxy-mobile/README.md).

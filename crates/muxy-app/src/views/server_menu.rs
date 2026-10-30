@@ -147,9 +147,11 @@ fn single_server_items(server: &RemoteServer, groups: &[&str], controls: bool) -
         tr!("Move to Group"),
         move_items(groups, servers, &[server]),
     ));
-    if controls {
+    if controls && server.entry.paired.is_none() {
         items.push(item(tr!("Restart Server…"), servers, Action::Restart).separated());
         items.push(item(tr!("Stop Server…"), servers, Action::Stop));
+    } else if controls {
+        items.push(item(tr!("Stop Server…"), servers, Action::Stop).separated());
     }
     if server.missing && crate::model::released_version().is_some() {
         items.push(item(tr!("Install Muxy…"), servers, Action::Install));

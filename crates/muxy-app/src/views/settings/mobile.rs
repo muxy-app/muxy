@@ -6,7 +6,7 @@ use gpui::{
     SharedString, Styled, canvas, div, point, px, size,
 };
 use muxy_app_core::qr::{QUIET_ZONE, QrCode};
-use muxy_protocol::{ListenerStatus, PairedDevice, PairingOffer, RemoteAccessState};
+use muxy_protocol::{DeviceKind, ListenerStatus, PairedDevice, PairingOffer, RemoteAccessState};
 use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
@@ -38,7 +38,7 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         if pane.matches(Category::Mobile, tr_key!("Server disconnected")) {
             rows.push(
                 pane.note(
-                    &tr!("Connect to the server to manage mobile access."),
+                    &tr!("Connect to the server to manage device access."),
                     false,
                 )
                 .into_any_element(),
@@ -47,23 +47,23 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         return rows;
     }
     if let Some(error) = &pane.snapshot.mobile_error
-        && pane.matches(Category::Mobile, tr_key!("Mobile access error"))
+        && pane.matches(Category::Mobile, tr_key!("Device access error"))
     {
         rows.push(pane.note(error, true).into_any_element());
     }
     let Some(state) = &pane.snapshot.mobile else {
-        if pane.matches(Category::Mobile, tr_key!("Loading mobile access")) {
+        if pane.matches(Category::Mobile, tr_key!("Loading device access")) {
             rows.push(
-                pane.note(&tr!("Loading mobile access…"), false)
+                pane.note(&tr!("Loading device access…"), false)
                     .into_any_element(),
             );
         }
         return rows;
     };
-    if pane.matches(Category::Mobile, tr_key!("Allow mobile devices")) {
+    if pane.matches(Category::Mobile, tr_key!("Allow other devices")) {
         rows.push(pane.row(
             "mobile-access",
-            tr_key!("Allow mobile devices"),
+            tr_key!("Allow other devices"),
             pane.toggle(
                 "mobile-access",
                 state.settings.enabled,
@@ -78,10 +78,10 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     if pane.matches(Category::Mobile, tr_key!("Status")) {
         rows.push(pane.row("mobile-status", tr_key!("Status"), status(pane, state)));
     }
-    if pane.matches(Category::Mobile, tr_key!("Pair a phone")) {
+    if pane.matches(Category::Mobile, tr_key!("Pair a device")) {
         rows.push(pane.row_with(
             "mobile-pair",
-            tr_key!("Pair a phone"),
+            tr_key!("Pair a device"),
             pairing(pane, state, cx),
             true,
         ));
@@ -141,7 +141,7 @@ fn pairing(
         .gap(px(10.0))
         .child(code(pairing.code.clone()))
         .child(div().text_color(pane.theme.fg_muted).child(tr!(
-            "Scan with the Muxy app. The code works once and expires in 5 minutes."
+            "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Remote section and paste the link. The code works once and expires in 5 minutes."
         )))
         .child(
             div()
@@ -242,11 +242,11 @@ fn devices(
                         .flex_col()
                         .min_w(px(0.0))
                         .child(device.name.clone())
-                        .child(
-                            div()
-                                .text_color(pane.theme.fg_muted)
-                                .child(presence(device, now)),
-                        ),
+                        .child(div().text_color(pane.theme.fg_muted).child(format!(
+                            "{} · {}",
+                            kind(device.kind),
+                            presence(device, now)
+                        ))),
                 )
                 .child(controls::button(
                     pane.style(),
@@ -257,6 +257,13 @@ fn devices(
                 ))
         }))
         .into_any_element()
+}
+
+fn kind(kind: DeviceKind) -> SharedString {
+    match kind {
+        DeviceKind::Computer => tr!("Computer"),
+        DeviceKind::Phone | DeviceKind::Unrecognized(_) => tr!("Phone"),
+    }
 }
 
 fn presence(device: &PairedDevice, now: u64) -> SharedString {

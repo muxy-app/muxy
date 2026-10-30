@@ -414,6 +414,10 @@ pub(crate) fn list(
                 .on_click(cx.listener(|model, _, _, cx| model.open_server_form(None, cx))),
         )
         .child(
+            action("remote-pair-server", Icon::Network, tr!("Pair with Link…"))
+                .on_click(cx.listener(|model, _, _, cx| model.open_pair_form(None, cx))),
+        )
+        .child(
             action(
                 "remote-manage-servers",
                 Icon::Settings,
@@ -434,6 +438,11 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
         let add: Handler = Rc::new(|model, _, cx| model.open_server_form(None, cx));
         servers.register(
             Command::new("remote-add-server", tr!("Add Server…"), add).keywords("Add Server"),
+        );
+        let pair: Handler = Rc::new(|model, _, cx| model.open_pair_form(None, cx));
+        servers.register(
+            Command::new("remote-pair-server", tr!("Pair with Link…"), pair)
+                .keywords("Pair with Link Computer"),
         );
         let manage: Handler = Rc::new(AppModel::open_servers_tab);
         servers.register(
@@ -567,7 +576,7 @@ fn server_command(server: &RemoteServer, model: gpui::WeakEntity<AppModel>) -> C
     )
 }
 
-fn input(
+pub(super) fn input(
     model: &AppModel,
     cx: &mut Context<AppModel>,
     placeholder: &'static str,
@@ -640,9 +649,24 @@ impl AppModel {
         self.show_palette(registry, Some(&format!("remote-{server}")), window, cx);
     }
 
+    /// Opens the form that adds a server over SSH, or edits `device` in
+    /// the form for how it is reached.
     pub(crate) fn open_server_form(&mut self, device: Option<ServerId>, cx: &mut Context<Self>) {
-        self.clear_server_probe();
         let entry = device.and_then(|id| self.settings.server(id).cloned());
+        if entry.as_ref().is_some_and(|entry| entry.paired.is_some()) {
+            self.open_pair_form(device, cx);
+        } else {
+            self.open_ssh_form(device, entry.as_ref(), cx);
+        }
+    }
+
+    fn open_ssh_form(
+        &mut self,
+        device: Option<ServerId>,
+        entry: Option<&muxy_app_core::settings::ServerEntry>,
+        cx: &mut Context<Self>,
+    ) {
+        self.clear_server_probe();
         let custom_command = entry
             .as_ref()
             .is_some_and(|entry| entry.ssh_command.is_some());
@@ -1035,11 +1059,15 @@ impl AppModel {
     }
 }
 
-fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
+pub(super) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
     super::git::form_field(label, input, model)
 }
 
-fn modal(model: &AppModel, window: &Window, id: &'static str) -> gpui::Stateful<gpui::Div> {
+pub(super) fn modal(
+    model: &AppModel,
+    window: &Window,
+    id: &'static str,
+) -> gpui::Stateful<gpui::Div> {
     let m = model.metrics;
     let theme = &model.theme;
     muxy_ui::popover::surface(theme, m)
@@ -1056,7 +1084,7 @@ fn modal(model: &AppModel, window: &Window, id: &'static str) -> gpui::Stateful<
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
-fn title(text: &str, model: &AppModel) -> gpui::Div {
+pub(super) fn title(text: &str, model: &AppModel) -> gpui::Div {
     div()
         .text_size(model.metrics.font_headline())
         .font_weight(FontWeight::SEMIBOLD)

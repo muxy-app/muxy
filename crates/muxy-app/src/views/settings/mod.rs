@@ -99,7 +99,7 @@ impl Category {
             Self::Commands => tr_key!("Commands"),
             Self::Browser => tr_key!("Browser"),
             Self::Server => tr_key!("Server"),
-            Self::Mobile => tr_key!("Mobile"),
+            Self::Mobile => tr_key!("Devices"),
             Self::Extensions => tr_key!("Extensions"),
             Self::Backup => tr_key!("Backup & Restore"),
         }

@@ -42,7 +42,11 @@ impl Category {
                 tr_key!("Sessions"),
                 tr_key!("Server control"),
             ],
-            Self::Mobile => &[tr_key!("Access"), tr_key!("Pairing"), tr_key!("Devices")],
+            Self::Mobile => &[
+                tr_key!("Access"),
+                tr_key!("Pairing"),
+                tr_key!("Paired Devices"),
+            ],
             Self::Extensions | Self::Commands => &[],
             Self::Backup => &[
                 tr_key!("Backup & Restore"),

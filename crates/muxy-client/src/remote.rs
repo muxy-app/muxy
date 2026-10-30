@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use muxy_protocol::transport::{ByteStream, tls};
 use muxy_protocol::{
-    DeviceCredential, DeviceId, ErrorCode, ErrorReply, PairRequest, Paired, PairingInvite,
-    PairingOffer, RemoteAccessSettings, RemoteAccessState, ReplyBody, RequestBody,
+    DeviceCredential, DeviceId, DeviceKind, ErrorCode, ErrorReply, Feature, PairRequest, Paired,
+    PairingInvite, PairingOffer, RemoteAccessSettings, RemoteAccessState, ReplyBody, RequestBody,
 };
 
 use crate::{Client, ClientError};
@@ -46,14 +46,41 @@ impl Client {
     }
 
     /// Pairs with the server that issued the invite; the connection stays open.
-    pub fn pair(invite: &PairingInvite, name: &str) -> Result<(Self, Paired), ClientError> {
+    /// A server too old to pair computers is refused before it could pair one
+    /// as a phone.
+    pub fn pair(
+        invite: &PairingInvite,
+        name: &str,
+        kind: DeviceKind,
+    ) -> Result<(Self, Paired), ClientError> {
         let stream = connect(&RemoteEndpoint::from(invite))?;
         let client = Self::from_stream_with_timeout(stream, CONNECT_TIMEOUT)?;
-        match client.request(RequestBody::Pair(PairRequest {
+        let paired = client.request_pairing(invite, name, kind);
+        if paired.is_err() {
+            client.disconnect();
+        }
+        Ok((client, paired?))
+    }
+
+    fn request_pairing(
+        &self,
+        invite: &PairingInvite,
+        name: &str,
+        kind: DeviceKind,
+    ) -> Result<Paired, ClientError> {
+        if kind == DeviceKind::Computer && !self.supports(Feature::PAIRED_COMPUTERS) {
+            return Err(ClientError::Server(ErrorReply {
+                code: ErrorCode::Unsupported,
+                message: "Muxy on that computer can't pair with other computers. Update it there."
+                    .into(),
+            }));
+        }
+        match self.request(RequestBody::Pair(PairRequest {
             secret: invite.secret,
             name: name.into(),
+            kind,
         }))? {
-            ReplyBody::Paired(paired) => Ok((client, paired)),
+            ReplyBody::Paired(paired) => Ok(paired),
             body => Err(ClientError::UnexpectedReply(Box::new(body))),
         }
     }
@@ -136,4 +163,100 @@ fn connect(endpoint: &RemoteEndpoint) -> Result<Box<dyn ByteStream>, ClientError
     Err(ClientError::Io(failure.unwrap_or_else(|| {
         io::Error::new(io::ErrorKind::NotFound, "the server has no known address")
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::net::UnixStream;
+    use std::sync::mpsc;
+    use std::thread;
+
+    use muxy_protocol::wire::{Decoder, Encoder};
+    use muxy_protocol::{CONTROL, Message, SUPPORTED, ServerIdentity, ServerInfo};
+
+    use super::*;
+
+    fn invite() -> PairingInvite {
+        PairingInvite {
+            hosts: vec!["studio.local".into()],
+            port: 7419,
+            fingerprint: [1; 32],
+            secret: [2; 16],
+        }
+    }
+
+    /// A server offering `features` that pairs whoever asks, and reports the
+    /// pairing request it received.
+    fn server(
+        features: Vec<Feature>,
+    ) -> Result<(Client, mpsc::Receiver<PairRequest>), ClientError> {
+        let (near, far) = UnixStream::pair()?;
+        let (requests, received) = mpsc::channel();
+        thread::spawn(move || -> Result<(), muxy_protocol::wire::WireError> {
+            let (read, write) = (far.try_clone()?, far);
+            let (mut decoder, mut encoder) = (Decoder::new(read), Encoder::new(write));
+            decoder.next()?;
+            encoder.send(
+                CONTROL,
+                &Message::HelloReply {
+                    versions: SUPPORTED.to_vec(),
+                    server: ServerInfo::current(),
+                    features,
+                },
+            )?;
+            if let (
+                _,
+                Message::Request {
+                    id,
+                    body: RequestBody::Pair(request),
+                },
+            ) = decoder.next()?
+            {
+                let _ = requests.send(request);
+                let paired = Paired {
+                    credential: DeviceCredential {
+                        device: DeviceId::from_u128(3),
+                        token: [4; 32],
+                    },
+                    server: ServerIdentity::from_u128(5),
+                    name: "Studio".into(),
+                };
+                encoder.send(
+                    CONTROL,
+                    &Message::Reply {
+                        id,
+                        body: ReplyBody::Paired(paired),
+                    },
+                )?;
+            }
+            Ok(())
+        });
+        Ok((Client::from_stream(Box::new(near))?, received))
+    }
+
+    #[test]
+    fn a_server_that_cannot_pair_computers_is_never_asked() -> Result<(), ClientError> {
+        let (client, requests) = server(Vec::new())?;
+        let refused = client.request_pairing(&invite(), "Laptop", DeviceKind::Computer);
+        assert!(
+            matches!(&refused, Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported),
+            "{refused:?}"
+        );
+        client.disconnect();
+        assert!(requests.recv().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn a_computer_pairs_as_a_computer() -> Result<(), ClientError> {
+        let (client, requests) = server(vec![Feature::PAIRED_COMPUTERS])?;
+        let paired = client.request_pairing(&invite(), "Laptop", DeviceKind::Computer)?;
+        assert_eq!(paired.name, "Studio");
+        let request = requests.recv().map_err(|_| ClientError::Disconnected)?;
+        assert_eq!(
+            (request.kind, request.secret),
+            (DeviceKind::Computer, [2; 16])
+        );
+        Ok(())
+    }
 }

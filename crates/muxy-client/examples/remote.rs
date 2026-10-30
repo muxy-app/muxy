@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use std::thread;
 
 use muxy_client::{Client, ClientEvent, RemoteEndpoint, RunGrid};
-use muxy_protocol::{DeviceCredential, PairingInvite, Size};
+use muxy_protocol::{DeviceCredential, DeviceKind, PairingInvite, Size};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 type Saved = (Vec<String>, u16, [u8; 32], DeviceCredential);
@@ -46,7 +46,7 @@ fn pair(link: &str, file: &Path) -> Result {
         .create_new(true)
         .mode(0o600)
         .open(file)?;
-    let (_client, paired) = match Client::pair(&invite, "Example device") {
+    let (_client, paired) = match Client::pair(&invite, "Example device", DeviceKind::Phone) {
         Ok(paired) => paired,
         Err(error) => {
             let _ = fs::remove_file(file);

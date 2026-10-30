@@ -166,7 +166,7 @@ impl Requests {
         reason = "Keep request dispatch exhaustive in one place"
     )]
     fn route(&self, body: RequestBody, id: RequestId) -> Result<Option<ReplyBody>, ServerError> {
-        policy::permit(self.outbox.device().is_some(), &body)?;
+        policy::permit(self.outbox.device_kind(), &body)?;
         let outbox = &self.outbox;
         match body {
             RequestBody::Ping => Ok(Some(ReplyBody::Pong)),

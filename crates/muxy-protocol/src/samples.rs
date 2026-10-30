@@ -124,7 +124,8 @@ fn remote_samples() -> Vec<Message> {
         RequestBody::Authenticate(credential),
         RequestBody::Pair(crate::PairRequest {
             secret: [5; 16],
-            name: "Phone".into(),
+            name: "Studio".into(),
+            kind: crate::DeviceKind::Computer,
         }),
         RequestBody::ReadRemoteAccess,
         RequestBody::WriteRemoteAccess(settings),
@@ -156,6 +157,7 @@ fn remote_samples() -> Vec<Message> {
                 paired_at: 100,
                 last_seen: Some(200),
                 connected: true,
+                kind: crate::DeviceKind::Computer,
             }],
         }),
         ReplyBody::Pairing(crate::PairingOffer {

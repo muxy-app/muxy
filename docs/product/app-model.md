@@ -6,7 +6,7 @@ How people use Muxy: the apps, navigation, settings, and updates.
 
 | App | Connects to |
 | --- | --- |
-| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of remote devices over SSH. |
+| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of remote devices over SSH or after pairing with them. |
 | `muxy` terminal UI | The server on the same computer, starting it if needed, or with `--host`, the server on another computer over SSH. Ships with the desktop app and also on its own. |
 | Phone app | A paired computer's server, over the local network or a VPN, or any computer's server over SSH. |
 
@@ -16,7 +16,10 @@ their server and path. There is no global "current server".
 
 The **Remote** section at the bottom of the sidebar shows each remote server's
 state. Its popover adds servers (host, user, port, key file, or a password that
-Muxy asks for and keeps only in memory) and manages them. **Add Project →
+Muxy asks for and keeps only in memory) and manages them. **Pair with Link…**
+adds another computer from the link in its **Settings → Devices** instead, with
+no SSH setup. A paired computer can't be restarted from here, and pairing again
+from its **Edit…** form recovers one that was revoked or reset. **Add Project →
 Remote** browses that server's folders. When a server lacks Muxy, a released
 app offers to install the same version there; when its version can't talk to
 the app, the section explains how to update it. Removing a server only forgets
@@ -136,8 +139,9 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
 - Server settings, such as the shell and history size, apply to this
   computer's server. `muxy --host` changes another computer's. Stopping or
   restarting it asks first.
-- **Settings → Mobile** turns phone access on, shows a pairing code, and lists
-  paired phones. `muxy mobile` does the same without the desktop app.
+- **Settings → Devices** lets phones and other computers pair, shows a pairing
+  code and link, and lists paired devices. `muxy mobile` does the same without
+  the desktop app.
 - **Settings → Backup & Restore** exports settings, themes, extension preferences,
   projects, and layouts. Restore applies on the next launch and keeps a recovery
   copy in `Backups`. Existing projects are kept; matching projects receive the

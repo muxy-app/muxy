@@ -74,7 +74,14 @@ fn custom_probes_and_installation_use_the_same_target_without_app_credentials(
         let runtime = model.servers.get(server).expect("runtime");
         let calls = calls.lock().expect("calls");
         assert_eq!(calls.len(), 3);
-        assert_eq!(runtime.target.as_ref(), calls.first());
+        assert_eq!(
+            runtime.target.as_ref(),
+            calls
+                .first()
+                .cloned()
+                .map(crate::boot::Target::Ssh)
+                .as_ref()
+        );
         assert!(!runtime.password_login);
         assert!(!model.servers.passwords.has(server));
     });

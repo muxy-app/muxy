@@ -54,6 +54,10 @@ pub enum RemoteReason {
     Timeout,
     /// The other computer runs a Muxy whose bridge this build can't use.
     Incompatible,
+    /// The paired server no longer knows this device, such as after a revoke.
+    Unpaired,
+    /// The paired server presented a certificate other than the pinned one.
+    IdentityChanged,
 }
 
 impl RemoteReason {
@@ -67,6 +71,18 @@ impl RemoteReason {
 }
 
 impl ClientError {
+    /// Why another computer's server couldn't be reached, when the failure says.
+    pub fn remote_reason(&self) -> Option<RemoteReason> {
+        match self {
+            Self::Remote { reason, .. } => Some(*reason),
+            Self::IdentityMismatch => Some(RemoteReason::IdentityChanged),
+            Self::Server(error) if error.code == ErrorCode::Unauthorized => {
+                Some(RemoteReason::Unpaired)
+            }
+            _ => None,
+        }
+    }
+
     /// Whether connecting again may work without the user's help; see
     /// [`RemoteReason::recoverable`]. Other failures, such as a dropped
     /// connection, may.
@@ -151,6 +167,14 @@ fn remote(
         RemoteReason::Incompatible => write!(
             formatter,
             "Muxy on {destination} can't accept connections from this version of Muxy ({detail}). Install the same version on both computers."
+        ),
+        RemoteReason::Unpaired => write!(
+            formatter,
+            "{destination} no longer accepts this device. Pair again with a new link."
+        ),
+        RemoteReason::IdentityChanged => write!(
+            formatter,
+            "{destination}'s identity changed since pairing. Pair again with a new link to trust it."
         ),
     }
 }

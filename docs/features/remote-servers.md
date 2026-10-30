@@ -1,6 +1,7 @@
 # Remote Servers
 
-Muxy can work with projects on other computers over SSH. Each computer runs its
+Muxy can work with projects on other computers over SSH, or by
+[pairing](#pair-with-another-computer) with them. Each computer runs its
 own `muxy-server`, so remote terminals keep running when you disconnect, just
 like local ones. Remote projects sit in the same sidebar as local ones, marked
 with their server.
@@ -54,6 +55,20 @@ On Linux hosts that end your processes when you log out, run
   the server changes.
 - The status bar shows the current project's server, with connect, restart, and
   stop.
+
+### Pair with another computer
+
+Pairing needs no SSH setup, only Muxy on both computers, macOS or Linux, which
+can reach each other on the network or through a VPN.
+
+1. On the other computer, open **Settings → Devices**, turn on **Allow other
+   devices**, choose **Show Pairing Code**, then **Copy Link**.
+2. Here, in the **Remote** popover, choose **Pair with Link…** and paste it.
+
+The paired computer works like any remote server, except that it can't be
+restarted from here. It is listed under **Paired devices** on the other
+computer, where **Revoke** disconnects it. If it was revoked or reset, paste a
+new link in its **Edit…** form to pair again.
 
 ### Custom SSH commands
 

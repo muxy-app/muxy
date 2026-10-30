@@ -60,7 +60,7 @@ If `muxy --version` shows 1.x, Muxy 1.x's CLI comes first on your `PATH`.
 
 ## A phone can't connect
 
-- Check **Settings → Mobile → Status** says it is listening.
+- Check **Settings → Devices → Status** says it is listening.
 - On macOS, allow `muxy-server` if the firewall asks.
 - On iOS, allow the Muxy app to use the local network.
 - The phone must reach the computer: same network, a VPN, or an address added

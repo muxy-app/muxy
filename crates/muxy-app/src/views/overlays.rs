@@ -37,6 +37,7 @@ pub(crate) enum Overlay {
     Agents,
     SessionProviders,
     ServerForm(Box<super::remote_servers::ServerForm>),
+    PairForm(Box<super::pair_form::PairForm>),
     Password(Box<super::remote_servers::PasswordPrompt>),
     /// The status bar's proxy popover.
     Proxy(Box<super::proxy::ProxyForm>),
@@ -62,6 +63,7 @@ impl Overlay {
                 | Self::ProjectEditor(_)
                 | Self::ProjectIcons(_)
                 | Self::ServerForm(_)
+                | Self::PairForm(_)
                 | Self::Password(_)
                 | Self::Proxy(_)
         )
@@ -225,6 +227,10 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         }
         Some(Overlay::ServerForm(form)) => centered(marked(
             super::remote_servers::render_form(form, model, window, cx),
+            model,
+        )),
+        Some(Overlay::PairForm(form)) => centered(marked(
+            super::pair_form::render(form, model, window, cx),
             model,
         )),
         Some(Overlay::Password(prompt)) => centered(marked(

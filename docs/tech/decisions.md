@@ -111,7 +111,8 @@ only as a hash. The phone apps embed the same Rust client as the desktop app.
 
 Pairing stays the default because it needs no SSH setup. Phones can also
 connect over SSH, since the apps already embed an SSH client: it runs
-`muxy stdio` on the computer (D7).
+`muxy stdio` on the computer (D7). Desktop apps pair the same way and get a
+desktop's rights, except managing access.
 
 Turned down: a cloud relay, which is another service to trust; mutual TLS, for
 handling certificates on phones; and a native Swift, Kotlin, or JSON protocol,

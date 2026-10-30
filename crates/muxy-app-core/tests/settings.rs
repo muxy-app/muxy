@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::{
-    CellHeight, KeyChord, Keymap, ServerEntry, Settings, TerminalSettings,
+    CellHeight, KeyChord, Keymap, PairedServer, ServerEntry, Settings, TerminalSettings,
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -579,6 +579,7 @@ fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
             identity_file: None,
             password_login: false,
             group: None,
+            paired: None,
         }]
     );
     assert_eq!(
@@ -814,6 +815,75 @@ fn custom_commands_round_trip_beside_legacy_ssh_and_reject_ambiguous_logins() ->
             .all(|server| server.ssh_command.is_none())
     );
     Ok(())
+}
+
+fn paired(fingerprint: &str) -> PairedServer {
+    PairedServer {
+        hosts: vec!["192.168.1.5".into(), "studio.local".into()],
+        port: 7419,
+        fingerprint: fingerprint.into(),
+        device: muxy_protocol::DeviceId::from_u128(3),
+    }
+}
+
+#[test]
+fn paired_servers_round_trip_and_name_their_first_address() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "")?;
+    let mut settings = Settings::load(&path)?;
+    let studio = ServerEntry::paired("Studio".into(), paired(&"c3".repeat(32)));
+    settings.add_server(studio.clone(), &path)?;
+    assert_eq!(
+        Settings::load(&path)?.servers,
+        std::slice::from_ref(&studio)
+    );
+    assert_eq!(studio.destination(), "192.168.1.5");
+    assert_eq!(
+        studio.paired.as_ref().and_then(PairedServer::fingerprint),
+        Some([0xc3; 32])
+    );
+    assert!(!fs::read_to_string(&path)?.contains("ssh"));
+    Ok(())
+}
+
+#[test]
+fn paired_servers_need_a_full_endpoint_and_no_ssh() {
+    let valid = paired(&"c3".repeat(32));
+    for entry in [
+        ServerEntry::paired("a".into(), paired("c3")),
+        ServerEntry::paired(
+            "a".into(),
+            PairedServer {
+                hosts: Vec::new(),
+                ..valid.clone()
+            },
+        ),
+        ServerEntry::paired(
+            "a".into(),
+            PairedServer {
+                port: 80,
+                ..valid.clone()
+            },
+        ),
+        ServerEntry::paired(
+            "a".into(),
+            PairedServer {
+                hosts: vec!["bad host".into()],
+                ..valid.clone()
+            },
+        ),
+        ServerEntry {
+            ssh: "dev@box".into(),
+            ..ServerEntry::paired("a".into(), valid.clone())
+        },
+        ServerEntry {
+            password_login: true,
+            ..ServerEntry::paired("a".into(), valid.clone())
+        },
+    ] {
+        assert!(entry.validate().is_err(), "{entry:?}");
+    }
+    assert!(ServerEntry::paired("a".into(), valid).validate().is_ok());
 }
 
 #[test]

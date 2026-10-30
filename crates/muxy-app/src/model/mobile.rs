@@ -10,7 +10,7 @@ use crate::boot::Work;
 use crate::views::settings::Change;
 use crate::views::settings::mobile::Pairing;
 
-/// Mobile access as Settings shows it; the server owns the real state.
+/// Device access as Settings shows it; the server owns the real state.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -61,17 +61,17 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if !self.mobile_available() {
-            return Err(tr!("Connect to the server before changing mobile access").to_string());
+            return Err(tr!("Connect to the server before changing device access").to_string());
         }
         if self.mobile.busy {
-            return Err(tr!("Wait for the current mobile access change to finish").to_string());
+            return Err(tr!("Wait for the current device access change to finish").to_string());
         }
         let current = self
             .mobile
             .state
             .as_ref()
             .map(|state| state.settings)
-            .ok_or_else(|| tr!("Load mobile access first").to_string())?;
+            .ok_or_else(|| tr!("Load device access first").to_string())?;
         let settings = match change {
             Change::MobileAccess(enabled) => RemoteAccessSettings { enabled, ..current },
             Change::Field("mobile-port", port) => RemoteAccessSettings {
@@ -80,7 +80,7 @@ impl AppModel {
                     .map_err(|_| tr!("Use a port from 1024 to 65535").to_string())?,
                 ..current
             },
-            _ => return Err(tr!("Unknown mobile access setting").to_string()),
+            _ => return Err(tr!("Unknown device access setting").to_string()),
         };
         settings
             .validate()
@@ -151,7 +151,7 @@ impl AppModel {
                     {
                         if model.mobile.busy {
                             model.mobile.error = Some(
-                                tr!("Wait for the current mobile access change to finish")
+                                tr!("Wait for the current device access change to finish")
                                     .to_string(),
                             );
                         } else {

@@ -349,7 +349,7 @@ impl AppModel {
     /// in hand edits made since launch. A new server, or one reached in a new
     /// way, gets a worker and connects. One no longer listed stops, and its
     /// projects stay hidden until it returns.
-    fn sync_servers(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sync_servers(&mut self, cx: &mut Context<Self>) {
         let listed = self.settings.servers.clone();
         let unlisted: Vec<_> = self
             .servers
@@ -603,6 +603,7 @@ impl AppModel {
         for server in servers {
             self.servers.passwords.forget(*server);
         }
+        self.forget_pairings(servers, cx);
         self.remote_selection
             .retain(|selected| !servers.contains(selected));
         self.sync_servers(cx);
@@ -772,7 +773,7 @@ impl AppModel {
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
         };
-        let Some(target) = runtime.target.clone() else {
+        let Some(crate::boot::Target::Ssh(target)) = runtime.target.clone() else {
             return;
         };
         if runtime.install == Some(Install::Running) {
@@ -815,7 +816,7 @@ impl AppModel {
             return;
         };
         runtime.error = Some(incompatible_guidance(&name, None));
-        let Some(target) = runtime.target.clone() else {
+        let Some(crate::boot::Target::Ssh(target)) = runtime.target.clone() else {
             return;
         };
         let generation = runtime.generation;
