@@ -124,3 +124,66 @@ fn quick_terminal_pin_is_saved_and_survives_reopening(cx: &mut TestAppContext) {
         assert!(!saved(model));
     });
 }
+
+#[gpui::test]
+fn quick_terminal_closes_without_discarding_when_its_session_ends(cx: &mut TestAppContext) {
+    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        let pane = model.state.ensure_quick_terminal();
+        let stale = SessionId::new(703).expect("session");
+        model
+            .state
+            .set_pane_session(pane, Some(stale))
+            .expect("session");
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        assert!(model.state.quick_terminal().is_none());
+
+        let pane = model.state.ensure_quick_terminal();
+        let ended = SessionId::new(704).expect("session");
+        model
+            .state
+            .set_pane_session(pane, Some(ended))
+            .expect("session");
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::SessionEnded {
+                    session: ended,
+                    reason: ExitReason::Ended,
+                }),
+            ),
+            cx,
+        );
+        assert!(model.state.quick_terminal().is_none());
+
+        let pane = model.state.ensure_quick_terminal();
+        let missing = SessionId::new(705).expect("session");
+        model
+            .state
+            .set_pane_session(pane, Some(missing))
+            .expect("session");
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::AttachFailed {
+                    pane,
+                    session: Some(missing),
+                    created: false,
+                    error: missing_session_error(),
+                },
+            ),
+            cx,
+        );
+        assert!(model.state.quick_terminal().is_none());
+        assert!(model.state.pending_discards(ServerId::local()).is_empty());
+        assert!(
+            !requests
+                .try_iter()
+                .any(|(_, work)| matches!(work, Work::Discard(_, _)))
+        );
+    });
+}

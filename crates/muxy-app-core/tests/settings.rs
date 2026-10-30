@@ -961,5 +961,12 @@ fn linux_defaults_avoid_the_command_key_and_replace_former_worktree_keys() -> Re
         keymap.chord(ShortcutId::SwitchWorktree),
         Some(&"ctrl-alt-f24".parse()?)
     );
+    let path = fixture.write("settings.toml", "[keymap]\nswitch_worktree = 'cmd-alt-w'\n")?;
+    assert_eq!(
+        Settings::load(&path)?
+            .keymap
+            .chord(ShortcutId::SwitchWorktree),
+        Some(&"ctrl-shift-alt-w".parse()?)
+    );
     Ok(())
 }

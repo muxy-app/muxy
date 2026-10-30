@@ -1948,9 +1948,7 @@ impl AppModel {
         let plan = restore::plan(&self.state, server, sessions);
         let active = self.active_pane();
         for (pane, _) in plan.close {
-            // The server doesn't list its session here; detaching keeps the
-            // session's saved output.
-            if let Err(error) = self.state.detach_pane(pane) {
+            if let Err(error) = self.state.close_ended_pane(pane) {
                 self.fail(error.to_string(), cx);
                 return;
             }

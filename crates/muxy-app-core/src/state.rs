@@ -632,6 +632,14 @@ impl AppState {
         self.remove_pane(pane)
     }
 
+    /// Closes a pane whose session its server no longer lists, even in a
+    /// project whose folder is gone. The session's saved output stays on the
+    /// server, so nothing is discarded.
+    pub fn close_ended_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+        self.starting_directories.remove(&pane);
+        self.remove_pane(pane)
+    }
+
     /// Closes the panes of a session that has ended. Its saved output stays on
     /// the server, so nothing is discarded.
     pub fn close_session_panes(
