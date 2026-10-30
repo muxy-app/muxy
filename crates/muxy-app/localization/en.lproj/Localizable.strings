@@ -703,6 +703,7 @@
 "Hide agents panel" = "Hide agents panel";
 "Hide projects without tabs" = "Hide projects without tabs";
 "Hides the panel" = "Hides the panel";
+"Hides when it loses focus" = "Hides when it loses focus";
 "Hiding apps is not available on this platform." = "Hiding apps is not available on this platform.";
 "History & Bookmarks" = "History & Bookmarks";
 "History budget is too large" = "History budget is too large";
@@ -791,6 +792,7 @@
 "Its projects and layouts leave this app; nothing on the server changes." = "Its projects and layouts leave this app; nothing on the server changes.";
 "Its saved certificate fingerprint is invalid." = "Its saved certificate fingerprint is invalid.";
 "Just now" = "Just now";
+"Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button." = "Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button.";
 "Keep Waiting" = "Keep Waiting";
 "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused." = "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused.";
 "Key" = "Key";
@@ -1077,6 +1079,8 @@
 "Permission rules" = "Permission rules";
 "Phone" = "Phone";
 "Phones and computers that can connect. Revoking one disconnects it immediately." = "Phones and computers that can connect. Revoking one disconnects it immediately.";
+"Pin" = "Pin";
+"Pin Quick Terminal" = "Pin Quick Terminal";
 "Pin Tab" = "Pin Tab";
 "Pink" = "Pink";
 "Pixels" = "Pixels";
@@ -1385,6 +1389,7 @@
 "Starting" = "Starting";
 "Starting the server and reconnecting to Muxy." = "Starting the server and reconnecting to Muxy.";
 "Status" = "Status";
+"Stays open when it loses focus" = "Stays open when it loses focus";
 "Still connecting to %@. Try again in a moment." = "Still connecting to %@. Try again in a moment.";
 "Stop" = "Stop";
 "Stop Server" = "Stop Server";
@@ -1568,6 +1573,8 @@
 "Unload folder" = "Unload folder";
 "Unloading…" = "Unloading…";
 "Unpacked" = "Unpacked";
+"Unpin" = "Unpin";
+"Unpin Quick Terminal" = "Unpin Quick Terminal";
 "Unpin Tab" = "Unpin Tab";
 "Unstage" = "Unstage";
 "Unstage All" = "Unstage All";

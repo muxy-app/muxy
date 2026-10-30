@@ -24,6 +24,15 @@ fn stored_rows(view: &SettingsView, reason: &str) -> Vec<AnyElement> {
             },
         ),
         (
+            "quick-pinned",
+            tr_key!("Pin Quick Terminal"),
+            if settings.pinned {
+                tr!("On")
+            } else {
+                tr!("Off")
+            },
+        ),
+        (
             "quick-shortcut",
             tr_key!("Open Quick Terminal"),
             settings.shortcut.key_combo().map_or_else(
@@ -81,6 +90,20 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         if !settings.enabled {
             rows.push(view.note(&tr!("The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved."), false).into_any_element());
         }
+    }
+    if view.matches(Category::QuickTerminal, tr_key!("Pin Quick Terminal")) {
+        let mut next = settings.clone();
+        next.pinned = !next.pinned;
+        rows.push(view.row(
+            "quick-pinned",
+            tr_key!("Pin Quick Terminal"),
+            view.toggle(
+                "quick-pinned",
+                settings.pinned,
+                Change::QuickTerminal(next),
+                cx,
+            ),
+        ));
     }
     if view.matches(Category::QuickTerminal, tr_key!("Open Quick Terminal")) {
         let mut buttons = div().flex().flex_wrap().gap(px(8.0));

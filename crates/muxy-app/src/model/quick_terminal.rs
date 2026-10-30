@@ -163,6 +163,7 @@ impl AppModel {
             }
             .to_string(),
             shortcut: self.quick_shortcut_label(),
+            pinned: self.settings.quick_terminal.pinned,
         }
     }
 
@@ -322,6 +323,14 @@ impl AppModel {
                 }
             });
         }));
+    }
+
+    pub(crate) fn toggle_quick_terminal_pin(&mut self, cx: &mut Context<Self>) {
+        let mut settings = self.settings.quick_terminal.clone();
+        settings.pinned = !settings.pinned;
+        if let Err(error) = self.apply_quick_settings(settings, cx) {
+            self.fail(error, cx);
+        }
     }
 
     pub(super) fn prepare_quick_terminal(&mut self, cx: &mut Context<Self>) {

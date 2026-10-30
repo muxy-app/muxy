@@ -232,7 +232,34 @@ impl PanelAdapter {
             self.window,
             &xproto::ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
         );
+        self.keep_above_on_every_desktop();
         self.activate(self.window);
+    }
+
+    /// Window managers drop `_NET_WM_STATE` when a window is hidden and only honour
+    /// requests for mapped windows, so the states are requested again on every show.
+    fn keep_above_on_every_desktop(&self) {
+        const ADD: u32 = 1;
+        const NORMAL_APPLICATION: u32 = 1;
+        let (Ok(state), Ok(above), Ok(sticky)) = (
+            atom(&self.connection, b"_NET_WM_STATE"),
+            atom(&self.connection, b"_NET_WM_STATE_ABOVE"),
+            atom(&self.connection, b"_NET_WM_STATE_STICKY"),
+        ) else {
+            return;
+        };
+        let message = xproto::ClientMessageEvent::new(
+            32,
+            self.window,
+            state,
+            [ADD, above, sticky, NORMAL_APPLICATION, 0],
+        );
+        let _ = self.connection.send_event(
+            false,
+            self.root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            message,
+        );
     }
 
     pub(in crate::quick_terminal::platform) fn begin_hide(&mut self, _duration: Duration) {}
@@ -245,6 +272,13 @@ impl PanelAdapter {
             self.activate(previous);
         }
         let _ = self.connection.flush();
+    }
+
+    /// The panel is sticky on every desktop whether or not it is pinned.
+    pub(in crate::quick_terminal::platform) fn set_pinned(&self, _pinned: bool) {}
+
+    pub(in crate::quick_terminal::platform) fn forget_previous_focus(&mut self) {
+        self.previous = None;
     }
 
     fn activate(&self, window: u32) {

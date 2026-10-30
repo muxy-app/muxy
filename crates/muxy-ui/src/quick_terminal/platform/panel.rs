@@ -46,10 +46,19 @@ impl PanelAdapter {
         self.0.finish_hide(restores_focus);
     }
 
-    pub fn install_accessibility(&mut self, status: &str, shortcut: &str) {
+    pub fn set_pinned(&self, pinned: bool) {
+        self.0.set_pinned(pinned);
+    }
+
+    /// A pinned panel outlives the focus it was opened from, so hiding it must not return there.
+    pub fn forget_previous_focus(&mut self) {
+        self.0.forget_previous_focus();
+    }
+
+    pub fn install_accessibility(&mut self, status: &str, shortcut: &str, pinned: bool) {
         self.0
             .install_accessibility(&crate::quick_terminal::view::bridge_accessibility_model(
-                status, shortcut,
+                status, shortcut, pinned,
             ));
     }
 }

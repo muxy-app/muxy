@@ -13,6 +13,7 @@ pub struct QuickTerminalSettings {
     pub height: u16,
     pub transparency: u8,
     pub blur: u8,
+    pub pinned: bool,
     pub shortcut: QuickTerminalShortcut,
 }
 
@@ -24,6 +25,7 @@ impl Default for QuickTerminalSettings {
             height: 430,
             transparency: 18,
             blur: 70,
+            pinned: false,
             shortcut: QuickTerminalShortcut::Unassigned,
         }
     }
@@ -83,6 +85,7 @@ mod tests {
                 height: 600,
                 transparency: 25,
                 blur: 40,
+                pinned: false,
                 shortcut: QuickTerminalShortcut::Unassigned,
             }
         );
@@ -97,6 +100,26 @@ mod tests {
                 .unwrap()
                 .quick_terminal,
             settings.quick_terminal
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn pin_round_trips() {
+        let directory =
+            std::env::temp_dir().join(format!("muxy-quick-pinned-{}", crate::ProjectId::new()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("settings.toml");
+        let settings = QuickTerminalSettings {
+            pinned: true,
+            ..QuickTerminalSettings::default()
+        };
+        settings.save(&path).unwrap();
+        assert_eq!(
+            crate::settings::Settings::load(&path)
+                .unwrap()
+                .quick_terminal,
+            settings
         );
         std::fs::remove_dir_all(directory).unwrap();
     }
