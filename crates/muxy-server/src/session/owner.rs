@@ -505,6 +505,7 @@ impl Owner {
             .screen
             .ok_or_else(|| io::Error::other("fresh history has no screen"))?;
         let snapshot = AttachSnapshot {
+            links: history.links,
             graphics: screen.graphics,
             prompts: history.prompts,
             channel,
@@ -552,11 +553,27 @@ impl Owner {
         let total = self.terminal.history_rows().map_err(terminal_error)?;
         let (range, next) = history_range(self.info.id, generation, before, max_rows, total)?;
         self.compress_pending = true;
-        let (history, mut prompts) = self
+        let muxy_terminal::TerminalHistory {
+            rows: history,
+            mut prompts,
+            mut links,
+        } = self
             .terminal
-            .history_with_prompts(range)
+            .history_with_links(range)
             .map_err(terminal_error)?;
         let screen = if before.0 == 0 {
+            let budget = muxy_protocol::MAX_LINK_SPANS
+                - links.iter().map(|row| row.spans.len()).sum::<usize>();
+            links.extend(
+                self.terminal
+                    .read_screen_links(budget)
+                    .map_err(terminal_error)?
+                    .into_iter()
+                    .filter_map(|mut row| {
+                        row.row = u16::try_from(history.len() + usize::from(row.row)).ok()?;
+                        Some(row)
+                    }),
+            );
             prompts.extend(
                 self.terminal
                     .screen_prompts()
@@ -579,6 +596,7 @@ impl Owner {
             generation,
             before,
             HistoryPage {
+                links: Some(links),
                 prompts,
                 rows: history,
                 next,

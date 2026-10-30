@@ -43,6 +43,7 @@ impl Message {
                 id: RequestId(2),
                 body: ReplyBody::Attached {
                     snapshot: Box::new(AttachSnapshot {
+                        links: None,
                         graphics: crate::Graphics::default(),
                         prompts: vec![0],
                         channel,
@@ -223,6 +224,14 @@ fn search_samples(session: SessionId, channel: ChannelId) -> Vec<Message> {
 fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
     snapshot.history.clone_from(&snapshot.rows);
     snapshot.history_total = 2;
+    snapshot.links = Some(vec![crate::LinkRow {
+        row: 0,
+        spans: vec![crate::LinkSpan {
+            start: 0,
+            end: 4,
+            uri: "https://example.com/history".into(),
+        }],
+    }]);
     snapshot.history_cursor = Some(HistoryCursor(42));
     vec![
         Message::Metadata(MetadataEvent::ScreenPrompts {
@@ -257,6 +266,7 @@ fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
         Message::Reply {
             id: RequestId(3),
             body: ReplyBody::HistoryPage(HistoryPage {
+                links: snapshot.links.clone(),
                 prompts: vec![0],
                 rows: snapshot.history.clone(),
                 next: None,

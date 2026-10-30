@@ -17,6 +17,7 @@ fn run(text: &str, width: u16) -> Run {
 
 fn grid() -> RunGrid {
     RunGrid::from_snapshot(&AttachSnapshot {
+        links: None,
         graphics: muxy_protocol::Graphics::default(),
         prompts: Vec::new(),
         channel: ChannelId(1),
@@ -134,6 +135,7 @@ fn older_pages_do_not_move_selection_and_selected_rows_detect_changes() {
     let selected = selection((-1, 0), (0, 3));
     let before = selected.rows(&grid);
     grid.fetch_older(HistoryPage {
+        links: None,
         prompts: Vec::new(),
         rows: vec![Row {
             index: 0,

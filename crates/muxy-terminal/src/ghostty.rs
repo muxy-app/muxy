@@ -32,6 +32,13 @@ pub struct TerminalArchive {
     pub history: Vec<Vec<Run>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TerminalHistory {
+    pub rows: Vec<Row>,
+    pub prompts: Vec<u16>,
+    pub links: Vec<crate::LinkRow>,
+}
+
 /// A copy of a terminal that can move to another thread and become an archive there.
 #[derive(Debug)]
 pub struct TerminalSnapshot {
@@ -657,6 +664,11 @@ impl Terminal {
             .collect()
     }
 
+    pub fn read_screen_links(&self, budget: usize) -> Result<Vec<crate::LinkRow>, TerminalError> {
+        crate::links::viewport(&self.engine, self.size.cols, self.size.rows, budget)
+            .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
+    }
+
     pub fn take_pty_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut *self.pty_output.borrow_mut())
     }
@@ -736,6 +748,27 @@ impl Terminal {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
+        self.history_with_metadata(range, None)
+    }
+
+    pub fn history_with_links(
+        &mut self,
+        range: Range<usize>,
+    ) -> Result<TerminalHistory, TerminalError> {
+        let mut links = Vec::new();
+        let (rows, prompts) = self.history_with_metadata(range, Some(&mut links))?;
+        Ok(TerminalHistory {
+            rows,
+            prompts,
+            links,
+        })
+    }
+
+    fn history_with_metadata(
+        &mut self,
+        range: Range<usize>,
+        mut links: Option<&mut Vec<crate::LinkRow>>,
+    ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
         let end = range.end.min(self.history_rows()?);
         if range.start >= end {
             return Ok((Vec::new(), Vec::new()));
@@ -754,6 +787,22 @@ impl Terminal {
             for start in (range.start..end).step_by(usize::from(self.size.rows)) {
                 self.engine.scroll_viewport(ScrollViewport::Row(start));
                 let (screen, screen_prompts) = self.screen_with_prompts()?;
+                if let Some(links) = &mut links {
+                    let budget = crate::MAX_LINK_SPANS
+                        - links.iter().map(|row| row.spans.len()).sum::<usize>();
+                    let rows = u16::try_from(end - start)
+                        .unwrap_or(u16::MAX)
+                        .min(self.size.rows);
+                    for mut row in
+                        crate::links::viewport(&self.engine, self.size.cols, rows, budget)
+                            .map_err(query)?
+                    {
+                        if let Ok(index) = u16::try_from(history.len() + usize::from(row.row)) {
+                            row.row = index;
+                            links.push(row);
+                        }
+                    }
+                }
                 prompts.extend(
                     screen_prompts
                         .into_iter()

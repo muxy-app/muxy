@@ -188,6 +188,7 @@ mod tests {
 
     fn attachment(channel: ChannelId) -> Attachment {
         let snapshot = AttachSnapshot {
+            links: None,
             graphics: Graphics::default(),
             prompts: Vec::new(),
             channel,

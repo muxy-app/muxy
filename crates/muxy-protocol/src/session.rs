@@ -123,6 +123,8 @@ pub struct AttachSnapshot {
     pub history_cursor: Option<HistoryCursor>,
     #[n(11)]
     pub history_total: u64,
+    #[n(12)]
+    pub links: Option<Vec<LinkRow>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -143,6 +145,8 @@ pub struct HistoryPage {
     pub total_rows: u64,
     #[n(4)]
     pub screen: Option<SavedScreen>,
+    #[n(5)]
+    pub links: Option<Vec<LinkRow>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

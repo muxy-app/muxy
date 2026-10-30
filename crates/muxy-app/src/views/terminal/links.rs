@@ -139,11 +139,8 @@ impl TerminalPane {
         }
         let point = self.point_at(position, false)?;
         let grid = self.displayed_grid()?;
-        let runs = grid.content_row(grid.history.len().checked_add_signed(point.row)?)?;
-        let links = u16::try_from(point.row)
-            .ok()
-            .map_or(&[][..], |row| grid.links.row(row, grid.size));
-        detect(runs, point, links)
+        let row = grid.history.len().checked_add_signed(point.row)?;
+        detect(grid.content_row(row)?, point, grid.content_links(row))
     }
 
     pub(crate) fn hover_link(

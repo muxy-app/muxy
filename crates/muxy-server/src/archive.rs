@@ -257,6 +257,7 @@ impl Archive {
             .1
         };
         Ok(HistoryPage {
+            links: None,
             prompts: Vec::new(),
             rows,
             next,
@@ -467,9 +468,16 @@ pub(crate) fn bound_history_page(
         )
     };
     let screen_size = postcard::experimental::serialized_size(&page.screen).map_err(size_error)?;
+    let links_size = page.links.iter().flatten().fold(0_u64, |size, row| {
+        row.spans.iter().fold(size.saturating_add(8), |size, span| {
+            size.saturating_add(span.uri.len() as u64)
+                .saturating_add(16)
+        })
+    });
     let mut used = u64::try_from(screen_size)
         .unwrap_or(u64::MAX)
         .saturating_add(128)
+        .saturating_add(links_size)
         .saturating_add(
             u64::try_from(page.prompts.len())
                 .unwrap_or(u64::MAX)
@@ -503,6 +511,15 @@ pub(crate) fn bound_history_page(
                 .and_then(|row| u16::try_from(row).ok())
         })
         .collect();
+    if let Some(links) = &mut page.links {
+        links.retain_mut(|row| {
+            let Some(index) = usize::from(row.row).checked_sub(removed) else {
+                return false;
+            };
+            row.row = u16::try_from(index).unwrap_or(u16::MAX);
+            true
+        });
+    }
     page.rows.drain(..removed);
     for (index, row) in page.rows.iter_mut().enumerate() {
         row.index = u16::try_from(index).unwrap_or(u16::MAX);
@@ -754,6 +771,19 @@ mod tests {
             7,
             HistoryCursor(0),
             HistoryPage {
+                links: Some(
+                    [0, 499]
+                        .into_iter()
+                        .map(|row| muxy_protocol::LinkRow {
+                            row,
+                            spans: vec![muxy_protocol::LinkSpan {
+                                start: 0,
+                                end: 4,
+                                uri: format!("https://test/{row}"),
+                            }],
+                        })
+                        .collect(),
+                ),
                 prompts: vec![0, 499],
                 rows: (0..500)
                     .map(|index| Row {
@@ -771,6 +801,10 @@ mod tests {
         assert!(postcard::experimental::serialized_size(&page)? < usize::try_from(SCREEN_LIMIT)?);
         let kept = page.rows.len();
         assert_eq!(page.prompts, [u16::try_from(kept - 1)?]);
+        let links = page.links.as_ref().ok_or("missing links")?;
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].row, u16::try_from(kept - 1)?);
+        assert_eq!(links[0].spans[0].uri, "https://test/499");
         let (older, next) =
             history_range(session, 7, page.next.ok_or("missing cursor")?, 500, 500)?;
         assert_eq!(older, 0..500 - kept);

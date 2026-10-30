@@ -79,6 +79,7 @@ fn selection_autoscroll_pages_history_and_extends_after_reply(cx: &mut TestAppCo
         pane.receive_history(
             request,
             Ok(HistoryPage {
+                links: None,
                 rows: (0..10).map(|index| row(index, "older")).collect(),
                 next: None,
                 total_rows: 20,

@@ -1765,6 +1765,7 @@ impl Render for TerminalPane {
 mod tests {
     mod autoscroll;
     mod bindings;
+    mod links;
     mod scrollbar;
     mod server_input;
 
@@ -2182,6 +2183,7 @@ mod tests {
             pane.receive_history(
                 request,
                 Ok(HistoryPage {
+                    links: None,
                     prompts: Vec::new(),
                     rows: vec![row(0, "new history")],
                     next: None,

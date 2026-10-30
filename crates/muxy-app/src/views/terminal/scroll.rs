@@ -464,6 +464,7 @@ mod tests {
 
     fn page(start: u16, end: u16, next: Option<HistoryCursor>) -> HistoryPage {
         HistoryPage {
+            links: None,
             prompts: Vec::new(),
             rows: (start..end)
                 .enumerate()
@@ -479,6 +480,7 @@ mod tests {
 
     fn grid() -> RunGrid {
         RunGrid::from_snapshot(&AttachSnapshot {
+            links: None,
             graphics: muxy_protocol::Graphics::default(),
             prompts: Vec::new(),
             channel: ChannelId(1),

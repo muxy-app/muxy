@@ -99,7 +99,9 @@ impl Message {
             Self::Metadata(MetadataEvent::ScreenPrompts { rows, .. }) => {
                 validate_prompts(rows, usize::from(MAX_ROWS))
             }
-            Self::Metadata(MetadataEvent::Links { rows, .. }) => validate_links(rows),
+            Self::Metadata(MetadataEvent::Links { rows, .. }) => {
+                validate_links(rows, usize::from(MAX_ROWS))
+            }
             Self::Metadata(MetadataEvent::Directory(path)) => validate_path(path),
             Self::Metadata(MetadataEvent::ClipboardWrite(text)) => {
                 if text.is_empty() || text.len() > MAX_CLIPBOARD_TEXT {
@@ -317,6 +319,10 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
                 snapshot.history_total,
                 200,
             )?;
+            validate_links(
+                snapshot.links.as_deref().unwrap_or_default(),
+                snapshot.history.len() + usize::from(snapshot.size.rows),
+            )?;
             validate_prompts(
                 &snapshot.prompts,
                 snapshot.history.len() + usize::from(snapshot.size.rows),
@@ -327,14 +333,13 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             if let Some(screen) = &page.screen {
                 validate_saved_screen(screen)?;
             }
-            validate_prompts(
-                &page.prompts,
-                page.rows.len()
-                    + page
-                        .screen
-                        .as_ref()
-                        .map_or(0, |screen| usize::from(screen.size.rows)),
-            )
+            let count = page.rows.len()
+                + page
+                    .screen
+                    .as_ref()
+                    .map_or(0, |screen| usize::from(screen.size.rows));
+            validate_links(page.links.as_deref().unwrap_or_default(), count)?;
+            validate_prompts(&page.prompts, count)
         }
         ReplyBody::SavedScreen(screen) => validate_saved_screen(screen),
         ReplyBody::Paired(paired) => paired.validate(),
@@ -413,12 +418,12 @@ fn validate_saved_screen(screen: &SavedScreen) -> Result<(), ErrorCode> {
     Ok(())
 }
 
-fn validate_links(rows: &[crate::LinkRow]) -> Result<(), ErrorCode> {
-    if rows.len() > usize::from(MAX_ROWS)
+fn validate_links(rows: &[crate::LinkRow], count: usize) -> Result<(), ErrorCode> {
+    if rows.len() > count
         || rows.iter().map(|row| row.spans.len()).sum::<usize>() > MAX_LINK_SPANS
         || rows.windows(2).any(|pair| pair[0].row >= pair[1].row)
         || rows.iter().any(|row| {
-            row.row >= MAX_ROWS
+            usize::from(row.row) >= count
                 || row.spans.is_empty()
                 || row.spans.windows(2).any(|pair| pair[0].end > pair[1].start)
                 || row.spans.iter().any(|span| {

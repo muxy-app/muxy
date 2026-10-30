@@ -101,6 +101,7 @@ mod tests {
             Action::Activity(vec![id])
         );
         let history = history(&HistoryPage {
+            links: None,
             prompts: Vec::new(),
             rows: Vec::new(),
             next: Some(HistoryCursor(id)),
