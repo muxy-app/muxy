@@ -6,19 +6,22 @@ use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::sync::{Arc, OnceLock};
 
-use libghostty_vt::kitty::graphics::{
-    self, DecodePng, DecodedImage, ImageFormat, PlacementIterator,
-};
+use libghostty_vt::kitty::graphics::{self, DecodePng, DecodedImage, ImageFormat};
+use libghostty_vt::render::{ImageIterator, ImageProtocol};
 use libghostty_vt::{
-    Terminal,
+    RenderState, Terminal,
     alloc::{Allocator, Bytes},
 };
 
 type Result<T> = std::result::Result<T, libghostty_vt::Error>;
 
-#[derive(Debug, Default)]
+/// The character a program prints where an image with a virtual placement should appear.
+pub(crate) const PLACEHOLDER: char = '\u{10EEEE}';
+
+#[derive(Debug)]
 pub(crate) struct Cache {
     images: BTreeMap<u32, GraphicImage>,
+    placements: ImageIterator<'static>,
 }
 
 /// Must run before this process makes any other libghostty call.
@@ -69,14 +72,23 @@ impl DecodePng for PngDecoder {
 }
 
 impl Cache {
+    pub(crate) fn new() -> Result<Self> {
+        Ok(Self {
+            images: BTreeMap::new(),
+            placements: ImageIterator::new()?,
+        })
+    }
+
+    /// Lists placements from the render state, which also places images shown with placeholder cells.
     pub(crate) fn snapshot(
         &mut self,
-        engine: &Terminal<'_, '_>,
+        engine: &Terminal<'static, 'static>,
+        render: &mut RenderState<'static>,
         cell: CellSize,
     ) -> Result<Graphics> {
         let storage = engine.kitty_graphics()?;
-        let mut iterator = PlacementIterator::new()?;
-        let mut iter = iterator.update(&storage)?;
+        let snapshot = render.update(engine)?;
+        let mut iter = self.placements.update(&snapshot)?;
         let mut result = Graphics {
             cell,
             ..Graphics::default()
@@ -87,11 +99,11 @@ impl Cache {
             if result.placements.len() >= MAX_GRAPHICS_PLACEMENTS {
                 break;
             }
+            if !matches!(placement.protocol(), Ok(ImageProtocol::Kitty)) {
+                continue;
+            }
             let id = placement.image_id()?;
             let Some(image) = storage.image(id) else {
-                continue;
-            };
-            let Some(pos) = placement.viewport_pos(&image, engine)? else {
                 continue;
             };
             let generation = image.generation()?;
@@ -101,42 +113,16 @@ impl Cache {
                     .get(&id)
                     .is_none_or(|cached| cached.generation != generation)
                 {
-                    let width = image.width()?;
-                    let height = image.height()?;
-                    let Some(len) = u64::from(width)
-                        .checked_mul(u64::from(height))
-                        .and_then(|n| n.checked_mul(4))
-                        .and_then(|n| usize::try_from(n).ok())
-                        .filter(|n| *n <= MAX_GRAPHICS_BYTES)
-                    else {
+                    let Some(rgba) = rgba(&image)? else {
                         continue;
-                    };
-                    let Some(data) = image.data()? else {
-                        continue;
-                    };
-                    let rgba: Arc<[u8]> = match image.format()? {
-                        ImageFormat::Rgba if data.len() == len => data.into(),
-                        ImageFormat::Rgb if data.len() == len / 4 * 3 => data
-                            .chunks_exact(3)
-                            .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
-                            .collect(),
-                        ImageFormat::Gray if data.len() == len / 4 => data
-                            .iter()
-                            .flat_map(|&gray| [gray, gray, gray, 255])
-                            .collect(),
-                        ImageFormat::GrayAlpha if data.len() == len / 2 => data
-                            .chunks_exact(2)
-                            .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
-                            .collect(),
-                        _ => continue,
                     };
                     self.images.insert(
                         id,
                         GraphicImage {
                             id,
                             generation,
-                            width,
-                            height,
+                            width: image.width()?,
+                            height: image.height()?,
                             rgba,
                         },
                     );
@@ -149,19 +135,28 @@ impl Cache {
                 result.images.push(cached.clone());
                 used.insert(id);
             }
-            let size = placement.pixel_size(&image, engine)?;
-            let source = placement.source_rect(&image)?;
-            if source.width == 0 || source.height == 0 || size.width == 0 || size.height == 0 {
+            let size = [placement.pixel_width()?, placement.pixel_height()?];
+            // Placeholder rows round their slice of the image, which can pass its edge.
+            let cached = &self.images[&id];
+            let x = placement.source_x()?.min(cached.width);
+            let y = placement.source_y()?.min(cached.height);
+            let source = [
+                x,
+                y,
+                placement.source_width()?.min(cached.width - x),
+                placement.source_height()?.min(cached.height - y),
+            ];
+            if size.contains(&0) || source[2] == 0 || source[3] == 0 {
                 continue;
             }
             result.placements.push(GraphicPlacement {
                 image: id,
-                id: placement.placement_id()?,
-                column: pos.col,
-                row: pos.row,
-                offset: [placement.x_offset()?, placement.y_offset()?],
-                size: [size.width, size.height],
-                source: [source.x, source.y, source.width, source.height],
+                id: placement.kitty_placement_id()?.unwrap_or_default(),
+                column: placement.viewport_col()?,
+                row: placement.viewport_row()?,
+                offset: [placement.cell_offset_x()?, placement.cell_offset_y()?],
+                size,
+                source,
                 z: placement.z()?,
             });
         }
@@ -170,4 +165,37 @@ impl Cache {
         result.images.sort_by_key(|image| image.id);
         Ok(result)
     }
+}
+
+fn rgba(image: &graphics::Image<'_>) -> Result<Option<Arc<[u8]>>> {
+    let Some(len) = u64::from(image.width()?)
+        .checked_mul(u64::from(image.height()?))
+        .and_then(|n| n.checked_mul(4))
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|n| *n <= MAX_GRAPHICS_BYTES)
+    else {
+        return Ok(None);
+    };
+    let Some(data) = image.data()? else {
+        return Ok(None);
+    };
+    Ok(match image.format()? {
+        ImageFormat::Rgba if data.len() == len => Some(data.into()),
+        ImageFormat::Rgb if data.len() == len / 4 * 3 => Some(
+            data.chunks_exact(3)
+                .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
+                .collect(),
+        ),
+        ImageFormat::Gray if data.len() == len / 4 => Some(
+            data.iter()
+                .flat_map(|&gray| [gray, gray, gray, 255])
+                .collect(),
+        ),
+        ImageFormat::GrayAlpha if data.len() == len / 2 => Some(
+            data.chunks_exact(2)
+                .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
+                .collect(),
+        ),
+        _ => None,
+    })
 }

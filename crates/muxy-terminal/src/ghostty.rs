@@ -213,7 +213,7 @@ impl Terminal {
             mouse_event: mouse::Event::new().map_err(create)?,
             held_buttons: Vec::new(),
             keyboard: crate::input::Keyboard::new().map_err(create)?,
-            graphics_cache: crate::graphics::Cache::default(),
+            graphics_cache: crate::graphics::Cache::new().map_err(create)?,
             cell: crate::CellSize::default(),
         })
     }
@@ -376,7 +376,7 @@ impl Terminal {
 
     pub fn graphics(&mut self) -> Result<crate::Graphics, TerminalError> {
         self.graphics_cache
-            .snapshot(&self.engine, self.cell)
+            .snapshot(&self.engine, &mut self.render, self.cell)
             .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
     }
 
@@ -833,7 +833,9 @@ fn row_runs(
         };
         text.clear();
         cell.graphemes_utf8(text)?;
-        if text.is_empty() {
+        // Like Ghostty, a Kitty image placeholder is drawn as a blank under its image.
+        if text.is_empty() || text.starts_with(crate::graphics::PLACEHOLDER) {
+            text.clear();
             text.push(' ');
         }
         builder.push(text, width, cell_style(cell)?);

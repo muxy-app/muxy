@@ -49,3 +49,61 @@ fn empty_image_crops_do_not_escape_into_snapshots() -> Result {
     );
     Ok(())
 }
+
+#[test]
+fn kitty_unicode_placeholders_place_the_image_and_draw_blank_cells() -> Result {
+    let mut terminal = Terminal::new(Size { cols: 20, rows: 4 }, 65536)?;
+    let red = "/wAA".repeat(4);
+    terminal.feed(format!("\x1b_Ga=T,U=1,i=42,f=24,s=2,v=2,c=4,r=2,q=2;{red}\x1b\\").as_bytes());
+    let cells = ["\u{0305}", "\u{030D}"]
+        .map(|row| {
+            ["\u{0305}", "\u{030D}", "\u{030E}", "\u{0310}"]
+                .map(|col| format!("\u{10EEEE}{row}{col}"))
+                .concat()
+        })
+        .join("\r\n");
+    terminal.feed(format!("\x1b[38;5;42m{cells}\x1b[39m").as_bytes());
+
+    let graphics = terminal.graphics()?;
+    assert_eq!(graphics.images.len(), 1);
+    assert_eq!(graphics.images[0].id, 42);
+    let placed: Vec<_> = graphics
+        .placements
+        .iter()
+        .map(|p| (p.image, p.column, p.row, p.offset, p.size, p.source, p.z))
+        .collect();
+    // One placement per row of cells, below the text, together drawing the whole image.
+    assert_eq!(
+        placed,
+        [
+            (42, 0, 0, [0, 0], [32, 16], [0, 0, 2, 1], -1),
+            (42, 0, 1, [0, 0], [32, 16], [0, 1, 2, 1], -1),
+        ]
+    );
+    for row in &terminal.screen()?[..2] {
+        let text: String = row.runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text, "    ");
+    }
+    Ok(())
+}
+
+#[test]
+fn kitty_placeholder_rows_stay_inside_an_odd_sized_image() -> Result {
+    let mut terminal = Terminal::new(Size { cols: 20, rows: 4 }, 65536)?;
+    let red = "/wAA".repeat(10);
+    terminal.feed(format!("\x1b_Ga=T,U=1,i=7,f=24,s=2,v=5,c=2,r=2,q=2;{red}\x1b\\").as_bytes());
+    let cells = ["\u{0305}", "\u{030D}"]
+        .map(|row| {
+            ["\u{0305}", "\u{030D}"]
+                .map(|col| format!("\u{10EEEE}{row}{col}"))
+                .concat()
+        })
+        .join("\r\n");
+    terminal.feed(format!("\x1b[38;5;7m{cells}\x1b[39m").as_bytes());
+
+    let graphics = terminal.graphics()?;
+    let sources: Vec<_> = graphics.placements.iter().map(|p| p.source).collect();
+    assert_eq!(sources, [[0, 0, 2, 3], [0, 3, 2, 2]]);
+    assert_eq!(graphics.validate(), Ok(()));
+    Ok(())
+}
