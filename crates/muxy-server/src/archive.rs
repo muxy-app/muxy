@@ -501,6 +501,9 @@ pub(crate) fn bound_history_page(
     if usize::from(keep) == page.rows.len() {
         return Ok(page);
     }
+    if keep == 0 && page.links.take().is_some() {
+        return bound_history_page(session, generation, before, page);
+    }
     if keep == 0 {
         return Err(ServerError::new(
             ErrorCode::HistoryUnavailable,
@@ -816,6 +819,42 @@ mod tests {
         assert_eq!(older, 0..500 - kept);
         assert_eq!(next, None);
         assert_eq!(page.rows.first().ok_or("empty page")?.index, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn links_that_exhaust_the_page_budget_are_dropped_instead_of_failing() -> TestResult {
+        let session = SessionId::new(1).ok_or("zero ID")?;
+        let row = Row {
+            index: 0,
+            runs: vec![Run {
+                text: "row".into(),
+                width: 3,
+                style: muxy_protocol::Style::default(),
+            }],
+        };
+        let page = bound_history_page(
+            session,
+            7,
+            HistoryCursor(0),
+            HistoryPage {
+                links: Some(vec![muxy_protocol::LinkRow {
+                    row: 1,
+                    spans: vec![muxy_protocol::LinkSpan {
+                        start: 0,
+                        end: 1,
+                        uri: "x".repeat(usize::try_from(SCREEN_LIMIT)?),
+                    }],
+                }]),
+                prompts: Vec::new(),
+                rows: vec![row.clone()],
+                next: None,
+                total_rows: 1,
+                screen: None,
+            },
+        )?;
+        assert_eq!(page.rows, [row]);
+        assert_eq!(page.links, None);
         Ok(())
     }
 
