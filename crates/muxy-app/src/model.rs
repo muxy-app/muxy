@@ -16,6 +16,7 @@ mod mobile;
 mod pairing;
 pub(crate) use pairing::PairingForm;
 mod preferences;
+pub(crate) mod project_apps;
 pub(crate) mod project_layouts;
 pub(crate) mod proxy;
 mod quick_terminal;
@@ -128,6 +129,7 @@ pub(crate) struct AppModel {
     pub(crate) servers: servers::Servers,
     pub(crate) proxy: proxy::ProxyState,
     project_layouts: project_layouts::ProjectLayouts,
+    pub(crate) project_apps: project_apps::ProjectApps,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
     pub(crate) quick: quick_terminal::QuickTerminalRuntime,
     pub(crate) window: gpui::AnyWindowHandle,
@@ -572,6 +574,7 @@ impl AppModel {
             terminal_background: preferences::TerminalBackground::default(),
             initial_directories: HashMap::new(),
             project_layouts: project_layouts::ProjectLayouts::default(),
+            project_apps: project_apps::ProjectApps::default(),
             theme,
             themes,
             metrics: Metrics::new(1.0),
@@ -641,6 +644,8 @@ impl AppModel {
         model.refresh_installed_extensions(cx);
         #[cfg(not(test))]
         Self::discover_ai_providers(cx);
+        #[cfg(not(test))]
+        Self::discover_project_apps(cx);
         model.sync_visible(cx);
         model.sync_pane_focus(cx);
         model.save_bounds(window, cx);
@@ -2900,6 +2905,7 @@ mod tests {
     mod links;
     mod new_tab;
     mod preferences;
+    mod project_apps;
     mod project_layouts;
     mod project_order;
     mod projects;

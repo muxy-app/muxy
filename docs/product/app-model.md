@@ -192,6 +192,9 @@ ends.
   commits and pushes with an AI-written message, and creates or manages pull
   requests. It uses an AI command-line tool you already have, chosen in
   Settings → AI.
+- **Open in IDE.** A titlebar button opens a project on this computer in the
+  file manager or an installed editor. Picking an app from its menu opens the project there
+  and makes it the button's default.
 - **Tips.** The sidebar shows a tip, picked at random on launch. Hide tips from
   the card or in Settings → Appearance.
 

@@ -446,6 +446,10 @@ impl AppModel {
                 settings.openers.file = value;
                 settings.save_openers(&path)?;
             }
+            Change::ProjectTarget(value) => {
+                settings.openers.project_target = Some(value);
+                settings.save_openers(&path)?;
+            }
             Change::Directory(value) => {
                 settings.panes.new_pane_directory = value;
                 settings.save_panes(&path)?;
@@ -982,6 +986,7 @@ fn change_id(change: &Change) -> &str {
         Change::ConfirmProcess(_) => "confirm-process",
         Change::CloseBehavior(_) => "close-behavior",
         Change::FileOpener(_) => "file-opener",
+        Change::ProjectTarget(_) => "project-target",
         Change::Directory(_) => "directory",
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",

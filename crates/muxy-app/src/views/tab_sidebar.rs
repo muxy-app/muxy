@@ -605,7 +605,6 @@ pub(super) fn titlebar(
     sidebar_width: f32,
     window: &Window,
     actions: gpui::Div,
-    cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let theme = &model.theme;
     let project = model.state.current_project();
@@ -628,10 +627,6 @@ pub(super) fn titlebar(
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.fg_muted)
                 .child(model.project_title(project)),
-        )
-        .when(
-            project.status() == ProjectStatus::Available && project.groups().is_none(),
-            |bar| bar.child(tab_strip::new_tab_button(None, model, cx)),
         )
         .child(actions)
         .into_any_element()

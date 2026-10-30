@@ -271,6 +271,7 @@
 "Checks" = "Checks";
 "Checks failing" = "Checks failing";
 "Checks running" = "Checks running";
+"Choose App to Open Project" = "Choose App to Open Project";
 "Choose Folder" = "Choose Folder";
 "Choose Folder…" = "Choose Folder…";
 "Choose Font…" = "Choose Font…";
@@ -444,6 +445,7 @@
 "Could not open a copy: %@" = "Could not open a copy: %@";
 "Could not open file: %@" = "Could not open file: %@";
 "Could not open link: %@" = "Could not open link: %@";
+"Could not open project: %@" = "Could not open project: %@";
 "Could not open the file chooser: %@" = "Could not open the file chooser: %@";
 "Could not prepare the app update: %@" = "Could not prepare the app update: %@";
 "Could not prepare the update: %@. Check for updates to retry." = "Could not prepare the update: %@. Check for updates to retry.";
@@ -589,6 +591,7 @@
 "Edit Project Prompt…" = "Edit Project Prompt…";
 "Edit Remote Server" = "Edit Remote Server";
 "Edit in %@" = "Edit in %@";
+"Editors & IDEs" = "Editors & IDEs";
 "Edit…" = "Edit…";
 "Enable" = "Enable";
 "Enable Quick Terminal" = "Enable Quick Terminal";
@@ -641,6 +644,7 @@
 "Extensions changed while reloading. Try again." = "Extensions changed while reloading. Try again.";
 "Fallback fonts" = "Fallback fonts";
 "File" = "File";
+"File Manager" = "File Manager";
 "File manager" = "File manager";
 "Files" = "Files";
 "Fill padding with the background color, or extend the color of the nearest cells." = "Fill padding with the background color, or extend the color of the nearest cells.";
@@ -1010,6 +1014,7 @@
 "Open" = "Open";
 "Open Browser Tab" = "Open Browser Tab";
 "Open Project" = "Open Project";
+"Open Project in %@" = "Open Project in %@";
 "Open Project…" = "Open Project…";
 "Open Quick Terminal" = "Open Quick Terminal";
 "Open Quick Terminal settings" = "Open Quick Terminal settings";
@@ -1506,6 +1511,7 @@
 "Thicken strength" = "Thicken strength";
 "This Computer" = "This Computer";
 "This Mac" = "This Mac";
+"This app is no longer installed" = "This app is no longer installed";
 "This backup format is not supported by this version of Muxy" = "This backup format is not supported by this version of Muxy";
 "This branch already has a pull request" = "This branch already has a pull request";
 "This computer has no pairing for it. Pair again with a new link." = "This computer has no pairing for it. Pair again with a new link.";

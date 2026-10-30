@@ -35,7 +35,12 @@ pub(crate) fn tab_strip(
         return strip.justify_end().child(actions).into_any_element();
     }
     let leading = (titlebar::navigation_width(model, window) - sidebar_width).max(0.0);
-    let new_tab_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2() * 2.0);
+    let new_button = (!sidebar_opens_tabs(model)).then(|| new_tab_button(None, model, cx));
+    let new_tab_width = if new_button.is_some() {
+        f32::from(model.metrics.control_medium() + model.metrics.spacing2() * 2.0)
+    } else {
+        0.0
+    };
     let available = (f32::from(titlebar::content_size(window).width)
         - sidebar_width
         - leading
@@ -47,11 +52,10 @@ pub(crate) fn tab_strip(
     let width = ideal_width.clamp(44.0, 200.0);
     let tabs: Vec<_> = model.state.current_project().tabs.iter().collect();
     let mut cells = tab_cells(&tabs, width, true, model, cx);
-    let new_button = new_tab_button(None, model, cx);
     let pinned_button = if ideal_width < 44.0 {
-        Some(new_button)
+        new_button
     } else {
-        cells = cells.child(new_button);
+        cells = cells.children(new_button);
         None
     };
     strip
@@ -70,6 +74,13 @@ pub(crate) fn tab_strip(
         .children(pinned_button)
         .child(actions)
         .into_any_element()
+}
+
+/// Whether the built-in sidebar lists tabs, each project with its own new tab
+/// button, so the strip needs none.
+fn sidebar_opens_tabs(model: &AppModel) -> bool {
+    model.appearance.layout != muxy_app_core::settings::AppLayout::ProjectFocused
+        && !model.extension_sidebar_active()
 }
 
 /// The strip above a group's panes: its tabs and a button for a new tab in

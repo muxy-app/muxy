@@ -976,7 +976,7 @@ impl Render for AppModel {
             && !self.extension_sidebar_active();
         let sidebar_width = self.sidebar_width();
         let header = if tab_focused || self.state.current_project().groups().is_some() {
-            super::tab_sidebar::titlebar(self, sidebar_width, window, actions, cx)
+            super::tab_sidebar::titlebar(self, sidebar_width, window, actions)
         } else {
             tab_strip::tab_strip(self, sidebar_width, window, (actions, actions_width), cx)
         };

@@ -310,3 +310,28 @@ fn collapsed_project_tiles_fill_their_squares(cx: &mut TestAppContext) {
         .expect("tile");
     assert_eq!(tile.size, size(metrics.icon_xxl(), metrics.icon_xxl()));
 }
+
+#[gpui::test]
+fn only_the_project_focused_layout_has_a_titlebar_new_tab_button(cx: &mut TestAppContext) {
+    for (layout, shown) in [
+        (AppLayout::ProjectFocused, true),
+        (AppLayout::TabFocused, false),
+        (AppLayout::AgentsFocused, false),
+    ] {
+        let (state, [with_tab, _, _], _) = three_projects();
+        let (view, cx) = open(state, layout, cx);
+        view.update(cx, |model, cx| model.select_project(with_tab, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("new-tab-button").is_some(),
+            shown,
+            "{layout:?}"
+        );
+        if layout == AppLayout::TabFocused {
+            assert!(
+                row(cx, format!("project-new-tab-{with_tab}")).is_some(),
+                "the sidebar opens tabs instead"
+            );
+        }
+    }
+}

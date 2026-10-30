@@ -97,6 +97,9 @@ pub(crate) enum Command {
     BrowserProfile(muxy_app_core::PaneId, usize),
     BrowserInspect(muxy_app_core::PaneId),
     ManageBrowserProfiles,
+    /// Opens the current project in the app at an index of
+    /// `AppModel::project_apps`.
+    OpenProjectIn(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -106,13 +109,32 @@ pub(crate) struct Item {
     disabled: bool,
     checked: Option<bool>,
     swatch: Option<Hsla>,
+    icon: Option<MenuIcon>,
     separator_before: bool,
+}
+
+/// What a row shows before its label.
+#[derive(Clone)]
+pub(crate) enum MenuIcon {
+    Image(std::sync::Arc<gpui::RenderImage>),
+    Glyph(muxy_ui::icon::Icon),
+}
+
+impl std::fmt::Debug for MenuIcon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Image(_) => f.write_str("Image"),
+            Self::Glyph(icon) => f.debug_tuple("Glyph").field(icon).finish(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 enum Kind {
     Action(Command),
     Submenu(Vec<Item>),
+    /// A title over the rows after it, which can't be chosen.
+    Heading,
 }
 
 impl Item {
@@ -124,6 +146,10 @@ impl Item {
         Self::new(label, Kind::Submenu(items))
     }
 
+    pub(crate) fn heading(label: impl Into<SharedString>) -> Self {
+        Self::new(label, Kind::Heading).disabled()
+    }
+
     fn new(label: impl Into<SharedString>, kind: Kind) -> Self {
         Self {
             label: label.into(),
@@ -131,6 +157,7 @@ impl Item {
             disabled: false,
             checked: None,
             swatch: None,
+            icon: None,
             separator_before: false,
         }
     }
@@ -156,16 +183,25 @@ impl Item {
         self
     }
 
+    pub(crate) fn icon(mut self, icon: MenuIcon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    fn is_heading(&self) -> bool {
+        matches!(self.kind, Kind::Heading)
+    }
+
     pub(crate) fn command(&self) -> Option<Command> {
         match self.kind {
             Kind::Action(command) => Some(command),
-            Kind::Submenu(_) => None,
+            Kind::Submenu(_) | Kind::Heading => None,
         }
     }
 
     fn submenu_items(&self) -> Option<&[Item]> {
         match &self.kind {
-            Kind::Action(_) => None,
+            Kind::Action(_) | Kind::Heading => None,
             Kind::Submenu(items) => Some(items),
         }
     }
@@ -716,6 +752,7 @@ impl AppModel {
                 }
             }
             Command::ManageBrowserProfiles => self.show_browser_settings(cx),
+            Command::OpenProjectIn(index) => self.open_project_in(index, cx),
             Command::BrowserInspect(pane) => {
                 if let Some(view) = self.browser_view(pane)
                     && let Err(error) = view.read(cx).native.browser().open_devtools()

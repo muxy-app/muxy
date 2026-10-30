@@ -289,8 +289,92 @@ fn finder(path: &Path) -> Launch {
 #[derive(Debug)]
 struct Editor {
     bundle: String,
+    name: String,
     path: PathBuf,
     rank: usize,
+}
+
+/// An app that opens project folders: the file manager or an editor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProjectApp {
+    pub id: String,
+    pub name: String,
+    pub path: PathBuf,
+}
+
+impl AsRef<ProjectApp> for ProjectApp {
+    fn as_ref(&self) -> &ProjectApp {
+        self
+    }
+}
+
+impl ProjectApp {
+    pub(crate) fn is_file_manager(&self) -> bool {
+        self.id == FINDER
+    }
+}
+
+/// The file manager, then the installed editors from most to least preferred.
+#[cfg(not(test))]
+pub(crate) fn project_apps() -> Vec<ProjectApp> {
+    project_apps_from(editors())
+}
+
+fn project_apps_from(editors: &[Editor]) -> Vec<ProjectApp> {
+    let file_manager = ProjectApp {
+        id: FINDER.into(),
+        name: if cfg!(target_os = "macos") {
+            "Finder".into()
+        } else {
+            tr!("File Manager").to_string()
+        },
+        path: PathBuf::from("/System/Library/CoreServices/Finder.app"),
+    };
+    std::iter::once(file_manager)
+        .chain(editors.iter().map(|editor| ProjectApp {
+            id: editor.bundle.clone(),
+            name: editor.name.clone(),
+            path: editor.path.clone(),
+        }))
+        .collect()
+}
+
+/// The app the project button opens: the chosen one while it is installed,
+/// otherwise the most preferred editor, otherwise the file manager.
+pub(crate) fn default_project_app<'a, T: AsRef<ProjectApp>>(
+    apps: &'a [T],
+    chosen: Option<&str>,
+) -> Option<&'a T> {
+    chosen
+        .and_then(|id| apps.iter().find(|app| app.as_ref().id == id))
+        .or_else(|| apps.iter().find(|app| !app.as_ref().is_file_manager()))
+        .or_else(|| apps.first())
+}
+
+/// Opens the project folder `directory` with the app whose id is `app`.
+pub(crate) fn open_project(directory: &Path, app: &str) -> io::Result<()> {
+    open_project_with(directory, app, editors(), launch)
+}
+
+fn open_project_with(
+    directory: &Path,
+    app: &str,
+    editors: &[Editor],
+    launch: impl FnOnce(&Launch) -> io::Result<()>,
+) -> io::Result<()> {
+    if app == FINDER {
+        return launch(&finder(directory));
+    }
+    let editor = editors
+        .iter()
+        .find(|editor| editor.bundle == app)
+        .ok_or_else(|| io::Error::other(tr!("This app is no longer installed").to_string()))?;
+    let folder = FileLocation {
+        path: directory.to_owned(),
+        line: None,
+        column: None,
+    };
+    launch(&editor.command(&folder, directory))
 }
 
 impl Editor {
@@ -394,7 +478,16 @@ fn discover(
                 continue;
             };
             if let Some(rank) = editor_rank(&bundle) {
-                found.push(Editor { bundle, path, rank });
+                let name = path.file_stem().map_or_else(
+                    || bundle.clone(),
+                    |stem| stem.to_string_lossy().into_owned(),
+                );
+                found.push(Editor {
+                    bundle,
+                    name,
+                    path,
+                    rank,
+                });
             }
         } else if depth < 3 && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             discover(&path, depth + 1, remaining, deadline, found);
@@ -455,6 +548,7 @@ fn editor_rank(bundle: &str) -> Option<usize> {
         "org.gnu.Emacs",
         "org.aquamacs.Aquamacs",
         "com.code.athas",
+        "com.google.android.studio",
     ];
     EDITORS.iter().position(|id| *id == bundle).or_else(|| {
         (bundle.starts_with("com.jetbrains.") && !bundle.to_lowercase().contains("toolbox"))
@@ -501,22 +595,27 @@ fn editors() -> &'static [Editor] {
             .filter(|path| path.is_absolute())
             .collect();
         let mut editors: Vec<_> = [
-            ("com.microsoft.VSCode", "code"),
-            ("com.microsoft.VSCodeInsiders", "code-insiders"),
-            ("com.vscodium", "codium"),
-            ("com.todesktop.230313mzl4w4u92", "cursor"),
-            ("dev.zed.Zed", "zed"),
-            ("com.exafunction.windsurf", "windsurf"),
+            ("com.microsoft.VSCode", "code", "Visual Studio Code"),
+            (
+                "com.microsoft.VSCodeInsiders",
+                "code-insiders",
+                "Visual Studio Code - Insiders",
+            ),
+            ("com.vscodium", "codium", "VSCodium"),
+            ("com.todesktop.230313mzl4w4u92", "cursor", "Cursor"),
+            ("dev.zed.Zed", "zed", "Zed"),
+            ("com.exafunction.windsurf", "windsurf", "Windsurf"),
         ]
         .into_iter()
         .enumerate()
-        .filter_map(|(rank, (bundle, command))| {
+        .filter_map(|(rank, (bundle, command, name))| {
             let path = directories
                 .iter()
                 .map(|directory| directory.join(command))
                 .find(|path| executable(path))?;
             Some(Editor {
                 bundle: bundle.into(),
+                name: name.into(),
                 path,
                 rank,
             })

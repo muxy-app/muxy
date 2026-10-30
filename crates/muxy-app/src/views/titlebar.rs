@@ -43,8 +43,6 @@ pub(super) fn top_corners<T: Styled>(element: T, window: &Window, left: bool, ri
 }
 
 pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> (Div, f32) {
-    #[cfg(not(target_os = "linux"))]
-    let _ = window;
     let project = model.state.current_project();
     let available = project.status() == muxy_app_core::ProjectStatus::Available;
     let existing_count = if available {
@@ -66,13 +64,15 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         + u8::from(layouts);
     let width = f32::from(controls)
         * f32::from(model.metrics.control_medium() + model.metrics.spacing2())
-        + model.extension_toolbar_width();
+        + model.extension_toolbar_width()
+        + super::project_apps::width(model, window);
     let bar = div()
         .debug_selector(|| "titlebar-actions".into())
         .flex()
         .flex_none()
         .items_center()
         .when(cfg!(target_os = "linux"), Styled::h_full)
+        .children(super::project_apps::control(model, cx))
         .when(existing_count > 0, |bar| {
             bar.child(super::tab_strip::existing_terminals_button(
                 existing_count,
@@ -167,33 +167,45 @@ pub(crate) fn action_button(
     model: &AppModel,
 ) -> Stateful<Div> {
     let m = model.metrics;
+    let hover = model.theme.hover;
+    with_tooltip(
+        div()
+            .id(id)
+            .relative()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(m.control_medium())
+            .mr(m.spacing2())
+            .rounded(m.radius_sm())
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
+        tooltip,
+        model,
+    )
+}
+
+pub(super) fn with_tooltip(
+    element: Stateful<Div>,
+    tooltip: impl Into<SharedString>,
+    model: &AppModel,
+) -> Stateful<Div> {
     let theme = model.theme.clone();
     let tooltip = tooltip.into();
-    div()
-        .id(id)
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(m.control_medium())
-        .mr(m.spacing2())
-        .rounded(m.radius_sm())
-        .cursor_pointer()
-        .hover(|style| style.bg(theme.hover))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    tooltip.clone(),
-                    theme.raised(),
-                    theme.fg,
-                    theme.border,
-                    theme.bg,
-                )
-            })
-            .into()
+    element.tooltip(move |_, cx| {
+        cx.new(|_| {
+            Tooltip::new(
+                tooltip.clone(),
+                theme.raised(),
+                theme.fg,
+                theme.border,
+                theme.bg,
+            )
         })
+        .into()
+    })
 }
 
 pub(super) fn icon_button(

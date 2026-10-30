@@ -129,6 +129,8 @@ pub(crate) enum Change {
     ResetTerminal,
     /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
     FileOpener(String),
+    /// `[openers] project_target`: the app the Open in IDE control opens.
+    ProjectTarget(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
     Field(&'static str, String),
     Binding(String, Option<muxy_app_core::settings::KeyChord>),
