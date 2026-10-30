@@ -35,6 +35,7 @@ mod updates;
 pub(crate) use updates::UpdateAction;
 mod voice;
 mod webviews;
+mod window_accessibility;
 mod workspaces;
 mod worktrees;
 pub(crate) use worktrees::removes_worktree;
@@ -218,6 +219,7 @@ pub(crate) struct AppModel {
     snapshots: HashMap<PaneId, RunGrid>,
     scrolls: HashMap<PaneId, Scroll>,
     pub(crate) window_active: bool,
+    window_accessibility: window_accessibility::WindowAccessibility,
     notifications: muxy_ui::notifications::Notifications,
     pub(crate) capabilities: muxy_core::capability::Capabilities,
     pub(crate) completions: HashSet<PaneId>,
@@ -615,6 +617,7 @@ impl AppModel {
             snapshots: HashMap::new(),
             scrolls: HashMap::new(),
             window_active: window.is_window_active(),
+            window_accessibility: window_accessibility::WindowAccessibility::default(),
             capabilities,
             notifications,
             completions: HashSet::new(),
@@ -2913,6 +2916,7 @@ mod tests {
     mod tab_sidebar;
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     mod updates;
+    mod window_title;
     mod worktrees;
 
     use std::io;

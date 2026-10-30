@@ -967,6 +967,7 @@ impl Render for AppModel {
         #[cfg(all(target_os = "macos", not(test)))]
         self.sync_background_effects(window, cx);
         self.sync_toast(cx);
+        self.sync_window_accessibility(window, cx);
         let (actions, actions_width) = titlebar::actions(self, window, cx);
         #[cfg(target_os = "linux")]
         self.fit_sidebar_to_window(window, actions_width, cx);
