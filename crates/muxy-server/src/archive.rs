@@ -257,6 +257,7 @@ impl Archive {
             .1
         };
         Ok(HistoryPage {
+            links: None,
             prompts: Vec::new(),
             rows,
             next,
@@ -467,6 +468,13 @@ pub(crate) fn bound_history_page(
         )
     };
     let screen_size = postcard::experimental::serialized_size(&page.screen).map_err(size_error)?;
+    let link_size = |row: &muxy_protocol::LinkRow| {
+        row.spans.iter().fold(8_u64, |size, span| {
+            size.saturating_add(span.uri.len() as u64)
+                .saturating_add(16)
+        })
+    };
+    let mut links = page.links.iter().flatten().rev().peekable();
     let mut used = u64::try_from(screen_size)
         .unwrap_or(u64::MAX)
         .saturating_add(128)
@@ -475,8 +483,14 @@ pub(crate) fn bound_history_page(
                 .unwrap_or(u64::MAX)
                 .saturating_mul(3),
         );
+    while let Some(row) = links.next_if(|row| usize::from(row.row) >= page.rows.len()) {
+        used = used.saturating_add(link_size(row));
+    }
     let mut keep = 0_u16;
     for row in page.rows.iter().rev() {
+        if let Some(row) = links.next_if(|links| links.row == row.index) {
+            used = used.saturating_add(link_size(row));
+        }
         let size = postcard::experimental::serialized_size(row).map_err(size_error)?;
         used = used.saturating_add(u64::try_from(size).unwrap_or(u64::MAX));
         if used > SCREEN_LIMIT {
@@ -486,6 +500,9 @@ pub(crate) fn bound_history_page(
     }
     if usize::from(keep) == page.rows.len() {
         return Ok(page);
+    }
+    if keep == 0 && page.links.take().is_some() {
+        return bound_history_page(session, generation, before, page);
     }
     if keep == 0 {
         return Err(ServerError::new(
@@ -503,6 +520,15 @@ pub(crate) fn bound_history_page(
                 .and_then(|row| u16::try_from(row).ok())
         })
         .collect();
+    if let Some(links) = &mut page.links {
+        links.retain_mut(|row| {
+            let Some(index) = usize::from(row.row).checked_sub(removed) else {
+                return false;
+            };
+            row.row = u16::try_from(index).unwrap_or(u16::MAX);
+            true
+        });
+    }
     page.rows.drain(..removed);
     for (index, row) in page.rows.iter_mut().enumerate() {
         row.index = u16::try_from(index).unwrap_or(u16::MAX);
@@ -754,6 +780,19 @@ mod tests {
             7,
             HistoryCursor(0),
             HistoryPage {
+                links: Some(
+                    [0, 499]
+                        .into_iter()
+                        .map(|row| muxy_protocol::LinkRow {
+                            row,
+                            spans: vec![muxy_protocol::LinkSpan {
+                                start: 0,
+                                end: 4,
+                                uri: format!("https://test/{row}"),
+                            }],
+                        })
+                        .collect(),
+                ),
                 prompts: vec![0, 499],
                 rows: (0..500)
                     .map(|index| Row {
@@ -771,11 +810,51 @@ mod tests {
         assert!(postcard::experimental::serialized_size(&page)? < usize::try_from(SCREEN_LIMIT)?);
         let kept = page.rows.len();
         assert_eq!(page.prompts, [u16::try_from(kept - 1)?]);
+        let links = page.links.as_ref().ok_or("missing links")?;
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].row, u16::try_from(kept - 1)?);
+        assert_eq!(links[0].spans[0].uri, "https://test/499");
         let (older, next) =
             history_range(session, 7, page.next.ok_or("missing cursor")?, 500, 500)?;
         assert_eq!(older, 0..500 - kept);
         assert_eq!(next, None);
         assert_eq!(page.rows.first().ok_or("empty page")?.index, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn links_that_exhaust_the_page_budget_are_dropped_instead_of_failing() -> TestResult {
+        let session = SessionId::new(1).ok_or("zero ID")?;
+        let row = Row {
+            index: 0,
+            runs: vec![Run {
+                text: "row".into(),
+                width: 3,
+                style: muxy_protocol::Style::default(),
+            }],
+        };
+        let page = bound_history_page(
+            session,
+            7,
+            HistoryCursor(0),
+            HistoryPage {
+                links: Some(vec![muxy_protocol::LinkRow {
+                    row: 1,
+                    spans: vec![muxy_protocol::LinkSpan {
+                        start: 0,
+                        end: 1,
+                        uri: "x".repeat(usize::try_from(SCREEN_LIMIT)?),
+                    }],
+                }]),
+                prompts: Vec::new(),
+                rows: vec![row.clone()],
+                next: None,
+                total_rows: 1,
+                screen: None,
+            },
+        )?;
+        assert_eq!(page.rows, [row]);
+        assert_eq!(page.links, None);
         Ok(())
     }
 

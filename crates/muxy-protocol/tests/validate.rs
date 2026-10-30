@@ -610,6 +610,7 @@ fn reply(body: ReplyBody) -> Message {
 
 fn snapshot() -> AttachSnapshot {
     AttachSnapshot {
+        links: None,
         graphics: muxy_protocol::Graphics::default(),
         prompts: Vec::new(),
         channel: ChannelId(1),
@@ -671,6 +672,7 @@ fn history_limits_and_page_shape_are_validated() {
         Err(ErrorCode::UnknownChannel)
     );
     let valid = HistoryPage {
+        links: None,
         prompts: Vec::new(),
         rows: snapshot().rows,
         next: Some(HistoryCursor(3)),
@@ -721,6 +723,151 @@ fn history_limits_and_page_shape_are_validated() {
             Err(ErrorCode::BadRequest)
         );
     }
+}
+
+#[test]
+fn history_links_reject_out_of_page_rows_and_invalid_spans() {
+    use muxy_protocol::{HistoryPage, LinkRow, LinkSpan};
+    let link = LinkRow {
+        row: 0,
+        spans: vec![LinkSpan {
+            start: 0,
+            end: 1,
+            uri: "https://example.com".into(),
+        }],
+    };
+    let page = HistoryPage {
+        links: Some(vec![link.clone()]),
+        prompts: vec![],
+        rows: snapshot().rows,
+        next: None,
+        total_rows: 1,
+        screen: None,
+    };
+    assert!(
+        reply(ReplyBody::HistoryPage(page.clone()))
+            .validate()
+            .is_ok()
+    );
+    for change in 0..6 {
+        let mut invalid = link.clone();
+        match change {
+            0 => invalid.row = 1,
+            1 => invalid.spans[0].end = 0,
+            2 => invalid.spans[0].uri.push('\n'),
+            3 => invalid.spans[0].uri = "x".repeat(muxy_protocol::MAX_LINK_URI + 1),
+            4 => invalid.spans.push(invalid.spans[0].clone()),
+            _ => invalid.spans.clear(),
+        }
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(HistoryPage {
+                links: Some(vec![invalid.clone()]),
+                ..page.clone()
+            }))
+            .validate(),
+            Err(ErrorCode::BadRequest)
+        );
+        let mut snapshot = snapshot();
+        snapshot.links = Some(vec![invalid]);
+        assert_eq!(
+            reply(ReplyBody::Attached {
+                snapshot: Box::new(snapshot),
+                process: None
+            })
+            .validate(),
+            Err(ErrorCode::BadRequest)
+        );
+    }
+    let mut page = page;
+    page.rows = (0..500)
+        .map(|index| Row {
+            index,
+            runs: vec![],
+        })
+        .collect();
+    page.total_rows = 500;
+    let mut screen = snapshot();
+    screen.size.rows = muxy_protocol::MAX_ROWS;
+    page.screen = Some(muxy_protocol::SavedScreen {
+        graphics: screen.graphics,
+        size: screen.size,
+        rows: (0..screen.size.rows)
+            .map(|index| Row {
+                index,
+                runs: vec![],
+            })
+            .collect(),
+        cursor: screen.cursor,
+        reason: None,
+    });
+    page.links = Some(vec![LinkRow { row: 1523, ..link }]);
+    assert!(reply(ReplyBody::HistoryPage(page)).validate().is_ok());
+}
+
+#[test]
+fn history_and_screen_link_budgets_are_independent_and_bounded()
+-> Result<(), Box<dyn std::error::Error>> {
+    use muxy_protocol::{HistoryPage, LinkRow, LinkSpan, MAX_LINK_SPANS, SavedScreen};
+    let mut snapshot = snapshot();
+    snapshot.history = snapshot.rows.clone();
+    snapshot.history_total = 1;
+    let spans = (0..=MAX_LINK_SPANS)
+        .map(|column| {
+            Ok(LinkSpan {
+                start: u16::try_from(column)?,
+                end: u16::try_from(column + 1)?,
+                uri: "https://test".into(),
+            })
+        })
+        .collect::<Result<Vec<_>, std::num::TryFromIntError>>()?;
+    for (history, screen, expected) in [
+        (MAX_LINK_SPANS, MAX_LINK_SPANS, Ok(())),
+        (MAX_LINK_SPANS + 1, 1, Err(ErrorCode::BadRequest)),
+        (1, MAX_LINK_SPANS + 1, Err(ErrorCode::BadRequest)),
+    ] {
+        snapshot.links = Some(vec![
+            LinkRow {
+                row: 0,
+                spans: spans[..history].to_vec(),
+            },
+            LinkRow {
+                row: 1,
+                spans: spans[..screen].to_vec(),
+            },
+        ]);
+        assert_eq!(
+            reply(ReplyBody::Attached {
+                snapshot: Box::new(snapshot.clone()),
+                process: None,
+            })
+            .validate(),
+            expected
+        );
+        let mut page = HistoryPage {
+            links: snapshot.links.clone(),
+            prompts: vec![],
+            rows: snapshot.history.clone(),
+            next: None,
+            total_rows: 1,
+            screen: Some(SavedScreen {
+                graphics: snapshot.graphics.clone(),
+                size: snapshot.size,
+                rows: snapshot.rows.clone(),
+                cursor: snapshot.cursor,
+                reason: None,
+            }),
+        };
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(page.clone())).validate(),
+            expected
+        );
+        page.links.as_mut().ok_or("missing links")?.reverse();
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(page)).validate(),
+            Err(ErrorCode::BadRequest)
+        );
+    }
+    Ok(())
 }
 
 #[test]
