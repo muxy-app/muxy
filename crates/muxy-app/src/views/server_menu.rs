@@ -1,5 +1,5 @@
-//! The menus of remote servers, in the Remote popover and the Remote Servers
-//! tab: one server, the servers selected in the tab, or a group.
+//! The menus of remote servers, in the Devices popover and the Devices tab:
+//! one server, the servers selected in the tab, or a group.
 
 use gpui::{Context, Pixels, Point, SharedString, Window};
 use muxy_app_core::ServerId;
@@ -13,7 +13,7 @@ use crate::model::{AppModel, RemoteServer, ServerStatus};
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Servers {
     One(ServerId),
-    /// The servers selected in the Remote Servers tab.
+    /// The servers selected in the Devices tab.
     Selected,
     /// The group at an index of `Settings::server_groups`, or the ungrouped.
     Group(Option<usize>),

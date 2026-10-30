@@ -1,4 +1,4 @@
-//! The sidebar's Remote section: other computers' servers with their state,
+//! The sidebar's Devices section: other computers' servers with their state,
 //! and the popover, form, password prompt, and list that manage them.
 
 use std::rc::Rc;
@@ -159,13 +159,9 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         (_, false) => theme.fg_dim,
     };
     let tooltip = if offline > 0 {
-        format!(
-            "{} · {}",
-            tr!("Remote Servers"),
-            tr!("%lld offline", offline)
-        )
+        format!("{} · {}", tr!("Devices"), tr!("%lld offline", offline))
     } else {
-        tr!("Remote Servers").to_string()
+        tr!("Devices").to_string()
     };
     div()
         .id("remote-servers-section")
@@ -397,7 +393,7 @@ pub(crate) fn list(
         .w(width)
         .max_h((window.viewport_size().height - m.status_bar_height() - px(16.0)).max(px(0.0)))
         .overflow_y_scroll()
-        .child(muxy_ui::popover::header(theme, m).child(tr!("Remote Servers")))
+        .child(muxy_ui::popover::header(theme, m).child(tr!("Devices")))
         .when(servers.is_empty(), |list| {
             list.child(
                 div()
@@ -419,9 +415,17 @@ pub(crate) fn list(
         )
         .child(
             action(
+                "remote-copy-pair-link",
+                Icon::Overlap,
+                tr!("Copy My Pair Link"),
+            )
+            .on_click(cx.listener(|model, _, window, cx| model.copy_pairing_link(window, cx))),
+        )
+        .child(
+            action(
                 "remote-manage-servers",
                 Icon::Settings,
-                tr!("Manage Servers…"),
+                tr!("Manage Devices…"),
             )
             .on_click(cx.listener(|model, _, window, cx| {
                 model.open_servers_tab(window, cx);
@@ -429,11 +433,12 @@ pub(crate) fn list(
         )
 }
 
-/// "Remote Servers…" in the command palette: Add Server…, then each server.
+/// "Devices…" in the command palette: Add Server…, Pair with Link…, Copy My
+/// Pair Link, Manage Devices…, then each server.
 pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handler> {
     let _ = model;
     let model = cx.weak_entity();
-    Command::list("remote_servers", tr!("Remote Servers…"), move |cx| {
+    Command::list("remote_servers", tr!("Devices…"), move |cx| {
         let mut servers = Registry::default();
         let add: Handler = Rc::new(|model, _, cx| model.open_server_form(None, cx));
         servers.register(
@@ -444,10 +449,15 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
             Command::new("remote-pair-server", tr!("Pair with Link…"), pair)
                 .keywords("Pair with Link Computer"),
         );
+        let copy: Handler = Rc::new(AppModel::copy_pairing_link);
+        servers.register(
+            Command::new("remote-copy-pair-link", tr!("Copy My Pair Link"), copy)
+                .keywords("Copy My Pair Link Pairing Code Computer Phone"),
+        );
         let manage: Handler = Rc::new(AppModel::open_servers_tab);
         servers.register(
-            Command::new("remote-manage-servers", tr!("Manage Servers…"), manage)
-                .keywords("Manage Servers"),
+            Command::new("remote-manage-servers", tr!("Manage Devices…"), manage)
+                .keywords("Manage Devices Servers Pairing"),
         );
         let Some(model) = model.upgrade() else {
             return servers;
@@ -457,7 +467,7 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
         }
         servers
     })
-    .keywords("Remote Servers")
+    .keywords("Devices Remote Servers Pairing")
 }
 
 /// One server's page: what can be done with it now.

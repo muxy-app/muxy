@@ -5,6 +5,7 @@ use crate::views::settings::SettingsEvent;
 use muxy_app_core::settings::{ServerEntry, Settings};
 
 mod commands;
+mod device_access;
 mod forms;
 mod groups;
 mod pairing;

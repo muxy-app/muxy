@@ -118,8 +118,8 @@ impl AppState {
         }
     }
 
-    /// The Remote Servers tab, if one is open in a project that can show
-    /// it, with that project.
+    /// The Devices tab, if one is open in a project that can show it, with
+    /// that project.
     pub fn servers_tab(&self) -> Option<(ProjectId, TabId)> {
         self.find_servers_tab(|project| project.status() == ProjectStatus::Available)
     }
@@ -141,7 +141,7 @@ impl AppState {
             })
     }
 
-    /// Whether `pane` is the Remote Servers tab's.
+    /// Whether `pane` is the Devices tab's.
     pub fn is_servers_pane(&self, pane: PaneId) -> bool {
         self.projects
             .iter()
@@ -150,11 +150,17 @@ impl AppState {
             .any(|candidate| candidate.id == pane && candidate.content == PaneContent::Servers)
     }
 
-    /// Shows the Remote Servers tab. There is only one: without one that can
-    /// be shown, it closes any left in an unavailable project and opens in
+    /// Shows the Devices tab. There is only one: without one that can be
+    /// shown, it closes any left in an unavailable project and opens in
     /// `project` when that is on this computer and available, or else in Home.
     pub fn show_servers_tab(&mut self, project: ProjectId, title: &str) -> Result<TabId, AppError> {
         let (project, tab) = if let Some(open) = self.servers_tab() {
+            // A tab saved under an older title takes the current one.
+            for pane in &mut self.tab_mut(open.1)?.panes {
+                if pane.content == PaneContent::Servers {
+                    title.clone_into(&mut pane.title);
+                }
+            }
             open
         } else {
             if let Some((stale, tab)) =

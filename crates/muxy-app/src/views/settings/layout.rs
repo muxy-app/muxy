@@ -42,11 +42,6 @@ impl Category {
                 tr_key!("Sessions"),
                 tr_key!("Server control"),
             ],
-            Self::Mobile => &[
-                tr_key!("Access"),
-                tr_key!("Pairing"),
-                tr_key!("Paired Devices"),
-            ],
             Self::Extensions | Self::Commands => &[],
             Self::Backup => &[
                 tr_key!("Backup & Restore"),
@@ -83,9 +78,6 @@ impl SettingsView {
         self.focus.focus(window);
         if category == Category::Server {
             cx.emit(SettingsEvent::ReadServer);
-        }
-        if category == Category::Mobile {
-            cx.emit(SettingsEvent::ReadMobile);
         }
         cx.notify();
     }
@@ -256,35 +248,32 @@ impl SettingsView {
                     .text_size(px(14.0))
                     .text_color(self.theme.accent)
                     .bg(self.theme.accent_soft)
-                    .child(
-                        if matches!(self.category, Category::Server | Category::Mobile) {
-                            tr!("Current device")
-                        } else {
-                            tr!("User")
-                        },
-                    ),
+                    .child(if self.category == Category::Server {
+                        tr!("Current device")
+                    } else {
+                        tr!("User")
+                    }),
             )
-            .when_some(self.configuration_file(), |header, file| {
-                header.child(
-                    div()
-                        .id("settings-open-configuration")
-                        .debug_selector(|| "settings-open-configuration".into())
-                        .px(px(9.0))
-                        .py(px(4.0))
-                        .rounded(px(4.0))
-                        .border_1()
-                        .border_color(self.theme.border)
-                        .text_size(px(13.0))
-                        .text_color(self.theme.fg_muted)
-                        .cursor_pointer()
-                        .hover(|button| button.bg(self.theme.hover).text_color(self.theme.fg))
-                        .focus(|button| button.border_color(self.theme.accent))
-                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .button_interaction(cx.listener(move |_, _, _, cx| {
-                            cx.emit(SettingsEvent::OpenConfiguration(file));
-                        }))
-                        .child(tr!("Edit in %@", file)),
-                )
+            .child({
+                let file = self.configuration_file();
+                div()
+                    .id("settings-open-configuration")
+                    .debug_selector(|| "settings-open-configuration".into())
+                    .px(px(9.0))
+                    .py(px(4.0))
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(self.theme.border)
+                    .text_size(px(13.0))
+                    .text_color(self.theme.fg_muted)
+                    .cursor_pointer()
+                    .hover(|button| button.bg(self.theme.hover).text_color(self.theme.fg))
+                    .focus(|button| button.border_color(self.theme.accent))
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .button_interaction(cx.listener(move |_, _, _, cx| {
+                        cx.emit(SettingsEvent::OpenConfiguration(file));
+                    }))
+                    .child(tr!("Edit in %@", file))
             })
             .into_any_element()
     }

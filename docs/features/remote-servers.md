@@ -25,7 +25,7 @@ On Linux hosts that end your processes when you log out, run
 
 ## In the desktop app
 
-1. Open the **Remote** section at the bottom of the sidebar and choose
+1. Open the **Devices** section at the bottom of the sidebar and choose
    **Add Server…**.
 2. Enter the SSH host (a host name, address, or `~/.ssh/config` alias), and
    optionally the user, port, and identity file.
@@ -37,13 +37,13 @@ On Linux hosts that end your processes when you log out, run
 - Passwords are asked when connecting and kept only in memory until you quit.
 - A dropped server reconnects on its own, waiting longer each time. It stops
   retrying when it needs you, for example for a password or a new host key.
-- Right-click a server in the **Remote** popover for its actions, or hover it
+- Right-click a server in the **Devices** popover for its actions, or hover it
   and use its pencil to edit it.
 - Put servers in a **Group** from **Add Server…** or **Edit…**, or with
   **Move to Group** in their menu. The popover and **Add Project → Remote** list
   them by group. In `settings.toml`, it is `group = "…"`.
-- **Manage Servers…** opens the **Remote Servers** tab, with every server by
-  group:
+- **Manage Devices…** opens the **Devices** tab. Under **Connects To** it has
+  every server by group:
   - Tick servers' boxes, or **Select all**, to act on several; `Shift`-click a
     box to tick a range. The bar above the list connects, disconnects,
     regroups, or forgets the ticked servers, and so does right-clicking one.
@@ -61,13 +61,15 @@ On Linux hosts that end your processes when you log out, run
 Pairing needs no SSH setup, only Muxy on both computers, macOS or Linux, which
 can reach each other on the network or through a VPN.
 
-1. On the other computer, open **Settings → Devices**, turn on **Allow other
-   devices**, choose **Show Pairing Code**, then **Copy Link**.
-2. Here, in the **Remote** popover, choose **Pair with Link…** and paste it.
+1. On the other computer, open the **Devices** tab (**Manage Devices…** in the
+   sidebar's **Devices** popover). Under **This Computer**, turn on **Allow
+   other devices**, choose **Show Pairing Code**, then **Copy Link**.
+2. Here, in the **Devices** popover or tab, choose **Pair with Link…** and
+   paste it.
 
 The paired computer works like any remote server, except that it can't be
-restarted from here. It is listed under **Paired devices** on the other
-computer, where **Revoke** disconnects it. If it was revoked or reset, paste a
+restarted from here. It is listed under **Paired with this computer** in the
+other computer's **Devices** tab, where **Revoke** disconnects it. If it was revoked or reset, paste a
 new link in its **Edit…** form to pair again.
 
 ### Custom SSH commands

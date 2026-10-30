@@ -249,13 +249,11 @@ mod tests {
     }
 
     #[test]
-    fn a_stopped_server_refuses_connections() -> io::Result<()> {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")?
-            .local_addr()?
-            .port();
+    fn a_stopped_server_refuses_connections() {
+        // Nothing listens on port 1 here, and no other test can take it.
         let stopped = RemoteEndpoint {
             hosts: vec!["127.0.0.1".into()],
-            port,
+            port: 1,
             fingerprint: [1; 32],
         };
         assert_eq!(accepts_connections(&stopped), Some(false));
@@ -264,7 +262,6 @@ mod tests {
             ..stopped
         };
         assert_eq!(accepts_connections(&nowhere), None, "unknown, not stopped");
-        Ok(())
     }
 
     #[test]

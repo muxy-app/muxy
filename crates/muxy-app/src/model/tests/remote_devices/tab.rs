@@ -1,14 +1,14 @@
 use super::groups::{grouped, groups, in_group, press, press_with, right_click};
 use super::*;
 
-fn open_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
+pub(super) fn open_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
     cx.update(|window, cx| {
         view.update(cx, |model, cx| model.open_servers_tab(window, cx));
     });
     cx.run_until_parked();
 }
 
-fn tab_window(
+pub(super) fn tab_window(
     servers: Vec<ServerEntry>,
     cx: &mut TestAppContext,
 ) -> (Entity<AppModel>, &mut VisualTestContext, PathBuf, Remotes) {

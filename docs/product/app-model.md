@@ -14,23 +14,29 @@ Every project knows which server it lives on, so the desktop app shows
 projects from several servers in one sidebar. Remote projects are marked with
 their server and path. There is no global "current server".
 
-The **Remote** section at the bottom of the sidebar shows each remote server's
+The **Devices** section at the bottom of the sidebar shows each remote server's
 state. Its popover adds servers (host, user, port, key file, or a password that
 Muxy asks for and keeps only in memory) and manages them. **Pair with Link…**
-adds another computer from the link in its **Settings → Devices** instead, with
-no SSH setup. A paired computer can't be restarted from here, and pairing again
+adds another computer from the link its **Devices** tab shows instead, with no
+SSH setup. A paired computer can't be restarted from here, and pairing again
 from its **Edit…** form recovers one that was revoked or reset. **Add Project →
 Remote** browses that server's folders. When a server lacks Muxy, a released
 app offers to install the same version there; when its version can't talk to
 the app, the section explains how to update it. Removing a server only forgets
 its projects in this app.
 
-Servers can be put in groups. **Manage Servers…** opens the Remote Servers
-tab, which lists every server by group and connects, disconnects, regroups,
-or removes several at once. Disconnecting leaves a server's terminals running
-there.
+**Manage Devices…** opens the **Devices** tab, where everything about remote
+connections lives:
 
-**Add Project** (the **+** beside **Remote**) offers **Local** (⌘O) and
+- **This Computer** lets phones and other computers pair: it turns access on,
+  shows a pairing code and link, and lists paired devices to revoke. The code
+  is withdrawn when the tab closes. `muxy mobile` does the same without the
+  desktop app.
+- **Connects To** lists every server by group, and connects, disconnects,
+  regroups, or removes several at once. Disconnecting leaves a server's
+  terminals running there.
+
+**Add Project** (the **+** beside **Devices**) offers **Local** (⌘O) and
 **Remote**. ⌘O lists saved local and remote projects and servers first, adds
 matching folders below as it searches, and completes typed paths with Tab. Enter
 adds a project with its first terminal, or selects an existing project without
@@ -39,7 +45,7 @@ computer's Home project without adding a project. Missing folders require an
 explicit creation confirmation when adding a project and cannot open a
 terminal.
 Selecting a server browses its folders; ⌘Enter opens a terminal in its Home,
-connecting first if needed. Clicking a server in the Remote popover offers
+connecting first if needed. Clicking a server in the Devices popover offers
 **New Tab** too.
 
 Files and images dropped or pasted on a remote terminal, or sent from the
@@ -139,9 +145,6 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
 - Server settings, such as the shell and history size, apply to this
   computer's server. `muxy --host` changes another computer's. Stopping or
   restarting it asks first.
-- **Settings → Devices** lets phones and other computers pair, shows a pairing
-  code and link, and lists paired devices. `muxy mobile` does the same without
-  the desktop app.
 - **Settings → Backup & Restore** exports settings, themes, extension preferences,
   projects, and layouts. Restore applies on the next launch and keeps a recovery
   copy in `Backups`. Existing projects are kept; matching projects receive the

@@ -101,7 +101,6 @@
 "AI prompt exceeds the 256 KB limit" = "AI prompt exceeds the 256 KB limit";
 "AI worker stopped" = "AI worker stopped";
 "ANSI colors" = "ANSI colors";
-"Access" = "Access";
 "Action" = "Action";
 "Active pane" = "Active pane";
 "Active sidebar" = "Active sidebar";
@@ -117,7 +116,6 @@
 "Add Remote Server" = "Add Remote Server";
 "Add Server…" = "Add Server…";
 "Add a GitHub remote named origin to open a pull request" = "Add a GitHub remote named origin to open a pull request";
-"Add a computer you reach over SSH to work with its projects here." = "Add a computer you reach over SSH to work with its projects here.";
 "Add space between terminal lines using pixels or a percentage, such as 10%%." = "Add space between terminal lines using pixels or a percentage, such as 10%%.";
 "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"" = "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"";
 "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged." = "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged.";
@@ -401,11 +399,12 @@
 "Connect to the server first" = "Connect to the server first";
 "Connect to the server so Muxy can check whether terminal sessions can be preserved." = "Connect to the server so Muxy can check whether terminal sessions can be preserved.";
 "Connect to the server to create." = "Connect to the server to create.";
-"Connect to the server to manage device access." = "Connect to the server to manage device access.";
+"Connect to this computer's server to manage device access." = "Connect to this computer's server to manage device access.";
 "Connected" = "Connected";
 "Connecting…" = "Connecting…";
 "Connection" = "Connection";
 "Connection succeeded · Muxy %@" = "Connection succeeded · Muxy %@";
+"Connects To" = "Connects To";
 "Cookies" = "Cookies";
 "Copied image is larger than 25 MiB" = "Copied image is larger than 25 MiB";
 "Copied the path" = "Copied the path";
@@ -414,6 +413,7 @@
 "Copied!" = "Copied!";
 "Copy" = "Copy";
 "Copy Link" = "Copy Link";
+"Copy My Pair Link" = "Copy My Pair Link";
 "Copy Path" = "Copy Path";
 "Copy Update Command" = "Copy Update Command";
 "Copy on select" = "Copy on select";
@@ -553,8 +553,8 @@
 "Detach" = "Detach";
 "Detach Terminal" = "Detach Terminal";
 "Detached %@" = "Detached %@";
-"Device access error" = "Device access error";
 "Devices" = "Devices";
+"Devices…" = "Devices…";
 "Dictation cancelled" = "Dictation cancelled";
 "Dictation delivery failed: %@" = "Dictation delivery failed: %@";
 "Dictation is already active. Finish or cancel it first." = "Dictation is already active. Finish or cancel it first.";
@@ -682,6 +682,7 @@
 "Forget %@?" = "Forget %@?";
 "Forget %lld Servers?" = "Forget %lld Servers?";
 "Forward" = "Forward";
+"From 1024 to 65535. Press Return to save." = "From 1024 to 65535. Press Return to save.";
 "General" = "General";
 "Global X11 shortcuts cannot cover a Wayland desktop." = "Global X11 shortcuts cannot cover a Wayland desktop.";
 "Global folder: %@" = "Global folder: %@";
@@ -717,7 +718,7 @@
 "Icons" = "Icons";
 "Identity file" = "Identity file";
 "Identity file (automatic)" = "Identity file (automatic)";
-"If it was revoked, moved, or reset, copy a new pairing link from its Settings → Devices to pair again." = "If it was revoked, moved, or reset, copy a new pairing link from its Settings → Devices to pair again.";
+"If it was revoked, moved, or reset, copy a new pairing link from its Devices tab to pair again." = "If it was revoked, moved, or reset, copy a new pairing link from its Devices tab to pair again.";
 "Ignore key" = "Ignore key";
 "Image submission" = "Image submission";
 "Import cancelled." = "Import cancelled.";
@@ -820,7 +821,6 @@
 "Load server settings first" = "Load server settings first";
 "Load the current device's settings to edit them." = "Load the current device's settings to edit them.";
 "Loading branches…" = "Loading branches…";
-"Loading device access" = "Loading device access";
 "Loading device access…" = "Loading device access…";
 "Loading extensions…" = "Loading extensions…";
 "Loading folders…" = "Loading folders…";
@@ -839,10 +839,9 @@
 "Looking for the newest release on your update channel." = "Looking for the newest release on your update channel.";
 "MUXY TIP" = "MUXY TIP";
 "Make Default" = "Make Default";
+"Manage Devices…" = "Manage Devices…";
 "Manage Extensions" = "Manage Extensions";
 "Manage Profiles…" = "Manage Profiles…";
-"Manage Remote Servers…" = "Manage Remote Servers…";
-"Manage Servers…" = "Manage Servers…";
 "Manage extension" = "Manage extension";
 "Manage extensions marketplace installed unpacked" = "Manage extensions marketplace installed unpacked";
 "Manage scheduled update…" = "Manage scheduled update…";
@@ -915,7 +914,6 @@
 "Name (Z–A)" = "Name (Z–A)";
 "Needs your attention" = "Needs your attention";
 "Neither" = "Neither";
-"Network port paired devices connect to, from 1024 to 65535." = "Network port paired devices connect to, from 1024 to 65535.";
 "Never connected" = "Never connected";
 "New Branch" = "New Branch";
 "New Branch…" = "New Branch…";
@@ -1003,7 +1001,7 @@
 "Offline voice model" = "Offline voice model";
 "Older sessions" = "Older sessions";
 "On" = "On";
-"On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
+"On the other computer, open the Devices tab, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open the Devices tab, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
 "On-device speech recognition is unavailable for this language. Choose another dictation language." = "On-device speech recognition is unavailable for this language. Choose another dictation language.";
 "Open" = "Open";
 "Open Browser Tab" = "Open Browser Tab";
@@ -1049,11 +1047,11 @@
 "Pair a device" = "Pair a device";
 "Pair with Another Computer" = "Pair with Another Computer";
 "Pair with Link…" = "Pair with Link…";
-"Paired Devices" = "Paired Devices";
-"Paired devices" = "Paired devices";
+"Pair with another computer, or add one you reach over SSH, to work with its projects here." = "Pair with another computer, or add one you reach over SSH, to work with its projects here.";
 "Paired with the other computer." = "Paired with the other computer.";
-"Pairing" = "Pairing";
+"Paired with this computer" = "Paired with this computer";
 "Pairing Link" = "Pairing Link";
+"Pairing link copied" = "Pairing link copied";
 "Pairing… It is saved when it finishes, even if you close this form." = "Pairing… It is saved when it finishes, even if you close this form.";
 "Parent Directory" = "Parent Directory";
 "Password" = "Password";
@@ -1062,7 +1060,7 @@
 "Paste" = "Paste";
 "Paste a new link to pair again" = "Paste a new link to pair again";
 "Paste image contents into compatible terminal apps or insert the saved image path." = "Paste image contents into compatible terminal apps or insert the saved image path.";
-"Paste the whole pairing link from the other computer's Settings → Devices." = "Paste the whole pairing link from the other computer's Settings → Devices.";
+"Paste the whole pairing link from the other computer's Devices tab." = "Paste the whole pairing link from the other computer's Devices tab.";
 "Path template is required." = "Path template is required.";
 "Path to a local multilingual Whisper model. Used by Linux dictation." = "Path to a local multilingual Whisper model. Used by Linux dictation.";
 "Pause" = "Pause";
@@ -1158,7 +1156,6 @@
 "Remember shown projects without tabs" = "Remember shown projects without tabs";
 "Remote" = "Remote";
 "Remote Servers" = "Remote Servers";
-"Remote Servers…" = "Remote Servers…";
 "Remote project on %@" = "Remote project on %@";
 "Remove" = "Remove";
 "Remove %lld Servers…" = "Remove %lld Servers…";
@@ -1258,7 +1255,7 @@
 "SSH host" = "SSH host";
 "Save" = "Save";
 "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file." = "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file.";
-"Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Remote section and paste the link. The code works once and expires in 5 minutes." = "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Remote section and paste the link. The code works once and expires in 5 minutes.";
+"Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes." = "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes.";
 "Scroll page down" = "Scroll page down";
 "Scroll page up" = "Scroll page up";
 "Scroll to Bottom" = "Scroll to Bottom";
@@ -1435,7 +1432,7 @@
 "The built-in browser is off. Browser tabs and browser commands are disabled, and terminal links open in your system browser." = "The built-in browser is off. Browser tabs and browser commands are disabled, and terminal links open in your system browser.";
 "The bundled client and server do not match the release" = "The bundled client and server do not match the release";
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
-"The computer at this link isn't the one that made it. Copy the link again from its Settings → Devices." = "The computer at this link isn't the one that made it. Copy the link again from its Settings → Devices.";
+"The computer at this link isn't the one that made it. Copy the link again from its Devices tab." = "The computer at this link isn't the one that made it. Copy the link again from its Devices tab.";
 "The connection closed before the server confirmed it stopped, so it may still be running." = "The connection closed before the server confirmed it stopped, so it may still be running.";
 "The default profile can't be deleted" = "The default profile can't be deleted";
 "The desktop refused a notification: %@" = "The desktop refused a notification: %@";
@@ -1521,7 +1518,7 @@
 "This session is no longer available. Refresh the session list." = "This session is no longer available. Refresh the session list.";
 "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
 "This update requires a server restart" = "This update requires a server restart";
-"To pair a phone or another computer, turn on Settings → Devices → Allow other devices and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone or another computer, turn on Settings → Devices → Allow other devices and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
+"To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
 "Toggle Agent Sessions" = "Toggle Agent Sessions";
 "Toggle Agents Panel" = "Toggle Agents Panel";
 "Toggle Composer" = "Toggle Composer";
@@ -1538,6 +1535,7 @@
 "Try a different name or clear your search." = "Try a different name or clear your search.";
 "Try a different search to find extensions." = "Try a different search to find extensions.";
 "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours." = "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours.";
+"Turn on Allow other devices to get a pairing link." = "Turn on Allow other devices to get a pairing link.";
 "Type" = "Type";
 "Type or speak…" = "Type or speak…";
 "Unassign" = "Unassign";
@@ -1562,7 +1560,6 @@
 "Uninstalling…" = "Uninstalling…";
 "Unknown app setting" = "Unknown app setting";
 "Unknown composer preference" = "Unknown composer preference";
-"Unknown device access setting" = "Unknown device access setting";
 "Unknown server setting" = "Unknown server setting";
 "Unload folder" = "Unload folder";
 "Unloading…" = "Unloading…";
@@ -1639,7 +1636,6 @@
 "Web Inspector" = "Web Inspector";
 "Web content process terminated" = "Web content process terminated";
 "When closing tabs or panes" = "When closing tabs or panes";
-"Whether paired devices can reach this computer right now." = "Whether paired devices can reach this computer right now.";
 "Whole word" = "Whole word";
 "Width" = "Width";
 "Width 480–1200; height 280–800 pixels." = "Width 480–1200; height 280–800 pixels.";

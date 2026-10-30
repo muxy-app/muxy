@@ -39,7 +39,7 @@ Every payload value is a string.
 `projectPath`, and `kind` (`terminal`, `extensionWebView`, `browser`, or
 `remoteServers`). Terminal tabs add `paneID` and `cwd`. Extension tabs add
 `extensionID`, `tabTypeID`, `tabInstanceID`, and `data` as a JSON string.
-Browser tabs add `paneID` and `url`. The Remote Servers tab adds `paneID`.
+Browser tabs add `paneID` and `url`. The Devices tab adds `paneID`.
 
 - `projectID` is the top-level project. `worktreeID` is the project or
   worktree the tab belongs to.

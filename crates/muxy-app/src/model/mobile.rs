@@ -1,39 +1,61 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use gpui::{AnyWindowHandle, Context, Task};
+use gpui::{AnyWindowHandle, ClipboardItem, Context, Task, Window};
 use muxy_app_core::ServerId;
-use muxy_protocol::{DeviceId, PairingOffer, RemoteAccessSettings, RemoteAccessState};
+use muxy_protocol::{
+    DeviceId, ListenerStatus, PairingOffer, RemoteAccessSettings, RemoteAccessState,
+};
 use muxy_ui::tr;
 
 use super::{AppModel, Quitting};
 use crate::boot::Work;
-use crate::views::settings::Change;
-use crate::views::settings::mobile::Pairing;
+use crate::views::devices::Pairing;
 
-/// Device access as Settings shows it; the server owns the real state.
+/// Device access as the Devices tab shows it; the server owns the real state.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "The running request and the follow-ups it owes"
 )]
-pub(super) struct MobileAccess {
-    pub(super) state: Option<RemoteAccessState>,
+pub(crate) struct MobileAccess {
+    pub(crate) state: Option<RemoteAccessState>,
     /// The pairing code on screen, until it is used, cancelled, or expires.
-    pub(super) pairing: Option<Pairing>,
-    pub(super) busy: bool,
+    pub(crate) pairing: Option<Pairing>,
+    pub(crate) busy: bool,
     /// The running request creates a pairing code.
     starting: bool,
     /// The server reported a change while a request was running.
     stale: bool,
     /// The user cancelled pairing while a request was running.
     cancel: bool,
-    pub(super) error: Option<String>,
+    /// The pairing link goes to the clipboard once there is a code.
+    copy_link: bool,
+    pub(crate) error: Option<String>,
     expiry: Option<Task<()>>,
 }
 
 impl AppModel {
-    fn mobile_available(&self) -> bool {
+    pub(crate) fn device_access(&self) -> &MobileAccess {
+        &self.mobile
+    }
+
+    pub(crate) fn mobile_available(&self) -> bool {
         self.quitting == Quitting::Idle && self.ready(ServerId::local())
+    }
+
+    fn devices_tab_open(&self) -> bool {
+        self.state.servers_tab().is_some()
+    }
+
+    /// Reads device access when the Devices tab opens or this computer's
+    /// server connects with it open, and withdraws a pairing code once the
+    /// tab closes.
+    pub(super) fn sync_devices_tab(&mut self, opened: bool, cx: &mut Context<Self>) {
+        if !self.devices_tab_open() {
+            self.withdraw_pairing(cx);
+        } else if opened {
+            self.read_remote_access(cx);
+        }
     }
 
     pub(crate) fn read_remote_access(&mut self, cx: &mut Context<Self>) {
@@ -45,19 +67,48 @@ impl AppModel {
             return;
         }
         self.mobile.busy = self.send(ServerId::local(), Work::ReadRemoteAccess, cx);
-        self.sync_preferences(cx);
+        cx.notify();
     }
 
-    /// Paired devices connected, disconnected, or changed; refresh only while Settings is open.
+    /// Paired devices connected, disconnected, or changed; refresh only while the Devices tab is open.
     pub(super) fn remote_access_changed(&mut self, cx: &mut Context<Self>) {
-        if self.settings_window.is_some() {
+        if self.devices_tab_open() {
             self.read_remote_access(cx);
         }
     }
 
-    pub(super) fn write_mobile_preference(
+    /// Turns access for other devices on or off. A refusal shows in the tab.
+    pub(crate) fn set_device_access(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let result = self.write_remote_access(
+            |settings| RemoteAccessSettings {
+                enabled,
+                ..settings
+            },
+            cx,
+        );
+        self.finish_access_change(result, cx);
+    }
+
+    /// Moves access for other devices to the typed port.
+    pub(crate) fn set_device_port(&mut self, port: &str, cx: &mut Context<Self>) {
+        let result = port
+            .trim()
+            .parse()
+            .map_err(|_| tr!("Use a port from 1024 to 65535").to_string())
+            .and_then(|port| {
+                self.write_remote_access(|settings| RemoteAccessSettings { port, ..settings }, cx)
+            });
+        self.finish_access_change(result, cx);
+    }
+
+    fn finish_access_change(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+        self.mobile.error = result.err();
+        cx.notify();
+    }
+
+    fn write_remote_access(
         &mut self,
-        change: Change,
+        change: impl FnOnce(RemoteAccessSettings) -> RemoteAccessSettings,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if !self.mobile_available() {
@@ -72,16 +123,7 @@ impl AppModel {
             .as_ref()
             .map(|state| state.settings)
             .ok_or_else(|| tr!("Load device access first").to_string())?;
-        let settings = match change {
-            Change::MobileAccess(enabled) => RemoteAccessSettings { enabled, ..current },
-            Change::Field("mobile-port", port) => RemoteAccessSettings {
-                port: port
-                    .parse()
-                    .map_err(|_| tr!("Use a port from 1024 to 65535").to_string())?,
-                ..current
-            },
-            _ => return Err(tr!("Unknown device access setting").to_string()),
-        };
+        let settings = change(current);
         settings
             .validate()
             .map_err(|_| tr!("Use a port from 1024 to 65535").to_string())?;
@@ -94,16 +136,58 @@ impl AppModel {
         Ok(())
     }
 
-    pub(crate) fn pair_phone(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn show_pairing_code(&mut self, cx: &mut Context<Self>) {
         if self.mobile_available() && !self.mobile.busy {
             self.mobile.error = None;
             self.mobile.busy = self.send(ServerId::local(), Work::StartPairing, cx);
             self.mobile.starting = self.mobile.busy;
-            self.sync_preferences(cx);
+            cx.notify();
+        }
+    }
+
+    /// Copies this computer's pairing link. The code shows in the Devices
+    /// tab, since it is valid only while it is on screen.
+    pub(crate) fn copy_pairing_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_servers_tab(window, cx);
+        if self.devices_tab_open() {
+            self.mobile.copy_link = true;
+            self.continue_link_copy(cx);
+        }
+    }
+
+    /// Copies the code's link once there is one, asks for a code once access
+    /// is listening, or says why there can't be one.
+    fn continue_link_copy(&mut self, cx: &mut Context<Self>) {
+        if !self.mobile.copy_link || self.mobile.busy {
+            return;
+        }
+        if !self.mobile_available() {
+            self.mobile.copy_link = false;
+            return;
+        }
+        if let Some(pairing) = &self.mobile.pairing {
+            cx.write_to_clipboard(ClipboardItem::new_string(pairing.link().to_owned()));
+            self.mobile.copy_link = false;
+            self.show_notice(tr!("Pairing link copied").to_string(), cx);
+            return;
+        }
+        let Some(state) = &self.mobile.state else {
+            return;
+        };
+        match state.status {
+            ListenerStatus::Listening => self.show_pairing_code(cx),
+            ListenerStatus::Disabled if state.settings.enabled => {}
+            _ => {
+                self.mobile.copy_link = false;
+                self.mobile.error =
+                    Some(tr!("Turn on Allow other devices to get a pairing link.").to_string());
+                cx.notify();
+            }
         }
     }
 
     pub(crate) fn cancel_pairing(&mut self, cx: &mut Context<Self>) {
+        self.mobile.copy_link = false;
         self.mobile.pairing = None;
         self.mobile.expiry = None;
         if self.mobile.busy {
@@ -111,11 +195,11 @@ impl AppModel {
         } else if self.mobile_available() {
             self.mobile.busy = self.send(ServerId::local(), Work::CancelPairing, cx);
         }
-        self.sync_preferences(cx);
+        cx.notify();
     }
 
-    /// A code must not stay valid on the server after Settings closes.
-    pub(super) fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
+    /// A code must not stay valid on the server after the Devices tab closes.
+    fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
         if self.mobile.pairing.is_some() || self.mobile.starting {
             self.cancel_pairing(cx);
         }
@@ -162,7 +246,6 @@ impl AppModel {
                     Err(error) => model.mobile.error = Some(error),
                     Ok(_) => {}
                 }
-                model.sync_preferences(cx);
                 cx.notify();
             });
         }));
@@ -183,6 +266,7 @@ impl AppModel {
                 }
                 self.mobile.error = None;
                 self.mobile.state = Some(state);
+                self.show_device_port(cx);
             }
             Err(error) => self.mobile.error = Some(error.to_string()),
         }
@@ -197,7 +281,7 @@ impl AppModel {
         self.mobile.busy = false;
         self.mobile.starting = false;
         match result {
-            Ok(_) if self.mobile.cancel || self.settings_window.is_none() => {
+            Ok(_) if self.mobile.cancel || !self.devices_tab_open() => {
                 self.mobile.cancel = true;
             }
             Ok(offer) => {
@@ -214,7 +298,7 @@ impl AppModel {
                     let _ = model.update(cx, |model, cx| {
                         model.mobile.pairing = None;
                         model.read_remote_access(cx);
-                        model.sync_preferences(cx);
+                        cx.notify();
                     });
                 }));
                 self.mobile.pairing = Some(Pairing::new(&offer));
@@ -232,7 +316,10 @@ impl AppModel {
         if std::mem::take(&mut self.mobile.stale) {
             self.read_remote_access(cx);
         }
-        self.sync_preferences(cx);
+        if self.mobile.error.is_some() {
+            self.mobile.copy_link = false;
+        }
+        self.continue_link_copy(cx);
         cx.notify();
     }
 }

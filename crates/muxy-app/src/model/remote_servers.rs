@@ -854,13 +854,13 @@ impl AppModel {
         }
     }
 
-    /// Shows the Remote Servers tab, opening it in the current project when
-    /// it isn't open.
+    /// Shows the Devices tab, opening it in the current project when it
+    /// isn't open, and reads this computer's device access.
     pub(crate) fn open_servers_tab(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         self.ensure_servers_search(cx);
         let previous = self.state.clone();
         let project = self.state.current_project().id;
-        if let Err(error) = self.state.show_servers_tab(project, &tr!("Remote Servers")) {
+        if let Err(error) = self.state.show_servers_tab(project, &tr!("Devices")) {
             self.fail(error.to_string(), cx);
             return;
         }
@@ -870,6 +870,7 @@ impl AppModel {
         }
         self.dismiss_overlay(cx);
         self.changed(cx);
+        self.sync_devices_tab(true, cx);
         self.focus_active(window, cx);
         self.focus_requested = false;
     }

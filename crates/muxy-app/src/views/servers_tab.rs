@@ -1,11 +1,12 @@
-//! The Remote Servers tab: every remote server by group, to select and act
-//! on one or many at once.
+//! The Devices tab: this computer's access for phones and other computers,
+//! then every remote server by group, to select and act on one or many at
+//! once.
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Entity, FocusHandle, FontWeight,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    InteractiveElement, IntoElement, ListAlignment, ListState, MouseButton, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, list, px,
 };
 use muxy_app_core::{PaneId, ServerId};
 use muxy_ui::components::{IconButton, IconGlyph};
@@ -19,11 +20,13 @@ use super::remote_servers::{dot, status_color, status_label};
 use super::server_menu::{Action, Servers, connect_choice, live};
 use crate::model::{AppModel, RemoteServer, ServerStatus};
 
-/// What the Remote Servers tab keeps between frames. Its selection is the
-/// model's `remote_selection`.
+/// What the Devices tab keeps between frames. Its selection is the model's
+/// `remote_selection`.
 pub(crate) struct ServersTab {
     pub(crate) focus: FocusHandle,
     search: Option<(Entity<TextInput>, Subscription)>,
+    port: Option<(Entity<TextInput>, Subscription)>,
+    list: ListState,
 }
 
 impl ServersTab {
@@ -31,11 +34,17 @@ impl ServersTab {
         Self {
             focus: cx.focus_handle(),
             search: None,
+            port: None,
+            list: ListState::new(1, ListAlignment::Top, px(0.0)),
         }
     }
 
     pub(crate) fn search_input(&self) -> Option<&Entity<TextInput>> {
         self.search.as_ref().map(|(input, _)| input)
+    }
+
+    pub(crate) fn port_input(&self) -> Option<&Entity<TextInput>> {
+        self.port.as_ref().map(|(input, _)| input)
     }
 }
 
@@ -77,8 +86,25 @@ fn shown<'a>(
 }
 
 impl AppModel {
-    /// The tab's search field, made once.
+    /// The tab's search and port fields, made once.
     pub(crate) fn ensure_servers_search(&mut self, cx: &mut Context<Self>) {
+        if self.servers_tab.port.is_none() {
+            let style = InputStyle::field(&self.theme, &self.metrics);
+            let port = self
+                .device_access()
+                .state
+                .as_ref()
+                .map(|state| state.settings.port.to_string())
+                .unwrap_or_default();
+            let input = cx.new(|cx| TextInput::new(style, cx).with_text(port));
+            let subscription = cx.subscribe(&input, |model, input, event, cx| {
+                if matches!(event, InputEvent::Submitted) {
+                    let port = input.read(cx).text().to_owned();
+                    model.set_device_port(&port, cx);
+                }
+            });
+            self.servers_tab.port = Some((input, subscription));
+        }
         if self.servers_tab.search.is_some() {
             return;
         }
@@ -102,6 +128,23 @@ impl AppModel {
     fn clear_servers_search(&mut self, cx: &mut Context<Self>) {
         if let Some((input, _)) = &self.servers_tab.search {
             input.update(cx, |input, cx| input.set_text("", cx));
+        }
+    }
+
+    /// Shows the port the server reports, as the port field's text.
+    pub(crate) fn show_device_port(&mut self, cx: &mut Context<Self>) {
+        let Some(port) = self
+            .device_access()
+            .state
+            .as_ref()
+            .map(|state| state.settings.port.to_string())
+        else {
+            return;
+        };
+        if let Some(input) = self.servers_tab.port_input().cloned()
+            && input.read(cx).text() != port
+        {
+            input.update(cx, |input, cx| input.set_text(port, cx));
         }
     }
 
@@ -164,9 +207,40 @@ impl AppModel {
 /// How wide the tab's content grows, so rows stay easy to scan.
 const CONTENT_WIDTH: f32 = 960.0;
 
-/// The Remote Servers tab in `pane`, laid out like the Extensions manager.
+/// The Devices tab in `pane`, laid out like the Extensions manager.
 pub(crate) fn render(pane: PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let theme = &model.theme;
+    let entity = cx.entity();
+    div()
+        .id("servers-tab")
+        .debug_selector(|| "servers-tab".into())
+        .track_focus(&model.servers_tab.focus)
+        .size_full()
+        .flex()
+        .flex_col()
+        .bg(theme.bg)
+        .text_color(theme.fg)
+        .text_size(model.metrics.font_body())
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |model, _, _, cx| model.focus_pane(pane, cx)),
+        )
+        .child(column(header(model, cx), model).flex_none())
+        // A list lays its item out on its own at the tab's width, as Settings
+        // does, so wrapped descriptions never keep a width measured for the
+        // surrounding layout.
+        .child(
+            list(model.servers_tab.list.clone(), move |_, _, cx| {
+                entity.update(cx, |model, cx| body(model, cx))
+            })
+            .flex_1()
+            .min_h(px(0.0)),
+        )
+        .into_any_element()
+}
+
+/// Everything under the header, as the list's only item.
+fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let servers = model.remote_servers();
     let shown = shown(&servers, &model.servers_query(cx));
     let everyone = crate::model::by_group(&servers, |server| &server.entry);
@@ -194,37 +268,34 @@ pub(crate) fn render(pane: PaneId, model: &AppModel, cx: &Context<AppModel>) -> 
         })
         .collect();
     div()
-        .id("servers-tab")
-        .debug_selector(|| "servers-tab".into())
-        .track_focus(&model.servers_tab.focus)
-        .size_full()
-        .flex()
-        .flex_col()
-        .bg(theme.bg)
-        .text_color(theme.fg)
+        .w_full()
+        .text_color(model.theme.fg)
         .text_size(model.metrics.font_body())
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |model, _, _, cx| model.focus_pane(pane, cx)),
-        )
-        .child(column(header(model, cx), model).flex_none())
-        .child(list(&selected, &shown, groups, model, cx))
+        .child(column(
+            sections(&selected, &shown, groups, model, cx),
+            model,
+        ))
         .into_any_element()
 }
 
-fn style(model: &AppModel) -> Style<'_> {
+pub(super) fn style(model: &AppModel) -> Style<'_> {
     Style {
         theme: &model.theme,
         metrics: &model.metrics,
     }
 }
 
-/// `content` in a centered column no wider than `CONTENT_WIDTH`.
+/// `content` in a centered column no wider than `CONTENT_WIDTH`. Widths come
+/// from flexing and stretching, never percentages, which can resolve against
+/// a parent still being measured and leave the column shrunk to its text.
 fn column(content: impl IntoElement, model: &AppModel) -> gpui::Div {
     div().flex().justify_center().px(px(32.0)).child(
         div()
-            .w_full()
+            .flex_1()
+            .min_w(px(0.0))
             .max_w(model.metrics.scaled(CONTENT_WIDTH))
+            .flex()
+            .flex_col()
             .child(content),
     )
 }
@@ -282,11 +353,10 @@ fn badge(server: &RemoteServer, model: &AppModel) -> gpui::Div {
         .child(status_label(server))
 }
 
-fn card(model: &AppModel) -> gpui::Div {
+pub(super) fn card(model: &AppModel) -> gpui::Div {
     div()
         .flex()
         .flex_col()
-        .w_full()
         .min_w(px(0.0))
         .rounded(model.metrics.radius_lg())
         .bg(model.theme.surface)
@@ -294,7 +364,7 @@ fn card(model: &AppModel) -> gpui::Div {
         .border_color(model.theme.border)
 }
 
-/// The icon, the title, and Add Server.
+/// The icon, the title, Pair with Link, and Add Server.
 fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
@@ -317,25 +387,40 @@ fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
                     div()
                         .text_size(m.font_title())
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(tr!("Remote Servers")),
+                        .child(tr!("Devices")),
                 ),
         )
         .child(
-            controls::button(
-                style(model),
-                "servers-add",
-                &tr!("Add Server…"),
-                true,
-                cx.listener(|model, _, _, cx| model.open_server_form(None, cx)),
-            )
-            .debug_selector(|| "servers-add".into()),
+            div()
+                .flex()
+                .gap(m.spacing3())
+                .child(
+                    controls::button(
+                        style(model),
+                        "servers-pair",
+                        &tr!("Pair with Link…"),
+                        true,
+                        cx.listener(|model, _, _, cx| model.open_pair_form(None, cx)),
+                    )
+                    .debug_selector(|| "servers-pair".into()),
+                )
+                .child(
+                    controls::button(
+                        style(model),
+                        "servers-add",
+                        &tr!("Add Server…"),
+                        true,
+                        cx.listener(|model, _, _, cx| model.open_server_form(None, cx)),
+                    )
+                    .debug_selector(|| "servers-add".into()),
+                ),
         )
         .into_any_element()
 }
 
-/// The search, Select all with what the ticked servers can do, and the
-/// groups.
-fn list(
+/// This computer's access, then the servers it connects to: the search,
+/// Select all with what the ticked servers can do, and the groups.
+fn sections(
     selected: &[&RemoteServer],
     shown: &[(Option<&str>, Vec<&RemoteServer>)],
     groups: Vec<AnyElement>,
@@ -344,11 +429,18 @@ fn list(
 ) -> AnyElement {
     let m = model.metrics;
     let count: usize = shown.iter().map(|(_, members)| members.len()).sum();
-    let body = div()
+    div()
         .flex()
         .flex_col()
         .gap(m.spacing7())
         .py(m.spacing7())
+        .child(super::devices::this_computer(model, cx))
+        .child(
+            div()
+                .text_color(model.theme.fg_muted)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(tr!("Connects To")),
+        )
         .children(model.servers_tab.search_input().map(|input| {
             controls::search_field(style(model), "servers-search", input)
                 .debug_selector(|| "servers-search".into())
@@ -357,13 +449,7 @@ fn list(
             body.child(select_bar(selected, count, model, cx))
         })
         .when(count == 0, |body| body.child(empty_state(model, cx)))
-        .children(groups);
-    div()
-        .id("servers-list")
-        .flex_1()
-        .min_h(px(0.0))
-        .overflow_y_scroll()
-        .child(column(body, model))
+        .children(groups)
         .into_any_element()
 }
 
@@ -484,7 +570,9 @@ fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let (title, description) = if none {
         (
             tr!("No remote servers yet"),
-            tr!("Add a computer you reach over SSH to work with its projects here."),
+            tr!(
+                "Pair with another computer, or add one you reach over SSH, to work with its projects here."
+            ),
         )
     } else {
         (

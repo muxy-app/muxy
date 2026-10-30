@@ -15,7 +15,9 @@ A phone connects in one of two ways:
 
 From the desktop app:
 
-1. Open **Settings → Devices** and turn on **Allow other devices**.
+1. Open the **Devices** tab with **Manage Devices…** in the sidebar's
+   **Devices** popover. Under **This Computer**, turn on **Allow other
+   devices**.
 2. Under **Pair a device**, choose **Show Pairing Code**.
 3. Scan the code with the Muxy app.
 
@@ -30,14 +32,14 @@ muxy mobile pair
 - The code lists your computer's addresses. If phones reach it by another name,
   such as a cloud server's public name, put it first:
   `muxy mobile pair --address devbox.example.com`.
-- Phones connect on port `7419` by default. Change it in **Settings → Devices**
+- Phones connect on port `7419` by default. Change it in the **Devices** tab
   or with `muxy mobile enable --port <port>`.
 
 ## Manage phones
 
 | Task | Desktop | CLI |
 | --- | --- | --- |
-| See status and phones | **Settings → Devices** | `muxy mobile` |
+| See status and phones | The **Devices** tab | `muxy mobile` |
 | Revoke a phone | **Revoke** next to it | `muxy mobile revoke <id>` |
 | Turn access off | **Allow other devices** off | `muxy mobile disable` |
 

@@ -51,7 +51,7 @@ If `muxy --version` shows 1.x, Muxy 1.x's CLI comes first on your `PATH`.
 - **Host key not trusted:** run `ssh <host>` once and accept the key.
 - **Login refused:** check that `ssh <host>` works with your key or agent. Only
   the desktop app supports passwords.
-- **Muxy isn't installed:** install it from the **Remote** section, or run the
+- **Muxy isn't installed:** install it from the **Devices** section, or run the
   installer there. See [Remote servers](../features/remote-servers.md).
 - **Incompatible version:** install the same version on both computers. If the
   version is right but the old server is still running, run
@@ -60,7 +60,7 @@ If `muxy --version` shows 1.x, Muxy 1.x's CLI comes first on your `PATH`.
 
 ## A phone can't connect
 
-- Check **Settings → Devices → Status** says it is listening.
+- Check that **Status** in the **Devices** tab says it is listening.
 - On macOS, allow `muxy-server` if the firewall asks.
 - On iOS, allow the Muxy app to use the local network.
 - The phone must reach the computer: same network, a VPN, or an address added

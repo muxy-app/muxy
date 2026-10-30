@@ -9,6 +9,7 @@ flowchart LR
     DESKTOP["Desktop app"] <-->|"Unix socket"| LOCAL
     TUI["muxy terminal UI"] <-->|"Unix socket"| LOCAL
     DESKTOP <-->|"SSH · muxy stdio<br/>from another computer"| LOCAL
+    DESKTOP <-->|"TLS · after pairing<br/>from another computer"| NETWORK
     TUI <-->|"SSH · muxy stdio<br/>from another computer"| LOCAL
     PHONE["Phone app"] <-->|"TLS · after pairing"| NETWORK
     PHONE <-->|"SSH · muxy stdio"| LOCAL

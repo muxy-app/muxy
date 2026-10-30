@@ -150,7 +150,7 @@ pub(crate) struct AppModel {
     pub(crate) pairing: pairing::Pairing,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
-    /// Servers selected in the Remote Servers tab, and where a ⇧-click range
+    /// Servers selected in the Devices tab, and where a ⇧-click range
     /// starts.
     pub(crate) remote_selection: Vec<ServerId>,
     pub(crate) remote_selection_anchor: Option<ServerId>,
@@ -265,6 +265,14 @@ impl AppModel {
             input.update(cx, |input, cx| {
                 input.set_style(
                     muxy_ui::text_input::InputStyle::compact(&self.theme, &self.metrics),
+                    cx,
+                );
+            });
+        }
+        if let Some(input) = self.servers_tab.port_input() {
+            input.update(cx, |input, cx| {
+                input.set_style(
+                    muxy_ui::text_input::InputStyle::field(&self.theme, &self.metrics),
                     cx,
                 );
             });
@@ -1692,6 +1700,7 @@ impl AppModel {
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
         self.sync_voice(cx);
+        self.sync_devices_tab(false, cx);
         self.sync_git(cx);
         self.sync_references(cx);
         self.refresh_existing_sessions(cx);
@@ -2186,7 +2195,9 @@ impl AppModel {
         self.refresh_catalog(server, cx);
         if server.is_local() && self.settings_window.is_some() {
             self.read_server_settings(cx);
-            self.read_remote_access(cx);
+        }
+        if server.is_local() {
+            self.sync_devices_tab(true, cx);
         }
         cx.notify();
     }

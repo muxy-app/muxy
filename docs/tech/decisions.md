@@ -17,7 +17,7 @@ are in git history.
 | D4 | Rows travel as style runs | 4 to 8 times smaller than cells |
 | D5 | CBOR messages, postcard rows | Messages can grow, rows stay compact |
 | D6 | zstd streaming compression, planned | Halves interactive traffic |
-| D7 | Any byte stream is a transport | Unix socket locally, SSH to other computers, TLS for phones |
+| D7 | Any byte stream is a transport | Unix socket locally, SSH to other computers, TLS for paired devices |
 | D8 | One merged frame in flight | Slow apps never pile up |
 | D9 | The app draws rows directly | Redraws only on change |
 | D10 | portable-pty for PTYs | Same speed, ready for Windows |
@@ -75,8 +75,9 @@ dictionaries, which fit their training data and little else.
 
 Unix sockets, TCP, and stdio pipes were all about ten times faster than a
 program writing line by line to a terminal. Apps on the same computer use a Unix
-socket and phones use TLS (D11). Other computers are reached over SSH, which
-runs `muxy stdio` there to join its stdin and stdout to that computer's server.
+socket, and paired phones and computers use TLS (D11). Other computers are
+also reached over SSH, which runs `muxy stdio` there to join its stdin and
+stdout to that computer's server.
 ssh logs in with the user's keys, agent, or certificates. For a password login,
 the desktop asks for the password, keeps it only in memory, and answers ssh's
 prompt for it.

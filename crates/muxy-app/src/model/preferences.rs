@@ -150,7 +150,6 @@ impl AppModel {
     pub(crate) fn settings_closed(&mut self, cx: &mut Context<Self>) {
         self.record_quick_shortcut(false, cx);
         self.flush_preferences(cx);
-        self.withdraw_pairing(cx);
         self.retain_extension_updates(cx);
         self.settings_window = None;
         cx.notify();
@@ -180,10 +179,6 @@ impl AppModel {
                 || self.server_preferences.control_busy
                 || self.updates.replacing(),
             pending_server_fields: self.pending_server_fields(),
-            mobile: self.mobile.state.clone(),
-            mobile_pairing: self.mobile.pairing.clone(),
-            mobile_busy: self.mobile.busy,
-            mobile_error: self.mobile.error.clone(),
             ai_installed: self
                 .ai
                 .installed
@@ -278,12 +273,6 @@ impl AppModel {
         }
         let id = change_id(&change).to_owned();
         if matches!(
-            &change,
-            Change::MobileAccess(_) | Change::Field("mobile-port", _)
-        ) {
-            let result = self.write_mobile_preference(change, cx);
-            self.preference_result(&id, result.err().as_deref(), cx);
-        } else if matches!(
             &change,
             Change::ShellIntegration(_) | Change::Field("default-shell" | "history-budget", _)
         ) {
@@ -1006,7 +995,6 @@ fn change_id(change: &Change) -> &str {
         },
         Change::Binding(id, _) | Change::Unassign(id) => id,
         Change::ShellIntegration(_) => "shell-integration",
-        Change::MobileAccess(_) => "mobile-access",
         Change::Browser(change) => match change {
             BrowserChange::Enabled(_) => "browser-enabled",
             BrowserChange::TerminalLinks(_) => "browser-terminal-links",

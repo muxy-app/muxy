@@ -165,13 +165,13 @@ pub(crate) fn render(
         ),
         None if editing => (
             tr!(
-                "If it was revoked, moved, or reset, copy a new pairing link from its Settings → Devices to pair again."
+                "If it was revoked, moved, or reset, copy a new pairing link from its Devices tab to pair again."
             ),
             theme.fg_muted,
         ),
         None => (
             tr!(
-                "On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN."
+                "On the other computer, open the Devices tab, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN."
             ),
             theme.fg_muted,
         ),

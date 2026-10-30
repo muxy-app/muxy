@@ -16,10 +16,13 @@ immediately, and Settings works while the server is offline.
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
 | Browser | The [built-in browser](../features/browser.md): terminal links, search engine, home page, profiles, import |
 | Server | This computer's [server](../features/server.md#settings): shell, history, shell integration, stop and restart |
-| Mobile | [Phone access](../features/mobile.md) and paired phones |
 | Extensions | Installed extensions and the marketplace |
 | AI | Tools and prompts for [Git](../features/git.md) actions |
 | Backup & Restore | Export, restore, and import from 1.x |
+
+Phone and computer pairing lives in the **Devices** tab, not in Settings; see
+[Mobile](../features/mobile.md) and
+[Remote servers](../features/remote-servers.md#pair-with-another-computer).
 
 ## Files
 

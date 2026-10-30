@@ -1140,10 +1140,7 @@ fn the_add_project_dropdown_is_available_without_saved_servers(cx: &mut TestAppC
     let remote = cx.debug_bounds("menu-label-Remote").expect("Remote");
     cx.simulate_click(remote.center(), Modifiers::none());
     cx.run_until_parked();
-    assert!(
-        cx.debug_bounds("menu-label-Manage Remote Servers…")
-            .is_some()
-    );
+    assert!(cx.debug_bounds("menu-label-Manage Devices…").is_some());
 }
 
 #[gpui::test]
