@@ -80,6 +80,15 @@ terminal's folder, and you can:
 - Select a command's output with **Select Command Output** in the Edit menu or
   the right-click menu.
 
+## Program status
+
+Tabs show the progress a program reports with OSC 9;4 or the
+[program status protocol](https://www.superlogical.com/rex/docs/build/program-status)
+(OSC 7501), which wins when a program sends both. Working and waiting clear
+when the program exits; a reported error stays until the next report. Scripts
+can report with `muxy status`, for example
+`muxy status working --app deploy --msg "Uploading"`.
+
 ## Quick Terminal
 
 A terminal that drops down from the top of the screen from anywhere. Record a

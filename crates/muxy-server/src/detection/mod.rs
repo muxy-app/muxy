@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use muxy_protocol::{AgentProvider, AgentState};
+use muxy_terminal::{ProgramState, ProgramStatus};
 use regex::Regex;
 use serde::Deserialize;
 
@@ -245,6 +246,27 @@ impl Detector {
                 return false;
             }
         }
+        self.settle(next)
+    }
+
+    /// Takes the state the agent reported itself (OSC 7501), which needs no
+    /// confirmation and outranks what the screen shows.
+    pub(crate) fn report(&mut self, provider: AgentProvider, state: ProgramState) -> bool {
+        if self.provider != Some(provider) {
+            *self = Self {
+                provider: Some(provider),
+                ..Self::default()
+            };
+        }
+        self.last_input = None;
+        self.settle(match state {
+            ProgramState::Working => AgentState::Working,
+            ProgramState::Blocked => AgentState::Blocked,
+            ProgramState::Idle | ProgramState::Done | ProgramState::Error => AgentState::Idle,
+        })
+    }
+
+    fn settle(&mut self, next: AgentState) -> bool {
         self.pending = None;
         let completed = self.cycle && next == AgentState::Idle;
         if next == AgentState::Working {
@@ -255,6 +277,28 @@ impl Detector {
         }
         self.state = next;
         completed
+    }
+}
+
+/// The agent to update and the status report it made, from the agent
+/// running in the foreground, the agent last seen, and the latest report
+/// (OSC 7501). A report naming another program, or another agent, is not
+/// the agent's; one naming an agent recognizes it even behind SSH.
+pub(crate) fn reporting_agent(
+    running: Option<AgentProvider>,
+    previous: Option<AgentProvider>,
+    status: Option<ProgramStatus>,
+) -> (Option<AgentProvider>, Option<ProgramStatus>) {
+    let Some(status) = status else {
+        return (running, None);
+    };
+    if status.app.is_empty() {
+        return (running.or(previous), Some(status));
+    }
+    match (running, alias(&status.app)) {
+        (_, None) => (running, None),
+        (Some(running), Some(named)) if running != named => (Some(running), None),
+        (_, named) => (named, Some(status)),
     }
 }
 

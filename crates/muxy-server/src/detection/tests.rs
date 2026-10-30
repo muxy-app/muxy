@@ -790,3 +790,61 @@ fn codex_animated_idle_prompt_finishes_once_without_waiting_for_a_static_screen(
     assert_eq!(detector.state, AgentState::Idle);
     assert_eq!(completions, 1);
 }
+
+#[test]
+fn reported_states_apply_at_once_and_finish_screen_detected_work() {
+    let mut detector = Detector::default();
+    let now = Instant::now();
+    detector.update(
+        Some(AgentProvider::Claude),
+        String::new(),
+        "⠋ Working",
+        "",
+        now,
+    );
+    assert_eq!(detector.state, AgentState::Working);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Blocked));
+    assert_eq!(detector.state, AgentState::Blocked);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Working));
+    assert!(detector.report(AgentProvider::Claude, ProgramState::Done));
+    assert_eq!(detector.state, AgentState::Idle);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Idle));
+    assert!(!detector.report(AgentProvider::Pi, ProgramState::Error));
+    assert_eq!(detector.provider, Some(AgentProvider::Pi));
+}
+
+#[test]
+fn reports_belong_to_the_agent_they_name_or_to_the_running_one() {
+    let report = |app: &str| {
+        Some(ProgramStatus {
+            state: ProgramState::Done,
+            progress: None,
+            app: app.into(),
+        })
+    };
+    let claude = Some(AgentProvider::Claude);
+    let codex = Some(AgentProvider::Codex);
+    assert_eq!(
+        reporting_agent(None, None, report("claude-code")),
+        (claude, report("claude-code"))
+    );
+    assert_eq!(
+        reporting_agent(claude, None, report("claude-code")),
+        (claude, report("claude-code"))
+    );
+    assert_eq!(
+        reporting_agent(codex, None, report("claude-code")),
+        (codex, None)
+    );
+    assert_eq!(reporting_agent(codex, None, report("cargo")), (codex, None));
+    assert_eq!(reporting_agent(None, None, report("cargo")), (None, None));
+    assert_eq!(
+        reporting_agent(codex, None, report("")),
+        (codex, report(""))
+    );
+    assert_eq!(
+        reporting_agent(None, claude, report("")),
+        (claude, report(""))
+    );
+    assert_eq!(reporting_agent(codex, claude, None), (codex, None));
+}

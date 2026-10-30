@@ -24,6 +24,8 @@ pub(crate) enum Command {
     Browser(Box<crate::browser::Invocation>),
     /// Installs the agent skill into agent folders and these folders.
     InstallSkills(Vec<PathBuf>),
+    /// A program status report for this computer's terminal.
+    Status(String),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -58,7 +60,8 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     | Command::Stdio(_)
                     | Command::Open(_)
                     | Command::Browser(_)
-                    | Command::InstallSkills(_),
+                    | Command::InstallSkills(_)
+                    | Command::Status(_),
                     [word, ..],
                 ) => Err(invalid(&format!(
                     "--host can't be combined with {}",
@@ -95,6 +98,12 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
             install_skills(rest).map(Command::InstallSkills)
         }
         [command, rest @ ..] if command == "browser" => crate::browser::parse(rest),
+        [command, rest @ ..] if command == "status" && asks_help(rest) => {
+            Ok(Command::Usage(help::STATUS))
+        }
+        [command, rest @ ..] if command == "status" => {
+            crate::status::parse(rest).map(Command::Status)
+        }
         [command] if command == "help" => Ok(Command::Help),
         [command, topic] if command == "help" => topic
             .to_str()
@@ -106,6 +115,15 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
             crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
         }
     }
+}
+
+/// Whether `--help` or `-h` stands where `muxy status` reads its state or an
+/// option, not where it reads an option's value.
+fn asks_help(arguments: &[OsString]) -> bool {
+    arguments
+        .iter()
+        .enumerate()
+        .any(|(index, word)| (index == 0 || index % 2 == 1) && (word == "--help" || word == "-h"))
 }
 
 fn names_folder(word: &OsStr) -> bool {
@@ -209,6 +227,30 @@ mod tests {
         ] {
             assert!(words(&args).is_err(), "{args:?}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn status_reports_stay_on_this_computer_and_have_help() -> io::Result<()> {
+        assert_eq!(
+            words(&["status", "working"])?.1,
+            Command::Status("\x1b]7501;state=working\x1b\\".into())
+        );
+        assert_eq!(
+            words(&["status", "--help"])?.1,
+            Command::Usage(help::STATUS)
+        );
+        assert_eq!(
+            words(&["status", "working", "--help"])?.1,
+            Command::Usage(help::STATUS)
+        );
+        assert!(matches!(
+            words(&["status", "working", "--msg", "--help"])?.1,
+            Command::Status(_)
+        ));
+        assert_eq!(words(&["help", "status"])?.1, Command::Usage(help::STATUS));
+        assert!(!names_folder(OsStr::new("status")));
+        assert!(words(&["--host", "example", "status", "working"]).is_err());
         Ok(())
     }
 

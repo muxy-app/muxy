@@ -12,6 +12,12 @@ OpenCode, Pi, and Xal.
 The server spots them from the running program and what's on screen.
 Recognition is best effort.
 
+An agent that reports its own status with the
+[program status protocol](https://www.superlogical.com/rex/docs/build/program-status)
+(OSC 7501), such as recent Claude Code, is followed by its reports instead of
+its screen. Its `app` name is enough to recognize it, so this also works over
+SSH.
+
 Oh My Pi detection reads its OSC terminal-title run state: a spinner while
 working, `!` when waiting, and `>` when idle. It also recognizes optional OSC
 progress reports, `⎋` working messages, and the older `Working… [esc]` spinner.

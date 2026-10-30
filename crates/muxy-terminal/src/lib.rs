@@ -8,6 +8,7 @@ mod events;
 mod ghostty;
 mod input;
 mod links;
+mod program_status;
 mod progress;
 mod runs;
 mod screen;
@@ -16,6 +17,7 @@ pub use error::{TerminalError, TerminalStep};
 pub use events::TerminalEvent;
 pub use ghostty::{Terminal, TerminalArchive, TerminalHistory, TerminalSnapshot};
 pub use links::{LinkRow, LinkSpan, MAX_LINK_SPANS, MAX_LINK_URI};
+pub use program_status::{ProgramState, ProgramStatus};
 pub use screen::{
     Color, Cursor, CursorShape, InputModes, Modes, Modifiers, MouseAction, MouseButton, MouseEvent,
     Row, Run, ScrollDirection, Size, Style, Underline,

@@ -16,6 +16,8 @@ pub(super) struct Metadata {
     pub(super) directory: ServerPath,
     pub(super) process: Option<ForegroundProcess>,
     pub(super) agent: Option<muxy_protocol::AgentProvider>,
+    /// The session's own shell is in the foreground, so no program it ran is.
+    pub(super) shell_foreground: bool,
     next_agent: std::time::Instant,
     agent_group: Option<u32>,
     observed_directory: Option<ServerPath>,
@@ -28,6 +30,7 @@ impl Metadata {
             directory,
             process: None,
             agent: None,
+            shell_foreground: false,
             next_agent: std::time::Instant::now(),
             agent_group: None,
             observed_directory: None,
@@ -39,17 +42,17 @@ impl Metadata {
         let previous_directory = self.directory.clone();
         let group = pty.foreground_pid();
         let member = group.and_then(foreground_member);
+        self.shell_foreground = group == Some(pty.child_pid())
+            && member.as_ref().is_some_and(|(_, name)| {
+                matches!(
+                    name.trim_start_matches('-'),
+                    "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh"
+                )
+            });
         if self.next_agent <= std::time::Instant::now() || self.agent_group != group {
             self.next_agent = std::time::Instant::now() + std::time::Duration::from_millis(500);
             self.agent_group = group;
-            let session_shell = group == Some(pty.child_pid())
-                && member.as_ref().is_some_and(|(_, name)| {
-                    matches!(
-                        name.trim_start_matches('-'),
-                        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh"
-                    )
-                });
-            self.agent = if session_shell {
+            self.agent = if self.shell_foreground {
                 None
             } else {
                 group.and_then(agent_provider)

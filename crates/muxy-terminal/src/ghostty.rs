@@ -9,7 +9,7 @@ use libghostty_vt::screen::{CellContentTag, CellWide, Screen, TrackedGridRef};
 use libghostty_vt::style::{PaletteIndex, RgbColor, StyleColor, Underline as EngineUnderline};
 use libghostty_vt::terminal::{
     ClipboardLocation, ClipboardWriteError, ColorScheme, CompressionMode, Mode, Point,
-    PointCoordinate, PointSpace, ScrollViewport, Terminal as Engine,
+    PointCoordinate, PointSpace, ScrollViewport, SemanticPromptKind, Terminal as Engine,
 };
 use libghostty_vt::{key, mouse};
 
@@ -176,6 +176,26 @@ impl Terminal {
                 }
             })
             .map_err(create)?;
+        let programs = Rc::clone(&progress);
+        engine
+            .on_program_status(move |_, report| {
+                use crate::program_status::Change;
+                if let Some(change) = Change::of(report) {
+                    programs.borrow_mut().set_program(match change {
+                        Change::Replace(program) => Some(program),
+                        Change::Clear => None,
+                    });
+                }
+            })
+            .map_err(create)?;
+        let prompts = Rc::clone(&progress);
+        engine
+            .on_semantic_prompt(move |_, event| {
+                if let Ok(SemanticPromptKind::PromptStart) = event.kind() {
+                    prompts.borrow_mut().end_program();
+                }
+            })
+            .map_err(create)?;
         engine
             .on_color_scheme(|terminal| {
                 terminal
@@ -335,6 +355,22 @@ impl Terminal {
         self.history_count = 0;
         self.redraw_all = true;
         Ok(true)
+    }
+
+    /// The status the running program reported itself (OSC 7501), if any.
+    pub fn program_status(&self) -> Option<crate::ProgramStatus> {
+        self.progress.borrow().program().cloned()
+    }
+
+    /// How many program status reports have changed the status, so callers
+    /// can tell which program sent the latest one.
+    pub fn program_reports(&self) -> u64 {
+        self.progress.borrow().program_reports()
+    }
+
+    /// Ends the status of a program that has exited, keeping finished work.
+    pub fn end_program_status(&mut self) {
+        self.progress.borrow_mut().end_program();
     }
 
     pub fn take_events(&mut self) -> Vec<TerminalEvent> {
