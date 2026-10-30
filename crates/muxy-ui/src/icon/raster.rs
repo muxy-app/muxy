@@ -52,7 +52,7 @@ pub struct Glyph {
 
 #[cfg(target_os = "macos")]
 pub fn tinted(icon: Icon, size: Pixels, color: Hsla, scale: f32) -> Option<Glyph> {
-    tinted_symbol(&SharedString::from(icon.sf_symbol()), size, color, scale)
+    tinted_symbol(&SharedString::from(icon.sf_symbol()?), size, color, scale)
 }
 
 #[cfg(target_os = "macos")]

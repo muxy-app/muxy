@@ -217,6 +217,7 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
     let fixture = Fixture::new()?;
     for project_action in [
         ShortcutId::AddProject,
+        ShortcutId::NewTabInProject,
         ShortcutId::PreviousProject,
         ShortcutId::NextProject,
         ShortcutId::SelectProject1,
@@ -308,7 +309,7 @@ fn an_existing_binding_keeps_the_key_equalize_splits_defaults_to() -> Result {
 #[test]
 fn a_command_keeps_a_key_a_newer_default_claims_but_cannot_take_one_in_use() -> Result {
     let fixture = Fixture::new()?;
-    let key = ShortcutId::AddProject.definition().keys[0];
+    let key = ShortcutId::NewTabInProject.definition().keys[0];
     let path = fixture.write(
         "settings.toml",
         &format!("[keymap]\n\"command.tests\" = '{key}'\n"),
@@ -316,7 +317,7 @@ fn a_command_keeps_a_key_a_newer_default_claims_but_cannot_take_one_in_use() -> 
     let keymap = Settings::load(&path)?.keymap;
     let chord: KeyChord = key.parse()?;
     assert_eq!(keymap.binding("command.tests"), Some(&chord));
-    assert_eq!(keymap.chord(ShortcutId::AddProject), None);
+    assert_eq!(keymap.chord(ShortcutId::NewTabInProject), None);
     assert!(
         keymap
             .with_binding(
@@ -327,26 +328,36 @@ fn a_command_keeps_a_key_a_newer_default_claims_but_cannot_take_one_in_use() -> 
     );
 
     let moved = keymap.with_binding("command.tests", Some("ctrl-alt-f24".parse()?))?;
-    assert_eq!(moved.chord(ShortcutId::AddProject), Some(&chord));
+    assert_eq!(moved.chord(ShortcutId::NewTabInProject), Some(&chord));
     assert!(moved.with_binding("command.tests", Some(chord)).is_err());
     Ok(())
 }
 
 #[test]
-fn retired_project_terminal_binding_loads_and_releases_its_shortcut() -> Result {
+fn legacy_project_tab_conflicts_load_without_changing_existing_bindings() -> Result {
     let fixture = Fixture::new()?;
-    let source = "[keymap]\nnew_tab_in_project = 'cmd-shift-n'\nnew_tab = 'cmd-shift-n'\n";
-    let path = fixture.write("settings.toml", source)?;
-    let keymap = Settings::load(&path)?.keymap;
-    assert!(keymap.binding("new_tab_in_project").is_none());
-    assert_eq!(
-        keymap.chord(ShortcutId::NewTab),
-        Some(&"cmd-shift-n".parse()?)
-    );
-    assert_eq!(fs::read_to_string(&path)?, source);
-    keymap.save(&path)?;
-    assert!(!fs::read_to_string(&path)?.contains("new_tab_in_project"));
-    assert_eq!(Settings::load(&path)?.keymap, keymap);
+    for key in ["cmd-shift-n", "ctrl-alt-n"] {
+        let source = format!("[keymap]\nnew_tab_in_project = '{key}'\nnew_tab = '{key}'\n");
+        let path = fixture.write("settings.toml", &source)?;
+        let keymap = Settings::load(&path)?.keymap;
+        let chord: KeyChord = key.parse()?;
+        assert_eq!(keymap.chord(ShortcutId::NewTab), Some(&chord));
+        assert_ne!(keymap.chord(ShortcutId::NewTabInProject), Some(&chord));
+        assert_eq!(fs::read_to_string(&path)?, source);
+        assert!(
+            keymap
+                .with_binding("new_tab_in_project", Some(chord))
+                .is_err()
+        );
+        keymap.save(&path)?;
+        assert!(!fs::read_to_string(&path)?.contains("new_tab_in_project"));
+        assert_eq!(Settings::load(&path)?.keymap, keymap);
+
+        let reassigned =
+            keymap.with_binding("new_tab_in_project", Some("ctrl-alt-f24".parse()?))?;
+        reassigned.save(&path)?;
+        assert_eq!(Settings::load(&path)?.keymap, reassigned);
+    }
     Ok(())
 }
 

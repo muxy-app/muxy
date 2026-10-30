@@ -6,7 +6,7 @@ pub(super) fn registered_current_project() -> (AppState, ProjectId) {
     let (mut state, _, project, _, _) = two_projects();
     while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
         state
-            .complete_project_intent(ServerId::local(), intent.operation)
+            .complete_project_intent(ServerId::local(), intent.operation, true)
             .expect("projects registered");
     }
     (state, project)

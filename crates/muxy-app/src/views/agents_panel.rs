@@ -803,7 +803,7 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
             .justify_center()
             .mx_auto()
             .mb(m.spacing2())
-            .size(m.scaled(34.0))
+            .size(super::sidebar::collapsed_item_size(model))
             .rounded(m.radius_xl())
             .when(open, |button| button.bg(theme.hover))
             .cursor_pointer()

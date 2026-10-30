@@ -27,9 +27,10 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 64] = [
+    pub const ACTIONS: [ShortcutId; 65] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
+        ShortcutId::NewTabInProject,
         ShortcutId::NewWorktree,
         ShortcutId::SwitchWorktree,
         ShortcutId::ToggleSidebar,
@@ -261,13 +262,21 @@ impl Keymap {
 
 impl<'de> Deserialize<'de> for Keymap {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        Self::from_overrides(BTreeMap::deserialize(deserializer)?).map_err(de::Error::custom)
+        let mut overrides = BTreeMap::deserialize(deserializer)?;
+        let action = ShortcutId::NewTabInProject.name();
+        let Some(legacy) = overrides.remove(action) else {
+            return Self::from_overrides(overrides).map_err(de::Error::custom);
+        };
+        let mut restored = overrides.clone();
+        restored.insert(action.to_owned(), legacy);
+        Self::from_overrides(restored)
+            .or_else(|_| Self::from_overrides(overrides))
+            .map_err(de::Error::custom)
     }
 }
 
 /// Actions that no longer exist. Older settings files that bind them still load.
-const RETIRED: [&str; 5] = [
-    "new_tab_in_project",
+const RETIRED: [&str; 4] = [
     "project_colors.previous_color",
     "project_colors.next_color",
     "project_colors.choose_color",
@@ -275,9 +284,10 @@ const RETIRED: [&str; 5] = [
 ];
 
 /// Built-in defaults that give way to a key a user binding already has.
-const YIELDING: [ShortcutId; 54] = [
+const YIELDING: [ShortcutId; 55] = [
     ShortcutId::OpenSettings,
     ShortcutId::NewHomeTab,
+    ShortcutId::NewTabInProject,
     ShortcutId::NewWorktree,
     ShortcutId::SwitchWorktree,
     ShortcutId::ToggleSidebar,

@@ -150,6 +150,7 @@ impl AppState {
         &mut self,
         server: ServerId,
         operation: OperationId,
+        accepted: bool,
     ) -> Result<(), AppError> {
         match self.servers.get_mut(&server) {
             Some(state)
@@ -158,7 +159,16 @@ impl AppState {
                     .first()
                     .is_some_and(|intent| intent.operation == operation) =>
             {
-                state.project_intents.remove(0);
+                let intent = state.project_intents.remove(0);
+                if accepted
+                    && let ProjectMutation::Create(project) = intent.mutation
+                    && self.project(project.id).is_some()
+                {
+                    self.removed_projects.retain(|removed| {
+                        removed.server_id != server
+                            || removed.directory.as_os_str().as_bytes() != project.directory.0
+                    });
+                }
                 Ok(())
             }
             _ => Err(AppError::InvalidState(

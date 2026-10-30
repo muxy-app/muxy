@@ -864,10 +864,37 @@ impl AppModel {
         initial_terminal: bool,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
+        self.create_project(
+            server,
+            initial_terminal,
+            |state| state.add_project(server, directory),
+            cx,
+        )
+    }
+
+    pub(crate) fn restore_removed_project(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(removed) = self.state.removed_projects().get(index) {
+            let server = removed.server_id;
+            self.create_project(
+                server,
+                true,
+                |state| state.restore_removed_project(index),
+                cx,
+            );
+        }
+    }
+
+    fn create_project(
+        &mut self,
+        server: ServerId,
+        initial_terminal: bool,
+        create: impl FnOnce(&mut AppState) -> Result<ProjectId, muxy_app_core::AppError>,
+        cx: &mut Context<Self>,
+    ) -> Option<ProjectId> {
         let mut added = None;
         if !self.edit_project(
             |state| {
-                let project = state.add_project(server, directory)?;
+                let project = create(state)?;
                 if initial_terminal {
                     state.open_terminal_tab(project)?;
                 }
@@ -2912,7 +2939,7 @@ mod tests {
         {
             model
                 .state
-                .complete_project_intent(ServerId::local(), intent.operation)
+                .complete_project_intent(ServerId::local(), intent.operation, true)
                 .expect("fixture server acknowledged project");
         }
         let page = muxy_protocol::CatalogPage {

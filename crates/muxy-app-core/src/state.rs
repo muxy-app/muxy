@@ -7,13 +7,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::servers::ServerState;
 use crate::{
-    AppError, Branch, Color, Direction, Pane, PaneContent, PaneId, Project, ProjectId,
-    ProjectStatus, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
+    AppError, Branch, Color, Direction, Pane, PaneContent, PaneId, Project, ProjectId, ProjectKind,
+    ProjectStatus, RemovedProject, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
 };
 
 /// The layout this build writes. Versions 1 and 2 kept one server's catalog
 /// and pending work at the top level; version 3 keeps them per server.
 pub(crate) const VERSION: u32 = 3;
+
+const REMOVED_PROJECTS: usize = 10;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "StoredState")]
@@ -28,6 +30,8 @@ pub struct AppState {
     pub(crate) projects: Vec<Project>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) workspaces: Vec<Workspace>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) removed_projects: Vec<RemovedProject>,
     pub(crate) window: WindowState,
 }
 
@@ -45,6 +49,8 @@ struct StoredState {
     projects: Vec<Project>,
     #[serde(default)]
     workspaces: Vec<Workspace>,
+    #[serde(default)]
+    removed_projects: Vec<RemovedProject>,
     window: WindowState,
     /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
@@ -91,6 +97,7 @@ impl TryFrom<StoredState> for AppState {
             version: VERSION,
             projects: stored.projects,
             workspaces: stored.workspaces,
+            removed_projects: stored.removed_projects,
             window: stored.window,
         };
         let previous_project = state.window.current_project;
@@ -266,6 +273,33 @@ impl AppState {
         server: ServerId,
         directory: PathBuf,
     ) -> Result<ProjectId, AppError> {
+        self.create_project(server, directory, |_| {})
+    }
+
+    pub fn removed_projects(&self) -> &[RemovedProject] {
+        &self.removed_projects
+    }
+
+    pub fn restore_removed_project(&mut self, index: usize) -> Result<ProjectId, AppError> {
+        let removed = self
+            .removed_projects
+            .get(index)
+            .cloned()
+            .ok_or_else(|| AppError::InvalidState("removed project is gone".into()))?;
+        self.create_project(removed.server_id, removed.directory, |descriptor| {
+            descriptor.name = removed.name;
+            descriptor.icon = removed.icon;
+            descriptor.logo = removed.logo;
+            descriptor.color = removed.color.to_string();
+        })
+    }
+
+    fn create_project(
+        &mut self,
+        server: ServerId,
+        directory: PathBuf,
+        customize: impl FnOnce(&mut muxy_protocol::ProjectDescriptor),
+    ) -> Result<ProjectId, AppError> {
         if server.is_local() && !(directory.is_absolute() && directory.is_dir()) {
             return Err(AppError::InvalidState(
                 "project path must be an existing absolute directory".into(),
@@ -281,13 +315,14 @@ impl AppState {
                 "connect to the server before adding projects to it".into(),
             ));
         }
-        let descriptor = muxy_protocol::ProjectDescriptor::new(
+        let mut descriptor = muxy_protocol::ProjectDescriptor::new(
             muxy_protocol::ServerPath(directory.into_os_string().into_vec()),
             self.projects
                 .iter()
                 .filter(|project| project.server_id == server)
                 .map(|project| project.color.as_str()),
         );
+        customize(&mut descriptor);
         let project = Project::from_descriptor(server, &descriptor)?;
         let id = project.id;
         self.queue_project(server, muxy_protocol::ProjectMutation::Create(descriptor))?;
@@ -367,7 +402,22 @@ impl AppState {
     }
 
     pub fn remove_project(&mut self, id: ProjectId) -> Result<Vec<SessionId>, AppError> {
-        self.remove_project_with_mutation(id, muxy_protocol::ProjectMutation::Delete(id))
+        let removed = self
+            .project(id)
+            .filter(|project| {
+                project.parent_id.is_none() && project.kind != Some(ProjectKind::Worktree)
+            })
+            .map(RemovedProject::from);
+        let sessions =
+            self.remove_project_with_mutation(id, muxy_protocol::ProjectMutation::Delete(id))?;
+        if let Some(removed) = removed {
+            self.removed_projects.retain(|entry| {
+                entry.server_id != removed.server_id || entry.directory != removed.directory
+            });
+            self.removed_projects.insert(0, removed);
+            self.removed_projects.truncate(REMOVED_PROJECTS);
+        }
+        Ok(sessions)
     }
 
     pub(crate) fn remove_project_with_mutation(

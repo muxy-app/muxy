@@ -18,7 +18,7 @@ fn session(id: u64) -> TestResult<SessionId> {
 
 fn acknowledge(state: &mut AppState, server: ServerId) -> TestResult {
     while let Some(intent) = state.project_intents(server).first().cloned() {
-        state.complete_project_intent(server, intent.operation)?;
+        state.complete_project_intent(server, intent.operation, true)?;
     }
     Ok(())
 }
