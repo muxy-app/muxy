@@ -38,8 +38,7 @@ pub(crate) struct PendingRemote {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RemoteIntent {
-    /// Add Project opens its folder picker.
-    AddProject,
+    Folders(crate::views::project_picker::Purpose),
     /// A terminal tab opens in its Home.
     HomeTab,
 }
@@ -934,7 +933,7 @@ impl AppModel {
             return;
         }
         match pending.intent {
-            RemoteIntent::AddProject => self.open_remote_project_picker(server, cx),
+            RemoteIntent::Folders(purpose) => self.open_remote_folders(server, purpose, cx),
             RemoteIntent::HomeTab if self.state.server_home(server).is_some() => {
                 self.new_remote_home_tab(server, cx);
             }

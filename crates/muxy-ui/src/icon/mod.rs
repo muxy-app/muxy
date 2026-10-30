@@ -33,6 +33,7 @@ pub enum Icon {
     Cpu,
     Ellipsis,
     Folder,
+    FolderOpen,
     GitBranch,
     Globe,
     Grid,
@@ -123,6 +124,7 @@ impl Icon {
             Self::Cpu => "cpu",
             Self::Ellipsis => "ellipsis",
             Self::Folder => "folder",
+            Self::FolderOpen => "folder-open",
             Self::GitBranch => "git-branch",
             Self::Globe => "globe",
             Self::Grid => "grid-2x2",
@@ -282,8 +284,9 @@ impl Icon {
 
 #[cfg(target_os = "macos")]
 impl Icon {
-    pub fn sf_symbol(self) -> &'static str {
-        match self {
+    pub fn sf_symbol(self) -> Option<&'static str> {
+        Some(match self {
+            Self::FolderOpen => return None,
             Self::AppWindow => "macwindow.badge.plus",
             Self::Archive => "archivebox",
             Self::ArrowUp => "arrow.up",
@@ -369,6 +372,6 @@ impl Icon {
             Self::Quote => "text.quote",
             Self::Stop => "stop.fill",
             Self::TriangleAlert => "exclamationmark.triangle.fill",
-        }
+        })
     }
 }

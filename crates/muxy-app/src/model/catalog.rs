@@ -1,4 +1,4 @@
-use super::{AppModel, ConnectionState, Work};
+use super::{AppModel, ConnectionState, Overlay, Work};
 use gpui::Context;
 use muxy_app_core::browser::api;
 use muxy_app_core::browser::automation::{Args, string};
@@ -91,13 +91,21 @@ impl AppModel {
             }
         }
         let previous = self.state.clone();
-        if let Err(error) = self.state.complete_project_intent(server, operation) {
+        if let Err(error) = self
+            .state
+            .complete_project_intent(server, operation, accepted)
+        {
             self.fail(error.to_string(), cx);
             return;
         }
         if !self.save(cx) {
             self.state = previous;
             return;
+        }
+        if self.state.removed_projects().len() != previous.removed_projects().len()
+            && matches!(&self.overlay, Some(Overlay::Menu(menu)) if menu.restores_removed_projects())
+        {
+            self.dismiss_overlay(cx);
         }
         if accepted {
             self.sync_git(cx);

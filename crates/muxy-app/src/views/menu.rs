@@ -81,6 +81,7 @@ pub(crate) enum Command {
     RemoveProject(muxy_app_core::ProjectId),
     AddProject,
     AddRemoteProject(muxy_app_core::ServerId),
+    RestoreRemovedProject(usize),
     ManageRemoteDevices,
     /// A row of a remote server's menu, from the Remote popover or tab.
     RemoteServers(super::server_menu::Servers, super::server_menu::Action),
@@ -238,6 +239,14 @@ impl Menu {
             grace: None,
             panels: RefCell::default(),
         }
+    }
+
+    pub(crate) fn restores_removed_projects(&self) -> bool {
+        self.items
+            .iter()
+            .filter_map(Item::submenu_items)
+            .flatten()
+            .any(|item| matches!(item.command(), Some(Command::RestoreRemovedProject(_))))
     }
 
     fn items_at(&self, level: usize) -> Option<&[Item]> {
@@ -675,6 +684,11 @@ impl AppModel {
             }
             Command::AddRemoteProject(server) => {
                 self.open_remote_project_picker(server, cx);
+                return;
+            }
+            Command::RestoreRemovedProject(index) => {
+                self.restore_removed_project(index, cx);
+                self.focus_active(window, cx);
                 return;
             }
             Command::ManageRemoteDevices => {

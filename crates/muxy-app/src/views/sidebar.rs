@@ -11,9 +11,9 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Bounds, Context, DragMoveEvent, Empty, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled,
-    StyledImage, Window, div, px,
+    AnyElement, AppContext, Bounds, Context, DragMoveEvent, Empty, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Point, SharedString,
+    StatefulInteractiveElement, Styled, StyledImage, Window, div, px,
 };
 use muxy_app_core::{
     Project, ProjectId, ProjectStatus,
@@ -46,6 +46,12 @@ pub(crate) fn register_commands(
         ShortcutId::AddProject,
         tr_key!("Open Project…"),
         super::workspace::AddProject,
+    ));
+    registry.register(action(
+        model,
+        ShortcutId::NewTabInProject,
+        tr_key!("New Tab in Project…"),
+        super::workspace::NewTabInProject,
     ));
     let has_workspaces = !model.state.workspaces().is_empty() || model.remote_servers_offered();
     let model = cx.weak_entity();
@@ -185,13 +191,12 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(m.spacing3())
                 .pb(m.spacing3())
                 .when(model.appearance.sidebar_expanded, |footer| {
-                    footer.justify_between().px(m.spacing3())
+                    footer.justify_between().gap(m.spacing3()).px(m.spacing3())
                 })
                 .when(!model.appearance.sidebar_expanded, |footer| {
-                    footer.flex_col()
+                    footer.flex_col().gap(m.spacing3())
                 })
                 .bg(model.sidebar_background())
                 .child(super::remote_servers::section(model, cx))
@@ -205,8 +210,12 @@ pub(super) fn footer_button_size(model: &AppModel) -> Pixels {
     if model.appearance.sidebar_expanded {
         model.metrics.control_large()
     } else {
-        model.metrics.scaled(34.0)
+        collapsed_item_size(model)
     }
+}
+
+pub(super) fn collapsed_item_size(model: &AppModel) -> Pixels {
+    model.metrics.scaled(34.0)
 }
 
 fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -232,7 +241,7 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
             model.choose_project_source(event.position(), window, cx);
         }))
         .child(
-            IconGlyph::new(Icon::Plus, m.font_body(), model.theme.fg_muted)
+            IconGlyph::new(Icon::FolderOpen, m.font_body(), model.theme.fg_muted)
                 .hover_in_group("sidebar-add-project", model.theme.fg),
         )
         .into_any_element()
@@ -262,15 +271,33 @@ impl AppModel {
                     .separated(),
             ))
             .collect();
-        self.open_menu(
-            vec![
-                Item::action(tr!("Local"), Command::AddProject),
-                Item::submenu(tr!("Remote"), devices),
-            ],
-            position,
-            window,
-            cx,
-        );
+        let mut items = vec![
+            Item::action(tr!("Local"), Command::AddProject),
+            Item::submenu(tr!("Remote"), devices),
+        ];
+        let removed = self.restorable_projects();
+        if !removed.is_empty() {
+            items.push(Item::submenu(tr!("Recently Removed"), removed).separated());
+        }
+        self.open_menu(items, position, window, cx);
+    }
+
+    fn restorable_projects(&self) -> Vec<Item> {
+        self.state
+            .removed_projects()
+            .iter()
+            .enumerate()
+            .filter(|(_, removed)| {
+                self.state.server_home(removed.server_id).is_some()
+                    && !self.state.projects().iter().any(|project| {
+                        project.server_id == removed.server_id
+                            && project.directory == removed.directory
+                    })
+            })
+            .map(|(index, removed)| {
+                Item::action(removed.name.clone(), Command::RestoreRemovedProject(index))
+            })
+            .collect()
     }
 
     /// The name shown for a project: another computer's Home goes by its
@@ -280,12 +307,6 @@ impl AppModel {
             Some(name) if project.home => name.to_owned(),
             _ => project.name.clone(),
         }
-    }
-
-    /// Where another computer's project is, as `box · ~/code/app`.
-    pub(crate) fn remote_location(&self, project: &Project) -> Option<String> {
-        let name = self.server_name(project.server_id)?;
-        Some(format!("{name} · {}", self.project_path_label(project)))
     }
 
     /// The project's folder, with `~` for its own computer's Home.
@@ -743,7 +764,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 .flex()
                 .flex_col()
                 .px(if wide { m.spacing3() } else { m.spacing4() })
-                .gap(m.spacing3())
+                .gap(if wide { m.spacing2() } else { m.spacing3() })
                 .pt(if wide { m.spacing5() } else { m.spacing2() })
                 .pb(m.spacing3())
                 .when(!wide, Styled::items_center)
@@ -790,16 +811,15 @@ fn project_row(
             )
         })
         .map_or_else(
-            || project_tile(project, model, m.icon_xxl(), Some(group.clone())),
+            || project_tile(project, model, tile_size(model), Some(group.clone())),
             |label| {
                 div()
                     .debug_selector(move || format!("project-shortcut-{id}"))
-                    .child(super::shortcut_hints::badge(label, m.icon_xxl(), model))
+                    .child(super::shortcut_hints::badge(label, tile_size(model), model))
                     .into_any_element()
             },
         );
     let activity = super::tab_activity::project_status(id, model);
-    let server = model.server_name(project.server_id);
     let drag = DraggedProject {
         id,
         last_target: Cell::new(None),
@@ -817,13 +837,15 @@ fn project_row(
         })
         .when(wide, |row| {
             row.p(m.spacing2())
-                .h(m.icon_xxl() + m.spacing2() * 2.0)
-                .gap(m.spacing4())
-                .rounded(m.radius_lg())
+                .h(tab_sidebar::row_height(model))
+                .gap(m.spacing3())
+                .rounded(m.radius_md())
                 .when(active, |row| row.bg(theme.surface))
                 .hover(|style| style.bg(if active { theme.surface } else { theme.hover }))
         })
-        .when(!wide, |row| row.justify_center().size(m.scaled(34.0)))
+        .when(!wide, |row| {
+            row.justify_center().size(collapsed_item_size(model))
+        })
         .when(missing, |row| row.opacity(0.5))
         .when(!missing, |row| {
             row.cursor_pointer()
@@ -860,52 +882,11 @@ fn project_row(
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .flex()
-                    .flex_col()
-                    .gap(m.scaled(1.0))
+                    .truncate()
+                    .text_size(m.font_body())
+                    .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.fg)
-                    .child(
-                        div()
-                            .truncate()
-                            .text_size(m.font_emphasis())
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(model.project_title(project)),
-                    )
-                    .when(has_worktrees, |label| {
-                        let selected = model.state.project(model.preferred_worktree(id));
-                        let primary = tr!("primary");
-                        let worktree = selected
-                            .filter(|p| p.parent_id.is_some())
-                            .map_or(primary.as_ref(), |p| p.name.as_str());
-                        label.child(
-                            div()
-                                .debug_selector(move || format!("project-worktree-label-{id}"))
-                                .truncate()
-                                .text_size(m.font_footnote())
-                                .font_family(muxy_ui::font::monospace())
-                                .font_weight(FontWeight::NORMAL)
-                                .child(server.map_or_else(
-                                    || worktree.to_owned(),
-                                    |server| format!("{server} · {worktree}"),
-                                )),
-                        )
-                    })
-                    .when_some(
-                        model
-                            .remote_location(project)
-                            .filter(|_| !has_worktrees && !project.is_remote_home()),
-                        |label, location| {
-                            label.child(
-                                div()
-                                    .debug_selector(move || format!("project-server-label-{id}"))
-                                    .truncate()
-                                    .text_size(m.font_footnote())
-                                    .font_weight(FontWeight::NORMAL)
-                                    .text_color(theme.fg_muted)
-                                    .child(location),
-                            )
-                        },
-                    ),
+                    .child(model.project_title(project)),
             )
         })
         .when(wide, |row| row.children(remote_marker(project, model)))
@@ -950,6 +931,14 @@ fn project_row(
             )))
         })
         .into_any_element()
+}
+
+pub(super) fn tile_size(model: &AppModel) -> Pixels {
+    if model.appearance.sidebar_expanded {
+        model.metrics.control_small()
+    } else {
+        model.metrics.icon_xxl()
+    }
 }
 
 /// Marks another computer's project, naming it in a tooltip.
@@ -1007,9 +996,9 @@ pub(crate) fn project_tile(
     group: Option<SharedString>,
 ) -> AnyElement {
     let m = model.metrics;
+    let id = project.id;
     let scale = f32::from(size) / f32::from(m.icon_xxl());
-    let color = project_color(project, model);
-    let foreground = contrasting_foreground(color);
+    let (background, foreground) = tile_colors(project_color(project, model), &model.theme);
     let glyph = if let Some((_, logo)) = model.project_logos.get(&project.id) {
         gpui::img(logo.clone())
             .size(size)
@@ -1022,12 +1011,8 @@ pub(crate) fn project_tile(
         .filter(|icon| muxy_ui::symbols::PROJECT_ICONS || !icon.starts_with("sf:"))
     {
         if let Some(symbol) = icon.strip_prefix("sf:") {
-            SymbolGlyph::new(
-                symbol.to_owned(),
-                m.font_title_large() * scale,
-                foreground.into(),
-            )
-            .into_any_element()
+            SymbolGlyph::new(symbol.to_owned(), m.font_title_large() * scale, foreground)
+                .into_any_element()
         } else {
             div()
                 .text_size(m.font_title_large() * scale)
@@ -1035,12 +1020,7 @@ pub(crate) fn project_tile(
                 .into_any_element()
         }
     } else if project.home && project.server_id.is_local() {
-        SymbolGlyph::new(
-            "house.fill",
-            m.font_title_large() * scale,
-            foreground.into(),
-        )
-        .into_any_element()
+        SymbolGlyph::new("house.fill", m.font_title_large() * scale, foreground).into_any_element()
     } else {
         div()
             .text_size(m.font_emphasis() * scale)
@@ -1050,6 +1030,7 @@ pub(crate) fn project_tile(
             .into_any_element()
     };
     div()
+        .debug_selector(move || format!("project-tile-{id}"))
         .flex()
         .flex_none()
         .items_center()
@@ -1057,7 +1038,7 @@ pub(crate) fn project_tile(
         .size(size)
         .rounded(m.radius_md() * scale)
         .when(!model.project_logos.contains_key(&project.id), |tile| {
-            tile.bg(color)
+            tile.bg(background)
         })
         .overflow_hidden()
         .when_some(group, |tile, group| {
@@ -1065,4 +1046,41 @@ pub(crate) fn project_tile(
         })
         .child(glyph)
         .into_any_element()
+}
+
+fn tile_colors(color: gpui::Rgba, theme: &muxy_ui::theme::Theme) -> (Hsla, Hsla) {
+    const TINT: f32 = 0.2;
+    const MARK_LIGHTNESS: f32 = 0.75;
+    if theme.bg.l >= 0.5 {
+        return (color.into(), contrasting_foreground(color).into());
+    }
+    let color = Hsla::from(color);
+    let mark = Hsla {
+        l: color.l.max(MARK_LIGHTNESS),
+        ..color
+    };
+    (color.opacity(TINT), mark)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use muxy_ui::theme::{ColorScheme, Theme};
+
+    fn theme(background: &str) -> Theme {
+        Theme::from_scheme(&ColorScheme::parse(&format!("background = {background}")))
+    }
+
+    #[test]
+    fn dark_themes_tint_tiles_and_lighten_their_marks() {
+        let red = gpui::rgb(0xe5_48_4d);
+        let (background, mark) = tile_colors(red, &theme("#19171f"));
+        assert!((background.a - 0.2).abs() < f32::EPSILON);
+        assert!((background.h - Hsla::from(red).h).abs() < 0.001);
+        assert!(mark.l >= 0.75 && (mark.a - 1.0).abs() < f32::EPSILON);
+
+        let (background, mark) = tile_colors(red, &theme("#ffffff"));
+        assert_eq!(background, Hsla::from(red));
+        assert_eq!(mark, Hsla::from(contrasting_foreground(red)));
+    }
 }
