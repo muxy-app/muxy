@@ -393,6 +393,16 @@ impl AppModel {
         }
     }
 
+    /// Closes the Quick Terminal because its session is no longer running,
+    /// keeping the session's saved output.
+    pub(crate) fn close_ended_quick_terminal(&mut self, cx: &mut Context<Self>) {
+        self.hide_quick_terminal(true, cx);
+        self.state.close_ended_quick_terminal();
+        if self.save(cx) {
+            self.sync_references(cx);
+        }
+    }
+
     pub(super) fn restore_quick_terminal(
         &mut self,
         sessions: &[muxy_protocol::SessionInfo],
@@ -402,7 +412,9 @@ impl AppModel {
             self.pane_session(pane.id)
                 .is_some_and(|id| !sessions.iter().any(|session| session.id == id))
         });
-        if stale || !self.settings.quick_terminal.enabled {
+        if stale {
+            self.close_ended_quick_terminal(cx);
+        } else if !self.settings.quick_terminal.enabled {
             self.close_quick_terminal(cx);
         }
     }

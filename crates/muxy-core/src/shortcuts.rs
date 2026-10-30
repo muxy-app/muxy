@@ -558,13 +558,13 @@ pub const ALL: &[Shortcut] = &[
     },
     Shortcut {
         id: "new_worktree",
-        keys: &["cmd-alt-n"],
+        keys: platform_keys!(&["cmd-alt-n"], &["ctrl-shift-alt-n"]),
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[&[Some("WorkspaceTabs")]],
     },
     Shortcut {
         id: "switch_worktree",
-        keys: &["cmd-alt-w"],
+        keys: platform_keys!(&["cmd-alt-w"], &["ctrl-shift-alt-w"]),
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[&[Some("WorkspaceTabs")]],
     },

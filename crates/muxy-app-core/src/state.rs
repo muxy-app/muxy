@@ -189,17 +189,27 @@ impl AppState {
     }
 
     pub fn close_quick_terminal(&mut self) {
+        if let Some(session) = self.take_quick_terminal() {
+            self.discard_unreferenced(ServerId::local(), session);
+        }
+    }
+
+    /// Removes the Quick Terminal after its session ended. Its saved output
+    /// stays on the server.
+    pub fn close_ended_quick_terminal(&mut self) {
+        self.take_quick_terminal();
+    }
+
+    fn take_quick_terminal(&mut self) -> Option<SessionId> {
         if let Some(pane) = &self.quick_terminal {
             self.cancel_pending_creation(pane.id);
         }
-        if let Some(Pane {
-            content: PaneContent::Terminal {
-                session: Some(session),
-            },
-            ..
-        }) = self.quick_terminal.take()
-        {
-            self.discard_unreferenced(ServerId::local(), session);
+        match self.quick_terminal.take()?.content {
+            PaneContent::Terminal { session } => session,
+            PaneContent::Settings
+            | PaneContent::Webview(_)
+            | PaneContent::Browser(_)
+            | PaneContent::Servers => None,
         }
     }
 
@@ -622,6 +632,16 @@ impl AppState {
         self.remove_pane(pane)
     }
 
+    /// Closes a pane whose session its server no longer lists, even in a
+    /// project whose folder is gone. The session's saved output stays on the
+    /// server, so nothing is discarded.
+    pub fn close_ended_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+        self.starting_directories.remove(&pane);
+        self.remove_pane(pane)
+    }
+
+    /// Closes the panes of a session that has ended. Its saved output stays on
+    /// the server, so nothing is discarded.
     pub fn close_session_panes(
         &mut self,
         server: ServerId,
@@ -635,7 +655,6 @@ impl AppState {
         for pane in panes {
             self.remove_pane(pane)?;
         }
-        self.discard_unreferenced(server, session);
         Ok(())
     }
 

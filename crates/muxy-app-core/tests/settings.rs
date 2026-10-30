@@ -937,3 +937,36 @@ fn invalid_servers_are_rejected_without_changing_the_file() -> Result {
     assert!(settings.servers.is_empty());
     Ok(())
 }
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn linux_defaults_avoid_the_command_key_and_replace_former_worktree_keys() -> Result {
+    for key in muxy_core::shortcuts::ALL
+        .iter()
+        .flat_map(|shortcut| shortcut.keys)
+    {
+        assert!(!key.contains("cmd"), "{key} needs a Linux key");
+    }
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[keymap]\nnew_worktree = 'cmd-alt-n'\nswitch_worktree = 'ctrl-alt-f24'\n",
+    )?;
+    let keymap = Settings::load(&path)?.keymap;
+    assert_eq!(
+        keymap.chord(ShortcutId::NewWorktree),
+        Some(&"ctrl-shift-alt-n".parse()?)
+    );
+    assert_eq!(
+        keymap.chord(ShortcutId::SwitchWorktree),
+        Some(&"ctrl-alt-f24".parse()?)
+    );
+    let path = fixture.write("settings.toml", "[keymap]\nswitch_worktree = 'cmd-alt-w'\n")?;
+    assert_eq!(
+        Settings::load(&path)?
+            .keymap
+            .chord(ShortcutId::SwitchWorktree),
+        Some(&"ctrl-shift-alt-w".parse()?)
+    );
+    Ok(())
+}

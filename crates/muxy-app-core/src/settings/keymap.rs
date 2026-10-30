@@ -262,7 +262,8 @@ impl Keymap {
 
 impl<'de> Deserialize<'de> for Keymap {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        let mut overrides = BTreeMap::deserialize(deserializer)?;
+        let mut overrides: BTreeMap<String, String> = BTreeMap::deserialize(deserializer)?;
+        overrides.retain(|name, value| !former_linux_default(name, value));
         let action = ShortcutId::NewTabInProject.name();
         let Some(legacy) = overrides.remove(action) else {
             return Self::from_overrides(overrides).map_err(de::Error::custom);
@@ -273,6 +274,17 @@ impl<'de> Deserialize<'de> for Keymap {
             .or_else(|_| Self::from_overrides(overrides))
             .map_err(de::Error::custom)
     }
+}
+
+/// macOS-only keys that Linux once used as defaults. A file that still holds
+/// one gets the current Linux default instead.
+const FORMER_LINUX_DEFAULTS: [(&str, &str); 2] = [
+    ("new_worktree", "cmd-alt-n"),
+    ("switch_worktree", "cmd-alt-w"),
+];
+
+fn former_linux_default(name: &str, value: &str) -> bool {
+    !cfg!(target_os = "macos") && FORMER_LINUX_DEFAULTS.contains(&(name, value))
 }
 
 /// Actions that no longer exist. Older settings files that bind them still load.

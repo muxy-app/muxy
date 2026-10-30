@@ -1948,7 +1948,7 @@ impl AppModel {
         let plan = restore::plan(&self.state, server, sessions);
         let active = self.active_pane();
         for (pane, _) in plan.close {
-            if let Err(error) = self.state.close_session_pane(pane) {
+            if let Err(error) = self.state.close_ended_pane(pane) {
                 self.fail(error.to_string(), cx);
                 return;
             }
@@ -2512,7 +2512,7 @@ impl AppModel {
             self.sync_references(cx);
         }
         if server.is_local() && self.is_quick_terminal(pane) && missing_session(error) {
-            self.close_quick_terminal(cx);
+            self.close_ended_quick_terminal(cx);
             return;
         }
         if let Some(session) = session {
@@ -2798,7 +2798,7 @@ impl AppModel {
                 .quick_terminal()
                 .is_some_and(|pane| self.pane_session(pane.id) == Some(session))
         {
-            self.close_quick_terminal(cx);
+            self.close_ended_quick_terminal(cx);
         }
         let active = self.active_pane();
         if let Err(error) = self.state.close_session_panes(server, session) {
@@ -3101,11 +3101,7 @@ mod tests {
             assert!(
                 !work
                     .iter()
-                    .any(|work| matches!(work, Work::ReadSaved { .. }))
-            );
-            assert!(
-                work.iter()
-                    .any(|work| matches!(work, Work::Discard(id, _) if *id == session))
+                    .any(|work| matches!(work, Work::ReadSaved { .. } | Work::Discard(..)))
             );
             model.receive(
                 (
@@ -3230,8 +3226,20 @@ mod tests {
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Connected(vec![SessionInfo {
+                        project: model.state.home().id,
+                        id: session,
+                        directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                    }]),
+                ),
+                cx,
+            );
             acknowledge_catalog(model, cx);
+            model.settings.window.confirm_running_process = false;
             model.close_tab(tab, cx);
             assert_eq!(model.state.home().tabs.len(), 1);
             assert_eq!(model.active_tab(), Some(other));
@@ -3763,6 +3771,57 @@ mod tests {
             );
             assert!(model.state.home().tabs.is_empty());
             assert!(model.active_pane().is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn ended_sessions_close_their_panes_and_keep_their_saved_output(cx: &mut TestAppContext) {
+        let mut state = AppState::bootstrap().expect("state");
+        let home = state.home().id;
+        let ended = SessionId::new(42).expect("ID");
+        let gone = SessionId::new(43).expect("ID");
+        for session in [ended, gone] {
+            state.open_terminal_tab(home).expect("tab");
+            let pane = state.window().active_pane.expect("pane");
+            state
+                .set_pane_session(pane, Some(session))
+                .expect("session");
+        }
+        let (boot, requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Connected(vec![SessionInfo {
+                        project: home,
+                        id: ended,
+                        directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                    }]),
+                ),
+                cx,
+            );
+            acknowledge_catalog(model, cx);
+            assert_eq!(model.state.home().tabs.len(), 1);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::SessionEnded {
+                        session: ended,
+                        reason: ExitReason::Ended,
+                    }),
+                ),
+                cx,
+            );
+            assert!(model.state.home().tabs.is_empty());
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
+            assert!(
+                !requests
+                    .try_iter()
+                    .any(|(_, work)| matches!(work, Work::Discard(_, _)))
+            );
         });
     }
 

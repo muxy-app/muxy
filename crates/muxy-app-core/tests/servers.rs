@@ -538,3 +538,45 @@ fn the_remote_servers_tab_moves_to_home_when_its_folder_is_gone() -> TestResult 
     assert!(project.tabs.iter().all(|tab| tab.id != first));
     Ok(())
 }
+
+#[test]
+fn ended_sessions_close_without_discarding_but_closed_ones_discard() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let ended = session(1)?;
+    state.open_terminal_tab(state.home().id)?;
+    let pane = state.home().tabs[0].panes[0].id;
+    state.set_pane_session(pane, Some(ended))?;
+    state.close_session_panes(LOCAL, ended)?;
+    assert!(state.home().tabs.is_empty());
+    assert!(state.pending_discards(LOCAL).is_empty());
+
+    let quick_ended = session(2)?;
+    let quick = state.ensure_quick_terminal();
+    state.set_pane_session(quick, Some(quick_ended))?;
+    state.close_ended_quick_terminal();
+    assert!(state.quick_terminal().is_none());
+    assert!(state.pending_discards(LOCAL).is_empty());
+
+    let quick_closed = session(3)?;
+    let quick = state.ensure_quick_terminal();
+    state.set_pane_session(quick, Some(quick_closed))?;
+    state.close_quick_terminal();
+    assert_eq!(state.pending_discards(LOCAL), [quick_closed]);
+
+    let directory = tempfile::tempdir()?;
+    let project = state.add_project(LOCAL, directory.path().to_path_buf())?;
+    let gone = session(4)?;
+    state.open_terminal_tab(project)?;
+    let pane = state.project(project).ok_or("project")?.tabs[0].panes[0].id;
+    state.set_pane_session(pane, Some(gone))?;
+    directory.close()?;
+    state.refresh_project_statuses();
+    assert_eq!(
+        state.project(project).ok_or("project")?.status(),
+        ProjectStatus::Missing
+    );
+    state.close_ended_pane(pane)?;
+    assert!(state.project(project).ok_or("project")?.tabs.is_empty());
+    assert_eq!(state.pending_discards(LOCAL), [quick_closed]);
+    Ok(())
+}
