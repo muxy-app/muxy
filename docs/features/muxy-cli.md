@@ -52,6 +52,7 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy activity list\|ack` | Reads or clears [AI agent](ai-agents.md) activity. |
 | `muxy browser open\|list\|read\|click\|…` | Drives browser tabs in the desktop app on this computer. See [Browser control](#browser-control). |
+| `muxy status <state> [--app APP] [--msg TEXT]` | Tells the terminal what a script is doing (OSC 7501): `idle`, `working`, `done`, `blocked`, `error`, or `clear`. Needs no server. |
 | `muxy exec <project> -- <program> [args]` | Runs a program in the project folder, without a shell. |
 | `muxy git`, `muxy files` | Run raw server Git and file actions as JSON. Advanced; the JSON shape follows the protocol and may change. |
 | `muxy mobile` | Turns on phone access and pairs phones. See [Mobile](mobile.md). |

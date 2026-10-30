@@ -89,6 +89,9 @@ struct Owner {
     next_detection: Instant,
     detection_screen: String,
     detection_progress: String,
+    /// The foreground process group when the program status last changed.
+    program_group: Option<u32>,
+    program_reports: u64,
     size: Size,
     events: Receiver<OwnerEvent>,
     input: Sender<InputWrite>,
@@ -181,6 +184,8 @@ pub(crate) fn start(
                 next_detection: Instant::now(),
                 detection_screen: String::new(),
                 detection_progress: String::new(),
+                program_group: None,
+                program_reports: 0,
                 info: session,
                 pty,
                 terminal,
@@ -422,6 +427,10 @@ impl Owner {
     fn feed(&mut self, bytes: &[u8]) -> Result<(), Fault> {
         self.detection_dirty = true;
         self.terminal.feed(bytes);
+        if self.terminal.program_reports() != self.program_reports {
+            self.program_reports = self.terminal.program_reports();
+            self.program_group = self.pty.foreground_pid();
+        }
         if self.terminal.synchronized_output()? {
             self.synchronized_since.get_or_insert_with(Instant::now);
         } else {
@@ -725,27 +734,25 @@ impl Owner {
                     .send(AttachmentEvent::Metadata(event.clone()))
             });
         }
-        if self.metadata.agent != self.detector.provider {
+        let status = self.reported_status();
+        let agent = self.metadata.agent.or_else(|| {
+            status
+                .as_ref()
+                .and_then(|status| crate::detection::reported(&status.app))
+        });
+        if agent != self.detector.provider {
             self.detection_dirty = true;
             self.detection_progress.clear();
         }
         let now = Instant::now();
         if now >= self.next_detection {
             self.next_detection = now + METADATA_POLL;
-            if self.metadata.agent.is_some() {
-                if self.detection_dirty && !self.terminal.synchronized_output().unwrap_or(true) {
-                    if let Ok(screen) = self.terminal.detection_text() {
-                        self.detection_screen = screen;
-                    }
-                    self.detection_dirty = false;
-                }
-                let completed = self.detector.update(
-                    self.metadata.agent,
-                    self.detection_screen.clone(),
-                    &self.metadata.title,
-                    &self.detection_progress,
-                    now,
-                );
+            if let Some(agent) = agent {
+                let completed = if let Some(status) = status {
+                    self.detector.report(agent, status.state)
+                } else {
+                    self.detect_on_screen(agent, now)
+                };
                 if let Some(provider) = self.detector.provider {
                     self.activity.update(
                         muxy_protocol::AgentActivity {
@@ -764,11 +771,41 @@ impl Owner {
             }
         }
         self.next_metadata = Instant::now()
-            + if self.metadata.agent.is_some() {
+            + if agent.is_some() {
                 METADATA_POLL
             } else {
                 Duration::from_secs(1)
             };
+    }
+
+    /// The status the foreground program reported itself (OSC 7501), if any.
+    fn reported_status(&mut self) -> Option<muxy_terminal::ProgramStatus> {
+        let shell = self.metadata.shell_foreground;
+        if shell {
+            self.terminal.end_program_status();
+        }
+        // Finished work outlives its program, but only says what that program
+        // did, and the shell itself is never the program.
+        let group = self.pty.foreground_pid();
+        self.terminal
+            .program_status()
+            .filter(|_| !shell && self.program_group == group)
+    }
+
+    fn detect_on_screen(&mut self, agent: muxy_protocol::AgentProvider, now: Instant) -> bool {
+        if self.detection_dirty && !self.terminal.synchronized_output().unwrap_or(true) {
+            if let Ok(screen) = self.terminal.detection_text() {
+                self.detection_screen = screen;
+            }
+            self.detection_dirty = false;
+        }
+        self.detector.update(
+            Some(agent),
+            self.detection_screen.clone(),
+            &self.metadata.title,
+            &self.detection_progress,
+            now,
+        )
     }
 
     fn broadcast_frame(&mut self, resized: Option<AttachmentId>) -> Result<(), Fault> {

@@ -12,6 +12,7 @@ mod scroll;
 mod selection;
 mod skills;
 mod state;
+mod status;
 mod target;
 mod terminal;
 mod tui;
@@ -46,6 +47,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Interactive => tui::run(host, None).map_err(io::Error::other)?,
         Command::Manage(command) => manage::run(*command, host)?,
         Command::Open(folder) => open::run(&folder)?,
+        Command::Status(report) => status::run(&report)?,
         Command::Browser(invocation) => browser::run(*invocation)?,
         Command::InstallSkills(directories) => {
             let home = std::env::home_dir();

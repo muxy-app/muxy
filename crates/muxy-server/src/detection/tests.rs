@@ -790,3 +790,33 @@ fn codex_animated_idle_prompt_finishes_once_without_waiting_for_a_static_screen(
     assert_eq!(detector.state, AgentState::Idle);
     assert_eq!(completions, 1);
 }
+
+#[test]
+fn reported_states_apply_at_once_and_finish_screen_detected_work() {
+    let mut detector = Detector::default();
+    let now = Instant::now();
+    detector.update(
+        Some(AgentProvider::Claude),
+        String::new(),
+        "⠋ Working",
+        "",
+        now,
+    );
+    assert_eq!(detector.state, AgentState::Working);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Blocked));
+    assert_eq!(detector.state, AgentState::Blocked);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Working));
+    assert!(detector.report(AgentProvider::Claude, ProgramState::Done));
+    assert_eq!(detector.state, AgentState::Idle);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Idle));
+    assert!(!detector.report(AgentProvider::Pi, ProgramState::Error));
+    assert_eq!(detector.provider, Some(AgentProvider::Pi));
+}
+
+#[test]
+fn reported_apps_name_agents_but_not_other_programs() {
+    assert_eq!(reported("claude-code"), Some(AgentProvider::Claude));
+    assert_eq!(reported("pi"), Some(AgentProvider::Pi));
+    assert_eq!(reported("cargo"), None);
+    assert_eq!(reported(""), None);
+}

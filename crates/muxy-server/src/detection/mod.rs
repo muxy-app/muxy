@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use muxy_protocol::{AgentProvider, AgentState};
+use muxy_terminal::ProgramState;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -245,6 +246,28 @@ impl Detector {
                 return false;
             }
         }
+        self.settle(next)
+    }
+
+    /// Takes the state the agent reported itself (OSC 7501), which needs no
+    /// confirmation and outranks what the screen shows.
+    pub(crate) fn report(&mut self, provider: AgentProvider, state: ProgramState) -> bool {
+        if self.provider != Some(provider) {
+            *self = Self {
+                provider: Some(provider),
+                ..Self::default()
+            };
+        }
+        // The screen is read afresh once the agent stops reporting.
+        self.last_input = None;
+        self.settle(match state {
+            ProgramState::Working => AgentState::Working,
+            ProgramState::Blocked => AgentState::Blocked,
+            ProgramState::Idle | ProgramState::Done | ProgramState::Error => AgentState::Idle,
+        })
+    }
+
+    fn settle(&mut self, next: AgentState) -> bool {
         self.pending = None;
         let completed = self.cycle && next == AgentState::Idle;
         if next == AgentState::Working {
@@ -256,6 +279,12 @@ impl Detector {
         self.state = next;
         completed
     }
+}
+
+/// The agent a program status report (OSC 7501) names in its `app`, such as
+/// `claude-code`, so agents behind SSH are recognized too.
+pub(crate) fn reported(app: &str) -> Option<AgentProvider> {
+    alias(app)
 }
 
 pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {

@@ -16,6 +16,7 @@ Usage: muxy [--host DESTINATION] [COMMAND]
   exec          Execute a program in a server project
   mobile        Enable access, pair phones and revoke devices
   browser       Drive browser tabs in the desktop app on this computer
+  status        Tell the terminal what a script is doing (OSC 7501)
   install-skills
                 Install the muxy-cli skill for AI coding agents
   stdio         Connect stdin/stdout to the server; used over SSH
@@ -94,6 +95,19 @@ Installs the muxy-cli skill, which teaches AI coding agents to use this command,
 into each agent folder that exists: ~/.claude/skills, ~/.codex/skills and
 ~/.agents/skills. --dir adds another skills folder; repeat it for more.
 An installed copy, including the Muxy 1.x skill, is replaced.";
+pub(crate) const STATUS: &str = "Usage: muxy status <state> [--app APP] [--id ID] [--progress N]
+                   [--kind KIND] [--title TEXT] [--msg TEXT]
+  state             idle, working, done, blocked, error, or clear
+  --app APP         Program name for machines, such as build or claude-code
+  --id ID           Report on one part of the work, such as deploy/us-east
+  --progress N      Percent done, 0 to 100, while working or blocked
+  --kind KIND       What a blocked program needs: permission, question or auth
+  --title TEXT      Short label
+  --msg TEXT        One line saying what it is doing or waiting for
+
+Tells the terminal what a script is doing (OSC 7501). It needs no server, so it
+also works over SSH. Muxy clears working and blocked when the program that
+reported them exits; clear removes a record and the parts beneath it.";
 pub(crate) const SERVER: &str = "Usage: muxy server start|status|stop [--json]
   stop [--force]  Stop only if idle; --force ends all running terminals.";
 pub(crate) const PROJECT: &str = "Usage: muxy project <action> [--json]
@@ -195,6 +209,7 @@ pub(crate) fn topic(group: &str) -> Option<&'static str> {
         "mobile" => MOBILE,
         "install-skills" => INSTALL_SKILLS,
         "browser" => BROWSER,
+        "status" => STATUS,
         _ => return None,
     })
 }

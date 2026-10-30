@@ -24,6 +24,8 @@ pub(crate) enum Command {
     Browser(Box<crate::browser::Invocation>),
     /// Installs the agent skill into agent folders and these folders.
     InstallSkills(Vec<PathBuf>),
+    /// A program status report for this computer's terminal.
+    Status(String),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -58,7 +60,8 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     | Command::Stdio(_)
                     | Command::Open(_)
                     | Command::Browser(_)
-                    | Command::InstallSkills(_),
+                    | Command::InstallSkills(_)
+                    | Command::Status(_),
                     [word, ..],
                 ) => Err(invalid(&format!(
                     "--host can't be combined with {}",
@@ -95,6 +98,12 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
             install_skills(rest).map(Command::InstallSkills)
         }
         [command, rest @ ..] if command == "browser" => crate::browser::parse(rest),
+        [command, .., flag] if command == "status" && (flag == "--help" || flag == "-h") => {
+            Ok(Command::Usage(help::STATUS))
+        }
+        [command, rest @ ..] if command == "status" => {
+            crate::status::parse(rest).map(Command::Status)
+        }
         [command] if command == "help" => Ok(Command::Help),
         [command, topic] if command == "help" => topic
             .to_str()
@@ -209,6 +218,22 @@ mod tests {
         ] {
             assert!(words(&args).is_err(), "{args:?}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn status_reports_stay_on_this_computer_and_have_help() -> io::Result<()> {
+        assert_eq!(
+            words(&["status", "working"])?.1,
+            Command::Status("\x1b]7501;state=working\x1b\\".into())
+        );
+        assert_eq!(
+            words(&["status", "--help"])?.1,
+            Command::Usage(help::STATUS)
+        );
+        assert_eq!(words(&["help", "status"])?.1, Command::Usage(help::STATUS));
+        assert!(!names_folder(OsStr::new("status")));
+        assert!(words(&["--host", "example", "status", "working"]).is_err());
         Ok(())
     }
 
