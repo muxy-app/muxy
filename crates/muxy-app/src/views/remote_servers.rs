@@ -419,7 +419,7 @@ pub(crate) fn list(
                 Icon::Overlap,
                 tr!("Copy My Pair Link"),
             )
-            .on_click(cx.listener(|model, _, window, cx| model.copy_pairing_link(window, cx))),
+            .on_click(cx.listener(|model, _, _, cx| model.copy_pairing_link(cx))),
         )
         .child(
             action(
@@ -449,7 +449,7 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
             Command::new("remote-pair-server", tr!("Pair with Link…"), pair)
                 .keywords("Pair with Link Computer"),
         );
-        let copy: Handler = Rc::new(AppModel::copy_pairing_link);
+        let copy: Handler = Rc::new(|model, _, cx| model.copy_pairing_link(cx));
         servers.register(
             Command::new("remote-copy-pair-link", tr!("Copy My Pair Link"), copy)
                 .keywords("Copy My Pair Link Pairing Code Computer Phone"),

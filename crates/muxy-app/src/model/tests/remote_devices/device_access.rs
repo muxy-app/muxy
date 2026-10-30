@@ -231,24 +231,24 @@ fn a_tab_saved_under_its_old_title_takes_the_new_one(cx: &mut TestAppContext) {
     });
 }
 
-/// Chooses Copy My Pair Link; the Devices tab reads access again as it
-/// opens, and the server answers with `state`.
-fn copy_link(
-    view: &Entity<AppModel>,
-    cx: &mut VisualTestContext,
-    requests: &std::sync::mpsc::Receiver<(u64, Work)>,
-    state: RemoteAccessState,
+/// A window connected to this computer's server, with no Devices tab.
+fn window_without_tab(
+    cx: &mut TestAppContext,
+) -> (
+    Entity<AppModel>,
+    &mut VisualTestContext,
+    std::sync::mpsc::Receiver<(u64, Work)>,
 ) {
-    cx.update(|window, cx| {
-        view.update(cx, |model, cx| model.copy_pairing_link(window, cx));
-    });
-    assert!(
-        work(requests)
-            .iter()
-            .any(|work| matches!(work, Work::ReadRemoteAccess)),
-        "the tab reads device access"
-    );
-    view.update(cx, |model, cx| model.receive_remote_access(Ok(state), cx));
+    let (boot, requests, _) = remote_boot(AppState::bootstrap().expect("state"), Vec::new());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, connect_local);
+    work(&requests);
+    (view, cx, requests)
+}
+
+fn copy_link(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
+    view.update(cx, AppModel::copy_pairing_link);
     cx.run_until_parked();
 }
 
@@ -256,10 +256,21 @@ fn clipboard(cx: &mut VisualTestContext) -> Option<String> {
     cx.read_from_clipboard().and_then(|item| item.text())
 }
 
-fn asked_for_code(requests: &std::sync::mpsc::Receiver<(u64, Work)>) -> bool {
+fn sent(requests: &std::sync::mpsc::Receiver<(u64, Work)>) -> Vec<Work> {
     work(requests)
-        .iter()
-        .any(|work| matches!(work, Work::StartPairing))
+}
+
+fn asks_for_code(work: &[Work]) -> bool {
+    work.iter().any(|work| matches!(work, Work::StartPairing))
+}
+
+fn reads_access(work: &[Work]) -> bool {
+    work.iter()
+        .any(|work| matches!(work, Work::ReadRemoteAccess))
+}
+
+fn cancels_code(work: &[Work]) -> bool {
+    work.iter().any(|work| matches!(work, Work::CancelPairing))
 }
 
 #[gpui::test]
@@ -268,77 +279,105 @@ fn copying_the_link_uses_the_code_on_screen(cx: &mut TestAppContext) {
     let code = offer(now() + 300);
     view.update(cx, |model, cx| model.receive_pairing(Ok(code.clone()), cx));
     work(&requests);
-    copy_link(
-        &view,
-        cx,
-        &requests,
-        access(true, Some(code.expires_at), Vec::new()),
-    );
+    copy_link(&view, cx);
     assert_eq!(clipboard(cx), Some(code.invite.to_link()));
-    assert!(!asked_for_code(&requests), "the code on screen is reused");
+    let work = sent(&requests);
+    assert!(!asks_for_code(&work) && !reads_access(&work), "{work:?}");
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.notice.as_deref(), Some("Pairing link copied"));
+    });
 }
 
-/// Copy My Pair Link asks for a code, shows it, and copies its link once it
-/// arrives, whether or not the Devices tab was open.
-fn copies_a_new_code(cx: &mut TestAppContext, open: bool) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
-    if !open {
-        close_devices_tab(&view, cx);
-        work(&requests);
-    }
-    copy_link(&view, cx, &requests, access(true, None, Vec::new()));
-    view.read_with(cx, |model, _| assert!(model.state.servers_tab().is_some()));
-    assert!(asked_for_code(&requests));
-    assert_eq!(
-        clipboard(cx),
-        None,
-        "nothing to copy until the code arrives"
+#[gpui::test]
+fn copying_the_link_away_from_the_tab_copies_in_place(cx: &mut TestAppContext) {
+    let (view, cx, requests) = window_without_tab(cx);
+    copy_link(&view, cx);
+    assert!(
+        reads_access(&sent(&requests)),
+        "a code may have changed unseen"
     );
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
+    });
+    assert!(asks_for_code(&sent(&requests)));
     let code = offer(now() + 300);
     view.update(cx, |model, cx| model.receive_pairing(Ok(code.clone()), cx));
     cx.run_until_parked();
     assert_eq!(clipboard(cx), Some(code.invite.to_link()));
-    assert!(cx.debug_bounds("devices-code").is_some(), "the code shows");
+    view.update(cx, |model, cx| model.sync_devices_tab(false, cx));
+    view.read_with(cx, |model, _| {
+        assert!(model.state.servers_tab().is_none(), "no tab opens");
+        assert_eq!(model.notice.as_deref(), Some("Pairing link copied"));
+    });
+    assert!(!cancels_code(&sent(&requests)), "a copied code stays valid");
 }
 
 #[gpui::test]
-fn copying_the_link_shows_a_code_and_copies_it_once_it_arrives(cx: &mut TestAppContext) {
-    copies_a_new_code(cx, true);
+fn a_copied_code_outlives_the_tab_but_a_shown_one_does_not(cx: &mut TestAppContext) {
+    for copied in [true, false] {
+        let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+        view.update(cx, |model, cx| {
+            model.receive_pairing(Ok(offer(now() + 300)), cx);
+        });
+        if copied {
+            copy_link(&view, cx);
+        }
+        work(&requests);
+        close_devices_tab(&view, cx);
+        assert_eq!(cancels_code(&sent(&requests)), !copied, "copied: {copied}");
+    }
 }
 
 #[gpui::test]
-fn copying_the_link_opens_the_devices_tab_first(cx: &mut TestAppContext) {
-    copies_a_new_code(cx, false);
+fn copying_again_replaces_a_code_used_meanwhile(cx: &mut TestAppContext) {
+    let (view, cx, requests) = window_without_tab(cx);
+    for expires_at in [now() + 300, now() + 301] {
+        copy_link(&view, cx);
+        assert!(reads_access(&sent(&requests)));
+        view.update(cx, |model, cx| {
+            model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
+        });
+        assert!(
+            asks_for_code(&sent(&requests)),
+            "the used code isn't copied"
+        );
+        let code = offer(expires_at);
+        view.update(cx, |model, cx| model.receive_pairing(Ok(code.clone()), cx));
+        assert_eq!(clipboard(cx), Some(code.invite.to_link()));
+    }
 }
 
 #[gpui::test]
 fn copying_the_link_with_access_off_says_why_not(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(false, None, Vec::new()));
-    copy_link(&view, cx, &requests, access(false, None, Vec::new()));
-    assert!(!asked_for_code(&requests));
+    let (view, cx, requests) = window_without_tab(cx);
+    copy_link(&view, cx);
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(false, None, Vec::new())), cx);
+    });
+    assert!(!asks_for_code(&sent(&requests)));
     assert_eq!(clipboard(cx), None);
     view.read_with(cx, |model, _| {
-        assert!(model.device_access().error.is_some());
+        assert!(model.error.is_some(), "the reason shows as a toast");
+        assert!(model.state.servers_tab().is_none());
     });
 }
 
 #[gpui::test]
 fn a_code_cancelled_before_it_arrives_is_not_copied(cx: &mut TestAppContext) {
     let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
-    copy_link(&view, cx, &requests, access(true, None, Vec::new()));
-    assert!(asked_for_code(&requests));
+    copy_link(&view, cx);
+    assert!(asks_for_code(&sent(&requests)));
     view.update(cx, AppModel::cancel_pairing);
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
     });
-    assert!(
-        work(&requests)
-            .iter()
-            .any(|work| matches!(work, Work::CancelPairing))
-    );
+    assert!(cancels_code(&sent(&requests)));
     view.update(cx, |model, cx| {
         model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
     });
-    assert!(!asked_for_code(&requests), "no new code after cancelling");
+    assert!(
+        !asks_for_code(&sent(&requests)),
+        "no new code after cancelling"
+    );
     assert_eq!(clipboard(cx), None);
 }

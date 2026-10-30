@@ -399,6 +399,7 @@
 "Connect to the server first" = "Connect to the server first";
 "Connect to the server so Muxy can check whether terminal sessions can be preserved." = "Connect to the server so Muxy can check whether terminal sessions can be preserved.";
 "Connect to the server to create." = "Connect to the server to create.";
+"Connect to this computer's server to copy its pairing link." = "Connect to this computer's server to copy its pairing link.";
 "Connect to this computer's server to manage device access." = "Connect to this computer's server to manage device access.";
 "Connected" = "Connected";
 "Connecting…" = "Connecting…";
@@ -1501,6 +1502,7 @@
 "This backup format is not supported by this version of Muxy" = "This backup format is not supported by this version of Muxy";
 "This branch already has a pull request" = "This branch already has a pull request";
 "This computer has no pairing for it. Pair again with a new link." = "This computer has no pairing for it. Pair again with a new link.";
+"This computer isn't listening for devices yet. Try again in a moment." = "This computer isn't listening for devices yet. Try again in a moment.";
 "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it." = "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it.";
 "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop." = "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop.";
 "This extension is up to date." = "This extension is up to date.";
@@ -1535,7 +1537,7 @@
 "Try a different name or clear your search." = "Try a different name or clear your search.";
 "Try a different search to find extensions." = "Try a different search to find extensions.";
 "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours." = "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours.";
-"Turn on Allow other devices to get a pairing link." = "Turn on Allow other devices to get a pairing link.";
+"Turn on Allow other devices in the Devices tab to copy a pairing link." = "Turn on Allow other devices in the Devices tab to copy a pairing link.";
 "Type" = "Type";
 "Type or speak…" = "Type or speak…";
 "Unassign" = "Unassign";

@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use gpui::{AnyWindowHandle, ClipboardItem, Context, Task, Window};
+use gpui::{AnyWindowHandle, ClipboardItem, Context, Task};
 use muxy_app_core::ServerId;
 use muxy_protocol::{
     DeviceId, ListenerStatus, PairingOffer, RemoteAccessSettings, RemoteAccessState,
@@ -19,8 +19,11 @@ use crate::views::devices::Pairing;
 )]
 pub(crate) struct MobileAccess {
     pub(crate) state: Option<RemoteAccessState>,
-    /// The pairing code on screen, until it is used, cancelled, or expires.
+    /// The current pairing code, until it is used, cancelled, or expires.
     pub(crate) pairing: Option<Pairing>,
+    /// The code's link was copied, so it stays valid away from the Devices
+    /// tab until it is used or expires.
+    copied: bool,
     pub(crate) busy: bool,
     /// The running request creates a pairing code.
     starting: bool,
@@ -28,7 +31,7 @@ pub(crate) struct MobileAccess {
     stale: bool,
     /// The user cancelled pairing while a request was running.
     cancel: bool,
-    /// The pairing link goes to the clipboard once there is a code.
+    /// The pairing link goes to the clipboard once there is a fresh code.
     copy_link: bool,
     pub(crate) error: Option<String>,
     expiry: Option<Task<()>>,
@@ -48,8 +51,8 @@ impl AppModel {
     }
 
     /// Reads device access when the Devices tab opens or this computer's
-    /// server connects with it open, and withdraws a pairing code once the
-    /// tab closes.
+    /// server connects with it open, and withdraws a pairing code that was
+    /// never copied once the tab closes.
     pub(super) fn sync_devices_tab(&mut self, opened: bool, cx: &mut Context<Self>) {
         if !self.devices_tab_open() {
             self.withdraw_pairing(cx);
@@ -145,14 +148,23 @@ impl AppModel {
         }
     }
 
-    /// Copies this computer's pairing link. The code shows in the Devices
-    /// tab, since it is valid only while it is on screen.
-    pub(crate) fn copy_pairing_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_servers_tab(window, cx);
-        if self.devices_tab_open() {
-            self.mobile.copy_link = true;
-            self.continue_link_copy(cx);
+    /// Copies this computer's pairing link where the user is, making a code
+    /// when there is none.
+    pub(crate) fn copy_pairing_link(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_overlay(cx);
+        if !self.mobile_available() {
+            self.fail(
+                tr!("Connect to this computer's server to copy its pairing link.").to_string(),
+                cx,
+            );
+            return;
         }
+        self.mobile.copy_link = true;
+        // Away from the tab, the code may have been used or expired unseen.
+        if !self.devices_tab_open() && !self.mobile.busy {
+            self.read_remote_access(cx);
+        }
+        self.continue_link_copy(cx);
     }
 
     /// Copies the code's link once there is one, asks for a code once access
@@ -161,33 +173,32 @@ impl AppModel {
         if !self.mobile.copy_link || self.mobile.busy {
             return;
         }
-        if !self.mobile_available() {
-            self.mobile.copy_link = false;
-            return;
-        }
         if let Some(pairing) = &self.mobile.pairing {
             cx.write_to_clipboard(ClipboardItem::new_string(pairing.link().to_owned()));
             self.mobile.copy_link = false;
+            self.mobile.copied = true;
             self.show_notice(tr!("Pairing link copied").to_string(), cx);
             return;
         }
         let Some(state) = &self.mobile.state else {
             return;
         };
-        match state.status {
-            ListenerStatus::Listening => self.show_pairing_code(cx),
-            ListenerStatus::Disabled if state.settings.enabled => {}
-            _ => {
-                self.mobile.copy_link = false;
-                self.mobile.error =
-                    Some(tr!("Turn on Allow other devices to get a pairing link.").to_string());
-                cx.notify();
-            }
+        if state.status == ListenerStatus::Listening {
+            self.show_pairing_code(cx);
+            return;
         }
+        self.mobile.copy_link = false;
+        let reason = if state.settings.enabled {
+            tr!("This computer isn't listening for devices yet. Try again in a moment.")
+        } else {
+            tr!("Turn on Allow other devices in the Devices tab to copy a pairing link.")
+        };
+        self.fail(reason.to_string(), cx);
     }
 
     pub(crate) fn cancel_pairing(&mut self, cx: &mut Context<Self>) {
         self.mobile.copy_link = false;
+        self.mobile.copied = false;
         self.mobile.pairing = None;
         self.mobile.expiry = None;
         if self.mobile.busy {
@@ -198,9 +209,12 @@ impl AppModel {
         cx.notify();
     }
 
-    /// A code must not stay valid on the server after the Devices tab closes.
+    /// A code that was only shown must not stay valid on the server after the
+    /// Devices tab closes.
     fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
-        if self.mobile.pairing.is_some() || self.mobile.starting {
+        let shown = self.mobile.pairing.is_some() && !self.mobile.copied;
+        let starting = self.mobile.starting && !self.mobile.copy_link;
+        if shown || starting {
             self.cancel_pairing(cx);
         }
     }
@@ -262,6 +276,7 @@ impl AppModel {
                 // The code was used, cancelled elsewhere, or expired.
                 if state.pairing_expires_at.is_none() {
                     self.mobile.pairing = None;
+                    self.mobile.copied = false;
                     self.mobile.expiry = None;
                 }
                 self.mobile.error = None;
@@ -281,7 +296,7 @@ impl AppModel {
         self.mobile.busy = false;
         self.mobile.starting = false;
         match result {
-            Ok(_) if self.mobile.cancel || !self.devices_tab_open() => {
+            Ok(_) if self.mobile.cancel || !(self.devices_tab_open() || self.mobile.copy_link) => {
                 self.mobile.cancel = true;
             }
             Ok(offer) => {
@@ -297,11 +312,13 @@ impl AppModel {
                         .await;
                     let _ = model.update(cx, |model, cx| {
                         model.mobile.pairing = None;
+                        model.mobile.copied = false;
                         model.read_remote_access(cx);
                         cx.notify();
                     });
                 }));
                 self.mobile.pairing = Some(Pairing::new(&offer));
+                self.mobile.copied = false;
                 self.mobile.error = None;
             }
             Err(error) => self.mobile.error = Some(error.to_string()),
@@ -316,8 +333,9 @@ impl AppModel {
         if std::mem::take(&mut self.mobile.stale) {
             self.read_remote_access(cx);
         }
-        if self.mobile.error.is_some() {
+        if let Some(error) = self.mobile.error.clone().filter(|_| self.mobile.copy_link) {
             self.mobile.copy_link = false;
+            self.fail(error, cx);
         }
         self.continue_link_copy(cx);
         cx.notify();

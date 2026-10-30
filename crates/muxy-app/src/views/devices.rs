@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, ClipboardItem, Context, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, Styled, canvas, div, point, px, size,
+    AnyElement, Bounds, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    SharedString, Styled, canvas, div, point, px, size,
 };
 use muxy_app_core::qr::{QUIET_ZONE, QrCode};
 use muxy_protocol::{DeviceKind, ListenerStatus, PairedDevice, PairingOffer, RemoteAccessState};
@@ -247,7 +247,6 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
             ))
             .into_any_element();
     };
-    let link = pairing.link.clone();
     div()
         .min_w(px(0.0))
         .flex()
@@ -266,7 +265,7 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                     "devices-copy-link",
                     &tr!("Copy Link"),
                     true,
-                    move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(link.clone())),
+                    cx.listener(|model, _, _, cx| model.copy_pairing_link(cx)),
                 ))
                 .child(controls::button(
                     style(model),
