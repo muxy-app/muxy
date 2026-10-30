@@ -29,4 +29,4 @@ mod catalog;
 pub mod local;
 
 mod remote;
-pub use remote::RemoteEndpoint;
+pub use remote::{RemoteEndpoint, accepts_connections};

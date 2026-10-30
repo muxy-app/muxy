@@ -80,8 +80,12 @@ impl PairingTokens {
         })
     }
 
+    /// Changes the tokens as the file holds them now, while no other
+    /// process can, so a token another app saved meanwhile is kept.
     fn edit(path: &Path, change: impl FnOnce(&mut Vec<Token>)) -> Result<()> {
         let context = || path.display().to_string();
+        let _lock =
+            super::private_file::lock(path).map_err(|error| Error::new(context(), error))?;
         let mut stored = Self::load(path)?;
         let before = stored.clone();
         change(&mut stored.tokens);
@@ -143,6 +147,38 @@ mod tests {
         let tokens = PairingTokens::load(&path)?;
         assert_eq!(tokens.token(studio), None);
         assert_eq!(tokens.token(laptop), Some([2; 32]));
+        Ok(())
+    }
+
+    #[test]
+    fn tokens_saved_at_the_same_time_are_all_kept() -> Result<()> {
+        let directory = tempfile::tempdir().map_err(|error| Error::new("test", error))?;
+        let path = directory.path().join("paired-servers.toml");
+        let servers: Vec<ServerId> = (0..8).map(|_| ServerId::new()).collect();
+        std::thread::scope(|scope| {
+            for (index, server) in servers.iter().enumerate() {
+                let path = &path;
+                scope.spawn(move || {
+                    for _ in 0..10 {
+                        PairingTokens::set(path, *server, &[u8::try_from(index).unwrap_or(0); 32])?;
+                    }
+                    Ok::<(), Error>(())
+                });
+            }
+        });
+        let tokens = PairingTokens::load(&path)?;
+        for (index, server) in servers.iter().enumerate() {
+            assert_eq!(
+                tokens.token(*server),
+                Some([u8::try_from(index).unwrap_or(0); 32])
+            );
+        }
+        let leftovers = fs::read_dir(directory.path())
+            .map_err(|error| Error::new("test", error))?
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
         Ok(())
     }
 

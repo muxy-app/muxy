@@ -11,6 +11,16 @@ use muxy_ui::tr;
 
 use super::{AppModel, Quitting};
 
+/// Pairing with another computer, kept apart from the form that started it,
+/// so it finishes and is saved even if the form closes.
+#[derive(Default)]
+pub(crate) struct Pairing {
+    running: Option<Task<()>>,
+    /// Accepted by the other computer but not saved here yet. Its link is
+    /// spent, so saving again reuses the pairing instead of the link.
+    unsaved: Option<(PairingInvite, Paired)>,
+}
+
 /// What the pairing form submits.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PairingForm {
@@ -76,8 +86,115 @@ fn computer_name() -> String {
 }
 
 impl AppModel {
+    pub(crate) fn pairing_running(&self) -> bool {
+        self.pairing.running.is_some()
+    }
+
+    /// Pairs with the computer the form's link is for and lists it, or with
+    /// `id`, pairs that listed server again. Everything that can fail here is
+    /// checked first, since the link works once. Pairing runs off the UI
+    /// thread and is saved when it finishes, even if the form has closed;
+    /// `finish_pair_form` hears how it went.
+    pub(crate) fn start_pairing(
+        &mut self,
+        id: Option<ServerId>,
+        form: PairingForm,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.pairing.running.is_some() {
+            return Err(tr!("Wait for the current pairing to finish.").to_string());
+        }
+        let invite = parse_link(&form.link)?;
+        self.check_pairing(id, &form, &invite.fingerprint)?;
+        if let Some((spent, paired)) = self
+            .pairing
+            .unsaved
+            .clone()
+            .filter(|(spent, _)| *spent == invite)
+        {
+            let result = self.save_pairing(id, &form, &spent, &paired, cx);
+            self.finish_pair_form(result, cx);
+            return Ok(());
+        }
+        let paired = Self::pair_computer(invite.clone(), cx);
+        self.pairing.running = Some(cx.spawn(async move |model, cx| {
+            let paired = paired.await;
+            let _ = model.update(cx, |model, cx| {
+                model.pairing.running = None;
+                let result =
+                    paired.and_then(|paired| model.save_pairing(id, &form, &invite, &paired, cx));
+                model.finish_pair_form(result, cx);
+            });
+        }));
+        Ok(())
+    }
+
+    /// Saves a pairing the other computer accepted, or keeps it to save again.
+    pub(super) fn save_pairing(
+        &mut self,
+        id: Option<ServerId>,
+        form: &PairingForm,
+        invite: &PairingInvite,
+        paired: &Paired,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        match self.save_paired_server(id, form, invite, paired, cx) {
+            Ok(_) => {
+                self.pairing.unsaved = None;
+                Ok(())
+            }
+            Err(error) => {
+                self.pairing.unsaved = Some((invite.clone(), paired.clone()));
+                Err(tr!(
+                    "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link.",
+                    error
+                )
+                .to_string())
+            }
+        }
+    }
+
+    /// What the form holds that pairing would fail on after spending the
+    /// link: its name and group, and a link for another listed computer.
+    fn check_pairing(
+        &self,
+        id: Option<ServerId>,
+        form: &PairingForm,
+        fingerprint: &[u8; 32],
+    ) -> Result<(), String> {
+        for (text, validate) in [
+            (
+                form.name.trim(),
+                ServerEntry::validate_name as fn(&str) -> _,
+            ),
+            (form.group.trim(), ServerEntry::validate_group),
+        ] {
+            if !text.is_empty() {
+                validate(text).map_err(|error| error.to_string())?;
+            }
+        }
+        match (id, self.paired_with(fingerprint)) {
+            (Some(id), Some(owner)) if owner.id != id => Err(tr!(
+                "This link is for %@, which is already listed. Pair it again from its own Edit… form.",
+                &owner.name
+            )
+            .to_string()),
+            _ => Ok(()),
+        }
+    }
+
+    /// The listed server with this certificate.
+    fn paired_with(&self, fingerprint: &[u8; 32]) -> Option<&ServerEntry> {
+        self.settings.servers.iter().find(|entry| {
+            entry
+                .paired
+                .as_ref()
+                .is_some_and(|paired| paired.has_certificate(fingerprint))
+        })
+    }
+
     /// Pairs with the computer that showed `invite`, off the UI thread.
-    pub(crate) fn pair_computer(
+    fn pair_computer(
         invite: PairingInvite,
         cx: &mut Context<Self>,
     ) -> Task<Result<Paired, String>> {
@@ -105,6 +222,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return Err(tr!("Muxy is quitting").to_string());
         }
+        self.check_pairing(id, form, &invite.fingerprint)?;
         let endpoint = PairedServer {
             hosts: invite.hosts.clone(),
             port: invite.port,
@@ -113,14 +231,7 @@ impl AppModel {
         };
         let existing = id
             .and_then(|id| self.settings.server(id))
-            .or_else(|| {
-                self.settings.servers.iter().find(|entry| {
-                    entry
-                        .paired
-                        .as_ref()
-                        .is_some_and(|known| known.fingerprint == endpoint.fingerprint)
-                })
-            })
+            .or_else(|| self.paired_with(&invite.fingerprint))
             .cloned();
         let name = match form.name.trim() {
             "" => existing
@@ -206,14 +317,41 @@ impl AppModel {
         )
     }
 
-    /// Drops the tokens of servers no longer listed. Their pairing stays on
-    /// the other computer until it is revoked there.
-    pub(super) fn forget_pairings(&mut self, servers: &[ServerId], cx: &mut Context<Self>) {
-        if let Err(error) = PairingTokens::remove(&self.servers.tokens, servers) {
-            self.show_notice(
-                tr!("Could not remove the pairing: %@", error.to_string()).to_string(),
-                cx,
-            );
+    /// Drops the tokens of the paired servers about to be forgotten, and
+    /// returns them to put back if forgetting fails, so a server is never
+    /// listed without its token or gone with its token left behind. Their
+    /// pairing stays on the other computer until it is revoked there.
+    pub(super) fn take_pairings(
+        &self,
+        servers: &[ServerId],
+    ) -> Result<Vec<(ServerId, [u8; 32])>, String> {
+        let paired: Vec<ServerId> = servers
+            .iter()
+            .copied()
+            .filter(|server| {
+                self.settings
+                    .server(*server)
+                    .is_some_and(|entry| entry.paired.is_some())
+            })
+            .collect();
+        if paired.is_empty() {
+            return Ok(Vec::new());
+        }
+        let failed = |error: muxy_app_core::settings::Error| {
+            tr!("Could not remove the pairing: %@", error.to_string()).to_string()
+        };
+        let tokens = PairingTokens::load(&self.servers.tokens).map_err(failed)?;
+        let taken = paired
+            .iter()
+            .filter_map(|server| tokens.token(*server).map(|token| (*server, token)))
+            .collect();
+        PairingTokens::remove(&self.servers.tokens, &paired).map_err(failed)?;
+        Ok(taken)
+    }
+
+    pub(super) fn restore_pairings(&self, taken: &[(ServerId, [u8; 32])]) {
+        for (server, token) in taken {
+            let _ = PairingTokens::set(&self.servers.tokens, *server, token);
         }
     }
 }

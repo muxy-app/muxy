@@ -1195,10 +1195,34 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
 fn stop_server(client: &Client, target: &Target) -> Result<(), ClientError> {
     match target {
         Target::Local(socket) => crate::server::stop_server(client, socket),
-        Target::Ssh(_) | Target::Paired { .. } => match client.stop_server() {
+        Target::Ssh(_) => match client.stop_server() {
             Err(ClientError::Disconnected) => Ok(()),
             result => result,
         },
+        Target::Paired { endpoint, .. } => match client.stop_server() {
+            Err(ClientError::Disconnected) => confirm_stopped(endpoint),
+            result => result,
+        },
+    }
+}
+
+/// The connection closed before the paired server answered, as it does when
+/// the server stops at once but also when the request never left. Only a
+/// server that refuses new connections has stopped.
+fn confirm_stopped(endpoint: &RemoteEndpoint) -> Result<(), ClientError> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if muxy_client::accepts_connections(endpoint) == Some(false) {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(std::io::Error::other(
+                tr!("The connection closed before the server confirmed it stopped, so it may still be running.")
+                    .to_string(),
+            )
+            .into());
+        }
+        thread::sleep(std::time::Duration::from_millis(250));
     }
 }
 

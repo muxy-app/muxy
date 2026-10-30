@@ -143,6 +143,20 @@ fn remote_access(body: ReplyBody) -> Result<RemoteAccessState, ClientError> {
     }
 }
 
+/// Whether the paired server still takes connections: `Some(false)` once a
+/// host refuses them, `None` when no host answers either way, such as off the
+/// network.
+pub fn accepts_connections(endpoint: &RemoteEndpoint) -> Option<bool> {
+    let mut refused = false;
+    for host in &endpoint.hosts {
+        match tls::connect(host, endpoint.port, endpoint.fingerprint, CONNECT_TIMEOUT) {
+            Ok(_) => return Some(true),
+            Err(error) => refused |= error.kind() == io::ErrorKind::ConnectionRefused,
+        }
+    }
+    refused.then_some(false)
+}
+
 /// A host presenting another certificate is skipped, never trusted; the
 /// mismatch is reported only if no host answers with the pinned one.
 fn connect(endpoint: &RemoteEndpoint) -> Result<Box<dyn ByteStream>, ClientError> {
@@ -232,6 +246,25 @@ mod tests {
             Ok(())
         });
         Ok((Client::from_stream(Box::new(near))?, received))
+    }
+
+    #[test]
+    fn a_stopped_server_refuses_connections() -> io::Result<()> {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")?
+            .local_addr()?
+            .port();
+        let stopped = RemoteEndpoint {
+            hosts: vec!["127.0.0.1".into()],
+            port,
+            fingerprint: [1; 32],
+        };
+        assert_eq!(accepts_connections(&stopped), Some(false));
+        let nowhere = RemoteEndpoint {
+            hosts: Vec::new(),
+            ..stopped
+        };
+        assert_eq!(accepts_connections(&nowhere), None, "unknown, not stopped");
+        Ok(())
     }
 
     #[test]

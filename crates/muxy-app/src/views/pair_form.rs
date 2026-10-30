@@ -21,8 +21,6 @@ pub(crate) struct PairForm {
     link: Entity<TextInput>,
     name: Entity<TextInput>,
     group: Entity<TextInput>,
-    /// Pairing runs off the UI thread; dropping it abandons the attempt.
-    pairing: Option<gpui::Task<()>>,
     error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
@@ -103,7 +101,6 @@ impl AppModel {
             link,
             name,
             group,
-            pairing: None,
             error: None,
             _subscriptions: subscriptions,
         })));
@@ -111,13 +108,11 @@ impl AppModel {
     }
 
     fn submit_pair_form(&mut self, cx: &mut Context<Self>) {
-        let Some(Overlay::PairForm(form)) = &self.overlay else {
+        let Some(Overlay::PairForm(form)) = &mut self.overlay else {
             return;
         };
-        if form.pairing.is_some() {
-            return;
-        }
         let (device, submitted) = (form.device, form.submitted(cx));
+        form.error = None;
         if let Some(device) = device
             && submitted.link.trim().is_empty()
         {
@@ -125,47 +120,27 @@ impl AppModel {
             self.finish_pair_form(result, cx);
             return;
         }
-        let invite = match crate::model::parse_link(&submitted.link) {
-            Ok(invite) => invite,
-            Err(error) => {
-                self.finish_pair_form(Err(error), cx);
-                return;
-            }
-        };
-        let paired = Self::pair_computer(invite.clone(), cx);
-        let task = cx.spawn(async move |model, cx| {
-            let paired = paired.await;
-            let _ = model.update(cx, |model, cx| {
-                if !matches!(&model.overlay, Some(Overlay::PairForm(form)) if form.pairing.is_some())
-                {
-                    return;
-                }
-                let result = paired.and_then(|paired| {
-                    model
-                        .save_paired_server(device, &submitted, &invite, &paired, cx)
-                        .map(drop)
-                });
-                model.finish_pair_form(result, cx);
-            });
-        });
-        if let Some(Overlay::PairForm(form)) = &mut self.overlay {
-            form.pairing = Some(task);
-            form.error = None;
+        if let Err(error) = self.start_pairing(device, submitted, cx) {
+            self.finish_pair_form(Err(error), cx);
         }
         cx.notify();
     }
 
-    fn finish_pair_form(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+    /// How pairing or saving went. With the form closed, a notice says so.
+    pub(crate) fn finish_pair_form(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+        let open = matches!(self.overlay, Some(Overlay::PairForm(_)));
         match result {
-            Ok(()) => self.dismiss_overlay(cx),
+            Ok(()) if open => self.dismiss_overlay(cx),
+            Ok(()) => self.show_notice(tr!("Paired with the other computer.").to_string(), cx),
             Err(error) => {
                 if let Some(Overlay::PairForm(form)) = &mut self.overlay {
-                    form.pairing = None;
                     form.error = Some(error);
+                } else {
+                    self.show_notice(error, cx);
                 }
-                cx.notify();
             }
         }
+        cx.notify();
     }
 }
 
@@ -180,11 +155,14 @@ pub(crate) fn render(
     let style = Style { theme, metrics: &m };
     let text = |id: &str, input: &Entity<TextInput>| controls::text_field(style, id, input, None);
     let editing = form.device.is_some();
-    let pairing = form.pairing.is_some();
+    let pairing = model.pairing_running();
     let ready = editing || !form.link.read(cx).text().trim().is_empty();
     let (status, color) = match &form.error {
         Some(error) => (error.clone().into(), theme.danger),
-        None if pairing => (tr!("Pairing…"), theme.fg_muted),
+        None if pairing => (
+            tr!("Pairing… It is saved when it finishes, even if you close this form."),
+            theme.fg_muted,
+        ),
         None if editing => (
             tr!(
                 "If it was revoked, moved, or reset, copy a new pairing link from its Settings → Devices to pair again."

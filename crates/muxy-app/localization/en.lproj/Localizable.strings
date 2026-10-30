@@ -1051,9 +1051,10 @@
 "Pair with Link…" = "Pair with Link…";
 "Paired Devices" = "Paired Devices";
 "Paired devices" = "Paired devices";
+"Paired with the other computer." = "Paired with the other computer.";
 "Pairing" = "Pairing";
 "Pairing Link" = "Pairing Link";
-"Pairing…" = "Pairing…";
+"Pairing… It is saved when it finishes, even if you close this form." = "Pairing… It is saved when it finishes, even if you close this form.";
 "Parent Directory" = "Parent Directory";
 "Password" = "Password";
 "Password for %@" = "Password for %@";
@@ -1435,6 +1436,7 @@
 "The bundled client and server do not match the release" = "The bundled client and server do not match the release";
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
 "The computer at this link isn't the one that made it. Copy the link again from its Settings → Devices." = "The computer at this link isn't the one that made it. Copy the link again from its Settings → Devices.";
+"The connection closed before the server confirmed it stopped, so it may still be running." = "The connection closed before the server confirmed it stopped, so it may still be running.";
 "The default profile can't be deleted" = "The default profile can't be deleted";
 "The desktop refused a notification: %@" = "The desktop refused a notification: %@";
 "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer." = "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer.";
@@ -1457,6 +1459,7 @@
 "The local audio service is unavailable. Start dictation from a desktop session." = "The local audio service is unavailable. Start dictation from a desktop session.";
 "The microphone could not start recording" = "The microphone could not start recording";
 "The offline transcript was too large." = "The offline transcript was too large.";
+"The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link." = "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link.";
 "The page new browser tabs open to. Leave it empty for the start page." = "The page new browser tabs open to. Leave it empty for the start page.";
 "The pairing code is too long to show." = "The pairing code is too long to show.";
 "The project directory isn't available on this Mac" = "The project directory isn't available on this Mac";
@@ -1507,6 +1510,7 @@
 "This is not a released version" = "This is not a released version";
 "This language is unavailable for speech recognition" = "This language is unavailable for speech recognition";
 "This link has expired or was already used. Copy a new one from the other computer." = "This link has expired or was already used. Copy a new one from the other computer.";
+"This link is for %@, which is already listed. Pair it again from its own Edit… form." = "This link is for %@, which is already listed. Pair it again from its own Edit… form.";
 "This page can't be opened" = "This page can't be opened";
 "This path is a file. Choose a folder for the project." = "This path is a file. Choose a folder for the project.";
 "This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile." = "This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile.";
@@ -1629,6 +1633,7 @@
 "Wait for the current AI action to finish" = "Wait for the current AI action to finish";
 "Wait for the current Git action to finish" = "Wait for the current Git action to finish";
 "Wait for the current device access change to finish" = "Wait for the current device access change to finish";
+"Wait for the current pairing to finish." = "Wait for the current pairing to finish.";
 "Wait for the running Git action to finish." = "Wait for the running Git action to finish.";
 "Wait for the server settings operation to finish before quitting" = "Wait for the server settings operation to finish before quitting";
 "Web Inspector" = "Web Inspector";

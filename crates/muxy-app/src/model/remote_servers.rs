@@ -596,14 +596,15 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return Err(tr!("Muxy is quitting").to_string());
         }
+        let taken = self.take_pairings(servers)?;
         let path = self.path.with_file_name("settings.toml");
-        self.settings
-            .remove_servers(servers, &path)
-            .map_err(|error| error.to_string())?;
+        if let Err(error) = self.settings.remove_servers(servers, &path) {
+            self.restore_pairings(&taken);
+            return Err(error.to_string());
+        }
         for server in servers {
             self.servers.passwords.forget(*server);
         }
-        self.forget_pairings(servers, cx);
         self.remote_selection
             .retain(|selected| !servers.contains(selected));
         self.sync_servers(cx);

@@ -53,6 +53,11 @@ impl PairedServer {
         super::paired::unhex(&self.fingerprint)
     }
 
+    /// Whether it presents `fingerprint`, however its hex is spelled.
+    pub fn has_certificate(&self, fingerprint: &[u8; 32]) -> bool {
+        self.fingerprint().as_ref() == Some(fingerprint)
+    }
+
     fn validate(&self) -> Result<()> {
         let invalid = || {
             Error::new(
@@ -109,15 +114,7 @@ impl ServerEntry {
                 "this computer's server ID cannot be listed",
             ));
         }
-        if self.name.trim().is_empty()
-            || self.name.len() > 256
-            || self.name.chars().any(char::is_control)
-        {
-            return Err(Error::new(
-                "servers",
-                "enter a name of 1–256 bytes without control characters",
-            ));
-        }
+        Self::validate_name(&self.name)?;
         if let Some(paired) = &self.paired {
             if !self.ssh.is_empty()
                 || self.ssh_command.is_some()
@@ -155,9 +152,24 @@ impl ServerEntry {
                 "enter an identity file path without control characters",
             ));
         }
-        if self.group.as_ref().is_some_and(|group| {
-            group.trim().is_empty() || group.len() > 256 || group.chars().any(char::is_control)
-        }) {
+        if let Some(group) = &self.group {
+            Self::validate_group(group)?;
+        }
+        Ok(())
+    }
+
+    pub fn validate_name(name: &str) -> Result<()> {
+        if name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            return Err(Error::new(
+                "servers",
+                "enter a name of 1–256 bytes without control characters",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_group(group: &str) -> Result<()> {
+        if group.trim().is_empty() || group.len() > 256 || group.chars().any(char::is_control) {
             return Err(Error::new(
                 "servers",
                 "enter a group name of 1–256 bytes without control characters",

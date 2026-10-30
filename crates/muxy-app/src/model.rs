@@ -14,7 +14,7 @@ mod language;
 mod links;
 mod mobile;
 mod pairing;
-pub(crate) use pairing::{PairingForm, parse_link};
+pub(crate) use pairing::PairingForm;
 mod preferences;
 pub(crate) mod project_layouts;
 pub(crate) mod proxy;
@@ -147,6 +147,7 @@ pub(crate) struct AppModel {
     /// The last Test Connection in Settings, with the destination it tried.
     server_probe: Option<(String, ConnectionTest)>,
     server_probe_generation: u64,
+    pub(crate) pairing: pairing::Pairing,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
     /// Servers selected in the Remote Servers tab, and where a ⇧-click range
@@ -544,6 +545,7 @@ impl AppModel {
             mobile: mobile::MobileAccess::default(),
             server_probe: None,
             server_probe_generation: 0,
+            pairing: pairing::Pairing::default(),
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
             remote_selection: Vec::new(),
