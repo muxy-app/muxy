@@ -45,8 +45,12 @@ pub(crate) enum Overlay {
 
 impl Overlay {
     /// Whether the overlay marks the area it covers, so native views
-    /// elsewhere stay visible while it is open.
-    pub(crate) fn marks_bounds(&self) -> bool {
+    /// elsewhere stay visible while it is open. Modal dialogs dim the whole
+    /// window, so they mark nothing.
+    pub(crate) fn marks_bounds(&self, status_bar_visible: bool) -> bool {
+        if let Self::Proxy(_) = self {
+            return status_bar_visible;
+        }
         matches!(
             self,
             Self::Updates
@@ -56,16 +60,11 @@ impl Overlay {
                 | Self::Agents
                 | Self::SessionProviders
                 | Self::Git(_)
-                | Self::GitForm(_)
                 | Self::AiProvider(_)
                 | Self::PullRequest(_)
                 | Self::Menu(_)
                 | Self::ProjectEditor(_)
                 | Self::ProjectIcons(_)
-                | Self::ServerForm(_)
-                | Self::PairForm(_)
-                | Self::Password(_)
-                | Self::Proxy(_)
         )
     }
 }
@@ -146,19 +145,6 @@ fn remote_servers(content: AnyElement, model: &AppModel, cx: &mut Context<AppMod
     })
 }
 
-fn centered(content: AnyElement) -> AnyElement {
-    div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(content)
-        .into_any_element()
-}
-
 #[allow(
     clippy::too_many_lines,
     reason = "Exhaustive overlay rendering dispatch"
@@ -180,15 +166,15 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
             })
         }
         Some(Overlay::Proxy(form)) => {
-            let content = marked(super::proxy::render(form, model, window, cx), model);
             if model.appearance.status_bar_visible {
+                let content = marked(super::proxy::render(form, model, window, cx), model);
                 let anchor = model.proxy.anchor.clone();
                 let model = cx.entity().downgrade();
                 muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
                     let _ = model.update(cx, AppModel::dismiss_overlay);
                 })
             } else {
-                centered(content)
+                muxy_ui::popover::modal(super::proxy::render(form, model, window, cx))
             }
         }
         Some(Overlay::Updates) => {
@@ -225,32 +211,19 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                 let _ = owner.update(cx, AppModel::dismiss_overlay);
             })
         }
-        Some(Overlay::ServerForm(form)) => centered(marked(
-            super::remote_servers::render_form(form, model, window, cx),
-            model,
-        )),
-        Some(Overlay::PairForm(form)) => centered(marked(
-            super::pair_form::render(form, model, window, cx),
-            model,
-        )),
-        Some(Overlay::Password(prompt)) => centered(marked(
+        Some(Overlay::ServerForm(form)) => {
+            muxy_ui::popover::modal(super::remote_servers::render_form(form, model, window, cx))
+        }
+        Some(Overlay::PairForm(form)) => {
+            muxy_ui::popover::modal(super::pair_form::render(form, model, window, cx))
+        }
+        Some(Overlay::Password(prompt)) => muxy_ui::popover::modal(
             super::remote_servers::render_password(prompt, model, window, cx),
-            model,
-        )),
+        ),
         Some(Overlay::Native(picker)) => picker.clone().into_any_element(),
-        Some(Overlay::GitForm(form)) => div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(marked(
-                super::git::render_form(form, model, window, cx),
-                model,
-            ))
-            .into_any_element(),
+        Some(Overlay::GitForm(form)) => {
+            muxy_ui::popover::modal(super::git::render_form(form, model, window, cx))
+        }
         Some(Overlay::AiProvider(menu)) => {
             let entity = cx.entity().downgrade();
             muxy_ui::popover::anchored_popover_above(

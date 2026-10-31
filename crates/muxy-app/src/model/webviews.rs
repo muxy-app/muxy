@@ -206,7 +206,7 @@ impl AppModel {
     fn overlay_unmarked(&self) -> bool {
         self.overlay
             .as_ref()
-            .is_some_and(|overlay| !overlay.marks_bounds())
+            .is_some_and(|overlay| !overlay.marks_bounds(self.appearance.status_bar_visible))
     }
 
     pub(super) fn pane_drag_available(&self, pane: PaneId) -> bool {

@@ -30,6 +30,29 @@ pub fn surface(theme: &Theme, metrics: Metrics) -> gpui::Div {
         .text_size(metrics.font_body())
 }
 
+/// How far below the top of the window a modal dialog opens.
+pub const MODAL_TOP: f32 = 48.0;
+
+/// The dimming behind a modal dialog.
+pub fn modal_backdrop() -> gpui::Hsla {
+    gpui::hsla(0.0, 0.0, 0.0, 0.3)
+}
+
+/// `content` as a modal dialog: centered across the window, near its top,
+/// above a dimmed backdrop.
+pub fn modal(content: impl IntoElement) -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .bg(modal_backdrop())
+        .pt(px(MODAL_TOP))
+        .child(content)
+        .into_any_element()
+}
+
 pub fn row(
     theme: &Theme,
     metrics: Metrics,
