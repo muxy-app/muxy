@@ -283,10 +283,10 @@ fn move_pointer(
     cx: &mut Context<AppModel>,
 ) {
     let pending = model.tab_drag.pending();
-    model.tab_drag.cancel_unavailable(
-        model.state.current_project(),
-        model.overlay.is_some() || model.close_prompt.is_some(),
-    );
+    let covered = model.coverage().modal();
+    model
+        .tab_drag
+        .cancel_unavailable(model.state.current_project(), covered);
     let Some(drag) = &mut model.tab_drag.gesture else {
         if pending {
             cx.notify();

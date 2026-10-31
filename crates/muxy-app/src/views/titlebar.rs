@@ -134,7 +134,7 @@ pub(crate) fn begin_window_move(
 ) {
     #[cfg(target_os = "macos")]
     let _ = &window;
-    if model.overlay.is_some() || model.close_prompt.is_some() {
+    if model.coverage().modal() {
         return;
     }
     #[cfg(target_os = "macos")]

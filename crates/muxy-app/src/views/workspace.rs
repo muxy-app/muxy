@@ -870,7 +870,8 @@ impl AppModel {
             .filter_map(|tab| self.tab(tab)?.zoomed)
             .collect();
         let split = self.visible_panes().len() > 1;
-        if self.overlay.is_some() || self.close_prompt.is_some() {
+        let coverage = self.coverage();
+        if coverage.modal() {
             self.split_resize.end();
         }
         for (id, pane) in &self.grids {
@@ -890,16 +891,7 @@ impl AppModel {
                     pane.corner_radius = radius;
                     cx.notify();
                 }
-                let native_visible = self.overlay.is_none()
-                    && self.voice.view.is_none()
-                    && self.voice.closing.is_none()
-                    && self.close_prompt.is_none()
-                    && self.composer.closing.is_none()
-                    && (self.composer.view.is_none()
-                        || (self.settings.composer.pinned
-                            && self.settings.composer.presentation
-                                == muxy_app_core::settings::ComposerPresentation::Panel));
-                pane.set_native_visible(native_visible, cx);
+                pane.set_native_visible(!coverage.hides_terminal_scroll(), cx);
             });
         }
     }
@@ -925,13 +917,11 @@ impl AppModel {
             }
             self.focus_requested = false;
         }
-        if self.overlay.is_some() || self.close_prompt.is_some() {
+        let modal = self.coverage().modal();
+        if modal {
             self.cancel_titlebar_drag(cx);
         }
-        if !self.appearance.sidebar_expanded
-            || self.overlay.is_some()
-            || self.close_prompt.is_some()
-        {
+        if !self.appearance.sidebar_expanded || modal {
             self.finish_sidebar_resize(cx);
         }
         let pending = self.tab_drag.pending();

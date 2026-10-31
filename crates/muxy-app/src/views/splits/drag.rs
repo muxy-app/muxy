@@ -157,15 +157,9 @@ impl AppModel {
     }
 
     fn drag_blocked(&self) -> bool {
-        self.overlay.is_some()
-            || self.close_prompt.is_some()
+        self.coverage().blocks_pane_drag()
             || self.split_resize.active()
             || self.sidebar_resize.is_some()
-            || self.voice.view.is_some()
-            || self.voice.closing.is_some()
-            || (self.composer.view.is_some()
-                && self.settings.composer.presentation
-                    == muxy_app_core::settings::ComposerPresentation::Floating)
     }
 
     pub(crate) fn validate_layout_drag(&mut self, cx: &mut Context<Self>) {

@@ -8,6 +8,7 @@ pub(crate) mod capabilities;
 mod catalog;
 pub(crate) mod commands;
 mod composer;
+mod coverage;
 mod diagnostics;
 pub(crate) mod extensions;
 pub(crate) mod git;
@@ -2921,6 +2922,7 @@ mod tests {
     mod browsers;
     mod commands;
     mod composer;
+    mod coverage;
     mod detach;
     mod find;
     mod git;

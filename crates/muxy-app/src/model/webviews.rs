@@ -129,13 +129,11 @@ impl AppModel {
         }
         self.webviews.occlusions.borrow_mut().clear();
         self.webviews.grips.borrow_mut().clear();
-        let composer_dialog = (self.composer.view.is_some() || self.composer.closing.is_some())
-            && self.settings.composer.presentation
-                == muxy_app_core::settings::ComposerPresentation::Floating;
-        let blocked = composer_dialog || self.overlay.is_some() || self.close_prompt.is_some();
+        let coverage = self.coverage();
+        let blocked = coverage.hides_webviews();
         let resizing = self.resizing_surfaces(window, cx);
         self.spinners
-            .set_blocked(resizing || composer_dialog || self.overlay_unmarked());
+            .set_blocked(resizing || coverage.hides_spinners());
         let shortcuts = self.webview_shortcuts();
         for (id, surface) in &self.webviews.panes {
             surface
@@ -161,7 +159,7 @@ impl AppModel {
         }
         self.sync_browsers(blocked, resizing, window, cx);
         self.sync_webview_panels(blocked, resizing, window, cx);
-        self.sync_extension_surfaces(&shortcuts, blocked, resizing, window, cx);
+        self.sync_extension_surfaces(&shortcuts, coverage, resizing, window, cx);
         if let Some(modal) = &self.webviews.modal {
             modal
                 .surface
@@ -173,7 +171,7 @@ impl AppModel {
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     true,
-                    self.close_prompt.is_some(),
+                    coverage.hides_overlay_webviews(),
                     window.is_window_active() && view.focus.is_focused(window),
                     f64::from(f32::from(self.metrics.radius_xl())),
                     cx,
@@ -201,14 +199,6 @@ impl AppModel {
                 .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active())
     }
 
-    /// An overlay that doesn't mark where it is hides every spinner.
-    /// Confirmations are native sheets above the window, so they hide none.
-    fn overlay_unmarked(&self) -> bool {
-        self.overlay
-            .as_ref()
-            .is_some_and(|overlay| !overlay.marks_bounds(self.appearance.status_bar_visible))
-    }
-
     pub(super) fn pane_drag_available(&self, pane: PaneId) -> bool {
         self.pane_tab(pane)
             .and_then(|tab| self.tab(tab))
@@ -219,7 +209,7 @@ impl AppModel {
     fn sync_extension_surfaces(
         &self,
         shortcuts: &[gpui::Keystroke],
-        blocked: bool,
+        coverage: super::coverage::Coverage,
         resizing: bool,
         window: &Window,
         cx: &mut Context<Self>,
@@ -233,7 +223,7 @@ impl AppModel {
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     visible,
-                    blocked,
+                    coverage.hides_webviews(),
                     window.is_window_active() && view.focus.is_focused(window),
                     0.0,
                     cx,
@@ -246,7 +236,7 @@ impl AppModel {
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     true,
-                    self.close_prompt.is_some(),
+                    coverage.hides_overlay_webviews(),
                     window.is_window_active() && view.focus.is_focused(window),
                     f64::from(f32::from(self.metrics.radius_lg())),
                     cx,

@@ -54,7 +54,7 @@ pub(in crate::views) fn handle(model: &AppModel, cx: &mut Context<AppModel>) -> 
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(|model, event: &gpui::MouseDownEvent, window, cx| {
-                if model.overlay.is_some() || model.close_prompt.is_some() {
+                if model.coverage().modal() {
                     return;
                 }
                 model.sidebar_resize = Some(SidebarResize {
