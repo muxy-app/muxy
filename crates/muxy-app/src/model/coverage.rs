@@ -13,8 +13,6 @@ pub(crate) struct Coverage {
     /// A native sheet above the window.
     close_prompt: bool,
     composer: Option<ComposerLayer>,
-    /// The voice panel, open or closing.
-    voice: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,12 +42,12 @@ impl Coverage {
     /// Terminal scroll can't be cut out under a rectangle, so it hides under
     /// every layer except a pinned panel composer, which sits beside the panes.
     pub(crate) fn hides_terminal_scroll(self) -> bool {
-        self.modal() || self.composer.is_some() || self.voice
+        self.modal() || self.composer.is_some()
     }
 
     /// Webviews and browsers hide under layers that cover the whole
-    /// workspace. Under the voice panel and a panel composer they are cut out
-    /// under that layer's rectangle instead.
+    /// workspace. Under a panel composer they are cut out under its rectangle
+    /// instead.
     pub(crate) fn hides_webviews(self) -> bool {
         self.modal() || self.composer == Some(ComposerLayer::Floating)
     }
@@ -70,7 +68,6 @@ impl Coverage {
     /// Pane drags stop under every layer except an open panel composer.
     pub(crate) fn blocks_pane_drag(self) -> bool {
         self.modal()
-            || self.voice
             || matches!(
                 self.composer,
                 Some(ComposerLayer::Floating | ComposerLayer::PanelClosing)
@@ -100,7 +97,6 @@ impl AppModel {
             overlay,
             close_prompt: self.close_prompt.is_some(),
             composer,
-            voice: self.voice.view.is_some() || self.voice.closing.is_some(),
         }
     }
 }
@@ -172,14 +168,6 @@ mod tests {
                 "unpinned panel composer",
                 composer(ComposerLayer::LoosePanel),
                 [false, true, false, false, false, false],
-            ),
-            (
-                "voice",
-                Coverage {
-                    voice: true,
-                    ..Coverage::default()
-                },
-                [false, true, false, false, false, true],
             ),
         ];
         for (layer, coverage, expected) in cases {

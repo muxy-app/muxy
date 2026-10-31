@@ -3,7 +3,7 @@ pub(crate) mod menu;
 
 use gpui::{
     AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
-    Subscription, Task, Window, actions, px,
+    Subscription, Window, actions, px,
 };
 use muxy_app_core::{
     composer::ComposerDraft,
@@ -16,10 +16,9 @@ use muxy_ui::{
     },
     text_input::{InputEvent, InputStyle, TextInput},
     theme::{Metrics, Theme},
-    tr,
 };
 
-actions!(composer, [Submit, Insert, Close, ToggleVoice]);
+actions!(composer, [Submit, Insert, Close]);
 pub(crate) const PANEL: &str = "builtin:composer";
 pub(crate) const TRANSITION: std::time::Duration = std::time::Duration::from_millis(150);
 
@@ -46,11 +45,6 @@ pub(crate) struct Composer {
     resize: PanelResizeState,
     header_focus: [FocusHandle; 6],
     _input_subscription: Subscription,
-    voice: Option<muxy_ui::voice::Recorder>,
-    voice_snapshot: muxy_ui::voice::Snapshot,
-    voice_poll: Option<Task<()>>,
-    /// Whether dictation can run, from the app's capability table.
-    pub(crate) dictation: muxy_core::capability::Capability,
     pub(crate) workspace_inset: f32,
     pub(crate) context_label: String,
     floating_dimensions: Option<gpui::Size<gpui::Pixels>>,
@@ -125,10 +119,6 @@ impl Composer {
             resize: PanelResizeState::default(),
             header_focus: std::array::from_fn(|_| cx.focus_handle()),
             _input_subscription: subscription,
-            voice: None,
-            voice_snapshot: muxy_ui::voice::Snapshot::default(),
-            voice_poll: None,
-            dictation: muxy_core::capability::Capability::Supported,
             workspace_inset: 0.0,
             context_label: String::new(),
             floating_resize: None,
@@ -237,95 +227,10 @@ impl Composer {
         cx.notify();
     }
 
-    pub(crate) fn cancel_voice(&mut self, cx: &mut Context<Self>) {
-        self.voice = None;
-        self.voice_poll = None;
-        self.error = None;
-        cx.notify();
-    }
-
-    pub(crate) fn recording(&self) -> bool {
-        self.voice.is_some()
-    }
-
     fn submit(&self, enter: bool, cx: &mut Context<Self>) {
-        if !self.sending && self.voice.is_none() {
+        if !self.sending {
             cx.emit(ComposerEvent::Submit(enter));
         }
-    }
-
-    pub(crate) fn toggle_voice(&mut self, cx: &mut Context<Self>) {
-        if self.sending {
-            return;
-        }
-        if let Some(recorder) = &self.voice {
-            if matches!(
-                self.voice_snapshot.phase,
-                muxy_ui::voice::Phase::Starting | muxy_ui::voice::Phase::Transcribing
-            ) {
-                self.voice = None;
-                self.voice_poll = None;
-            } else {
-                recorder.finish();
-            }
-            cx.notify();
-            return;
-        }
-        if let Some(reason) = self.dictation.reason(muxy_core::capability::Feature::Voice) {
-            self.error = Some(reason.into_owned());
-            cx.notify();
-            return;
-        }
-        self.error = None;
-        match muxy_ui::voice::Recorder::start(
-            self.settings.language.clone(),
-            self.settings.voice_model.clone(),
-        ) {
-            Ok(recorder) => self.record(recorder, cx),
-            Err(error) => {
-                self.error = Some(error);
-                cx.notify();
-            }
-        }
-    }
-
-    fn record(&mut self, recorder: muxy_ui::voice::Recorder, cx: &mut Context<Self>) {
-        self.voice = Some(recorder);
-        self.voice_snapshot = muxy_ui::voice::Snapshot::default();
-        self.voice_poll = Some(cx.spawn(async move |view, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(80))
-                    .await;
-                let keep = view
-                    .update(cx, |view, cx| {
-                        let Some(recorder) = &view.voice else {
-                            return false;
-                        };
-                        view.voice_snapshot = recorder.snapshot();
-                        view.error.clone_from(&view.voice_snapshot.error);
-                        if view.voice_snapshot.phase == muxy_ui::voice::Phase::Failed {
-                            view.voice = None;
-                        } else if let Some(text) = recorder.finished() {
-                            view.voice = None;
-                            if text.is_empty() {
-                                view.error =
-                                    Some(tr!("No speech detected. Try dictation again.").into());
-                            } else {
-                                view.input
-                                    .update(cx, |input, cx| input.insert_at_selection(&text, cx));
-                            }
-                        }
-                        cx.notify();
-                        view.voice.is_some()
-                    })
-                    .unwrap_or(false);
-                if !keep {
-                    break;
-                }
-            }
-        }));
-        cx.notify();
     }
 
     fn zoom(&mut self, delta: f32, cx: &mut Context<Self>) {
@@ -337,16 +242,6 @@ impl Composer {
 
     fn preferences(&mut self, cx: &mut Context<Self>) {
         cx.emit(ComposerEvent::Preferences(self.settings.clone()));
-        cx.notify();
-    }
-
-    pub(crate) fn pause_voice(&mut self, cx: &mut Context<Self>) {
-        if self.voice_snapshot.phase == muxy_ui::voice::Phase::Transcribing {
-            return;
-        }
-        if let Some(voice) = &self.voice {
-            voice.pause(self.voice_snapshot.phase != muxy_ui::voice::Phase::Paused);
-        }
         cx.notify();
     }
 }
@@ -362,6 +257,3 @@ impl Render for Composer {
         self.render_composer(window, cx)
     }
 }
-
-#[cfg(test)]
-mod tests;

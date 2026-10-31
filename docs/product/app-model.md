@@ -177,8 +177,8 @@ ends.
 
 ## Desktop features
 
-- **Composer.** Write a draft, with files, images, or dictation, and send it to
-  the active terminal or to every visible split. Each project keeps its own
+- **Composer.** Write a draft, with files or images, and send it to the active
+  terminal or to every visible split. Each project keeps its own
   draft, and a failed send keeps it.
 - **Web views.** Extension pages as tabs, docked panels, popovers, or dialogs.
   They stay alive while hidden. Extension panels belong to a project: switching

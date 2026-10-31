@@ -60,9 +60,6 @@ pub mod quick_terminal;
 )]
 pub mod notifications;
 
-#[allow(unsafe_code, reason = "Apple speech and capture framework adapter")]
-pub mod voice;
-
 #[allow(unsafe_code, reason = "Native clipboard item preservation")]
 pub mod pasteboard;
 
@@ -80,8 +77,6 @@ pub mod webview;
     reason = "The browser view is built inside a native container"
 )]
 pub mod browser;
-
-pub mod transcript;
 
 #[allow(
     unsafe_code,

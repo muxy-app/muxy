@@ -36,7 +36,6 @@ mod tabs;
 pub(crate) mod tips;
 mod updates;
 pub(crate) use updates::UpdateAction;
-mod voice;
 mod webviews;
 mod window_accessibility;
 mod workspaces;
@@ -125,7 +124,6 @@ pub(crate) struct AppModel {
     pub(crate) browsers: browsers::Browsers,
     pub(crate) panels: muxy_ui::panel::PanelHost,
     pub(crate) composer: composer::ComposerRuntime,
-    pub(crate) voice: voice::VoiceRuntime,
     pub(crate) git: git::GitState,
     pub(crate) ai: ai::Runtime,
     pub(crate) servers: servers::Servers,
@@ -289,11 +287,6 @@ impl AppModel {
             });
         }
         if let Some(view) = &self.composer.view {
-            view.update(cx, |view, cx| {
-                view.appearance(self.theme.clone(), self.metrics, cx);
-            });
-        }
-        if let Some(view) = &self.voice.view {
             view.update(cx, |view, cx| {
                 view.appearance(self.theme.clone(), self.metrics, cx);
             });
@@ -483,7 +476,6 @@ impl AppModel {
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
             #[cfg(not(test))]
             crate::ai::terminate_all();
-            model.close_voice(cx);
             model.save(cx);
             model.flush_composer(cx)
         });
@@ -528,7 +520,6 @@ impl AppModel {
             browsers: browsers::Browsers::default(),
             panels: muxy_ui::panel::PanelHost::default(),
             composer: composer::ComposerRuntime::new(boot.composer),
-            voice: voice::VoiceRuntime::default(),
             git: git::GitState::default(),
             ai: ai::Runtime::default(),
             servers: servers::Servers::new(
@@ -1745,7 +1736,6 @@ impl AppModel {
         self.sync_agent_sessions(cx);
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
-        self.sync_voice(cx);
         self.sync_devices_tab(false, cx);
         self.sync_git(cx);
         self.sync_references(cx);

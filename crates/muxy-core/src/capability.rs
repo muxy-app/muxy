@@ -10,7 +10,6 @@ use crate::tr;
 pub enum Feature {
     ExtensionScripts,
     ExtensionWebviews,
-    Voice,
     QuickTerminal,
     Notifications,
     ClipboardImages,
@@ -20,10 +19,9 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::ExtensionScripts,
         Self::ExtensionWebviews,
-        Self::Voice,
         Self::QuickTerminal,
         Self::Notifications,
         Self::ClipboardImages,
@@ -41,7 +39,6 @@ impl Feature {
             Self::ExtensionWebviews => {
                 tr!("Extension webviews are not available on this platform yet.")
             }
-            Self::Voice => tr!("Voice input is not available on this platform yet."),
             Self::QuickTerminal => {
                 tr!("The Quick Terminal is not available on this platform yet.")
             }

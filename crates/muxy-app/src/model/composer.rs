@@ -78,7 +78,6 @@ impl AppModel {
             self.close_composer(cx);
             return;
         }
-        self.close_voice(cx);
         self.dismiss_overlay(cx);
         self.open_composer(cx);
         self.blur_webviews(cx);
@@ -125,7 +124,6 @@ impl AppModel {
         view.update(cx, |view, _| {
             view.error = error;
             view.sending = self.composer.submission.is_some();
-            view.dictation = self.capabilities.get(Feature::Voice).clone();
         });
         self.place_composer_panel(&view, cx);
         self.composer.subscription = Some(cx.subscribe(&view, |model, _, event, cx| match event {
@@ -170,9 +168,6 @@ impl AppModel {
 
     pub(super) fn dismiss_composer(&mut self, clear: bool, cx: &mut Context<Self>) {
         self.close_composer_menu(cx);
-        if let Some(view) = &self.composer.view {
-            view.update(cx, Composer::cancel_voice);
-        }
         if clear && let Some(key) = &self.composer.key {
             let result = self
                 .composer
@@ -220,9 +215,6 @@ impl AppModel {
             self.close_composer(cx);
             self.open_composer(cx);
         } else if self.composer.pane != self.active_pane() {
-            if let Some(view) = &self.composer.view {
-                view.update(cx, Composer::cancel_voice);
-            }
             self.composer.pane = self.active_pane();
         }
     }
@@ -287,9 +279,6 @@ impl AppModel {
 
     pub(super) fn flush_composer(&mut self, cx: &mut Context<Self>) -> Task<()> {
         self.composer.save = None;
-        if let Some(view) = &self.composer.view {
-            view.update(cx, Composer::cancel_voice);
-        }
         let store = self.composer.store.clone();
         let settings = self.settings.clone();
         let path = self.path.with_file_name("settings.toml");
@@ -794,9 +783,6 @@ impl AppModel {
         cx: &gpui::App,
     ) -> Option<(u64, SubmissionPlan)> {
         let composer = view.read(cx);
-        if composer.recording() {
-            return None;
-        }
         let revision = self
             .composer
             .store

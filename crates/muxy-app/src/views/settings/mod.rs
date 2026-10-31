@@ -7,7 +7,6 @@ mod commands;
 mod composer;
 pub(crate) mod extensions;
 mod keyboard;
-mod languages;
 mod layout;
 mod pickers;
 mod quick_terminal;
@@ -298,7 +297,6 @@ impl SettingsView {
             focus_initialized: false,
             compact: false,
             picker_anchors: [
-                PickerKind::Language,
                 PickerKind::Theme(false),
                 PickerKind::Theme(true),
                 PickerKind::QuickTheme(false),
@@ -332,7 +330,6 @@ impl SettingsView {
             "command-text",
             "composer-font",
             "composer-line-height",
-            "composer-voice-model",
             "quick-width",
             "quick-height",
             "sidebar-vibrancy-level",
@@ -425,10 +422,6 @@ impl SettingsView {
         });
         for (id, value) in [
             ("composer-font", settings.composer.font_family.clone()),
-            (
-                "composer-voice-model",
-                settings.composer.voice_model.clone(),
-            ),
             (
                 "composer-line-height",
                 settings.composer.line_height.to_string(),

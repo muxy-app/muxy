@@ -40,7 +40,6 @@ impl FontSlot {
 pub(crate) enum PickerKind {
     Font(FontSlot),
     Terminal(&'static str),
-    Language,
     Theme(bool),
     QuickTheme(bool),
     AiProvider(crate::repository_actions::Action),
@@ -64,7 +63,6 @@ impl PickerKind {
         match self {
             Self::Font(slot) => slot.id(),
             Self::Terminal(id) => id,
-            Self::Language => "composer-language",
             Self::Theme(false) => "light-theme",
             Self::Theme(true) => "dark-theme",
             Self::QuickTheme(false) => "quick-light-theme",

@@ -1,6 +1,6 @@
 use super::{Error, Result};
 use crate::composer::submission::ImageSubmissionStrategy;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::IgnoredAny};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,9 +40,14 @@ pub struct ComposerSettings {
     pub image_strategy: ImageSubmissionStrategy,
     pub font_family: String,
     pub line_height: f32,
-    pub language: String,
-    pub voice_model: String,
-    pub voice_auto_send: bool,
+    /// Dictation settings from before voice input was removed, ignored so
+    /// older settings files still load.
+    #[serde(default, skip_serializing, rename = "language")]
+    retired_language: IgnoredAny,
+    #[serde(default, skip_serializing, rename = "voice_model")]
+    retired_voice_model: IgnoredAny,
+    #[serde(default, skip_serializing, rename = "voice_auto_send")]
+    retired_voice_auto_send: IgnoredAny,
 }
 
 impl Default for ComposerSettings {
@@ -72,18 +77,15 @@ impl Default for ComposerSettings {
             }
             .into(),
             line_height: 1.2,
-            language: String::new(),
-            voice_model: String::new(),
-            voice_auto_send: false,
+            retired_language: IgnoredAny,
+            retired_voice_model: IgnoredAny,
+            retired_voice_auto_send: IgnoredAny,
         }
     }
 }
 
 impl ComposerSettings {
     pub fn validate(&self) -> Result<()> {
-        if self.voice_model.len() > 4096 || self.voice_model.contains('\0') {
-            return Err(Error::new("composer.voice_model", "Invalid model path"));
-        }
         for (name, value, min, max) in [
             ("width", self.width, 280.0, 800.0),
             ("floating_width", self.floating_width, 1.0, 16384.0),
@@ -99,10 +101,10 @@ impl ComposerSettings {
                 ));
             }
         }
-        if self.font_family.len() > 200 || self.language.len() > 200 {
+        if self.font_family.len() > 200 {
             return Err(Error::new(
-                "composer",
-                "Font and language names must be at most 200 bytes",
+                "composer.font_family",
+                "must be at most 200 bytes",
             ));
         }
         Ok(())

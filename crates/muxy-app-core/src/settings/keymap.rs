@@ -288,11 +288,16 @@ fn former_linux_default(name: &str, value: &str) -> bool {
 }
 
 /// Actions that no longer exist. Older settings files that bind them still load.
-const RETIRED: [&str; 4] = [
+const RETIRED: [&str; 9] = [
     "project_colors.previous_color",
     "project_colors.next_color",
     "project_colors.choose_color",
     "project_colors.dismiss_colors",
+    "composer.voice",
+    "toggle_voice_recording",
+    "voice.finish",
+    "voice.cancel",
+    "voice.pause",
 ];
 
 /// Built-in defaults that give way to a key a user binding already has.

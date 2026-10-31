@@ -588,7 +588,6 @@ impl AppModel {
                 match id {
                     "composer-clear-after" => settings.composer.clear_after_sending = value,
                     "composer-clear-close" => settings.composer.clear_on_close = value,
-                    "voice-auto-send" => settings.composer.voice_auto_send = value,
                     "composer-images" => {
                         settings.composer.image_strategy = if value {
                             muxy_app_core::composer::submission::ImageSubmissionStrategy::Clipboard
@@ -600,17 +599,9 @@ impl AppModel {
                 }
                 settings.save_composer(&path)?;
             }
-            Change::Field(
-                id @ ("composer-font"
-                | "composer-line-height"
-                | "composer-language"
-                | "composer-voice-model"),
-                value,
-            ) => {
+            Change::Field(id @ ("composer-font" | "composer-line-height"), value) => {
                 match id {
                     "composer-font" => settings.composer.font_family = value,
-                    "composer-language" => settings.composer.language = value,
-                    "composer-voice-model" => settings.composer.voice_model = value,
                     _ => settings.composer.line_height = value.parse()?,
                 }
                 settings.save_composer(&path)?;
