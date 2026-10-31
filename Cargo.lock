@@ -3013,7 +3013,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/muxy-app/gpui?rev=811c26caed41d6b97bf8f7999afa2329fcf30acb#811c26caed41d6b97bf8f7999afa2329fcf30acb"
+source = "git+https://github.com/muxy-app/gpui?rev=ec24331257b2565cff99ad09a99d5f5855af9be0#ec24331257b2565cff99ad09a99d5f5855af9be0"
 dependencies = [
  "anyhow",
  "as-raw-xcb-connection",
