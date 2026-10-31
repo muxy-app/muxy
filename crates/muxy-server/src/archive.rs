@@ -4,17 +4,17 @@ mod storage;
 use storage::StoredRecord;
 
 use std::collections::BTreeMap;
-use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::fs::{self, DirBuilder, File};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, BufWriter, Read, Write};
 use std::ops::Range;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use muxy_protocol::{
     ErrorCode, ExitReason, HistoryCursor, HistoryPage, Message, ReplyBody, RequestId, Row, Run,
@@ -154,7 +154,7 @@ impl Archive {
             .create(directory)?;
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
         let directory_lock = File::open(directory)?;
-        lock_directory(&directory_lock)?;
+        muxy_core::file_lock::acquire_file(&directory_lock, Duration::from_secs(3))?;
         let queue = Queue::default();
         let jobs = Arc::clone(&queue);
         let (wake, receiver) = mpsc::sync_channel(1);
@@ -561,24 +561,6 @@ fn write_jobs(directory: &Path, queue: &Queue, wake: &Receiver<()>) {
     }
 }
 
-fn lock_directory(directory: &File) -> io::Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        match directory.try_lock().map_err(io::Error::from) {
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-            {
-                thread::sleep(
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .min(Duration::from_millis(10)),
-                );
-            }
-            result => return result,
-        }
-    }
-}
-
 fn record_path(directory: &Path, session: SessionId) -> PathBuf {
     directory.join(format!("{:016x}.postcard", session.get()))
 }
@@ -617,23 +599,11 @@ fn read_record(path: &Path, budget: u64) -> io::Result<Record> {
 }
 
 fn write_record(directory: &Path, session: SessionId, record: &Record) -> io::Result<()> {
-    let nonce = getrandom::u64().map_err(|error| io::Error::other(error.to_string()))?;
-    let temporary = directory.join(format!(".{:016x}-{nonce:016x}.tmp", session.get()));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)?;
-        write_buffered(record, &mut file)?;
-        file.sync_all()?;
-        fs::rename(&temporary, record_path(directory, session))?;
-        File::open(directory)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    Ok(muxy_core::fs::write_atomic_with(
+        &record_path(directory, session),
+        0o600,
+        |file| write_buffered(record, file),
+    )?)
 }
 
 fn write_buffered(record: &Record, writer: impl Write) -> io::Result<()> {
