@@ -11,7 +11,7 @@ use muxy_protocol::{
 };
 
 use crate::error::ServerError;
-use owner::OwnerEvent;
+pub(crate) use owner::OwnerEvent;
 
 pub(crate) use owner::start;
 

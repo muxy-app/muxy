@@ -331,6 +331,10 @@ fn ordered_request(
             outbox.set_colors(colors);
             ReplyBody::TerminalColorsSet
         }
+        RequestBody::SetSessionColors { session, colors } => {
+            outbox.set_session_colors(session, colors);
+            ReplyBody::SessionColorsSet
+        }
         RequestBody::Attach { session, size } => {
             attach(session, Some(size), id, registry, outbox, last_channel)?;
             return Ok(None);

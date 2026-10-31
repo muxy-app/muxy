@@ -446,6 +446,19 @@ impl Client {
         }
     }
 
+    /// Gives one session its own colors on this connection, or with `None`
+    /// returns it to the connection's. Servers from before this answer `Unsupported`.
+    pub fn set_session_colors(
+        &self,
+        session: SessionId,
+        colors: Option<TerminalColors>,
+    ) -> Result<(), ClientError> {
+        match self.request(RequestBody::SetSessionColors { session, colors })? {
+            ReplyBody::SessionColorsSet => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn ping(&self) -> Result<(), ClientError> {
         match self.request(RequestBody::Ping)? {
             ReplyBody::Pong => Ok(()),

@@ -7,6 +7,7 @@ use muxy_core::capability::Feature;
 use muxy_core::quick_terminal::keys::{COMMAND, CONTROL, KeyCombo, OPTION, SHIFT};
 use muxy_core::quick_terminal::{ConflictCandidate, QuickTerminalShortcut};
 use muxy_core::shortcuts::ShortcutSettings;
+use muxy_protocol::{SessionId, TerminalColors};
 use muxy_ui::quick_terminal::{
     panel::{
         AccessibilityPreferences, PanelPresentation, QuickTerminalConfiguration,
@@ -20,6 +21,8 @@ use muxy_ui::tr;
 use super::{AppModel, ConnectionState, Quitting};
 use crate::boot::Work;
 use crate::views::quick_terminal::{QuickTerminalView, QuickTerminalViewModel};
+use crate::views::terminal::colors::Palette;
+use muxy_ui::theme::Theme;
 
 pub(crate) struct QuickTerminalRuntime {
     pub(crate) panel: Option<WindowHandle<QuickTerminalView>>,
@@ -29,6 +32,8 @@ pub(crate) struct QuickTerminalRuntime {
     accessibility: AccessibilityPreferences,
     presentation: PanelPresentation,
     transition: Option<Task<()>>,
+    /// The colors the local server holds for the Quick Terminal session.
+    colors: Option<(SessionId, TerminalColors)>,
     _triggers: Task<()>,
     _system: Task<()>,
     _observers: Option<platform::SystemObservers>,
@@ -110,6 +115,7 @@ impl QuickTerminalRuntime {
             accessibility: Self::accessibility(),
             presentation: PanelPresentation::default(),
             transition: None,
+            colors: None,
             _triggers: trigger_task,
             _system: system_task,
             _observers: observers,
@@ -149,12 +155,19 @@ impl AppModel {
         }
     }
 
-    fn quick_view_model(&self) -> QuickTerminalViewModel {
+    /// The Quick Terminal's own theme and palette, or `None` when it uses the app's.
+    pub(crate) fn quick_theme(&self) -> Option<(Theme, Palette)> {
+        let name = self.settings.quick_terminal.theme(self.dark)?;
+        let (theme, palette) = self.themes.resolve(name, self.dark);
+        Some((theme, palette.with_options(&self.terminal.options)))
+    }
+
+    fn quick_view_model(&self, theme: Theme) -> QuickTerminalViewModel {
         let configuration = self.quick_configuration();
         QuickTerminalViewModel {
             configuration,
             appearance: effective_appearance(configuration, self.quick.accessibility),
-            theme: self.theme.clone(),
+            theme,
             metrics: self.metrics,
             status: match self.connection(ServerId::local()) {
                 ConnectionState::Connecting => tr!("Connecting…"),
@@ -226,7 +239,10 @@ impl AppModel {
             self.connect(cx);
         }
         if self.quick.panel.is_none() {
-            let model = self.quick_view_model();
+            let theme = self
+                .quick_theme()
+                .map_or_else(|| self.theme.clone(), |(theme, _)| theme);
+            let model = self.quick_view_model(theme);
             let owner = cx.weak_entity();
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -342,10 +358,12 @@ impl AppModel {
     }
 
     pub(crate) fn refresh_quick_terminal(&mut self, cx: &mut Context<Self>) {
-        let Some(panel) = self.quick.panel else {
-            return;
-        };
-        let model = self.quick_view_model();
+        let (theme, palette) = self.quick_theme().map_or_else(
+            || (self.theme.clone(), None),
+            |(theme, palette)| (theme, Some(palette)),
+        );
+        self.sync_quick_colors(palette.map(|palette| palette.terminal_colors()), cx);
+        let model = self.quick_view_model(theme);
         let terminal = self
             .state
             .quick_terminal()
@@ -353,15 +371,51 @@ impl AppModel {
             .map(|pane| pane.view.clone());
         if let Some(pane) = &terminal {
             let alpha = f32::from(model.appearance.tint_alpha_percent) / 100.0;
+            let palette = palette.unwrap_or(self.palette);
             pane.update(cx, |pane, cx| {
                 pane.background_opacity = alpha;
+                pane.palette = palette;
+                pane.update_find_theme(&model.theme, cx);
                 cx.notify();
             });
         }
+        let Some(panel) = self.quick.panel else {
+            return;
+        };
         let _ = panel.update(cx, |view, window, cx| {
             view.update_model(model, terminal, window);
             cx.notify();
         });
+    }
+
+    /// Gives the Quick Terminal session its own colors on the local server,
+    /// so programs that ask for them see its theme instead of the app's.
+    fn sync_quick_colors(&mut self, colors: Option<TerminalColors>, cx: &mut Context<Self>) {
+        let session = self
+            .state
+            .quick_terminal()
+            .and_then(|pane| self.pane_session(pane.id));
+        let wanted = session.zip(colors);
+        if self.quick.colors == wanted || !self.ready(ServerId::local()) {
+            return;
+        }
+        let work = match (&wanted, &self.quick.colors) {
+            (Some((session, colors)), _) => {
+                Some(Work::SessionColors(*session, Some(colors.clone())))
+            }
+            (None, Some((held, _))) if session == Some(*held) => {
+                Some(Work::SessionColors(*held, None))
+            }
+            (None, _) => None,
+        };
+        if work.is_none_or(|work| self.send(ServerId::local(), work, cx)) {
+            self.quick.colors = wanted;
+        }
+    }
+
+    /// A new connection to the local server starts with no session colors.
+    pub(super) fn forget_quick_colors(&mut self) {
+        self.quick.colors = None;
     }
 
     pub(crate) fn open_quick_terminal_settings(&mut self, cx: &mut Context<Self>) {

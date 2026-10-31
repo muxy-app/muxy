@@ -228,6 +228,24 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Size"),
     },
     Setting {
+        id: "quick-light-theme",
+        label: tr_key!("Light theme"),
+        description: tr_key!(
+            "Colors for Quick Terminal when macOS uses light appearance. Same as App follows the app's light theme."
+        ),
+        category: Category::QuickTerminal,
+        section: tr_key!("Appearance"),
+    },
+    Setting {
+        id: "quick-dark-theme",
+        label: tr_key!("Dark theme"),
+        description: tr_key!(
+            "Colors for Quick Terminal when macOS uses dark appearance. Same as App follows the app's dark theme."
+        ),
+        category: Category::QuickTerminal,
+        section: tr_key!("Appearance"),
+    },
+    Setting {
         id: "quick-transparency",
         label: tr_key!("Terminal transparency"),
         description: tr_key!("Transparency of the terminal background."),

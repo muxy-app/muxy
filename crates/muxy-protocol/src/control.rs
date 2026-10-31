@@ -181,6 +181,15 @@ pub enum RequestBody {
     /// A piece of a file to keep on the server's computer for a session.
     #[n(43)]
     Upload(#[n(0)] crate::UploadChunk),
+    /// Colors for one session on this connection, replacing the
+    /// connection's colors there; `None` goes back to them.
+    #[n(44)]
+    SetSessionColors {
+        #[n(0)]
+        session: SessionId,
+        #[n(1)]
+        colors: Option<TerminalColors>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -294,6 +303,8 @@ pub enum ReplyBody {
     /// An upload chunk arrived; after the last one, the file's absolute path.
     #[n(38)]
     Uploaded(#[n(0)] Option<ServerPath>),
+    #[n(39)]
+    SessionColorsSet,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

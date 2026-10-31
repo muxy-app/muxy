@@ -327,6 +327,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("TerminalColorsReply", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::SetSessionColors { .. },
+                ..
+            } => ("SessionColorsRequest", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionColorsSet,
+                ..
+            } => ("SessionColorsReply", ChannelKind::Control),
+            Message::Request {
                 body:
                     RequestBody::Search {
                         source: muxy_protocol::SearchSource::Live(_),
@@ -538,6 +546,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "SearchReply",
             "TerminalColorsRequest",
             "TerminalColorsReply",
+            "SessionColorsRequest",
+            "SessionColorsReply",
             "HistoryRequest",
             "SavedHistoryRequest",
             "HistoryReply",

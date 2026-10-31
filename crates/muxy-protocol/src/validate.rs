@@ -250,7 +250,8 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::Ping
         | RequestBody::ReadSavedScreen(_)
         | RequestBody::DiscardSession(_)
-        | RequestBody::SetTerminalColors(_) => Ok(()),
+        | RequestBody::SetTerminalColors(_)
+        | RequestBody::SetSessionColors { .. } => Ok(()),
     }
 }
 
@@ -368,6 +369,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::Detached
         | ReplyBody::Resized
         | ReplyBody::TerminalColorsSet
+        | ReplyBody::SessionColorsSet
         | ReplyBody::Pong
         | ReplyBody::Error(_)
         | ReplyBody::SessionDiscarded => Ok(()),

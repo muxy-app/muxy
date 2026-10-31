@@ -284,23 +284,35 @@ fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
     ]
 }
 
-fn color_samples() -> [Message; 2] {
+fn color_samples() -> [Message; 4] {
+    let colors = TerminalColors {
+        foreground: [0xc9, 0xc2, 0xd9],
+        background: [0x19, 0x17, 0x1f],
+        cursor: [0xc3, 0x70, 0xd3],
+        ansi: [[0x12, 0x34, 0x56]; 16],
+        palette: std::collections::BTreeMap::from([(196, [0xab, 0xcd, 0xef])]),
+        cursor_style: Some(crate::CursorShape::Bar),
+        cursor_blink: Some(false),
+    };
     [
         Message::Request {
             id: RequestId(8),
-            body: RequestBody::SetTerminalColors(TerminalColors {
-                foreground: [0xc9, 0xc2, 0xd9],
-                background: [0x19, 0x17, 0x1f],
-                cursor: [0xc3, 0x70, 0xd3],
-                ansi: [[0x12, 0x34, 0x56]; 16],
-                palette: std::collections::BTreeMap::from([(196, [0xab, 0xcd, 0xef])]),
-                cursor_style: Some(crate::CursorShape::Bar),
-                cursor_blink: Some(false),
-            }),
+            body: RequestBody::SetTerminalColors(colors.clone()),
         },
         Message::Reply {
             id: RequestId(8),
             body: ReplyBody::TerminalColorsSet,
+        },
+        Message::Request {
+            id: RequestId(9),
+            body: RequestBody::SetSessionColors {
+                session: SessionId::from(NonZeroU64::MIN),
+                colors: Some(colors),
+            },
+        },
+        Message::Reply {
+            id: RequestId(9),
+            body: ReplyBody::SessionColorsSet,
         },
     ]
 }

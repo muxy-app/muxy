@@ -51,6 +51,7 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::SavedHistoryPage { .. }
         | RequestBody::Search { .. }
         | RequestBody::SetTerminalColors(_)
+        | RequestBody::SetSessionColors { .. }
         | RequestBody::ReadServerSettings
         | RequestBody::SyncSessionReferences { .. }
         | RequestBody::CloseSession { .. }

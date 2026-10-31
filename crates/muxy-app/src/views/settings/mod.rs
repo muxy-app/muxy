@@ -300,6 +300,8 @@ impl SettingsView {
                 PickerKind::Language,
                 PickerKind::Theme(false),
                 PickerKind::Theme(true),
+                PickerKind::QuickTheme(false),
+                PickerKind::QuickTheme(true),
                 PickerKind::AiProvider(crate::repository_actions::Action::Commit),
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
                 PickerKind::ExtensionSidebar,

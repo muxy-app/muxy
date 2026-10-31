@@ -384,6 +384,7 @@ pub(crate) enum Work {
     Detach(ChannelId),
     Resize(ChannelId, Size),
     Colors(TerminalColors),
+    SessionColors(SessionId, Option<TerminalColors>),
     Input(ChannelId, Vec<u8>),
     TerminalInput(ChannelId, muxy_protocol::TerminalInput),
     ClearScreen(ChannelId),
@@ -438,6 +439,7 @@ impl Work {
             Self::Detach(..) => "Detach",
             Self::Resize(..) => "Resize",
             Self::Colors(..) => "Colors",
+            Self::SessionColors(..) => "SessionColors",
             Self::Input(..) => "Input",
             Self::TerminalInput(..) => "TerminalInput",
             Self::ClearScreen(..) => "ClearScreen",
@@ -1158,6 +1160,10 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             result
         }
         Work::Colors(colors) => client.set_terminal_colors(colors),
+        Work::SessionColors(session, colors) => match client.set_session_colors(session, colors) {
+            Err(ClientError::Server(reply)) if reply.code == ErrorCode::Unsupported => return None,
+            result => result,
+        },
         Work::Input(channel, bytes) => client.send_input(channel, &bytes),
         Work::TerminalInput(channel, input) => client.send_terminal_input(channel, input),
         Work::ClearScreen(channel) => client.clear_screen(channel),

@@ -187,3 +187,50 @@ fn quick_terminal_closes_without_discarding_when_its_session_ends(cx: &mut TestA
         );
     });
 }
+
+#[gpui::test]
+fn quick_terminal_theme_overrides_the_app_and_gives_its_session_colors(cx: &mut TestAppContext) {
+    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        let pane = model.state.ensure_quick_terminal();
+        let session = SessionId::new(703).expect("session");
+        model
+            .state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
+        let sent = || {
+            requests
+                .try_iter()
+                .filter_map(|(_, work)| match work {
+                    Work::SessionColors(id, colors) => Some((id, colors)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let _ = sent();
+        assert!(model.quick_theme().is_none());
+        let app = model.palette.terminal_colors();
+        let other = if model.dark { "Muxy Light" } else { "Muxy" };
+        let mut settings = model.settings.quick_terminal.clone();
+        settings.set_theme(model.dark, Some(other.into()));
+        model
+            .apply_quick_settings(settings.clone(), cx)
+            .expect("theme");
+        let (_, palette) = model.quick_theme().expect("own theme");
+        let colors = palette.terminal_colors();
+        assert_ne!(colors, app);
+        assert_eq!(model.palette.terminal_colors(), app);
+        assert_eq!(sent(), [(session, Some(colors))]);
+        model.refresh_quick_terminal(cx);
+        assert!(sent().is_empty());
+        settings.set_theme(model.dark, None);
+        model
+            .apply_quick_settings(settings, cx)
+            .expect("same as app");
+        assert!(model.quick_theme().is_none());
+        assert_eq!(sent(), [(session, None)]);
+    });
+}

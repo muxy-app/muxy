@@ -1,13 +1,20 @@
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::{Category, Change, PickerKind, SettingsEvent, SettingsView};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
 };
+use muxy_app_core::settings::QuickTerminalSettings;
 use muxy_core::capability::Feature;
 use muxy_core::quick_terminal::QuickTerminalShortcut;
 use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
+
+fn theme_label(settings: &QuickTerminalSettings, dark: bool) -> gpui::SharedString {
+    settings
+        .theme(dark)
+        .map_or_else(|| tr!("Same as App"), |name| name.to_owned().into())
+}
 
 /// The saved preferences without controls, while the Quick Terminal cannot run here.
 fn stored_rows(view: &SettingsView, reason: &str) -> Vec<AnyElement> {
@@ -44,6 +51,16 @@ fn stored_rows(view: &SettingsView, reason: &str) -> Vec<AnyElement> {
             "quick-size",
             tr_key!("Terminal size"),
             format!("{} × {}", settings.width, settings.height).into(),
+        ),
+        (
+            "quick-light-theme",
+            tr_key!("Light theme"),
+            theme_label(settings, false),
+        ),
+        (
+            "quick-dark-theme",
+            tr_key!("Dark theme"),
+            theme_label(settings, true),
         ),
         (
             "quick-transparency",
@@ -196,6 +213,19 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     .into_any_element(),
             ),
         );
+    }
+    for (dark, label) in [
+        (false, tr_key!("Light theme")),
+        (true, tr_key!("Dark theme")),
+    ] {
+        if view.matches(Category::QuickTerminal, label) {
+            let kind = PickerKind::QuickTheme(dark);
+            rows.push(view.row(
+                kind.id(),
+                label,
+                view.picker(kind, &theme_label(settings, dark), cx),
+            ));
+        }
     }
     for (id, label, value, max) in [
         (
