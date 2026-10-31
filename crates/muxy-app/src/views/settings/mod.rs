@@ -150,6 +150,7 @@ pub(crate) enum SettingsEvent {
     ResetTerminal,
     Picker(PickerKind, PickerAnchor),
     ServerControl { restart: bool },
+    OpenLoginItems,
     ReadServer,
     Connect,
     OpenConfiguration(&'static str),

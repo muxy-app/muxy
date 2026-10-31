@@ -840,6 +840,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Connection"),
     },
     Setting {
+        id: "background-activity",
+        label: tr_key!("Keep terminals running after quitting"),
+        description: tr_key!(
+            "macOS ends terminals when Muxy quits unless Muxy is turned on under Background App Activity."
+        ),
+        category: Category::Server,
+        section: tr_key!("Connection"),
+    },
+    Setting {
         id: "default-shell",
         label: tr_key!("Default shell (executable path)"),
         description: tr_key!(

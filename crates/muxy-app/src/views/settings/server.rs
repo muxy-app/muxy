@@ -38,6 +38,7 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             ),
         );
     }
+    rows.extend(background_activity(pane, cx));
     if !connected {
         if pane.matches(Category::Server, tr_key!("Server disconnected")) {
             let note = tr!(
@@ -99,4 +100,24 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         }
     }
     rows
+}
+
+/// On macOS, terminals outlive the app only while Muxy may run in the
+/// background, so this row opens the setting that allows it.
+fn background_activity(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Option<AnyElement> {
+    let label = tr_key!("Keep terminals running after quitting");
+    (cfg!(target_os = "macos") && pane.matches(Category::Server, label)).then(|| {
+        pane.row(
+            "background-activity",
+            label,
+            controls::button(
+                pane.style(),
+                "background-activity",
+                &translate(crate::views::confirm::OPEN_LOGIN_ITEMS),
+                true,
+                cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::OpenLoginItems)),
+            )
+            .into_any_element(),
+        )
+    })
 }

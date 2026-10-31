@@ -26,6 +26,9 @@ pub(crate) type Updates = async_channel::Receiver<(ServerId, u64, Update)>;
 #[derive(Debug)]
 pub(crate) struct Boot {
     pub(crate) import_message: Option<String>,
+    /// macOS stopped the terminals after the app last quit, because Muxy may
+    /// not run in the background.
+    pub(crate) stopped_in_background: bool,
     pub(crate) composer: muxy_app_core::composer::ComposerStore,
     pub(crate) state: AppState,
     pub(crate) state_path: PathBuf,
@@ -56,6 +59,10 @@ impl Boot {
             )
         });
         let import_message = crate::backup::apply_pending(profile)?.or(migration);
+        #[cfg(target_os = "macos")]
+        let stopped_in_background = muxy_client::local::host::take_background_stop(profile);
+        #[cfg(not(target_os = "macos"))]
+        let stopped_in_background = false;
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -72,6 +79,7 @@ impl Boot {
         work.send((1, Work::Connect))?;
         Ok(Self {
             import_message,
+            stopped_in_background,
             composer: muxy_app_core::composer::ComposerStore::load_from(
                 state_path
                     .parent()

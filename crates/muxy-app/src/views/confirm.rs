@@ -188,6 +188,36 @@ pub(crate) async fn prompt_reset_terminal(
     server_prompt(window, &title, &tr!("Reset"), &message, cx).await
 }
 
+pub(crate) const BACKGROUND_TITLE: &str = tr_key!("Allow Muxy to Run in the Background?");
+pub(crate) const OPEN_LOGIN_ITEMS: &str = tr_key!("Open Login Items");
+
+/// Whether to open the setting that keeps terminals running after the app
+/// quits.
+pub(crate) async fn prompt_background_activity(
+    window: AnyWindowHandle,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let message = tr!(
+        "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, turn on Muxy under Background App Activity in Login Items & Extensions."
+    );
+    let labels = [muxy_ui::l10n::translate(OPEN_LOGIN_ITEMS), tr!("Not Now")];
+    let labels = labels.each_ref().map(gpui::SharedString::as_str);
+    let answer = window
+        .update(cx, |_, window, cx| {
+            window.prompt(
+                gpui::PromptLevel::Warning,
+                &muxy_ui::l10n::translate(BACKGROUND_TITLE),
+                Some(&message),
+                &labels,
+                cx,
+            )
+        })
+        .map_err(|error| error.to_string())?
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(answer == 0)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UpdateChoice {
     Install,
