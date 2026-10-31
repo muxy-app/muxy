@@ -399,8 +399,6 @@ impl AppModel {
         };
         self.dismiss_overlay(cx);
         self.focus_requested = true;
-        cx.activate(true);
-        self.raise_window(cx);
         Ok(pane.to_string().into())
     }
 

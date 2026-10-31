@@ -105,9 +105,10 @@ their app too.
 muxy session show "$WEB"
 ```
 
-This opens the terminal in a new tab of its project in the desktop app and
-raises the app, or selects the tab that already shows it. Use it when the user
-should watch or take over a terminal, not for every terminal you start.
+This opens the terminal in a new tab of its project in the desktop app, or
+selects the tab that already shows it, without raising the app. Use it when
+the user should watch or take over a terminal, not for every terminal you
+start.
 
 ## Projects and worktrees
 

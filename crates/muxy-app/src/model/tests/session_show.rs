@@ -143,3 +143,24 @@ fn showing_waits_for_the_server_and_rejects_bad_ids(cx: &mut TestAppContext) {
         );
     });
 }
+
+#[gpui::test]
+fn showing_a_terminal_leaves_the_app_in_the_background(cx: &mut TestAppContext) {
+    let state = AppState::bootstrap().expect("state");
+    let project = state.home().id;
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let in_front = |cx: &mut VisualTestContext| cx.update(|window, _| window.is_window_active());
+    cx.deactivate_window();
+    cx.run_until_parked();
+    assert!(!in_front(cx));
+
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        acknowledge_catalog(model, cx);
+        show(model, "7", project, cx).expect("shown");
+        show(model, "7", project, cx).expect("selected");
+    });
+    cx.run_until_parked();
+    assert!(!in_front(cx));
+}
