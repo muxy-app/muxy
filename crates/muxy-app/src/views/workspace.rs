@@ -899,14 +899,7 @@ impl AppModel {
                         || (self.settings.composer.pinned
                             && self.settings.composer.presentation
                                 == muxy_app_core::settings::ComposerPresentation::Panel));
-                if pane.native_visible != native_visible {
-                    pane.native_visible = native_visible;
-                    cx.notify();
-                }
-                #[cfg(target_os = "macos")]
-                if let Some(scroll) = &pane.native_scroll {
-                    scroll.set_visible(pane.native_visible && pane.grid.is_some());
-                }
+                pane.set_native_visible(native_visible, cx);
             });
         }
     }

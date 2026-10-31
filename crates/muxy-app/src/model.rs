@@ -1767,11 +1767,7 @@ impl AppModel {
                 }
                 pane.view.update(cx, |pane, cx| {
                     pane.set_focused(false, cx);
-                    pane.native_visible = false;
-                    #[cfg(target_os = "macos")]
-                    if let Some(scroll) = &pane.native_scroll {
-                        scroll.set_visible(false);
-                    }
+                    pane.set_native_visible(false, cx);
                 });
                 if let Some((server, channel)) = pane.view.read(cx).attachment()
                     && self.ready(server)

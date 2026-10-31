@@ -157,3 +157,25 @@ fn a_pane_without_history_or_with_a_program_reading_the_wheel_has_no_scrollbar(
         assert!(!pane.scrollbar_dragging());
     });
 }
+
+#[gpui::test]
+fn marking_the_pane_uncovered_keeps_history_scrolling_off_while_the_pane_cannot_scroll(
+    cx: &mut TestAppContext,
+) {
+    let (pane, cx) = pane(cx);
+    pane.update(cx, |pane, cx| {
+        pane.set_native_visible(false, cx);
+        assert!(!pane.scrolls_history());
+        pane.set_native_visible(true, cx);
+        assert!(pane.scrolls_history());
+
+        pane.input_modes.mouse_tracking = true;
+        pane.set_native_visible(true, cx);
+        assert!(!pane.scrolls_history());
+        pane.input_modes.mouse_tracking = false;
+
+        pane.state = PaneState::Connecting;
+        pane.set_native_visible(true, cx);
+        assert!(!pane.scrolls_history());
+    });
+}

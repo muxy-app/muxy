@@ -212,13 +212,8 @@ impl Render for QuickTerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let terminal = self.terminal.clone();
         if let Some(terminal) = &terminal {
-            terminal.update(cx, |pane, _| {
-                pane.native_visible = self.visible && !self.confirm_close && self.menu.is_none();
-                #[cfg(target_os = "macos")]
-                if let Some(scroll) = &pane.native_scroll {
-                    scroll.set_visible(pane.native_visible && pane.grid.is_some());
-                }
-            });
+            let visible = self.visible && !self.confirm_close && self.menu.is_none();
+            terminal.update(cx, |pane, cx| pane.set_native_visible(visible, cx));
         }
         let menu = self.render_menu(window, cx);
         let owner_settings = self.owner.clone();
