@@ -131,7 +131,7 @@ impl AppModel {
             self.close_voice(cx);
             return;
         }
-        let mut bytes = crate::views::terminal::clipboard::paste(text, target.modes);
+        let mut bytes = muxy_client::input::paste(text, target.modes);
         if self.settings.composer.voice_auto_send {
             bytes.push(b'\r');
         }

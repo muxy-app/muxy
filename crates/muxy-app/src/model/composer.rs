@@ -702,7 +702,7 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
 
 /// Paths quoted for a shell, as a terminal paste.
 fn quoted(paths: &[PathBuf]) -> Option<String> {
-    let bytes = crate::views::terminal::clipboard::paths(paths, Modes::default())?;
+    let bytes = muxy_client::input::paths(paths, Modes::default())?;
     String::from_utf8(bytes).ok()
 }
 
@@ -877,18 +877,18 @@ impl AppModel {
                         let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
                         if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
                         match step {
-                            Step::Text(text) => payload.extend(crate::views::terminal::clipboard::paste(text, *modes)),
+                            Step::Text(text) => payload.extend(muxy_client::input::paste(text, *modes)),
                             Step::File(path) if !server.is_local() => {
                                 let remote = send_remote(&model, cx, *pane, server, Upload::Files(vec![path.clone()])).await?;
-                                payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));
+                                payload.extend(muxy_client::input::paste(&remote, *modes));
                             }
                             Step::File(path) => {
                                 let text = quoted(std::slice::from_ref(path)).ok_or_else(|| tr!("Invalid attachment path").to_string())?;
-                                payload.extend(crate::views::terminal::clipboard::paste(&text, *modes));
+                                payload.extend(muxy_client::input::paste(&text, *modes));
                             }
                             Step::Image(png) if !server.is_local() => {
                                 let remote = send_remote(&model, cx, *pane, server, Upload::Image(png.clone(), "png")).await?;
-                                payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));
+                                payload.extend(muxy_client::input::paste(&remote, *modes));
                             }
                             Step::Image(png) => {
                                 if !payload.is_empty() { deliver(worker, generation, channel, std::mem::take(&mut payload)).await?; }

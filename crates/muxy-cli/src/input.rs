@@ -20,7 +20,7 @@ impl Input {
     pub(crate) fn encode(self, modes: Modes) -> Vec<u8> {
         match self {
             Self::Key(key) => encode(key, modes).unwrap_or_default(),
-            Self::Paste(text) => paste(text, modes.bracketed_paste),
+            Self::Paste(text) => muxy_client::input::paste(&text, modes),
             Self::Bytes(bytes) => bytes,
         }
     }
@@ -116,15 +116,17 @@ fn control_byte(character: char) -> Option<u8> {
     }
 }
 
-pub(crate) fn paste(text: String, bracketed: bool) -> Vec<u8> {
-    if bracketed {
-        [
-            b"\x1b[200~".as_slice(),
-            text.as_bytes(),
-            b"\x1b[201~".as_slice(),
-        ]
-        .concat()
-    } else {
-        text.into_bytes()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paste_cannot_end_the_bracketed_paste_early() {
+        let modes = Modes {
+            bracketed_paste: true,
+            ..Modes::default()
+        };
+        let bytes = Input::Paste("one\n\x1b[201~two\u{009b}201~".to_owned()).encode(modes);
+        assert_eq!(bytes, b"\x1b[200~one\r[201~two201~\x1b[201~");
     }
 }

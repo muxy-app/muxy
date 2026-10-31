@@ -14,6 +14,7 @@ mod error;
 mod events;
 mod grid;
 mod handshake;
+pub mod input;
 mod requests;
 mod ssh;
 
