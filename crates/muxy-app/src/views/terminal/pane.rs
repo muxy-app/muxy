@@ -436,14 +436,33 @@ impl TerminalPane {
                 },
             );
         }
-        if let Some(scroll) = &self.native_scroll {
-            scroll.set_visible(
-                self.native_visible
-                    && !self.reports_wheel()
-                    && self.grid.is_some()
-                    && !matches!(self.state, PaneState::Connecting | PaneState::Disconnected),
-            );
+        self.sync_native_scroll();
+    }
+
+    /// Records whether app content leaves the pane uncovered, and applies it to
+    /// every native view the pane owns.
+    pub(crate) fn set_native_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        if self.native_visible != visible {
+            self.native_visible = visible;
+            cx.notify();
         }
+        #[cfg(target_os = "macos")]
+        self.sync_native_scroll();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sync_native_scroll(&self) {
+        if let Some(scroll) = &self.native_scroll {
+            scroll.set_visible(self.scrolls_history() && self.grid.is_some());
+        }
+    }
+
+    /// Whether the history can be scrolled with a scroll bar: the pane is
+    /// uncovered, live, and the program doesn't read the wheel itself.
+    pub(super) fn scrolls_history(&self) -> bool {
+        self.native_visible
+            && !self.reports_wheel()
+            && !matches!(self.state, PaneState::Connecting | PaneState::Disconnected)
     }
 
     #[cfg(target_os = "macos")]
@@ -452,10 +471,7 @@ impl TerminalPane {
         position: muxy_ui::native_scroll::ScrollPosition,
         cx: &mut Context<Self>,
     ) {
-        if !self.native_visible
-            || self.reports_wheel()
-            || matches!(self.state, PaneState::Connecting | PaneState::Disconnected)
-        {
+        if !self.scrolls_history() {
             return;
         }
         if position.revision != self.scroll.revision || position.sequence <= self.native_sequence {

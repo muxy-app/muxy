@@ -7,7 +7,7 @@ use muxy_ui::scrollbar::{
     MINIMUM_THUMB_LENGTH, REVEAL_DURATION, ScrollbarRevealState, ThumbGeometry, WIDTH,
 };
 
-use super::pane::{PaneState, TerminalPane};
+use super::pane::TerminalPane;
 
 /// The gap between the thumb and the pane's right edge.
 const EDGE_GAP: f32 = 2.0;
@@ -84,10 +84,7 @@ impl TerminalPane {
         if self.native_scroll.is_some() {
             return None;
         }
-        if !self.native_visible
-            || self.reports_wheel()
-            || matches!(self.state, PaneState::Connecting | PaneState::Disconnected)
-        {
+        if !self.scrolls_history() {
             return None;
         }
         let track = self.scrollbar.track?;
