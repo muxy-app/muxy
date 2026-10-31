@@ -736,8 +736,7 @@ fn monitor(
         }
         if route_key_event(
             keystroke(event_ref),
-            focus.modal.get(),
-            &focus.shortcuts.borrow(),
+            &focus,
             &*on_signal,
             || page_key_equivalent(&page, event_ref),
             || {
@@ -809,21 +808,25 @@ fn native_menu_key_equivalent(
 
 fn route_key_event(
     keystroke: gpui::Keystroke,
-    modal: bool,
-    shortcuts: &[gpui::Keystroke],
+    focus: &Focus,
     on_signal: &dyn Fn(Signal) -> bool,
     page_key_equivalent: impl FnOnce() -> bool,
     menu_key_equivalent: impl FnOnce() -> bool,
     page_key_down: impl FnOnce(),
 ) -> bool {
-    if keystroke.key == "escape" && modal {
+    if keystroke.key == "escape" && focus.modal.get() {
         on_signal(Signal::Escape);
         return true;
     }
-    if shortcuts
+    // Routing can redraw Muxy before it returns, as when WebKit hands a key
+    // back to GPUI, and a redraw sets new shortcuts. So they are borrowed
+    // only for this comparison.
+    let kept = focus
+        .shortcuts
+        .borrow()
         .iter()
-        .any(|key| key.key == keystroke.key && key.modifiers == keystroke.modifiers)
-    {
+        .any(|key| key.key == keystroke.key && key.modifiers == keystroke.modifiers);
+    if kept {
         return on_signal(Signal::Shortcut(keystroke));
     }
     // The page sees a command key first, as in Safari, so editors keep
@@ -849,6 +852,8 @@ mod tests {
             true
         };
         for modal in [false, true] {
+            let focus = Focus::default();
+            focus.modal.set(modal);
             for binding in [
                 "cmd-f",
                 "cmd-g",
@@ -868,8 +873,7 @@ mod tests {
                     let deliveries = RefCell::new(Vec::new());
                     let handled = route_key_event(
                         gpui::Keystroke::parse(binding).expect("binding"),
-                        modal,
-                        &[],
+                        &focus,
                         &on_key,
                         || {
                             deliveries.borrow_mut().push("page");
@@ -904,24 +908,62 @@ mod tests {
             true
         };
         let shortcut = gpui::Keystroke::parse("cmd-t").expect("binding");
+        let focus = Focus::default();
+        *focus.shortcuts.borrow_mut() = vec![shortcut.clone()];
         assert!(route_key_event(
-            shortcut.clone(),
-            false,
-            std::slice::from_ref(&shortcut),
+            shortcut,
+            &focus,
             &on_key,
             || panic!("kept shortcut must not reach the page"),
             || panic!("kept shortcut must not reach the menu"),
             || panic!("kept shortcut must not reach the page"),
         ));
+        focus.modal.set(true);
         assert!(route_key_event(
             gpui::Keystroke::parse("escape").expect("binding"),
-            true,
-            &[],
+            &focus,
             &on_key,
             || panic!("modal escape must not reach the page"),
             || panic!("modal escape must not reach the menu"),
             || panic!("modal escape must not reach the page"),
         ));
         assert_eq!(emitted.borrow().len(), 2);
+    }
+
+    #[test]
+    fn shortcuts_can_change_while_a_key_is_routed() {
+        let shortcut = gpui::Keystroke::parse("cmd-t").expect("binding");
+        let focus = Focus::default();
+        let redraws = Cell::new(0);
+        let redraw = || {
+            *focus.shortcuts.borrow_mut() = vec![shortcut.clone()];
+            redraws.set(redraws.get() + 1);
+        };
+        let on_key = |_: Signal| {
+            redraw();
+            true
+        };
+        for (binding, handled, routed_redraws) in
+            [("j", true, 1), ("cmd-j", false, 2), ("cmd-t", true, 1)]
+        {
+            *focus.shortcuts.borrow_mut() = vec![shortcut.clone()];
+            redraws.set(0);
+            let result = route_key_event(
+                gpui::Keystroke::parse(binding).expect("binding"),
+                &focus,
+                &on_key,
+                || {
+                    redraw();
+                    false
+                },
+                || {
+                    redraw();
+                    false
+                },
+                redraw,
+            );
+            assert_eq!(result, handled, "{binding}");
+            assert_eq!(redraws.get(), routed_redraws, "{binding}");
+        }
     }
 }
