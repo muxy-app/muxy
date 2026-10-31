@@ -26,7 +26,8 @@ fn migration_preserves_includes_bindings_and_fallbacks_then_uses_native_preferen
         "font-family = First\nfont-family = Fallback\nfont-size = 19\nfont-feature = ss01=1\nfont-codepoint-map = U+E000-U+E001=Icons\n",
     )?;
     let settings = TerminalSettings::load_native(&path)?;
-    assert_eq!(settings, TerminalSettings::load(&legacy)?);
+    assert_eq!(settings.font_families, ["First", "Fallback"]);
+    assert!((settings.font_size - 19.0).abs() < f32::EPSILON);
     assert_eq!(
         settings,
         TerminalSettings::from_native_source(&settings.native_source()?)?

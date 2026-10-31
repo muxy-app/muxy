@@ -386,16 +386,18 @@ fn ordered_request(
         | RequestBody::ReadCatalog { .. }
         | RequestBody::MutateProject(_)
         | RequestBody::ListProjectSessions { .. } => project_request(body, registry, outbox)?,
-        RequestBody::Git(request) => ReplyBody::Git(registry.git(&request)?),
-        RequestBody::Files(request) => ReplyBody::Files(registry.files(&request)?),
         RequestBody::ListFolders(directory) => {
             ReplyBody::Folders(crate::files::folders(&directory)?)
         }
         RequestBody::Upload(chunk) => ReplyBody::Uploaded(registry.upload(&chunk)?),
-        RequestBody::Exec(_) | RequestBody::CancelExec(_) => {
+        RequestBody::Ping
+        | RequestBody::Exec(_)
+        | RequestBody::CancelExec(_)
+        | RequestBody::Git(_)
+        | RequestBody::Files(_) => {
             return Err(ServerError::new(
                 ErrorCode::BadRequest,
-                "commands require a connection",
+                "request was routed to the wrong worker",
             ));
         }
         RequestBody::Authenticate(_) | RequestBody::Pair(_) => {
@@ -490,7 +492,6 @@ fn ordered_request(
                 )?,
             ),
         },
-        RequestBody::Ping => ReplyBody::Pong,
     }))
 }
 

@@ -56,7 +56,7 @@ impl TerminalSettings {
         if !legacy.try_exists().map_err(|e| Error::new("terminal", e))? {
             return Ok(Self::default());
         }
-        let mut settings = Self::resolve(&legacy)?.0;
+        let mut settings = Self::resolve(&legacy)?;
         settings.skip_invalid_font_names();
         Ok(settings)
     }
@@ -78,7 +78,7 @@ impl TerminalSettings {
         let mut settings = Self::default();
         let mut families = Vec::new();
         if !settings
-            .read_source(source, Path::new("ghostty.conf"), &mut families, None)?
+            .read_source(source, Path::new("ghostty.conf"), &mut families)?
             .is_empty()
         {
             return Err(Error::new(

@@ -57,7 +57,6 @@
 "%@. The previous app is available at %@" = "%@. The previous app is available at %@";
 "%@. Your changes are still uncommitted on %@." = "%@. Your changes are still uncommitted on %@.";
 "%@; this app needs a version that speaks protocol V%lld, like %@. %@" = "%@; this app needs a version that speaks protocol V%lld, like %@. %@";
-"%@?" = "%@?";
 "%lld Changes" = "%lld Changes";
 "%lld Existing Terminals" = "%lld Existing Terminals";
 "%lld failing" = "%lld failing";

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::{
-    CellHeight, KeyChord, Keymap, PairedServer, ServerEntry, Settings, TerminalSettings,
+    KeyChord, Keymap, PairedServer, ServerEntry, Settings, TerminalSettings,
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -171,24 +171,10 @@ fn every_default_binding_round_trips_and_resolves_both_directions() -> Result {
 }
 
 #[test]
-fn ghostty_defaults_are_created_once_and_existing_config_is_preserved() -> Result {
-    let fixture = Fixture::new()?;
-    let path = fixture.0.join("ghostty.conf");
-    assert_eq!(TerminalSettings::load(&path)?, TerminalSettings::default());
-    let source = "font-family = Monaco\nfont-size = 16\n";
-    fs::write(&path, source)?;
-    let settings = TerminalSettings::load(&path)?;
-    assert_eq!(settings.font_size, 16.0);
-    assert_eq!(settings.font_families, ["Monaco"]);
-    assert_eq!(fs::read_to_string(path)?, source);
-    Ok(())
-}
-
-#[test]
 fn ghostty_theme_is_ignored_because_the_settings_theme_colors_terminals() -> Result {
     let fixture = Fixture::new()?;
-    let path = fixture.write("ghostty.conf", "theme = \"Cursor Dark\"\nfont-size = 16\n")?;
-    let settings = TerminalSettings::load(&path)?;
+    fixture.write("ghostty.conf", "theme = \"Cursor Dark\"\nfont-size = 16\n")?;
+    let settings = TerminalSettings::load_native(&fixture.0.join("terminal.toml"))?;
     assert_eq!(settings.font_size, 16.0);
     assert_eq!(settings.options, TerminalSettings::default().options);
     Ok(())
@@ -198,13 +184,15 @@ fn ghostty_theme_is_ignored_because_the_settings_theme_colors_terminals() -> Res
 fn ghostty_includes_apply_last_and_detect_cycles() -> Result {
     let fixture = Fixture::new()?;
     fixture.write("fonts", "font-size = 17\n")?;
-    let path = fixture.write(
+    fixture.write(
         "ghostty.conf",
         "config-file = ?missing\nconfig-file = fonts\nfont-size = 15\n",
     )?;
-    assert_eq!(TerminalSettings::load(&path)?.font_size, 17.0);
+    let path = fixture.0.join("terminal.toml");
+    assert_eq!(TerminalSettings::load_native(&path)?.font_size, 17.0);
+    fs::remove_file(&path)?;
     fixture.write("fonts", "config-file = ghostty.conf\n")?;
-    let error = TerminalSettings::load(&path)
+    let error = TerminalSettings::load_native(&path)
         .err()
         .ok_or("cycle accepted")?
         .to_string();
@@ -362,63 +350,6 @@ fn legacy_project_tab_conflicts_load_without_changing_existing_bindings() -> Res
 }
 
 #[test]
-fn terminal_save_preserves_comments_unknown_keys_and_includes_and_returns_effective_values()
--> Result {
-    let fixture = Fixture::new()?;
-    fixture.write("included.conf", "font-size = 22\n")?;
-    let path = fixture.write("ghostty.conf", "# keep this comment\r\nunknown-option = keep\r\nconfig-file = included.conf\r\nfont-family = Menlo\r\nfont-size = 13\r\nfont-size = 14\r\nadjust-cell-height = 0")?;
-    let requested = TerminalSettings {
-        font: muxy_app_core::settings::FontOptions::default(),
-        font_families: vec!["SF Mono".into(), "Menlo".into()],
-        font_size: 18.0,
-        cell_height: CellHeight::Percent(10.0),
-        macos_option_as_alt: muxy_app_core::settings::OptionAsAlt::default(),
-        ..TerminalSettings::default()
-    };
-    let effective = requested.save(&path)?;
-    assert_eq!(effective.font_size, 22.0);
-    assert_eq!(effective.font_families, requested.font_families);
-    assert_eq!(effective.cell_height, requested.cell_height);
-    let source = fs::read_to_string(&path)?;
-    assert!(source.starts_with(
-        "# keep this comment\r\nunknown-option = keep\r\nconfig-file = included.conf\r\n"
-    ));
-    assert_eq!(source.matches("font-size =").count(), 1);
-    assert_eq!(TerminalSettings::load(&path)?, effective);
-    Ok(())
-}
-
-#[test]
-fn invalid_terminal_values_or_includes_leave_the_original_file_unchanged() -> Result {
-    let fixture = Fixture::new()?;
-    let path = fixture.write(
-        "ghostty.conf",
-        "# original\nfont-size = 13\nconfig-file = missing.conf\n",
-    )?;
-    let original = fs::read(&path)?;
-    assert!(TerminalSettings::default().save(&path).is_err());
-    assert_eq!(fs::read(&path)?, original);
-    for settings in [
-        TerminalSettings {
-            font_size: f32::NAN,
-            ..TerminalSettings::default()
-        },
-        TerminalSettings {
-            cell_height: CellHeight::Percent(f32::INFINITY),
-            ..TerminalSettings::default()
-        },
-        TerminalSettings {
-            font_families: vec!["Menlo\nfont-size = 32".into()],
-            ..TerminalSettings::default()
-        },
-    ] {
-        assert!(settings.save(&path).is_err());
-        assert_eq!(fs::read(&path)?, original);
-    }
-    Ok(())
-}
-
-#[test]
 fn runtime_keymap_rebinding_reset_and_persistence_preserve_contexts_and_other_sections() -> Result {
     use muxy_core::shortcuts::ShortcutSettings;
     let fixture = Fixture::new()?;
@@ -456,23 +387,7 @@ fn runtime_keymap_rebinding_reset_and_persistence_preserve_contexts_and_other_se
 }
 
 #[test]
-fn editing_terminal_values_does_not_copy_included_fonts_into_the_root() -> Result {
-    let fixture = Fixture::new()?;
-    fixture.write("included.conf", "font-family = Monaco\nfont-size = 13\n")?;
-    let path = fixture.write(
-        "ghostty.conf",
-        "font-family = Menlo\nfont-size = 13\nconfig-file = included.conf\n",
-    )?;
-    let mut settings = TerminalSettings::load(&path)?;
-    assert_eq!(settings.font_families, ["Menlo", "Monaco"]);
-    let keys = TerminalSettings::included_keys(&path)?;
-    assert!(keys.contains("font-family") && keys.contains("font-size"));
-    for height in [CellHeight::Pixels(2), CellHeight::Pixels(4)] {
-        settings.cell_height = height;
-        settings = settings.save(&path)?;
-        assert_eq!(settings.font_families, ["Menlo", "Monaco"]);
-        assert!(!fs::read_to_string(&path)?.contains("font-family = Monaco"));
-    }
+fn a_command_cannot_be_unbound_while_another_claims_its_default_key() -> Result {
     let claimed = Keymap::default().with_binding(
         "new_tab",
         Some(ShortcutId::NewHomeTab.definition().keys[0].parse()?),
@@ -482,10 +397,10 @@ fn editing_terminal_values_does_not_copy_included_fonts_into_the_root() -> Resul
 }
 
 #[test]
-fn ghostty_terminal_options_bindings_and_diagnostics_round_trip() -> Result {
+fn ghostty_terminal_options_bindings_and_diagnostics_migrate() -> Result {
     use muxy_app_core::settings::{TerminalAction, TerminalColor};
     let fixture = Fixture::new()?;
-    let path = fixture.write(
+    fixture.write(
         "ghostty.conf",
         r"# keep this comment
 background = #123456
@@ -518,7 +433,7 @@ keybind = global:super+a=new_window
 window-save-state = always
 ",
     )?;
-    let mut settings = TerminalSettings::load(&path)?;
+    let settings = TerminalSettings::load_native(&fixture.0.join("terminal.toml"))?;
     let options = &settings.options;
     assert_eq!(options.background, Some(0x12_34_56));
     assert_eq!(options.palette[&196], 0x23_45_67);
@@ -547,19 +462,6 @@ window-save-state = always
             .iter()
             .all(|warning| warning.contains("ghostty.conf:"))
     );
-    settings.font_size = 21.0;
-    assert_eq!(settings.save(&path)?, settings);
-    assert!(fs::read_to_string(&path)?.contains("keybind = shift+enter=text:\\x1b\\r"));
-    settings.options.background = Some(0x65_43_21);
-    settings.options.palette.remove(&1);
-    settings
-        .keybindings
-        .bindings
-        .insert("ctrl--".parse()?, TerminalAction::Text(vec![0, 0xff, 0x1b]));
-    let saved = settings.save(&path)?;
-    assert_eq!(saved.options, settings.options);
-    assert_eq!(saved.keybindings, settings.keybindings);
-    assert!(fs::read_to_string(&path)?.contains("# keep this comment"));
     Ok(())
 }
 

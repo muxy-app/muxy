@@ -36,17 +36,6 @@ pub struct FontMap {
     pub family: String,
 }
 
-pub(super) const KEYS: &[&str] = &[
-    "font-family-bold",
-    "font-family-italic",
-    "font-family-bold-italic",
-    "font-feature",
-    "font-codepoint-map",
-    "font-thicken",
-    "font-thicken-strength",
-    "adjust-cell-width",
-];
-
 impl FontOptions {
     pub fn feature_list(&self) -> String {
         self.features
