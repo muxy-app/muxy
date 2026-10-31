@@ -215,6 +215,12 @@ impl AppModel {
             self.close_composer(cx);
             self.open_composer(cx);
         } else if self.composer.pane != self.active_pane() {
+            if let Some(view) = &self.composer.view {
+                view.update(cx, |view, cx| {
+                    view.error = None;
+                    cx.notify();
+                });
+            }
             self.composer.pane = self.active_pane();
         }
     }

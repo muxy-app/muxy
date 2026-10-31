@@ -203,6 +203,28 @@ fn composer_broadcast_deduplicates_sessions_and_retains_partial_failure(cx: &mut
 }
 
 #[gpui::test]
+fn switching_panes_clears_the_composer_error(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let first = state.home().tabs[0].panes[0].id;
+    let second = state.split_pane(first, Direction::Right).expect("split");
+    state.focus_pane(first).expect("focus");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        model.toggle_composer(window, cx);
+        let composer = model.composer.view.clone().expect("composer");
+        composer.update(cx, |composer, _| {
+            composer.error = Some("Open a live terminal before sending.".into());
+        });
+
+        model.focus_pane(second, cx);
+        model.sync_composer(cx);
+        assert_eq!(composer.read(cx).error, None);
+    });
+}
+
+#[gpui::test]
 fn stored_clipboard_strategy_sends_an_image_path_without_a_clipboard_backend(
     cx: &mut TestAppContext,
 ) {
