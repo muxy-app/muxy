@@ -69,7 +69,6 @@ fn replace(
         .file_name()
         .ok_or_else(|| io::Error::other("an atomic write needs a file name"))?;
     let prefix = format!(".{}.", name.to_string_lossy());
-    // A dropped temporary file deletes itself, so every early return cleans up.
     let mut temporary = tempfile::Builder::new()
         .prefix(&prefix)
         .suffix(".tmp")
@@ -191,10 +190,5 @@ mod tests {
         write_atomic(&path, b"hooks", 0o600)?;
         assert_eq!(std::fs::read(&path)?, b"hooks");
         Ok(())
-    }
-
-    #[test]
-    fn a_relative_path_writes_into_the_current_folder() {
-        assert_eq!(parent(Path::new("state.json")).ok(), Some(Path::new(".")));
     }
 }

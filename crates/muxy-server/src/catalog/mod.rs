@@ -274,7 +274,6 @@ impl Catalog {
             .ok_or_else(|| bad("catalog revisions exhausted"))?;
         next.validate()?;
         let saved = self.path.as_ref().map_or(Ok(()), |path| save(path, &next));
-        // Once the rename happened, the file on disk is the new catalog.
         if saved.as_ref().map_or_else(|error| error.renamed, |()| true) {
             self.revision.store(next.revision, Ordering::Release);
             *self.lock() = next;
