@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use muxy_protocol::{OperationId, SessionStatus};
+use muxy_protocol::OperationId;
 use serde::{Deserialize, Serialize};
 
 use super::State;
@@ -37,10 +37,7 @@ impl State {
             .creations
             .iter()
             .map(|(operation, creation)| {
-                let running = self.sessions.get(&creation.info.id).is_some_and(|session| {
-                    session.status == SessionStatus::Starting || self.cancelled.contains(operation)
-                });
-                (*operation, running)
+                (*operation, self.sessions.contains_key(&creation.info.id))
             })
             .collect();
         let cancelled: Vec<_> = self
@@ -149,7 +146,7 @@ mod tests {
         State::fresh(Path::new("/tmp"))
     }
 
-    fn session(state: &mut State, id: u64, status: SessionStatus) -> SessionInfo {
+    fn session(state: &mut State, id: u64) -> SessionInfo {
         let info = SessionInfo {
             id: SessionId::new(id).expect("non-zero session id"),
             project: state.home,
@@ -159,19 +156,27 @@ mod tests {
             info.id,
             Membership {
                 info: info.clone(),
-                status,
+                status: SessionStatus::Live,
                 ended_at: None,
             },
         );
         info
     }
 
-    fn create(state: &mut State, id: u64, status: SessionStatus) -> OperationId {
-        let info = session(state, id, status);
+    fn create(state: &mut State, id: u64) -> OperationId {
+        let info = session(state, id);
         let operation = OperationId::new();
         state
             .creations
             .insert(operation, Creation { info, error: None });
+        operation
+    }
+
+    fn create_discarded(state: &mut State, id: u64) -> OperationId {
+        let operation = create(state, id);
+        state
+            .sessions
+            .remove(&SessionId::new(id).expect("non-zero session id"));
         operation
     }
 
@@ -189,7 +194,7 @@ mod tests {
     #[test]
     fn records_without_finish_times_expire_a_day_after_load() {
         let mut state = state();
-        let operation = create(&mut state, 1, SessionStatus::Ended);
+        let operation = create_discarded(&mut state, 1);
         state.expire_records(NOW);
         state.expire_records(NOW + RECORD_MILLIS - 1);
         assert!(state.creations.contains_key(&operation));
@@ -201,11 +206,11 @@ mod tests {
     #[test]
     fn oldest_record_goes_once_the_kind_is_full() {
         let mut state = state();
-        let oldest = create(&mut state, 1, SessionStatus::Live);
+        let oldest = create_discarded(&mut state, 1);
         state.expire_records(NOW);
         let mut recent = oldest;
         for id in 2..=u64::try_from(MAX_RECORDS).expect("small") + 1 {
-            recent = create(&mut state, id, SessionStatus::Live);
+            recent = create_discarded(&mut state, id);
             state.expire_records(NOW + id);
         }
         assert_eq!(state.creations.len(), MAX_RECORDS);
@@ -214,12 +219,12 @@ mod tests {
     }
 
     #[test]
-    fn operations_in_progress_never_expire() {
+    fn records_of_operations_in_progress_or_sessions_still_kept_never_expire() {
         let mut state = state();
-        let starting = create(&mut state, 1, SessionStatus::Starting);
-        let cancelled = create(&mut state, 2, SessionStatus::Live);
+        let created = create(&mut state, 1);
+        let cancelled = create(&mut state, 2);
         state.cancelled.insert(cancelled);
-        let closed = session(&mut state, 3, SessionStatus::Live).id;
+        let closed = session(&mut state, 3).id;
         let close = OperationId::new();
         state.closes.insert(close, (closed, true));
         state.discarding.insert(closed);
@@ -238,7 +243,7 @@ mod tests {
         for day in 0..3 {
             state.expire_records(NOW + day * RECORD_MILLIS);
         }
-        assert!(state.creations.contains_key(&starting));
+        assert!(state.creations.contains_key(&created));
         assert!(state.creations.contains_key(&cancelled));
         assert!(state.cancelled.contains(&cancelled));
         assert!(state.closes.contains_key(&close));
@@ -260,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn full_catalog_forgets_the_oldest_creation_and_answers_recent_retries()
+    fn full_catalog_forgets_the_oldest_discarded_creation_and_answers_recent_retries()
     -> Result<(), crate::ServerError> {
         let catalog = Catalog::memory();
         let project = catalog.home();
@@ -275,6 +280,7 @@ mod tests {
             let operation = OperationId::new();
             catalog.reserve(operation, &info)?;
             catalog.set_status(info.id, SessionStatus::Live)?;
+            catalog.finish_discard(info.id)?;
             created.push((operation, info));
         }
         let (oldest, _) = &created[0];
