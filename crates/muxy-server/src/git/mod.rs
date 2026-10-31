@@ -30,13 +30,6 @@ fn text(bytes: &[u8]) -> Result<String> {
         .map(|s| s.trim_end_matches('\n').to_owned())
         .map_err(error)
 }
-fn path(bytes: &ServerPath) -> &Path {
-    Path::new(OsStr::from_bytes(&bytes.0))
-}
-fn server_path(path: &Path) -> ServerPath {
-    ServerPath(path.as_os_str().as_bytes().to_vec())
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct Git {
     locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
@@ -101,7 +94,7 @@ impl Registry {
             return self.git_worktree(request.project, intent);
         }
         let project = self.catalog.project(request.project)?;
-        let directory = path(&project.directory);
+        let directory = project.directory.as_path();
         if !directory.is_dir() {
             return Err(error("Project directory is missing"));
         }
@@ -135,7 +128,7 @@ impl Registry {
                     .parent_id
                     .ok_or_else(|| error("Missing worktree parent"))?,
             )?;
-            validate_member(path(&parent.directory), directory)?;
+            validate_member(parent.directory.as_path(), directory)?;
         }
         let root_bytes = run(directory, &["rev-parse", "--show-toplevel"])?;
         let root = PathBuf::from(OsStr::from_bytes(
@@ -213,8 +206,9 @@ impl Registry {
             GitAction::Worktrees => {
                 let mut worktrees = read::worktrees(directory)?;
                 for worktree in &mut worktrees {
-                    worktree.registered =
-                        self.catalog.child_at(project.id, path(&worktree.directory));
+                    worktree.registered = self
+                        .catalog
+                        .child_at(project.id, worktree.directory.as_path());
                 }
                 Ok(GitReply::Worktrees(worktrees))
             }
@@ -224,7 +218,7 @@ impl Registry {
                     None => project.clone(),
                 };
                 Ok(GitReply::WorktreeHooks(hooks::resolve(
-                    path(&source.directory),
+                    source.directory.as_path(),
                     self.git.hook_config.as_deref(),
                     *teardown,
                 )?))
@@ -317,12 +311,17 @@ fn validate_member(repository: &Path, directory: &Path) -> Result<muxy_protocol:
     let target = directory.canonicalize().map_err(error)?;
     read::worktrees(repository)?
         .into_iter()
-        .find(|w| path(&w.directory).canonicalize().is_ok_and(|p| p == target))
+        .find(|w| {
+            w.directory
+                .as_path()
+                .canonicalize()
+                .is_ok_and(|p| p == target)
+        })
         .ok_or_else(|| error("Directory is not a registered Git worktree"))
 }
 
 fn safe_path(repository: &Path, relative: &ServerPath) -> Result<PathBuf> {
-    let relative = path(relative);
+    let relative = relative.as_path();
     if relative
         .components()
         .any(|c| !matches!(c, Component::Normal(_)))
@@ -383,12 +382,12 @@ fn mutate_files(repository: &Path, action: &GitAction, paths: &[ServerPath]) -> 
                 continue;
             }
         }
-        tracked.push(OsString::from(OsStr::from_bytes(&relative.0)));
+        tracked.push(OsString::from(relative.as_path().as_os_str()));
         if let Some(original) = &file.original_path
             && matches!(action, GitAction::Unstage(_))
         {
             safe_path(repository, original)?;
-            tracked.push(OsString::from(OsStr::from_bytes(&original.0)));
+            tracked.push(OsString::from(original.as_path().as_os_str()));
         }
     }
     if !tracked.is_empty() {

@@ -189,7 +189,9 @@ pub(super) fn switch_to_base(repository: &Path, base: &str) -> Result<GitBaseSwi
         let here = repository.canonicalize().map_err(error)?;
         let elsewhere = read::worktrees(repository)?.into_iter().find(|worktree| {
             worktree.branch.as_deref() == Some(base)
-                && Path::new(OsStr::from_bytes(&worktree.directory.0))
+                && worktree
+                    .directory
+                    .as_path()
                     .canonicalize()
                     .is_ok_and(|directory| directory != here)
         });

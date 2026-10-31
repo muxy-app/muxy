@@ -155,7 +155,8 @@ fn http_connect(
     };
     let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
     if !proxy.username.is_empty() {
-        let credentials = base64(format!("{}:{}", proxy.username, proxy.password).as_bytes());
+        let credentials =
+            muxy_core::base64::encode(format!("{}:{}", proxy.username, proxy.password).as_bytes());
         let _ = write!(request, "Proxy-Authorization: Basic {credentials}\r\n");
     }
     request.push_str("\r\n");
@@ -309,27 +310,3 @@ fn relay(stream: &TcpStream) -> io::Result<()> {
         stdout.flush()?;
     }
 }
-
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let value = chunk
-            .iter()
-            .enumerate()
-            .fold(0_u32, |value, (index, byte)| {
-                value | u32::from(*byte) << (16 - 8 * index)
-            });
-        for index in 0..4 {
-            encoded.push(if index <= chunk.len() {
-                char::from(ALPHABET[(value >> (18 - 6 * index) & 63) as usize])
-            } else {
-                '='
-            });
-        }
-    }
-    encoded
-}
-
-#[cfg(test)]
-mod tests;

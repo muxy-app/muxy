@@ -197,7 +197,7 @@ impl Git for Client {
     fn read(&self, project: ProjectId, path: &str) -> Option<String> {
         match self.files(FilesRequest {
             project,
-            action: FilesAction::Read(ServerPath(path.as_bytes().to_vec())),
+            action: FilesAction::Read(ServerPath::from(path)),
         }) {
             Ok(FilesReply::Content(content)) => Some(content.content),
             _ => None,

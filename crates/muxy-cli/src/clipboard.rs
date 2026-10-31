@@ -56,28 +56,8 @@ fn system(text: &str) -> bool {
 }
 
 fn sequence(text: &str) -> String {
-    format!("\x1b]52;c;{}\x07", base64(text.as_bytes()))
-}
-
-pub(crate) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let value = chunk
-            .iter()
-            .enumerate()
-            .fold(0_u32, |value, (index, byte)| {
-                value | u32::from(*byte) << (16 - 8 * index)
-            });
-        for index in 0..4 {
-            if index <= chunk.len() {
-                encoded.push(char::from(
-                    ALPHABET[(value >> (18 - 6 * index)) as usize & 63],
-                ));
-            } else {
-                encoded.push('=');
-            }
-        }
-    }
-    encoded
+    format!(
+        "\x1b]52;c;{}\x07",
+        muxy_core::base64::encode(text.as_bytes())
+    )
 }

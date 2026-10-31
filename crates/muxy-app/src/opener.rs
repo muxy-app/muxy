@@ -179,6 +179,15 @@ impl Launch {
         )
     }
 
+    fn text_editor(path: &Path) -> Self {
+        let mut args = Vec::new();
+        if cfg!(target_os = "macos") {
+            args.push(OsString::from("-t"));
+        }
+        args.push(path.as_os_str().to_owned());
+        Self::system(args)
+    }
+
     fn program(program: impl Into<PathBuf>, args: impl IntoIterator<Item = OsString>) -> Self {
         Self {
             program: program.into(),
@@ -263,6 +272,11 @@ pub(crate) fn web_browsers() -> &'static [WebBrowser] {
 /// Opens a file with this computer's default app for its type.
 pub(crate) fn open_with_default_app(path: &Path) -> io::Result<()> {
     launch(&Launch::system([path.as_os_str().to_owned()]))
+}
+
+/// Opens a text file in this computer's text editor.
+pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
+    launch(&Launch::text_editor(path))
 }
 
 /// Shows a path in the file manager: a file selected in its folder, or a

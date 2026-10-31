@@ -1,8 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
-use std::ffi::OsStr;
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;
-use std::os::unix::{ffi::OsStrExt, process::CommandExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
@@ -91,12 +90,9 @@ impl Jobs {
                     .catalog
                     .project(request.project)
                     .and_then(|project| {
-                        execute(
-                            &request,
-                            Path::new(OsStr::from_bytes(&project.directory.0)),
-                            &cancelled,
-                            || output.is_closed(),
-                        )
+                        execute(&request, project.directory.as_path(), &cancelled, || {
+                            output.is_closed()
+                        })
                     });
                 active
                     .lock()
@@ -189,7 +185,7 @@ fn os_message(error: &io::Error) -> String {
 /// Where a command runs: `~` is the home folder, and relative paths start in
 /// the project folder.
 fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> PathBuf {
-    let Some(path) = cwd.map(|path| Path::new(OsStr::from_bytes(&path.0))) else {
+    let Some(path) = cwd.map(ServerPath::as_path) else {
         return root.to_owned();
     };
     if let Ok(relative) = path.strip_prefix("~")

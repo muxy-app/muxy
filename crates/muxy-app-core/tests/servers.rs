@@ -50,7 +50,7 @@ fn remote_catalog(identity: u128, home: ProjectId, projects: &[(ProjectId, &str)
         icon: None,
         logo: None,
         color: "#808080".into(),
-        directory: ServerPath(directory.into_bytes()),
+        directory: ServerPath::from(directory),
         kind: None,
         parent_id: None,
     };

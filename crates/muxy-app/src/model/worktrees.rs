@@ -1,5 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -126,7 +125,7 @@ pub(super) fn listed(worktree: &GitWorktree, own: &Path, local: bool) -> bool {
 /// A folder the way Git reports it, with symlinks and letter case resolved
 /// on this computer. Another computer's folders can't be resolved here.
 pub(super) fn resolved(directory: &ServerPath, local: bool) -> PathBuf {
-    let path = Path::new(OsStr::from_bytes(&directory.0));
+    let path = directory.as_path();
     if !local {
         return path.to_owned();
     }
@@ -492,7 +491,7 @@ impl AppModel {
             && project.status() == ProjectStatus::Available
             && (self.worktrees_visible(root) || self.git.worktrees.unchecked.contains(&root))
             && !self.state.project_creation_pending(root))
-        .then(|| ServerPath(project.directory.as_os_str().as_bytes().to_vec()))
+        .then(|| ServerPath::from(&project.directory))
     }
 
     /// Takes the worktrees `root` lists, as `import` returns them.

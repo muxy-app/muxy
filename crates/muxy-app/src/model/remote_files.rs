@@ -89,7 +89,7 @@ impl RemoteFiles {
 
     fn send(&self, session: SessionId, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
         match self.client.upload(session, name, bytes) {
-            Ok(path) => Ok(local_path(&path)),
+            Ok(path) => Ok(path.into()),
             Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported => Err(tr!(
                 "Muxy on %@ can't receive files. Update Muxy there.",
                 &self.name
@@ -145,7 +145,7 @@ impl RemoteFiles {
         self.client
             .files(FilesRequest {
                 project,
-                action: action(wire_path(&relative)),
+                action: action(ServerPath::from(&relative)),
             })
             .ok()
     }
@@ -192,7 +192,7 @@ impl RemoteFiles {
         };
         let request = FilesRequest {
             project,
-            action: FilesAction::ReadBytes(wire_path(&relative)),
+            action: FilesAction::ReadBytes(ServerPath::from(&relative)),
         };
         match self.client.files(request) {
             Ok(FilesReply::Bytes(file)) => Ok(file.bytes),
@@ -217,16 +217,6 @@ fn display_name(path: &Path) -> String {
         || path.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     )
-}
-
-fn wire_path(path: &Path) -> ServerPath {
-    use std::os::unix::ffi::OsStrExt;
-    ServerPath(path.as_os_str().as_bytes().to_vec())
-}
-
-fn local_path(path: &ServerPath) -> PathBuf {
-    use std::os::unix::ffi::OsStrExt;
-    PathBuf::from(std::ffi::OsStr::from_bytes(&path.0))
 }
 
 /// Copied files, or an image copied without text, which a terminal on

@@ -4,7 +4,7 @@ use muxy_protocol::{
     ServerIdentity, ServerPath,
 };
 use std::collections::{BTreeMap, HashSet};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 impl Project {
@@ -16,7 +16,7 @@ impl Project {
             icon: self.icon.clone(),
             logo: self.logo.clone(),
             color: self.color.to_string(),
-            directory: ServerPath(self.directory.as_os_str().as_bytes().into()),
+            directory: ServerPath::from(&self.directory),
             kind: self.kind,
             parent_id: self.parent_id,
         }
@@ -53,8 +53,7 @@ impl Project {
         self.icon.clone_from(&descriptor.icon);
         self.logo.clone_from(&descriptor.logo);
         self.color = descriptor.color.parse()?;
-        self.directory =
-            PathBuf::from(std::ffi::OsString::from_vec(descriptor.directory.0.clone()));
+        self.directory = descriptor.directory.as_path().to_path_buf();
         self.kind = descriptor.kind;
         self.parent_id = descriptor.parent_id;
         self.refresh_status();
@@ -204,7 +203,7 @@ impl AppState {
     pub fn prepare_creation(&mut self, pane: PaneId, directory: &Path) -> ServerPath {
         self.starting_directories
             .entry(pane)
-            .or_insert_with(|| ServerPath(directory.as_os_str().as_bytes().into()))
+            .or_insert_with(|| ServerPath::from(directory))
             .clone()
     }
 

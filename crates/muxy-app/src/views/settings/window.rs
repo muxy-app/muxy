@@ -599,21 +599,7 @@ impl SettingsWindow {
                         .create(true)
                         .append(true)
                         .open(&path)?;
-                    let mut command = if cfg!(target_os = "macos") {
-                        let mut command = std::process::Command::new("/usr/bin/open");
-                        command.arg("-t");
-                        command
-                    } else {
-                        std::process::Command::new("xdg-open")
-                    };
-                    let status = command.arg(path).status()?;
-                    if status.success() {
-                        Ok(())
-                    } else {
-                        Err(std::io::Error::other(
-                            tr!("System editor exited with %@", status.to_string()).to_string(),
-                        ))
-                    }
+                    crate::opener::open_in_text_editor(&path)
                 })
                 .await;
             let _ = root.update(cx, |root, cx| {

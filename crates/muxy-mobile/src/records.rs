@@ -11,7 +11,7 @@ pub(crate) fn text(path: &ServerPath) -> String {
 }
 
 pub(crate) fn server_path(path: String) -> ServerPath {
-    ServerPath(path.into_bytes())
+    ServerPath::from(path)
 }
 
 /// Everything the app keeps to reconnect; store it in the Keychain or Keystore.

@@ -105,7 +105,7 @@ pub(super) fn pruning_fixture() -> (AppState, ProjectId, [ProjectId; 3], tempfil
         std::fs::write(path.join(".git"), "gitdir: /tmp/unused").expect("marker");
         let mut descriptor = state.project(root).expect("parent").descriptor();
         descriptor.id = id;
-        descriptor.directory = ServerPath(path.as_os_str().as_bytes().to_vec());
+        descriptor.directory = ServerPath::from(path);
         descriptor.parent_id = Some(root);
         descriptor.kind = Some(muxy_app_core::ProjectKind::Worktree);
         projects.push(descriptor);
@@ -840,7 +840,7 @@ fn worktree_switcher_refreshes_catalog_without_losing_query_or_selection(cx: &mu
         added.name = "Added worktree".into();
         let path = directory.path().join(added.id.to_string());
         std::fs::create_dir(&path).expect("worktree");
-        added.directory = ServerPath(path.as_os_str().as_bytes().to_vec());
+        added.directory = ServerPath::from(path);
         let id = added.id;
         projects.push(added);
         model.receive_catalog(

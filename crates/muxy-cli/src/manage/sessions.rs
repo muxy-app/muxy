@@ -13,7 +13,7 @@ use muxy_protocol::{
 use serde_json::{Value, json};
 
 use super::args::{Session, Until};
-use super::{Output, Paths, Result, local_path, path_text, projects};
+use super::{Output, Paths, Result, path_text, projects};
 
 const SHOW_WAIT: Duration = Duration::from_secs(10);
 
@@ -119,7 +119,7 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
 fn calling(client: &Client, session: Option<SessionId>) -> Result<SessionId> {
     match session {
         Some(session) => Ok(session),
-        None => crate::worker::hosting_session(client.catalog_page(None, None)?.server)
+        None => crate::target::hosting_session(client.catalog_page(None, None)?.server)
             .ok_or_else(|| "give a session ID; this isn't a Muxy terminal on that server".into()),
     }
 }
@@ -202,7 +202,7 @@ fn screen(
 
 /// The project of the terminal this command runs in.
 fn own_project(client: &Client) -> Result<ProjectDescriptor> {
-    let session = crate::worker::hosting_session(client.catalog_page(None, None)?.server)
+    let session = crate::target::hosting_session(client.catalog_page(None, None)?.server)
         .ok_or("give a project; this isn't a Muxy terminal on that server")?;
     let project = client
         .list_sessions()?
@@ -232,7 +232,7 @@ fn create(
         None => own_project(client)?,
     };
     let directory = directory.map_or_else(
-        || Ok(local_path(&project.directory)),
+        || Ok(project.directory.as_path().to_path_buf()),
         |path| paths.directory(path),
     )?;
     let typed = command.map(|command| format!("{command}\r").into_bytes());

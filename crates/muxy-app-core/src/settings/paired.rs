@@ -2,11 +2,11 @@
 //! live in `paired-servers.toml`, apart from `settings.toml`: only this user
 //! can read it, and backups leave it out.
 
-use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::Path;
 
+use muxy_core::hex;
 use serde::{Deserialize, Serialize};
 
 use crate::ServerId;
@@ -49,7 +49,7 @@ impl PairingTokens {
         if tokens
             .tokens
             .iter()
-            .any(|token| unhex::<32>(&token.token).is_none())
+            .any(|token| hex::decode::<32>(&token.token).is_none())
         {
             return Err(Error::new(context(), "invalid paired server tokens"));
         }
@@ -60,7 +60,7 @@ impl PairingTokens {
         self.tokens
             .iter()
             .find(|token| token.id == server)
-            .and_then(|token| unhex(&token.token))
+            .and_then(|token| hex::decode(&token.token))
     }
 
     /// Saves `server`'s token, replacing the one it had.
@@ -69,7 +69,7 @@ impl PairingTokens {
             tokens.retain(|stored| stored.id != server);
             tokens.push(Token {
                 id: server,
-                token: hex(token),
+                token: hex::encode(token),
             });
         })
     }
@@ -97,27 +97,6 @@ impl PairingTokens {
         super::private_file::write(path, source.as_bytes())
             .map_err(|error| Error::new(context(), error))
     }
-}
-
-pub(super) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
-}
-
-pub(super) fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
-    let digits = text.as_bytes();
-    if digits.len() != N * 2 {
-        return None;
-    }
-    let mut bytes = [0; N];
-    for (byte, pair) in bytes.iter_mut().zip(digits.chunks_exact(2)) {
-        let high = char::from(pair[0]).to_digit(16)?;
-        let low = char::from(pair[1]).to_digit(16)?;
-        *byte = u8::try_from(high * 16 + low).ok()?;
-    }
-    Some(bytes)
 }
 
 #[cfg(test)]

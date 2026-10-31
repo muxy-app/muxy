@@ -1309,7 +1309,6 @@ fn guard(token: &str) -> String {
 
 /// Sixteen random bytes as hex.
 fn token() -> String {
-    use std::fmt::Write;
     use std::io::Read;
     let mut bytes = [0_u8; 16];
     let random =
@@ -1318,10 +1317,7 @@ fn token() -> String {
         // No page is trusted with a token that could be guessed.
         return String::new();
     }
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
+    muxy_core::hex::encode(&bytes)
 }
 
 /// `text` as a JavaScript string literal.

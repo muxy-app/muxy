@@ -32,7 +32,7 @@ impl Workspace {
                 mutation: ProjectMutation::Create(ProjectDescriptor {
                     id: project,
                     home: false,
-                    directory: wire_path(&path),
+                    directory: ServerPath::from(&path),
                     name: "Test".into(),
                     icon: None,
                     logo: None,
@@ -71,7 +71,7 @@ impl Drop for Workspace {
 }
 
 fn p(value: &str) -> ServerPath {
-    ServerPath(value.as_bytes().to_vec())
+    ServerPath::from(value)
 }
 
 #[test]

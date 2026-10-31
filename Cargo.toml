@@ -17,7 +17,7 @@ members = [
 # this table and the affected crate-level documentation together.
 [workspace.metadata.architecture.allowed-dependencies]
 muxy-core = []
-muxy-protocol = []
+muxy-protocol = ["muxy-core"]
 muxy-terminal = ["muxy-protocol"]
 muxy-server = ["muxy-core", "muxy-protocol", "muxy-terminal"]
 muxy-app-core = ["muxy-core", "muxy-protocol"]

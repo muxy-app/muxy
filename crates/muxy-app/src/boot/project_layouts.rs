@@ -7,7 +7,7 @@ pub(super) fn list(client: &Client, project: ProjectId) -> Result<Vec<Descriptor
     match client
         .files(FilesRequest {
             project,
-            action: FilesAction::List(ServerPath(DIRECTORY.as_bytes().to_vec())),
+            action: FilesAction::List(ServerPath::from(DIRECTORY)),
         })
         .map_err(|error| error.to_string())?
     {

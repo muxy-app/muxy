@@ -11,7 +11,7 @@ use muxy_protocol::{
 use rustix::fs::{self, AtFlags, FileType, Mode, OFlags, RenameFlags};
 
 use super::root::{Root, Target};
-use super::{Result, error, path, wire_path};
+use super::{Result, error};
 
 impl Root {
     pub(super) fn list(&self, path: &Path) -> Result<Vec<FileEntry>> {
@@ -44,8 +44,8 @@ impl Root {
                 kind == FileType::Directory
             };
             entries.push(FileEntry {
-                name: wire_path(Path::new(name)),
-                path: wire_path(&relative),
+                name: ServerPath::from(Path::new(name)),
+                path: ServerPath::from(&relative),
                 is_directory,
                 is_ignored: false,
             });
@@ -100,7 +100,7 @@ impl Root {
             return Err(error("File exceeds the 5 MiB limit"));
         }
         Ok(FileBytes {
-            path: wire_path(&target.relative),
+            path: ServerPath::from(&target.relative),
             bytes,
         })
     }
@@ -139,7 +139,7 @@ impl Root {
             let _ = fs::unlinkat(&target.parent, &temporary, AtFlags::empty());
         }
         result?;
-        Ok(wire_path(&target.relative))
+        Ok(ServerPath::from(&target.relative))
     }
 
     pub(super) fn mkdir(&self, path: &Path) -> Result<ServerPath> {
@@ -148,7 +148,7 @@ impl Root {
         for number in 1..=10_000 {
             let name = unique_name(&name, number);
             match fs::mkdirat(&target.parent, &name, Mode::from_raw_mode(0o777)) {
-                Ok(()) => return Ok(wire_path(&target.relative.with_file_name(name))),
+                Ok(()) => return Ok(ServerPath::from(&target.relative.with_file_name(name))),
                 Err(rustix::io::Errno::EXIST) => (),
                 Err(cause) => return Err(error(cause)),
             }
@@ -161,7 +161,7 @@ impl Root {
         source.stat()?;
         let name = sanitized(name)?;
         if source.name == name {
-            return Ok(wire_path(&source.relative));
+            return Ok(ServerPath::from(&source.relative));
         }
         fs::renameat_with(
             &source.parent,
@@ -171,14 +171,14 @@ impl Root {
             RenameFlags::NOREPLACE,
         )
         .map_err(error)?;
-        Ok(wire_path(&source.relative.with_file_name(name)))
+        Ok(ServerPath::from(&source.relative.with_file_name(name)))
     }
 
     pub(super) fn selected(&self, paths: &[ServerPath]) -> Result<Vec<Target>> {
         let sources = paths
             .iter()
             .map(|value| {
-                let target = self.mutation(path(value))?;
+                let target = self.mutation(value.as_path())?;
                 target.stat()?;
                 Ok(target)
             })
@@ -206,7 +206,7 @@ impl Root {
         let mut moved = Vec::new();
         for source in sources {
             if source.relative.parent() == Some(destination.relative.as_path()) {
-                moved.push(wire_path(&source.relative));
+                moved.push(ServerPath::from(&source.relative));
                 continue;
             }
             let mut result = None;
@@ -220,7 +220,7 @@ impl Root {
                     RenameFlags::NOREPLACE,
                 ) {
                     Ok(()) => {
-                        result = Some(wire_path(&destination.relative.join(name)));
+                        result = Some(ServerPath::from(&destination.relative.join(name)));
                         break;
                     }
                     Err(rustix::io::Errno::EXIST) => (),

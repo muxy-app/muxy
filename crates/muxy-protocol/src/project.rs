@@ -70,7 +70,7 @@ id!(ClientId);
 id!(ServerIdentity);
 id!(DeviceId);
 
-use crate::{ErrorCode, ServerPath, SessionId, SessionInfo};
+use crate::{ErrorCode, ServerPath, SessionId, SessionInfo, validate_absolute_path};
 use unicode_segmentation::UnicodeSegmentation;
 
 pub const CATALOG_PAGE_SIZE: usize = 128;
@@ -167,10 +167,8 @@ impl ProjectDescriptor {
         validate_icon(self.icon.as_deref())?;
         validate_color(&self.color)?;
         validate_logo(self.logo.as_deref())?;
-        if !self.directory.0.starts_with(b"/")
-            || self.directory.0.len() > 4096
-            || self.directory.0.contains(&0)
-            || self.parent_id == Some(self.id)
+        validate_absolute_path(&self.directory).map_err(|_| ErrorCode::BadRequest)?;
+        if self.parent_id == Some(self.id)
             || (self.kind == Some(ProjectKind::Worktree) && self.parent_id.is_none())
             || (self.home && (self.kind.is_some() || self.parent_id.is_some()))
         {

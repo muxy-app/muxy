@@ -50,7 +50,7 @@ pub struct PairedServer {
 
 impl PairedServer {
     pub fn fingerprint(&self) -> Option<[u8; 32]> {
-        super::paired::unhex(&self.fingerprint)
+        muxy_core::hex::decode(&self.fingerprint)
     }
 
     /// Whether it presents `fingerprint`, however its hex is spelled.

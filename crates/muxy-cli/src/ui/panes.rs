@@ -16,7 +16,8 @@ use super::layout::{self, PaneArea};
 use super::{Mode, Overlay, Target, Ui, clean, theme, truncate};
 use crate::selection::{self, Point, Selection};
 use crate::state::State;
-use crate::worker::{Shared, View, hosting_session};
+use crate::target::hosting_session;
+use crate::worker::{Shared, View};
 
 pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, state: &State, ui: &mut Ui, body: Rect) {
     let Some(tab) = state.tab() else {

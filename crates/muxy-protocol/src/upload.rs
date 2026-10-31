@@ -1,7 +1,7 @@
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{ErrorCode, OperationId, ServerPath, SessionId};
+use crate::{ErrorCode, OperationId, ServerPath, SessionId, validate_absolute_path};
 
 /// The most one upload chunk carries.
 pub const MAX_UPLOAD_CHUNK: usize = 1024 * 1024;
@@ -51,10 +51,5 @@ impl UploadChunk {
 
 /// An `Uploaded` reply: the file's absolute path once its last chunk arrived.
 pub fn validate_uploaded(path: Option<&ServerPath>) -> Result<(), ErrorCode> {
-    match path {
-        Some(path) if path.0.len() > 4096 || path.0.contains(&0) || !path.0.starts_with(b"/") => {
-            Err(ErrorCode::BadPath)
-        }
-        _ => Ok(()),
-    }
+    path.map_or(Ok(()), validate_absolute_path)
 }

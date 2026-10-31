@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -464,7 +463,7 @@ impl Registry {
         let directory_bytes = session_directory(directory)?;
         self.git
             .operations
-            .check_session(Path::new(std::ffi::OsStr::from_bytes(&directory_bytes.0)))?;
+            .check_session(directory_bytes.as_path())?;
         if let Some(info) = self
             .catalog
             .creation(operation, project, &directory_bytes)?
@@ -873,12 +872,9 @@ fn saved_content_error(error: &io::Error) -> ServerError {
 mod recovery;
 
 fn session_directory(directory: &Path) -> Result<ServerPath, ServerError> {
-    let bytes = directory.as_os_str().as_bytes();
-    if !directory.is_absolute() || bytes.len() > 4096 || bytes.contains(&0) {
-        return Err(ServerError::new(
-            ErrorCode::BadPath,
-            "session directory must be an absolute Unix path",
-        ));
-    }
-    Ok(ServerPath(bytes.into()))
+    let directory = ServerPath::from(directory);
+    muxy_protocol::validate_absolute_path(&directory).map_err(|code| {
+        ServerError::new(code, "session directory must be an absolute Unix path")
+    })?;
+    Ok(directory)
 }

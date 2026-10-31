@@ -5,9 +5,10 @@ use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf};
 
+use muxy_protocol::ServerPath;
 use rustix::fs::{self, AtFlags, FileType, Mode, OFlags, Stat};
 
-use super::{Result, error, wire_path};
+use super::{Result, error};
 
 pub(super) struct Root {
     pub path: PathBuf,
@@ -148,8 +149,8 @@ impl Root {
             .or_else(|| self.path.file_name())
             .unwrap_or(OsStr::new(""));
         Ok(muxy_protocol::FileInfo {
-            name: wire_path(Path::new(name)),
-            path: wire_path(&target.relative),
+            name: ServerPath::from(Path::new(name)),
+            path: ServerPath::from(&target.relative),
             is_directory: FileType::from_raw_mode(stat.st_mode) == FileType::Directory,
             size: u64::try_from(stat.st_size).unwrap_or(0),
         })

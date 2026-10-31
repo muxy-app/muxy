@@ -9,7 +9,6 @@ mod sessions;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -82,7 +81,7 @@ pub(crate) struct Catalog {
 
 impl State {
     fn fresh(home: &Path) -> Self {
-        let project = ProjectDescriptor::home(ServerPath(home.as_os_str().as_bytes().into()));
+        let project = ProjectDescriptor::home(ServerPath::from(home));
         let id = project.id;
         Self {
             git: BTreeMap::new(),

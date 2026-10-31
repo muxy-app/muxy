@@ -35,14 +35,11 @@ pub(crate) fn claim(
     arguments: impl Iterator<Item = OsString>,
     folders: &Folders,
 ) -> io::Result<Option<Instance>> {
-    let state = muxy_app_core::store::default_path().map_err(io::Error::other)?;
-    let profile = state
-        .parent()
-        .ok_or_else(|| io::Error::other("Missing profile directory"))?;
+    let profile = muxy_core::dirs::muxy_dir()?;
     let asked: Vec<PathBuf> = arguments
         .filter_map(|argument| std::path::absolute(argument).ok())
         .collect();
-    claim_in(profile, &asked, folders, ANSWER)
+    claim_in(&profile, &asked, folders, ANSWER)
 }
 
 fn claim_in(

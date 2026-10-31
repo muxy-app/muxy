@@ -13,6 +13,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+muxy-core = { path = "../muxy-core" }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 minicbor = { version = "2.3", features = ["std", "derive"] }
 serde = { version = "1", features = ["derive", "rc"] }

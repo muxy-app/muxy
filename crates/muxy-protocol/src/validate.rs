@@ -34,12 +34,39 @@ pub fn validate_input(input: &[u8]) -> Result<(), ErrorCode> {
     }
 }
 
+pub const MAX_PATH: usize = 4096;
+
+/// Paths read from a peer. Lenient, so older peers keep working: only an
+/// empty path is rejected.
 pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if path.0.is_empty() {
         Err(ErrorCode::BadPath)
     } else {
         Ok(())
     }
+}
+
+/// A place on the server: absolute, without NUL, at most `MAX_PATH` bytes.
+pub fn validate_absolute_path(path: &ServerPath) -> Result<(), ErrorCode> {
+    if path.0.starts_with(b"/") && bounded(path) {
+        Ok(())
+    } else {
+        Err(ErrorCode::BadPath)
+    }
+}
+
+/// A place inside a folder the request names: relative, without NUL, at most
+/// `MAX_PATH` bytes. Empty names the folder itself.
+pub fn validate_relative_path(path: &ServerPath) -> Result<(), ErrorCode> {
+    if !path.0.starts_with(b"/") && bounded(path) {
+        Ok(())
+    } else {
+        Err(ErrorCode::BadPath)
+    }
+}
+
+fn bounded(path: &ServerPath) -> bool {
+    path.0.len() <= MAX_PATH && !path.0.contains(&0)
 }
 
 /// Variables a program starts with: at most 128, with names a process can
@@ -182,7 +209,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         }
         RequestBody::Git(request) => request.validate(),
         RequestBody::Files(request) => request.validate(),
-        RequestBody::ListFolders(path) => crate::validate_folder_path(path),
+        RequestBody::ListFolders(path) => validate_absolute_path(path),
         RequestBody::Upload(chunk) => chunk.validate(),
         RequestBody::Exec(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {

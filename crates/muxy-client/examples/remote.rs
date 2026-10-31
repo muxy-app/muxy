@@ -5,7 +5,6 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::ExitCode;
@@ -82,7 +81,7 @@ fn connect(file: &Path) -> Result {
         .find(|project| project.home)
         .ok_or("the server has no Home project")?;
     let events = client.events().ok_or("event stream already taken")?;
-    let directory = Path::new(std::ffi::OsStr::from_bytes(&home.directory.0));
+    let directory = home.directory.as_path();
     let session = client.create_session(directory, SIZE)?;
     let mut attachment = client.attach(session.id, SIZE)?;
     let channel = attachment.channel;

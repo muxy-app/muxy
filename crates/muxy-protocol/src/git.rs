@@ -1,7 +1,10 @@
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{ErrorCode, OperationId, ProjectDescriptor, ProjectId, ServerPath};
+use crate::{
+    ErrorCode, OperationId, ProjectDescriptor, ProjectId, ServerPath, validate_absolute_path,
+    validate_relative_path,
+};
 
 mod extension;
 pub use extension::*;
@@ -460,12 +463,11 @@ impl GitRequest {
                 Ok(())
             }
         }
-        fn path(value: &ServerPath) -> Result<(), ErrorCode> {
-            if value.0.is_empty() || value.0.len() > 4096 || value.0.contains(&0) {
-                Err(ErrorCode::BadPath)
-            } else {
-                Ok(())
+        fn file(value: &ServerPath) -> Result<(), ErrorCode> {
+            if value.0.is_empty() {
+                return Err(ErrorCode::BadPath);
             }
+            validate_relative_path(value)
         }
         if let GitAction::Worktree(intent) = &self.action
             && let Some(options) = &intent.options
@@ -493,7 +495,7 @@ impl GitRequest {
                     return Err(ErrorCode::BadRequest);
                 }
                 validate_line_limit(request.line_limit)?;
-                request.path.as_ref().map_or(Ok(()), path)
+                request.path.as_ref().map_or(Ok(()), file)
             }
             GitAction::BranchDiff { base, line_limit } => {
                 text(base)?;
@@ -529,7 +531,7 @@ impl GitRequest {
                 if paths.len() > 4096 {
                     return Err(ErrorCode::BadRequest);
                 }
-                paths.iter().try_for_each(path)
+                paths.iter().try_for_each(file)
             }
             GitAction::Worktree(intent) => match &intent.action {
                 WorktreeAction::Create {
@@ -538,22 +540,22 @@ impl GitRequest {
                     base,
                     ..
                 } => {
-                    path(directory)?;
+                    validate_absolute_path(directory)?;
                     text(branch)?;
                     base.as_deref().map_or(Ok(()), text)
                 }
-                WorktreeAction::Register { directory, .. } => path(directory),
+                WorktreeAction::Register { directory, .. } => validate_absolute_path(directory),
                 WorktreeAction::CheckoutPullRequest {
                     directory, number, ..
                 } => {
                     validate_number(*number)?;
-                    path(directory)
+                    validate_absolute_path(directory)
                 }
                 WorktreeAction::Remove { expected } => {
                     if expected.status.len() > 4 * 1024 * 1024 {
                         return Err(ErrorCode::BadRequest);
                     }
-                    path(&expected.directory)
+                    validate_absolute_path(&expected.directory)
                 }
             },
             _ => Ok(()),

@@ -1366,7 +1366,6 @@
 "Switch to a branch before committing" = "Switch to a branch before committing";
 "Switch to a branch before creating a pull request" = "Switch to a branch before creating a pull request";
 "Switched to %@ and brought it up to date." = "Switched to %@ and brought it up to date.";
-"System editor exited with %@" = "System editor exited with %@";
 "Tab %lld" = "Tab %lld";
 "Tab Focused" = "Tab Focused";
 "Tab closed; server cleanup is pending: %@" = "Tab closed; server cleanup is pending: %@";

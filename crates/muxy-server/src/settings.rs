@@ -21,12 +21,11 @@ impl Default for ServerSettings {
 
 impl ServerSettings {
     pub fn document(&self) -> muxy_protocol::ServerSettingsDoc {
-        use std::os::unix::ffi::OsStrExt;
         muxy_protocol::ServerSettingsDoc {
             default_shell: self
                 .default_shell
                 .as_ref()
-                .map(|path| muxy_protocol::ServerPath(path.as_os_str().as_bytes().to_vec())),
+                .map(muxy_protocol::ServerPath::from),
             history_budget_bytes: self.history_budget_bytes,
             shell_integration: self.shell_integration,
         }
@@ -58,11 +57,8 @@ impl ServerSettings {
 
 impl From<muxy_protocol::ServerSettingsDoc> for ServerSettings {
     fn from(document: muxy_protocol::ServerSettingsDoc) -> Self {
-        use std::os::unix::ffi::OsStringExt;
         Self {
-            default_shell: document
-                .default_shell
-                .map(|path| std::ffi::OsString::from_vec(path.0).into()),
+            default_shell: document.default_shell.map(Into::into),
             history_budget_bytes: document.history_budget_bytes,
             shell_integration: document.shell_integration,
         }

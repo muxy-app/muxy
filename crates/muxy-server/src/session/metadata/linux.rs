@@ -24,8 +24,7 @@ pub(super) fn foreground_member(group: u32) -> Option<(i32, String)> {
 
 pub(super) fn process_directory(pid: i32) -> Option<ServerPath> {
     let path = fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
-    path.is_absolute()
-        .then(|| ServerPath(path.as_os_str().as_bytes().to_vec()))
+    path.is_absolute().then(|| ServerPath::from(path))
 }
 
 fn parse_stat(stat: &[u8]) -> Option<(u32, String)> {

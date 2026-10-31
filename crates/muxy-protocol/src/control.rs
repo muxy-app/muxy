@@ -358,12 +358,8 @@ impl ServerSettingsDoc {
         if self.history_budget_bytes > 64 * 1024 * 1024 * 1024 {
             return Err(ErrorCode::BadRequest);
         }
-        if let Some(shell) = &self.default_shell {
-            crate::validate_path(shell)?;
-            if !shell.0.starts_with(b"/") || shell.0.contains(&0) {
-                return Err(ErrorCode::BadPath);
-            }
-        }
-        Ok(())
+        self.default_shell
+            .as_ref()
+            .map_or(Ok(()), crate::validate_absolute_path)
     }
 }

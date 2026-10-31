@@ -31,7 +31,6 @@ impl Catalog {
         state.projects.get(&id).cloned().ok_or_else(unknown)
     }
     pub(crate) fn child_at(&self, parent: ProjectId, path: &Path) -> Option<ProjectId> {
-        use std::os::unix::ffi::OsStrExt;
         let canonical = path.canonicalize().ok()?;
         let projects: Vec<_> = self
             .lock()
@@ -43,7 +42,8 @@ impl Catalog {
         projects
             .iter()
             .find(|p| {
-                Path::new(std::ffi::OsStr::from_bytes(&p.directory.0))
+                p.directory
+                    .as_path()
                     .canonicalize()
                     .is_ok_and(|p| p == canonical)
             })

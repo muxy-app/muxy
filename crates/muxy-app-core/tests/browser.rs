@@ -115,7 +115,7 @@ fn projects() -> TestResult<(AppState, Ids)> {
             icon: None,
             logo: None,
             color: "#808080".into(),
-            directory: ServerPath(directory.as_bytes().to_vec()),
+            directory: ServerPath::from(directory),
             kind: parent.map(|_| ProjectKind::Worktree),
             parent_id: parent,
         };

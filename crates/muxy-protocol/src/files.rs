@@ -1,7 +1,7 @@
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{ErrorCode, ProjectId, ServerPath};
+use crate::{ErrorCode, ProjectId, ServerPath, validate_relative_path};
 
 pub const MAX_FILE_BYTES: usize = 5 * 1024 * 1024;
 pub const MAX_FILE_ENTRIES: usize = 16_384;
@@ -158,16 +158,8 @@ impl FileChanges {
         if self.paths.len() > MAX_FILE_CHANGES || (self.rescan && !self.paths.is_empty()) {
             return Err(ErrorCode::BadRequest);
         }
-        self.paths.iter().try_for_each(relative_path)
+        self.paths.iter().try_for_each(validate_relative_path)
     }
-}
-
-/// A `ListFolders` path: absolute, without NUL, at most 4096 bytes.
-pub fn validate_folder_path(path: &ServerPath) -> Result<(), ErrorCode> {
-    if path.0.len() > 4096 || path.0.contains(&0) || !path.0.starts_with(b"/") {
-        return Err(ErrorCode::BadPath);
-    }
-    Ok(())
 }
 
 /// `Folders` names: each one path component, within the listing limits.
@@ -191,15 +183,8 @@ pub fn validate_folder_names(names: &[ServerPath]) -> Result<(), ErrorCode> {
     }
 }
 
-fn relative_path(path: &ServerPath) -> Result<(), ErrorCode> {
-    if path.0.len() > 4096 || path.0.contains(&0) || path.0.starts_with(b"/") {
-        return Err(ErrorCode::BadPath);
-    }
-    Ok(())
-}
-
 fn file_content(path: &ServerPath, content: &[u8]) -> Result<(), ErrorCode> {
-    relative_path(path)?;
+    validate_relative_path(path)?;
     if content.len() > MAX_FILE_BYTES {
         return Err(ErrorCode::BadRequest);
     }
@@ -211,7 +196,7 @@ fn paths(values: &[ServerPath]) -> Result<(), ErrorCode> {
     {
         return Err(ErrorCode::BadRequest);
     }
-    values.iter().try_for_each(relative_path)
+    values.iter().try_for_each(validate_relative_path)
 }
 
 impl FilesRequest {
@@ -221,12 +206,12 @@ impl FilesRequest {
             | FilesAction::Read(path)
             | FilesAction::ReadBytes(path)
             | FilesAction::Stat(path)
-            | FilesAction::Mkdir(path) => relative_path(path),
+            | FilesAction::Mkdir(path) => validate_relative_path(path),
             FilesAction::Write { path, content } => file_content(path, content.as_bytes()),
             FilesAction::WriteBytes { path, bytes } => file_content(path, bytes),
             FilesAction::Rename { path, name } => {
-                relative_path(path)?;
-                relative_path(name)?;
+                validate_relative_path(path)?;
+                validate_relative_path(name)?;
                 if name.0.is_empty() || name.0.contains(&b'/') || name.0 == b"." || name.0 == b".."
                 {
                     return Err(ErrorCode::BadPath);
@@ -238,7 +223,7 @@ impl FilesRequest {
                 into,
             } => {
                 paths(sources)?;
-                relative_path(into)
+                validate_relative_path(into)
             }
             FilesAction::Delete(sources) => paths(sources),
             FilesAction::Watch | FilesAction::Unwatch => Ok(()),
@@ -260,8 +245,8 @@ impl FilesReply {
                     return Err(ErrorCode::BadRequest);
                 }
                 for entry in entries {
-                    relative_path(&entry.path)?;
-                    relative_path(&entry.name)?;
+                    validate_relative_path(&entry.path)?;
+                    validate_relative_path(&entry.name)?;
                 }
                 Ok(())
             }
@@ -273,8 +258,8 @@ impl FilesReply {
                 Ok(())
             }
             Self::Bytes(file) => file_content(&file.path, &file.bytes),
-            Self::Info(file) => relative_path(&file.path),
-            Self::Path(path) => relative_path(path),
+            Self::Info(file) => validate_relative_path(&file.path),
+            Self::Path(path) => validate_relative_path(path),
             Self::Paths(values) => paths(values),
             Self::Done => Ok(()),
         }

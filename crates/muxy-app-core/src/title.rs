@@ -1,6 +1,3 @@
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 use std::sync::LazyLock;
 
 use muxy_protocol::{ForegroundProcess, ServerPath};
@@ -57,7 +54,7 @@ pub fn derive(title: &str, process: Option<&ForegroundProcess>, directory: &Serv
             return title;
         }
     }
-    let directory = Path::new(OsStr::from_bytes(&directory.0));
+    let directory = directory.as_path();
     let basename = directory.file_name().unwrap_or(directory.as_os_str());
     sanitize_or_default(&basename.to_string_lossy())
 }

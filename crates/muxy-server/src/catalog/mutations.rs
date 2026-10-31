@@ -1,8 +1,5 @@
 use super::{Catalog, Receipt, ServerError, State, bad, unknown};
 use muxy_protocol::{MAX_PROJECTS, ProjectId, ProjectIntent, ProjectMutation, SessionId};
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 
 impl Catalog {
     pub(crate) fn begin_mutation(&self, intent: &ProjectIntent) -> Result<bool, ServerError> {
@@ -30,7 +27,7 @@ impl Catalog {
                         || state.projects.len() == MAX_PROJECTS
                     {
                         Err(bad("project identity already exists or catalog is full"))
-                    } else if !Path::new(OsStr::from_bytes(&project.directory.0)).is_dir() {
+                    } else if !project.directory.as_path().is_dir() {
                         Err(ServerError::new(
                             muxy_protocol::ErrorCode::BadPath,
                             "project folder does not exist",
@@ -145,8 +142,10 @@ impl State {
             && project
                 .parent_id
                 .and_then(|id| self.projects.get(&id))
-                .is_some_and(|parent| Path::new(OsStr::from_bytes(&parent.directory.0)).is_dir())
-            && Path::new(OsStr::from_bytes(&project.directory.0))
+                .is_some_and(|parent| parent.directory.as_path().is_dir())
+            && project
+                .directory
+                .as_path()
                 .try_exists()
                 .is_ok_and(|exists| !exists)
             && !self

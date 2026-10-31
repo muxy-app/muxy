@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use muxy_protocol::{ProjectDescriptor, ServerPath};
@@ -118,6 +117,6 @@ fn home_directory() -> Result<PathBuf, AppError> {
 }
 
 fn new_home(directory: PathBuf) -> Result<Project, AppError> {
-    let home = ProjectDescriptor::home(ServerPath(directory.into_os_string().into_vec()));
+    let home = ProjectDescriptor::home(ServerPath::from(directory));
     Project::from_descriptor(ServerId::local(), &home)
 }
