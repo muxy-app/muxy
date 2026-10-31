@@ -52,7 +52,7 @@ impl VoicePanel {
         )
     }
 
-    fn with_recorder(
+    pub(crate) fn with_recorder(
         recorder: Result<Recorder, String>,
         auto_send: bool,
         theme: Theme,

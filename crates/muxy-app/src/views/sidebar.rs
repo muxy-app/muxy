@@ -687,8 +687,7 @@ struct DraggedProject {
 
 impl DraggedProject {
     fn move_to(&self, target: Option<ProjectId>, model: &mut AppModel, cx: &mut Context<AppModel>) {
-        if model.overlay.is_some()
-            || model.close_prompt.is_some()
+        if model.coverage().modal()
             || model.appearance.sidebar_project_order != ProjectOrder::Manual
         {
             return;
