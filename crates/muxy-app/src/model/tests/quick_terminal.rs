@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::quick_terminal::QuickClose;
 
 #[gpui::test]
 fn quick_terminal_uses_home_without_changing_workspace_and_reattaches_after_hide(
@@ -75,31 +76,82 @@ fn quick_terminal_disable_queues_cleanup_offline_and_preserves_preferences(
     });
 }
 
+/// Asks to close the Quick Terminal and answers the server's check with
+/// `name` as the foreground process.
+fn close_quick_terminal_running(
+    model: &mut AppModel,
+    requests: &std::sync::mpsc::Receiver<(u64, Work)>,
+    name: &str,
+    cx: &mut Context<AppModel>,
+) {
+    let (_, session) = model
+        .state
+        .quick_terminal()
+        .and_then(|pane| model.state.pane_session(pane.id))
+        .expect("session");
+    model.request_close_quick_terminal(cx);
+    let Some(QuickClose::Checking(check)) = model.quick.closing else {
+        panic!("the close was not checked");
+    };
+    assert!(requests.try_iter().any(|(_, work)| matches!(
+        work,
+        Work::CheckClose { check: sent, session: asked, .. } if sent == check && asked == session
+    )));
+    let result = Ok(Some(muxy_protocol::ForegroundProcess {
+        name: name.into(),
+        is_shell: name == "zsh",
+    }));
+    let checked = Update::CloseChecked {
+        check,
+        session,
+        result,
+    };
+    model.receive(local(model.servers.local.generation, checked), cx);
+}
+
 #[gpui::test]
-fn quick_terminal_close_prompts_only_for_commands(cx: &mut TestAppContext) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+fn quick_terminal_close_prompts_only_for_commands_it_alone_shows(cx: &mut TestAppContext) {
+    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        let session = SessionId::new(702).expect("session");
         let pane = model.state.ensure_quick_terminal();
-        model.quick.closing = Some((TabId::new(), pane));
-        model.check_quick_close(
-            Ok(Some(muxy_protocol::ForegroundProcess {
-                name: "sleep".into(),
-                is_shell: false,
-            })),
-            cx,
-        );
+        model
+            .state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
+
+        close_quick_terminal_running(model, &requests, "sleep", cx);
         assert!(model.state.quick_terminal().is_some());
-        assert!(model.quick.closing.is_some());
-        model.check_quick_close(
-            Ok(Some(muxy_protocol::ForegroundProcess {
-                name: "zsh".into(),
-                is_shell: true,
-            })),
-            cx,
-        );
+        assert_eq!(model.quick.closing, Some(QuickClose::Confirming));
+
+        model.quick.closing = None;
+        close_quick_terminal_running(model, &requests, "zsh", cx);
         assert!(model.state.quick_terminal().is_none());
         assert!(model.quick.closing.is_none());
+
+        let pane = model.state.ensure_quick_terminal();
+        model
+            .state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
+        model
+            .state
+            .open_terminal_tab(model.state.home().id)
+            .expect("tab");
+        let tab_pane = model.state.home().tabs[0].panes[0].id;
+        model
+            .state
+            .set_pane_session(tab_pane, Some(session))
+            .expect("session");
+        model.request_close_quick_terminal(cx);
+        assert!(model.state.quick_terminal().is_none());
+        assert!(
+            !requests
+                .try_iter()
+                .any(|(_, work)| matches!(work, Work::CheckClose { .. }))
+        );
     });
 }
 

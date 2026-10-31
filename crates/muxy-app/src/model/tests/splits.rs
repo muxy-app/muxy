@@ -278,11 +278,10 @@ fn closing_tab_checks_every_hidden_pane_and_cancel_keeps_all(cx: &mut TestAppCon
         attach_panes(model, &panes, cx);
         model.toggle_zoom_pane(cx);
         model.close_tab(tab, cx);
-        assert_eq!(model.pending_close, Some(tab));
         assert!(requests.try_iter().any(|(_, work)| matches!(work, Work::CheckClose { session, .. } if Some(session) == SessionId::new(100))));
-        model.receive_close_checked(tab, SessionId::new(100).expect("session"), Ok(None), cx);
+        model.receive_close_checked(model.pending_close.expect("close check"), SessionId::new(100).expect("session"), Ok(None), cx);
         assert!(requests.try_iter().any(|(_, work)| matches!(work, Work::CheckClose { session, .. } if Some(session) == SessionId::new(101))));
-        model.receive_close_checked(tab, SessionId::new(101).expect("session"), Ok(Some(muxy_protocol::ForegroundProcess { name: "vim".into(), is_shell: false })), cx);
+        model.receive_close_checked(model.pending_close.expect("close check"), SessionId::new(101).expect("session"), Ok(Some(muxy_protocol::ForegroundProcess { name: "vim".into(), is_shell: false })), cx);
     });
     cx.run_until_parked();
     assert!(cx.has_pending_prompt());

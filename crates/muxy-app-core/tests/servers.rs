@@ -212,6 +212,53 @@ fn pane_lookups_cover_tab_panes_and_the_quick_terminal() -> TestResult {
 }
 
 #[test]
+fn closing_ends_only_sessions_no_other_pane_shows() -> TestResult {
+    let TwoServers {
+        mut state,
+        remote_home,
+        ..
+    } = two_servers()?;
+    let one = session(1)?;
+    let two = session(2)?;
+    state.open_terminal_tab(state.home().id)?;
+    let shared = state.home().tabs[0].panes[0].id;
+    state.set_pane_session(shared, Some(one))?;
+    let alone = state.split_pane(shared, muxy_app_core::Direction::Right)?;
+    state.set_pane_session(alone, Some(two))?;
+    let quick = state.ensure_quick_terminal();
+    state.set_pane_session(quick, Some(one))?;
+    state.open_terminal_tab(remote_home)?;
+    let remote_pane = state.project(remote_home).ok_or("remote Home")?.tabs[0].panes[0].id;
+    state.set_pane_session(remote_pane, Some(two))?;
+
+    assert!(state.sessions_ended_by_closing(&[shared]).is_empty());
+    assert!(state.sessions_ended_by_closing(&[quick]).is_empty());
+    assert_eq!(
+        state.sessions_ended_by_closing(&[shared, alone]),
+        [(alone, LOCAL, two)]
+    );
+    assert_eq!(
+        state.sessions_ended_by_closing(&[quick, alone, shared]),
+        [(quick, LOCAL, one), (alone, LOCAL, two)]
+    );
+    Ok(())
+}
+
+#[test]
+fn only_a_program_other_than_the_shell_counts_as_running() {
+    use muxy_app_core::closing::runs_program;
+    use muxy_protocol::ForegroundProcess;
+
+    let process = |name: &str, is_shell| ForegroundProcess {
+        name: name.into(),
+        is_shell,
+    };
+    assert!(runs_program(Some(&process("sleep", false))));
+    assert!(!runs_program(Some(&process("zsh", true))));
+    assert!(!runs_program(None));
+}
+
+#[test]
 fn equal_session_ids_on_two_servers_never_mix() -> TestResult {
     let TwoServers {
         mut state,

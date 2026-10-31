@@ -2,7 +2,7 @@ use gpui::{
     AppContext, Bounds, Context, Task, WindowBounds, WindowHandle, WindowKind, WindowOptions, px,
     size,
 };
-use muxy_app_core::{PaneId, ServerId, TabId};
+use muxy_app_core::{PaneId, ServerId};
 use muxy_core::capability::Feature;
 use muxy_core::quick_terminal::keys::{COMMAND, CONTROL, KeyCombo, OPTION, SHIFT};
 use muxy_core::quick_terminal::{ConflictCandidate, QuickTerminalShortcut};
@@ -18,8 +18,9 @@ use muxy_ui::quick_terminal::{
 };
 use muxy_ui::tr;
 
+use super::close_check::CloseCheck;
 use super::{AppModel, ConnectionState, Quitting};
-use crate::boot::Work;
+use crate::boot::{CloseCheckId, Work};
 use crate::views::quick_terminal::{QuickTerminalView, QuickTerminalViewModel};
 use crate::views::terminal::colors::Palette;
 use muxy_ui::theme::Theme;
@@ -37,7 +38,16 @@ pub(crate) struct QuickTerminalRuntime {
     _triggers: Task<()>,
     _system: Task<()>,
     _observers: Option<platform::SystemObservers>,
-    pub(crate) closing: Option<(TabId, PaneId)>,
+    pub(crate) closing: Option<QuickClose>,
+}
+
+/// Where closing the Quick Terminal stands.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum QuickClose {
+    /// Waiting for the server to say what runs in it.
+    Checking(CloseCheckId),
+    /// Asking the user, because a program is running.
+    Confirming,
 }
 
 impl QuickTerminalRuntime {
@@ -481,60 +491,41 @@ impl AppModel {
         let Some(pane) = self.state.quick_terminal().map(|pane| pane.id) else {
             return;
         };
-        let Some((_, session)) = self.state.pane_session(pane) else {
+        let ending = self.state.sessions_ended_by_closing(&[pane]);
+        let Some(&(_, server, session)) = ending
+            .first()
+            .filter(|_| self.settings.window.confirm_running_process)
+        else {
             self.close_quick_terminal(cx);
             return;
         };
-        if self.session_used_outside(ServerId::local(), session, &[pane])
-            || !self.settings.window.confirm_running_process
-        {
-            self.close_quick_terminal(cx);
-            return;
-        }
-        let tab = TabId::new();
-        self.quick.closing = Some((tab, pane));
-        if !self.ready(ServerId::local()) {
-            let process = self
-                .terminal(&pane)
-                .and_then(|pane| pane.view.read(cx).process.clone());
-            self.check_quick_close(Ok(process), cx);
-            return;
-        }
-
-        let viewport = self
-            .terminal(&pane)
-            .and_then(|pane| pane.view.read(cx).viewport())
-            .unwrap_or(muxy_protocol::Size { cols: 80, rows: 24 });
-        if !self.send(
-            ServerId::local(),
-            Work::CheckClose {
-                tab,
-                session,
-                size: viewport,
-            },
-            cx,
-        ) {
-            self.quick.closing = None;
+        match self.check_close(server, pane, session, cx) {
+            CloseCheck::Asked(check) => self.quick.closing = Some(QuickClose::Checking(check)),
+            CloseCheck::Running => self.confirm_quick_close(cx),
+            CloseCheck::Safe => self.close_quick_terminal(cx),
+            CloseCheck::Unsent => {}
         }
     }
 
-    pub(super) fn check_quick_close(
+    pub(super) fn receive_quick_close_checked(
         &mut self,
-        result: Result<Option<muxy_protocol::ForegroundProcess>, muxy_client::ClientError>,
+        running: Result<bool, String>,
         cx: &mut Context<Self>,
     ) {
-        match result {
-            Ok(Some(process)) if !process.is_shell => {
-                if let Some(panel) = self.quick.panel {
-                    let _ = panel.update(cx, QuickTerminalView::show_close_confirmation);
-                }
-            }
-            Ok(_) => self.close_quick_terminal(cx),
-            Err(error) if crate::boot::missing_session(&error) => self.close_quick_terminal(cx),
-            Err(error) => {
+        match running {
+            Ok(true) => self.confirm_quick_close(cx),
+            Ok(false) => self.close_quick_terminal(cx),
+            Err(message) => {
                 self.quick.closing = None;
-                self.fail(error.to_string(), cx);
+                self.fail(message, cx);
             }
+        }
+    }
+
+    fn confirm_quick_close(&mut self, cx: &mut Context<Self>) {
+        self.quick.closing = Some(QuickClose::Confirming);
+        if let Some(panel) = self.quick.panel {
+            let _ = panel.update(cx, QuickTerminalView::show_close_confirmation);
         }
     }
 
