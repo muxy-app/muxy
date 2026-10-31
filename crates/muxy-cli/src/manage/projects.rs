@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use muxy_app_core::settings::Settings;
+use muxy_app_core::settings::{Settings, WorktreeSettings};
 use muxy_client::Client;
 use muxy_protocol::{
     GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectDescriptor, ProjectId,
@@ -361,18 +361,8 @@ fn default_directory(
     branch: &str,
     paths: Paths,
 ) -> Result<PathBuf> {
-    let path = Settings::default_path()?;
-    let settings = if path.exists() {
-        Settings::load(&path)?
-    } else {
-        Settings::default()
-    };
-    let location = settings
-        .worktrees
-        .projects
-        .get(&root.id)
-        .cloned()
-        .unwrap_or_default();
+    let settings = WorktreeSettings::load(&Settings::default_path()?)?;
+    let location = settings.projects.get(&root.id).cloned().unwrap_or_default();
     let home = match paths {
         Paths::Local => None,
         Paths::Remote => client
@@ -382,7 +372,7 @@ fn default_directory(
             .find(|project| project.home)
             .map(|home| local_path(&home.directory)),
     };
-    Ok(settings.worktrees.directory_in(
+    Ok(settings.directory_in(
         &root.name,
         &local_path(&root.directory),
         &location,
