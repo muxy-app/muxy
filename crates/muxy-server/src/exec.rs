@@ -124,33 +124,35 @@ impl Jobs {
 /// The user's login-shell PATH, which a server started from the app doesn't inherit.
 pub(crate) fn login_path() -> Option<&'static str> {
     static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    PATH.get_or_init(|| {
-        let request = ExecRequest {
-            job: 1,
-            project: muxy_protocol::ProjectId::new(),
-            argv: vec![
-                std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()),
-                "-lc".into(),
-                "printf '\\0%s\\0' \"$PATH\"".into(),
-            ],
-            shell: None,
-            cwd: None,
-            env: std::collections::BTreeMap::new(),
-            stdin: Vec::new(),
-            timeout_ms: 3_000,
-        };
-        let result = execute(&request, Path::new("/"), &AtomicBool::new(false), || false).ok()?;
-        if result.exit_code != 0 || result.timed_out {
-            return None;
-        }
-        result
-            .stdout
-            .split('\0')
-            .nth(1)
-            .filter(|path| !path.is_empty())
-            .map(str::to_owned)
-    })
-    .as_deref()
+    PATH.get_or_init(|| read_login_path(&crate::process::user_shell()))
+        .as_deref()
+}
+
+fn read_login_path(shell: &Path) -> Option<String> {
+    let request = ExecRequest {
+        job: 1,
+        project: muxy_protocol::ProjectId::new(),
+        argv: vec![
+            shell.to_str()?.to_owned(),
+            "-lc".into(),
+            "printf '\\0%s\\0' \"$PATH\"".into(),
+        ],
+        shell: None,
+        cwd: None,
+        env: std::collections::BTreeMap::new(),
+        stdin: Vec::new(),
+        timeout_ms: 3_000,
+    };
+    let result = execute(&request, Path::new("/"), &AtomicBool::new(false), || false).ok()?;
+    if result.exit_code != 0 || result.timed_out {
+        return None;
+    }
+    result
+        .stdout
+        .split('\0')
+        .nth(1)
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
 }
 
 fn error(cause: impl std::fmt::Display) -> ServerError {
@@ -171,12 +173,7 @@ fn launch_failed(request: &ExecRequest, cause: &io::Error) -> ServerError {
 /// which is how main finds a command before launching it.
 fn on_path(program: &str, path: Option<&String>) -> bool {
     let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
-    std::env::split_paths(&path)
-        .filter(|folder| !folder.as_os_str().is_empty())
-        .map(|folder| folder.join(program))
-        .any(|file| {
-            file.is_file() && rustix::fs::access(&file, rustix::fs::Access::EXEC_OK).is_ok()
-        })
+    crate::process::find_executable(program, std::env::split_paths(&path)).is_some()
 }
 
 /// The system's description of an error, without Rust's "(os error N)".
@@ -417,6 +414,12 @@ mod tests {
             stdin: Vec::new(),
             timeout_ms: 3000,
         }
+    }
+
+    #[test]
+    fn login_path_comes_from_the_fallback_shell() {
+        let path = read_login_path(Path::new("/bin/sh")).unwrap();
+        assert!(std::env::split_paths(&path).any(|folder| folder == Path::new("/usr/bin")));
     }
 
     #[test]

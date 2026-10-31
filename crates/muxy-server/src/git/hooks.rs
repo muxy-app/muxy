@@ -131,10 +131,7 @@ pub(super) fn run(
     hooks: &[WorktreeHook],
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(300);
-    let shell = std::env::var_os("SHELL")
-        .map(PathBuf::from)
-        .filter(|shell| shell.is_absolute() && shell.is_file())
-        .unwrap_or_else(|| "/bin/sh".into());
+    let shell = crate::process::user_shell();
     for hook in hooks {
         let remaining = deadline
             .checked_duration_since(Instant::now())
