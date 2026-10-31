@@ -234,3 +234,48 @@ fn quick_terminal_theme_overrides_the_app_and_gives_its_session_colors(cx: &mut 
         assert_eq!(sent(), [(session, None)]);
     });
 }
+
+#[gpui::test]
+fn quick_terminal_session_starts_and_attaches_with_its_theme(cx: &mut TestAppContext) {
+    let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        let mut settings = model.settings.quick_terminal.clone();
+        let other = if model.dark { "Muxy Light" } else { "Muxy" };
+        settings.set_theme(model.dark, Some(other.into()));
+        model.apply_quick_settings(settings, cx).expect("theme");
+        let colors = model
+            .quick_theme()
+            .expect("own theme")
+            .1
+            .terminal_colors();
+        let quick = model.state.ensure_quick_terminal();
+        model.quick.visible = true;
+        model.sync_visible(cx);
+        model.start_attach(quick, Size { cols: 100, rows: 30 }, cx);
+        assert!(requests.try_iter().any(|(_, work)| matches!(
+            work,
+            Work::Attach { pane, session: None, colors: Some(sent), .. } if pane == quick && sent == colors
+        )));
+        let session = SessionId::new(704).expect("session");
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Attached {
+                    pane: quick,
+                    session,
+                    attachment: attachment(),
+                    created: true,
+                },
+            ),
+            cx,
+        );
+        assert!(requests.try_iter().any(|(_, work)| matches!(
+            work,
+            Work::SessionColors(id, Some(sent)) if id == session && sent == colors
+        )));
+    });
+}

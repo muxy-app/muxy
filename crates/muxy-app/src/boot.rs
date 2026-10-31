@@ -359,6 +359,8 @@ pub(crate) enum Work {
         size: Size,
         /// More environment for a new terminal, such as a proxy.
         environment: BTreeMap<String, String>,
+        /// Colors for a new terminal alone, such as the Quick Terminal's theme.
+        colors: Option<TerminalColors>,
     },
     References(Vec<SessionId>),
     Discard(SessionId, muxy_protocol::OperationId),
@@ -1097,15 +1099,19 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             directory,
             size,
             environment,
+            colors,
         } => {
             return Some(attach(
                 client,
                 pane,
-                project,
                 session,
-                &directory,
                 size,
-                environment,
+                Launch {
+                    project,
+                    directory,
+                    environment,
+                    colors,
+                },
             ));
         }
         Work::ReadSaved { pane, session } => {
@@ -1161,7 +1167,14 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         }
         Work::Colors(colors) => client.set_terminal_colors(colors),
         Work::SessionColors(session, colors) => match client.set_session_colors(session, colors) {
-            Err(ClientError::Server(reply)) if reply.code == ErrorCode::Unsupported => return None,
+            Err(ClientError::Server(reply))
+                if matches!(
+                    reply.code,
+                    ErrorCode::Unsupported | ErrorCode::UnknownSession
+                ) =>
+            {
+                return None;
+            }
             result => result,
         },
         Work::Input(channel, bytes) => client.send_input(channel, &bytes),
@@ -1299,24 +1312,31 @@ fn check_close(
     Ok(attachment.process)
 }
 
+/// What a new terminal starts with.
+struct Launch {
+    project: muxy_protocol::ProjectId,
+    directory: PathBuf,
+    environment: BTreeMap<String, String>,
+    colors: Option<TerminalColors>,
+}
+
 fn attach(
     client: &Client,
     pane: PaneId,
-    project: muxy_protocol::ProjectId,
     existing: Option<SessionId>,
-    directory: &std::path::Path,
     size: Size,
-    environment: BTreeMap<String, String>,
+    launch: Launch,
 ) -> Update {
     let session = match existing.map_or_else(
         || {
             client
                 .create_project_session_with_environment(
-                    project,
+                    launch.project,
                     pane.creation_token(),
-                    directory,
+                    &launch.directory,
                     size,
-                    environment,
+                    launch.environment,
+                    launch.colors,
                 )
                 .map(|info| info.id)
         },

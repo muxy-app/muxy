@@ -78,17 +78,15 @@ impl SettingsWindow {
             if let Some(overlay) = &root.overlay {
                 match overlay {
                     SettingsOverlay::Themes { picker, source } => {
-                        let settings = &view.snapshot.settings;
-                        let active = source.kind.theme().map(|(target, dark)| match target {
-                            theme_picker::ThemeTarget::App => {
-                                settings.appearance.theme(dark).to_owned()
-                            }
-                            theme_picker::ThemeTarget::QuickTerminal => settings
-                                .quick_terminal
-                                .theme(dark)
-                                .unwrap_or(theme_picker::SAME_AS_APP)
-                                .to_owned(),
-                        });
+                        let model = root.model.upgrade();
+                        let active =
+                            source
+                                .kind
+                                .theme()
+                                .zip(model)
+                                .map(|((target, dark), model)| {
+                                    theme_picker::current(model.read(cx), target, dark)
+                                });
                         picker.update(cx, |picker, cx| {
                             picker.set_appearance(theme, metrics, cx);
                             if let Some(active) = &active {

@@ -122,6 +122,7 @@ fn probe(path: &Path) -> Result {
             directory: ServerPath(env::current_dir()?.as_os_str().as_bytes().to_vec()),
             size: SIZE,
             environment: std::collections::BTreeMap::new(),
+            colors: None,
         },
     )? {
         ReplyBody::SessionCreated(info) => info,

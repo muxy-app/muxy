@@ -2080,6 +2080,10 @@ impl AppModel {
         } else {
             BTreeMap::new()
         };
+        let colors = (session.is_none() && self.is_quick_terminal(pane))
+            .then(|| self.quick_theme())
+            .flatten()
+            .map(|(_, palette)| palette.terminal_colors());
         if !self.save(cx) {
             return;
         }
@@ -2099,6 +2103,7 @@ impl AppModel {
                 directory,
                 size,
                 environment,
+                colors,
             },
             cx,
         );

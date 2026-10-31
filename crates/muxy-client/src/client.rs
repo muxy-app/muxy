@@ -255,11 +255,14 @@ impl Client {
             directory,
             size,
             std::collections::BTreeMap::new(),
+            None,
         )
     }
 
-    /// Starts the shell with `environment` too, such as a proxy. Servers
-    /// without `Feature::SESSION_ENVIRONMENT` ignore it.
+    /// Starts the shell with `environment` too, such as a proxy, and gives
+    /// the session its own `colors` from the start. Servers without
+    /// `Feature::SESSION_ENVIRONMENT` ignore the environment, and servers
+    /// from before `SetSessionColors` ignore the colors.
     pub fn create_project_session_with_environment(
         &self,
         project: muxy_protocol::ProjectId,
@@ -267,6 +270,7 @@ impl Client {
         directory: &Path,
         size: Size,
         environment: std::collections::BTreeMap<String, String>,
+        colors: Option<TerminalColors>,
     ) -> Result<SessionInfo, ClientError> {
         let directory = ServerPath(directory.as_os_str().as_bytes().to_vec());
         match self.request(RequestBody::CreateSession {
@@ -275,6 +279,7 @@ impl Client {
             directory,
             size,
             environment,
+            colors,
         })? {
             ReplyBody::SessionCreated(info) => Ok(info),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),

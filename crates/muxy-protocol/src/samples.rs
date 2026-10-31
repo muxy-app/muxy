@@ -413,6 +413,10 @@ fn create_session_sample(directory: ServerPath, size: Size) -> Message {
             directory,
             size,
             environment: [("http_proxy".to_owned(), "http://proxy:8080".to_owned())].into(),
+            colors: Some(TerminalColors {
+                background: [0xf0, 0xf0, 0xf5],
+                ..TerminalColors::default()
+            }),
         },
     }
 }

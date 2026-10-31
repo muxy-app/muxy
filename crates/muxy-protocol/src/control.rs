@@ -48,6 +48,12 @@ pub enum RequestBody {
         #[cbor(default)]
         #[serde(default)]
         environment: std::collections::BTreeMap<String, String>,
+        /// Colors for this session alone, as `SetSessionColors` gives them,
+        /// from the start. Older servers ignore it.
+        #[n(5)]
+        #[cbor(default)]
+        #[serde(default)]
+        colors: Option<TerminalColors>,
     },
     #[n(6)]
     EndSession(#[n(0)] SessionId),

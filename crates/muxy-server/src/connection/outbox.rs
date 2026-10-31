@@ -454,6 +454,7 @@ impl Outbox {
         state.references.sessions.remove(&session);
         state.progress.remove(&session);
         state.session_metadata.remove(&session);
+        state.session_colors.remove(&session);
         state.open_sessions.remove(&session);
         let channels: Vec<_> = state
             .attachments
@@ -705,6 +706,9 @@ mod tests {
         assert_eq!(sent(&commands), [3]);
         outbox.set_colors(colors(5));
         assert_eq!(sent(&commands), [5]);
+        outbox.set_session_colors(session, Some(colors(6)));
+        outbox.session_ended(session, ExitReason::Exited(0));
+        assert!(outbox.lock().session_colors.is_empty());
         Ok(())
     }
 
