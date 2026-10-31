@@ -236,12 +236,7 @@ fn branch_picker(
                     .anchor(Corner::TopLeft)
                     .offset(point(px(0.0), m.control_medium() + m.spacing6()))
                     .snap_to_window_with_margin(px(8.0))
-                    .child(
-                        div()
-                            .relative()
-                            .child(chooser.clone())
-                            .child(model.webview_occlusion()),
-                    ),
+                    .child(chooser.clone()),
             )
             .with_priority(2),
         );

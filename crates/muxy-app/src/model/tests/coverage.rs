@@ -1,5 +1,8 @@
 use super::*;
+use crate::views::menu::{Command, Item};
+use crate::views::project_editor::Field;
 use crate::views::{overlays::Overlay, voice::VoicePanel};
+use gpui::{Bounds, Pixels};
 use muxy_app_core::settings::ComposerPresentation;
 
 fn attached_terminal(
@@ -124,4 +127,85 @@ fn voice_hides_terminal_scroll_and_leaves_webviews_cut_out_under_it(cx: &mut Tes
         model.voice.closing = None;
         assert!(terminal_scroll_shown(model, pane, cx));
     });
+}
+
+/// Draws the window and returns the rectangles marked over native views.
+fn drawn_marks(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
+    view.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    view.update(cx, |model, _| {
+        let marks = model.webviews.occlusions.borrow();
+        marks.iter().map(|(_, bounds)| *bounds).collect()
+    })
+}
+
+type Open = Box<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
+
+#[gpui::test]
+fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1000.0), px(600.0)));
+    assert_eq!(drawn_marks(&view, cx), Vec::new());
+    let project = view.update(cx, |model, _| model.state.home().id);
+    let at = gpui::point(px(200.0), px(200.0));
+    let cases: [(&str, Open); 12] = [
+        ("updates", Box::new(AppModel::toggle_update_popover)),
+        ("server", Box::new(AppModel::toggle_server_popover)),
+        ("remote servers", Box::new(AppModel::toggle_remote_popover)),
+        (
+            "agents",
+            Box::new(|model, _, _| model.overlay = Some(Overlay::Agents)),
+        ),
+        ("proxy", Box::new(AppModel::open_proxy_popover)),
+        (
+            "proxy without status bar",
+            Box::new(|model, window, cx| {
+                model.appearance.status_bar_visible = false;
+                model.open_proxy_popover(window, cx);
+            }),
+        ),
+        (
+            "menu",
+            Box::new(move |model, window, cx| {
+                let item = Item::action("Item", Command::AgentsPanel(true));
+                model.open_menu(vec![item], at, window, cx);
+            }),
+        ),
+        (
+            "project editor",
+            Box::new(move |model, window, cx| {
+                model.open_project_editor(project, Field::Name, at, window, cx);
+            }),
+        ),
+        (
+            "project icons",
+            Box::new(move |model, window, cx| model.open_project_icons(project, at, window, cx)),
+        ),
+        (
+            "pair form",
+            Box::new(|model, _, cx| model.open_pair_form(None, cx)),
+        ),
+        (
+            "server form",
+            Box::new(|model, _, cx| model.open_server_form(None, cx)),
+        ),
+        (
+            "sessions",
+            Box::new(move |model, window, cx| model.open_session_picker(project, window, cx)),
+        ),
+    ];
+    for (name, open) in cases {
+        let marked = view.update_in(cx, |model, window, cx| {
+            model.overlay = None;
+            model.appearance.status_bar_visible = true;
+            open(model, window, cx);
+            let overlay = model.overlay.as_ref().expect(name);
+            overlay.mark(model.appearance.status_bar_visible).is_some()
+        });
+        let marks = drawn_marks(&view, cx);
+        let spinners_hidden = view.update(cx, |model, _| model.coverage().hides_spinners());
+        assert_eq!(!marks.is_empty(), marked, "{name} marks {marks:?}");
+        assert_eq!(spinners_hidden, !marked, "{name} hides spinners");
+    }
 }
