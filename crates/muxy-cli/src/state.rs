@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -697,21 +697,7 @@ fn persist(path: &Path, state: &State) -> io::Result<()> {
     if bytes.len() as u64 > MAX_STATE_BYTES {
         return Err(io::Error::other("TUI state file is too large"));
     }
-    let temporary = path.with_file_name(format!(".tui-state-{}.tmp", OperationId::new()));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temporary)?;
-    let result = file
-        .write_all(&bytes)
-        .and_then(|()| file.sync_all())
-        .and_then(|()| fs::rename(&temporary, path))
-        .and_then(|()| File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all());
-    if result.is_err() {
-        let _ = fs::remove_file(temporary);
-    }
-    result
+    muxy_core::fs::write_atomic(path, &bytes, 0o600).map_err(Into::into)
 }
 
 #[cfg(test)]

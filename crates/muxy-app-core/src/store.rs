@@ -54,6 +54,7 @@ pub fn save(path: impl AsRef<Path>, state: &AppState) -> Result<(), AppError> {
         source,
     })?;
     bytes.push(b'\n');
+    // Not `muxy_core::fs::write_atomic`: the fixed, locked temporary name is how a second writer is detected.
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(".tmp");
     let temporary = PathBuf::from(temporary);
