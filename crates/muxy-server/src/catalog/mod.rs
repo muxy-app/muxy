@@ -5,7 +5,6 @@ pub(crate) use git::GitReceipt;
 mod recovery;
 pub(crate) mod retention;
 mod sessions;
-mod storage;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -274,16 +273,12 @@ impl Catalog {
             .checked_add(1)
             .ok_or_else(|| bad("catalog revisions exhausted"))?;
         next.validate()?;
-        let mut committed = self.path.is_none();
-        let saved = self
-            .path
-            .as_ref()
-            .map_or(Ok(()), |path| storage::save(path, &next, &mut committed));
-        if committed {
+        let saved = self.path.as_ref().map_or(Ok(()), |path| save(path, &next));
+        if saved.as_ref().map_or_else(|error| error.renamed, |()| true) {
             self.revision.store(next.revision, Ordering::Release);
             *self.lock() = next;
         }
-        saved.map_err(|error| storage_error(&error))?;
+        saved.map_err(|error| storage_error(&error.error))?;
         Ok(result)
     }
 
@@ -295,7 +290,7 @@ impl Catalog {
     pub(crate) fn ensure_durable(&self) -> Result<(), ServerError> {
         let _write = self.write.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(path) = &self.path {
-            storage::sync_parent(path).map_err(|error| storage_error(&error))?;
+            muxy_core::fs::sync_parent(path).map_err(|error| storage_error(&error))?;
         }
         Ok(())
     }
@@ -358,6 +353,11 @@ fn check_revision(state: &State, revision: Option<u64>) -> Result<(), ServerErro
     } else {
         Ok(())
     }
+}
+
+fn save(path: &Path, state: &State) -> Result<(), muxy_core::fs::WriteError> {
+    let bytes = serde_json::to_vec(state).map_err(io::Error::from)?;
+    muxy_core::fs::write_atomic(path, &bytes, 0o600)
 }
 
 fn storage_error(error: &io::Error) -> ServerError {

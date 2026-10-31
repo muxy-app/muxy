@@ -175,7 +175,11 @@ fn install_link(target: &Path, destination: &Path) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::other(tr!("Missing installation directory").to_string()))?;
     fs::create_dir_all(parent)?;
-    let _lock = muxy_client::local::try_lock(&parent.join(".muxy-cli-install.lock"))?;
+    let _lock = muxy_client::local::try_lock(&parent.join(".muxy-cli-install.lock")).map_err(
+        muxy_core::file_lock::busy(tr!(
+            "Another installation of the muxy command is in progress"
+        )),
+    )?;
     let receipt = parent.join(".muxy-cli-link.json");
     let managed: Vec<Vec<u8>> = match fs::read(&receipt) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,

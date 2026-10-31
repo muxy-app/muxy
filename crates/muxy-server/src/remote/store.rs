@@ -1,7 +1,6 @@
 use std::fmt::Write as _;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs;
+use std::io;
 use std::path::Path;
 
 use muxy_protocol::transport::tls::TlsIdentity;
@@ -156,25 +155,7 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
             .collect(),
     };
     let bytes = serde_json::to_vec_pretty(&document)?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("remote access store has no parent"))?;
-    let temporary = parent.join(format!(".remote-{}.tmp", muxy_protocol::OperationId::new()));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)?;
-        File::open(parent)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    Ok(muxy_core::fs::write_atomic(path, &bytes, 0o600)?)
 }
 
 fn hex(bytes: &[u8]) -> String {

@@ -661,16 +661,9 @@ fn state_lock(path: &Path) -> Result<File> {
         .mode(0o600)
         .open(path.with_file_name("tui.lock"))
         .map_err(|error| error.to_string())?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        match file.try_lock() {
-            Ok(()) => return Ok(file),
-            Err(error) if std::time::Instant::now() >= deadline => {
-                return Err(format!("Shared TUI state is busy: {error}"));
-            }
-            Err(_) => std::thread::sleep(std::time::Duration::from_millis(5)),
-        }
-    }
+    muxy_core::file_lock::acquire_file(&file, std::time::Duration::from_secs(2))
+        .map_err(|error| format!("Shared TUI state is busy: {error}"))?;
+    Ok(file)
 }
 
 fn read_state(path: &Path) -> Result<Option<State>> {
