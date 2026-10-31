@@ -183,13 +183,15 @@ fn ghostty_theme_is_ignored_because_the_settings_theme_colors_terminals() -> Res
 #[test]
 fn ghostty_includes_apply_last_and_detect_cycles() -> Result {
     let fixture = Fixture::new()?;
-    fixture.write("fonts", "font-size = 17\n")?;
+    fixture.write("fonts", "font-size = 17\nfont-family = Monaco\n")?;
     fixture.write(
         "ghostty.conf",
-        "config-file = ?missing\nconfig-file = fonts\nfont-size = 15\n",
+        "config-file = ?missing\nconfig-file = fonts\nfont-size = 15\nfont-family = Menlo\n",
     )?;
     let path = fixture.0.join("terminal.toml");
-    assert_eq!(TerminalSettings::load_native(&path)?.font_size, 17.0);
+    let migrated = TerminalSettings::load_native(&path)?;
+    assert_eq!(migrated.font_size, 17.0);
+    assert_eq!(migrated.font_families, ["Menlo", "Monaco"]);
     fs::remove_file(&path)?;
     fixture.write("fonts", "config-file = ghostty.conf\n")?;
     let error = TerminalSettings::load_native(&path)
