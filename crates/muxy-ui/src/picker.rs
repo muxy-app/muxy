@@ -258,7 +258,7 @@ impl Default for PickerMetrics {
         Self {
             modal_width: 480.0,
             modal_height: 360.0,
-            modal_top: 48.0,
+            modal_top: popover::MODAL_TOP,
             popover_width: 340.0,
             popover_height: 360.0,
             viewport_margin: 8.0,
@@ -2252,7 +2252,7 @@ impl Render for Picker {
                 .flex_col()
                 .items_center()
                 .when(geometry.backdrop, |element| {
-                    element.bg(gpui::hsla(0.0, 0.0, 0.0, 0.3))
+                    element.bg(popover::modal_backdrop())
                 })
                 .pt(px(geometry.top))
                 .child(panel)
