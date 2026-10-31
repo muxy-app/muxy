@@ -176,7 +176,30 @@ fn trim(path: &Path) -> std::io::Result<()> {
         .iter()
         .position(|byte| *byte == b'\n')
         .map_or(kept.len(), |index| index + 1);
-    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-    std::fs::write(&temporary, &kept[start..])?;
-    std::fs::rename(temporary, path)
+    muxy_core::fs::write_atomic(path, &kept[start..], 0o644).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_full_log_keeps_its_newest_whole_lines_and_no_other_file() -> std::io::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = log_file(directory.path());
+        let line = "x".repeat(999);
+        let mut appended = 0_u64;
+        while appended <= MAX_FILE {
+            append(&path, &line)?;
+            appended += 1_000;
+        }
+        let text = std::fs::read_to_string(&path)?;
+        assert!(text.len() as u64 <= TRIMMED_FILE);
+        assert!(text.lines().all(|kept| kept == line));
+        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap_or(directory.path()))?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<std::io::Result<_>>()?;
+        assert_eq!(names, ["output.log"]);
+        Ok(())
+    }
 }

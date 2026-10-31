@@ -152,6 +152,7 @@
 "Amber" = "Amber";
 "An agent is waiting for your attention." = "An agent is waiting for your attention.";
 "An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here." = "An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here.";
+"Another installation of the muxy command is in progress" = "Another installation of the muxy command is in progress";
 "Another update is in progress. Muxy will retry when it finishes." = "Another update is in progress. Muxy will retry when it finishes.";
 "App" = "App";
 "App language" = "App language";

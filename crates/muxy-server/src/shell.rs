@@ -1,7 +1,7 @@
 use std::ffi::OsString;
-use std::fs::{self, DirBuilder, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::fs::{self, DirBuilder};
+use std::io;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use muxy_terminal::pty::SpawnRequest;
@@ -42,21 +42,7 @@ impl ShellIntegration {
                 include_str!("../shell/muxy.fish"),
             ),
         ] {
-            let path = directory.join(name);
-            let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            let result = file
-                .write_all(contents.as_bytes())
-                .and_then(|()| file.sync_all())
-                .and_then(|()| fs::rename(&temporary, &path));
-            if result.is_err() {
-                let _ = fs::remove_file(&temporary);
-            }
-            result?;
+            muxy_core::fs::write_atomic(&directory.join(name), contents.as_bytes(), 0o600)?;
         }
         Ok(Self {
             directory: directory.canonicalize()?,

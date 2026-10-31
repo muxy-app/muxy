@@ -7,7 +7,7 @@ pub mod bundle;
 pub mod host;
 
 use crate::{Client, ClientError};
-use muxy_core::file_lock::FileLock;
+use muxy_core::file_lock::{self, FileLock};
 use muxy_protocol::transport::ByteStream;
 use std::ffi::OsString;
 use std::io;
@@ -137,25 +137,22 @@ pub fn unavailable(error: &ClientError) -> bool {
     matches!(error, ClientError::Io(error) if matches!(error.kind(), io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound))
 }
 
+const STARTUP_BUSY: &str = "A server startup or update is already in progress";
+
 fn wait_for_startup_lock(socket: &Path) -> io::Result<FileLock> {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        match lock_startup(socket) {
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-            {
-                thread::sleep(Duration::from_millis(25));
-            }
-            result => return result,
-        }
-    }
+    file_lock::acquire(&startup_lock(socket)?, Duration::from_secs(3))
+        .map_err(file_lock::busy(STARTUP_BUSY))
 }
 
 pub fn lock_startup(socket: &Path) -> io::Result<FileLock> {
+    try_lock(&startup_lock(socket)?).map_err(file_lock::busy(STARTUP_BUSY))
+}
+
+fn startup_lock(socket: &Path) -> io::Result<PathBuf> {
     if let Some(parent) = socket.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    try_lock(&socket.with_extension("update-lock"))
+    Ok(socket.with_extension("update-lock"))
 }
 
 pub use muxy_core::file_lock::try_lock;

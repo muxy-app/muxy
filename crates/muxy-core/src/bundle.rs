@@ -1,9 +1,11 @@
-use crate::file_lock::FileLock;
+use crate::file_lock::{self, FileLock};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+const REPLACEMENT_BUSY: &str = "A Muxy installation or update is already in progress";
 
 #[derive(Debug)]
 pub struct BundleLease {
@@ -11,7 +13,16 @@ pub struct BundleLease {
 }
 
 pub fn lock_replacement(directory: &Path) -> io::Result<FileLock> {
-    crate::file_lock::try_lock(&directory.join(".muxy-beta-update.lock"))
+    file_lock::try_lock(&replacement_lock(directory)).map_err(file_lock::busy(REPLACEMENT_BUSY))
+}
+
+fn wait_for_replacement(directory: &Path) -> io::Result<FileLock> {
+    file_lock::acquire(&replacement_lock(directory), Duration::from_secs(3))
+        .map_err(file_lock::busy(REPLACEMENT_BUSY))
+}
+
+fn replacement_lock(directory: &Path) -> PathBuf {
+    directory.join(".muxy-beta-update.lock")
 }
 
 /// The app bundle whose `Contents/MacOS` holds `executable`.
@@ -49,21 +60,11 @@ pub fn acquire_runtime(
         return Ok(None);
     };
     let identity = identity(bundle)?;
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let _replacement = loop {
-        match lock_replacement(
-            bundle
-                .parent()
-                .ok_or_else(|| io::Error::other("Missing application directory"))?,
-        ) {
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-            {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            result => break result?,
-        }
-    };
+    let _replacement = wait_for_replacement(
+        bundle
+            .parent()
+            .ok_or_else(|| io::Error::other("Missing application directory"))?,
+    )?;
     if self::identity(bundle)? != identity
         || crate::executable::build_metadata(executable)? != expected_metadata
     {
@@ -86,21 +87,6 @@ pub fn linux_root(executable: &Path) -> Option<&Path> {
         && crate::release::Version::parse(version.file_name()?.to_str()?).is_some()
         && root.join("installation.json").is_file())
     .then_some(root)
-}
-
-#[cfg(target_os = "linux")]
-fn wait_for_replacement(root: &Path) -> io::Result<FileLock> {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        match lock_replacement(root) {
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-            {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            result => return result,
-        }
-    }
 }
 
 pub fn lock_unused(bundle: &Path) -> io::Result<Option<File>> {

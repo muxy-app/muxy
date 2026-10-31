@@ -1,6 +1,6 @@
 use crate::{
     model::AppModel,
-    views::overlays::{Overlay, clamp},
+    views::overlays::{Mark, Overlay, clamp},
 };
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -83,6 +83,7 @@ impl AppModel {
 
 pub(crate) fn render(
     picker: &Icons,
+    mark: Option<Mark>,
     model: &AppModel,
     window: &Window,
     cx: &mut Context<AppModel>,
@@ -113,7 +114,7 @@ pub(crate) fn render(
             }
         }))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(model.webview_occlusion())
+        .children(mark.map(|mark| mark.of(model)))
         .child(muxy_ui::popover::header(theme, m).child(tr!("Icon")))
         .child(
             muxy_ui::popover::body(m)

@@ -67,31 +67,11 @@ pub(crate) fn load(path: &Path) -> io::Result<ServerSettings> {
 }
 
 pub(crate) fn save(path: &Path, settings: &ServerSettings) -> io::Result<()> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
     let source = toml::to_string_pretty(&SettingsFile {
         default_shell: settings.default_shell.clone(),
         history_budget_bytes: settings.history_budget_bytes,
         shell_integration: settings.shell_integration,
     })
     .map_err(io::Error::other)?;
-    let temporary = path.with_file_name(format!(
-        ".server-{}-{}.tmp",
-        std::process::id(),
-        NEXT_FILE.fetch_add(1, Ordering::Relaxed)
-    ));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temporary)?;
-    let result = (|| {
-        file.write_all(source.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    Ok(muxy_core::fs::write_atomic(path, source.as_bytes(), 0o600)?)
 }

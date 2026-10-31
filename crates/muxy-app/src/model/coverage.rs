@@ -78,7 +78,7 @@ impl Coverage {
 impl AppModel {
     pub(crate) fn coverage(&self) -> Coverage {
         let overlay = self.overlay.as_ref().map(|overlay| {
-            if overlay.marks_bounds(self.appearance.status_bar_visible) {
+            if overlay.mark(self.appearance.status_bar_visible).is_some() {
                 OverlayLayer::Marked
             } else {
                 OverlayLayer::Unmarked
