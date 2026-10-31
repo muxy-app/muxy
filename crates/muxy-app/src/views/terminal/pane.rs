@@ -1375,7 +1375,7 @@ impl TerminalPane {
     /// Pastes paths quoted for a shell.
     pub(crate) fn paste_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid
-            && let Some(bytes) = clipboard::paths(
+            && let Some(bytes) = muxy_client::input::paths(
                 paths,
                 if self.server_input {
                     muxy_protocol::Modes::default()
