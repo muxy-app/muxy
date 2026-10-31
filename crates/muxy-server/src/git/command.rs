@@ -58,7 +58,7 @@ fn github_credential_helper() -> Option<std::ffi::OsString> {
 /// checking Homebrew's folders before asking the login shell.
 pub(super) fn github_cli() -> Option<PathBuf> {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
-    find_executable(
+    crate::process::find_executable(
         "gh",
         std::env::split_paths(&inherited)
             .chain(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from))
@@ -66,25 +66,9 @@ pub(super) fn github_cli() -> Option<PathBuf> {
                 std::iter::once_with(crate::exec::login_path)
                     .flatten()
                     .flat_map(std::env::split_paths),
-            ),
+            )
+            .filter(|directory| directory.is_absolute()),
     )
-}
-
-/// Stops at the first match, so later directories are only computed when needed.
-pub(super) fn find_executable(
-    name: &str,
-    directories: impl IntoIterator<Item = PathBuf>,
-) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    directories
-        .into_iter()
-        .map(|directory| directory.join(name))
-        .find(|path| {
-            path.is_absolute()
-                && path.metadata().is_ok_and(|metadata| {
-                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                })
-        })
 }
 
 pub(super) fn diff(

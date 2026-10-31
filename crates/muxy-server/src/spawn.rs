@@ -9,10 +9,6 @@ use muxy_terminal::pty::{Pty, PtySize, SpawnRequest};
 use crate::error::ServerError;
 use crate::settings::ServerSettings;
 
-#[cfg(target_os = "macos")]
-const FALLBACK_SHELL: &str = "/bin/zsh";
-#[cfg(target_os = "linux")]
-const FALLBACK_SHELL: &str = "/bin/sh";
 const LOGIN_FLAG: &str = "-l";
 const TERMINAL_ENV: [(&str, &str); 3] = [
     ("TERM", "xterm-256color"),
@@ -53,29 +49,10 @@ pub(crate) fn spawn_shell(
 }
 
 fn resolve_shell(settings: &ServerSettings) -> PathBuf {
-    select_shell(
-        settings.default_shell.clone(),
-        env::var_os("SHELL"),
-        cfg!(target_os = "linux"),
-    )
-}
-
-fn select_shell(configured: Option<PathBuf>, inherited: Option<OsString>, linux: bool) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    configured
-        .or_else(|| {
-            inherited
-                .filter(|shell| !shell.is_empty())
-                .map(PathBuf::from)
-                .filter(|shell| {
-                    !linux
-                        || (shell.is_absolute()
-                            && shell.metadata().is_ok_and(|metadata| {
-                                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                            }))
-                })
-        })
-        .unwrap_or_else(|| PathBuf::from(if linux { "/bin/sh" } else { FALLBACK_SHELL }))
+    settings
+        .default_shell
+        .clone()
+        .unwrap_or_else(crate::process::user_shell)
 }
 
 /// `extra`, such as a proxy, replaces inherited variables but never Muxy's own.

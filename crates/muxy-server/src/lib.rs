@@ -7,6 +7,7 @@ mod archive;
 pub mod connection;
 mod error;
 mod exec;
+mod process;
 mod registry;
 mod search;
 mod session;
