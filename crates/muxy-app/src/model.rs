@@ -1303,7 +1303,8 @@ impl AppModel {
             let tab = request.tab;
             let pane = request.panes[request.checking];
             let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
-            if let Some((server, session)) = self.state.pane_session(pane)
+            let session = self.state.pane_session(pane).map(|(_, session)| session);
+            if let Some(session) = session
                 && self.session_used_outside(server, session, &request.panes)
             {
                 if let Some(request) = &mut self.close_request {
@@ -1313,7 +1314,7 @@ impl AppModel {
             }
             if self.ready(server)
                 && !self.retained.contains(&pane)
-                && let Some((_, session)) = self.state.pane_session(pane)
+                && let Some(session) = session
             {
                 let size = self
                     .terminal(&pane)
@@ -2623,7 +2624,8 @@ impl AppModel {
             let active = self.active_pane();
             let panes: Vec<_> = self.state.session_panes(server, session).collect();
             for pane in panes {
-                if Some(pane) != active {
+                let shown_quick = self.quick.visible && self.is_quick_terminal(pane);
+                if Some(pane) != active && !shown_quick {
                     self.completions.insert(pane);
                 }
             }

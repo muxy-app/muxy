@@ -161,13 +161,11 @@ fn worktree_work(id: ProjectId, include_children: bool, model: &AppModel) -> Opt
 fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel) -> Status {
     let panes: Vec<_> = model
         .state
-        .panes()
-        .filter(|placed| {
-            placed.project.is_some_and(|project| {
-                project.id == id || (include_children && project.parent_id == Some(id))
-            })
-        })
-        .map(|placed| placed.pane)
+        .projects()
+        .iter()
+        .filter(|project| project.id == id || (include_children && project.parent_id == Some(id)))
+        .flat_map(|project| &project.tabs)
+        .flat_map(|tab| &tab.panes)
         .collect();
     let sessions: Vec<_> = panes.iter().filter_map(|pane| pane.session()).collect();
     let completion = panes

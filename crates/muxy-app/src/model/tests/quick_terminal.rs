@@ -281,7 +281,9 @@ fn quick_terminal_session_starts_and_attaches_with_its_theme(cx: &mut TestAppCon
 }
 
 #[gpui::test]
-fn hidden_quick_terminal_takes_session_titles_and_completion_marks(cx: &mut TestAppContext) {
+fn quick_terminal_takes_session_titles_and_marks_completions_only_while_hidden(
+    cx: &mut TestAppContext,
+) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
@@ -305,11 +307,15 @@ fn hidden_quick_terminal_takes_session_titles_and_completion_marks(cx: &mut Test
             Some("cargo build")
         );
 
-        let progress = muxy_protocol::SessionProgress {
+        let finished = |completed| muxy_protocol::SessionProgress {
             progress: None,
-            completed: 1,
+            completed,
         };
-        model.receive_progress(ServerId::local(), session, progress, cx);
+        model.quick.visible = true;
+        model.receive_progress(ServerId::local(), session, finished(1), cx);
+        assert!(!model.completions.contains(&quick));
+        model.quick.visible = false;
+        model.receive_progress(ServerId::local(), session, finished(2), cx);
         assert!(model.completions.contains(&quick));
     });
 }

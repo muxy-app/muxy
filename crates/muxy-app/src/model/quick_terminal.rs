@@ -285,11 +285,12 @@ impl AppModel {
         panel
             .update(cx, |view, window, _| view.prepare(window))
             .map_err(|error| error.to_string())??;
-        self.state.ensure_quick_terminal();
+        let quick = self.state.ensure_quick_terminal();
         if !self.save(cx) {
             return Err(tr!("Could not save Quick Terminal session").to_string());
         }
         self.quick.visible = true;
+        self.completions.remove(&quick);
         self.sync_visible(cx);
         self.refresh_quick_terminal(cx);
         let duration = transition_duration(true, self.quick.accessibility.reduce_motion);
