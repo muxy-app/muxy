@@ -229,11 +229,10 @@ fn terminal_preview_preserves_concurrent_edits_and_rolls_back_failed_saves(
         pane.update(cx, |pane, _| pane.terminal.font_size = 20.0);
         model.preview_terminal_preference("background-transparency", "30", cx);
         model.preview_terminal_preference("background-transparency", "40", cx);
-        let mut external = TerminalSettings::load_native(&path).expect("stored");
-        external
-            .set_preference("padding-right", "31")
-            .expect("padding");
-        external.save_native(&path).expect("external edit");
+        TerminalSettings::edit_native(&path, |external| {
+            external.set_preference("padding-right", "31")
+        })
+        .expect("external edit");
         model.change_preference(Change::Terminal("background-transparency", "40".into()), cx);
         assert_eq!(model.terminal.options.padding_x[1], 31.0);
         assert_eq!(model.terminal.options.background_opacity, Some(0.6));
@@ -422,12 +421,11 @@ fn hand_edits_to_terminal_settings_load_when_settings_regains_focus(cx: &mut Tes
     };
 
     focus_main(settings);
-    let mut edited = TerminalSettings::load_native(&path).expect("stored");
-    edited.set_preference("font-size", "19").expect("size");
-    edited
-        .set_preference("background", "#102030")
-        .expect("color");
-    edited.save_native(&path).expect("hand edit");
+    let edited = TerminalSettings::edit_native(&path, |edited| {
+        edited.set_preference("font-size", "19")?;
+        edited.set_preference("background", "#102030")
+    })
+    .expect("hand edit");
     focus_settings(settings);
     model.read_with(settings, |model, cx| {
         assert_eq!(model.terminal, edited);

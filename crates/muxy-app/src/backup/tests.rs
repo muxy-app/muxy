@@ -323,12 +323,11 @@ fn native_backup_ignores_stale_legacy_includes_and_old_backups_replace_native_se
     let source = profile();
     let target = profile();
     let native = source.path().join("terminal.toml");
-    let mut terminal = TerminalSettings::load_native(&native).unwrap();
-    terminal
-        .set_preference("adjust-cursor-thickness", "2")
-        .unwrap();
-    terminal.set_preference("background-opacity", "65").unwrap();
-    terminal.save_native(&native).unwrap();
+    let terminal = TerminalSettings::edit_native(&native, |terminal| {
+        terminal.set_preference("adjust-cursor-thickness", "2")?;
+        terminal.set_preference("background-opacity", "65")
+    })
+    .unwrap();
     fs::write(
         source.path().join("ghostty.conf"),
         "config-file = missing.conf",

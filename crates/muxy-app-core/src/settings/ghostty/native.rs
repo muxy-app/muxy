@@ -21,22 +21,44 @@ pub enum TerminalEdit {
 
 impl TerminalSettings {
     pub fn load_native(path: &Path) -> Result<Self> {
+        match Self::read_native(path)? {
+            Some(settings) => Ok(settings),
+            None => Self::edit_native(path, |_| Ok(())),
+        }
+    }
+
+    /// Changes the settings as the file holds them now and saves them, all
+    /// while holding the file's lock. A missing file starts from `ghostty.conf`
+    /// or the defaults; a broken one is never overwritten.
+    pub fn edit_native(path: &Path, edit: impl FnOnce(&mut Self) -> Result<()>) -> Result<Self> {
+        let _lock = crate::settings::appearance::lock(path)
+            .map_err(|error| Error::new("terminal.toml", error))?;
+        let mut settings = match Self::read_native(path)? {
+            Some(settings) => settings,
+            None => Self::migrated(path)?,
+        };
+        edit(&mut settings)?;
+        crate::settings::appearance::atomic_write(path, &settings.native_source()?)
+            .map_err(|error| Error::new("terminal.toml", error))?;
+        Ok(settings)
+    }
+
+    fn read_native(path: &Path) -> Result<Option<Self>> {
         match std::fs::read_to_string(path) {
-            Ok(source) => Self::from_native_source(&source),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let legacy = path.with_file_name("ghostty.conf");
-                let settings = if legacy.try_exists().map_err(|e| Error::new("terminal", e))? {
-                    let mut settings = Self::resolve(&legacy)?.0;
-                    settings.skip_invalid_font_names();
-                    settings
-                } else {
-                    Self::default()
-                };
-                settings.save_native(path)?;
-                Ok(settings)
-            }
+            Ok(source) => Self::from_native_source(&source).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(Error::new("terminal.toml", error)),
         }
+    }
+
+    fn migrated(path: &Path) -> Result<Self> {
+        let legacy = path.with_file_name("ghostty.conf");
+        if !legacy.try_exists().map_err(|e| Error::new("terminal", e))? {
+            return Ok(Self::default());
+        }
+        let mut settings = Self::resolve(&legacy)?.0;
+        settings.skip_invalid_font_names();
+        Ok(settings)
     }
 
     pub fn from_native_source(source: &str) -> Result<Self> {
@@ -50,19 +72,6 @@ impl TerminalSettings {
         let source = toml::to_string_pretty(self).map_err(|e| Error::new("terminal.toml", e))?;
         Self::from_native_source(&source)?;
         Ok(source)
-    }
-
-    pub fn save_native(&self, path: &Path) -> Result<()> {
-        let source = self.native_source()?;
-        match std::fs::read_to_string(path) {
-            Ok(previous) => {
-                Self::from_native_source(&previous)?;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(Error::new("terminal.toml", error)),
-        }
-        crate::settings::appearance::atomic_write(path, &source)
-            .map_err(|error| Error::new("terminal.toml", error))
     }
 
     pub fn from_legacy_source(source: &str) -> Result<Self> {

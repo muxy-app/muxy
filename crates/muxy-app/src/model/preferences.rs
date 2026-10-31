@@ -726,14 +726,13 @@ impl AppModel {
             &mut muxy_app_core::settings::TerminalSettings,
         ) -> muxy_app_core::settings::Result<()>,
     ) -> Result<()> {
-        let result = (|| {
-            let path = self.path.with_file_name("terminal.toml");
-            let mut requested = muxy_app_core::settings::TerminalSettings::load_native(&path)?;
-            edit(&mut requested)?;
-            self.settings.validate_command_shortcuts(&requested)?;
-            requested.save_native(&path)?;
-            Ok(requested)
-        })();
+        let result = muxy_app_core::settings::TerminalSettings::edit_native(
+            &self.path.with_file_name("terminal.toml"),
+            |requested| {
+                edit(requested)?;
+                self.settings.validate_command_shortcuts(requested)
+            },
+        );
         let preview = self.terminal_preview.take();
         match result {
             Ok(requested) => {
@@ -753,7 +752,7 @@ impl AppModel {
                     self.apply_terminal_preferences(preview.settings, false, cx);
                     self.restore_terminal_zoom(preview.zoom, cx);
                 }
-                Err(error)
+                Err(error.into())
             }
         }
     }
