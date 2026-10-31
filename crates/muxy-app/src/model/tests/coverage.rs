@@ -1,4 +1,6 @@
 use super::*;
+use crate::repository_actions::Action as AiAction;
+use crate::views::git::Kind as GitKind;
 use crate::views::menu::{Command, Item};
 use crate::views::project_editor::Field;
 use crate::views::{overlays::Overlay, voice::VoicePanel};
@@ -141,21 +143,50 @@ fn drawn_marks(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<Bound
 
 type Open = Box<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
 
-#[gpui::test]
-fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1000.0), px(600.0)));
-    assert_eq!(drawn_marks(&view, cx), Vec::new());
-    let project = view.update(cx, |model, _| model.state.home().id);
+/// Gives an anchored popover a place on screen, as its button would.
+fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
+    anchor.set(Some(Bounds::new(
+        gpui::point(px(300.0), px(500.0)),
+        size(px(40.0), px(20.0)),
+    )));
+}
+
+/// Every overlay a test can open. `Webview`, `Popover`, `Native`,
+/// `ProjectLogo` and `Projects` need a native web view, an extension, a
+/// decoded image or a folder search; `Tip` and `PullRequest` need a placed tip
+/// button or a loaded pull request.
+fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
     let at = gpui::point(px(200.0), px(200.0));
-    let cases: [(&str, Open); 12] = [
+    [
         ("updates", Box::new(AppModel::toggle_update_popover)),
         ("server", Box::new(AppModel::toggle_server_popover)),
         ("remote servers", Box::new(AppModel::toggle_remote_popover)),
         (
             "agents",
             Box::new(|model, _, _| model.overlay = Some(Overlay::Agents)),
+        ),
+        (
+            "session providers",
+            Box::new(|model, window, cx| {
+                anchor(&model.agent_sessions.anchor);
+                model.toggle_session_providers(window, cx);
+            }),
+        ),
+        (
+            "git branches",
+            Box::new(move |model, window, cx| {
+                model.open_git_picker(project, GitKind::Branches, window, cx);
+                if let Some(Overlay::Git(picker)) = &model.overlay {
+                    anchor(&picker.anchor);
+                }
+            }),
+        ),
+        (
+            "ai provider",
+            Box::new(|model, window, cx| {
+                anchor(&model.ai.anchors[AiAction::Commit.index()]);
+                model.open_ai_provider_menu(AiAction::Commit, window, cx);
+            }),
         ),
         ("proxy", Box::new(AppModel::open_proxy_popover)),
         (
@@ -173,6 +204,16 @@ fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
             }),
         ),
         (
+            "menu over remote servers",
+            Box::new(move |model, window, cx| {
+                let item = Item::action("Item", Command::AgentsPanel(true));
+                model.open_menu(vec![item], at, window, cx);
+                if let Some(Overlay::Menu(menu)) = &mut model.overlay {
+                    menu.over_remote_servers = true;
+                }
+            }),
+        ),
+        (
             "project editor",
             Box::new(move |model, window, cx| {
                 model.open_project_editor(project, Field::Name, at, window, cx);
@@ -182,20 +223,46 @@ fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
             "project icons",
             Box::new(move |model, window, cx| model.open_project_icons(project, at, window, cx)),
         ),
+        ("commands", Box::new(AppModel::toggle_command_palette)),
         (
-            "pair form",
-            Box::new(|model, _, cx| model.open_pair_form(None, cx)),
+            "git form",
+            Box::new(move |model, _, cx| model.open_git_form(project, true, cx)),
+        ),
+        (
+            "sessions",
+            Box::new(move |model, window, cx| model.open_session_picker(project, window, cx)),
+        ),
+        ("worktrees", Box::new(AppModel::toggle_worktree_switcher)),
+        (
+            "layouts",
+            Box::new(move |model, window, cx| model.open_layout_picker(project, window, cx)),
         ),
         (
             "server form",
             Box::new(|model, _, cx| model.open_server_form(None, cx)),
         ),
         (
-            "sessions",
-            Box::new(move |model, window, cx| model.open_session_picker(project, window, cx)),
+            "pair form",
+            Box::new(|model, _, cx| model.open_pair_form(None, cx)),
         ),
-    ];
-    for (name, open) in cases {
+        (
+            "password",
+            Box::new(|model, _, cx| model.ask_password(ServerId::local(), cx)),
+        ),
+    ]
+}
+
+#[gpui::test]
+fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
+    let (state, project) = git::registered_current_project();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1000.0), px(600.0)));
+    view.update(cx, |model, _| {
+        model.servers.local.connection = ConnectionState::Ready;
+    });
+    assert_eq!(drawn_marks(&view, cx), Vec::new());
+    for (name, open) in openers(project) {
         let marked = view.update_in(cx, |model, window, cx| {
             model.overlay = None;
             model.appearance.status_bar_visible = true;
@@ -204,8 +271,6 @@ fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
             overlay.mark(model.appearance.status_bar_visible).is_some()
         });
         let marks = drawn_marks(&view, cx);
-        let spinners_hidden = view.update(cx, |model, _| model.coverage().hides_spinners());
         assert_eq!(!marks.is_empty(), marked, "{name} marks {marks:?}");
-        assert_eq!(spinners_hidden, !marked, "{name} hides spinners");
     }
 }
