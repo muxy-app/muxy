@@ -77,4 +77,4 @@ libghostty-vt = { path = "vendor/libghostty-vt" }
 libghostty-vt-sys = { path = "vendor/libghostty-vt-sys" }
 core-text = { path = "vendor/core-text" }
 xim-ctext = { path = "vendor/xim-ctext" }
-gpui = { git = "https://github.com/muxy-app/gpui", rev = "811c26caed41d6b97bf8f7999afa2329fcf30acb" }
+gpui = { git = "https://github.com/muxy-app/gpui", rev = "ec24331257b2565cff99ad09a99d5f5855af9be0" }
