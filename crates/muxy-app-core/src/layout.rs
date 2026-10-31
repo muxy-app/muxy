@@ -226,6 +226,19 @@ impl<L: Copy + Eq> Layout<L> {
             .map(|(id, _)| id)
     }
 
+    /// The leaf that takes over when `leaf` closes: the one beside it,
+    /// preferring the right, then left, below, above.
+    pub fn nearest(&self, leaf: L) -> Option<L> {
+        [
+            Direction::Right,
+            Direction::Left,
+            Direction::Down,
+            Direction::Up,
+        ]
+        .into_iter()
+        .find_map(|direction| self.neighbor(leaf, direction))
+    }
+
     fn visit(&self, visitor: &mut impl FnMut(L, [f32; 4]), rect: [f32; 4]) {
         match self {
             Self::Leaf(id) => visitor(*id, rect),

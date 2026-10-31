@@ -230,14 +230,11 @@ impl State {
             .tab_mut()
             .filter(|tab| tab.panes.contains_key(&id))
             .ok_or("Pane is no longer active")?;
-        let pane = tab.panes.remove(&id).ok_or("Pane is no longer available")?;
+        let pane = tab.remove_pane(id).ok_or("Pane is no longer available")?;
         tab.zoom = false;
-        if let Some(next) = tab.panes.keys().next().copied() {
-            tab.layout.remove(id);
-            if tab.focus == id {
-                tab.focus = next;
-            }
-        } else if let Some(project) = self.projects.get_mut(&self.active) {
+        if tab.panes.is_empty()
+            && let Some(project) = self.projects.get_mut(&self.active)
+        {
             project.tabs.remove(project.active);
             project.active = project.active.min(project.tabs.len().saturating_sub(1));
         }
@@ -337,6 +334,8 @@ impl State {
             .collect()
     }
 
+    /// Removes the panes that show `sessions`, which have ended. Their saved
+    /// output stays on the server, so nothing is discarded.
     pub(crate) fn close_sessions(&mut self, sessions: &BTreeSet<SessionId>) {
         for project in self.projects.values_mut() {
             for index in (0..project.tabs.len()).rev() {
@@ -351,22 +350,7 @@ impl State {
                     .map(|(id, _)| *id)
                     .collect();
                 for id in removed {
-                    let neighbor = [
-                        Direction::Right,
-                        Direction::Left,
-                        Direction::Down,
-                        Direction::Up,
-                    ]
-                    .into_iter()
-                    .find_map(|direction| tab.layout.neighbor(id, direction));
-                    tab.panes.remove(&id);
-                    tab.layout.remove(id);
-                    if tab.focus == id {
-                        tab.focus = neighbor
-                            .or_else(|| tab.panes.keys().next().copied())
-                            .unwrap_or(id);
-                        tab.zoom = false;
-                    }
+                    tab.remove_pane(id);
                 }
                 if tab.panes.is_empty() {
                     project.tabs.remove(index);
@@ -377,25 +361,6 @@ impl State {
             }
             project.active = project.active.min(project.tabs.len().saturating_sub(1));
         }
-    }
-
-    pub(crate) fn close_ended_sessions(
-        &mut self,
-        ended: &BTreeSet<SessionId>,
-    ) -> BTreeSet<SessionId> {
-        let references: BTreeSet<_> = self.session_references().into_iter().collect();
-        let mut closed = BTreeSet::new();
-        for session in ended {
-            let discard = Discard::Session(*session);
-            if !references.contains(session) || self.discards.contains(&discard) {
-                closed.insert(*session);
-            } else if self.discards.len() < MAX_PANES {
-                self.discards.push(discard);
-                closed.insert(*session);
-            }
-        }
-        self.close_sessions(&closed);
-        closed
     }
 
     fn prepare_closes(&mut self) {
@@ -511,6 +476,22 @@ impl State {
             }
         }
         Ok(())
+    }
+}
+
+impl Tab {
+    /// Removes `id` and hands its focus to the pane beside it.
+    fn remove_pane(&mut self, id: PaneId) -> Option<Pane> {
+        let pane = self.panes.remove(&id)?;
+        let neighbor = self.layout.nearest(id);
+        self.layout.remove(id);
+        if self.focus == id {
+            self.focus = neighbor
+                .or_else(|| self.layout.leaves().first().copied())
+                .unwrap_or(id);
+            self.zoom = false;
+        }
+        Some(pane)
     }
 }
 
@@ -765,6 +746,86 @@ mod tests {
                 parent_id: None,
             }],
         }
+    }
+
+    fn pending_pane() -> Pane {
+        Pane {
+            session: None,
+            creation: Some(OperationId::new()),
+            directory: ServerPath(b"/tmp".to_vec()),
+            error: None,
+        }
+    }
+
+    fn pane_id(number: u128) -> Result<PaneId> {
+        format!("{number:032x}")
+            .parse()
+            .map_err(|error: <PaneId as std::str::FromStr>::Err| error.to_string())
+    }
+
+    #[test]
+    fn ended_sessions_close_without_discarding_but_closed_ones_discard() -> Result {
+        let catalog = catalog();
+        let mut state = State::new(&catalog);
+        state.reconcile(&catalog)?;
+        let first = state.tab().ok_or("tab")?.focus;
+        let [ended, closed] =
+            [1, 2].map(|id| SessionId::from(std::num::NonZeroU64::MIN.saturating_add(id)));
+        let ended_pane = state.new_pane(
+            Some(Direction::Right),
+            ServerPath(b"/tmp".to_vec()),
+            Some(ended),
+        )?;
+
+        state.close_sessions(&BTreeSet::from([ended]));
+
+        let tab = state.tab().ok_or("tab")?;
+        assert!(!tab.panes.contains_key(&ended_pane));
+        assert_eq!(tab.focus, first);
+        assert!(state.discards.is_empty());
+        state.validate()?;
+
+        let closed_pane = state.new_pane(
+            Some(Direction::Right),
+            ServerPath(b"/tmp".to_vec()),
+            Some(closed),
+        )?;
+        state.close(closed_pane)?;
+        assert_eq!(state.discards, [Discard::Session(closed)]);
+        state.validate()
+    }
+
+    #[test]
+    fn closing_the_focused_pane_focuses_its_neighbor() -> Result {
+        let catalog = catalog();
+        let mut state = State::new(&catalog);
+        let [left, middle, right] = [pane_id(1)?, pane_id(2)?, pane_id(3)?];
+        let mut layout = Layout::Leaf(left);
+        layout.split(left, middle, Direction::Right);
+        layout.split(middle, right, Direction::Right);
+        state.projects.insert(
+            catalog.home,
+            Project {
+                tabs: vec![Tab {
+                    layout,
+                    focus: middle,
+                    zoom: false,
+                    panes: [left, middle, right]
+                        .into_iter()
+                        .map(|id| (id, pending_pane()))
+                        .collect(),
+                    title: None,
+                }],
+                active: 0,
+            },
+        );
+
+        state.close(middle)?;
+
+        let tab = state.tab().ok_or("tab")?;
+        assert_eq!(tab.focus, right);
+        assert_eq!(tab.layout.leaves(), [left, right]);
+        state.validate()
     }
 
     #[test]

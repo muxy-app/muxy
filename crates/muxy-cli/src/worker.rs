@@ -850,12 +850,13 @@ impl Core {
         if ended.is_empty() {
             return Ok(());
         }
-        let closed = self
-            .store_mut()?
-            .change(|state| Ok(state.close_ended_sessions(&ended)))?;
+        self.store_mut()?.change(|state| {
+            state.close_sessions(&ended);
+            Ok(())
+        })?;
         lock(&self.shared)
             .ended
-            .retain(|session| !closed.contains(session));
+            .retain(|session| !ended.contains(session));
         self.publish(catalog);
         Ok(())
     }

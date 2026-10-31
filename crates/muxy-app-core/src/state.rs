@@ -715,14 +715,7 @@ impl AppState {
         if target.panes.len() == 1 {
             return self.close_tab(project, tab);
         }
-        let neighbor = [
-            Direction::Right,
-            Direction::Left,
-            Direction::Down,
-            Direction::Up,
-        ]
-        .into_iter()
-        .find_map(|direction| target.layout.neighbor(pane, direction));
+        let neighbor = target.layout.nearest(pane);
         target.layout.remove(pane);
         target.panes.retain(|candidate| candidate.id != pane);
         if target.zoomed == Some(pane) {

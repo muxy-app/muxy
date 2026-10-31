@@ -111,16 +111,10 @@ impl TabGroups {
 
     /// The group beside `id`, preferring the right, then left, below, above.
     fn neighbor(&self, id: GroupId) -> Option<&TabGroup> {
-        [
-            Direction::Right,
-            Direction::Left,
-            Direction::Down,
-            Direction::Up,
-        ]
-        .into_iter()
-        .find_map(|direction| self.layout.neighbor(id, direction))
-        .and_then(|neighbor| self.group(neighbor))
-        .or_else(|| self.groups.iter().find(|group| group.id != id))
+        self.layout
+            .nearest(id)
+            .and_then(|neighbor| self.group(neighbor))
+            .or_else(|| self.groups.iter().find(|group| group.id != id))
     }
 
     pub(crate) fn remap_tabs(&mut self, tabs: &BTreeMap<TabId, TabId>) {
