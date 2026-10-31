@@ -1,9 +1,8 @@
 use std::collections::{HashSet, VecDeque};
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::settings::{Error, Result, config::read_or_create};
+use crate::settings::{Error, Result};
 
 mod bindings;
 mod fonts;
@@ -13,11 +12,6 @@ pub use bindings::{TerminalAction, TerminalBindings};
 pub use fonts::{FontMap, FontOptions};
 pub use native::TerminalEdit;
 pub use options::{PaddingColor, TerminalColor, TerminalOptions};
-
-#[cfg(not(target_os = "macos"))]
-const DEFAULT_CONFIG: &str = "font-family = monospace\nfont-size = 13\nadjust-cell-height = 0\n";
-#[cfg(target_os = "macos")]
-const DEFAULT_CONFIG: &str = "font-family = Menlo\nfont-size = 13\nadjust-cell-height = 0\n";
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -170,7 +164,7 @@ impl TerminalSettings {
             }
             pending.extend(
                 settings
-                    .read(&path, &mut families, None)?
+                    .read(&path, &mut families)?
                     .into_iter()
                     .map(|(path, optional)| (path, optional, depth + 1)),
             );
@@ -217,19 +211,8 @@ impl TerminalSettings {
         (output, skipped)
     }
 
-    pub fn load(path: &Path) -> Result<Self> {
-        read_or_create(path, DEFAULT_CONFIG)?;
-        Self::resolve(path).map(|(settings, _)| settings)
-    }
-
-    /// Supported keys supplied by a config-file include, including equal-value overrides.
-    pub fn included_keys(path: &Path) -> Result<HashSet<String>> {
-        Self::resolve(path).map(|(_, keys)| keys)
-    }
-
-    fn resolve(path: &Path) -> Result<(Self, HashSet<String>)> {
+    fn resolve(path: &Path) -> Result<Self> {
         let mut settings = Self::default();
-        let mut included_keys = HashSet::new();
         let mut families = Vec::new();
         let mut pending = VecDeque::from([(path.to_owned(), false, 0)]);
         let mut loaded = HashSet::new();
@@ -247,11 +230,7 @@ impl TerminalSettings {
             }
             pending.extend(
                 settings
-                    .read(
-                        &path,
-                        &mut families,
-                        (depth > 0).then_some(&mut included_keys),
-                    )?
+                    .read(&path, &mut families)?
                     .into_iter()
                     .map(|(path, optional)| (path, optional, depth + 1)),
             );
@@ -259,22 +238,17 @@ impl TerminalSettings {
         if !families.is_empty() {
             settings.font_families = families;
         }
-        Ok((settings, included_keys))
+        Ok(settings)
     }
 
     #[allow(
         clippy::too_many_lines,
         reason = "Keep config dispatch and source diagnostics together"
     )]
-    fn read(
-        &mut self,
-        path: &Path,
-        families: &mut Vec<String>,
-        included_keys: Option<&mut HashSet<String>>,
-    ) -> Result<Vec<(PathBuf, bool)>> {
+    fn read(&mut self, path: &Path, families: &mut Vec<String>) -> Result<Vec<(PathBuf, bool)>> {
         let source = fs::read_to_string(path)
             .map_err(|error| Error::new(path.display().to_string(), error))?;
-        self.read_source(&source, path, families, included_keys)
+        self.read_source(&source, path, families)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -283,7 +257,6 @@ impl TerminalSettings {
         source: &str,
         path: &Path,
         families: &mut Vec<String>,
-        mut included_keys: Option<&mut HashSet<String>>,
     ) -> Result<Vec<(PathBuf, bool)>> {
         let mut includes = Vec::new();
         let file = path.file_name().map_or_else(
@@ -322,11 +295,6 @@ impl TerminalSettings {
                 self.diagnostics
                     .push(format!("{note}: {key} is not supported by Muxy"));
                 continue;
-            }
-            if key != "config-file"
-                && let Some(keys) = included_keys.as_deref_mut()
-            {
-                keys.insert(key.to_owned());
             }
             let context = format!("{context} {key}");
             let value = value
@@ -408,147 +376,6 @@ impl TerminalSettings {
         Ok(includes)
     }
 
-    /// Rewrites supported values while preserving includes, comments, and unrelated keys.
-    /// Returns the effective settings, including values supplied by included files.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Keep the preserving config rewrite and atomic replacement together"
-    )]
-    pub fn save(&self, path: &Path) -> Result<Self> {
-        if !self.font_size.is_finite() || !(1.0..=256.0).contains(&self.font_size) {
-            return Err(Error::new("font-size", "must be between 1 and 256 points"));
-        }
-        let height = self.cell_height.to_string();
-        parse_height(&height)?;
-        parse_height(&self.font.cell_width.to_string())?;
-        for family in self
-            .font_families
-            .iter()
-            .chain(&self.font.bold)
-            .chain(&self.font.italic)
-            .chain(&self.font.bold_italic)
-            .chain(self.font.codepoints.iter().map(|map| &map.family))
-        {
-            if family.is_empty() || family.chars().any(|ch| ch.is_control() || ch == '"') {
-                return Err(Error::new(
-                    "font-family",
-                    "must be a nonempty font name without quotes or control characters",
-                ));
-            }
-        }
-        let source = match fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(Error::new("ghostty.conf", error)),
-        };
-        let previous = if path.exists() {
-            Some(Self::resolve(path)?.0)
-        } else {
-            None
-        };
-        let families_changed = previous
-            .as_ref()
-            .is_none_or(|old| old.font_families != self.font_families);
-        let size_changed = previous
-            .as_ref()
-            .is_none_or(|old| old.font_size.to_bits() != self.font_size.to_bits());
-        let height_changed = previous
-            .as_ref()
-            .is_none_or(|old| old.cell_height != self.cell_height);
-        let font_changed = previous.as_ref().is_none_or(|old| old.font != self.font);
-        let option_changed = previous
-            .as_ref()
-            .is_none_or(|old| old.macos_option_as_alt != self.macos_option_as_alt);
-        let old_options = previous
-            .as_ref()
-            .map_or_else(TerminalOptions::default, |old| old.options.clone())
-            .values();
-        let changed_options: std::collections::BTreeMap<_, _> = self
-            .options
-            .values()
-            .into_iter()
-            .filter(|(key, value)| old_options.get(key) != Some(value))
-            .collect();
-        let bindings_changed = previous
-            .as_ref()
-            .map_or_else(TerminalBindings::default, |old| old.keybindings.clone())
-            != self.keybindings;
-        let mut updated = String::new();
-        for line in source.split_inclusive('\n') {
-            let key = line
-                .trim()
-                .split_once('=')
-                .map_or(line.trim(), |(key, _)| key.trim());
-            let rewrite = match key {
-                "font-family" => families_changed,
-                "font-size" => size_changed,
-                "adjust-cell-height" => height_changed,
-                "macos-option-as-alt" => option_changed,
-                key if fonts::KEYS.contains(&key) => font_changed,
-                "keybind" => bindings_changed,
-                key if changed_options.contains_key(key) => true,
-                _ => false,
-            };
-            if !rewrite {
-                updated.push_str(line);
-            }
-        }
-        if !updated.is_empty() && !updated.ends_with('\n') {
-            updated.push('\n');
-        }
-        if families_changed {
-            updated.push_str("font-family =\n");
-            for family in &self.font_families {
-                let _ = writeln!(updated, "font-family = \"{family}\"");
-            }
-        }
-        if size_changed {
-            let _ = writeln!(updated, "font-size = {}", self.font_size);
-        }
-        if height_changed {
-            let _ = writeln!(updated, "adjust-cell-height = {height}");
-        }
-        if font_changed {
-            for line in self.font.lines() {
-                let _ = writeln!(updated, "{line}");
-            }
-        }
-        if option_changed {
-            let _ = writeln!(
-                updated,
-                "macos-option-as-alt = {}",
-                self.macos_option_as_alt
-            );
-        }
-        for (key, value) in changed_options {
-            if key == "palette" {
-                let _ = writeln!(updated, "palette =");
-            }
-            let _ = writeln!(updated, "{key} = {value}");
-        }
-        if bindings_changed {
-            for value in self.keybindings.lines() {
-                let _ = writeln!(updated, "keybind = {value}");
-            }
-        }
-        // Resolve before replacing the source, so a broken include never reports a saved value.
-        let temporary = path.with_file_name(format!(
-            ".ghostty-{}-{}.conf",
-            std::process::id(),
-            NEXT_SAVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        crate::settings::appearance::atomic_write(&temporary, &updated)
-            .map_err(|error| Error::new("ghostty.conf", error))?;
-        let result = Self::load(&temporary).and_then(|_| {
-            fs::rename(&temporary, path).map_err(|error| Error::new("ghostty.conf", error))?;
-            Self::load(path)
-        });
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        result
-    }
-
     pub fn zoom(&mut self, delta: f32) {
         self.font_size = (self.font_size + delta).clamp(1.0, 256.0);
     }
@@ -591,8 +418,6 @@ pub(crate) fn parse_height(value: &str) -> Result<CellHeight> {
     }
     Ok(CellHeight::Pixels(amount))
 }
-
-static NEXT_SAVE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl std::fmt::Display for CellHeight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
