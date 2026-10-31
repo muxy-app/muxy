@@ -211,7 +211,10 @@ fn panes_with_the_same_session_and_channel_on_two_servers_stay_apart(cx: &mut Te
         };
         model.receive(from(remote, Update::Event(ended)), cx);
         assert_eq!(model.state.pane_server(remote_pane), None);
-        assert_eq!(model.pane_session(local_pane), Some(session));
+        assert_eq!(
+            model.state.pane_session(local_pane),
+            Some((ServerId::local(), session))
+        );
     });
     let (local, remote_sent) = (work(&local_work), work(&remote_work));
     assert!(lists(&remote_sent, &[]));

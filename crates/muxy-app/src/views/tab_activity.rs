@@ -4,7 +4,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, canvas, div, point, px, svg,
 };
 use muxy_app_core::{
-    PaneContent, ProjectId, ServerId, Tab,
+    Pane, ProjectId, ServerId, Tab,
     activity::{ActivityIndicator, indicator},
     settings::AppLayout,
 };
@@ -85,17 +85,7 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
         .first()
         .and_then(|pane| model.state.pane_server(pane.id))
         .unwrap_or_else(ServerId::local);
-    let sessions: Vec<_> = tab
-        .panes
-        .iter()
-        .filter_map(|pane| match pane.content {
-            PaneContent::Terminal { session } => session,
-            PaneContent::Settings
-            | PaneContent::Webview(_)
-            | PaneContent::Browser(_)
-            | PaneContent::Servers => None,
-        })
-        .collect();
+    let sessions: Vec<_> = tab.panes.iter().filter_map(Pane::session).collect();
     resolve(
         server,
         &sessions,
@@ -171,22 +161,15 @@ fn worktree_work(id: ProjectId, include_children: bool, model: &AppModel) -> Opt
 fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel) -> Status {
     let panes: Vec<_> = model
         .state
-        .projects()
-        .iter()
-        .filter(|project| project.id == id || (include_children && project.parent_id == Some(id)))
-        .flat_map(|project| &project.tabs)
-        .flat_map(|tab| &tab.panes)
-        .collect();
-    let sessions: Vec<_> = panes
-        .iter()
-        .filter_map(|pane| match pane.content {
-            PaneContent::Terminal { session } => session,
-            PaneContent::Settings
-            | PaneContent::Webview(_)
-            | PaneContent::Browser(_)
-            | PaneContent::Servers => None,
+        .panes()
+        .filter(|placed| {
+            placed.project.is_some_and(|project| {
+                project.id == id || (include_children && project.parent_id == Some(id))
+            })
         })
+        .map(|placed| placed.pane)
         .collect();
+    let sessions: Vec<_> = panes.iter().filter_map(|pane| pane.session()).collect();
     let completion = panes
         .iter()
         .any(|pane| model.completions.contains(&pane.id));

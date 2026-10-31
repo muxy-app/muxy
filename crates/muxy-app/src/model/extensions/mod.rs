@@ -822,16 +822,14 @@ impl AppModel {
 
     fn page_project(&self, view: &Entity<Webview>, _cx: &gpui::App) -> ProjectId {
         self.state
-            .projects()
-            .iter()
-            .find(|project| {
-                project.tabs.iter().flat_map(|tab| &tab.panes).any(|pane| {
-                    self.webviews
-                        .panes
-                        .get(&pane.id)
-                        .is_some_and(|surface| surface.view == *view)
-                })
+            .panes()
+            .find(|placed| {
+                self.webviews
+                    .panes
+                    .get(&placed.pane.id)
+                    .is_some_and(|surface| surface.view == *view)
             })
+            .and_then(|placed| placed.project)
             .map_or_else(|| self.state.current_project().id, |project| project.id)
     }
 

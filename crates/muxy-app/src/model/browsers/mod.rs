@@ -83,16 +83,12 @@ impl AppModel {
     /// Every browser pane, with its project and tab.
     pub(crate) fn browser_panes(&self) -> Vec<(ProjectId, &Tab, PaneId, &BrowserPane)> {
         self.state
-            .projects()
-            .iter()
-            .flat_map(|project| project.tabs.iter().map(move |tab| (project.id, tab)))
-            .flat_map(|(project, tab)| {
-                tab.panes
-                    .iter()
-                    .filter_map(move |pane| match &pane.content {
-                        PaneContent::Browser(browser) => Some((project, tab, pane.id, browser)),
-                        _ => None,
-                    })
+            .panes()
+            .filter_map(|placed| match &placed.pane.content {
+                PaneContent::Browser(browser) => {
+                    Some((placed.project?.id, placed.tab?, placed.pane.id, browser))
+                }
+                _ => None,
             })
             .collect()
     }
@@ -271,7 +267,7 @@ impl AppModel {
                 }
             }
             BrowserViewEvent::OpenTab(url) => {
-                let Some(project) = self.state.pane_project(pane) else {
+                let Some(project) = self.state.pane_project(pane).map(|project| project.id) else {
                     return;
                 };
                 let profile = self

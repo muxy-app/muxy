@@ -148,6 +148,70 @@ fn catalogs_from_two_servers_keep_each_others_projects_and_homes() -> TestResult
 }
 
 #[test]
+fn pane_lookups_cover_tab_panes_and_the_quick_terminal() -> TestResult {
+    let TwoServers {
+        mut state,
+        remote,
+        remote_home,
+        ..
+    } = two_servers()?;
+    let one = session(1)?;
+    let local_tab = state.open_terminal_tab(state.home().id)?;
+    let local_pane = state.home().tabs[0].panes[0].id;
+    state.set_pane_session(local_pane, Some(one))?;
+    state.open_terminal_tab(remote_home)?;
+    let remote_pane = state.project(remote_home).ok_or("remote Home")?.tabs[0].panes[0].id;
+    state.set_pane_session(remote_pane, Some(one))?;
+    let quick = state.ensure_quick_terminal();
+    state.set_pane_session(quick, Some(one))?;
+
+    let placed: Vec<_> = state
+        .panes()
+        .map(|placed| {
+            (
+                placed.pane.id,
+                placed.server,
+                placed.project.map(|project| project.id),
+                placed.tab.map(|tab| tab.id),
+            )
+        })
+        .collect();
+    assert_eq!(placed.len(), 3);
+    assert!(placed.contains(&(local_pane, LOCAL, Some(state.home().id), Some(local_tab))));
+    assert_eq!(placed.last(), Some(&(quick, LOCAL, None, None)));
+
+    assert_eq!(state.pane(quick).map(|pane| pane.id), Some(quick));
+    assert_eq!(state.pane_session(quick), Some((LOCAL, one)));
+    assert_eq!(state.pane_session(remote_pane), Some((remote, one)));
+    assert_eq!(state.pane_tab(local_pane), Some(local_tab));
+    assert_eq!(state.pane_tab(quick), None);
+    assert_eq!(
+        state.pane_project(quick).map(|project| project.id),
+        Some(state.home().id)
+    );
+    assert_eq!(
+        state.pane_project(remote_pane).map(|project| project.id),
+        Some(remote_home)
+    );
+    assert_eq!(
+        state.session_panes(LOCAL, one).collect::<Vec<_>>(),
+        [local_pane, quick]
+    );
+    assert_eq!(
+        state.session_panes(remote, one).collect::<Vec<_>>(),
+        [remote_pane]
+    );
+
+    state.close_quick_terminal();
+    assert!(state.pane(quick).is_none());
+    assert_eq!(
+        state.session_panes(LOCAL, one).collect::<Vec<_>>(),
+        [local_pane]
+    );
+    Ok(())
+}
+
+#[test]
 fn equal_session_ids_on_two_servers_never_mix() -> TestResult {
     let TwoServers {
         mut state,

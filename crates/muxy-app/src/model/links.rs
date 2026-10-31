@@ -15,13 +15,7 @@ use crate::views::{
 
 impl AppModel {
     pub(super) fn opener_context(&self, pane: PaneId) -> Option<OpenContext> {
-        let project = self.state.projects().iter().find(|project| {
-            (self.is_quick_terminal(pane) && project.id == self.state.home().id)
-                || project
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.panes.iter().any(|p| p.id == pane))
-        })?;
+        let project = self.state.pane_project(pane)?;
         Some(OpenContext {
             project: project.id,
             pane,

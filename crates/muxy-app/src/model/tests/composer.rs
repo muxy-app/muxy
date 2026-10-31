@@ -156,7 +156,7 @@ fn composer_broadcast_deduplicates_sessions_and_retains_partial_failure(cx: &mut
                     1,
                     Update::Attached {
                         pane,
-                        session: model.pane_session(pane).expect("session"),
+                        session: model.state.pane_session(pane).expect("session").1,
                         attachment,
                         created: false,
                     },

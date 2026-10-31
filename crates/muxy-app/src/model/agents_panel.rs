@@ -348,12 +348,14 @@ impl AppModel {
     pub(crate) fn active_agents_entry(&self, entries: &[Entry]) -> Option<EntryKey> {
         let project = self.state.current_project();
         let tab = self.active_tab();
-        let session = self.active_pane().and_then(|pane| self.pane_session(pane));
+        let session = self
+            .active_pane()
+            .and_then(|pane| self.state.pane_session(pane));
         entries
             .iter()
             .find(|entry| match entry {
                 Entry::Agent(agent) => {
-                    agent.server == project.server_id && Some(agent.session) == session
+                    session == Some((agent.server, agent.session))
                 }
                 Entry::Worktree { project: id, .. } => *id == project.id,
             })

@@ -394,7 +394,7 @@ impl AppModel {
         let session = self
             .state
             .quick_terminal()
-            .and_then(|pane| self.pane_session(pane.id));
+            .and_then(muxy_app_core::Pane::session);
         let wanted = session.zip(colors);
         if self.quick.colors == wanted || !self.ready(ServerId::local()) {
             return;
@@ -463,7 +463,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let stale = self.state.quick_terminal().is_some_and(|pane| {
-            self.pane_session(pane.id)
+            pane.session()
                 .is_some_and(|id| !sessions.iter().any(|session| session.id == id))
         });
         if stale {
@@ -480,7 +480,7 @@ impl AppModel {
         let Some(pane) = self.state.quick_terminal().map(|pane| pane.id) else {
             return;
         };
-        let Some(session) = self.pane_session(pane) else {
+        let Some((_, session)) = self.state.pane_session(pane) else {
             self.close_quick_terminal(cx);
             return;
         };

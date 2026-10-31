@@ -24,7 +24,7 @@ fn attach_pane(model: &mut AppModel, pane: PaneId, channel: u32, cx: &mut Contex
     model.receive_attached(
         ServerId::local(),
         pane,
-        model.pane_session(pane).expect("session"),
+        model.state.pane_session(pane).expect("session").1,
         attached,
         false,
         cx,
@@ -48,7 +48,7 @@ fn late_attachment_replies_after_detach_never_discard_the_existing_session(
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
             model.servers.local.connection = ConnectionState::Ready;
-            let session = model.pane_session(pane).expect("session");
+            let (_, session) = model.state.pane_session(pane).expect("session");
             model.pending.insert(pane, ServerId::local());
             requests.try_iter().for_each(drop);
             model.detach_terminal(pane, cx);

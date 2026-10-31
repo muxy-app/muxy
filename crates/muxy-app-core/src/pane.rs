@@ -13,6 +13,19 @@ pub struct Pane {
     pub proxy: bool,
 }
 
+impl Pane {
+    /// The session a terminal pane shows, once it has one.
+    pub fn session(&self) -> Option<SessionId> {
+        match self.content {
+            PaneContent::Terminal { session } => session,
+            PaneContent::Settings
+            | PaneContent::Webview(_)
+            | PaneContent::Browser(_)
+            | PaneContent::Servers => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PaneContent {

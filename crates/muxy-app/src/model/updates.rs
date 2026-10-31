@@ -193,7 +193,7 @@ impl AppModel {
             return;
         }
         for (pane, size) in std::mem::take(&mut self.updates.queued_attaches) {
-            if !self.pending.contains_key(&pane) && self.pane_session(pane).is_none() {
+            if !self.pending.contains_key(&pane) && self.state.pane_session(pane).is_none() {
                 self.start_attach(pane, size, cx);
             }
         }

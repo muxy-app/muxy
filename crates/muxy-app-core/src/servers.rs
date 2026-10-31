@@ -8,8 +8,8 @@ use muxy_protocol::{OperationId, ProjectIntent, ServerIdentity, SessionId};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AppError, AppState, Pane, PaneContent, PaneId, Project, ProjectId, ProjectStatus, ServerId,
-    Tab, TabId,
+    AppError, AppState, PaneContent, PaneId, Project, ProjectId, ProjectStatus, ServerId, Tab,
+    TabId,
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -36,9 +36,7 @@ impl AppState {
 
     /// The Quick Terminal always runs on this computer.
     pub fn pane_server(&self, pane: PaneId) -> Option<ServerId> {
-        self.server_panes()
-            .find(|(_, candidate)| candidate.id == pane)
-            .map(|(server, _)| server)
+        self.placed_pane(pane).map(|placed| placed.server)
     }
 
     /// A remote server has a Home once its catalog has been applied.
@@ -50,9 +48,9 @@ impl AppState {
 
     /// Sessions shown by `server`'s panes, sorted and without repeats.
     pub fn session_references(&self, server: ServerId) -> Vec<SessionId> {
-        self.server_panes()
-            .filter(|(owner, _)| *owner == server)
-            .filter_map(|(_, pane)| terminal_session(pane))
+        self.panes()
+            .filter(|placed| placed.server == server)
+            .filter_map(|placed| placed.pane.session())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
@@ -66,9 +64,9 @@ impl AppState {
             .iter()
             .map(|project| (project.server_id, BTreeSet::new()))
             .collect();
-        for (server, pane) in self.server_panes() {
-            if let Some(session) = terminal_session(pane) {
-                references.entry(server).or_default().insert(session);
+        for placed in self.panes() {
+            if let Some(session) = placed.pane.session() {
+                references.entry(placed.server).or_default().insert(session);
             }
         }
         references
@@ -235,32 +233,5 @@ impl AppState {
         if !self.session_references(server).contains(&session) {
             self.queue_discard(server, session);
         }
-    }
-
-    fn server_panes(&self) -> impl Iterator<Item = (ServerId, &Pane)> {
-        self.projects
-            .iter()
-            .flat_map(|project| {
-                project
-                    .tabs
-                    .iter()
-                    .flat_map(|tab| &tab.panes)
-                    .map(|pane| (project.server_id, pane))
-            })
-            .chain(
-                self.quick_terminal
-                    .iter()
-                    .map(|pane| (ServerId::local(), pane)),
-            )
-    }
-}
-
-fn terminal_session(pane: &Pane) -> Option<SessionId> {
-    match pane.content {
-        PaneContent::Terminal { session } => session,
-        PaneContent::Settings
-        | PaneContent::Webview(_)
-        | PaneContent::Browser(_)
-        | PaneContent::Servers => None,
     }
 }

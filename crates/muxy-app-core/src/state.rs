@@ -204,13 +204,7 @@ impl AppState {
         if let Some(pane) = &self.quick_terminal {
             self.cancel_pending_creation(pane.id);
         }
-        match self.quick_terminal.take()?.content {
-            PaneContent::Terminal { session } => session,
-            PaneContent::Settings
-            | PaneContent::Webview(_)
-            | PaneContent::Browser(_)
-            | PaneContent::Servers => None,
-        }
+        self.quick_terminal.take()?.session()
     }
 
     pub fn version(&self) -> u32 {

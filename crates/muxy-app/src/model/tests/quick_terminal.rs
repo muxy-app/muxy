@@ -25,7 +25,7 @@ fn quick_terminal_uses_home_without_changing_workspace_and_reattaches_after_hide
         model.quick.visible = false;
         model.sync_visible(cx);
         assert!(!model.grids.contains_key(&quick));
-        assert_eq!(model.pane_session(quick), Some(session));
+        assert_eq!(model.state.pane_session(quick), Some((ServerId::local(), session)));
         assert!(!requests.try_iter().any(|(_, work)| matches!(work, Work::Discard(_, _))));
         model.quick.visible = true;
         model.sync_visible(cx);
@@ -277,5 +277,39 @@ fn quick_terminal_session_starts_and_attaches_with_its_theme(cx: &mut TestAppCon
             work,
             Work::SessionColors(id, Some(sent)) if id == session && sent == colors
         )));
+    });
+}
+
+#[gpui::test]
+fn hidden_quick_terminal_takes_session_titles_and_completion_marks(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        let quick = model.state.ensure_quick_terminal();
+        let session = SessionId::new(703).expect("session");
+        model
+            .state
+            .set_pane_session(quick, Some(session))
+            .expect("session");
+
+        let metadata = muxy_protocol::SessionMetadata {
+            title: "cargo build".into(),
+            directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+            process: None,
+        };
+        model.receive_session_metadata(ServerId::local(), session, &metadata, cx);
+        assert_eq!(
+            model.state.pane(quick).map(|pane| pane.title.as_str()),
+            Some("cargo build")
+        );
+
+        let progress = muxy_protocol::SessionProgress {
+            progress: None,
+            completed: 1,
+        };
+        model.receive_progress(ServerId::local(), session, progress, cx);
+        assert!(model.completions.contains(&quick));
     });
 }

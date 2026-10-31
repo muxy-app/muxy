@@ -139,7 +139,7 @@ impl AppModel {
         if !self.can_restart_terminal(pane, proxy) {
             return;
         }
-        if let Some(tab) = self.pane_tab(pane) {
+        if let Some(tab) = self.state.pane_tab(pane) {
             self.begin_close_tabs(vec![tab], Some(pane), Some(proxy), cx);
         }
     }
@@ -190,11 +190,6 @@ impl AppModel {
     }
 
     pub(crate) fn pane_uses_proxy(&self, pane: PaneId) -> bool {
-        self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .any(|candidate| candidate.id == pane && candidate.proxy)
+        self.state.pane(pane).is_some_and(|pane| pane.proxy)
     }
 }

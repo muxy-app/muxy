@@ -759,6 +759,7 @@ impl AppModel {
     pub(crate) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle
             || self
+                .state
                 .pane_tab(pane)
                 .is_none_or(|tab| !self.visible_tabs().contains(&tab))
             || self.active_pane() == Some(pane)
@@ -1187,7 +1188,7 @@ impl AppModel {
     }
 
     pub(crate) fn close_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
-        if let Some(tab) = self.pane_tab(pane) {
+        if let Some(tab) = self.state.pane_tab(pane) {
             self.begin_close_tabs(vec![tab], Some(pane), None, cx);
         }
     }
@@ -1197,8 +1198,8 @@ impl AppModel {
             && self.close_request.is_none()
             && self.pending_close.is_none()
             && self.close_prompt.is_none()
-            && self.pane_tab(pane).is_some()
-            && self.pane_session(pane).is_some()
+            && self.state.pane_tab(pane).is_some()
+            && self.state.pane_session(pane).is_some()
     }
 
     pub(crate) fn detach_terminal(&mut self, pane: PaneId, cx: &mut Context<Self>) {
@@ -1302,7 +1303,7 @@ impl AppModel {
             let tab = request.tab;
             let pane = request.panes[request.checking];
             let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
-            if let Some(session) = self.pane_session(pane)
+            if let Some((server, session)) = self.state.pane_session(pane)
                 && self.session_used_outside(server, session, &request.panes)
             {
                 if let Some(request) = &mut self.close_request {
@@ -1312,7 +1313,7 @@ impl AppModel {
             }
             if self.ready(server)
                 && !self.retained.contains(&pane)
-                && let Some(session) = self.pane_session(pane)
+                && let Some((_, session)) = self.state.pane_session(pane)
             {
                 let size = self
                     .terminal(&pane)
@@ -1349,16 +1350,8 @@ impl AppModel {
         closing: &[PaneId],
     ) -> bool {
         self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .any(|pane| {
-                !closing.contains(&pane.id)
-                    && self.pane_session(pane.id) == Some(session)
-                    && self.state.pane_server(pane.id) == Some(server)
-            })
+            .session_panes(server, session)
+            .any(|pane| !closing.contains(&pane))
     }
 
     pub(crate) fn closing_one_pane(&self) -> bool {
@@ -1465,7 +1458,7 @@ impl AppModel {
         let closing: Vec<_> = request
             .panes
             .iter()
-            .filter_map(|pane| self.pane_session(*pane))
+            .filter_map(|pane| self.state.pane_session(*pane).map(|(_, session)| session))
             .collect();
         let detach = request.behavior == muxy_app_core::settings::CloseBehavior::Detach;
         let restart = request.restart.map(|proxy| {
@@ -1579,38 +1572,8 @@ impl AppModel {
 
     fn is_terminal(&self, id: PaneId) -> bool {
         self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .any(|pane| pane.id == id && matches!(pane.content, PaneContent::Terminal { .. }))
-    }
-
-    pub(crate) fn pane_session(&self, id: PaneId) -> Option<SessionId> {
-        self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .find(|pane| pane.id == id)
-            .and_then(|pane| match pane.content {
-                PaneContent::Terminal { session } => session,
-                PaneContent::Settings
-                | PaneContent::Webview(_)
-                | PaneContent::Browser(_)
-                | PaneContent::Servers => None,
-            })
-    }
-
-    fn pane_tab(&self, id: PaneId) -> Option<TabId> {
-        self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .find(|tab| tab.panes.iter().any(|pane| pane.id == id))
-            .map(|tab| tab.id)
+            .pane(id)
+            .is_some_and(|pane| matches!(pane.content, PaneContent::Terminal { .. }))
     }
 
     fn discard_pending(&mut self, server: ServerId, cx: &mut Context<Self>) {
@@ -1787,15 +1750,7 @@ impl AppModel {
                 self.loaded.remove(&id);
             }
         }
-        let panes: HashSet<_> = self
-            .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .map(|pane| pane.id)
-            .collect();
+        let panes: HashSet<_> = self.state.panes().map(|placed| placed.pane.id).collect();
         self.completions.retain(|id| panes.contains(id));
         for server in self.servers.ids() {
             let sessions = self.state.session_references(server);
@@ -1914,7 +1869,7 @@ impl AppModel {
                 _subscription: subscription,
             },
         );
-        if !self.is_quick_terminal(id) && self.pane_tab(id) == self.active_tab() {
+        if !self.is_quick_terminal(id) && self.state.pane_tab(id) == self.active_tab() {
             self.focus_requested = true;
         }
     }
@@ -2013,7 +1968,7 @@ impl AppModel {
             }
             if self.retained.contains(&id) {
                 if !self.loaded.contains(&id)
-                    && let Some(session) = self.pane_session(id)
+                    && let Some((_, session)) = self.state.pane_session(id)
                 {
                     self.pending.insert(id, server);
                     self.send(server, Work::ReadSaved { pane: id, session }, cx);
@@ -2057,13 +2012,7 @@ impl AppModel {
         if !self.is_terminal(pane) {
             return;
         }
-        let Some(project) = self.state.projects().iter().find(|project| {
-            (self.is_quick_terminal(pane) && project.id == self.state.home().id)
-                || project
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.panes.iter().any(|candidate| candidate.id == pane))
-        }) else {
+        let Some(project) = self.state.pane_project(pane) else {
             return;
         };
         if project.status() == ProjectStatus::Missing {
@@ -2076,7 +2025,7 @@ impl AppModel {
             .clone();
         let project_id = project.id;
         let directory = self.state.prepare_creation(pane, &directory);
-        let session = self.pane_session(pane);
+        let session = self.state.pane_session(pane).map(|(_, session)| session);
         let environment = if session.is_none() {
             self.creation_environment(pane, server)
         } else {
@@ -2141,15 +2090,12 @@ impl AppModel {
         request: crate::views::terminal::scroll::HistoryRequest,
         cx: &mut Context<Self>,
     ) {
-        let Some(server) = self.state.pane_server(pane) else {
+        let Some((server, session)) = self.state.pane_session(pane) else {
             return;
         };
         if self.quitting != Quitting::Idle || !self.ready(server) {
             return;
         }
-        let Some(session) = self.pane_session(pane) else {
-            return;
-        };
         let channel = self
             .attachment(pane, cx)
             .filter(|(owner, _)| *owner == server)
@@ -2175,15 +2121,12 @@ impl AppModel {
         request: crate::views::terminal::find::SearchRequest,
         cx: &mut Context<Self>,
     ) {
-        let Some(server) = self.state.pane_server(pane) else {
+        let Some((server, session)) = self.state.pane_session(pane) else {
             return;
         };
         if self.quitting != Quitting::Idle || !self.ready(server) {
             return;
         }
-        let Some(session) = self.pane_session(pane) else {
-            return;
-        };
         let channel = self
             .attachment(pane, cx)
             .filter(|(owner, _)| *owner == server)
@@ -2555,11 +2498,11 @@ impl AppModel {
             }
             self.save(cx);
         }
-        if self.pane_tab(pane).is_none() && !self.is_quick_terminal(pane) {
+        if self.state.pane_tab(pane).is_none() && !self.is_quick_terminal(pane) {
             return;
         }
         if missing_session(error) {
-            if let Some(session) = self.pane_session(pane) {
+            if let Some((_, session)) = self.state.pane_session(pane) {
                 self.close_ended_session(server, session, cx);
             }
         } else {
@@ -2584,7 +2527,11 @@ impl AppModel {
             .filter(|request| request.tab == tab)
             .and_then(|request| request.panes.get(request.checking))
             .copied();
-        if pane.and_then(|pane| self.pane_session(pane)) != Some(session) {
+        if pane
+            .and_then(|pane| self.state.pane_session(pane))
+            .map(|(_, session)| session)
+            != Some(session)
+        {
             self.close_request = None;
             return;
         }
@@ -2616,7 +2563,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         self.pending.remove(&pane);
-        if self.pane_tab(pane).is_none() {
+        if self.state.pane_tab(pane).is_none() {
             return;
         }
         self.loaded.insert(pane);
@@ -2674,29 +2621,14 @@ impl AppModel {
                 .any(|agent| agent.session == session)
         {
             let active = self.active_pane();
-            for pane in self.server_session_panes(server, session) {
+            let panes: Vec<_> = self.state.session_panes(server, session).collect();
+            for pane in panes {
                 if Some(pane) != active {
                     self.completions.insert(pane);
                 }
             }
         }
         cx.notify();
-    }
-
-    /// Panes in projects that show `server`'s `session`.
-    fn server_session_panes(&self, server: ServerId, session: SessionId) -> Vec<PaneId> {
-        self.state
-            .projects()
-            .iter()
-            .filter(|project| project.server_id == server)
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter(|pane| {
-                matches!(pane.content,
-                PaneContent::Terminal { session: Some(id) } if id == session)
-            })
-            .map(|pane| pane.id)
-            .collect()
     }
 
     fn receive_session_metadata(
@@ -2711,7 +2643,7 @@ impl AppModel {
             metadata.process.as_ref(),
             &metadata.directory,
         );
-        let panes = self.server_session_panes(server, session);
+        let panes: Vec<_> = self.state.session_panes(server, session).collect();
         for pane in panes {
             let _ = self.state.set_pane_title(pane, title.clone());
         }
@@ -2824,7 +2756,7 @@ impl AppModel {
             && self
                 .state
                 .quick_terminal()
-                .is_some_and(|pane| self.pane_session(pane.id) == Some(session))
+                .is_some_and(|pane| pane.session() == Some(session))
         {
             self.close_ended_quick_terminal(cx);
         }
@@ -2837,7 +2769,7 @@ impl AppModel {
             request
                 .panes
                 .iter()
-                .any(|pane| self.pane_tab(*pane).is_none())
+                .any(|pane| self.state.pane_tab(*pane).is_none())
         }) {
             self.close_request = None;
             self.pending_close = None;
@@ -2960,7 +2892,12 @@ mod tests {
     pub(in crate::model) fn acknowledge_catalog(model: &mut AppModel, cx: &mut Context<AppModel>) {
         if let Some(sessions) = &mut model.servers.local.catalog.restore {
             for session in sessions {
-                if let Some(project) = model.state.projects().iter().find(|project| project.tabs.iter().flat_map(|tab| &tab.panes).any(|pane| matches!(pane.content, PaneContent::Terminal { session: Some(id) } if id == session.id))) {
+                if let Some(project) = model
+                    .state
+                    .panes()
+                    .find(|placed| placed.pane.session() == Some(session.id))
+                    .and_then(|placed| placed.project)
+                {
                     session.project = project.id;
                 }
             }
@@ -3003,7 +2940,7 @@ mod tests {
         while let Some(tab) = model.pending_close {
             let request = model.close_request.as_ref().expect("close request");
             let pane = request.panes[request.checking];
-            let session = model.pane_session(pane).expect("session");
+            let (_, session) = model.state.pane_session(pane).expect("session");
             let process = model
                 .terminal(&pane)
                 .and_then(|pane| pane.view.read(cx).process.clone());
@@ -3713,8 +3650,11 @@ mod tests {
                 }],
                 cx,
             );
-            assert_eq!(model.pane_session(valid), Some(session));
-            assert!(model.pane_tab(invalid).is_none());
+            assert_eq!(
+                model.state.pane_session(valid),
+                Some((ServerId::local(), session))
+            );
+            assert!(model.state.pane_tab(invalid).is_none());
             assert!(
                 !model
                     .state

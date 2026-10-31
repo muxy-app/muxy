@@ -85,8 +85,7 @@ impl AppModel {
 
     /// The agent the pane's server reports for the pane's session.
     pub(crate) fn pane_agent(&self, pane: PaneId) -> Option<&AgentActivity> {
-        let server = self.state.pane_server(pane)?;
-        let session = self.pane_session(pane)?;
+        let (server, session) = self.state.pane_session(pane)?;
         self.activity(server)?
             .snapshot
             .agents
@@ -111,20 +110,9 @@ impl AppModel {
         session: SessionId,
     ) -> Option<(&muxy_app_core::Project, TabId, PaneId)> {
         self.state
-            .projects()
-            .iter()
-            .filter(|project| project.server_id == server)
-            .find_map(|project| {
-                project.tabs.iter().find_map(|tab| {
-                    tab.panes
-                        .iter()
-                        .find(|pane| {
-                            matches!(pane.content,
-                                muxy_app_core::PaneContent::Terminal { session: Some(id) } if id == session)
-                        })
-                        .map(|pane| (project, tab.id, pane.id))
-                })
-            })
+            .panes()
+            .filter(|placed| placed.server == server && placed.pane.session() == Some(session))
+            .find_map(|placed| Some((placed.project?, placed.tab?.id, placed.pane.id)))
     }
 
     pub(crate) fn refresh_activity(&mut self, server: ServerId, cx: &mut Context<Self>) {
@@ -201,7 +189,7 @@ impl AppModel {
             return None;
         }
         let pane = self.active_pane()?;
-        Some((self.state.pane_server(pane)?, self.pane_session(pane)?))
+        self.state.pane_session(pane)
     }
 
     pub(super) fn receive_activity(
@@ -254,12 +242,9 @@ impl AppModel {
                     .collect();
                 let agent_panes: Vec<_> = self
                     .state
-                    .projects()
-                    .iter()
-                    .filter(|project| project.server_id == server)
-                    .flat_map(|project| &project.tabs)
-                    .flat_map(|tab| &tab.panes)
-                    .filter_map(|pane| self.pane_agent(pane.id).map(|_| pane.id))
+                    .panes()
+                    .filter(|placed| placed.server == server)
+                    .filter_map(|placed| self.pane_agent(placed.pane.id).map(|_| placed.pane.id))
                     .collect();
                 for pane in agent_panes {
                     self.completions.remove(&pane);

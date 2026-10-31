@@ -27,7 +27,7 @@ fn attach_panes(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppMode
                 1,
                 Update::Attached {
                     pane: *pane,
-                    session: model.pane_session(*pane).expect("session"),
+                    session: model.state.pane_session(*pane).expect("session").1,
                     attachment,
                     created: false,
                 },
@@ -87,8 +87,10 @@ fn zoom_and_tab_switch_detach_only_hidden_leaves_and_restore_all(cx: &mut TestAp
             })
             .collect();
         assert_eq!(attached.len(), 2);
-        assert!(attached.contains(&(panes[0], model.pane_session(panes[0]))));
-        assert!(attached.contains(&(panes[1], model.pane_session(panes[1]))));
+        for pane in &panes[..2] {
+            let session = model.state.pane_session(*pane).map(|(_, session)| session);
+            assert!(attached.contains(&(*pane, session)));
+        }
         attach_panes(model, &panes, cx);
         let _ = requests.try_iter().collect::<Vec<_>>();
         model.new_tab(cx);
@@ -213,7 +215,7 @@ fn scroll_on_output_notices_output_attached_while_the_tab_was_hidden_again(
         scroll_first_pane(model, &panes, cx);
         model.terminal.options.scroll_on_output = true;
         model.new_tab(cx);
-        let session = model.pane_session(panes[0]).expect("session");
+        let (_, session) = model.state.pane_session(panes[0]).expect("session");
         let mut output = attachment();
         output.grid.rows[1] = output.grid.rows[0].clone();
         let attached = || Update::Attached {

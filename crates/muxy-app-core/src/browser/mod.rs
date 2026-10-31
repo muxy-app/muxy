@@ -250,29 +250,11 @@ impl AppState {
         Ok(id)
     }
 
-    /// The project whose tab holds `pane`.
-    pub fn pane_project(&self, pane: PaneId) -> Option<ProjectId> {
-        self.projects()
-            .iter()
-            .find(|project| {
-                project
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.panes.iter().any(|candidate| candidate.id == pane))
-            })
-            .map(|project| project.id)
-    }
-
     pub fn browser(&self, pane: PaneId) -> Option<&BrowserPane> {
-        self.projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .find(|candidate| candidate.id == pane)
-            .and_then(|pane| match &pane.content {
-                PaneContent::Browser(browser) => Some(browser),
-                _ => None,
-            })
+        self.pane(pane).and_then(|pane| match &pane.content {
+            PaneContent::Browser(browser) => Some(browser),
+            _ => None,
+        })
     }
 
     /// The browser pane `id` names: that pane, or the one a tab of that ID
