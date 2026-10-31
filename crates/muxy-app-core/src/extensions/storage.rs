@@ -1,4 +1,4 @@
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
@@ -29,20 +29,7 @@ pub(super) fn write(path: &Path, value: &Value) -> Result<(), String> {
             .parent()
             .ok_or_else(|| io::Error::other("invalid data path"))?;
         std::fs::create_dir_all(directory)?;
-        let temp = directory.join(format!(".extension-{}", uuid::Uuid::new_v4()));
-        let result = (|| {
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temp)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            std::fs::rename(&temp, path)
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(temp);
-        }
-        result
+        muxy_core::fs::write_atomic(path, &bytes, 0o644).map_err(Into::into)
     };
     write().map_err(|error| error.to_string())
 }

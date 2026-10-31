@@ -1,7 +1,6 @@
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -313,29 +312,12 @@ pub(super) fn write_document(path: &Path, document: &toml::Table) -> Result<()> 
 }
 
 pub(crate) fn atomic_write(path: &Path, source: &str) -> Result<()> {
-    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("settings path has no parent"))?;
     fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(
-        ".settings-{}-{}.tmp",
-        std::process::id(),
-        NEXT_FILE.fetch_add(1, Ordering::Relaxed)
-    ));
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)?;
-    let result = (|| -> io::Result<()> {
-        file.write_all(source.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result.map_err(Into::into)
+    muxy_core::fs::write_atomic(path, source.as_bytes(), 0o644).map_err(io::Error::from)?;
+    Ok(())
 }
 
 pub(super) fn read_document(path: &Path) -> Result<toml::Table> {

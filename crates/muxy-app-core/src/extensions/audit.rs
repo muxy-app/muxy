@@ -68,15 +68,7 @@ fn trim(path: &Path) -> std::io::Result<()> {
         .iter()
         .position(|byte| *byte == b'\n')
         .map_or(kept.len(), |index| index + 1);
-    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-    OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&temporary)?
-        .write_all(&kept[start..])?;
-    std::fs::rename(temporary, path)
+    muxy_core::fs::write_atomic(path, &kept[start..], 0o600).map_err(Into::into)
 }
 
 /// `time` as an ISO 8601 UTC timestamp to the second, like main's log.
@@ -142,5 +134,14 @@ mod tests {
             text.lines()
                 .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
         );
+        let names: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [AUDIT_LOG]);
+        let mode = std::os::unix::fs::MetadataExt::mode(
+            &std::fs::metadata(directory.path().join(AUDIT_LOG)).unwrap(),
+        );
+        assert_eq!(mode & 0o777, 0o600);
     }
 }
