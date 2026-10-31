@@ -1,3 +1,4 @@
+mod expiry;
 mod git;
 mod mutations;
 pub(crate) use git::GitReceipt;
@@ -67,6 +68,8 @@ struct State {
     receipts: BTreeMap<OperationId, Receipt>,
     #[serde(default)]
     closes: BTreeMap<OperationId, (SessionId, bool)>,
+    #[serde(default)]
+    finished: expiry::Finished,
 }
 
 #[derive(Debug)]
@@ -97,6 +100,7 @@ impl State {
             creations: BTreeMap::new(),
             receipts: BTreeMap::new(),
             closes: BTreeMap::new(),
+            finished: expiry::Finished::default(),
         }
     }
 
@@ -264,6 +268,7 @@ impl Catalog {
         let _write = self.write.lock().unwrap_or_else(PoisonError::into_inner);
         let mut next = self.lock().clone();
         let result = edit(&mut next)?;
+        next.expire_records(expiry::now_millis());
         next.revision = next
             .revision
             .checked_add(1)

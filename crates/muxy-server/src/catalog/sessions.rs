@@ -61,12 +61,7 @@ impl Catalog {
             {
                 return Err(unknown());
             }
-            if state.sessions.contains_key(&info.id)
-                || state
-                    .creations
-                    .values()
-                    .any(|creation| creation.info.id == info.id)
-            {
+            if state.sessions.contains_key(&info.id) || state.creations.contains_key(&operation) {
                 return Err(bad("session identity already reserved"));
             }
             state.sessions.insert(
