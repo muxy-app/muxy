@@ -1,6 +1,7 @@
 use muxy_protocol::{
     GitAction, GitDiff, GitDiffRequest, GitMergeMethod, GitPullRequestAction as Pr,
-    GitPullRequestFilter, GitPushDestination, GitRequest, ProjectId, ServerPath,
+    GitPullRequestFilter, GitPushDestination, GitRequest, OperationId, ProjectId, ServerPath,
+    WorktreeAction, WorktreeIntent,
 };
 
 #[test]
@@ -95,6 +96,44 @@ fn extension_requests_reject_missing_values_option_injection_and_excessive_limit
             .is_err()
         );
     }
+}
+
+#[test]
+fn file_paths_stay_inside_the_repository_and_worktree_folders_are_absolute() {
+    let actions = [
+        GitAction::Stage(vec![ServerPath(b"/etc/passwd".to_vec())]),
+        GitAction::Stage(vec![ServerPath(Vec::new())]),
+        GitAction::Diff(GitDiffRequest {
+            path: Some(ServerPath(b"/etc/passwd".to_vec())),
+            ..GitDiffRequest::default()
+        }),
+        GitAction::Worktree(WorktreeIntent {
+            operation: OperationId::new(),
+            action: WorktreeAction::Register {
+                project: ProjectId::new(),
+                directory: ServerPath(b"relative/worktree".to_vec()),
+            },
+            options: None,
+        }),
+    ];
+    for action in actions {
+        assert!(
+            GitRequest {
+                project: ProjectId::new(),
+                action
+            }
+            .validate()
+            .is_err()
+        );
+    }
+    assert_eq!(
+        GitRequest {
+            project: ProjectId::new(),
+            action: GitAction::Stage(vec![ServerPath(b"src/main.rs".to_vec())]),
+        }
+        .validate(),
+        Ok(())
+    );
 }
 
 #[test]

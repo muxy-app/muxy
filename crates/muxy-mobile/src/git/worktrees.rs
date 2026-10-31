@@ -1,10 +1,6 @@
 //! Worktrees belong to a top-level project. Called on a worktree project, the
 //! calls that list and add worktrees act on its parent.
 
-use std::ffi::OsStr;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::path::Path;
-
 use muxy_protocol::{
     GitAction, GitReply, OperationId, ProjectDescriptor, ProjectId, ServerPath, WorktreeAction,
     WorktreeIntent,
@@ -140,10 +136,10 @@ impl GitRepository {
 
 /// Next to the project's folder, named after the project and `suffix`.
 fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> ServerPath {
-    let directory = Path::new(OsStr::from_bytes(&project.directory.0));
+    let directory = project.directory.as_path();
     let name = format!("{}-{}", folder_name(&project.name), folder_name(suffix));
     let folder = directory.parent().unwrap_or(directory).join(name);
-    ServerPath(folder.into_os_string().into_vec())
+    ServerPath::from(folder)
 }
 
 /// Slashes would nest folders, so they become dashes.

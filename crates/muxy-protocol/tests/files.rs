@@ -4,7 +4,7 @@ use muxy_protocol::{
 };
 
 fn p(value: &str) -> ServerPath {
-    ServerPath(value.as_bytes().to_vec())
+    ServerPath::from(value)
 }
 
 #[test]

@@ -144,7 +144,7 @@ fn resolve_path(path: &str, origin: &str, home: &str) -> Result<ServerPath, Stri
         std::path::Path::new(origin).join(path)
     };
     let path = path.to_str().ok_or("worktree path is not UTF-8")?;
-    Ok(ServerPath(path.as_bytes().into()))
+    Ok(ServerPath::from(path))
 }
 
 impl AppModel {

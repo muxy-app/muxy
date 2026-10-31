@@ -12,7 +12,7 @@ pub fn text<'a>(args: &'a Value, field: &str) -> Result<&'a str, String> {
 }
 
 fn path(args: &Value, field: &str) -> Result<ServerPath, String> {
-    text(args, field).map(|s| ServerPath(s.as_bytes().into()))
+    text(args, field).map(ServerPath::from)
 }
 
 fn paths(args: &Value, field: &str) -> Result<Vec<ServerPath>, String> {
@@ -27,7 +27,7 @@ fn paths(args: &Value, field: &str) -> Result<Vec<ServerPath>, String> {
         .iter()
         .map(|v| {
             v.as_str()
-                .map(|s| ServerPath(s.as_bytes().into()))
+                .map(ServerPath::from)
                 .ok_or_else(|| "path must be a string".into())
         })
         .collect()
@@ -71,7 +71,7 @@ pub fn files_action(verb: &str, args: &Value) -> Result<FilesAction, String> {
 }
 
 pub fn path_text(path: &ServerPath) -> Result<&str, String> {
-    std::str::from_utf8(&path.0).map_err(|_| "path is not valid UTF-8".into())
+    <&str>::try_from(path).map_err(|_| "path is not valid UTF-8".into())
 }
 
 pub fn files_reply(reply: FilesReply) -> Result<Value, String> {
@@ -122,7 +122,7 @@ pub fn git_action(verb: &str, args: &Value) -> Result<GitAction, String> {
             path: args["filePath"]
                 .as_str()
                 .filter(|p| !p.is_empty())
-                .map(|p| ServerPath(p.as_bytes().into())),
+                .map(ServerPath::from),
             raw: boolean(args, "raw"),
             staged: boolean(args, "staged"),
             line_limit: line_limit()?,

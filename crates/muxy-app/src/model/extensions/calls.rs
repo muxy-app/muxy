@@ -342,10 +342,7 @@ impl AppModel {
             .map(str::to_owned)
             .to_vec(),
             shell: None,
-            cwd: home
-                .directory
-                .to_str()
-                .map(|path| ServerPath(path.as_bytes().into())),
+            cwd: home.directory.to_str().map(ServerPath::from),
             env: std::collections::BTreeMap::new(),
             stdin: Vec::new(),
             timeout_ms: 30_000,
@@ -749,9 +746,7 @@ pub(super) fn exec_request(call: &Call, job: u64) -> Result<ExecRequest, String>
         project: call.project,
         argv: arguments,
         shell: shell.map(str::to_owned),
-        cwd: options["cwd"]
-            .as_str()
-            .map(|p| ServerPath(p.as_bytes().into())),
+        cwd: options["cwd"].as_str().map(ServerPath::from),
         stdin: options["stdin"].as_str().unwrap_or("").as_bytes().into(),
         timeout_ms: u32::try_from(timeout).map_err(|e| e.to_string())?,
     };

@@ -73,7 +73,7 @@ fn preview_of(branch: &str, files: &[(&str, bool)], remote: bool) -> GitChangesP
         files: files
             .iter()
             .map(|(path, untracked)| GitPreviewFile {
-                path: ServerPath(path.as_bytes().to_vec()),
+                path: ServerPath::from(*path),
                 added: Some(1),
                 removed: Some(0),
                 untracked: *untracked,

@@ -33,27 +33,6 @@ pub(super) fn standardized(path: &str) -> PathBuf {
     normalized
 }
 
-pub(crate) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let value = chunk
-            .iter()
-            .enumerate()
-            .fold(0_u32, |value, (index, byte)| {
-                value | (u32::from(*byte) << (16 - 8 * index))
-            });
-        for index in 0..4 {
-            text.push(if index <= chunk.len() {
-                char::from(ALPHABET[(value >> (18 - 6 * index)) as usize & 63])
-            } else {
-                '='
-            });
-        }
-    }
-    text
-}
-
 fn key_bytes(key: &str) -> Result<&'static [u8], String> {
     Ok(match key.to_lowercase().as_str() {
         "escape" | "esc" => b"\x1b",
@@ -121,7 +100,7 @@ impl AppModel {
                     "iconColor": project.color.as_str(),
                     "icon": project.icon,
                     "logo": project.logo.as_ref().map(|logo| {
-                        format!("data:image/png;base64,{}", base64(logo))
+                        format!("data:image/png;base64,{}", muxy_core::base64::encode(logo))
                     }),
                     "worktreesEnabled": !project.home && self.worktrees_visible(project.id),
                 })

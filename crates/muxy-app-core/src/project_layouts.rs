@@ -20,7 +20,7 @@ pub fn discover(entries: Vec<FileEntry>) -> Vec<Descriptor> {
     let mut layouts: Vec<_> = entries
         .into_iter()
         .filter_map(|entry| {
-            let name = std::str::from_utf8(&entry.name.0).ok()?;
+            let name = <&str>::try_from(&entry.name).ok()?;
             if entry.is_directory || name.starts_with('.') || name.contains('/') {
                 return None;
             }

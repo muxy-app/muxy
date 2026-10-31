@@ -192,8 +192,7 @@ fn switching_projects_during_discovery_and_remote_paths_do_not_leak_history(
         let remote = ServerId::new();
         let remote_home = ProjectId::new();
         let mut page = servers::page(2, remote_home, &[]);
-        page.projects[0].directory =
-            muxy_protocol::ServerPath(directory.path().as_os_str().as_encoded_bytes().to_vec());
+        page.projects[0].directory = muxy_protocol::ServerPath::from(directory.path());
         model
             .state
             .apply_catalog(remote, &page)

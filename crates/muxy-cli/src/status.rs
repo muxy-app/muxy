@@ -137,7 +137,7 @@ impl Keys<'_> {
             }
             pairs.push(format!(
                 "{key}={}",
-                crate::clipboard::base64(text.as_bytes())
+                muxy_core::base64::encode(text.as_bytes())
             ));
         }
         Ok(sequence(&pairs))

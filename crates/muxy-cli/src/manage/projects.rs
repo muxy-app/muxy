@@ -5,13 +5,13 @@ use muxy_app_core::settings::{Settings, WorktreeSettings};
 use muxy_client::Client;
 use muxy_protocol::{
     GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectDescriptor, ProjectId,
-    ProjectIntent, ProjectMutation, ProjectPatch, WorktreeAction, WorktreeHook, WorktreeIntent,
-    WorktreeOptions,
+    ProjectIntent, ProjectMutation, ProjectPatch, ServerPath, WorktreeAction, WorktreeHook,
+    WorktreeIntent, WorktreeOptions,
 };
 use serde_json::{Value, json};
 
 use super::args::{Project, Worktree};
-use super::{Output, Paths, Result, absolute, local_path, path_text, server_path};
+use super::{Output, Paths, Result, absolute, path_text};
 
 pub(super) fn resolve(client: &Client, selector: &str, paths: Paths) -> Result<ProjectDescriptor> {
     select(client.catalog()?.projects, selector, paths)
@@ -37,7 +37,7 @@ fn select(
         Paths::Remote => (PathBuf::from(selector), None),
     };
     let mut matches = projects.into_iter().filter(|project| {
-        let directory = local_path(&project.directory);
+        let directory = project.directory.as_path().to_path_buf();
         project.name.eq_ignore_ascii_case(selector)
             || directory == path
             || canonical
@@ -91,7 +91,7 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 return output.record(&record(existing), &["id", "name"]);
             }
             let mut project = ProjectDescriptor::new(
-                server_path(&directory),
+                ServerPath::from(&directory),
                 projects.iter().map(|project| project.color.as_str()),
             );
             if let Some(name) = name {
@@ -126,7 +126,7 @@ pub(crate) fn folder_project(client: &Client, folder: &Path) -> Result<ProjectId
         return Ok(project.id);
     }
     let project = ProjectDescriptor::new(
-        server_path(folder),
+        ServerPath::from(folder),
         projects.iter().map(|project| project.color.as_str()),
     );
     mutate(client, ProjectMutation::Create(project.clone()))?;
@@ -175,7 +175,7 @@ fn existing<'a>(
     projects
         .iter()
         .filter(|project| {
-            let path = local_path(&project.directory);
+            let path = project.directory.as_path().to_path_buf();
             path == directory
                 || (paths == Paths::Local && path.canonicalize().ok().as_deref() == Some(directory))
         })
@@ -248,7 +248,7 @@ pub(super) fn worktree(
                 &root,
                 WorktreeAction::Create {
                     project: ProjectId::new(),
-                    directory: server_path(&directory),
+                    directory: ServerPath::from(&directory),
                     branch,
                     base,
                 },
@@ -275,7 +275,7 @@ pub(super) fn worktree(
                 &root,
                 WorktreeAction::CheckoutPullRequest {
                     project: ProjectId::new(),
-                    directory: server_path(&directory),
+                    directory: ServerPath::from(&directory),
                     number,
                 },
                 name,
@@ -290,7 +290,7 @@ pub(super) fn worktree(
                 action: intent(
                     WorktreeAction::Register {
                         project: ProjectId::new(),
-                        directory: server_path(&paths.directory(&directory)?),
+                        directory: ServerPath::from(&paths.directory(&directory)?),
                     },
                     None,
                 ),
@@ -370,11 +370,11 @@ fn default_directory(
             .projects
             .iter()
             .find(|project| project.home)
-            .map(|home| local_path(&home.directory)),
+            .map(|home| home.directory.as_path().to_path_buf()),
     };
     Ok(settings.directory_in(
         &root.name,
-        &local_path(&root.directory),
+        root.directory.as_path(),
         &location,
         name,
         branch,
@@ -476,7 +476,7 @@ mod tests {
             id: ProjectId::new(),
             home: false,
             name: name.into(),
-            directory: server_path(Path::new(directory)),
+            directory: ServerPath::from(Path::new(directory)),
             icon: None,
             logo: None,
             color: "#808080".into(),
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn pull_request_worktrees_are_named_only_after_checkout() {
-        let directory = server_path(Path::new("/tmp/w"));
+        let directory = ServerPath::from(Path::new("/tmp/w"));
         let checkout = WorktreeAction::CheckoutPullRequest {
             project: ProjectId::new(),
             directory: directory.clone(),

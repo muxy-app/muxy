@@ -4,7 +4,6 @@ use muxy_protocol::{
 };
 use muxy_server::{LegacyImport, Registry, ServerSettings};
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
@@ -44,7 +43,7 @@ fn project(path: &Path) -> ProjectDescriptor {
         icon: None,
         logo: None,
         color: "#808080".into(),
-        directory: ServerPath(path.as_os_str().as_bytes().into()),
+        directory: ServerPath::from(path),
         kind: None,
         parent_id: None,
     }

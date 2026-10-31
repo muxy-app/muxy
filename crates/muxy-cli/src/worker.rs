@@ -2,9 +2,6 @@ mod io;
 pub(crate) use io::{Closing, Fetcher, InputWriter, Shared, View, lock};
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -15,14 +12,13 @@ use muxy_app_core::closing::{runs_program, sessions_ended_by_closing};
 use muxy_app_core::{Direction, PaneId};
 use muxy_client::{Client, ClientError, Start};
 use muxy_protocol::{
-    CatalogPage, ChannelId, ErrorCode, MouseEvent, ProjectId, ProjectSession, ServerIdentity,
-    SessionId, Size,
+    CatalogPage, ChannelId, ErrorCode, MouseEvent, ProjectId, ProjectSession, SessionId, Size,
 };
 use ratatui::layout::Rect;
 
 use crate::input::Input;
 use crate::state::{Discard, Result, State, Store};
-use crate::target::Target;
+use crate::target::{Target, hosting_session};
 
 /// How long the worker waits for a request before checking whether to quit.
 const POLL: Duration = Duration::from_millis(100);
@@ -778,8 +774,8 @@ impl Core {
         pane: &mut crate::state::Pane,
     ) -> Result<bool> {
         if let Some(operation) = pane.creation {
-            let directory = PathBuf::from(OsString::from_vec(pane.directory.0.clone()));
-            match client.create_project_session(project, operation, &directory, size) {
+            match client.create_project_session(project, operation, pane.directory.as_path(), size)
+            {
                 Ok(info) => {
                     self.store_mut()?.change(|state| {
                         if let Some(pane) = state.pane_mut(id)
@@ -1005,10 +1001,4 @@ fn send_input(shared: &Mutex<Shared>, writer: &InputWriter, input: Input) -> Res
         writer.send(client, channel, bytes)?;
     }
     Ok(())
-}
-
-pub(crate) fn hosting_session(server: ServerIdentity) -> Option<SessionId> {
-    let inherited: ServerIdentity = std::env::var("MUXY_SERVER_ID").ok()?.parse().ok()?;
-    (inherited == server).then_some(())?;
-    SessionId::new(std::env::var("MUXY_SESSION_ID").ok()?.parse().ok()?)
 }

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use muxy_client::{Client, ClientError, SshTarget, Start};
-use muxy_protocol::ServerIdentity;
+use muxy_protocol::{ServerIdentity, SessionId};
 
 /// How long to wait after each failed attempt in a row to reach another
 /// computer; the last wait repeats. Backing off spares its sshd and keeps
@@ -99,4 +99,11 @@ impl Target {
             _ => error,
         }
     }
+}
+
+/// The session this command runs in, when it runs in a terminal of `server`.
+pub(crate) fn hosting_session(server: ServerIdentity) -> Option<SessionId> {
+    let inherited: ServerIdentity = std::env::var("MUXY_SERVER_ID").ok()?.parse().ok()?;
+    (inherited == server).then_some(())?;
+    SessionId::new(std::env::var("MUXY_SESSION_ID").ok()?.parse().ok()?)
 }

@@ -10,7 +10,7 @@ mod unsupported;
 pub(crate) use unsupported::{CAPABILITY, Installation, PreparedUpdate};
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-use std::io::{Read, Write};
+use std::io::Read;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::time::Duration;
 
@@ -157,7 +157,7 @@ fn download(
     path: &std::path::Path,
 ) -> Result<()> {
     let response = client.get(&release.url).send()?.error_for_status()?;
-    let mut output = std::fs::File::create(path)?;
+    let mut output = muxy_core::sha256::Writer::new(std::fs::File::create(path)?);
     let count = std::io::copy(&mut response.take(release.size + 1), &mut output)?;
     if count != release.size {
         return Err(
@@ -166,24 +166,13 @@ fn download(
                 .into(),
         );
     }
-    output.flush()?;
-    if let Some(expected) = &release.sha256 {
-        let mut command = if cfg!(target_os = "macos") {
-            let mut command = std::process::Command::new("/usr/bin/shasum");
-            command.args(["-a", "256"]);
-            command
-        } else {
-            std::process::Command::new("/usr/bin/sha256sum")
-        };
-        let result = command.arg(path).output()?;
-        if !result.status.success()
-            || String::from_utf8_lossy(&result.stdout)
-                .split_whitespace()
-                .next()
-                .is_none_or(|hash| !hash.eq_ignore_ascii_case(expected))
-        {
-            return Err(tr!("Update download checksum mismatch").to_string().into());
-        }
+    let (_, digest) = output.finish()?;
+    if release
+        .sha256
+        .as_ref()
+        .is_some_and(|expected| !muxy_core::sha256::matches(&digest, expected))
+    {
+        return Err(tr!("Update download checksum mismatch").to_string().into());
     }
     Ok(())
 }

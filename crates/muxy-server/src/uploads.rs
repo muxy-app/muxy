@@ -4,7 +4,6 @@
 
 use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
 use std::io::{self, Write};
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -56,7 +55,7 @@ impl Uploads {
         if kept.is_err() {
             let _ = fs::remove_file(&partial);
         }
-        Ok(Some(ServerPath(kept?.as_os_str().as_bytes().to_vec())))
+        Ok(Some(ServerPath::from(kept?)))
     }
 }
 
@@ -219,10 +218,6 @@ mod tests {
         (root.clone(), Uploads::in_directory(root.join("uploads")))
     }
 
-    fn text(path: &ServerPath) -> PathBuf {
-        PathBuf::from(std::ffi::OsStr::from_bytes(&path.0))
-    }
-
     fn mode(path: &Path) -> u32 {
         fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
@@ -236,8 +231,8 @@ mod tests {
         assert_eq!(gap.code(), ErrorCode::BadRequest);
         let again = OperationId::new();
         uploads.receive(&chunk(again, 0, b"ab", false)).unwrap();
-        let path = text(
-            &uploads
+        let path = PathBuf::from(
+            uploads
                 .receive(&chunk(again, 2, b"cd", true))
                 .unwrap()
                 .unwrap(),
@@ -249,8 +244,8 @@ mod tests {
         assert_eq!(mode(path.parent().unwrap()), 0o700);
         assert_eq!(mode(&root.join("uploads")), 0o700);
         let second = OperationId::new();
-        let copy = text(
-            &uploads
+        let copy = PathBuf::from(
+            uploads
                 .receive(&chunk(second, 0, b"z", true))
                 .unwrap()
                 .unwrap(),

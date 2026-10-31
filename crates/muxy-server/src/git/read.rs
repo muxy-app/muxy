@@ -141,7 +141,7 @@ pub(super) fn changes(path: &Path) -> Result<Vec<GitFile>> {
     let unstaged = line_stats(path, false)?;
     for file in &mut files {
         if file.untracked() {
-            if let Some(lines) = untracked_lines(&path.join(super::path(&file.path))) {
+            if let Some(lines) = untracked_lines(&path.join(file.path.as_path())) {
                 file.added = Some(lines);
                 file.removed = Some(0);
             }
@@ -184,7 +184,7 @@ pub(super) fn file_status(path: &Path) -> Result<Vec<muxy_protocol::GitFileStatu
                 GitLineStat {
                     additions: file.added,
                     deletions: file.removed,
-                    binary: untracked_binary(&path.join(super::path(&file.path))),
+                    binary: untracked_binary(&path.join(file.path.as_path())),
                 }
             } else {
                 stat(unstaged.get(&file.path.0))

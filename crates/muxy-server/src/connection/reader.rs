@@ -1,7 +1,4 @@
-use std::ffi::OsStr;
 use std::io::Read;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -438,7 +435,7 @@ fn ordered_request(
             let info = registry.create_launched(
                 project,
                 operation,
-                Path::new(OsStr::from_bytes(&directory.0)),
+                directory.as_path(),
                 size,
                 crate::registry::Launch {
                     colors: colors.clone().or_else(|| outbox.colors()),

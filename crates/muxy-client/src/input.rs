@@ -1,9 +1,8 @@
 //! Bytes a terminal receives when the user pastes text or drops files.
 
-use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
-use muxy_protocol::Modes;
+use muxy_protocol::{Modes, ServerPath, validate_absolute_path};
 
 /// Pasted text with newlines sent as Return and escape sequences removed, so
 /// the text can't end a bracketed paste early or act as keystrokes.
@@ -14,14 +13,14 @@ pub fn paste(text: &str, modes: Modes) -> Vec<u8> {
 }
 
 /// Absolute paths quoted for a shell and separated by spaces, as a paste.
-/// Returns `None` for a relative path or one containing a NUL byte.
+/// Returns `None` for a path that isn't absolute, holds a NUL byte, or is
+/// longer than `MAX_PATH`.
 pub fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
     let mut text = Vec::new();
     for path in paths {
-        let bytes = path.as_os_str().as_bytes();
-        if !path.is_absolute() || bytes.contains(&0) {
-            return None;
-        }
+        let path = ServerPath::from(path);
+        validate_absolute_path(&path).ok()?;
+        let bytes = path.0.as_slice();
         if !text.is_empty() {
             text.push(b' ');
         }

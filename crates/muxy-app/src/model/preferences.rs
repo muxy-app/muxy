@@ -818,7 +818,7 @@ impl AppModel {
             Change::ShellIntegration(value) => settings.shell_integration = value,
             Change::Field("default-shell", value) => {
                 settings.default_shell =
-                    (!value.is_empty()).then(|| muxy_protocol::ServerPath(value.into_bytes()));
+                    (!value.is_empty()).then(|| muxy_protocol::ServerPath::from(value));
             }
             Change::Field("history-budget", value) => {
                 settings.history_budget_bytes = value

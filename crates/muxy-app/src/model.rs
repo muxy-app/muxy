@@ -2004,10 +2004,7 @@ impl AppModel {
         if !self.save(cx) {
             return;
         }
-        let directory = {
-            use std::os::unix::ffi::OsStringExt;
-            PathBuf::from(std::ffi::OsString::from_vec(directory.0))
-        };
+        let directory = PathBuf::from(directory);
         if self.pending.insert(pane, server).is_some() {
             return;
         }

@@ -1,8 +1,8 @@
-use super::{Result, error, path, read, run, server_path, validate_branch, validate_member};
+use super::{Result, error, read, run, validate_branch, validate_member};
 use crate::{Registry, catalog::GitReceipt};
 use muxy_protocol::{
     GitReply, ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind, ProjectMutation,
-    WorktreeAction, WorktreeIntent, WorktreeRemoval,
+    ServerPath, WorktreeAction, WorktreeIntent, WorktreeRemoval,
 };
 use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::MetadataExt;
@@ -20,12 +20,12 @@ impl Registry {
         }
         if self
             .catalog
-            .child_at(parent.id, path(&project.directory))
+            .child_at(parent.id, project.directory.as_path())
             .is_some_and(|id| id != project.id)
         {
             return Err(error("Worktree is already registered under this parent"));
         }
-        let entry = validate_member(path(&parent.directory), path(&project.directory))?;
+        let entry = validate_member(parent.directory.as_path(), project.directory.as_path())?;
         if entry.primary {
             return Err(error("Cannot register the primary worktree as a child"));
         }
@@ -41,8 +41,8 @@ impl Registry {
                 .parent_id
                 .ok_or_else(|| error("Missing worktree parent"))?,
         )?;
-        let target = path(&project.directory);
-        let entry = validate_member(path(&parent.directory), target)?;
+        let target = project.directory.as_path();
+        let entry = validate_member(parent.directory.as_path(), target)?;
         if entry.primary || entry.locked {
             return Err(error("Primary or locked worktrees cannot be removed"));
         }
@@ -103,13 +103,13 @@ impl Registry {
         } else {
             parent.clone()
         };
-        let lock = self.git.lock_for(path(&repository.directory))?;
+        let lock = self.git.lock_for(repository.directory.as_path())?;
         let _guard = lock.write().unwrap_or_else(PoisonError::into_inner);
         let (project, removal) = match &intent.action {
             WorktreeAction::Create { project, .. }
             | WorktreeAction::Register { project, .. }
             | WorktreeAction::CheckoutPullRequest { project, .. } => (*project, None),
-            WorktreeAction::Remove { .. } => (owner, Some(path(&parent.directory).to_owned())),
+            WorktreeAction::Remove { .. } => (owner, Some(parent.directory.as_path().to_owned())),
         };
         let _reservation = {
             let _operation = self.session_operation();
@@ -146,7 +146,7 @@ impl Registry {
                 parent.clone()
             };
             super::hooks::approved(
-                path(&source.directory),
+                source.directory.as_path(),
                 self.git.hook_config.as_deref(),
                 matches!(intent.action, WorktreeAction::Remove { .. }),
                 approved,
@@ -159,13 +159,13 @@ impl Registry {
                 number,
             } => {
                 self.validate_worktree_parent(parent, *project, directory)?;
-                if path(directory).try_exists().map_err(error)? {
+                if directory.as_path().try_exists().map_err(error)? {
                     return Err(error("Worktree directory already exists"));
                 }
                 let branch = self
                     .git
                     .github
-                    .prepare_worktree(path(&parent.directory), *number)?;
+                    .prepare_worktree(parent.directory.as_path(), *number)?;
                 reserve_folder(directory)?;
                 Self::new_worktree_receipt(owner, intent, parent, *project, directory, &branch)?
             }
@@ -176,13 +176,13 @@ impl Registry {
                 base,
             } => {
                 self.validate_worktree_parent(parent, *project, directory)?;
-                validate_branch(path(&parent.directory), branch)?;
+                validate_branch(parent.directory.as_path(), branch)?;
                 if let Some(base) = base {
                     if base.starts_with('-') {
                         return Err(error("Invalid base branch"));
                     }
                     run(
-                        path(&parent.directory),
+                        parent.directory.as_path(),
                         &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
                     )?;
                 }
@@ -191,11 +191,11 @@ impl Registry {
             }
             WorktreeAction::Register { project, directory } => {
                 self.validate_worktree_parent(parent, *project, directory)?;
-                let entry = validate_member(path(&parent.directory), path(directory))?;
-                if entry.primary || same_folder(path(&parent.directory), path(directory)) {
+                let entry = validate_member(parent.directory.as_path(), directory.as_path())?;
+                if entry.primary || same_folder(parent.directory.as_path(), directory.as_path()) {
                     return Err(error("This worktree is already the parent project"));
                 }
-                let folder = path(directory).file_name().map(OsStr::to_string_lossy);
+                let folder = directory.as_path().file_name().map(OsStr::to_string_lossy);
                 Self::new_worktree_receipt(
                     owner,
                     intent,
@@ -235,16 +235,19 @@ impl Registry {
         &self,
         parent: &ProjectDescriptor,
         id: ProjectId,
-        directory: &muxy_protocol::ServerPath,
+        directory: &ServerPath,
     ) -> Result<()> {
         if parent.home || parent.parent_id.is_some() || parent.kind.is_some() {
             return Err(error("Worktrees require an ordinary top-level parent"));
         }
-        if !path(directory).is_absolute() {
+        if !directory.as_path().is_absolute() {
             return Err(error("Worktree directory must be absolute"));
         }
         if self.catalog.project(id).is_ok()
-            || self.catalog.child_at(parent.id, path(directory)).is_some()
+            || self
+                .catalog
+                .child_at(parent.id, directory.as_path())
+                .is_some()
         {
             return Err(error("Worktree is already registered"));
         }
@@ -256,14 +259,14 @@ impl Registry {
         intent: &WorktreeIntent,
         parent: &ProjectDescriptor,
         id: ProjectId,
-        directory: &muxy_protocol::ServerPath,
+        directory: &ServerPath,
         name: &str,
     ) -> Result<GitReceipt> {
-        let canonical = path(directory).canonicalize().map_err(error)?;
+        let canonical = directory.as_path().canonicalize().map_err(error)?;
         let meta = std::fs::symlink_metadata(&canonical).map_err(error)?;
         let project = ProjectDescriptor {
             id,
-            directory: server_path(&canonical),
+            directory: ServerPath::from(&canonical),
             home: false,
             name: intent
                 .options
@@ -311,7 +314,7 @@ impl Registry {
                     WorktreeAction::Create { .. } | WorktreeAction::CheckoutPullRequest { .. }
                 )
             {
-                let target = path(&current.project.directory);
+                let target = current.project.directory.as_path();
                 if std::fs::symlink_metadata(target)
                     .is_ok_and(|m| m.dev() == current.device && m.ino() == current.inode)
                 {
@@ -319,7 +322,10 @@ impl Registry {
                 }
             }
             if matches!(current.intent.action, WorktreeAction::Remove { .. })
-                && !path(&current.project.directory)
+                && !current
+                    .project
+                    .directory
+                    .as_path()
                     .try_exists()
                     .map_err(error)?
             {
@@ -346,9 +352,9 @@ impl Registry {
             receipt.owner
         };
         let parent = self.catalog.project(parent_id)?;
-        let repository = path(&parent.directory);
+        let repository = parent.directory.as_path();
         let target_path = receipt.project.directory.clone();
-        let target = path(&target_path);
+        let target = target_path.as_path();
         if !receipt.applied {
             let exists = target.try_exists().map_err(error)?;
             if exists {
@@ -488,7 +494,7 @@ impl Registry {
         )?;
         receipt.hooks_started = true;
         self.catalog.save_git(receipt.clone())?;
-        let branch = read::summary(path(&receipt.project.directory))?
+        let branch = read::summary(receipt.project.directory.as_path())?
             .branch
             .unwrap_or_default();
         super::hooks::run(repository, &receipt.project, &branch, &hooks)?;
@@ -497,16 +503,14 @@ impl Registry {
     }
 
     fn stop_worktree_sessions(&self, project: &ProjectDescriptor) -> Result<()> {
-        let target = path(&project.directory);
+        let target = project.directory.as_path();
         for session in self.catalog.owned(project.id) {
             self.discard_owned(session)?;
         }
         for session in self.list() {
-            if self
-                .catalog
-                .project(session.project)
-                .is_ok_and(|p| path(&p.directory).canonicalize().ok() == target.canonicalize().ok())
-            {
+            if self.catalog.project(session.project).is_ok_and(|p| {
+                p.directory.as_path().canonicalize().ok() == target.canonicalize().ok()
+            }) {
                 self.end(session.id)?;
             }
         }
@@ -523,11 +527,11 @@ impl Registry {
 }
 
 /// Creates the empty folder a new worktree fills, refusing one that already exists.
-fn reserve_folder(directory: &muxy_protocol::ServerPath) -> Result<()> {
-    if let Some(parent) = path(directory).parent() {
+fn reserve_folder(directory: &ServerPath) -> Result<()> {
+    if let Some(parent) = directory.as_path().parent() {
         std::fs::create_dir_all(parent).map_err(error)?;
     }
-    std::fs::create_dir(path(directory)).map_err(|cause| {
+    std::fs::create_dir(directory.as_path()).map_err(|cause| {
         if cause.kind() == std::io::ErrorKind::AlreadyExists {
             error("Worktree directory already exists")
         } else {
@@ -547,7 +551,7 @@ fn create_worktree(
     branch: &str,
     base: Option<&str>,
 ) -> Result<()> {
-    let target = path(&receipt.project.directory);
+    let target = receipt.project.directory.as_path();
     if let Ok(entry) = validate_member(repository, target) {
         if entry.primary || entry.branch.as_deref() != Some(branch) {
             return Err(error("Worktree changed during creation"));

@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -272,7 +271,7 @@ impl Client {
         environment: std::collections::BTreeMap<String, String>,
         colors: Option<TerminalColors>,
     ) -> Result<SessionInfo, ClientError> {
-        let directory = ServerPath(directory.as_os_str().as_bytes().to_vec());
+        let directory = ServerPath::from(directory);
         match self.request(RequestBody::CreateSession {
             project,
             operation,

@@ -20,6 +20,7 @@ workspace = true
 serde_json.workspace = true
 
 [dependencies]
+ring = "0.17.14"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 

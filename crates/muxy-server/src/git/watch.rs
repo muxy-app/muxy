@@ -1,4 +1,4 @@
-use super::{Result, error, is_repository, path, run};
+use super::{Result, error, is_repository, run};
 use crate::Registry;
 use muxy_protocol::ProjectId;
 use notify::{EventKind, RecursiveMode, Watcher};
@@ -61,7 +61,7 @@ impl Registry {
         invalidated: impl Fn() + Send + 'static,
     ) -> Result<Option<RepositoryWatch>> {
         let project = self.catalog.project(project)?;
-        let directory = path(&project.directory);
+        let directory = project.directory.as_path();
         if !directory.is_dir() || !is_repository(directory)? {
             return Ok(None);
         }

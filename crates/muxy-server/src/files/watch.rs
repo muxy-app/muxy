@@ -5,12 +5,14 @@ use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use muxy_protocol::{FileChanges, FilesAction, FilesReply, FilesRequest, Message, ProjectId};
+use muxy_protocol::{
+    FileChanges, FilesAction, FilesReply, FilesRequest, Message, ProjectId, ServerPath,
+};
 use notify::{EventKind, RecursiveMode, Watcher};
 
 use crate::{Registry, connection::Outbox};
 
-use super::{Result, error, path, root::Root, wire_path};
+use super::{Result, error, root::Root};
 
 #[derive(Default)]
 pub(crate) struct Subscriptions {
@@ -32,7 +34,7 @@ impl Subscriptions {
             return Err(error("Too many file subscriptions"));
         }
         let project = registry.catalog.project(request.project)?;
-        let root = Root::open(path(&project.directory))?;
+        let root = Root::open(project.directory.as_path())?;
         let events = Arc::downgrade(output);
         let project = project.id;
         let watch = FileWatch::new(&root.path, move |changes| {
@@ -78,8 +80,8 @@ impl FileWatch {
                             if relative.components().any(|part| part.as_os_str() == ".git") {
                                 continue;
                             }
-                            let path = wire_path(relative);
-                            if path.0.len() > 4096 {
+                            let path = ServerPath::from(relative);
+                            if path.0.len() > muxy_protocol::MAX_PATH {
                                 pending.merge(&FileChanges {
                                     paths: Vec::new(),
                                     rescan: true,

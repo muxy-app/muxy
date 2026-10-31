@@ -3,6 +3,7 @@
 use std::fmt::{self, Write};
 
 use minicbor::{Decode, Encode};
+use muxy_core::hex;
 use serde::{Deserialize, Serialize};
 
 use crate::wire::cbor::open::{self, Variant};
@@ -169,7 +170,7 @@ impl fmt::Debug for PairingInvite {
             .debug_struct("PairingInvite")
             .field("hosts", &self.hosts)
             .field("port", &self.port)
-            .field("fingerprint", &hex(&self.fingerprint))
+            .field("fingerprint", &hex::encode(&self.fingerprint))
             .finish_non_exhaustive()
     }
 }
@@ -194,8 +195,8 @@ impl PairingInvite {
             link,
             "&p={}&f={}&s={}",
             self.port,
-            hex(&self.fingerprint),
-            hex(&self.secret)
+            hex::encode(&self.fingerprint),
+            hex::encode(&self.secret)
         );
         link
     }
@@ -219,8 +220,12 @@ impl PairingInvite {
                     false
                 }
                 "p" => port.replace(parse_port(value)?).is_some(),
-                "f" => fingerprint.replace(unhex(value)?).is_some(),
-                "s" => secret.replace(unhex(value)?).is_some(),
+                "f" => fingerprint
+                    .replace(hex::decode(value).ok_or(ErrorCode::BadRequest)?)
+                    .is_some(),
+                "s" => secret
+                    .replace(hex::decode(value).ok_or(ErrorCode::BadRequest)?)
+                    .is_some(),
                 _ => return Err(ErrorCode::BadRequest),
             };
             if repeated {
@@ -353,28 +358,4 @@ fn parse_port(value: &str) -> Result<u16, ErrorCode> {
         return Err(ErrorCode::BadRequest);
     }
     value.parse().map_err(|_| ErrorCode::BadRequest)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
-}
-
-fn unhex<const N: usize>(value: &str) -> Result<[u8; N], ErrorCode> {
-    let digits = value.as_bytes();
-    if digits.len() != N * 2 {
-        return Err(ErrorCode::BadRequest);
-    }
-    let mut bytes = [0; N];
-    for (byte, pair) in bytes.iter_mut().zip(digits.chunks_exact(2)) {
-        let high = char::from(pair[0]).to_digit(16);
-        let low = char::from(pair[1]).to_digit(16);
-        let (Some(high), Some(low)) = (high, low) else {
-            return Err(ErrorCode::BadRequest);
-        };
-        *byte = u8::try_from(high * 16 + low).map_err(|_| ErrorCode::BadRequest)?;
-    }
-    Ok(bytes)
 }

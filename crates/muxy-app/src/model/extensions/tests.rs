@@ -50,7 +50,7 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                     request.cwd,
                     call.args["cwd"]
                         .as_str()
-                        .map(|path| { muxy_protocol::ServerPath(path.as_bytes().to_vec()) })
+                        .map(|path| { muxy_protocol::ServerPath::from(path) })
                 );
                 assert_eq!(request.env["MUXY_EXTENSION_ID"], "files");
             }

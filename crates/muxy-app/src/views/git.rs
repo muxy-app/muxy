@@ -660,7 +660,6 @@ impl AppModel {
     }
 
     fn submit_git_form(&mut self, cx: &mut Context<Self>) {
-        use std::os::unix::ffi::OsStrExt;
         let Some(Overlay::GitForm(form)) = &self.overlay else {
             return;
         };
@@ -712,12 +711,7 @@ impl AppModel {
             operation: OperationId::new(),
             action: WorktreeAction::Create {
                 project: ProjectId::new(),
-                directory: ServerPath(
-                    std::path::Path::new(&directory)
-                        .as_os_str()
-                        .as_bytes()
-                        .to_vec(),
-                ),
+                directory: ServerPath::from(directory),
                 branch,
                 base: (!form.existing).then_some(if base.is_empty() {
                     "HEAD".into()
@@ -763,14 +757,5 @@ fn picker_items(mut rows: Vec<PickerRow>, query: &str, group_by_status: bool) ->
 }
 
 fn path_key(path: &ServerPath) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    path.0
-        .iter()
-        .flat_map(|byte| {
-            [
-                char::from(HEX[usize::from(byte >> 4)]),
-                char::from(HEX[usize::from(byte & 15)]),
-            ]
-        })
-        .collect()
+    muxy_core::hex::encode(&path.0)
 }

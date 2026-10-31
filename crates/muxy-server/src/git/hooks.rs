@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use muxy_protocol::{ProjectDescriptor, WorktreeHook};
 use serde::Deserialize;
 
-use super::{Result, command, error, path};
+use super::{Result, command, error};
 
 #[derive(Default, Deserialize)]
 #[serde(default)]
@@ -139,10 +139,10 @@ pub(super) fn run(
         let mut process = Command::new(&shell);
         process
             .args(["-c", &hook.command])
-            .current_dir(path(&project.directory))
+            .current_dir(project.directory.as_path())
             .env("MUXY_PROJECT_PATH", repository)
             .env("MUXY_WORKTREE_ID", project.id.to_string())
-            .env("MUXY_WORKTREE_PATH", path(&project.directory))
+            .env("MUXY_WORKTREE_PATH", project.directory.as_path())
             .env("MUXY_WORKTREE_NAME", &project.name)
             .env("MUXY_WORKTREE_BRANCH", branch);
         if let Some(path) = crate::exec::login_path() {

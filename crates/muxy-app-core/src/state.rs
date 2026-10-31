@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashSet};
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use muxy_protocol::SessionId;
@@ -320,7 +319,7 @@ impl AppState {
             ));
         }
         let mut descriptor = muxy_protocol::ProjectDescriptor::new(
-            muxy_protocol::ServerPath(directory.into_os_string().into_vec()),
+            muxy_protocol::ServerPath::from(directory),
             self.projects
                 .iter()
                 .filter(|project| project.server_id == server)

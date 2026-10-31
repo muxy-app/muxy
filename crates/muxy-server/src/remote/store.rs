@@ -1,8 +1,8 @@
-use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::Path;
 
+use muxy_core::hex;
 use muxy_protocol::transport::tls::TlsIdentity;
 use muxy_protocol::{
     DeviceId, DeviceKind, MAX_DEVICES, RemoteAccessSettings, validate_device_name,
@@ -98,8 +98,8 @@ fn stored(document: Document) -> Option<Stored> {
     settings.validate().ok()?;
     let identity = match (document.certificate, document.private_key) {
         (Some(certificate), Some(private_key)) => Some(TlsIdentity {
-            certificate: unhex(&certificate)?,
-            private_key: unhex(&private_key)?,
+            certificate: hex::decode_vec(&certificate)?,
+            private_key: hex::decode_vec(&private_key)?,
         }),
         (None, None) => None,
         _ => return None,
@@ -115,7 +115,7 @@ fn stored(document: Document) -> Option<Stored> {
             Some(Device {
                 id: device.id,
                 name: device.name,
-                token_hash: unhex(&device.token_sha256)?.try_into().ok()?,
+                token_hash: hex::decode_vec(&device.token_sha256)?.try_into().ok()?,
                 paired_at: device.paired_at,
                 last_seen: device.last_seen,
                 kind: device.kind.into(),
@@ -136,18 +136,18 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
         certificate: stored
             .identity
             .as_ref()
-            .map(|identity| hex(&identity.certificate)),
+            .map(|identity| hex::encode(&identity.certificate)),
         private_key: stored
             .identity
             .as_ref()
-            .map(|identity| hex(&identity.private_key)),
+            .map(|identity| hex::encode(&identity.private_key)),
         devices: stored
             .devices
             .iter()
             .map(|device| DocumentDevice {
                 id: device.id,
                 name: device.name.clone(),
-                token_sha256: hex(&device.token_hash),
+                token_sha256: hex::encode(&device.token_hash),
                 paired_at: device.paired_at,
                 last_seen: device.last_seen,
                 kind: device.kind.into(),
@@ -156,27 +156,6 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
     };
     let bytes = serde_json::to_vec_pretty(&document)?;
     Ok(muxy_core::fs::write_atomic(path, &bytes, 0o600)?)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
-}
-
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    text.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| {
-            let high = char::from(pair[0]).to_digit(16)?;
-            let low = char::from(pair[1]).to_digit(16)?;
-            u8::try_from(high * 16 + low).ok()
-        })
-        .collect()
 }
 
 #[cfg(test)]

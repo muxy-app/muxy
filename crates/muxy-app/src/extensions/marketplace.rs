@@ -148,26 +148,14 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
     if data.len() as u64 != size {
         return Err(tr!("archive size does not match the marketplace").into());
     }
+    if !muxy_core::sha256::matches(&muxy_core::sha256::digest(&data), expected) {
+        return Err(tr!("archive checksum does not match the marketplace").into());
+    }
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let stage = tempfile::Builder::new()
         .prefix(".install-")
         .tempdir_in(directory)
         .map_err(|error| error.to_string())?;
-    let archive = stage.path().join("download.zip");
-    std::fs::write(&archive, &data).map_err(|error| error.to_string())?;
-    let hash = std::process::Command::new("/usr/bin/shasum")
-        .args(["-a", "256"])
-        .arg(&archive)
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !hash.status.success()
-        || String::from_utf8_lossy(&hash.stdout)
-            .split_whitespace()
-            .next()
-            .is_none_or(|hash| !hash.eq_ignore_ascii_case(expected))
-    {
-        return Err(tr!("archive checksum does not match the marketplace").into());
-    }
     let extracted = stage.path().join("package");
     extract(&data, &extracted)?;
     if !extracted.join("package.json").is_file() {

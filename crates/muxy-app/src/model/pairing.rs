@@ -225,7 +225,7 @@ impl AppModel {
         let endpoint = PairedServer {
             hosts: invite.hosts.clone(),
             port: invite.port,
-            fingerprint: hex(&invite.fingerprint),
+            fingerprint: muxy_core::hex::encode(&invite.fingerprint),
             device: paired.credential.device,
         };
         let existing = id
@@ -353,14 +353,6 @@ impl AppModel {
             let _ = PairingTokens::set(&self.servers.tokens, *server, token);
         }
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
 }
 
 #[cfg(test)]

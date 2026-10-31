@@ -2,9 +2,34 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
 use muxy_protocol::{
-    AttachSnapshot, CONTROL, ChannelId, ChannelKind, Cursor, ErrorCode, Message, MetadataEvent,
-    Modes, ReplyBody, RequestBody, RequestId, Row, Run, ServerPath, SessionId, Size, Style, Topic,
+    AttachSnapshot, CONTROL, ChannelId, ChannelKind, Cursor, ErrorCode, MAX_PATH, Message,
+    MetadataEvent, Modes, ReplyBody, RequestBody, RequestId, Row, Run, ServerPath, SessionId, Size,
+    Style, Topic, validate_absolute_path, validate_relative_path,
 };
+
+#[test]
+fn paths_are_held_to_one_rule_for_where_they_point_nul_bytes_and_length() {
+    let longest = |first: u8| ServerPath([vec![first], vec![b'a'; MAX_PATH - 1]].concat());
+    let too_long = |first: u8| ServerPath([vec![first], vec![b'a'; MAX_PATH]].concat());
+    assert_eq!(validate_absolute_path(&longest(b'/')), Ok(()));
+    assert_eq!(validate_relative_path(&longest(b'a')), Ok(()));
+    assert_eq!(validate_relative_path(&ServerPath(Vec::new())), Ok(()));
+    for path in [
+        ServerPath(b"relative".to_vec()),
+        ServerPath(Vec::new()),
+        ServerPath(b"/with\0nul".to_vec()),
+        too_long(b'/'),
+    ] {
+        assert_eq!(validate_absolute_path(&path), Err(ErrorCode::BadPath));
+    }
+    for path in [
+        ServerPath(b"/absolute".to_vec()),
+        ServerPath(b"with\0nul".to_vec()),
+        too_long(b'a'),
+    ] {
+        assert_eq!(validate_relative_path(&path), Err(ErrorCode::BadPath));
+    }
+}
 
 #[test]
 fn every_request_with_a_size_validates_it() {

@@ -1,5 +1,5 @@
-use super::{Result, command, error, read, run, server_path, text};
-use muxy_protocol::{GitCommit, GitRef, GitRefKind, GitRepoInfo};
+use super::{Result, command, error, read, run, text};
+use muxy_protocol::{GitCommit, GitRef, GitRefKind, GitRepoInfo, ServerPath};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
@@ -16,9 +16,9 @@ pub(super) fn repo_info(repository: &Path) -> Result<GitRepoInfo> {
     let git_dir = resolve("--git-dir")?;
     let common = resolve("--git-common-dir")?;
     Ok(GitRepoInfo {
-        root: server_path(repository),
+        root: ServerPath::from(repository),
         is_worktree: git_dir != common,
-        git_dir: server_path(&git_dir),
+        git_dir: ServerPath::from(&git_dir),
         current_branch: read::summary(repository)?.branch,
     })
 }

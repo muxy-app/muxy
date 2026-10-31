@@ -59,7 +59,7 @@ impl RemoteFolders {
             home,
             move |path| {
                 if !older.load(Ordering::Relaxed) {
-                    match client.list_folders(ServerPath(path.as_bytes().to_vec())) {
+                    match client.list_folders(ServerPath::from(path)) {
                         Ok(names) => {
                             return Ok(names
                                 .into_iter()
@@ -123,7 +123,7 @@ impl RemoteFolders {
 }
 
 fn validate(path: &str) -> Result<(), String> {
-    muxy_protocol::validate_folder_path(&ServerPath(path.as_bytes().into())).map_err(|_| {
+    muxy_protocol::validate_absolute_path(&ServerPath::from(path)).map_err(|_| {
         tr!("Use an absolute folder path of at most 4096 bytes, without NUL characters.")
             .to_string()
     })
@@ -182,7 +182,7 @@ fn home_folders(
     })?;
     let request = FilesRequest {
         project,
-        action: FilesAction::List(ServerPath(relative.as_bytes().to_vec())),
+        action: FilesAction::List(ServerPath::from(relative)),
     };
     match client.files(request) {
         Ok(FilesReply::Entries(entries)) => Ok(entries

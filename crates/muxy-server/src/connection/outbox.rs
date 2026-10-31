@@ -720,7 +720,7 @@ mod tests {
             outbox.push_control(Message::FilesChanged {
                 project,
                 changes: muxy_protocol::FileChanges {
-                    paths: vec![muxy_protocol::ServerPath(index.to_string().into_bytes())],
+                    paths: vec![muxy_protocol::ServerPath::from(index.to_string())],
                     rescan: false,
                 },
             });

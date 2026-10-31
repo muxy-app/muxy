@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 
@@ -17,14 +15,6 @@ type Result<T> = std::result::Result<T, ServerError>;
 
 fn error(cause: impl std::fmt::Display) -> ServerError {
     ServerError::new(ErrorCode::BadPath, cause.to_string())
-}
-
-fn path(path: &ServerPath) -> &Path {
-    Path::new(OsStr::from_bytes(&path.0))
-}
-
-fn wire_path(path: &Path) -> ServerPath {
-    ServerPath(path.as_os_str().as_bytes().to_vec())
 }
 
 #[derive(Debug, Default)]
@@ -46,9 +36,9 @@ impl Files {
 /// this computer, for choosing a new project's folder. Links to folders
 /// count. A folder with more than the protocol allows lists only its first.
 pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
-    muxy_protocol::validate_folder_path(directory)
+    muxy_protocol::validate_absolute_path(directory)
         .map_err(|code| ServerError::new(code, "Use an absolute folder path"))?;
-    let directory = path(directory);
+    let directory = directory.as_path();
     let entries = std::fs::read_dir(directory).map_err(|cause| match cause.kind() {
         std::io::ErrorKind::NotFound => error("folder does not exist"),
         std::io::ErrorKind::NotADirectory => error("not a folder"),
@@ -61,7 +51,7 @@ pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
             .file_type()
             .is_ok_and(|kind| kind.is_dir() || (kind.is_symlink() && entry.path().is_dir()));
         if folder {
-            names.push(ServerPath(entry.file_name().as_bytes().to_vec()));
+            names.push(ServerPath::from(entry.file_name()));
         }
     }
     names.sort_by_cached_key(|name| String::from_utf8_lossy(&name.0).to_lowercase());
@@ -90,29 +80,31 @@ impl Registry {
             .validate()
             .map_err(|code| ServerError::new(code, "Invalid files request"))?;
         let project = self.catalog.project(request.project)?;
-        let root = root::Root::open(path(&project.directory))?;
+        let root = root::Root::open(project.directory.as_path())?;
         let lock = self.files.lock_for(&root.path);
         let read = is_read(&request.action);
         let _read = read.then(|| lock.read().unwrap_or_else(PoisonError::into_inner));
         let _write = (!read).then(|| lock.write().unwrap_or_else(PoisonError::into_inner));
         let reply = match &request.action {
-            FilesAction::List(value) => FilesReply::Entries(root.list(path(value))?),
-            FilesAction::Read(value) => FilesReply::Content(root.read(path(value))?),
-            FilesAction::ReadBytes(value) => FilesReply::Bytes(root.read_bytes(path(value))?),
-            FilesAction::Stat(value) => FilesReply::Info(root.info(&root.resolve(path(value))?)?),
+            FilesAction::List(value) => FilesReply::Entries(root.list(value.as_path())?),
+            FilesAction::Read(value) => FilesReply::Content(root.read(value.as_path())?),
+            FilesAction::ReadBytes(value) => FilesReply::Bytes(root.read_bytes(value.as_path())?),
+            FilesAction::Stat(value) => {
+                FilesReply::Info(root.info(&root.resolve(value.as_path())?)?)
+            }
             FilesAction::Write {
                 path: value,
                 content,
-            } => FilesReply::Path(root.write(path(value), content.as_bytes())?),
+            } => FilesReply::Path(root.write(value.as_path(), content.as_bytes())?),
             FilesAction::WriteBytes { path: value, bytes } => {
-                FilesReply::Path(root.write(path(value), bytes)?)
+                FilesReply::Path(root.write(value.as_path(), bytes)?)
             }
-            FilesAction::Mkdir(value) => FilesReply::Path(root.mkdir(path(value))?),
+            FilesAction::Mkdir(value) => FilesReply::Path(root.mkdir(value.as_path())?),
             FilesAction::Rename { path: value, name } => {
-                FilesReply::Path(root.rename(path(value), path(name).as_os_str())?)
+                FilesReply::Path(root.rename(value.as_path(), name.as_path().as_os_str())?)
             }
             FilesAction::Move { paths, into } => {
-                FilesReply::Paths(root.move_files(paths, path(into))?)
+                FilesReply::Paths(root.move_files(paths, into.as_path())?)
             }
             FilesAction::Delete(paths) => {
                 root.delete(paths)?;

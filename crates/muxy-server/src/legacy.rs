@@ -2,7 +2,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read};
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use muxy_protocol::{ProjectDescriptor, ProjectId, ProjectKind, ServerPath, SessionId};
@@ -151,7 +150,7 @@ fn ensure_home(result: &mut LegacyImport, home: Option<ProjectId>) -> io::Result
     }
     let directory =
         std::env::home_dir().ok_or_else(|| io::Error::other("home directory unavailable"))?;
-    let project = ProjectDescriptor::home(ServerPath(directory.as_os_str().as_bytes().into()));
+    let project = ProjectDescriptor::home(ServerPath::from(directory));
     let id = project.id;
     result.projects.push(project);
     Ok(id)
