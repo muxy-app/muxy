@@ -843,7 +843,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "background-activity",
         label: tr_key!("Keep terminals running after quitting"),
         description: tr_key!(
-            "macOS ends terminals when Muxy quits unless Muxy is turned on under Background App Activity."
+            "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings."
         ),
         category: Category::Server,
         section: tr_key!("Connection"),

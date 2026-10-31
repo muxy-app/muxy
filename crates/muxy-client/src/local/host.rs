@@ -21,6 +21,8 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fs, ptr, thread};
 
 /// The first argument of an app started as a host. The server's arguments
@@ -42,6 +44,7 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     let Ok(executable) = muxy_core::executable::current_path() else {
         return ExitCode::FAILURE;
     };
+    let watcher = watch_background_stop().ok();
     let Ok(mut server) = Command::new(server_beside(&executable))
         .args(arguments)
         .process_group(0)
@@ -52,8 +55,11 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     else {
         return ExitCode::FAILURE;
     };
-    let _ = watch_background_stop();
-    if server.wait().is_ok_and(|status| status.success()) {
+    let status = server.wait();
+    if let Some(watcher) = watcher {
+        watcher.finish();
+    }
+    if status.is_ok_and(|status| status.success()) {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -70,7 +76,9 @@ pub fn take_background_stop(profile: &Path) -> bool {
     let Ok(sender) = fs::read_to_string(&path) else {
         return false;
     };
-    let _ = fs::remove_file(&path);
+    if fs::remove_file(&path).is_err() {
+        return false;
+    }
     sender
         .split_once(' ')
         .and_then(|(process, _)| process.parse().ok())
@@ -78,27 +86,49 @@ pub fn take_background_stop(profile: &Path) -> bool {
         .is_some_and(|running| running == sender)
 }
 
-/// Notes a SIGTERM from [`LOGIN_WINDOW`] in the profile, then ends the host as
-/// that signal would have.
-fn watch_background_stop() -> io::Result<()> {
+/// The thread that notes a SIGTERM from [`LOGIN_WINDOW`], then ends the host
+/// as that signal would have.
+struct Watcher {
+    signaled: Arc<AtomicBool>,
+    thread: thread::JoinHandle<()>,
+}
+
+impl Watcher {
+    /// The SIGTERM that stops the host also stops the server, so the server can
+    /// exit while the stop is being noted. Waits for that note; the watcher then
+    /// ends the host.
+    fn finish(self) {
+        if self.signaled.load(Ordering::Acquire) {
+            let _ = self.thread.join();
+        }
+    }
+}
+
+fn watch_background_stop() -> io::Result<Watcher> {
     let mut signals = SignalsInfo::<WithOrigin>::new([SIGTERM])?;
-    thread::Builder::new()
+    let signaled = Arc::new(AtomicBool::new(false));
+    let received = Arc::clone(&signaled);
+    let thread = thread::Builder::new()
         .name("muxy-server-host-signals".into())
         .spawn(move || {
             if let Some(origin) = signals.forever().next() {
+                received.store(true, Ordering::Release);
                 if let Some(process) = origin.process
-                    && sent_by_login_window(process.pid)
                     && let Ok(profile) = muxy_core::dirs::muxy_dir()
                 {
-                    let _ = note_background_stop(&profile, process.pid);
+                    let _ = note_stop_by(Path::new(LOGIN_WINDOW), process.pid, &profile);
                 }
                 let _ = signal_hook::low_level::emulate_default_handler(SIGTERM);
             }
         })?;
-    Ok(())
+    Ok(Watcher { signaled, thread })
 }
 
-fn note_background_stop(profile: &Path, sender: libc::pid_t) -> io::Result<()> {
+/// Notes a stop in `profile` when `sender` runs `expected`.
+fn note_stop_by(expected: &Path, sender: libc::pid_t, profile: &Path) -> io::Result<()> {
+    if executable_of(sender).as_deref() != Some(expected) {
+        return Ok(());
+    }
     let sender = identity(sender).ok_or_else(|| io::Error::other("the sender has exited"))?;
     fs::write(profile.join(BACKGROUND_STOP), sender)
 }
@@ -124,10 +154,6 @@ fn identity(process: libc::pid_t) -> Option<String> {
             info.pbi_start_tvsec, info.pbi_start_tvusec
         )
     })
-}
-
-fn sent_by_login_window(process: libc::pid_t) -> bool {
-    executable_of(process).is_some_and(|path| path == Path::new(LOGIN_WINDOW))
 }
 
 fn executable_of(process: libc::pid_t) -> Option<PathBuf> {
@@ -327,12 +353,20 @@ mod tests {
     }
 
     #[test]
-    fn background_stop_is_reported_once() -> io::Result<()> {
+    fn a_stop_by_the_expected_sender_is_reported_once() -> io::Result<()> {
         let profile = tempfile::tempdir()?;
         assert!(!take_background_stop(profile.path()));
-        note_background_stop(profile.path(), own_pid()?)?;
+        note_stop_by(&own_executable()?, own_pid()?, profile.path())?;
         assert!(take_background_stop(profile.path()));
         assert!(!take_background_stop(profile.path()));
+        Ok(())
+    }
+
+    #[test]
+    fn only_login_window_stops_count_as_background_stops() -> io::Result<()> {
+        let profile = tempfile::tempdir()?;
+        note_stop_by(Path::new(LOGIN_WINDOW), own_pid()?, profile.path())?;
+        assert!(!profile.path().join(BACKGROUND_STOP).exists());
         Ok(())
     }
 
@@ -340,13 +374,21 @@ mod tests {
     fn a_stop_by_an_exited_sender_is_forgotten() -> io::Result<()> {
         let profile = tempfile::tempdir()?;
         let marker = profile.path().join(BACKGROUND_STOP);
-        let current = identity(own_pid()?).ok_or_else(|| io::Error::other("no identity"))?;
-        let (process, _) = current
-            .split_once(' ')
-            .ok_or_else(|| io::Error::other("no start time"))?;
-        fs::write(&marker, format!("{process} 0.000000"))?;
+        fs::write(&marker, format!("{} 0.000000", own_pid()?))?;
         assert!(!take_background_stop(profile.path()));
         assert!(!marker.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn a_stop_that_cannot_be_forgotten_is_not_reported() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let profile = tempfile::tempdir()?;
+        note_stop_by(&own_executable()?, own_pid()?, profile.path())?;
+        fs::set_permissions(profile.path(), fs::Permissions::from_mode(0o500))?;
+        let reported = take_background_stop(profile.path());
+        fs::set_permissions(profile.path(), fs::Permissions::from_mode(0o700))?;
+        assert!(!reported);
         Ok(())
     }
 
@@ -354,14 +396,7 @@ mod tests {
         libc::pid_t::try_from(std::process::id()).map_err(io::Error::other)
     }
 
-    #[test]
-    fn only_login_window_stops_count_as_background_stops() -> io::Result<()> {
-        let own = own_pid()?;
-        assert_eq!(
-            executable_of(own),
-            Some(std::env::current_exe()?.canonicalize()?)
-        );
-        assert!(!sent_by_login_window(own));
-        Ok(())
+    fn own_executable() -> io::Result<PathBuf> {
+        std::env::current_exe()?.canonicalize()
     }
 }

@@ -59,10 +59,6 @@ impl Boot {
             )
         });
         let import_message = crate::backup::apply_pending(profile)?.or(migration);
-        #[cfg(target_os = "macos")]
-        let stopped_in_background = muxy_client::local::host::take_background_stop(profile);
-        #[cfg(not(target_os = "macos"))]
-        let stopped_in_background = false;
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -77,6 +73,11 @@ impl Boot {
             Target::Local(state_path.with_file_name("server.sock")),
         )?;
         work.send((1, Work::Connect))?;
+        // Taken last, so a launch that fails still explains it next time.
+        #[cfg(target_os = "macos")]
+        let stopped_in_background = muxy_client::local::host::take_background_stop(profile);
+        #[cfg(not(target_os = "macos"))]
+        let stopped_in_background = false;
         Ok(Self {
             import_message,
             stopped_in_background,

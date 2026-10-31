@@ -1745,8 +1745,8 @@
 "invalid archive size" = "invalid archive size";
 "invalid marketplace URL" = "invalid marketplace URL";
 "invalid marketplace details" = "invalid marketplace details";
-"macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, turn on Muxy under Background App Activity in Login Items & Extensions." = "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, turn on Muxy under Background App Activity in Login Items & Extensions.";
-"macOS ends terminals when Muxy quits unless Muxy is turned on under Background App Activity." = "macOS ends terminals when Muxy quits unless Muxy is turned on under Background App Activity.";
+"macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings." = "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings.";
+"macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings." = "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings.";
 "marketplace response is too large" = "marketplace response is too large";
 "menu close submenu" = "menu close submenu";
 "menu confirm highlighted" = "menu confirm highlighted";

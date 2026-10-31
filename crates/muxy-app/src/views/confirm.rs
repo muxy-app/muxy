@@ -198,7 +198,7 @@ pub(crate) async fn prompt_background_activity(
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let message = tr!(
-        "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, turn on Muxy under Background App Activity in Login Items & Extensions."
+        "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings."
     );
     let labels = [muxy_ui::l10n::translate(OPEN_LOGIN_ITEMS), tr!("Not Now")];
     let labels = labels.each_ref().map(gpui::SharedString::as_str);
