@@ -54,6 +54,32 @@ impl WorktreeLocation {
 }
 
 impl WorktreeSettings {
+    /// Reads only the `[worktrees]` table of the settings file at `path`, so a
+    /// section written by a newer app or holding invalid values never blocks
+    /// worktrees.
+    /// A missing file or table gives the defaults.
+    pub fn load(path: &Path) -> Result<Self> {
+        let context = || format!("{}: worktrees", path.display());
+        let document = super::appearance::read_document(path)
+            .map_err(|error| Error::new(path.display().to_string(), error))?;
+        let settings: Self = match document.get("worktrees") {
+            Some(table) => table
+                .clone()
+                .try_into()
+                .map_err(|error| Error::new(context(), error))?,
+            None => Self::default(),
+        };
+        settings.validate()?;
+        Ok(settings)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        self.default_location.validate()?;
+        self.projects
+            .values()
+            .try_for_each(WorktreeLocation::validate)
+    }
+
     /// Where a new worktree goes. `~` means `home`, the Home of the project's
     /// computer; `None` is this computer's `$HOME`.
     pub fn directory(
@@ -176,10 +202,7 @@ fn normalize(path: &Path) -> PathBuf {
 
 impl Settings {
     pub fn save_worktrees(&self, path: &Path) -> Result<()> {
-        self.worktrees.default_location.validate()?;
-        for location in self.worktrees.projects.values() {
-            location.validate()?;
-        }
+        self.worktrees.validate()?;
         super::appearance::save_section(path, "worktrees", &self.worktrees)
             .map_err(|error| Error::new("worktrees", error))
     }
@@ -208,6 +231,34 @@ mod tests {
         );
         assert_eq!(sanitized_component("feature/a b", "name"), "feature-a-b");
         assert_eq!(sanitized_component("..", "name"), "name");
+    }
+
+    #[test]
+    fn worktree_settings_load_reads_only_the_worktrees_table() -> Result<()> {
+        let dir = tempfile::tempdir().map_err(|e| Error::new("test", e))?;
+        let path = dir.path().join("settings.toml");
+        assert_eq!(WorktreeSettings::load(&path)?, WorktreeSettings::default());
+        assert!(!path.exists());
+
+        std::fs::write(
+            &path,
+            "[from_a_newer_app]\nanything = 1\n\n[window]\ndefault_size = [1, 1]\n\n\
+             [worktrees.default_location]\nparent_path = \"/trees\"\n",
+        )
+        .map_err(|e| Error::new("test", e))?;
+        assert_eq!(
+            WorktreeSettings::load(&path)?.default_location.parent_path,
+            "/trees"
+        );
+
+        for worktrees in [
+            "[worktrees]\nunknown = true\n",
+            "[worktrees.default_location]\npath_template = \"../fixed\"\n",
+        ] {
+            std::fs::write(&path, worktrees).map_err(|e| Error::new("test", e))?;
+            assert!(WorktreeSettings::load(&path).is_err());
+        }
+        Ok(())
     }
 
     #[test]
