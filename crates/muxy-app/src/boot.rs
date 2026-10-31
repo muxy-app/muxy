@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
 use muxy_core::worker::WorkerPool;
 use std::thread;
 
-use muxy_app_core::{AppState, PaneId, ServerId, TabId, store};
+use muxy_app_core::{AppState, PaneId, ServerId, store};
 use muxy_client::{Attachment, Client, ClientError, ClientEvent, RemoteEndpoint, SshTarget, Start};
 use muxy_protocol::{
     ChannelId, ErrorCode, ForegroundProcess, HistoryPage, MouseEvent, SavedScreen, SearchPage,
@@ -300,6 +301,17 @@ impl std::fmt::Debug for Workers {
     }
 }
 
+/// Pairs a `Work::CheckClose` with its `Update::CloseChecked`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CloseCheckId(u64);
+
+impl CloseCheckId {
+    pub(crate) fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum Work {
     /// Lends the worker's client.
@@ -374,7 +386,7 @@ pub(crate) enum Work {
     References(Vec<SessionId>),
     Discard(SessionId, muxy_protocol::OperationId),
     CheckClose {
-        tab: TabId,
+        check: CloseCheckId,
         session: SessionId,
         size: Size,
     },
@@ -540,7 +552,7 @@ pub(crate) enum Update {
         result: Result<(), ClientError>,
     },
     CloseChecked {
-        tab: TabId,
+        check: CloseCheckId,
         session: SessionId,
         result: Result<Option<ForegroundProcess>, ClientError>,
     },
@@ -993,8 +1005,8 @@ fn rejected(work: Work, error: ClientError) -> Update {
             session,
             result: Err(error),
         },
-        Work::CheckClose { tab, session, .. } => Update::CloseChecked {
-            tab,
+        Work::CheckClose { check, session, .. } => Update::CloseChecked {
+            check,
             session,
             result: Err(error),
         },
@@ -1150,9 +1162,13 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
                 result: client.close_session(session, operation),
             });
         }
-        Work::CheckClose { tab, session, size } => {
+        Work::CheckClose {
+            check,
+            session,
+            size,
+        } => {
             return Some(Update::CloseChecked {
-                tab,
+                check,
                 session,
                 result: check_close(client, session, size),
             });

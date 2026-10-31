@@ -6,6 +6,7 @@ pub(crate) mod banners;
 pub(crate) mod browsers;
 pub(crate) mod capabilities;
 mod catalog;
+mod close_check;
 pub(crate) mod commands;
 mod composer;
 mod coverage;
@@ -54,11 +55,12 @@ use muxy_app_core::{
 use muxy_client::{ClientEvent, RunGrid};
 use muxy_protocol::{SessionId, SessionInfo, Size};
 
-use crate::boot::{Boot, Update, Work, missing_session};
+use crate::boot::{Boot, CloseCheckId, Update, Work, missing_session};
 use crate::views::overlays::Overlay;
 use crate::views::terminal::colors::Palette;
 use crate::views::terminal::pane::{PaneEvent, PaneState, TerminalPane};
 use crate::views::terminal::scroll::{Scroll, output_changed};
+use close_check::CloseCheck;
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
@@ -106,6 +108,8 @@ struct CloseRequest {
     tab: TabId,
     tabs: Vec<TabId>,
     panes: Vec<PaneId>,
+    /// The sessions closing `panes` would end, asked about one at a time.
+    ending: Vec<(PaneId, ServerId, SessionId)>,
     checking: usize,
     whole_tab: bool,
     behavior: muxy_app_core::settings::CloseBehavior,
@@ -213,7 +217,7 @@ pub(crate) struct AppModel {
     /// Panes waiting for an attachment or saved output, with the server asked.
     pending: HashMap<PaneId, ServerId>,
     detached_pending: HashSet<PaneId>,
-    pending_close: Option<TabId>,
+    pending_close: Option<CloseCheckId>,
     close_request: Option<CloseRequest>,
     pub(crate) close_prompt: Option<Task<()>>,
     retained: HashSet<PaneId>,
@@ -1266,10 +1270,12 @@ impl AppModel {
             },
             |pane| vec![pane],
         );
+        let ending = self.state.sessions_ended_by_closing(&panes);
         self.close_request = Some(CloseRequest {
             tab,
             tabs,
             panes,
+            ending,
             checking: 0,
             whole_tab: pane.is_none(),
             behavior: if restart.is_some() {
@@ -1286,64 +1292,33 @@ impl AppModel {
         while let Some(request) = &self.close_request {
             if request.behavior == muxy_app_core::settings::CloseBehavior::Detach
                 || !self.settings.window.confirm_running_process
-                || request.checking == request.panes.len()
+                || request.checking == request.ending.len()
             {
                 self.close_confirmed(cx);
                 return;
             }
             let tab = request.tab;
-            let pane = request.panes[request.checking];
-            let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
-            let session = self.state.pane_session(pane).map(|(_, session)| session);
-            if let Some(session) = session
-                && self.session_used_outside(server, session, &request.panes)
-            {
-                if let Some(request) = &mut self.close_request {
-                    request.checking += 1;
+            let (pane, server, session) = request.ending[request.checking];
+            match self.check_close(server, pane, session, cx) {
+                CloseCheck::Asked(check) => {
+                    self.pending_close = Some(check);
+                    return;
                 }
-                continue;
-            }
-            if self.ready(server)
-                && !self.retained.contains(&pane)
-                && let Some(session) = session
-            {
-                let size = self
-                    .terminal(&pane)
-                    .and_then(|pane| pane.view.read(cx).viewport())
-                    .unwrap_or(Size { cols: 80, rows: 24 });
-                self.pending_close = Some(tab);
-                if !self.send(server, Work::CheckClose { tab, session, size }, cx) {
+                CloseCheck::Unsent => {
                     self.close_request = None;
-                    self.pending_close = None;
+                    return;
                 }
-                return;
-            }
-            if let Some(view) = self.terminal(&pane).map(|pane| pane.view.read(cx))
-                && view.channel().is_some()
-                && view.state == PaneState::Live
-                && view
-                    .process
-                    .as_ref()
-                    .is_some_and(|process| !process.is_shell)
-            {
-                self.confirm_close(tab, cx);
-                return;
-            }
-            if let Some(request) = &mut self.close_request {
-                request.checking += 1;
+                CloseCheck::Running => {
+                    self.confirm_close(tab, cx);
+                    return;
+                }
+                CloseCheck::Safe => {
+                    if let Some(request) = &mut self.close_request {
+                        request.checking += 1;
+                    }
+                }
             }
         }
-    }
-
-    fn session_used_outside(
-        &self,
-        server: ServerId,
-        session: SessionId,
-        closing: &[PaneId],
-    ) -> bool {
-        self.state
-            .session_panes(server, session)
-            .any(|pane| !closing.contains(&pane))
     }
 
     pub(crate) fn closing_one_pane(&self) -> bool {
@@ -1406,7 +1381,7 @@ impl AppModel {
                     );
                 }
                 if let Some(request) = &mut self.close_request {
-                    request.checking = request.panes.len();
+                    request.checking = request.ending.len();
                 }
                 self.check_next_close(cx);
             }
@@ -2331,21 +2306,10 @@ impl AppModel {
                 self.receive_discarded(server, session, result, cx);
             }
             Update::CloseChecked {
-                tab,
+                check,
                 session,
                 result,
-            } => {
-                if local
-                    && self
-                        .quick
-                        .closing
-                        .is_some_and(|(closing, _)| closing == tab)
-                {
-                    self.check_quick_close(result, cx);
-                } else {
-                    self.receive_close_checked(tab, session, result, cx);
-                }
-            }
+            } => self.receive_close_checked(check, session, result, cx),
             Update::EndedAll(result) if local => self.finish_end_all(result, cx),
             Update::Flushed if self.quitting == Quitting::Preserve => {
                 if self.flushed(server, cx) {
@@ -2501,41 +2465,34 @@ impl AppModel {
         }
     }
 
-    fn receive_close_checked(
+    fn receive_tab_close_checked(
         &mut self,
-        tab: TabId,
         session: SessionId,
-        result: Result<Option<muxy_protocol::ForegroundProcess>, muxy_client::ClientError>,
+        running: Result<bool, String>,
         cx: &mut Context<Self>,
     ) {
-        if self.pending_close != Some(tab) {
-            return;
-        }
         self.pending_close = None;
-        let pane = self
-            .close_request
-            .as_ref()
-            .filter(|request| request.tab == tab)
-            .and_then(|request| request.panes.get(request.checking))
-            .copied();
-        if pane
-            .and_then(|pane| self.state.pane_session(pane))
-            .map(|(_, session)| session)
-            != Some(session)
-        {
+        let Some(request) = &self.close_request else {
+            return;
+        };
+        let tab = request.tab;
+        let still_shown =
+            request
+                .ending
+                .get(request.checking)
+                .is_some_and(|&(pane, server, checked)| {
+                    checked == session && self.state.pane_session(pane) == Some((server, session))
+                });
+        if !still_shown {
             self.close_request = None;
             return;
         }
-        match result {
-            Ok(Some(process)) if !process.is_shell => self.confirm_close(tab, cx),
-            Ok(_) => self.advance_close(cx),
-            Err(error) if missing_session(&error) => self.advance_close(cx),
-            Err(error) => {
+        match running {
+            Ok(true) => self.confirm_close(tab, cx),
+            Ok(false) => self.advance_close(cx),
+            Err(message) => {
                 self.close_request = None;
-                self.fail(
-                    tr!("Could not check the running process: %@", error.to_string()).to_string(),
-                    cx,
-                );
+                self.fail(message, cx);
             }
         }
     }
@@ -2929,10 +2886,9 @@ mod tests {
     }
 
     fn acknowledge_close(model: &mut AppModel, cx: &mut Context<AppModel>) {
-        while let Some(tab) = model.pending_close {
+        while let Some(check) = model.pending_close {
             let request = model.close_request.as_ref().expect("close request");
-            let pane = request.panes[request.checking];
-            let (_, session) = model.state.pane_session(pane).expect("session");
+            let (pane, _, session) = request.ending[request.checking];
             let process = model
                 .terminal(&pane)
                 .and_then(|pane| pane.view.read(cx).process.clone());
@@ -2941,7 +2897,7 @@ mod tests {
                     ServerId::local(),
                     model.servers.local.generation,
                     Update::CloseChecked {
-                        tab,
+                        check,
                         session,
                         result: Ok(process),
                     },
@@ -3482,7 +3438,7 @@ mod tests {
                 assert!(terminal.view.read(cx).channel().is_none());
                 model.close_tab(first, cx);
                 model.close_tab(first, cx);
-                assert_eq!(model.pending_close, Some(first));
+                let check = model.pending_close.expect("close check");
                 assert_eq!(model.state.home().tabs.len(), 2);
                 assert!(model.state.pending_discards(ServerId::local()).is_empty());
                 let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
@@ -3490,7 +3446,7 @@ mod tests {
                 assert_eq!(
                     work.iter()
                         .filter(
-                            |work| matches!(work, Work::CheckClose { tab, .. } if *tab == first)
+                            |work| matches!(work, Work::CheckClose { check: sent, .. } if *sent == check)
                         )
                         .count(),
                     1
@@ -3500,7 +3456,7 @@ mod tests {
                         ServerId::local(),
                         generation,
                         Update::CloseChecked {
-                            tab: first,
+                            check,
                             session,
                             result: Ok(Some(muxy_protocol::ForegroundProcess {
                                 name: "sleep".into(),

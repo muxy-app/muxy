@@ -335,7 +335,8 @@ fn tab_close_confirmation_keeps_its_target_after_project_switch(cx: &mut TestApp
         model.servers.local.connection = ConnectionState::Ready;
         model.close_tab(tab, cx);
         model.select_project(second, cx);
-        model.receive_close_checked(tab, session, Ok(None), cx);
+        let check = model.pending_close.expect("close check");
+        model.receive_close_checked(check, session, Ok(None), cx);
         assert!(model.state.project(first).expect("first").tabs.is_empty());
         assert_eq!(model.state.project(second).expect("second").tabs.len(), 1);
         assert_eq!(model.state.current_project().id, second);

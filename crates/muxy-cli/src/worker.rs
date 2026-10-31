@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use muxy_app_core::closing::{runs_program, sessions_ended_by_closing};
 use muxy_app_core::{Direction, PaneId};
 use muxy_client::{Client, ClientError, Start};
 use muxy_protocol::{
@@ -568,21 +569,16 @@ impl Core {
     /// Whether closing `panes` would end a terminal running a program other
     /// than its shell. A terminal another pane still shows keeps running.
     fn ends_running_program(&mut self, client: &Client, panes: &[PaneId]) -> Result<bool> {
-        let state = &self.store_mut()?.state;
-        let sessions: Vec<_> = panes
-            .iter()
-            .filter_map(|id| {
-                let session = state.tab()?.panes.get(id)?.session?;
-                let shown_elsewhere = state
-                    .projects
-                    .values()
-                    .flat_map(|project| &project.tabs)
-                    .flat_map(|tab| &tab.panes)
-                    .any(|(pane, value)| !panes.contains(pane) && value.session == Some(session));
-                (!shown_elsewhere).then_some((*id, session))
-            })
+        let shown: Vec<_> = self
+            .store_mut()?
+            .state
+            .projects
+            .values()
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .filter_map(|(id, pane)| Some((*id, pane.session?)))
             .collect();
-        for (id, session) in sessions {
+        for (id, session) in sessions_ended_by_closing(&shown, panes) {
             let size = lock(&self.shared)
                 .views
                 .get(&id)
@@ -597,7 +593,7 @@ impl Core {
                             if error.code == ErrorCode::UnknownChannel => {}
                         Err(error) => return Err(error.to_string()),
                     }
-                    if attachment.process.is_none_or(|process| !process.is_shell) {
+                    if runs_program(attachment.process.as_ref()) {
                         return Ok(true);
                     }
                 }

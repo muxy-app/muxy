@@ -24,10 +24,9 @@ fn bulk_close_confirms_once_and_cancellation_preserves_every_target(cx: &mut Tes
             model.servers.local.connection = ConnectionState::Ready;
             model.close_tabs(ids[2], TabCloseScope::Other, cx);
             let request = model.close_request.as_ref().expect("request");
-            let tab = request.tab;
-            let (_, session) = model.state.pane_session(request.panes[0]).expect("session");
+            let (_, _, session) = request.ending[0];
             model.receive_close_checked(
-                tab,
+                model.pending_close.expect("close check"),
                 session,
                 Ok(Some(muxy_protocol::ForegroundProcess {
                     name: "vim".into(),
