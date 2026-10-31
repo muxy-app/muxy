@@ -13,7 +13,7 @@ use super::{
     Level, Menu, MenuIcon, OpenSubmenu,
 };
 use crate::model::AppModel;
-use crate::views::overlays::clamp;
+use crate::views::overlays::{Mark, clamp};
 
 const CHECKMARK: f32 = 12.0;
 const SWATCH: f32 = 10.0;
@@ -22,6 +22,7 @@ const ICON: f32 = 16.0;
 
 pub(crate) fn render(
     menu: &Menu,
+    mark: Option<Mark>,
     model: &AppModel,
     window: &Window,
     cx: &mut Context<AppModel>,
@@ -97,7 +98,7 @@ pub(crate) fn render(
                 .top(bounds.origin.y)
                 .w(bounds.size.width)
                 .h(bounds.size.height)
-                .child(model.webview_occlusion()),
+                .children(mark.map(|mark| mark.of(model))),
         );
     }
     *menu.panels.borrow_mut() = panels;

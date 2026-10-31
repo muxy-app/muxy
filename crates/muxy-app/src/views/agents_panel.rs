@@ -17,6 +17,7 @@ use crate::model::agents_panel::{
     AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, Placement, RunningAgent,
     starts_project_group,
 };
+use crate::views::overlays::Mark;
 
 const DOCKED_MAX_HEIGHT: f32 = 260.0;
 const POPUP_WIDTH: f32 = 300.0;
@@ -838,7 +839,12 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
     )
 }
 
-pub(crate) fn popup(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+pub(crate) fn popup(
+    mark: Option<Mark>,
+    model: &AppModel,
+    window: &Window,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let bottom = if model.appearance.status_bar_visible {
@@ -862,7 +868,7 @@ pub(crate) fn popup(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(body(Placement::Popup, model, window, cx).flex_1())
-        .child(model.webview_occlusion_except(Some(model.agents_panel.owner.entity_id())))
+        .children(mark.map(|mark| mark.of_except(model, model.agents_panel.owner.entity_id())))
         .into_any_element()
 }
 

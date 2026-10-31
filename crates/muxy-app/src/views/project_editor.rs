@@ -9,7 +9,7 @@ use muxy_app_core::{ProjectId, ProjectStatus, TabId, WorkspaceId};
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
 
-use super::overlays::{Overlay, clamp};
+use super::overlays::{Mark, Overlay, clamp};
 use super::server_menu::Servers;
 use crate::model::AppModel;
 
@@ -194,6 +194,7 @@ impl AppModel {
 
 pub(crate) fn render(
     editor: &Editor,
+    mark: Option<Mark>,
     model: &AppModel,
     window: &Window,
     cx: &mut Context<AppModel>,
@@ -212,7 +213,7 @@ pub(crate) fn render(
         .w(m.scaled(320.0)
             .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(model.webview_occlusion())
+        .children(mark.map(|mark| mark.of(model)))
         .child(
             muxy_ui::popover::header(theme, m).child(match editor.target {
                 Target::Tab(_) => tr!("Rename Tab"),
