@@ -630,7 +630,9 @@ pub(super) fn titlebar(
                 .child(model.project_title(project)),
         )
         .when(
-            project.status() == ProjectStatus::Available && project.groups().is_none(),
+            project.status() == ProjectStatus::Available
+                && project.groups().is_none()
+                && !tab_strip::sidebar_opens_tabs(model),
             |bar| bar.child(tab_strip::new_tab_button(None, model, cx)),
         )
         .child(actions)

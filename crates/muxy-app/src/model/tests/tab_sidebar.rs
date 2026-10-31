@@ -20,9 +20,18 @@ fn open(
     layout: AppLayout,
     cx: &mut TestAppContext,
 ) -> (Entity<AppModel>, &mut VisualTestContext) {
+    open_with_sidebar(state, layout, true, cx)
+}
+
+fn open_with_sidebar(
+    state: AppState,
+    layout: AppLayout,
+    expanded: bool,
+    cx: &mut TestAppContext,
+) -> (Entity<AppModel>, &mut VisualTestContext) {
     let (mut boot, _requests) = stub_boot(state);
     boot.settings.appearance.layout = layout;
-    boot.settings.appearance.sidebar_expanded = true;
+    boot.settings.appearance.sidebar_expanded = expanded;
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1200.0), px(800.0)));
     cx.run_until_parked();
@@ -309,4 +318,32 @@ fn collapsed_project_tiles_fill_their_squares(cx: &mut TestAppContext) {
         .debug_bounds(format!("project-tile-{with_tab}").leak())
         .expect("tile");
     assert_eq!(tile.size, size(metrics.icon_xxl(), metrics.icon_xxl()));
+}
+
+#[gpui::test]
+fn the_titlebar_opens_tabs_unless_the_sidebar_shows_them(cx: &mut TestAppContext) {
+    for (layout, expanded, titlebar) in [
+        (AppLayout::ProjectFocused, true, true),
+        (AppLayout::ProjectFocused, false, true),
+        (AppLayout::TabFocused, true, false),
+        (AppLayout::TabFocused, false, true),
+        (AppLayout::AgentsFocused, true, false),
+        (AppLayout::AgentsFocused, false, true),
+    ] {
+        let (state, [with_tab, _, _], _) = three_projects();
+        let (view, cx) = open_with_sidebar(state, layout, expanded, cx);
+        view.update(cx, |model, cx| model.select_project(with_tab, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("new-tab-button").is_some(),
+            titlebar,
+            "{layout:?}, sidebar expanded: {expanded}"
+        );
+        if layout == AppLayout::TabFocused && expanded {
+            assert!(
+                row(cx, format!("project-new-tab-{with_tab}")).is_some(),
+                "the sidebar opens tabs instead"
+            );
+        }
+    }
 }

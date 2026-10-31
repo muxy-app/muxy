@@ -286,11 +286,19 @@ impl AppModel {
             }
         } else {
             let theme_change = matches!(change, Change::Theme(..));
+            let target_change = matches!(change, Change::ProjectTarget(_));
             let result = self.apply_preference(change, cx);
             let error = result.err().map(|error| error.to_string());
             self.preference_result(&id, error.as_deref(), cx);
-            if theme_change && let Some(error) = error {
-                self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
+            if let Some(error) = error {
+                if theme_change {
+                    self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
+                } else if target_change {
+                    self.fail(
+                        tr!("Could not save the default app: %@", &error).to_string(),
+                        cx,
+                    );
+                }
             }
         }
         self.sync_preferences(cx);
@@ -444,6 +452,10 @@ impl AppModel {
             }
             Change::FileOpener(value) => {
                 settings.openers.file = value;
+                settings.save_openers(&path)?;
+            }
+            Change::ProjectTarget(value) => {
+                settings.openers.project_target = Some(value);
                 settings.save_openers(&path)?;
             }
             Change::Directory(value) => {
@@ -982,6 +994,7 @@ fn change_id(change: &Change) -> &str {
         Change::ConfirmProcess(_) => "confirm-process",
         Change::CloseBehavior(_) => "close-behavior",
         Change::FileOpener(_) => "file-opener",
+        Change::ProjectTarget(_) => "project-target",
         Change::Directory(_) => "directory",
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",

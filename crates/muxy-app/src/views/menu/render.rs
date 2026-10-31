@@ -10,7 +10,7 @@ use muxy_ui::theme::Metrics;
 
 use super::{
     CloseSubmenu, Command, ConfirmHighlighted, DismissMenu, HighlightNext, HighlightPrevious, Item,
-    Level, Menu, OpenSubmenu,
+    Level, Menu, MenuIcon, OpenSubmenu,
 };
 use crate::model::AppModel;
 use crate::views::overlays::clamp;
@@ -18,6 +18,7 @@ use crate::views::overlays::clamp;
 const CHECKMARK: f32 = 12.0;
 const SWATCH: f32 = 10.0;
 const CHEVRON: f32 = 10.0;
+const ICON: f32 = 16.0;
 
 pub(crate) fn render(
     menu: &Menu,
@@ -177,6 +178,21 @@ impl Item {
         } else {
             format!("menu-item-{level}-{index}")
         };
+        if self.is_heading() {
+            return self
+                .part("heading")
+                .flex()
+                .flex_none()
+                .items_end()
+                .h(m.scaled(popover::ROW_HEIGHT))
+                .px(m.scaled(popover::ROW_PADDING))
+                .pb(m.spacing1())
+                .text_size(m.font_footnote())
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.fg_muted)
+                .child(self.label.clone())
+                .into_any_element();
+        }
         popover::menu_row(
             theme,
             m,
@@ -212,6 +228,7 @@ impl Item {
                     .when_some(self.swatch, Styled::bg),
             )
         })
+        .when(columns.icons, |row| row.child(self.leading_icon(model)))
         .child(
             self.part("label")
                 .flex_1()
@@ -252,6 +269,27 @@ impl Item {
         .into_any_element()
     }
 
+    fn leading_icon(&self, model: &AppModel) -> gpui::Div {
+        let m = model.metrics;
+        let size = m.scaled(ICON);
+        let slot = self
+            .part("icon")
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(size);
+        match &self.icon {
+            Some(MenuIcon::Image(image)) => slot.child(gpui::img(image.clone()).size(size)),
+            Some(MenuIcon::Glyph(icon)) => slot.child(muxy_ui::components::IconGlyph::new(
+                *icon,
+                m.icon_md(),
+                model.theme.fg_muted,
+            )),
+            None => slot,
+        }
+    }
+
     /// A piece of the row, found in tests as `menu-{part}-{label}`.
     fn part(&self, part: &'static str) -> gpui::Div {
         let label = self.label.clone();
@@ -280,6 +318,7 @@ impl Item {
 struct Columns {
     checkmarks: bool,
     swatches: bool,
+    icons: bool,
 }
 
 impl Columns {
@@ -287,6 +326,7 @@ impl Columns {
         Self {
             checkmarks: items.iter().any(|item| item.checked.is_some()),
             swatches: items.iter().any(|item| item.swatch.is_some()),
+            icons: items.iter().any(|item| item.icon.is_some()),
         }
     }
 }
@@ -324,6 +364,9 @@ fn dimensions(
     }
     if columns.swatches {
         leading += m.scaled(SWATCH + popover::ROW_PADDING);
+    }
+    if columns.icons {
+        leading += m.scaled(ICON + popover::ROW_PADDING);
     }
     for (item, shortcut) in items.iter().zip(shortcuts) {
         let mut row_width = measure(&item.label, m.font_body())
