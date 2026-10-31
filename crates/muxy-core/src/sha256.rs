@@ -10,6 +10,11 @@ pub fn digest(bytes: &[u8]) -> [u8; 32] {
     finish(context)
 }
 
+/// Whether `digest` is the one `expected` spells in hex, in either case.
+pub fn matches(digest: &[u8; 32], expected: &str) -> bool {
+    crate::hex::decode::<32>(expected).is_some_and(|expected| expected == *digest)
+}
+
 /// Passes everything written on to `inner` and hashes it on the way.
 pub struct Writer<W> {
     inner: W,
@@ -72,6 +77,16 @@ mod tests {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
         assert_eq!(hex::encode(&digest(b"abc")), ABC);
+    }
+
+    #[test]
+    fn matches_only_the_same_digest_in_either_case() {
+        let abc = digest(b"abc");
+        assert!(matches(&abc, ABC));
+        assert!(matches(&abc, &ABC.to_uppercase()));
+        assert!(!matches(&digest(b"abd"), ABC));
+        assert!(!matches(&abc, &ABC[..62]));
+        assert!(!matches(&abc, ""));
     }
 
     #[test]

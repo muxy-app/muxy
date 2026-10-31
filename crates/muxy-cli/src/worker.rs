@@ -774,8 +774,8 @@ impl Core {
         pane: &mut crate::state::Pane,
     ) -> Result<bool> {
         if let Some(operation) = pane.creation {
-            let directory = pane.directory.as_path().to_path_buf();
-            match client.create_project_session(project, operation, &directory, size) {
+            match client.create_project_session(project, operation, pane.directory.as_path(), size)
+            {
                 Ok(info) => {
                     self.store_mut()?.change(|state| {
                         if let Some(pane) = state.pane_mut(id)

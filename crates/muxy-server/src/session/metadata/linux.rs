@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
 
 use muxy_protocol::ServerPath;
 

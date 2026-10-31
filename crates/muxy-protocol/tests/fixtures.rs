@@ -5,7 +5,6 @@
 //! readable, because it is what an older build of the same version sends.
 
 use std::error::Error;
-use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -98,13 +97,12 @@ fn encoded(message: &Message) -> Result<Vec<u8>, WireError> {
 }
 
 fn fixture_name(message: &Message) -> Result<String, Box<dyn Error>> {
-    let digest = ring::digest::digest(&ring::digest::SHA256, &encoded(message)?);
-    let mut name = format!("{}-", kind_name(MessageKind::from(message)));
-    for byte in &digest.as_ref()[..8] {
-        write!(name, "{byte:02x}")?;
-    }
-    name.push_str(".bin");
-    Ok(name)
+    let digest = muxy_core::sha256::digest(&encoded(message)?);
+    Ok(format!(
+        "{}-{}.bin",
+        kind_name(MessageKind::from(message)),
+        muxy_core::hex::encode(&digest[..8])
+    ))
 }
 
 fn kind_name(kind: MessageKind) -> &'static str {

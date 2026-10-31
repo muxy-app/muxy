@@ -2004,7 +2004,7 @@ impl AppModel {
         if !self.save(cx) {
             return;
         }
-        let directory = { PathBuf::from(directory) };
+        let directory = PathBuf::from(directory);
         if self.pending.insert(pane, server).is_some() {
             return;
         }

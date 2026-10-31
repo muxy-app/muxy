@@ -757,14 +757,5 @@ fn picker_items(mut rows: Vec<PickerRow>, query: &str, group_by_status: bool) ->
 }
 
 fn path_key(path: &ServerPath) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    path.0
-        .iter()
-        .flat_map(|byte| {
-            [
-                char::from(HEX[usize::from(byte >> 4)]),
-                char::from(HEX[usize::from(byte & 15)]),
-            ]
-        })
-        .collect()
+    muxy_core::hex::encode(&path.0)
 }

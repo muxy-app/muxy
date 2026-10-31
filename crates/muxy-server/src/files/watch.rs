@@ -81,7 +81,7 @@ impl FileWatch {
                                 continue;
                             }
                             let path = ServerPath::from(relative);
-                            if path.0.len() > 4096 {
+                            if path.0.len() > muxy_protocol::MAX_PATH {
                                 pending.merge(&FileChanges {
                                     paths: Vec::new(),
                                     rescan: true,

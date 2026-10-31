@@ -170,7 +170,7 @@ fn download(
     if release
         .sha256
         .as_ref()
-        .is_some_and(|expected| !muxy_core::hex::encode(&digest).eq_ignore_ascii_case(expected))
+        .is_some_and(|expected| !muxy_core::sha256::matches(&digest, expected))
     {
         return Err(tr!("Update download checksum mismatch").to_string().into());
     }
