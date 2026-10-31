@@ -378,4 +378,23 @@ mod tests {
         assert_eq!(Settings::load(&path)?.ai, saved);
         Ok(())
     }
+
+    #[test]
+    fn settings_from_before_voice_input_was_removed_still_load() -> Result<()> {
+        let directory = tempfile::tempdir().map_err(|error| Error::new("test", error))?;
+        let path = directory.path().join("settings.toml");
+        fs::write(
+            &path,
+            "[composer]\nlanguage = \"fr-FR\"\nvoice_model = \"/models/ggml-base.bin\"\nvoice_auto_send = true\nclear_on_close = true\n[keymap]\ntoggle_voice_recording = \"cmd-shift-i\"\n\"voice.pause\" = \"space\"\n",
+        )
+        .map_err(|error| Error::new("test", error))?;
+        let mut loaded = Settings::load(&path)?;
+        assert!(loaded.composer.clear_on_close);
+        assert!(loaded.keymap.binding("toggle_voice_recording").is_none());
+
+        loaded.composer.clear_after_sending = true;
+        loaded.save_composer(&path)?;
+        assert!(Settings::load(&path)?.composer.clear_after_sending);
+        Ok(())
+    }
 }

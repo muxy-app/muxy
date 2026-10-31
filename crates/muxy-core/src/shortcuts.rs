@@ -28,16 +28,11 @@ impl Shortcut {
     }
 }
 
-const FEATURES: [(ShortcutId, Feature); 9] = [
+const FEATURES: [(ShortcutId, Feature); 4] = [
     (ShortcutId::InstallCommandLineTool, Feature::CommandLineTool),
     (ShortcutId::HideApp, Feature::AppHiding),
     (ShortcutId::HideOthers, Feature::AppHiding),
     (ShortcutId::ShowAll, Feature::AppHiding),
-    (ShortcutId::ComposerVoice, Feature::Voice),
-    (ShortcutId::ToggleVoiceRecording, Feature::Voice),
-    (ShortcutId::VoiceFinish, Feature::Voice),
-    (ShortcutId::VoiceCancel, Feature::Voice),
-    (ShortcutId::VoicePause, Feature::Voice),
 ];
 
 pub trait ShortcutSettings {
@@ -199,11 +194,6 @@ pub enum ShortcutId {
     ComposerSubmit,
     ComposerInsert,
     ComposerClose,
-    ComposerVoice,
-    ToggleVoiceRecording,
-    VoiceFinish,
-    VoiceCancel,
-    VoicePause,
     NewBrowserTab,
     BrowserFocusAddress,
     BrowserReload,
@@ -1349,36 +1339,6 @@ pub const ALL: &[Shortcut] = &[
         keys: &["escape"],
         contexts: &[Some("Composer && !Picker")],
         key_contexts: &[&[Some("Composer && !Picker")]],
-    },
-    Shortcut {
-        id: "composer.voice",
-        keys: &[],
-        contexts: &[Some("Composer")],
-        key_contexts: &[],
-    },
-    Shortcut {
-        id: "toggle_voice_recording",
-        keys: platform_keys!(&["cmd-shift-i"], &["ctrl-alt-i"]),
-        contexts: &[Some("WorkspaceTabs")],
-        key_contexts: &[&[Some("WorkspaceTabs")]],
-    },
-    Shortcut {
-        id: "voice.finish",
-        keys: &["enter"],
-        contexts: &[Some("VoiceRecording")],
-        key_contexts: &[&[Some("VoiceRecording")]],
-    },
-    Shortcut {
-        id: "voice.cancel",
-        keys: &["escape"],
-        contexts: &[Some("VoiceRecording")],
-        key_contexts: &[&[Some("VoiceRecording")]],
-    },
-    Shortcut {
-        id: "voice.pause",
-        keys: &["space"],
-        contexts: &[Some("VoiceRecording")],
-        key_contexts: &[&[Some("VoiceRecording")]],
     },
     Shortcut {
         id: "new_browser_tab",

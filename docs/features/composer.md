@@ -1,8 +1,8 @@
 # Composer
 
-The composer is a text box for writing long prompts and commands, with files,
-images, and dictation. It sends to the active terminal, or to every visible
-terminal in the project. Handy for AI agents.
+The composer is a text box for writing long prompts and commands, with files
+and images. It sends to the active terminal, or to every visible terminal in
+the project. Handy for AI agents.
 
 ## Use it
 
@@ -40,13 +40,3 @@ The composer opens as a panel on the right or bottom, or as a floating box
 that closes after sending. Switch from its **…** menu, which also has
 **Clear After Sending**, **Clear on Close**, and **Reset Composer Size**.
 `Cmd+=` and `Cmd+-` change its font size.
-
-## Dictation
-
-`Cmd+Shift+I` starts on-device dictation. Inside the composer, it types into
-the draft. Elsewhere it types into the active terminal; press `Return` to
-insert, `Space` to pause, or `Esc` to cancel.
-
-Dictation needs an on-device speech language, plus microphone and speech
-recognition access. Pick the language and **Send after recording** in
-**Settings → Composer**.

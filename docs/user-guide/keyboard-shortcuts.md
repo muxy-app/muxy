@@ -69,13 +69,12 @@ A line feed is a new line in many AI tools, but shells treat it like Return.
 In a browser, `Cmd+[` and `Cmd+]` go back and forward instead of switching
 tabs.
 
-## Composer and dictation
+## Composer
 
 | Action | Shortcut |
 | --- | --- |
 | Toggle composer | `Cmd+I` |
 | Send / send without Return | `Cmd+Return` / `Cmd+Shift+Return` |
-| Dictation | `Cmd+Shift+I` |
 
 ## Changing shortcuts
 

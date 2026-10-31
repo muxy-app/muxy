@@ -51,7 +51,6 @@ actions!(
         ToggleThemePicker,
         ToggleCommandPalette,
         ToggleComposer,
-        ToggleVoiceRecording,
         NavigateBack,
         NavigateForward,
         Quit,
@@ -115,14 +114,9 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     registry.register(ShortcutId::ToggleThemePicker, &ToggleThemePicker);
     registry.register(ShortcutId::ToggleCommandPalette, &ToggleCommandPalette);
     registry.register(ShortcutId::ToggleComposer, &ToggleComposer);
-    registry.register(ShortcutId::ToggleVoiceRecording, &ToggleVoiceRecording);
-    registry.register(ShortcutId::VoiceFinish, &super::voice::Finish);
-    registry.register(ShortcutId::VoiceCancel, &super::voice::Cancel);
-    registry.register(ShortcutId::VoicePause, &super::voice::Pause);
     registry.register(ShortcutId::ComposerSubmit, &super::composer::Submit);
     registry.register(ShortcutId::ComposerInsert, &super::composer::Insert);
     registry.register(ShortcutId::ComposerClose, &super::composer::Close);
-    registry.register(ShortcutId::ComposerVoice, &super::composer::ToggleVoice);
     registry.register(ShortcutId::NavigateBack, &NavigateBack);
     registry.register(ShortcutId::NavigateForward, &NavigateForward);
     registry.register(ShortcutId::Quit, &Quit);
@@ -509,17 +503,6 @@ fn register_composer_commands(
         tr_key!("Toggle Composer"),
         ToggleComposer,
     ));
-    if model
-        .capabilities
-        .has_backend(muxy_core::capability::Feature::Voice)
-    {
-        registry.register(action(
-            model,
-            ShortcutId::ToggleVoiceRecording,
-            tr_key!("Toggle Voice Recording"),
-            ToggleVoiceRecording,
-        ));
-    }
 }
 
 /// Commands that act on the focused terminal.
@@ -969,9 +952,6 @@ impl Render for AppModel {
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
         let workspace = action_handlers(cx)
-            .on_action(cx.listener(|model, _: &ToggleVoiceRecording, window, cx| {
-                model.toggle_voice(window, cx);
-            }))
             .on_action(cx.listener(|model, _: &ToggleComposer, window, cx| {
                 model.toggle_composer(window, cx);
             }))
@@ -1031,7 +1011,6 @@ impl Render for AppModel {
             .child(super::splits::drag::track_pointer(cx))
             .child(super::splits::drag::overlay(self))
             .child(self.floating_composer(window, cx))
-            .child(self.voice_panel())
             .children(super::banners::render(self, window, cx))
             .children(super::agents_panel::floating(self, window, cx))
             .child(titlebar::overlay(overlays::layer(self, window, cx), window))

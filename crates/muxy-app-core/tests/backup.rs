@@ -40,7 +40,7 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
     assert!(settings.composer.pinned);
     assert_eq!(settings.appearance.language, "language-packs:ko");
     assert_eq!(settings.ai.prompts["create_pr"], "My instructions");
-    assert_eq!(report.skipped.len(), 3);
+    assert_eq!(report.skipped.len(), 4);
     let source = backup::settings_source(&settings).unwrap();
     assert!(!source.contains("never-copy"));
     assert!(!source.contains("example.com"));

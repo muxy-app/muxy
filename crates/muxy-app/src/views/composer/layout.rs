@@ -1,4 +1,4 @@
-use super::{Close, Composer, ComposerEvent, Insert, Submit, ToggleVoice};
+use super::{Close, Composer, ComposerEvent, Insert, Submit};
 use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, FontWeight, MouseButton, Pixels, Point, Size, size};
 use gpui::{
@@ -30,7 +30,6 @@ pub(super) struct SizeMotion {
 enum Control {
     Metadata,
     Toolbar,
-    Recording,
     Dismiss,
 }
 
@@ -68,12 +67,9 @@ impl Composer {
     ) -> AnyElement {
         let m = self.metrics;
         let theme = self.theme.clone();
-        let active = matches!(control, Control::Recording);
-        let enabled = id != "composer-voice" || !self.sending;
         let (box_size, glyph_size, color) = match control {
             Control::Metadata => (m.control_small(), m.font_caption(), theme.fg_dim),
             Control::Toolbar => (m.control_large(), m.font_footnote(), theme.fg_muted),
-            Control::Recording => (m.control_large(), m.font_footnote(), gpui::white()),
             Control::Dismiss => (m.font_micro(), m.font_micro(), theme.fg_dim),
         };
         div()
@@ -95,7 +91,6 @@ impl Composer {
                 )
             })
             .rounded(m.radius_xl())
-            .when(active, |button| button.bg(theme.diff_remove))
             .child(SymbolGlyph::new(symbol, glyph_size, color))
             .tooltip(move |_, cx| {
                 cx.new(|_| {
@@ -109,11 +104,7 @@ impl Composer {
                 })
                 .into()
             })
-            .when(enabled, |button| {
-                button.button_interaction(
-                    cx.listener(move |view, _, window, cx| action(view, window, cx)),
-                )
-            })
+            .button_interaction(cx.listener(move |view, _, window, cx| action(view, window, cx)))
             .into_any_element()
     }
 
@@ -290,18 +281,18 @@ impl Composer {
             .into_any_element()
     }
 
-    fn feedback(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn error_row(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let error = self.error.as_ref()?;
         let m = self.metrics;
-        let row = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(m.spacing4())
-            .h(m.scaled(26.0))
-            .px(m.spacing1())
-            .text_size(m.font_caption());
-        if let Some(error) = &self.error {
-            return row
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(m.spacing4())
+                .h(m.scaled(26.0))
+                .px(m.spacing1())
+                .text_size(m.font_caption())
                 .text_color(self.theme.diff_remove)
                 .child(
                     SymbolGlyph::new(
@@ -315,7 +306,7 @@ impl Composer {
                 .child(self.glyph_button(
                     "composer-dismiss-error",
                     "xmark",
-                    tr_key!("Dismiss Dictation Error"),
+                    tr_key!("Dismiss Error"),
                     Control::Dismiss,
                     |view, _, cx| {
                         view.error = None;
@@ -323,72 +314,8 @@ impl Composer {
                     },
                     cx,
                 ))
-                .into_any_element();
-        }
-        let snapshot = &self.voice_snapshot;
-        let paused = snapshot.phase == muxy_ui::voice::Phase::Paused;
-        let mut bars = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(m.spacing1())
-            .h(m.icon_lg());
-        for index in 1_u8..=5 {
-            bars = bars.child(
-                div()
-                    .w(m.scaled(2.0))
-                    .h(m.scaled(f32::from(4 + index * 2)))
-                    .rounded_full()
-                    .bg(if !paused && snapshot.level >= f32::from(index) / 5.0 {
-                        self.theme.diff_remove
-                    } else {
-                        self.theme.fg_dim
-                    }),
-            );
-        }
-        let transcript = match snapshot.phase {
-            muxy_ui::voice::Phase::Starting => tr!("Preparing on-device dictation…"),
-            muxy_ui::voice::Phase::Transcribing => tr!("Transcribing on this computer…"),
-            _ if muxy_ui::voice::LOCAL_MODEL => tr!("Finish recording to transcribe."),
-            _ if snapshot.transcript.is_empty() => tr!("Listening…"),
-            _ => snapshot.transcript.clone().into(),
-        };
-        let elapsed = snapshot.elapsed.as_secs();
-        row.child(
-            div()
-                .flex_none()
-                .font_family(muxy_ui::font::monospace())
-                .text_size(m.font_xs())
-                .font_weight(FontWeight::BOLD)
-                .text_color(if paused {
-                    self.theme.warning
-                } else {
-                    self.theme.diff_remove
-                })
-                .child(if snapshot.phase == muxy_ui::voice::Phase::Transcribing {
-                    tr!("PROCESSING")
-                } else if paused {
-                    tr!("PAUSED")
-                } else {
-                    tr!("● LIVE")
-                }),
+                .into_any_element(),
         )
-        .child(bars)
-        .child(
-            div()
-                .min_w_0()
-                .flex_1()
-                .child(muxy_ui::transcript::Transcript::new(transcript, 1)),
-        )
-        .child(
-            div()
-                .flex_none()
-                .font_family(muxy_ui::font::monospace())
-                .text_size(m.font_xs())
-                .text_color(self.theme.fg_dim)
-                .child(format!("{:02}:{:02}", elapsed / 60, elapsed % 60)),
-        )
-        .into_any_element()
     }
 
     fn attachments(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -445,11 +372,7 @@ impl Composer {
 
     fn toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let m = self.metrics;
-        let enabled = !self.sending && !self.recording();
-        let recording =
-            self.recording() && self.voice_snapshot.phase != muxy_ui::voice::Phase::Starting;
-        let transcribing =
-            recording && self.voice_snapshot.phase == muxy_ui::voice::Phase::Transcribing;
+        let enabled = !self.sending;
         div()
             .flex()
             .flex_none()
@@ -464,34 +387,6 @@ impl Composer {
                 |_, _, cx| cx.emit(ComposerEvent::Attach),
                 cx,
             ))
-            .children(
-                (self.dictation != muxy_core::capability::Capability::Unsupported).then(|| {
-                    self.glyph_button(
-                        "composer-voice",
-                        if transcribing {
-                            "xmark"
-                        } else if recording {
-                            "stop.fill"
-                        } else {
-                            "mic"
-                        },
-                        if transcribing {
-                            tr_key!("Cancel Dictation")
-                        } else if recording {
-                            tr_key!("Finish Dictation")
-                        } else {
-                            tr_key!("Start Dictation")
-                        },
-                        if self.recording() {
-                            Control::Recording
-                        } else {
-                            Control::Toolbar
-                        },
-                        |view, _, cx| view.toggle_voice(cx),
-                        cx,
-                    )
-                }),
-            )
             .child(self.glyph_button(
                 "composer-more",
                 "ellipsis",
@@ -538,7 +433,6 @@ impl Composer {
 
     fn body(&self, cx: &mut Context<Self>) -> AnyElement {
         let m = self.metrics;
-        let feedback = self.recording() || self.error.is_some();
         div()
             .id("composer-body")
             .debug_selector(|| "composer-body".into())
@@ -552,23 +446,12 @@ impl Composer {
             .on_action(cx.listener(|view, _: &Submit, _, cx| view.submit(true, cx)))
             .on_action(cx.listener(|view, _: &Insert, _, cx| view.submit(false, cx)))
             .on_action(cx.listener(|_, _: &Close, _, cx| cx.emit(ComposerEvent::Close)))
-            .on_action(cx.listener(|view, _: &ToggleVoice, _, cx| view.toggle_voice(cx)))
             .on_action(cx.listener(
                 |view, _: &crate::views::workspace::IncreaseFontSize, _, cx| view.zoom(1.0, cx),
             ))
             .on_action(cx.listener(
                 |view, _: &crate::views::workspace::DecreaseFontSize, _, cx| view.zoom(-1.0, cx),
             ))
-            .capture_action(
-                cx.listener(|view, _: &muxy_ui::text_input::InsertNewline, _, cx| {
-                    if view.recording() {
-                        if view.voice_snapshot.phase != muxy_ui::voice::Phase::Transcribing {
-                            view.toggle_voice(cx);
-                        }
-                        cx.stop_propagation();
-                    }
-                }),
-            )
             .on_drop(cx.listener(|_, paths: &gpui::ExternalPaths, _, cx| {
                 cx.emit(ComposerEvent::Files(paths.paths().to_vec()));
             }))
@@ -595,9 +478,10 @@ impl Composer {
                             .py(m.spacing6())
                             .child(self.input.clone()),
                     )
-                    .when(feedback, |editor| {
-                        editor.child(div().pt(m.spacing2()).child(self.feedback(cx)))
-                    }),
+                    .children(
+                        self.error_row(cx)
+                            .map(|error| div().pt(m.spacing2()).child(error)),
+                    ),
             )
             .when(!self.draft.file_attachments.is_empty(), |body| {
                 body.child(self.attachments(cx))

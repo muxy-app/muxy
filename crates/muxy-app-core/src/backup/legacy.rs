@@ -80,8 +80,6 @@ const MAPPINGS: &[(&str, &[&str])] = &[
         "editor.richInputLineHeightMultiplier",
         &["composer", "line_height"],
     ),
-    ("muxy.recording.autoSend", &["composer", "voice_auto_send"]),
-    ("muxy.recording.language", &["composer", "language"]),
     (
         "muxy.ai.repositoryActions.commit.provider",
         &["ai", "providers", "commit"],
@@ -176,7 +174,6 @@ fn action_id(old: &str) -> String {
         "findInTerminal" => "find".into(),
         "toggleMaximizePane" => "toggle_zoom_pane".into(),
         "toggleRichInput" => "composer.toggle".into(),
-        "toggleComposerVoice" => "composer.voice".into(),
         "submitRichInput" => "composer.submit".into(),
         "submitRichInputWithoutReturn" => "composer.insert".into(),
         _ => old

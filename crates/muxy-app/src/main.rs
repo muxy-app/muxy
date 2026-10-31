@@ -75,7 +75,6 @@ mod views {
         pub(crate) mod scrollbar;
         pub(crate) mod selection;
     }
-    pub(crate) mod voice;
     pub(crate) mod webview;
     pub(crate) mod workspace;
     pub(crate) mod worktree_picker;
@@ -101,7 +100,7 @@ use views::workspace::{
     NextTab, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput,
     SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions,
     ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
-    ToggleThemePicker, ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
+    ToggleThemePicker, ToggleZoomPane, Zoom, bind_keys,
 };
 
 fn main() -> ExitCode {
@@ -330,18 +329,10 @@ fn menus() -> Vec<Menu> {
         MenuItem::action(tr!("Quit %@", app_name()), Quit),
         MenuItem::action(tr!("End All Sessions and Quit"), EndAllSessionsAndQuit),
     ]);
-    let mut view_items = vec![
+    let view_items = vec![
         MenuItem::action(tr!("Command Palette…"), ToggleCommandPalette),
         MenuItem::separator(),
         MenuItem::action(tr!("Toggle Composer"), ToggleComposer),
-    ];
-    if backends.has_backend(Feature::Voice) {
-        view_items.push(MenuItem::action(
-            tr!("Toggle Voice Recording"),
-            ToggleVoiceRecording,
-        ));
-    }
-    view_items.extend([
         MenuItem::separator(),
         MenuItem::action(tr!("Toggle Sidebar"), ToggleSidebar),
         MenuItem::action(tr!("Toggle Agents Panel"), ToggleAgentsPanel),
@@ -352,7 +343,7 @@ fn menus() -> Vec<Menu> {
         MenuItem::separator(),
         MenuItem::action(tr!("Increase Font Size"), IncreaseFontSize),
         MenuItem::action(tr!("Decrease Font Size"), DecreaseFontSize),
-    ]);
+    ];
     vec![
         Menu {
             name: app_name().into(),

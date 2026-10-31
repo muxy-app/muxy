@@ -663,10 +663,6 @@ impl TextInput {
         self.apply_edit(range, text, false, false, cx);
     }
 
-    pub fn insert_at_selection(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.replace_selection(text, cx);
-    }
-
     pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
         let text = text.into();
         if text != self.content {

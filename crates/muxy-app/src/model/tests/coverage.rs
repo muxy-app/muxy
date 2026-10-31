@@ -2,8 +2,8 @@ use super::*;
 use crate::repository_actions::Action as AiAction;
 use crate::views::git::Kind as GitKind;
 use crate::views::menu::{Command, Item};
+use crate::views::overlays::Overlay;
 use crate::views::project_editor::Field;
-use crate::views::{overlays::Overlay, voice::VoicePanel};
 use gpui::{Bounds, Pixels};
 use muxy_app_core::settings::ComposerPresentation;
 
@@ -102,31 +102,6 @@ fn a_panel_composer_covers_only_its_rectangle(cx: &mut TestAppContext) {
         assert!(!coverage.blocks_pane_drag());
 
         model.settings.composer.pinned = true;
-        assert!(terminal_scroll_shown(model, pane, cx));
-    });
-}
-
-#[gpui::test]
-fn voice_hides_terminal_scroll_and_leaves_webviews_cut_out_under_it(cx: &mut TestAppContext) {
-    let (view, cx, pane) = attached_terminal(cx);
-    view.update(cx, |model, cx| {
-        let (theme, metrics) = (model.theme.clone(), model.metrics);
-        let panel = cx.new(|cx| {
-            VoicePanel::with_recorder(Err("no recorder".into()), false, theme, metrics, cx)
-        });
-
-        model.voice.view = Some(panel.clone());
-        assert!(!terminal_scroll_shown(model, pane, cx));
-        let coverage = model.coverage();
-        assert!(!coverage.hides_webviews() && !coverage.hides_spinners());
-        assert!(coverage.blocks_pane_drag());
-
-        model.voice.view = None;
-        model.voice.closing = Some(panel);
-        assert!(!terminal_scroll_shown(model, pane, cx));
-        assert!(model.coverage().blocks_pane_drag());
-
-        model.voice.closing = None;
         assert!(terminal_scroll_shown(model, pane, cx));
     });
 }
