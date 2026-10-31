@@ -272,10 +272,7 @@ impl AppState {
             .tabs
             .iter()
             .flat_map(|tab| &tab.panes)
-            .filter_map(|pane| match pane.content {
-                PaneContent::Terminal { session } => session,
-                _ => None,
-            })
+            .filter_map(Pane::session)
             .collect();
         for tab in old_tabs {
             self.close_tab(project, tab)?;

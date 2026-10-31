@@ -25,7 +25,7 @@ fn bulk_close_confirms_once_and_cancellation_preserves_every_target(cx: &mut Tes
             model.close_tabs(ids[2], TabCloseScope::Other, cx);
             let request = model.close_request.as_ref().expect("request");
             let tab = request.tab;
-            let session = model.pane_session(request.panes[0]).expect("session");
+            let (_, session) = model.state.pane_session(request.panes[0]).expect("session");
             model.receive_close_checked(
                 tab,
                 session,

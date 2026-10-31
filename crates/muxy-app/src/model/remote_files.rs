@@ -449,8 +449,8 @@ impl AppModel {
     /// Sends what was dropped or pasted on a terminal of another computer,
     /// then pastes where it landed there, if the terminal is still the same.
     pub(super) fn upload_to_pane(&mut self, pane: PaneId, upload: Upload, cx: &mut Context<Self>) {
-        let (Some(attachment), Some(session)) =
-            (self.attachment(pane, cx), self.pane_session(pane))
+        let (Some(attachment), Some((_, session))) =
+            (self.attachment(pane, cx), self.state.pane_session(pane))
         else {
             return;
         };

@@ -17,6 +17,7 @@ pub mod localization;
 pub mod modal;
 pub mod opener;
 mod pane;
+mod panes;
 mod project;
 pub mod project_layouts;
 pub mod qr;
@@ -35,6 +36,7 @@ pub use groups::{TabGroup, TabGroups};
 pub use ids::{GroupId, PaneId, ProjectId, ServerId, TabId, WorkspaceId};
 pub use layout::{Axis, Branch, Direction, Layout};
 pub use pane::{Pane, PaneContent};
+pub use panes::PlacedPane;
 pub use project::{
     Color, PROJECT_COLORS, Project, ProjectKind, ProjectStatus, RemovedProject, initial,
 };

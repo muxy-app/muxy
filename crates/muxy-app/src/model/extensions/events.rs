@@ -156,12 +156,11 @@ impl AppModel {
     fn debounce_titles(&mut self, cx: &mut Context<Self>) {
         let live: HashMap<PaneId, String> = self
             .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter(|pane| matches!(pane.content, PaneContent::Terminal { .. }))
-            .map(|pane| (pane.id, pane.title.clone()))
+            .panes()
+            .filter(|placed| {
+                placed.tab.is_some() && matches!(placed.pane.content, PaneContent::Terminal { .. })
+            })
+            .map(|placed| (placed.pane.id, placed.pane.title.clone()))
             .collect();
         let events = &mut self.extensions.events;
         events.titles.retain(|pane, _| live.contains_key(pane));

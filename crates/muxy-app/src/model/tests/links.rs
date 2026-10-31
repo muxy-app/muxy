@@ -28,7 +28,7 @@ fn terminal_menu_focuses_the_clicked_split_and_routes_clipboard_actions(cx: &mut
                     1,
                     Update::Attached {
                         pane: id,
-                        session: model.pane_session(id).expect("session"),
+                        session: model.state.pane_session(id).expect("session").1,
                         attachment,
                         created: false,
                     },

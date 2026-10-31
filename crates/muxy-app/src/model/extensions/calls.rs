@@ -271,22 +271,20 @@ impl AppModel {
             );
         }
         let requested = call.args["paneID"].as_str();
-        let target = self.state.projects().iter().find_map(|project| {
-            project.tabs.iter().find_map(|tab| {
-                tab.panes
-                    .iter()
-                    .find(|pane| {
-                        requested.map_or_else(
-                            || {
-                                project.id == self.state.current_project().id
-                                    && matches!(pane.content, PaneContent::Terminal { .. })
-                            },
-                            |requested| pane.id.to_string() == requested,
-                        )
-                    })
-                    .map(|pane| (project, tab.id, pane.id))
+        let target = self
+            .state
+            .panes()
+            .filter_map(|placed| Some((placed.project?, placed.tab?.id, placed.pane)))
+            .find(|(project, _, pane)| {
+                requested.map_or_else(
+                    || {
+                        project.id == self.state.current_project().id
+                            && matches!(pane.content, PaneContent::Terminal { .. })
+                    },
+                    |requested| pane.id.to_string() == requested,
+                )
             })
-        });
+            .map(|(project, tab, pane)| (project, tab, pane.id));
         let (project, tab, pane) = match target {
             Some((project, tab, pane)) => (project, tab.to_string(), pane.to_string()),
             None => (self.state.current_project(), String::new(), String::new()),

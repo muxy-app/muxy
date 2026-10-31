@@ -4,7 +4,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, canvas, div, point, px, svg,
 };
 use muxy_app_core::{
-    PaneContent, ProjectId, ServerId, Tab,
+    Pane, ProjectId, ServerId, Tab,
     activity::{ActivityIndicator, indicator},
     settings::AppLayout,
 };
@@ -85,17 +85,7 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
         .first()
         .and_then(|pane| model.state.pane_server(pane.id))
         .unwrap_or_else(ServerId::local);
-    let sessions: Vec<_> = tab
-        .panes
-        .iter()
-        .filter_map(|pane| match pane.content {
-            PaneContent::Terminal { session } => session,
-            PaneContent::Settings
-            | PaneContent::Webview(_)
-            | PaneContent::Browser(_)
-            | PaneContent::Servers => None,
-        })
-        .collect();
+    let sessions: Vec<_> = tab.panes.iter().filter_map(Pane::session).collect();
     resolve(
         server,
         &sessions,
@@ -177,16 +167,7 @@ fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel)
         .flat_map(|project| &project.tabs)
         .flat_map(|tab| &tab.panes)
         .collect();
-    let sessions: Vec<_> = panes
-        .iter()
-        .filter_map(|pane| match pane.content {
-            PaneContent::Terminal { session } => session,
-            PaneContent::Settings
-            | PaneContent::Webview(_)
-            | PaneContent::Browser(_)
-            | PaneContent::Servers => None,
-        })
-        .collect();
+    let sessions: Vec<_> = panes.iter().filter_map(|pane| pane.session()).collect();
     let completion = panes
         .iter()
         .any(|pane| model.completions.contains(&pane.id));

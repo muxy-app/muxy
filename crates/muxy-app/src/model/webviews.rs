@@ -200,7 +200,8 @@ impl AppModel {
     }
 
     pub(super) fn pane_drag_available(&self, pane: PaneId) -> bool {
-        self.pane_tab(pane)
+        self.state
+            .pane_tab(pane)
             .and_then(|tab| self.tab(tab))
             .is_some_and(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
     }
@@ -252,13 +253,10 @@ impl AppModel {
     ) -> HashMap<PaneId, WebviewDescriptor> {
         let descriptors: HashMap<_, _> = self
             .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter_map(|pane| {
-                if let PaneContent::Webview(descriptor) = &pane.content {
-                    Some((pane.id, descriptor.clone()))
+            .panes()
+            .filter_map(|placed| {
+                if let PaneContent::Webview(descriptor) = &placed.pane.content {
+                    Some((placed.pane.id, descriptor.clone()))
                 } else {
                     None
                 }
@@ -355,9 +353,8 @@ impl AppModel {
                     kind: "demo".into(),
                     data: json!({"message":"Foundation harness"}),
                 };
-                let restored = self.state.projects().iter().flat_map(|project| &project.tabs)
-                    .flat_map(|tab| &tab.panes).any(|pane| matches!(&pane.content,
-                        PaneContent::Webview(saved) if saved.owner == descriptor.owner && saved.kind == descriptor.kind));
+                let restored = self.state.panes().any(|placed| matches!(&placed.pane.content,
+                    PaneContent::Webview(saved) if saved.owner == descriptor.owner && saved.kind == descriptor.kind));
                 if !restored {
                     let _ = self.open_webview_tab(descriptor, true, cx);
                 }

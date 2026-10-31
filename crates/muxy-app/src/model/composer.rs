@@ -712,7 +712,8 @@ async fn send_remote(
 ) -> Result<String, String> {
     let (files, session) = model
         .update(cx, |model, cx| {
-            let session = model
+            let (_, session) = model
+                .state
                 .pane_session(pane)
                 .ok_or_else(|| tr!("The terminal closed before sending.").to_string())?;
             Ok::<_, String>((model.remote_files(server, cx)?, session))
@@ -765,10 +766,12 @@ impl AppModel {
         let mut sessions = std::collections::HashSet::new();
         let mut targets = Vec::new();
         for id in requested {
-            let Some((session, attachment, modes)) = self.pane_session(id).and_then(|session| {
-                let pane = self.grids.get(&id)?.view.read(cx);
-                Some((session, pane.attachment()?, pane.grid.as_ref()?.modes))
-            }) else {
+            let Some((session, attachment, modes)) =
+                self.state.pane_session(id).and_then(|(_, session)| {
+                    let pane = self.grids.get(&id)?.view.read(cx);
+                    Some((session, pane.attachment()?, pane.grid.as_ref()?.modes))
+                })
+            else {
                 return Err(
                     tr!("Every target must have a live terminal before sending.").to_string(),
                 );

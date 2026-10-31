@@ -592,11 +592,7 @@ impl AppModel {
                 .open_terminal_tab(self.state.current_project().id)
                 .map_err(|error| error.to_string())?;
             let pane = self
-                .state
-                .projects()
-                .iter()
-                .flat_map(|project| &project.tabs)
-                .find(|candidate| candidate.id == tab)
+                .tab(tab)
                 .and_then(|tab| tab.panes.first())
                 .map(|pane| pane.id)
                 .ok_or("could not create tab")?;
@@ -636,7 +632,7 @@ impl AppModel {
                 },
                 cx,
             )?;
-            return Ok(json!(self.pane_tab(pane).map(|tab| tab.to_string())));
+            return Ok(json!(self.state.pane_tab(pane).map(|tab| tab.to_string())));
         }
         let target = &args["extension"];
         let (id, tab_type) = (
@@ -663,7 +659,7 @@ impl AppModel {
             target["singleton"].as_bool().unwrap_or(false),
             cx,
         )?;
-        Ok(json!(self.pane_tab(pane).map(|tab| tab.to_string())))
+        Ok(json!(self.state.pane_tab(pane).map(|tab| tab.to_string())))
     }
 
     fn terminal_pane(&self, args: &Value) -> Result<(PaneId, TabId), String> {
@@ -673,15 +669,9 @@ impl AppModel {
             .map_err(|_| "invalid pane ID".to_owned())?;
         let tab = self
             .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .find(|tab| {
-                tab.panes.iter().any(|candidate| {
-                    candidate.id == pane
-                        && matches!(candidate.content, PaneContent::Terminal { .. })
-                })
-            })
+            .placed_pane(pane)
+            .filter(|placed| matches!(placed.pane.content, PaneContent::Terminal { .. }))
+            .and_then(|placed| placed.tab)
             .map(|tab| tab.id)
             .ok_or_else(|| format!("pane not found {identifier}"))?;
         Ok((pane, tab))
@@ -705,12 +695,8 @@ impl AppModel {
             let active = self.active_pane();
             return Ok(Value::Array(
                 self.state
-                    .projects()
-                    .iter()
-                    .flat_map(|project| project.tabs.iter().map(move |tab| (project, tab)))
-                    .flat_map(|(project, tab)| {
-                        tab.panes.iter().map(move |pane| (project, tab, pane))
-                    })
+                    .panes()
+                    .filter_map(|placed| Some((placed.project?, placed.tab?, placed.pane)))
                     .filter(|(_, _, pane)| matches!(pane.content, PaneContent::Terminal { .. }))
                     .map(|(project, tab, pane)| {
                         let directory = self
