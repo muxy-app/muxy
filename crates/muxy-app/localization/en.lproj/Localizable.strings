@@ -354,6 +354,8 @@
 "Color" = "Color";
 "Color of the character under a block cursor. Leave empty to use the theme." = "Color of the character under a block cursor. Leave empty to use the theme.";
 "Colors" = "Colors";
+"Colors for Quick Terminal when macOS uses dark appearance. Same as App follows the app's dark theme." = "Colors for Quick Terminal when macOS uses dark appearance. Same as App follows the app's dark theme.";
+"Colors for Quick Terminal when macOS uses light appearance. Same as App follows the app's light theme." = "Colors for Quick Terminal when macOS uses light appearance. Same as App follows the app's light theme.";
 "Colors for the interface and terminals when macOS uses dark appearance." = "Colors for the interface and terminals when macOS uses dark appearance.";
 "Colors for the interface and terminals when macOS uses light appearance." = "Colors for the interface and terminals when macOS uses light appearance.";
 "Combine programming symbols when the selected font supports ligatures." = "Combine programming symbols when the selected font supports ligatures.";
@@ -1266,6 +1268,7 @@
 "SSH command" = "SSH command";
 "SSH connected. Install muxy-server to finish setting up this server." = "SSH connected. Install muxy-server to finish setting up this server.";
 "SSH host" = "SSH host";
+"Same as App" = "Same as App";
 "Save" = "Save";
 "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file." = "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file.";
 "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes." = "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes.";

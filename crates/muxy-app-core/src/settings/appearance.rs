@@ -170,6 +170,14 @@ impl Default for Appearance {
 }
 
 impl Appearance {
+    pub fn theme(&self, dark: bool) -> &str {
+        if dark {
+            &self.dark_theme
+        } else {
+            &self.light_theme
+        }
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let document = read_document(path)?;
         document.get("appearance").cloned().map_or_else(

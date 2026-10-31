@@ -3,7 +3,6 @@ use std::fs;
 use std::path::Path;
 
 use gpui::{Window, WindowAppearance};
-use muxy_app_core::settings::Appearance;
 use muxy_ui::theme::{ColorScheme, Theme};
 use muxy_ui::tr;
 
@@ -92,12 +91,7 @@ impl Catalog {
         Ok(())
     }
 
-    fn selected(&self, appearance: &Appearance, dark: bool) -> Option<&Entry> {
-        let name = if dark {
-            &appearance.dark_theme
-        } else {
-            &appearance.light_theme
-        };
+    fn selected(&self, name: &str, dark: bool) -> Option<&Entry> {
         let fallback = if dark { "Muxy" } else { "Muxy Light" };
         self.find(name).or_else(|| self.find(fallback))
     }
@@ -109,14 +103,14 @@ impl Catalog {
             .find_map(|name| self.entries.iter().find(|entry| entry.name == name))
     }
 
-    pub(crate) fn active_name(&self, appearance: &Appearance, dark: bool) -> String {
-        self.selected(appearance, dark)
+    pub(crate) fn active_name(&self, name: &str, dark: bool) -> String {
+        self.selected(name, dark)
             .map_or_else(String::new, |entry| entry.name.clone())
     }
 
-    pub(crate) fn resolve(&self, appearance: &Appearance, dark: bool) -> (Theme, Palette) {
+    pub(crate) fn resolve(&self, name: &str, dark: bool) -> (Theme, Palette) {
         let scheme = self
-            .selected(appearance, dark)
+            .selected(name, dark)
             .map_or_else(ColorScheme::default, |entry| entry.scheme.clone());
         (
             Theme::from_scheme(&scheme),

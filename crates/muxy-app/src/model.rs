@@ -243,7 +243,9 @@ impl AppModel {
     }
     pub(crate) fn refresh_theme(&mut self, cx: &mut Context<Self>) {
         let previous_colors = self.palette.terminal_colors();
-        let (theme, palette) = self.themes.resolve(&self.appearance, self.dark);
+        let (theme, palette) = self
+            .themes
+            .resolve(self.appearance.theme(self.dark), self.dark);
         self.theme = theme;
         self.palette = palette.with_options(&self.terminal.options);
         if previous_colors != self.palette.terminal_colors() {
@@ -253,7 +255,10 @@ impl AppModel {
                 }
             }
         }
-        for pane in self.grids.values() {
+        for (id, pane) in &self.grids {
+            if self.is_quick_terminal(*id) {
+                continue;
+            }
             pane.view.update(cx, |pane, cx| {
                 pane.palette = self.palette;
                 pane.update_find_theme(&self.theme, cx);
@@ -293,7 +298,7 @@ impl AppModel {
         }
         self.sync_preferences(cx);
         if let Some(Overlay::Commands { palette, dark }) = &self.overlay {
-            let active = self.themes.active_name(&self.appearance, *dark);
+            let active = self.themes.active_name(self.appearance.theme(*dark), *dark);
             palette.update(cx, |palette, cx| {
                 palette.set_appearance(self.theme.clone(), self.metrics, cx);
                 if palette.is_page(crate::views::theme_picker::PAGE_ID) {
@@ -480,7 +485,7 @@ impl AppModel {
             model.flush_composer(cx)
         });
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
-        let (theme, palette) = themes.resolve(&boot.settings.appearance, dark);
+        let (theme, palette) = themes.resolve(boot.settings.appearance.theme(dark), dark);
         let palette = palette.with_options(&boot.terminal.options);
         let configuration_error = boot.import_message;
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
@@ -1825,8 +1830,13 @@ impl AppModel {
         let snapshot = self.snapshots.remove(&id);
         let scroll = self.scrolls.remove(&id).unwrap_or_default();
         let state = self.pane_state(id);
+        let palette = self
+            .is_quick_terminal(id)
+            .then(|| self.quick_theme())
+            .flatten()
+            .map_or(self.palette, |(_, palette)| palette);
         let view = cx.new(|cx| {
-            let mut pane = TerminalPane::new(self.palette, terminal, cx);
+            let mut pane = TerminalPane::new(palette, terminal, cx);
             pane.native_vibrancy =
                 self.terminal_background.available && !self.is_quick_terminal(id);
             pane.configured_font_size = self.terminal.font_size;
@@ -2070,6 +2080,10 @@ impl AppModel {
         } else {
             BTreeMap::new()
         };
+        let colors = (session.is_none() && self.is_quick_terminal(pane))
+            .then(|| self.quick_theme())
+            .flatten()
+            .map(|(_, palette)| palette.terminal_colors());
         if !self.save(cx) {
             return;
         }
@@ -2089,6 +2103,7 @@ impl AppModel {
                 directory,
                 size,
                 environment,
+                colors,
             },
             cx,
         );
@@ -2214,6 +2229,9 @@ impl AppModel {
         self.sync_preferences(cx);
         if server.is_local() || (failure.is_some() && self.error == failure) {
             self.set_banner_error(None);
+        }
+        if server.is_local() {
+            self.forget_quick_colors();
         }
         if !self.send(server, Work::Colors(self.palette.terminal_colors()), cx) {
             return;
@@ -2457,6 +2475,9 @@ impl AppModel {
                 self.send(server, Work::Detach(attachment.channel), cx);
             }
             return;
+        }
+        if server.is_local() && self.is_quick_terminal(pane) {
+            self.refresh_quick_terminal(cx);
         }
         let command = self.state.take_startup_command(pane);
         let saved = self.save(cx);

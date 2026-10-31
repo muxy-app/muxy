@@ -331,6 +331,13 @@ fn ordered_request(
             outbox.set_colors(colors);
             ReplyBody::TerminalColorsSet
         }
+        RequestBody::SetSessionColors { session, colors } => {
+            if colors.is_some() && registry.handle(session).is_none() {
+                return Err(ServerError::unknown_session(session));
+            }
+            outbox.set_session_colors(session, colors);
+            ReplyBody::SessionColorsSet
+        }
         RequestBody::Attach { session, size } => {
             attach(session, Some(size), id, registry, outbox, last_channel)?;
             return Ok(None);
@@ -424,17 +431,24 @@ fn ordered_request(
             directory,
             size,
             environment,
-        } => ReplyBody::SessionCreated(registry.create_launched(
-            project,
-            operation,
-            Path::new(OsStr::from_bytes(&directory.0)),
-            size,
-            crate::registry::Launch {
-                colors: outbox.colors(),
-                environment,
-            },
-            Some(outbox),
-        )?),
+            colors,
+        } => {
+            let info = registry.create_launched(
+                project,
+                operation,
+                Path::new(OsStr::from_bytes(&directory.0)),
+                size,
+                crate::registry::Launch {
+                    colors: colors.clone().or_else(|| outbox.colors()),
+                    environment,
+                },
+                Some(outbox),
+            )?;
+            if colors.is_some() {
+                outbox.set_session_colors(info.id, colors);
+            }
+            ReplyBody::SessionCreated(info)
+        }
         RequestBody::EndSession(session) => {
             registry.end(session)?;
             ReplyBody::SessionEnded

@@ -33,6 +33,7 @@ fn every_request_with_a_size_validates_it() {
                 directory: directory(),
                 size,
                 environment: std::collections::BTreeMap::new(),
+                colors: None,
             },
             RequestBody::Attach {
                 session: session_id(),
@@ -60,6 +61,7 @@ fn new_sessions_refuse_environment_a_process_cannot_hold() {
                 .iter()
                 .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
                 .collect(),
+            colors: None,
         })
         .validate()
     };
@@ -327,6 +329,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("TerminalColorsReply", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::SetSessionColors { .. },
+                ..
+            } => ("SessionColorsRequest", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionColorsSet,
+                ..
+            } => ("SessionColorsReply", ChannelKind::Control),
+            Message::Request {
                 body:
                     RequestBody::Search {
                         source: muxy_protocol::SearchSource::Live(_),
@@ -538,6 +548,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "SearchReply",
             "TerminalColorsRequest",
             "TerminalColorsReply",
+            "SessionColorsRequest",
+            "SessionColorsReply",
             "HistoryRequest",
             "SavedHistoryRequest",
             "HistoryReply",

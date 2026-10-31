@@ -78,14 +78,20 @@ impl SettingsWindow {
             if let Some(overlay) = &root.overlay {
                 match overlay {
                     SettingsOverlay::Themes { picker, source } => {
-                        let active = if source.kind == super::PickerKind::Theme(true) {
-                            view.snapshot.settings.appearance.dark_theme.clone()
-                        } else {
-                            view.snapshot.settings.appearance.light_theme.clone()
-                        };
+                        let model = root.model.upgrade();
+                        let active =
+                            source
+                                .kind
+                                .theme()
+                                .zip(model)
+                                .map(|((target, dark), model)| {
+                                    theme_picker::current(model.read(cx), target, dark)
+                                });
                         picker.update(cx, |picker, cx| {
                             picker.set_appearance(theme, metrics, cx);
-                            picker.set_current(&active, cx);
+                            if let Some(active) = &active {
+                                picker.set_current(active, cx);
+                            }
                         });
                     }
                     SettingsOverlay::Fonts { picker, .. } => {
@@ -179,16 +185,24 @@ impl SettingsWindow {
                     source: request,
                 });
             }
-            super::PickerKind::Theme(dark) => {
-                let Ok(registry) = self
-                    .model
-                    .update(cx, |model, cx| model.command_registry(dark, cx))
-                else {
+            super::PickerKind::Theme(_) | super::PickerKind::QuickTheme(_) => {
+                let Some((target, dark)) = request.kind.theme() else {
+                    return;
+                };
+                let Ok(registry) = self.model.update(cx, |model, cx| match target {
+                    theme_picker::ThemeTarget::App => model.command_registry(dark, cx),
+                    theme_picker::ThemeTarget::QuickTerminal => {
+                        model.reload_themes(cx);
+                        let mut registry = muxy_ui::command_palette::Registry::default();
+                        registry.register(theme_picker::command(model, target, dark, cx));
+                        registry
+                    }
+                }) else {
                     return;
                 };
                 let picker = cx.new(|cx| CommandPalette::dropdown(registry, theme, metrics, cx));
                 picker.update(cx, |picker, cx| {
-                    picker.open_root_page(theme_picker::PAGE_ID, cx);
+                    picker.open_root_page(target.page_id(), cx);
                 });
                 self.overlay_subscription = Some(cx.subscribe_in(
                     &picker,
@@ -210,8 +224,7 @@ impl SettingsWindow {
                                     model.update(cx, |model, cx| {
                                         handler(model, window, cx);
                                         if keep_open {
-                                            let active =
-                                                model.themes.active_name(&model.appearance, dark);
+                                            let active = theme_picker::current(model, target, dark);
                                             picker.update(cx, |picker, cx| {
                                                 picker.set_current(&active, cx);
                                             });

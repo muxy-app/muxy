@@ -66,6 +66,7 @@ struct State {
     session_metadata: HashMap<SessionId, muxy_protocol::SessionMetadata>,
     watches: Watches,
     colors: Option<TerminalColors>,
+    session_colors: HashMap<SessionId, TerminalColors>,
     control: VecDeque<Message>,
     pending: HashMap<ChannelId, ScreenFrame>,
     metadata: HashMap<ChannelId, Vec<MetadataEvent>>,
@@ -245,12 +246,17 @@ impl Outbox {
 
     pub(super) fn set_colors(&self, colors: TerminalColors) {
         let mut state = self.lock();
-        for attachment in state.attachments.values() {
-            let _ = attachment
-                .handle
-                .send(SessionCommand::SetColors(colors.clone()));
-        }
         state.colors = Some(colors);
+        state.apply_colors(|session| !state.session_colors.contains_key(&session));
+    }
+
+    pub(super) fn set_session_colors(&self, session: SessionId, colors: Option<TerminalColors>) {
+        let mut state = self.lock();
+        match colors {
+            Some(colors) => state.session_colors.insert(session, colors),
+            None => state.session_colors.remove(&session),
+        };
+        state.apply_colors(|attached| attached == session);
     }
 
     pub(crate) fn push_control(&self, message: Message) {
@@ -324,7 +330,7 @@ impl Outbox {
         if state.references.owner.is_some() && state.references.released.contains(&session) {
             return Err(ServerError::unknown_session(session));
         }
-        if let Some(colors) = &state.colors {
+        if let Some(colors) = state.colors_for(session) {
             handle.send(SessionCommand::SetColors(colors.clone()))?;
         }
         if let Err(undelivered) = handle.try_send(command) {
@@ -448,6 +454,7 @@ impl Outbox {
         state.references.sessions.remove(&session);
         state.progress.remove(&session);
         state.session_metadata.remove(&session);
+        state.session_colors.remove(&session);
         state.open_sessions.remove(&session);
         let channels: Vec<_> = state
             .attachments
@@ -571,6 +578,24 @@ impl Outbox {
 }
 
 impl State {
+    fn colors_for(&self, session: SessionId) -> Option<&TerminalColors> {
+        self.session_colors.get(&session).or(self.colors.as_ref())
+    }
+
+    /// Sends each matching attached session the colors it should use now.
+    fn apply_colors(&self, matches: impl Fn(SessionId) -> bool) {
+        for attachment in self.attachments.values() {
+            let session = attachment.handle.id();
+            if matches(session)
+                && let Some(colors) = self.colors_for(session)
+            {
+                let _ = attachment
+                    .handle
+                    .send(SessionCommand::SetColors(colors.clone()));
+            }
+        }
+    }
+
     fn refresh_positions(&mut self) {
         if self.closed {
             return;
@@ -641,6 +666,51 @@ mod tests {
     use muxy_protocol::{Cursor, Modes, Row};
 
     use super::*;
+
+    #[test]
+    fn a_session_keeps_its_own_colors_until_cleared() -> Result<(), ServerError> {
+        let colors = |shade| TerminalColors {
+            background: [shade; 3],
+            ..TerminalColors::default()
+        };
+        let sent = |commands: &std::sync::mpsc::Receiver<crate::session::OwnerEvent>| {
+            commands
+                .try_iter()
+                .filter_map(|event| match event {
+                    crate::session::OwnerEvent::Command(SessionCommand::SetColors(colors)) => {
+                        Some(colors.background[0])
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let outbox = Outbox::new(Arc::default());
+        let (handle, commands) = SessionHandle::fake();
+        let session = handle.id();
+        outbox.set_colors(colors(1));
+        outbox.set_session_colors(session, Some(colors(2)));
+        let id = AttachmentId(1);
+        outbox.attach(
+            ChannelId(1),
+            id,
+            RequestId(1),
+            handle,
+            SessionCommand::Detach(id),
+        )?;
+        assert_eq!(sent(&commands), [2]);
+        outbox.set_colors(colors(3));
+        assert!(sent(&commands).is_empty());
+        outbox.set_session_colors(session, Some(colors(4)));
+        assert_eq!(sent(&commands), [4]);
+        outbox.set_session_colors(session, None);
+        assert_eq!(sent(&commands), [3]);
+        outbox.set_colors(colors(5));
+        assert_eq!(sent(&commands), [5]);
+        outbox.set_session_colors(session, Some(colors(6)));
+        outbox.session_ended(session, ExitReason::Exited(0));
+        assert!(outbox.lock().session_colors.is_empty());
+        Ok(())
+    }
 
     #[test]
     fn file_changes_coalesce_and_rescan_for_slow_consumers() {

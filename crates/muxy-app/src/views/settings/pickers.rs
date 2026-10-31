@@ -42,6 +42,7 @@ pub(crate) enum PickerKind {
     Terminal(&'static str),
     Language,
     Theme(bool),
+    QuickTheme(bool),
     AiProvider(crate::repository_actions::Action),
     ExtensionSidebar,
     FileOpener,
@@ -49,6 +50,16 @@ pub(crate) enum PickerKind {
 }
 
 impl PickerKind {
+    /// What a theme picker changes, and for which appearance.
+    pub(super) fn theme(self) -> Option<(crate::views::theme_picker::ThemeTarget, bool)> {
+        use crate::views::theme_picker::ThemeTarget;
+        match self {
+            Self::Theme(dark) => Some((ThemeTarget::App, dark)),
+            Self::QuickTheme(dark) => Some((ThemeTarget::QuickTerminal, dark)),
+            _ => None,
+        }
+    }
+
     pub(super) fn id(self) -> &'static str {
         match self {
             Self::Font(slot) => slot.id(),
@@ -56,6 +67,8 @@ impl PickerKind {
             Self::Language => "composer-language",
             Self::Theme(false) => "light-theme",
             Self::Theme(true) => "dark-theme",
+            Self::QuickTheme(false) => "quick-light-theme",
+            Self::QuickTheme(true) => "quick-dark-theme",
             Self::AiProvider(action) => super::ai::provider_id(action),
             Self::ExtensionSidebar => "extension-sidebar",
             Self::FileOpener => "file-opener",
