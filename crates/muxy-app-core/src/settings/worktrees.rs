@@ -55,7 +55,8 @@ impl WorktreeLocation {
 
 impl WorktreeSettings {
     /// Reads only the `[worktrees]` table of the settings file at `path`, so a
-    /// section written by a newer app or broken by hand never blocks worktrees.
+    /// section written by a newer app or holding invalid values never blocks
+    /// worktrees.
     /// A missing file or table gives the defaults.
     pub fn load(path: &Path) -> Result<Self> {
         let context = || format!("{}: worktrees", path.display());
