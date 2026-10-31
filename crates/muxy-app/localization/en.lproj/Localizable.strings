@@ -144,6 +144,7 @@
 "Allow" = "Allow";
 "Allow %@?" = "Allow %@?";
 "Allow & Remember" = "Allow & Remember";
+"Allow Muxy to Run in the Background?" = "Allow Muxy to Run in the Background?";
 "Allow other devices" = "Allow other devices";
 "Allow programs to use the mouse" = "Allow programs to use the mouse";
 "Also make backgrounds drawn by terminal programs translucent." = "Also make backgrounds drawn by terminal programs translucent.";
@@ -802,6 +803,7 @@
 "Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button." = "Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button.";
 "Keep Waiting" = "Keep Waiting";
 "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused." = "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused.";
+"Keep terminals running after quitting" = "Keep terminals running after quitting";
 "Key" = "Key";
 "Key bindings" = "Key bindings";
 "Keyboard" = "Keyboard";
@@ -1016,6 +1018,7 @@
 "On-device speech recognition is unavailable for this language. Choose another dictation language." = "On-device speech recognition is unavailable for this language. Choose another dictation language.";
 "Open" = "Open";
 "Open Browser Tab" = "Open Browser Tab";
+"Open Login Items" = "Open Login Items";
 "Open Project" = "Open Project";
 "Open Project in %@" = "Open Project in %@";
 "Open Project…" = "Open Project…";
@@ -1745,6 +1748,8 @@
 "invalid archive size" = "invalid archive size";
 "invalid marketplace URL" = "invalid marketplace URL";
 "invalid marketplace details" = "invalid marketplace details";
+"macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings." = "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings.";
+"macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings." = "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings.";
 "marketplace response is too large" = "marketplace response is too large";
 "menu close submenu" = "menu close submenu";
 "menu confirm highlighted" = "menu confirm highlighted";

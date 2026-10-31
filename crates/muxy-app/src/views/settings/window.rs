@@ -597,6 +597,9 @@ impl SettingsWindow {
                     );
                 });
             }
+            SettingsEvent::OpenLoginItems => {
+                let _ = self.model.update(cx, AppModel::open_login_items);
+            }
             SettingsEvent::ReadServer => {
                 let _ = self.model.update(cx, AppModel::read_server_settings);
             }

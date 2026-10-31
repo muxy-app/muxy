@@ -158,7 +158,10 @@ the iOS app needs local network permission.
 macOS charges a process's privacy permissions, such as Local Network, to the app
 process that started it. The desktop app starts the server through a small copy
 of itself that lives as long as the server, so terminals keep Muxy's permissions
-after the app quits.
+after the app quits. macOS still counts that copy, the server, and every
+terminal as the app's processes, and ends them once the app quits unless Muxy is
+allowed under Background App Activity. The copy notes that stop, and the app
+explains it at the next launch.
 
 ## Terminal engine
 

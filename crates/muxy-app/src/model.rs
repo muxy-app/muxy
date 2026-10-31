@@ -1,6 +1,7 @@
 pub(crate) mod agent_sessions;
 pub(crate) mod agents_panel;
 pub(crate) mod ai;
+mod background;
 pub(crate) mod banners;
 pub(crate) mod browsers;
 pub(crate) mod capabilities;
@@ -454,6 +455,7 @@ impl AppModel {
         reason = "Application startup wires independent state and subscriptions"
     )]
     pub(crate) fn new(boot: Boot, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let stopped_in_background = boot.stopped_in_background;
         let events = cx.spawn(async move |this, cx| {
             while let Ok(update) = boot.updates.recv().await {
                 if this
@@ -665,6 +667,9 @@ impl AppModel {
         model.start_update_checks(cx);
         model.sync_ssh_proxy(cx);
         model.start_servers(cx);
+        if stopped_in_background {
+            model.explain_background_stop(cx);
+        }
         model
     }
 
@@ -2916,6 +2921,7 @@ mod tests {
     mod agent_sessions;
     mod agents_panel;
     mod ai;
+    mod background;
     mod browsers;
     mod commands;
     mod composer;
@@ -3049,6 +3055,7 @@ mod tests {
         (
             Boot {
                 import_message: None,
+                stopped_in_background: false,
                 composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),

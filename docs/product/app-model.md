@@ -112,7 +112,7 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 | A remote server drops | Its section shows it offline and it reconnects on its own, waiting longer each time, until a login or host key needs you. Its projects never show as failed while offline. |
 | A project's folder is gone | The project shows as failed, also on a remote server. |
 | A terminal ends | Its panes close in every app, including hidden tabs. |
-| You quit or detach | Terminals keep running. |
+| You quit or detach | Terminals keep running. On macOS, only while Muxy is on under Background App Activity; otherwise macOS ends them and the next launch shows how to turn it on. |
 | **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
 
 The status bar shows the current project's server, with connect, restart, and

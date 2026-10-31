@@ -4637,6 +4637,7 @@ dependencies = [
  "muxy-core",
  "muxy-protocol",
  "serde_json",
+ "signal-hook 0.4.4",
  "tempfile",
 ]
 
@@ -7334,6 +7335,7 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2a0c28ca5908dbdbcd52e6fdaa00358ab88637f8ab33e1f188dd510eb44b53d"
 dependencies = [
+ "cc",
  "libc",
  "signal-hook-registry",
 ]
