@@ -1,0 +1,63 @@
+diff --git a/src/key.rs b/src/key.rs
+index a165311..bf2fd28 100644
+--- a/src/key.rs
++++ b/src/key.rs
+@@ -66,13 +66,11 @@ impl<'alloc> Encoder<'alloc> {
+     /// keys typically don't generate escape sequences. Check the returned
+     /// `Vec` to determine if any data was written.
+     pub fn encode_to_vec(&mut self, event: &Event, vec: &mut Vec<u8>) -> Result<()> {
+-        let remaining = vec.capacity() - vec.len();
+-
+         let written = match self.encode_to_uninit_buf(event, vec.spare_capacity_mut()) {
+             Ok(v) => Ok(v),
+             Err(Error::OutOfSpace { required }) => {
+                 // Retry with more capacity
+-                vec.reserve(required - remaining);
++                vec.reserve(required);
+                 self.encode_to_uninit_buf(event, vec.spare_capacity_mut())
+             }
+             Err(e) => Err(e),
+diff --git a/src/terminal.rs b/src/terminal.rs
+index 68046d0..25bfc84 100644
+--- a/src/terminal.rs
++++ b/src/terminal.rs
+@@ -331,16 +331,17 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
+     ///
+     /// Like [`Self::vt_write`], the input is assumed to be untrusted.
+     pub fn vt_write_until_ground(&mut self, data: &[u8]) -> Result<Option<usize>> {
+-        let mut consumed = 0;
++        let mut stop = ffi::sized!(ffi::TerminalWriteStop);
+         let result = unsafe {
+-            ffi::ghostty_terminal_vt_write_until_ground(
++            ffi::ghostty_terminal_vt_write_until(
+                 self.inner.as_raw(),
+                 data.as_ptr(),
+                 data.len(),
+-                &raw mut consumed,
++                ffi::TerminalBoundary::GROUND as u32,
++                &raw mut stop,
+             )
+         };
+-        from_optional_result_with_len(result, consumed)
++        from_optional_result_with_len(result, stop.consumed)
+     }
+ 
+     /// Whether VT processing is at ground.
+@@ -396,6 +397,17 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
+         unsafe { ffi::ghostty_terminal_reset(self.inner.as_raw()) }
+     }
+ 
++    /// Clear the primary screen and scrollback without resetting modes or the VT parser.
++    ///
++    /// Returns true at a semantic prompt: the caller should send form feed (0x0C)
++    /// to the shell to repaint its input. Otherwise, removes rows above the cursor
++    /// and deletes every Kitty image, as Ghostty's own clear does.
++    /// Does nothing on the alternate screen. Does not invoke the PTY callback.
++    pub fn clear_screen(&mut self) -> bool {
++        // SAFETY: The terminal is live and exclusively borrowed for this mutation.
++        unsafe { ffi::ghostty_terminal_clear_screen(self.inner.as_raw()) }
++    }
++
+     /// Scroll the terminal viewport.
+     ///
+     /// Scrolls the terminal's viewport according to the given behavior.
