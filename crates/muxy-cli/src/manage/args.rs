@@ -89,7 +89,11 @@ pub(crate) enum Session {
     },
     End(Option<SessionId>),
     Discard(Option<SessionId>),
-    Show(Option<SessionId>),
+    Show {
+        session: Option<SessionId>,
+        /// Adds the tab without switching the window to it.
+        background: bool,
+    },
     Send {
         session: Option<SessionId>,
         text: String,
@@ -254,6 +258,7 @@ fn options(group: &str, verb: &str) -> (&'static [&'static str], &'static [&'sta
         ("worktree", "remove") => (&[], &["--yes", "--force", "--hooks"]),
         ("server", "stop") => (&[], &["--force"]),
         ("session", "list") => (&["--project"], &["--all"]),
+        ("session", "show") => (&[], &["--background"]),
         ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
         ("session", "read-screen") => (&["--lines"], &["--saved"]),
         ("session", "history") => (&["--before", "--limit"], &["--saved"]),
@@ -372,7 +377,10 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
             o.confirm()?;
             Ok(Session::Discard(session))
         }
-        "show" => Ok(Session::Show(session)),
+        "show" => Ok(Session::Show {
+            session,
+            background: o.flag("--background"),
+        }),
         "send" => Ok(Session::Send {
             session,
             text: argument()?.into(),
@@ -666,6 +674,8 @@ mod tests {
             vec!["session", "send", "1", "two", "three"],
             vec!["session", "show", "1", "2"],
             vec!["session", "show", "tab"],
+            vec!["session", "create", "--background"],
+            vec!["session", "list", "--background"],
             vec!["session", "wait", "1"],
             vec!["session", "wait", "--text", "a", "--exit"],
             vec!["session", "wait", "--exit", "--ignore-case"],
@@ -705,11 +715,17 @@ mod tests {
         );
         assert_eq!(
             action(&["session", "show", "5"])?,
-            Action::Session(Session::Show(id))
+            Action::Session(Session::Show {
+                session: id,
+                background: false
+            })
         );
         assert_eq!(
-            action(&["session", "show"])?,
-            Action::Session(Session::Show(None))
+            action(&["session", "show", "--background"])?,
+            Action::Session(Session::Show {
+                session: None,
+                background: true
+            })
         );
         assert_eq!(
             action(&["session", "search", "5", "error"])?,

@@ -81,6 +81,7 @@ muxy session end "$id" --yes
 - `show` opens a session in a new tab of its project in the desktop app on
   this computer, starting it if needed. When a tab already shows the session,
   `show` selects that tab instead. It never brings a running app to the front.
+  With `--background`, `show` adds the tab without switching to it.
 - Inside a Muxy terminal, session commands default to that terminal, and
   `create` to its project.
 - `create` can take a `--directory` and a command to run after `--`.
