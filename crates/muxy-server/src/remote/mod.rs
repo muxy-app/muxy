@@ -80,9 +80,13 @@ impl RemoteAccess {
         Self::with_store(None, Stored::default(), None)
     }
 
-    /// Opens the saved state; an unreadable file is moved aside and access starts off.
+    /// Opens the saved state; contents this build can't understand are moved
+    /// aside and access starts off.
     pub fn open(path: PathBuf) -> io::Result<Self> {
-        Ok(match store::load(&path) {
+        let Some(bytes) = store::read(&path)? else {
+            return Ok(Self::with_store(Some(path), Stored::default(), None));
+        };
+        Ok(match store::parse(&path, &bytes) {
             Ok(stored) => Self::with_store(Some(path), stored, None),
             Err(error) => {
                 let unreadable = crate::unreadable::set_aside(&path, &error)?;

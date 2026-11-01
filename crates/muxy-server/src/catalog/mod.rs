@@ -237,15 +237,20 @@ impl Catalog {
         notifier: Arc<Notifier>,
     ) -> io::Result<Self> {
         let path = directory.join("catalog.json");
-        let (mut state, unreadable) = match read(&path) {
-            Ok(Some(state)) => (state, None),
-            Ok(None) => (fresh(legacy, archive)?, None),
-            // The legacy import ran when this catalog was first written; only
-            // saved terminals are adopted again.
-            Err(error) => {
-                let unreadable = crate::unreadable::set_aside(&path, &error)?;
-                (fresh(LegacyImport::default(), archive)?, Some(unreadable))
+        let (mut state, unreadable) = match fs::read(&path) {
+            Ok(bytes) => match parse(&bytes) {
+                Ok(state) => (state, None),
+                // The legacy import ran when this catalog was first written; only
+                // saved terminals are adopted again.
+                Err(error) => {
+                    let state = fresh(LegacyImport::default(), archive)?;
+                    (state, Some(crate::unreadable::set_aside(&path, &error)?))
+                }
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                (fresh(legacy, archive)?, None)
             }
+            Err(error) => return Err(error),
         };
         let now = retention::now();
         for membership in state.sessions.values_mut() {
@@ -371,16 +376,10 @@ fn check_revision(state: &State, revision: Option<u64>) -> Result<(), ServerErro
     }
 }
 
-/// `None` when there is no saved catalog yet.
-fn read(path: &Path) -> io::Result<Option<State>> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    let state: State = serde_json::from_slice::<storage::StoredState>(&bytes)?.into();
+fn parse(bytes: &[u8]) -> io::Result<State> {
+    let state: State = serde_json::from_slice::<storage::StoredState>(bytes)?.into();
     state.validate().map_err(io::Error::other)?;
-    Ok(Some(state))
+    Ok(state)
 }
 
 fn fresh(legacy: LegacyImport, archive: &Archive) -> io::Result<State> {

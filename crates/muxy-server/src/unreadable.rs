@@ -32,14 +32,23 @@ pub(crate) fn set_aside(path: &Path, error: &io::Error) -> io::Result<Unreadable
     })
 }
 
+/// A name no earlier kept copy uses, so none is overwritten.
 fn kept_path(path: &Path) -> PathBuf {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let mut name = path.file_name().unwrap_or_default().to_owned();
-    name.push(format!(".unreadable-{millis}"));
-    path.with_file_name(name)
+    (0_u32..)
+        .map(|copy| {
+            let mut name = path.file_name().unwrap_or_default().to_owned();
+            name.push(format!(".unreadable-{millis}"));
+            if copy > 0 {
+                name.push(format!("-{copy}"));
+            }
+            path.with_file_name(name)
+        })
+        .find(|kept| !kept.exists())
+        .unwrap_or_else(|| path.to_owned())
 }
 
 fn truncated(mut error: String) -> String {
@@ -77,6 +86,16 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(&kept)?, "damaged");
         assert!(file.error.len() <= MAX_UNREADABLE_ERROR);
+        for _ in 0..3 {
+            fs::write(&path, "damaged again")?;
+            set_aside(&path, &io::Error::other("unreadable"))?;
+        }
+        assert_eq!(
+            fs::read_dir(&directory)?.count(),
+            4,
+            "no kept copy is replaced"
+        );
+        assert_eq!(fs::read_to_string(&kept)?, "damaged");
         fs::remove_dir_all(directory)
     }
 }

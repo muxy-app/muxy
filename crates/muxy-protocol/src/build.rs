@@ -82,7 +82,8 @@ impl ServerInfo {
         }
     }
 
-    pub(crate) fn validate(&self) -> Result<(), crate::ErrorCode> {
+    /// The unreadable files stay within the reported limits.
+    pub fn validate(&self) -> Result<(), crate::ErrorCode> {
         let valid = self.unreadable.len() <= MAX_UNREADABLE_FILES
             && self.unreadable.iter().all(|file| {
                 crate::validate_absolute_path(&file.kept_as).is_ok()

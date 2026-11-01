@@ -443,3 +443,20 @@ fn an_unreadable_catalog_is_moved_aside_and_startup_continues() -> std::io::Resu
     }
     Ok(())
 }
+
+#[test]
+fn a_catalog_that_cannot_be_read_at_all_stops_startup_and_stays_in_place() -> std::io::Result<()> {
+    let directory = std::env::temp_dir().join(format!("muxy-catalog-{}", OperationId::new()));
+    let path = directory.join("catalog.json");
+    std::fs::create_dir_all(&path)?;
+    let opened = Catalog::open(
+        &directory,
+        &Archive::memory(0),
+        LegacyImport::default(),
+        std::sync::Arc::default(),
+    );
+    assert!(opened.is_err());
+    assert!(path.is_dir());
+    assert_eq!(std::fs::read_dir(&directory)?.count(), 1);
+    std::fs::remove_dir_all(&directory)
+}
