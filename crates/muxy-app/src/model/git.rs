@@ -264,15 +264,7 @@ impl AppModel {
         if self.git.current != Some(current) {
             self.git.current = Some(current);
             self.git.interaction = self.git.interaction.wrapping_add(1);
-            if matches!(
-                self.overlay,
-                Some(
-                    Overlay::Git(_)
-                        | Overlay::GitForm(_)
-                        | Overlay::PullRequest(_)
-                        | Overlay::AiProvider(_)
-                )
-            ) {
+            if self.overlay.as_ref().is_some_and(Overlay::is_git) {
                 self.dismiss_overlay(cx);
             }
             self.queue_git_refresh(
@@ -483,7 +475,7 @@ impl AppModel {
                     self.dismiss_overlay(cx);
                 }
                 if matches!(request.action, GitAction::Worktree(_)) {
-                    if context_matches {
+                    if context_matches && self.overlay.as_ref().is_none_or(Overlay::is_git) {
                         self.dismiss_overlay(cx);
                     }
                     self.refresh_catalog(self.project_server_or_local(request.project), cx);

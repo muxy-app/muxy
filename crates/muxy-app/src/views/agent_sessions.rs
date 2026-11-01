@@ -1,7 +1,7 @@
 mod filters;
 mod rows;
 
-pub(crate) use filters::providers;
+pub(crate) use filters::ProvidersMenu;
 pub(crate) use rows::age_label;
 
 use gpui::prelude::FluentBuilder;

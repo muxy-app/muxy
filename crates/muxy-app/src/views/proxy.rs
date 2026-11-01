@@ -16,7 +16,7 @@ use muxy_ui::popover;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView, Placement};
 use crate::model::AppModel;
 
 pub(crate) struct ProxyForm {
@@ -110,7 +110,33 @@ pub(crate) fn control(model: &AppModel, cx: &mut Context<AppModel>) -> impl Into
         )
 }
 
-pub(crate) fn render(
+impl OverlayView for ProxyForm {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(self, model, window, cx)
+    }
+
+    /// Above the status bar's Proxy control, or a dialog while the status
+    /// bar is hidden.
+    fn placement(&self, model: &AppModel) -> Placement {
+        if model.appearance.status_bar_visible {
+            Placement::Above(model.proxy.anchor.clone())
+        } else {
+            Placement::Modal
+        }
+    }
+
+    fn marks_bounds(&self, model: &AppModel) -> bool {
+        model.appearance.status_bar_visible
+    }
+}
+
+fn render(
     form: &ProxyForm,
     model: &AppModel,
     window: &Window,

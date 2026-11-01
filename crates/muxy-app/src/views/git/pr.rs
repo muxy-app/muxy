@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, Styled, div, px, relative,
+    SharedString, Styled, Window, div, px, relative,
 };
 use muxy_protocol::{GitAction, GitMergeMethod, GitPullRequest, GitPullRequestAction, ProjectId};
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
@@ -11,7 +11,7 @@ use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
 use crate::model::AppModel;
-use crate::views::overlays::Overlay;
+use crate::views::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
 
 pub(crate) struct PullRequestPopover {
     project: ProjectId,
@@ -524,11 +524,35 @@ fn details(pr: &GitPullRequest, has_local_changes: bool, style: Style<'_>) -> An
     details.into_any_element()
 }
 
+impl OverlayView for PullRequestPopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        _: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render_pr(self, model, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::Above(model.git.pull_request_anchor.clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        super::end_git_interaction(model)
+    }
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "Render the PR status and its actions together"
 )]
-pub(crate) fn render_pr(
+fn render_pr(
     popover: &PullRequestPopover,
     model: &AppModel,
     cx: &mut Context<AppModel>,

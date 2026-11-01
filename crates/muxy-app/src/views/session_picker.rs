@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView};
 use crate::{boot::Work, model::AppModel};
-use gpui::{AppContext, Context, Focusable, Window};
+use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window};
 use muxy_app_core::{ProjectId, ServerId};
 use muxy_protocol::{ProjectSession, ProjectSessions, SessionId};
 use muxy_ui::icon::Icon;
@@ -27,6 +27,18 @@ struct Listing {
 pub(crate) struct SessionPicker {
     pub(crate) project: ProjectId,
     pub(crate) picker: gpui::Entity<Picker>,
+}
+
+impl OverlayView for SessionPicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
 }
 
 impl AppModel {

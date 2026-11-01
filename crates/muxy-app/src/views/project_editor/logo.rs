@@ -1,4 +1,5 @@
-use crate::{model::AppModel, views::overlays::Overlay};
+use crate::model::AppModel;
+use crate::views::overlays::{Mark, Overlay, OverlayView};
 use gpui::{
     AnyElement, AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Point, RenderImage, Styled, Window, canvas, div, img, point, px,
@@ -393,7 +394,19 @@ fn corner_mask(radius: gpui::Pixels, color: gpui::Hsla) -> impl IntoElement {
     .inset_0()
 }
 
-pub(crate) fn render(
+impl OverlayView for Cropper {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(self, model, window, cx)
+    }
+}
+
+fn render(
     cropper: &Cropper,
     model: &AppModel,
     window: &Window,

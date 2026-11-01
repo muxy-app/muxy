@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Div, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, Context, Div, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use muxy_protocol::AgentProvider;
 use muxy_ui::components::IconGlyph;
@@ -12,6 +12,8 @@ use muxy_ui::tr;
 use super::{AppModel, icon_button, provider_icon};
 use muxy_app_core::agent_sessions::{PROVIDERS, supported};
 use muxy_ui::popover;
+
+use crate::views::overlays::{Mark, OverlayView, Placement};
 
 fn all_selected(model: &AppModel) -> bool {
     PROVIDERS
@@ -58,11 +60,39 @@ fn supported_providers() -> Vec<AgentProvider> {
         .collect()
 }
 
-pub(crate) fn providers(
-    model: &AppModel,
-    window: &Window,
-    cx: &mut Context<AppModel>,
-) -> AnyElement {
+/// The provider filter menu below the Agent Sessions panel's filter button.
+pub(crate) struct ProvidersMenu;
+
+impl OverlayView for ProvidersMenu {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        providers(model, window, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::Below(model.agent_sessions.anchor.clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    /// The panel's search field, while the panel is shown.
+    fn returns_focus_to(&self, model: &AppModel, cx: &App) -> Option<FocusHandle> {
+        if !model.appearance.agent_sessions_visible {
+            return None;
+        }
+        let input = model.agent_sessions.input.as_ref()?;
+        Some(gpui::Focusable::focus_handle(input, cx))
+    }
+}
+
+fn providers(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let style = Style { theme, metrics: &m };

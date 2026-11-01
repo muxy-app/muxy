@@ -1,14 +1,14 @@
 mod targets;
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView};
 use crate::model::{AppModel, PendingRemote, RemoteIntent};
 use crate::picker::path_service::{self, DirectoryItem, TypedPathState};
 use crate::picker::remote::RemoteFolders;
 use crate::picker::search::{SearchService, Snapshot};
 use crate::picker::session::{InputMode, LoadState, Session};
 use gpui::{
-    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
-    Subscription,
+    AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    IntoElement, Render, Subscription,
 };
 use muxy_app_core::{ProjectStatus, ServerId, settings::Keymap};
 use muxy_core::shortcuts::{ShortcutId, ShortcutSettings};
@@ -52,6 +52,18 @@ pub(crate) enum PickerEvent {
         home_terminal: bool,
     },
     Dismiss,
+}
+
+impl OverlayView for Entity<ProjectPicker> {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &gpui::Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.clone().into_any_element()
+    }
 }
 
 pub(crate) struct ProjectPicker {

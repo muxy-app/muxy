@@ -1,13 +1,34 @@
 use std::rc::Rc;
 
-use gpui::{Action, AppContext, Context, Focusable, SharedString, Window};
+use gpui::{
+    Action, AnyElement, AppContext, Context, Entity, Focusable, IntoElement, SharedString, Window,
+};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::command_palette::{Command, CommandPalette, CommandPaletteEvent, Registry};
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView};
 use crate::model::AppModel;
 
 pub(crate) type Handler = Rc<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
+
+/// The open command palette, or a picker shown in it like the theme picker.
+pub(crate) struct Palette {
+    pub(crate) palette: Entity<CommandPalette<Handler>>,
+    /// The appearance its theme picker previews.
+    pub(crate) dark: bool,
+}
+
+impl OverlayView for Palette {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.palette.clone().into_any_element()
+    }
+}
 
 /// A palette command for a shortcut action. `title` is an English key, shown
 /// translated and still found by its English words.
@@ -72,7 +93,7 @@ impl AppModel {
         if self.dialogs.is_open() {
             return;
         }
-        if let Some(Overlay::Commands { palette, .. }) = &self.overlay
+        if let Some(Overlay::Commands(Palette { palette, .. })) = &self.overlay
             && !palette.read(cx).is_page(super::theme_picker::PAGE_ID)
         {
             self.dismiss_overlay(cx);
@@ -82,7 +103,7 @@ impl AppModel {
     }
 
     pub(crate) fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(Overlay::Commands { palette, .. }) = &self.overlay
+        if let Some(Overlay::Commands(Palette { palette, .. })) = &self.overlay
             && palette.read(cx).is_page(super::theme_picker::PAGE_ID)
         {
             self.dismiss_overlay(cx);
@@ -144,7 +165,7 @@ impl AppModel {
             },
         ));
         palette.focus_handle(cx).focus(window);
-        self.overlay = Some(Overlay::Commands { palette, dark });
+        self.overlay = Some(Overlay::Commands(Palette { palette, dark }));
         cx.notify();
     }
 }

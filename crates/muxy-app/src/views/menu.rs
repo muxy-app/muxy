@@ -12,8 +12,6 @@ use crate::model::AppModel;
 mod render;
 mod shortcuts;
 
-pub(crate) use render::render;
-
 actions!(
     menu,
     [

@@ -1,4 +1,4 @@
-use gpui::{AppContext, Context, Focusable, Window, point, px};
+use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window, point, px};
 use muxy_app_core::{Project, ProjectId, ProjectStatus};
 use muxy_protocol::ProgressState;
 use muxy_ui::icon::Icon;
@@ -9,7 +9,7 @@ use muxy_ui::picker::{
 };
 use muxy_ui::tr;
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView};
 use super::project_editor::Field;
 use super::tab_activity::{self, Status};
 use crate::model::AppModel;
@@ -21,6 +21,18 @@ const REMOVE: &str = "remove";
 pub(crate) struct WorktreePicker {
     pub(crate) project: ProjectId,
     pub(crate) picker: gpui::Entity<Picker>,
+}
+
+impl OverlayView for WorktreePicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
 }
 
 impl AppModel {

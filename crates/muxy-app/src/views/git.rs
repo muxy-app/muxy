@@ -6,12 +6,12 @@ pub(crate) use form::field as form_field;
 mod pr;
 mod worktree_form;
 pub(crate) use ai::AiConfirmation;
-pub(crate) use ai_provider::{AiProviderMenu, render_provider_menu};
-pub(crate) use pr::{PullRequestPopover, render_pr};
+pub(crate) use ai_provider::AiProviderMenu;
+pub(crate) use pr::PullRequestPopover;
 
-use super::overlays::Overlay;
+use super::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
 use crate::model::{AppModel, git::Repository};
-use gpui::{AppContext, Context, Entity, Focusable, Window};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window};
 use muxy_protocol::{
     GitAction, OperationId, ProjectId, ServerPath, WorktreeAction, WorktreeIntent,
 };
@@ -22,6 +22,13 @@ use muxy_ui::picker::{
 };
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
+
+/// Replies to what a dismissed Git overlay asked for no longer open
+/// follow-ups such as confirmations.
+fn end_git_interaction(model: &mut AppModel) -> Dismissal {
+    model.git.interaction = model.git.interaction.wrapping_add(1);
+    Dismissal::Close
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
@@ -68,6 +75,51 @@ pub(crate) struct Form {
     error: Option<String>,
     suggested_branch: String,
 }
+
+impl OverlayView for GitPicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::Above(self.anchor.clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        end_git_interaction(model)
+    }
+}
+
+impl OverlayView for Form {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        form::render(self, model, window, cx)
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::Modal
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        end_git_interaction(model)
+    }
+}
+
 impl AppModel {
     pub(crate) fn open_git_picker(
         &mut self,
@@ -734,8 +786,6 @@ impl AppModel {
         self.create_worktree(project, intent, location, cx);
     }
 }
-
-pub(crate) use form::render as render_form;
 
 fn picker_items(mut rows: Vec<PickerRow>, query: &str, group_by_status: bool) -> Vec<PickerItem> {
     rows.retain(|row| {

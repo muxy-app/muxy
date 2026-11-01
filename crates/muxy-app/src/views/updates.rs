@@ -7,9 +7,33 @@ use muxy_ui::l10n::tr_key;
 use muxy_ui::popover;
 use muxy_ui::tr;
 
+use super::overlays::{Mark, OverlayView, Placement};
 use crate::model::{AppModel, UpdateAction};
 
-pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+/// The update popover above the status bar's update button.
+pub(crate) struct UpdatesPopover;
+
+impl OverlayView for UpdatesPopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(model, window, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::above_while(model.appearance.status_bar_visible, model.update_anchor())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
+
+fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let details = model.update_details();

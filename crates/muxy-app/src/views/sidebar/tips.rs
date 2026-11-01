@@ -1,6 +1,6 @@
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Styled, canvas, div,
+    Styled, Window, canvas, div,
 };
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
@@ -8,6 +8,7 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::tips::{TIPS, TipPlacement};
+use crate::views::overlays::{Mark, OverlayView, Placement};
 
 /// The tip card or tip button at the bottom of the built-in sidebar.
 pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyElement> {
@@ -72,8 +73,34 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
     })
 }
 
+/// The tip card beside the collapsed sidebar's tip button.
+pub(crate) struct TipPopover;
+
+impl OverlayView for TipPopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        _: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        popover_card(model, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::above_while(
+            model.tip_placement() == Some(TipPlacement::Button),
+            model.tips.anchor.clone(),
+        )
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
+
 /// The tip card, opened from the collapsed sidebar's tip button.
-pub(in crate::views) fn popover_card(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+fn popover_card(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     muxy_ui::popover::surface(&model.theme, m)
         .id("tip-popover")

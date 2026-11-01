@@ -17,7 +17,7 @@ use crate::model::agents_panel::{
     AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, Placement, RunningAgent,
     starts_project_group,
 };
-use crate::views::overlays::Mark;
+use crate::views::overlays::{Mark, OverlayView};
 
 const DOCKED_MAX_HEIGHT: f32 = 260.0;
 const POPUP_WIDTH: f32 = 300.0;
@@ -839,7 +839,26 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
     )
 }
 
-pub(crate) fn popup(
+/// The Agents panel as a popup beside the sidebar.
+pub(crate) struct AgentsPopup;
+
+impl OverlayView for AgentsPopup {
+    fn render(
+        &self,
+        mark: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        popup(mark, model, window, cx)
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
+
+fn popup(
     mark: Option<Mark>,
     model: &AppModel,
     window: &Window,

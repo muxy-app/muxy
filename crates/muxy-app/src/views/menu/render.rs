@@ -1,8 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseMoveEvent,
-    ParentElement, Pixels, Point, SharedString, Size, StatefulInteractiveElement, Styled, Window,
-    div, point, px,
+    AnyElement, App, Bounds, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement,
+    MouseMoveEvent, ParentElement, Pixels, Point, SharedString, Size, StatefulInteractiveElement,
+    Styled, Window, div, point, px,
 };
 use muxy_ui::components::SymbolGlyph;
 use muxy_ui::popover;
@@ -13,14 +13,62 @@ use super::{
     Level, Menu, MenuIcon, OpenSubmenu,
 };
 use crate::model::AppModel;
-use crate::views::overlays::{Mark, clamp};
+use crate::views::overlays::{
+    Dismissal, Mark, Overlay, OverlayView, Placement, backdrop, clamp, place,
+};
 
 const CHECKMARK: f32 = 12.0;
 const SWATCH: f32 = 10.0;
 const CHEVRON: f32 = 10.0;
 const ICON: f32 = 16.0;
 
-pub(crate) fn render(
+impl OverlayView for Menu {
+    fn render(
+        &self,
+        mark: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        if !self.over_remote_servers {
+            return render(self, mark, model, window, cx);
+        }
+        let remote = place(
+            Placement::Above(model.remote_anchor.clone()),
+            crate::views::remote_servers::list(model, window, cx).into_any_element(),
+            mark,
+            model,
+            cx,
+        );
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .child(remote)
+            .child(backdrop(cx))
+            .child(render(self, mark, model, window, cx))
+            .into_any_element()
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn returns_focus_to(&self, _: &AppModel, _: &App) -> Option<FocusHandle> {
+        self.returns_focus_to.as_ref()?.upgrade()
+    }
+
+    fn on_dismiss(&self, _: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        if self.over_remote_servers {
+            Dismissal::Reopen(Overlay::RemoteServers)
+        } else {
+            Dismissal::Close
+        }
+    }
+}
+
+fn render(
     menu: &Menu,
     mark: Option<Mark>,
     model: &AppModel,

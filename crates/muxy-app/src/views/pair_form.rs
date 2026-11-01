@@ -11,7 +11,7 @@ use muxy_ui::l10n::tr_key;
 use muxy_ui::text_input::{InputEvent, TextInput};
 use muxy_ui::tr;
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView, Placement};
 use super::remote_servers::{field, input, modal, title};
 use crate::model::{AppModel, PairingForm};
 
@@ -144,7 +144,23 @@ impl AppModel {
     }
 }
 
-pub(crate) fn render(
+impl OverlayView for PairForm {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(self, model, window, cx)
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::Modal
+    }
+}
+
+fn render(
     form: &PairForm,
     model: &AppModel,
     window: &Window,

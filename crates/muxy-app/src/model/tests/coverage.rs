@@ -117,7 +117,7 @@ fn drawn_marks(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<Bound
     })
 }
 
-type Open = Box<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
+pub(super) type Open = Box<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
 
 /// Gives an anchored popover a place on screen, as its button would.
 fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
@@ -131,7 +131,7 @@ fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
 /// `ProjectLogo` and `Projects` need a native web view, an extension, a
 /// decoded image or a folder search; `Tip` and `PullRequest` need a placed tip
 /// button or a loaded pull request.
-fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
+pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
     let at = gpui::point(px(200.0), px(200.0));
     [
         ("updates", Box::new(AppModel::toggle_update_popover)),
@@ -244,7 +244,7 @@ fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
             model.appearance.status_bar_visible = true;
             open(model, window, cx);
             let overlay = model.overlay.as_ref().expect(name);
-            overlay.mark(model.appearance.status_bar_visible).is_some()
+            overlay.mark(model).is_some()
         });
         let marks = drawn_marks(&view, cx);
         assert_eq!(!marks.is_empty(), marked, "{name} marks {marks:?}");

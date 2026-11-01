@@ -1,11 +1,11 @@
 use gpui::{
-    AnyElement, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    AnyElement, App, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, Point, Styled, Window, div,
 };
+use muxy_ui::popover::PopoverAnchor;
 
-use super::menu::{self, Item, Menu};
+use super::menu::{Item, Menu};
 use crate::model::AppModel;
-use crate::model::tips::TipPlacement;
 
 pub(crate) enum Overlay {
     Updates,
@@ -16,10 +16,7 @@ pub(crate) enum Overlay {
     /// The open extension popover (`AppModel::webviews.popover`).
     Popover,
     Native(Entity<super::native_modal::NativeModal>),
-    Commands {
-        palette: Entity<muxy_ui::command_palette::CommandPalette<super::command_palette::Handler>>,
-        dark: bool,
-    },
+    Commands(super::command_palette::Palette),
     Git(super::git::GitPicker),
     GitForm(Box<super::git::Form>),
     AiProvider(super::git::AiProviderMenu),
@@ -43,54 +40,119 @@ pub(crate) enum Overlay {
     Proxy(Box<super::proxy::ProxyForm>),
 }
 
-impl Overlay {
+/// One kind of overlay: what it draws, where, and what dismissing it
+/// undoes. Each is implemented beside the overlay's rendering.
+pub(crate) trait OverlayView {
+    /// The overlay's content. `mark` is only given to overlays that place
+    /// themselves; [`place`] marks the others.
+    fn render(
+        &self,
+        mark: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement;
+
+    fn placement(&self, _model: &AppModel) -> Placement {
+        Placement::Own
+    }
+
+    /// Whether native views elsewhere stay visible while the overlay is
+    /// open. Modal dialogs dim the whole window, so they don't.
+    fn marks_bounds(&self, _model: &AppModel) -> bool {
+        false
+    }
+
     /// What gets the keyboard back when the overlay closes, instead of the
     /// active pane.
-    pub(crate) fn returns_focus_to(&self, model: &AppModel, cx: &gpui::App) -> Option<FocusHandle> {
+    fn returns_focus_to(&self, _model: &AppModel, _cx: &App) -> Option<FocusHandle> {
+        None
+    }
+
+    /// Cancels what the overlay left pending, when the user dismisses it
+    /// rather than finishing it.
+    fn on_dismiss(&self, _model: &mut AppModel, _cx: &mut Context<AppModel>) -> Dismissal {
+        Dismissal::Close
+    }
+}
+
+pub(crate) enum Placement {
+    /// A popover above `anchor`.
+    Above(PopoverAnchor),
+    /// A popover below `anchor`.
+    Below(PopoverAnchor),
+    /// Centered over the dimmed window.
+    Modal,
+    /// Where the content puts itself, over a backdrop that dismisses on a
+    /// click.
+    Own,
+    /// Where the content puts itself, with its own backdrop.
+    OwnBackdrop,
+}
+
+impl Placement {
+    /// Above `anchor` while `shown`. Otherwise the anchor is forgotten, so
+    /// the popover isn't drawn where its hidden button was.
+    pub(crate) fn above_while(shown: bool, anchor: PopoverAnchor) -> Self {
+        if !shown {
+            anchor.set(None);
+        }
+        Self::Above(anchor)
+    }
+}
+
+/// What happens to an overlay the user dismissed.
+pub(crate) enum Dismissal {
+    Close,
+    /// It closes and `next` opens in its place.
+    Reopen(Overlay),
+    /// It stays open until its page agrees to close.
+    Stay,
+}
+
+impl Overlay {
+    pub(crate) fn view(&self) -> &dyn OverlayView {
         match self {
-            Self::Menu(menu) => menu.returns_focus_to.as_ref()?.upgrade(),
-            Self::SessionProviders if model.appearance.agent_sessions_visible => model
-                .agent_sessions
-                .input
-                .as_ref()
-                .map(|input| gpui::Focusable::focus_handle(input, cx)),
-            _ => None,
+            Self::Updates => &super::updates::UpdatesPopover,
+            Self::Server => &super::server_status::ServerPopover,
+            Self::Tip => &super::sidebar::tips::TipPopover,
+            Self::Webview => &super::webview::modal::WebviewModal,
+            Self::Popover => &super::webview::popover::ExtensionPopover,
+            Self::Native(modal) => modal,
+            Self::Commands(palette) => palette,
+            Self::Git(picker) => picker,
+            Self::GitForm(form) => form.as_ref(),
+            Self::AiProvider(menu) => menu,
+            Self::PullRequest(popover) => popover,
+            Self::Sessions(picker) => picker,
+            Self::Worktrees(picker) => picker,
+            Self::Layouts(picker) => picker,
+            Self::Menu(menu) => menu,
+            Self::ProjectEditor(editor) => editor,
+            Self::ProjectIcons(icons) => icons,
+            Self::ProjectLogo(cropper) => cropper,
+            Self::Projects(picker) => picker,
+            Self::RemoteServers => &super::remote_servers::RemotePopover,
+            Self::Agents => &super::agents_panel::AgentsPopup,
+            Self::SessionProviders => &super::agent_sessions::ProvidersMenu,
+            Self::ServerForm(form) => form.as_ref(),
+            Self::PairForm(form) => form.as_ref(),
+            Self::Password(prompt) => prompt.as_ref(),
+            Self::Proxy(form) => form.as_ref(),
         }
     }
 
-    /// The mark of the area the overlay covers, so native views elsewhere
-    /// stay visible while it is open. Modal dialogs dim the whole window, so
-    /// they have none. Rendering and [`AppModel::coverage`] both read it.
-    pub(crate) fn mark(&self, status_bar_visible: bool) -> Option<Mark> {
-        let marks = match self {
-            Self::Proxy(_) => status_bar_visible,
-            Self::Updates
-            | Self::Server
-            | Self::Tip
-            | Self::RemoteServers
-            | Self::Agents
-            | Self::SessionProviders
-            | Self::Git(_)
-            | Self::AiProvider(_)
-            | Self::PullRequest(_)
-            | Self::Menu(_)
-            | Self::ProjectEditor(_)
-            | Self::ProjectIcons(_) => true,
-            Self::Webview
-            | Self::Popover
-            | Self::Native(_)
-            | Self::Commands { .. }
-            | Self::GitForm(_)
-            | Self::Sessions(_)
-            | Self::Worktrees(_)
-            | Self::Layouts(_)
-            | Self::ProjectLogo(_)
-            | Self::Projects(_)
-            | Self::ServerForm(_)
-            | Self::PairForm(_)
-            | Self::Password(_) => false,
-        };
-        marks.then_some(Mark(()))
+    pub(crate) fn is_git(&self) -> bool {
+        matches!(
+            self,
+            Self::Git(_) | Self::GitForm(_) | Self::PullRequest(_) | Self::AiProvider(_)
+        )
+    }
+
+    /// The mark of the area the overlay covers. Rendering and
+    /// [`AppModel::coverage`] both read it.
+    pub(crate) fn mark(&self, model: &AppModel) -> Option<Mark> {
+        self.view().marks_bounds(model).then_some(Mark(()))
     }
 }
 
@@ -115,35 +177,38 @@ impl Mark {
 }
 
 impl AppModel {
+    /// Closes the overlay and cancels what it left pending, through its
+    /// [`OverlayView::on_dismiss`].
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
-        if matches!(self.overlay, Some(Overlay::Webview)) {
-            self.dismiss_webview_modal(cx);
+        let Some(overlay) = self.overlay.take() else {
+            self.overlay_closed(None, cx);
             return;
+        };
+        let view = overlay.view();
+        let returns_to = view.returns_focus_to(self, cx);
+        match view.on_dismiss(self, cx) {
+            Dismissal::Close => self.overlay_closed(returns_to.as_ref(), cx),
+            Dismissal::Reopen(next) => {
+                self.overlay_closed(returns_to.as_ref(), cx);
+                self.overlay = Some(next);
+            }
+            Dismissal::Stay => self.overlay = Some(overlay),
         }
-        if matches!(self.overlay, Some(Overlay::Popover)) {
-            self.close_extension_popover(cx);
-            return;
-        }
-        self.project_logo_task = None;
-        if matches!(self.overlay, Some(Overlay::ServerForm(_))) {
-            self.clear_server_probe();
-        }
-        self.git.interaction = self.git.interaction.wrapping_add(1);
-        if matches!(self.overlay, Some(Overlay::Password(_))) {
-            self.pending_remote = None;
-        }
+    }
+
+    /// Closes the overlay once its work is done, keeping what it started.
+    pub(crate) fn close_overlay(&mut self, cx: &mut Context<Self>) {
         let returns_to = self
             .overlay
-            .as_ref()
-            .and_then(|overlay| overlay.returns_focus_to(self, cx));
-        let back_to_remote =
-            matches!(&self.overlay, Some(Overlay::Menu(menu)) if menu.over_remote_servers);
-        self.overlay = None;
+            .take()
+            .and_then(|overlay| overlay.view().returns_focus_to(self, cx));
+        self.overlay_closed(returns_to.as_ref(), cx);
+    }
+
+    fn overlay_closed(&mut self, returns_to: Option<&FocusHandle>, cx: &mut Context<Self>) {
+        self.project_logo_task = None;
         self.overlay_subscription = None;
-        self.focus_owner.overlay_closed(returns_to.as_ref());
-        if back_to_remote {
-            self.overlay = Some(Overlay::RemoteServers);
-        }
+        self.focus_owner.overlay_closed(returns_to);
         cx.notify();
     }
 
@@ -166,236 +231,84 @@ impl AppModel {
 
 pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
 
-/// `content` with `mark` of the area it covers.
-fn marked(content: AnyElement, mark: Option<Mark>, model: &AppModel) -> AnyElement {
-    let Some(mark) = mark else {
-        return content;
-    };
-    div()
-        .relative()
-        .child(content)
-        .child(mark.of(model))
-        .into_any_element()
-}
-
-/// The Remote popover above the sidebar's Remote section.
-fn remote_servers(
+/// `content` at `placement`, with `mark` of the area it covers.
+pub(crate) fn place(
+    placement: Placement,
     content: AnyElement,
     mark: Option<Mark>,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
-    let content = marked(content, mark, model);
-    let anchor = model.remote_anchor.clone();
-    let model = cx.entity().downgrade();
-    muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
-        let _ = model.update(cx, AppModel::dismiss_overlay);
-    })
+    let (anchor, above) = match placement {
+        Placement::Above(anchor) => (anchor, true),
+        Placement::Below(anchor) => (anchor, false),
+        Placement::Modal => return muxy_ui::popover::modal(&model.theme, content),
+        Placement::Own | Placement::OwnBackdrop => return content,
+    };
+    let content = match mark {
+        Some(mark) => div()
+            .relative()
+            .child(content)
+            .child(mark.of(model))
+            .into_any_element(),
+        None => content,
+    };
+    let owner = cx.weak_entity();
+    let dismiss = move |_: &mut Window, cx: &mut App| {
+        let _ = owner.update(cx, AppModel::dismiss_overlay);
+    };
+    if above {
+        muxy_ui::popover::anchored_popover_above(anchor, content, dismiss)
+    } else {
+        muxy_ui::popover::anchored_popover(anchor, content, dismiss)
+    }
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "Exhaustive overlay rendering dispatch"
-)]
-pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
-    let Some(overlay) = &model.overlay else {
-        return div().into_any_element();
-    };
-    let mark = overlay.mark(model.appearance.status_bar_visible);
-    let content = match overlay {
-        Overlay::Webview => return super::webview::modal::render(model, window, cx),
-        Overlay::Popover => super::webview::popover::render(model, cx),
-        Overlay::Server => {
-            let content = marked(super::server_status::render(model, window, cx), mark, model);
-            let anchor = model.server_anchor();
-            if !model.appearance.status_bar_visible {
-                anchor.set(None);
-            }
-            let model = cx.entity().downgrade();
-            muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
-                let _ = model.update(cx, AppModel::dismiss_overlay);
-            })
-        }
-        Overlay::Proxy(form) => {
-            if model.appearance.status_bar_visible {
-                let content = marked(super::proxy::render(form, model, window, cx), mark, model);
-                let anchor = model.proxy.anchor.clone();
-                let model = cx.entity().downgrade();
-                muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
-                    let _ = model.update(cx, AppModel::dismiss_overlay);
-                })
-            } else {
-                muxy_ui::popover::modal(&model.theme, super::proxy::render(form, model, window, cx))
-            }
-        }
-        Overlay::Updates => {
-            let content = marked(super::updates::render(model, window, cx), mark, model);
-            let anchor = model.update_anchor();
-            if !model.appearance.status_bar_visible {
-                anchor.set(None);
-            }
-            let model = cx.entity().downgrade();
-            muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
-                let _ = model.update(cx, AppModel::dismiss_overlay);
-            })
-        }
-        Overlay::Tip => {
-            let content = marked(super::sidebar::tips::popover_card(model, cx), mark, model);
-            let anchor = model.tips.anchor.clone();
-            if model.tip_placement() != Some(TipPlacement::Button) {
-                anchor.set(None);
-            }
-            let model = cx.entity().downgrade();
-            muxy_ui::popover::anchored_popover_above(anchor, content, move |_, cx| {
-                let _ = model.update(cx, AppModel::dismiss_overlay);
-            })
-        }
-        Overlay::RemoteServers => remote_servers(
-            super::remote_servers::popover(model, window, cx),
-            mark,
-            model,
-            cx,
-        ),
-        Overlay::Agents => super::agents_panel::popup(mark, model, window, cx),
-        Overlay::SessionProviders => {
-            let content = marked(
-                super::agent_sessions::providers(model, window, cx),
-                mark,
-                model,
-            );
-            let anchor = model.agent_sessions.anchor.clone();
-            let owner = cx.weak_entity();
-            muxy_ui::popover::anchored_popover(anchor, content, move |_, cx| {
-                let _ = owner.update(cx, AppModel::dismiss_overlay);
-            })
-        }
-        Overlay::ServerForm(form) => muxy_ui::popover::modal(
-            &model.theme,
-            super::remote_servers::render_form(form, model, window, cx),
-        ),
-        Overlay::PairForm(form) => muxy_ui::popover::modal(
-            &model.theme,
-            super::pair_form::render(form, model, window, cx),
-        ),
-        Overlay::Password(prompt) => muxy_ui::popover::modal(
-            &model.theme,
-            super::remote_servers::render_password(prompt, model, window, cx),
-        ),
-        Overlay::Native(picker) => picker.clone().into_any_element(),
-        Overlay::GitForm(form) => muxy_ui::popover::modal(
-            &model.theme,
-            super::git::render_form(form, model, window, cx),
-        ),
-        Overlay::AiProvider(menu) => {
-            let entity = cx.entity().downgrade();
-            muxy_ui::popover::anchored_popover_above(
-                model.ai.anchors[menu.action.index()].clone(),
-                marked(
-                    super::git::render_provider_menu(menu, model, window, cx),
-                    mark,
-                    model,
-                ),
-                move |_, cx| {
-                    let _ = entity.update(cx, AppModel::dismiss_overlay);
-                },
-            )
-        }
-        Overlay::Git(picker) => {
-            let content = marked(picker.picker.clone().into_any_element(), mark, model);
-            let model = cx.entity().downgrade();
-            let dismiss = move |_: &mut Window, cx: &mut gpui::App| {
-                let _ = model.update(cx, AppModel::dismiss_overlay);
-            };
-            muxy_ui::popover::anchored_popover_above(picker.anchor.clone(), content, dismiss)
-        }
-        Overlay::PullRequest(popover) => {
-            let model_entity = cx.entity().downgrade();
-            muxy_ui::popover::anchored_popover_above(
-                model.git.pull_request_anchor.clone(),
-                marked(super::git::render_pr(popover, model, cx), mark, model),
-                move |_, cx| {
-                    let _ = model_entity.update(cx, AppModel::dismiss_overlay);
-                },
-            )
-        }
-        Overlay::Menu(menu) if menu.over_remote_servers => div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .child(remote_servers(
-                super::remote_servers::list(model, window, cx).into_any_element(),
-                mark,
-                model,
-                cx,
-            ))
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .occlude()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|model, _, _, cx| {
-                            model.dismiss_overlay(cx);
-                            cx.stop_propagation();
-                        }),
-                    )
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        cx.listener(|model, _, _, cx| {
-                            model.dismiss_overlay(cx);
-                            cx.stop_propagation();
-                        }),
-                    ),
-            )
-            .child(menu::render(menu, mark, model, window, cx))
-            .into_any_element(),
-        Overlay::Menu(menu) => menu::render(menu, mark, model, window, cx),
-        Overlay::ProjectEditor(editor) => {
-            super::project_editor::render(editor, mark, model, window, cx)
-        }
-        Overlay::ProjectIcons(picker) => {
-            super::project_editor::icons::render(picker, mark, model, window, cx)
-        }
-        Overlay::ProjectLogo(cropper) => {
-            super::project_editor::logo::render(cropper, model, window, cx)
-        }
-        Overlay::Sessions(picker) => picker.picker.clone().into_any_element(),
-        Overlay::Worktrees(switcher) => switcher.picker.clone().into_any_element(),
-        Overlay::Layouts(picker) => picker.picker.clone().into_any_element(),
-        Overlay::Projects(picker) => picker.clone().into_any_element(),
-        Overlay::Commands { palette, .. } => palette.clone().into_any_element(),
-    };
+/// A full-window layer that dismisses the overlay on a click.
+pub(crate) fn backdrop(cx: &mut Context<AppModel>) -> AnyElement {
     div()
         .absolute()
         .top_0()
         .left_0()
         .size_full()
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .occlude()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|model, _, _, cx| {
-                        model.dismiss_overlay(cx);
-                        cx.stop_propagation();
-                    }),
-                )
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(|model, _, _, cx| {
-                        model.dismiss_overlay(cx);
-                        cx.stop_propagation();
-                    }),
-                ),
+        .occlude()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|model, _, _, cx| {
+                model.dismiss_overlay(cx);
+                cx.stop_propagation();
+            }),
         )
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(|model, _, _, cx| {
+                model.dismiss_overlay(cx);
+                cx.stop_propagation();
+            }),
+        )
+        .into_any_element()
+}
+
+pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+    let Some(overlay) = &model.overlay else {
+        return div().into_any_element();
+    };
+    let view = overlay.view();
+    let mark = overlay.mark(model);
+    let placement = view.placement(model);
+    let places_itself = matches!(placement, Placement::Own | Placement::OwnBackdrop);
+    let own_backdrop = matches!(placement, Placement::OwnBackdrop);
+    let content = view.render(mark.filter(|_| places_itself), model, window, cx);
+    let content = place(placement, content, mark, model, cx);
+    if own_backdrop {
+        return content;
+    }
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .child(backdrop(cx))
         .child(content)
         .into_any_element()
 }
