@@ -170,10 +170,9 @@ impl Registry {
         Some(match action {
             GitAction::Status { local, fresh } => self
                 .read_local(project, lock, || {
-                    let summary = read::summary(directory)?;
                     Ok((
-                        github::Remote::read(directory, &summary),
-                        summary,
+                        github::Remote::read(directory),
+                        read::summary(directory)?,
                         read::branches(directory)?,
                         read::file_status(directory)?,
                     ))
@@ -200,9 +199,7 @@ impl Registry {
             GitAction::PullRequest(
                 action @ (Pr::Info | Pr::Number | Pr::List { .. } | Pr::Diff { .. }),
             ) => self
-                .read_local(project, lock, || {
-                    Ok(github::Remote::read(directory, &read::summary(directory)?))
-                })
+                .read_local(project, lock, || Ok(github::Remote::read(directory)))
                 .and_then(|remote| github.apply(directory, &remote, action)),
             _ => return None,
         })
@@ -215,7 +212,6 @@ impl Registry {
         read: impl FnOnce() -> Result<T>,
     ) -> Result<T> {
         let _read = lock.read().unwrap_or_else(PoisonError::into_inner);
-        // The project may have been deleted while waiting for another repository operation.
         self.catalog.project(project)?;
         read()
     }
@@ -245,11 +241,11 @@ impl Registry {
             | GitAction::CommitStaged { .. }
             | GitAction::PublishBranch { .. }
             | GitAction::SwitchToBase(_) => review(directory, action),
-            GitAction::PullRequest(action) => self.git.github.apply(
-                directory,
-                &github::Remote::read(directory, &read::summary(directory)?),
-                action,
-            ),
+            GitAction::PullRequest(action) => {
+                self.git
+                    .github
+                    .apply(directory, &github::Remote::read(directory), action)
+            }
             GitAction::Commit { .. }
             | GitAction::Push { .. }
             | GitAction::Pull

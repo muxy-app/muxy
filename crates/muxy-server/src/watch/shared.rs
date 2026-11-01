@@ -79,7 +79,6 @@ impl Shared {
         loop {
             let slot = Arc::clone(self.slots().entry(project).or_default());
             let mut watch = slot.watch.lock().unwrap_or_else(PoisonError::into_inner);
-            // The last subscriber left between the lookup and the lock.
             if !self.holds(project, &slot) {
                 continue;
             }
@@ -137,7 +136,7 @@ impl Shared {
 
 impl Drop for Subscription {
     fn drop(&mut self) {
-        let stopped = {
+        let stopped_watch = {
             let mut watch = self
                 .slot
                 .watch
@@ -150,8 +149,7 @@ impl Drop for Subscription {
                 watch.take()
             }
         };
-        // Joins the watch's thread, so it happens without holding the lock.
-        drop(stopped);
+        drop(stopped_watch);
     }
 }
 

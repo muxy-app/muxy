@@ -59,16 +59,11 @@ impl Roots {
             return metadata_relevant(relative, false, true).then_some(Change::Certain);
         }
         let relative = path.strip_prefix(&self.worktree).ok()?;
-        // A nested repository's metadata, or the root itself, isn't checked
-        // against the ignore rules.
-        if relative.as_os_str().is_empty()
-            || relative
-                .components()
-                .any(|part| part == Component::Normal(OsStr::new(".git")))
-        {
-            return Some(Change::Certain);
-        }
-        Some(Change::Worktree(relative))
+        Some(if is_root_or_nested_metadata(relative) {
+            Change::Certain
+        } else {
+            Change::Worktree(relative)
+        })
     }
 
     fn folders(&self) -> Vec<PathBuf> {
@@ -81,6 +76,14 @@ impl Roots {
         }
         folders
     }
+}
+
+/// Paths `git check-ignore` can't judge.
+fn is_root_or_nested_metadata(relative: &Path) -> bool {
+    relative.as_os_str().is_empty()
+        || relative
+            .components()
+            .any(|part| part == Component::Normal(OsStr::new(".git")))
 }
 
 fn metadata_relevant(relative: &Path, worktree: bool, common: bool) -> bool {

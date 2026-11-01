@@ -8,8 +8,8 @@ mod parse;
 mod pull_requests;
 
 use super::cache::Cache;
-use super::{Result, error, read, run, text, validate_branch};
-use muxy_protocol::{GitPullRequest, GitPullRequestAction, GitReply, GitSummary};
+use super::{Result, error, run, text, validate_branch};
+use muxy_protocol::{GitPullRequest, GitPullRequestAction, GitReply};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -71,16 +71,19 @@ struct CurrentBranch {
 }
 
 impl Remote {
-    pub(super) fn read(repository: &Path, summary: &GitSummary) -> Self {
+    pub(super) fn read(repository: &Path) -> Self {
         let urls = run(
             repository,
             &["config", "--get-regexp", r"^remote\..*\.url$"],
         )
         .unwrap_or_default();
-        let current = summary
-            .branch
-            .clone()
-            .zip(summary.head.clone())
+        let line = |args: &[&str]| {
+            run(repository, args)
+                .ok()
+                .and_then(|bytes| text(&bytes).ok())
+        };
+        let current = line(&["symbolic-ref", "--quiet", "--short", "HEAD"])
+            .zip(line(&["rev-parse", "--quiet", "--verify", "HEAD"]))
             .map(|(branch, head)| CurrentBranch {
                 configured_number: configured_number(repository, &branch),
                 branch,
@@ -184,9 +187,15 @@ impl Github {
         remote: &Remote,
         action: &GitPullRequestAction,
     ) -> Result<GitReply> {
-        let identity = self.identity(repository, remote, false)?;
+        let changes_github = !matches!(
+            action,
+            GitPullRequestAction::Info
+                | GitPullRequestAction::Number
+                | GitPullRequestAction::List { .. }
+                | GitPullRequestAction::Diff { .. }
+        );
+        let identity = self.identity(repository, remote, changes_github)?;
         match action {
-            // Asked for directly, so always current.
             GitPullRequestAction::Info => self
                 .cached_current(repository, remote, &identity, true)
                 .map(|pr| GitReply::PullRequest(pr.map(Box::new))),
@@ -244,8 +253,22 @@ impl Github {
     }
 
     pub(super) fn prepare_worktree(&self, repository: &Path, number: u64) -> Result<String> {
-        let remote = Remote::read(repository, &read::summary(repository)?);
-        let identity = self.identity(repository, &remote, false)?;
+        let identity = self.identity(repository, &Remote::read(repository), true)?;
         self.prepare_checkout(repository, &identity, number)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_current_branch_is_read_on_a_branch_and_absent_when_detached() {
+        let repository = super::super::tests::Repository::new();
+        let current = Remote::read(&repository.path).current.unwrap();
+        assert_eq!(current.branch, "main");
+        assert_eq!(current.head.len(), 40);
+        run(&repository.path, &["switch", "--quiet", "--detach"]).unwrap();
+        assert!(Remote::read(&repository.path).current.is_none());
     }
 }
