@@ -770,9 +770,15 @@ mod tests {
         let mut written = Vec::new();
         storage::write(&sample(), &mut written)?;
         let fixture = include_bytes!("../tests/fixtures/terminal-v4.postcard");
-        // Bytes 24..32 hold a std hash that may change between Rust releases.
-        assert_eq!(written[..24], fixture[..24]);
-        assert_eq!(written[32..], fixture[32..]);
+        let std_hash_that_rust_releases_may_change = 24..32;
+        assert_eq!(
+            written[..std_hash_that_rust_releases_may_change.start],
+            fixture[..std_hash_that_rust_releases_may_change.start]
+        );
+        assert_eq!(
+            written[std_hash_that_rust_releases_may_change.end..],
+            fixture[std_hash_that_rust_releases_may_change.end..]
+        );
         Ok(())
     }
 
@@ -974,7 +980,11 @@ mod tests {
         let path = record_path(&directory.0, second);
         fs::write(&path, b"broken")?;
         assert!(archive.read(second).is_err());
-        fs::write(&path, postcard::to_stdvec(&(LEGACY_VERSION + 1))?)?;
+        let mut newer_version = include_bytes!("../tests/fixtures/render-v1.postcard").to_vec();
+        newer_version[0] = u8::try_from(LEGACY_VERSION + 1)?;
+        fs::write(&path, &newer_version)?;
+        newer_version[0] = u8::try_from(LEGACY_VERSION)?;
+        assert!(postcard::from_bytes::<legacy::Record>(&newer_version).is_ok());
         assert!(archive.read(second).is_err());
         assert!(archive.read(first).is_ok());
         Ok(())
