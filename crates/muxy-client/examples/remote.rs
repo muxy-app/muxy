@@ -83,8 +83,8 @@ fn connect(file: &Path) -> Result {
     let events = client.events().ok_or("event stream already taken")?;
     let directory = home.directory.as_path();
     let session = client.create_session(directory, SIZE)?;
-    let mut attachment = client.attach(session.id, SIZE)?;
-    let channel = attachment.channel;
+    let channel = client.attach(0, session.id, SIZE)?;
+    let mut attachment = muxy_client::take_attached(&events, 0)?;
     let input = client.clone();
     thread::spawn(move || {
         let mut stdin = io::stdin().lock();
@@ -105,9 +105,9 @@ fn connect(file: &Path) -> Result {
                 channel: received,
                 frame,
             } if received == channel => {
-                attachment.grid.apply(&frame);
-                redraw(&attachment.grid)?;
-                client.ack(channel, frame.seq)?;
+                let seq = attachment.terminal.apply(&frame);
+                redraw(&attachment.terminal.grid)?;
+                client.ack(channel, seq)?;
             }
             ClientEvent::SessionEnded { session: ended, .. } if ended == session.id => {
                 return Ok(());

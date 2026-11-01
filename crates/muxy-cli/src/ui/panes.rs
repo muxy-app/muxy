@@ -39,7 +39,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, state: &State, ui: &m
         let selected = ui
             .selection
             .filter(|selection| selection.pane == area.id && !selection.is_empty())
-            .map(|selection| selection.range(view.scroll.grid(&view.grid)));
+            .map(|selection| selection.range(view.scroll.grid(&view.terminal.grid)));
         content(frame.buffer_mut(), area.inner, view, selected);
         if view.scroll.is_active() {
             scroll_position(frame, &area, view, focused);
@@ -58,13 +58,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, state: &State, ui: &m
             && ui.overlay == Overlay::None
             && matches!(ui.mode, Mode::Normal | Mode::Prefix)
             && !view.scroll.is_active()
-            && view.grid.cursor.visible
-            && view.grid.cursor.col < area.inner.width
-            && view.grid.cursor.row < area.inner.height
+            && view.terminal.grid.cursor.visible
+            && view.terminal.grid.cursor.col < area.inner.width
+            && view.terminal.grid.cursor.row < area.inner.height
         {
             frame.set_cursor_position((
-                area.inner.x + view.grid.cursor.col,
-                area.inner.y + view.grid.cursor.row,
+                area.inner.x + view.terminal.grid.cursor.col,
+                area.inner.y + view.terminal.grid.cursor.row,
             ));
         }
     }
@@ -214,9 +214,11 @@ fn scroll_position(frame: &mut Frame<'_>, area: &PaneArea, view: &View, focused:
 }
 
 fn content(buffer: &mut Buffer, inner: Rect, view: &View, selected: Option<(Point, Point)>) {
-    let grid = view.scroll.grid(&view.grid);
+    let grid = view.scroll.grid(&view.terminal.grid);
     let count = selection::content_rows(grid);
-    let start = view.scroll.start(&view.grid, usize::from(inner.height));
+    let start = view
+        .scroll
+        .start(&view.terminal.grid, usize::from(inner.height));
     for y in 0..inner.height {
         let index = start + usize::from(y);
         row(
@@ -304,11 +306,14 @@ fn color(source: TerminalColor) -> Color {
 
 /// The content row and column under a screen cell of `view`'s pane.
 pub(crate) fn point(view: &View, inner: Rect, column: u16, row: u16) -> Point {
-    let grid: &RunGrid = view.scroll.grid(&view.grid);
+    let grid: &RunGrid = view.scroll.grid(&view.terminal.grid);
     let y = row
         .saturating_sub(inner.y)
         .min(inner.height.saturating_sub(1));
-    let index = view.scroll.start(&view.grid, usize::from(inner.height)) + usize::from(y);
+    let index = view
+        .scroll
+        .start(&view.terminal.grid, usize::from(inner.height))
+        + usize::from(y);
     Point {
         back: selection::content_rows(grid).saturating_sub(index + 1),
         col: column

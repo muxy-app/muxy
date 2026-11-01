@@ -4,16 +4,50 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use muxy_protocol::{ReplyBody, RequestId};
+use muxy_protocol::{ChannelId, ReplyBody, RequestId, SessionId};
 
 use crate::ClientError;
+
+#[allow(
+    clippy::large_enum_variant,
+    reason = "A reply moves once, unboxed, as replies always have"
+)]
+pub(crate) enum Reply {
+    Body(ReplyBody),
+    /// The snapshot went to the event stream as `ClientEvent::Attached`.
+    Attached(ChannelId),
+}
+
+/// Who asked for an attach, so its reply can go to the event stream.
+#[derive(Clone, Copy)]
+pub(crate) struct Attaching {
+    pub(crate) tag: u64,
+    pub(crate) session: SessionId,
+}
 
 #[derive(Default)]
 struct State {
     next: u32,
-    waiting: HashMap<RequestId, Sender<ReplyBody>>,
+    waiting: HashMap<RequestId, Sender<Reply>>,
+    /// Kept after the caller stops waiting, so a late reply still reaches the event stream.
+    attaching: HashMap<RequestId, Attaching>,
     asynchronous: HashMap<RequestId, (Arc<Response>, Instant)>,
     closed: bool,
+}
+
+impl State {
+    fn next_id(&mut self) -> RequestId {
+        loop {
+            let id = RequestId(self.next);
+            self.next = self.next.wrapping_add(1);
+            if !self.waiting.contains_key(&id)
+                && !self.attaching.contains_key(&id)
+                && !self.asynchronous.contains_key(&id)
+            {
+                return id;
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -23,27 +57,44 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub(crate) fn register(&self) -> Result<(RequestId, Receiver<ReplyBody>), ClientError> {
+    pub(crate) fn register(&self) -> Result<(RequestId, Receiver<Reply>), ClientError> {
+        self.register_waiting(None)
+    }
+
+    pub(crate) fn register_attach(
+        &self,
+        attaching: Attaching,
+    ) -> Result<(RequestId, Receiver<Reply>), ClientError> {
+        self.register_waiting(Some(attaching))
+    }
+
+    fn register_waiting(
+        &self,
+        attaching: Option<Attaching>,
+    ) -> Result<(RequestId, Receiver<Reply>), ClientError> {
         let mut state = self.lock();
         if state.closed {
             return Err(ClientError::Disconnected);
         }
-        let id = loop {
-            let id = RequestId(state.next);
-            state.next = state.next.wrapping_add(1);
-            if !state.waiting.contains_key(&id) && !state.asynchronous.contains_key(&id) {
-                break id;
-            }
-        };
+        let id = state.next_id();
         let (sender, receiver) = mpsc::channel();
         state.waiting.insert(id, sender);
+        if let Some(attaching) = attaching {
+            state.attaching.insert(id, attaching);
+        }
         Ok((id, receiver))
+    }
+
+    /// Who asked for this attach; the reply is then theirs to announce.
+    pub(crate) fn take_attaching(&self, id: RequestId) -> Option<Attaching> {
+        self.lock().attaching.remove(&id)
     }
 
     pub(crate) fn resolve(&self, id: RequestId, body: ReplyBody) {
         let mut state = self.lock();
         let asynchronous = state.asynchronous.remove(&id);
         let sender = state.waiting.remove(&id);
+        state.attaching.remove(&id);
         drop(state);
         if let Some((response, _)) = asynchronous {
             response.resolve(match body {
@@ -51,14 +102,29 @@ impl Pending {
                 body => Ok(body),
             });
         } else if let Some(sender) = sender {
-            let _ = sender.send(body);
+            let _ = sender.send(Reply::Body(body));
         }
     }
 
+    pub(crate) fn resolve_attached(&self, id: RequestId, channel: ChannelId) {
+        if let Some(sender) = self.lock().waiting.remove(&id) {
+            let _ = sender.send(Reply::Attached(channel));
+        }
+    }
+
+    /// Stops waiting for a reply. An attach reply still reaches the event stream.
     pub(crate) fn forget(&self, id: RequestId) {
         let mut state = self.lock();
         state.waiting.remove(&id);
         state.asynchronous.remove(&id);
+    }
+
+    /// Forgets a request the server never received.
+    pub(crate) fn abandon(&self, id: RequestId) {
+        let mut state = self.lock();
+        state.waiting.remove(&id);
+        state.asynchronous.remove(&id);
+        state.attaching.remove(&id);
     }
 
     pub(crate) fn close(&self) {
@@ -66,6 +132,7 @@ impl Pending {
         state.closed = true;
         self.deadlines.notify_one();
         state.waiting.clear();
+        state.attaching.clear();
         let responses = std::mem::take(&mut state.asynchronous);
         drop(state);
         for (response, _) in responses.into_values() {
@@ -88,13 +155,7 @@ impl Pending {
             )
             .into());
         }
-        let id = loop {
-            let id = RequestId(state.next);
-            state.next = state.next.wrapping_add(1);
-            if !state.waiting.contains_key(&id) && !state.asynchronous.contains_key(&id) {
-                break id;
-            }
-        };
+        let id = state.next_id();
         let response = Arc::new(Response::default());
         state
             .asynchronous

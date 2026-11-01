@@ -1,7 +1,7 @@
 use super::*;
 use muxy_app_core::Direction;
 use muxy_app_core::settings::ProxySettings;
-use muxy_protocol::{ChannelId, Feature};
+use muxy_protocol::Feature;
 
 fn proxy(global: bool) -> ProxySettings {
     ProxySettings {
@@ -24,8 +24,7 @@ fn connect(model: &mut AppModel, features: Vec<Feature>, cx: &mut Context<AppMod
 }
 
 fn attach(model: &mut AppModel, pane: PaneId, session: u64, cx: &mut Context<AppModel>) {
-    let mut attachment = attachment();
-    attachment.channel = ChannelId(u32::try_from(session).expect("channel"));
+    let attachment = attachment_on(u32::try_from(session).expect("channel"));
     model.receive(
         local(
             1,

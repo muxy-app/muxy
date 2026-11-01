@@ -5,10 +5,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_app_core::browser::api;
-use muxy_client::{Attachment, Client, ClientError, ClientEvent, RunGrid};
+use muxy_client::{Client, ClientError, ClientEvent, RunGrid};
 use muxy_protocol::{
-    ErrorCode, ExitReason, ProjectDescriptor, ProjectId, ProjectSession, SearchSource, SessionId,
-    SessionStatus, Size,
+    ChannelId, ErrorCode, ExitReason, ProjectDescriptor, ProjectId, ProjectSession, SearchSource,
+    SessionId, SessionStatus, Size,
 };
 use serde_json::{Value, json};
 
@@ -16,6 +16,8 @@ use super::args::{Session, Until};
 use super::{Output, Paths, Result, path_text, projects};
 
 const SHOW_WAIT: Duration = Duration::from_secs(10);
+/// Each command attaches at most once, so one tag tells its terminal apart.
+const ATTACH: u64 = 0;
 
 pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Paths) -> Result {
     match command {
@@ -75,8 +77,8 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             let page = if saved {
                 client.saved_history_page(session, before, limit)?
             } else {
-                attached(client, session, |attachment| {
-                    Ok(client.history_page(attachment.channel, before, limit)?)
+                attached(client, session, |channel| {
+                    Ok(client.history_page(channel, before, limit)?)
                 })?
             };
             Output::json(&super::records::history(&page))
@@ -99,9 +101,9 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
                     limit,
                 )?
             } else {
-                attached(client, session, |attachment| {
+                attached(client, session, |channel| {
                     Ok(client.search(
-                        SearchSource::Live(attachment.channel),
+                        SearchSource::Live(channel),
                         &query,
                         ignore_case,
                         before,
@@ -187,7 +189,12 @@ fn screen(
     let grid = if saved {
         RunGrid::from_saved(client.read_saved_screen(session)?)
     } else {
-        attached(client, session, |attachment| Ok(attachment.grid.clone()))?
+        let events = client
+            .events()
+            .ok_or("this connection can't read a terminal")?;
+        attached(client, session, |_| {
+            Ok(muxy_client::take_attached(&events, ATTACH)?.terminal.grid)
+        })?
     };
     let text = screen_text(&grid, lines);
     if output.json {
@@ -247,8 +254,8 @@ fn create(
         size,
     )?;
     if let Some(bytes) = typed {
-        attached(client, session.id, |attachment| {
-            Ok(client.write_input(attachment.channel, bytes)?)
+        attached(client, session.id, |channel| {
+            Ok(client.write_input(channel, bytes)?)
         })
         .map_err(|error| {
             format!(
@@ -326,8 +333,8 @@ fn snapshot(
 
 fn input(client: &Client, session: SessionId, bytes: Vec<u8>, output: &Output) -> Result {
     muxy_protocol::validate_input(&bytes).map_err(|code| format!("invalid input: {code:?}"))?;
-    attached(client, session, |attachment| {
-        Ok(client.write_input(attachment.channel, bytes)?)
+    attached(client, session, |channel| {
+        Ok(client.write_input(channel, bytes)?)
     })?;
     output.ok()
 }
@@ -335,11 +342,11 @@ fn input(client: &Client, session: SessionId, bytes: Vec<u8>, output: &Output) -
 fn attached<T>(
     client: &Client,
     session: SessionId,
-    action: impl FnOnce(&Attachment) -> Result<T>,
+    action: impl FnOnce(ChannelId) -> Result<T>,
 ) -> Result<T> {
-    let attachment = client.attach_without_resize(session)?;
-    let result = action(&attachment);
-    let detached = client.detach(attachment.channel);
+    let channel = client.attach_without_resize(ATTACH, session)?;
+    let result = action(channel);
+    let detached = client.detach(channel);
     finish_attachment(result, detached)
 }
 
@@ -373,7 +380,7 @@ fn wait(
     let events = client
         .events()
         .ok_or("this connection can't follow a terminal")?;
-    let attachment = match client.attach_without_resize(session) {
+    let channel = match client.attach_without_resize(ATTACH, session) {
         Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownSession => {
             let saved = client.read_saved_screen(session)?;
             let waited = match until {
@@ -382,12 +389,12 @@ fn wait(
             };
             return report(session, &waited, output);
         }
-        attachment => attachment?,
+        channel => channel?,
     };
-    let mut grid = attachment.grid.clone();
+    let mut terminal = muxy_client::take_attached(&events, ATTACH)?.terminal;
     let waited = loop {
         if let Until::Text { text, ignore_case } = until
-            && let Some(line) = matching_line(&grid, text, *ignore_case)
+            && let Some(line) = matching_line(&terminal.grid, text, *ignore_case)
         {
             break Ok(Waited::Line(line));
         }
@@ -396,9 +403,12 @@ fn wait(
             break Err(format!("timed out after {}ms", timeout.as_millis()).into());
         }
         match events.recv_timeout(left) {
-            Ok(ClientEvent::Frame { channel, frame }) if channel == attachment.channel => {
-                grid.apply(&frame);
-                if let Err(error) = client.ack(channel, frame.seq) {
+            Ok(ClientEvent::Frame {
+                channel: received,
+                frame,
+            }) if received == channel => {
+                let seq = terminal.apply(&frame);
+                if let Err(error) = client.ack(channel, seq) {
                     break Err(error.into());
                 }
             }
@@ -421,7 +431,7 @@ fn wait(
             Ok(_) | Err(RecvTimeoutError::Timeout) => (),
         }
     };
-    let detached = client.detach(attachment.channel);
+    let detached = client.detach(channel);
     report(session, &finish_attachment(waited, detached)?, output)
 }
 

@@ -1,6 +1,7 @@
+use std::sync::Arc;
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
+use std::time::Duration;
 
 use muxy_client::{Client, ClientError, ClientEvent, RemoteEndpoint};
 use muxy_protocol::{
@@ -15,6 +16,9 @@ use crate::git::GitRepository;
 use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
 use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
+
+/// How long an attach waits for the event thread to show its terminal.
+const ATTACHED_WAIT: Duration = Duration::from_secs(5);
 
 /// Receives connection events on an SDK thread; hop to the main thread before touching UI.
 #[uniffi::export(with_foreign)]
@@ -62,9 +66,6 @@ pub enum ConnectionEvent {
 pub struct Connection {
     client: Client,
     terminals: Arc<Terminals>,
-    /// Frames are held only for channels newer than every attached one, which
-    /// is true only while attaches run one at a time.
-    attaching: Mutex<()>,
 }
 
 impl std::fmt::Debug for Connection {
@@ -200,22 +201,20 @@ impl Connection {
         rows: u16,
     ) -> Result<Arc<Terminal>, MobileError> {
         let session = session(session_id)?;
-        let _attaching = self
-            .attaching
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let attachment = self.client.attach(
-            session,
-            Size {
-                cols: columns,
-                rows,
-            },
-        )?;
-        let channel = attachment.channel;
-        let (view, acknowledge) = self.terminals.install(session, attachment);
-        if let Some(seq) = acknowledge {
-            self.client.ack(channel, seq)?;
+        let (tag, attached) = self.terminals.start_attach();
+        let size = Size {
+            cols: columns,
+            rows,
+        };
+        if let Err(error) = self.client.attach(tag, session, size) {
+            self.terminals.cancel_attach(tag);
+            return Err(error.into());
         }
+        // The event thread has the terminal by now, unless the connection broke.
+        let Ok(view) = attached.recv_timeout(ATTACHED_WAIT) else {
+            self.terminals.cancel_attach(tag);
+            return Err(MobileError::Disconnected);
+        };
         Ok(Arc::new(Terminal {
             client: self.client.clone(),
             view,
@@ -263,11 +262,7 @@ impl Connection {
             .map_err(|error| MobileError::Unreachable {
                 reason: error.to_string(),
             })?;
-        Ok(Arc::new(Self {
-            client,
-            terminals,
-            attaching: Mutex::new(()),
-        }))
+        Ok(Arc::new(Self { client, terminals }))
     }
 }
 
@@ -332,6 +327,16 @@ fn deliver(
 ) {
     for event in events {
         let notice = match event {
+            ClientEvent::Attached {
+                tag,
+                session,
+                attachment,
+            } => {
+                if let Some(channel) = terminals.attached(tag, session, *attachment) {
+                    client.detach_async(channel).on_complete(drop);
+                }
+                None
+            }
             ClientEvent::Frame { channel, frame } => match terminals.frame(channel, frame) {
                 Delivery::Applied { session, seq } => {
                     let _ = client.ack(channel, seq);
@@ -339,7 +344,11 @@ fn deliver(
                         session_id: session.get(),
                     })
                 }
-                Delivery::Held | Delivery::Unknown => None,
+                Delivery::Closed { seq } => {
+                    let _ = client.ack(channel, seq);
+                    None
+                }
+                Delivery::Unknown => None,
             },
             ClientEvent::Metadata { channel, event } => {
                 terminals
@@ -370,6 +379,7 @@ fn deliver(
             }),
             ClientEvent::ServerRestarting => Some(ConnectionEvent::ServerRestarting),
             ClientEvent::Disconnected => {
+                terminals.disconnected();
                 listener.on_event(ConnectionEvent::Disconnected);
                 return;
             }

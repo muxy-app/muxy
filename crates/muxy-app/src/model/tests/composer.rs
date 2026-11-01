@@ -147,9 +147,7 @@ fn composer_broadcast_deduplicates_sessions_and_retains_partial_failure(cx: &mut
     view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         for (index, pane) in [first, second, third].into_iter().enumerate() {
-            let mut attachment = attachment();
-            attachment.channel =
-                muxy_protocol::ChannelId(u32::try_from(index + 1).expect("channel"));
+            let attachment = attachment_on(u32::try_from(index + 1).expect("channel"));
             model.receive(
                 (
                     ServerId::local(),

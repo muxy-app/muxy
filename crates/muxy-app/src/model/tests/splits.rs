@@ -19,8 +19,7 @@ fn split_state() -> (AppState, TabId, [PaneId; 3]) {
 fn attach_panes(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppModel>) {
     model.servers.local.connection = ConnectionState::Ready;
     for (index, pane) in panes.iter().enumerate() {
-        let mut attachment = attachment();
-        attachment.channel = ChannelId(u32::try_from(index + 1).expect("channel"));
+        let attachment = attachment_on(u32::try_from(index + 1).expect("channel"));
         model.receive(
             (
                 ServerId::local(),
@@ -158,7 +157,9 @@ fn equalize_splits_evens_resized_panes_from_the_shortcut_and_the_terminal_menu(
 
 fn scroll_first_pane(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppModel>) {
     let scrolled = model.terminal(&panes[0]).expect("terminal").view.clone();
-    scrolled.update(cx, |pane, cx| pane.set_viewport(attachment().grid.size, cx));
+    scrolled.update(cx, |pane, cx| {
+        pane.set_viewport(attachment().terminal.grid.size, cx);
+    });
     attach_panes(model, panes, cx);
     scrolled.update(cx, |pane, cx| {
         let grid = pane.grid.as_mut().expect("grid");
@@ -217,7 +218,7 @@ fn scroll_on_output_notices_output_attached_while_the_tab_was_hidden_again(
         model.new_tab(cx);
         let (_, session) = model.state.pane_session(panes[0]).expect("session");
         let mut output = attachment();
-        output.grid.rows[1] = output.grid.rows[0].clone();
+        output.terminal.grid.rows[1] = output.terminal.grid.rows[0].clone();
         let attached = || Update::Attached {
             pane: panes[0],
             session,

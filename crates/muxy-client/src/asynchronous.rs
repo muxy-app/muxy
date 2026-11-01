@@ -1,5 +1,7 @@
 use crate::{Client, ClientError, Request};
-use muxy_protocol::{CatalogPage, ErrorCode, MAX_PROJECTS, ProjectId, ReplyBody, RequestBody};
+use muxy_protocol::{
+    CatalogPage, ChannelId, ErrorCode, MAX_PROJECTS, ProjectId, ReplyBody, RequestBody,
+};
 use std::time::Duration;
 
 impl Client {
@@ -51,6 +53,18 @@ impl Client {
             ReplyBody::Exec(value) => Ok(value),
             body => Err(ClientError::UnexpectedReply(Box::new(body))),
         })
+    }
+
+    /// Detaches without blocking, such as from the thread reading events.
+    pub fn detach_async(&self, channel: ChannelId) -> Request<()> {
+        self.request_async(
+            RequestBody::Detach(channel),
+            crate::client::DEFAULT_TIMEOUT,
+            |body| match body {
+                ReplyBody::Detached => Ok(()),
+                body => Err(ClientError::UnexpectedReply(Box::new(body))),
+            },
+        )
     }
 
     pub fn cancel_exec_async(&self, request: u64) -> Request<()> {

@@ -37,7 +37,7 @@ impl Terminal {
     pub fn screen(&self) -> Screen {
         let content = self.view.lock();
         Screen::new(
-            &content.grid,
+            &content.terminal.grid,
             &content.title,
             &content.directory.0,
             content.input,
@@ -55,7 +55,7 @@ impl Terminal {
     }
 
     pub fn send_key(&self, key: Key, modifiers: Modifiers) -> Result<(), MobileError> {
-        let modes = self.view.lock().grid.modes;
+        let modes = self.view.lock().terminal.grid.modes;
         match keys::encode(&key, modifiers, modes) {
             Some(bytes) => self.send_input(bytes),
             None => Ok(()),
@@ -64,7 +64,7 @@ impl Terminal {
 
     /// Sends text as one paste, marked as such when the program asks for it.
     pub fn paste(&self, text: String) -> Result<(), MobileError> {
-        let bracketed = self.view.lock().grid.modes.bracketed_paste;
+        let bracketed = self.view.lock().terminal.grid.modes.bracketed_paste;
         self.send_input(keys::paste(&text, bracketed))
     }
 
@@ -102,7 +102,7 @@ impl Terminal {
             rows,
         };
         // Resize first so the server's full redraw lands on a grid of the new size.
-        self.view.lock().grid.resize(size);
+        self.view.lock().terminal.grid.resize(size);
         Ok(self.client.resize(self.view.channel, size)?)
     }
 

@@ -82,6 +82,7 @@ impl Requests {
             let Some(work) = self.queued.pop_front() else {
                 break;
             };
+            delivery.start(&work);
             if let Some(update) = schedule(
                 &self.pool,
                 work,

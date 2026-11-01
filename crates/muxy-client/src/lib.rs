@@ -7,6 +7,7 @@
 
 mod async_request;
 mod asynchronous;
+mod attachment;
 pub use async_request::Request;
 pub mod bridge;
 mod client;
@@ -18,10 +19,11 @@ pub mod input;
 mod requests;
 mod ssh;
 
+pub use attachment::{AttachedTerminal, Attachment};
 pub use bridge::Start;
-pub use client::{Attachment, Client};
+pub use client::Client;
 pub use error::{ClientError, RemoteReason};
-pub use events::{ClientEvent, ClipboardWrite};
+pub use events::{ClientEvent, ClipboardWrite, take_attached};
 pub use grid::{RunGrid, ScreenLinks, ScreenPrompts};
 pub use ssh::{Askpass, ProxyCommand, SshTarget};
 

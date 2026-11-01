@@ -1,13 +1,11 @@
-//! Attached terminals by channel, and what arrives for a channel before its attach returns.
+//! Attached terminals by channel, and the attaches still under way.
 
 use std::collections::HashMap;
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use muxy_client::{Attachment, RunGrid};
+use muxy_client::{AttachedTerminal, Attachment};
 use muxy_protocol::{ChannelId, InputModes, MetadataEvent, ScreenFrame, ServerPath, SessionId};
-
-/// Channels still attaching; the server allows one unacknowledged frame each.
-const MAX_EARLY: usize = 16;
 
 #[derive(Default)]
 pub(crate) struct Terminals {
@@ -17,15 +15,10 @@ pub(crate) struct Terminals {
 #[derive(Default)]
 struct State {
     views: HashMap<ChannelId, Arc<View>>,
-    early: HashMap<ChannelId, Early>,
-    /// Channels up to this one were attached; later ones may still be attaching.
-    installed_through: u32,
-}
-
-#[derive(Default)]
-struct Early {
-    frame: Option<ScreenFrame>,
-    metadata: Vec<MetadataEvent>,
+    waiting: HashMap<u64, SyncSender<Arc<View>>>,
+    next_tag: u64,
+    /// Channels up to this one were attached on this connection.
+    last_channel: u32,
 }
 
 pub(crate) struct View {
@@ -35,7 +28,7 @@ pub(crate) struct View {
 }
 
 pub(crate) struct Content {
-    pub(crate) grid: RunGrid,
+    pub(crate) terminal: AttachedTerminal,
     pub(crate) title: String,
     pub(crate) directory: ServerPath,
     pub(crate) input: InputModes,
@@ -44,86 +37,82 @@ pub(crate) struct Content {
 pub(crate) enum Delivery {
     /// Applied to an attached terminal; acknowledge `seq` to receive the next frame.
     Applied { session: SessionId, seq: u64 },
-    /// Kept until the terminal's attach returns.
-    Held,
-    /// For a terminal that has been detached.
+    /// For a terminal that has been detached; acknowledge `seq`.
+    Closed { seq: u64 },
+    /// For a channel this connection never attached.
     Unknown,
 }
 
 impl Terminals {
-    /// Installs an attachment and applies what arrived first; returns the frame to acknowledge.
-    pub(crate) fn install(
+    /// Registers an attach; its view arrives on the receiver once attached.
+    pub(crate) fn start_attach(&self) -> (u64, Receiver<Arc<View>>) {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut state = self.lock();
+        let tag = state.next_tag;
+        state.next_tag = state.next_tag.wrapping_add(1);
+        state.waiting.insert(tag, sender);
+        (tag, receiver)
+    }
+
+    pub(crate) fn cancel_attach(&self, tag: u64) {
+        self.lock().waiting.remove(&tag);
+    }
+
+    /// Installs an attached terminal for whoever waits for `tag`, or returns
+    /// the channel nobody waits for.
+    pub(crate) fn attached(
         &self,
+        tag: u64,
         session: SessionId,
         attachment: Attachment,
-    ) -> (Arc<View>, Option<u64>) {
+    ) -> Option<ChannelId> {
+        let channel = attachment.terminal.channel();
         let mut state = self.lock();
-        let early = state.early.remove(&attachment.channel).unwrap_or_default();
-        let mut content = Content {
-            grid: attachment.grid,
-            title: attachment.title,
-            directory: attachment.directory,
-            input: InputModes::default(),
+        state.last_channel = state.last_channel.max(channel.0);
+        let Some(waiting) = state.waiting.remove(&tag) else {
+            return Some(channel);
         };
-        content.grid.graphics = muxy_protocol::Graphics::default();
-        let acknowledge = early.frame.map(|frame| {
-            content.frame(&frame);
-            frame.seq
-        });
-        for event in early.metadata {
-            content.apply(event);
-        }
+        let mut terminal = attachment.terminal;
+        terminal.grid.graphics = muxy_protocol::Graphics::default();
         let view = Arc::new(View {
             session,
-            channel: attachment.channel,
-            content: Mutex::new(content),
+            channel,
+            content: Mutex::new(Content {
+                terminal,
+                title: attachment.title,
+                directory: attachment.directory,
+                input: InputModes::default(),
+            }),
         });
-        state.views.insert(attachment.channel, Arc::clone(&view));
-        state.installed_through = state.installed_through.max(attachment.channel.0);
-        (view, acknowledge)
+        state.views.insert(channel, Arc::clone(&view));
+        drop(state);
+        if waiting.send(view).is_ok() {
+            return None;
+        }
+        self.remove(channel);
+        Some(channel)
     }
 
     pub(crate) fn frame(&self, channel: ChannelId, mut frame: ScreenFrame) -> Delivery {
         frame.graphics = None;
-        let mut state = self.lock();
+        let state = self.lock();
         if let Some(view) = state.views.get(&channel) {
-            view.lock().frame(&frame);
             return Delivery::Applied {
                 session: view.session,
-                seq: frame.seq,
+                seq: view.lock().frame(&frame),
             };
         }
-        match state.early_for(channel) {
-            Some(early) => {
-                early.frame = Some(frame);
-                Delivery::Held
-            }
-            None => Delivery::Unknown,
+        if channel.0 <= state.last_channel {
+            Delivery::Closed { seq: frame.seq }
+        } else {
+            Delivery::Unknown
         }
     }
 
     /// Returns the session whose `Screen` metadata changed.
     pub(crate) fn metadata(&self, channel: ChannelId, event: MetadataEvent) -> Option<SessionId> {
-        if !matches!(
-            event,
-            MetadataEvent::Title(_)
-                | MetadataEvent::Directory(_)
-                | MetadataEvent::History { .. }
-                | MetadataEvent::InputModes(_)
-        ) {
-            return None;
-        }
-        let mut state = self.lock();
-        if let Some(view) = state.views.get(&channel) {
-            return view.lock().apply(event).then_some(view.session);
-        }
-        if let Some(early) = state.early_for(channel) {
-            early
-                .metadata
-                .retain(|old| std::mem::discriminant(old) != std::mem::discriminant(&event));
-            early.metadata.push(event);
-        }
-        None
+        let view = self.lock().views.get(&channel).cloned()?;
+        view.lock().apply(event).then_some(view.session)
     }
 
     pub(crate) fn remove(&self, channel: ChannelId) {
@@ -134,16 +123,13 @@ impl Terminals {
         self.lock().views.retain(|_, view| view.session != session);
     }
 
+    /// Stops every attach under way; nothing more arrives on this connection.
+    pub(crate) fn disconnected(&self) {
+        self.lock().waiting.clear();
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-impl State {
-    fn early_for(&mut self, channel: ChannelId) -> Option<&mut Early> {
-        let attaching = channel.0 > self.installed_through
-            && (self.early.len() < MAX_EARLY || self.early.contains_key(&channel));
-        attaching.then(|| self.early.entry(channel).or_default())
     }
 }
 
@@ -154,11 +140,12 @@ impl View {
 }
 
 impl Content {
-    fn frame(&mut self, frame: &ScreenFrame) {
-        if self.grid.size != frame.size {
-            self.grid.resize(frame.size);
+    /// Returns the sequence number to acknowledge.
+    fn frame(&mut self, frame: &ScreenFrame) -> u64 {
+        if self.terminal.grid.size != frame.size {
+            self.terminal.grid.resize(frame.size);
         }
-        self.grid.apply(frame);
+        self.terminal.apply(frame)
     }
 
     /// Returns whether the change shows in `Screen`.
@@ -166,7 +153,7 @@ impl Content {
         match event {
             MetadataEvent::Title(title) => self.title = title,
             MetadataEvent::Directory(directory) => self.directory = directory,
-            MetadataEvent::History { total_rows } => self.grid.history_total = total_rows,
+            MetadataEvent::History { total_rows } => self.terminal.grid.history_total = total_rows,
             MetadataEvent::InputModes(input) => {
                 // Focus reporting alone doesn't show.
                 let shown = |modes: InputModes| (modes.mouse_tracking, modes.alternate_scroll);
@@ -182,6 +169,7 @@ impl Content {
 
 #[cfg(test)]
 mod tests {
+    use muxy_client::RunGrid;
     use muxy_protocol::{AttachSnapshot, Cursor, CursorShape, Graphics, Modes, Size};
 
     use super::*;
@@ -208,9 +196,8 @@ mod tests {
             history_total: 0,
         };
         Attachment {
-            channel,
+            terminal: AttachedTerminal::new(channel, RunGrid::from_snapshot(&snapshot)),
             server_input: false,
-            grid: RunGrid::from_snapshot(&snapshot),
             title: snapshot.title,
             directory: snapshot.directory,
             process: None,
@@ -240,37 +227,60 @@ mod tests {
     }
 
     #[test]
-    fn resize_frames_before_attach_returns_replace_the_snapshot_size() {
+    fn resize_frames_replace_the_snapshot_size() {
         for size in [Size { cols: 20, rows: 4 }, Size { cols: 4, rows: 1 }] {
             let terminals = Terminals::default();
             let channel = ChannelId(1);
             let session = SessionId::new(7).unwrap();
+            let (tag, attached) = terminals.start_attach();
+            assert_eq!(terminals.attached(tag, session, attachment(channel)), None);
+            let view = attached.try_recv().expect("view");
             assert!(matches!(
                 terminals.frame(channel, resized(size)),
-                Delivery::Held
+                Delivery::Applied { seq: 1, .. }
             ));
-            let (view, acknowledge) = terminals.install(session, attachment(channel));
-            assert_eq!(acknowledge, Some(1));
-            assert_eq!(view.lock().grid.size, size);
-            assert_eq!(view.lock().grid.rows.len(), usize::from(size.rows));
+            assert_eq!(view.lock().terminal.grid.size, size);
+            assert_eq!(view.lock().terminal.grid.rows.len(), usize::from(size.rows));
         }
     }
 
-    fn modes(mouse_tracking: bool, focus_events: bool) -> MetadataEvent {
-        MetadataEvent::InputModes(InputModes {
-            mouse_tracking,
-            alternate_scroll: false,
-            focus_events,
-        })
+    #[test]
+    fn frames_after_detach_are_acknowledged_and_unknown_ones_are_not() {
+        let terminals = Terminals::default();
+        let session = SessionId::new(7).unwrap();
+        let (tag, _attached) = terminals.start_attach();
+        terminals.attached(tag, session, attachment(ChannelId(2)));
+        terminals.remove(ChannelId(2));
+        assert!(matches!(
+            terminals.frame(ChannelId(1), resized(Size { cols: 4, rows: 1 })),
+            Delivery::Closed { seq: 1 }
+        ));
+        assert!(matches!(
+            terminals.frame(ChannelId(3), resized(Size { cols: 4, rows: 1 })),
+            Delivery::Unknown
+        ));
     }
 
     #[test]
-    fn mouse_modes_sent_before_attach_returns_are_kept() {
+    fn a_terminal_nobody_waits_for_is_not_kept() {
         let terminals = Terminals::default();
-        let channel = ChannelId(1);
         let session = SessionId::new(7).unwrap();
-        assert_eq!(terminals.metadata(channel, modes(true, false)), None);
-        let (view, _) = terminals.install(session, attachment(channel));
-        assert!(view.lock().input.mouse_tracking);
+        let (tag, attached) = terminals.start_attach();
+        terminals.cancel_attach(tag);
+        assert_eq!(
+            terminals.attached(tag, session, attachment(ChannelId(1))),
+            Some(ChannelId(1))
+        );
+        drop(attached);
+        let (tag, attached) = terminals.start_attach();
+        drop(attached);
+        assert_eq!(
+            terminals.attached(tag, session, attachment(ChannelId(2))),
+            Some(ChannelId(2))
+        );
+        assert!(matches!(
+            terminals.frame(ChannelId(2), resized(Size { cols: 4, rows: 1 })),
+            Delivery::Closed { .. }
+        ));
     }
 }
