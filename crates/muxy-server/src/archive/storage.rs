@@ -5,9 +5,15 @@ use std::path::Path;
 
 use muxy_protocol::{Run, SavedScreen};
 
+use super::layout::StoredScreen;
 use super::{Record, SCREEN_LIMIT};
 
-const MAGIC: &[u8; 8] = b"MUXYSAV3";
+const MAGIC: &[u8; 8] = b"MUXYSAV4";
+/// Written before the server owned its layout, from protocol types that match
+/// [`StoredScreen`].
+const MAGIC_V3: &[u8; 8] = b"MUXYSAV3";
+/// Written before rendering kept cursor shapes, graphics and underline styles.
+const MAGIC_V2: &[u8; 8] = b"MUXYSAV2";
 const HEADER_LEN: u64 = 32;
 
 #[derive(Debug)]
@@ -33,9 +39,11 @@ impl StoredRecord {
         let mut file = BufReader::new(File::open(path)?);
         let mut magic = [0; 8];
         file.read_exact(&mut magic)?;
-        if &magic != MAGIC && &magic != b"MUXYSAV2" {
-            return super::read_record(path, legacy_budget).map(Self::Legacy);
-        }
+        let legacy = match &magic {
+            MAGIC | MAGIC_V3 => false,
+            MAGIC_V2 => true,
+            _ => return super::read_record(path, legacy_budget).map(Self::Legacy),
+        };
         let screen_len = read_u64(&mut file)?;
         let total = read_u64(&mut file)?;
         let generation = read_u64(&mut file)?;
@@ -50,16 +58,16 @@ impl StoredRecord {
         }
         let mut bytes = vec![0; usize::try_from(screen_len).map_err(io::Error::other)?];
         file.read_exact(&mut bytes)?;
-        let screen = if &magic == b"MUXYSAV2" {
+        let screen = if legacy {
             postcard::from_bytes::<super::legacy::Screen>(&bytes).map(Into::into)
         } else {
-            postcard::from_bytes::<SavedScreen>(&bytes)
+            postcard::from_bytes::<StoredScreen>(&bytes).map(Into::into)
         }
         .map_err(io::Error::other)?;
         super::validate_screen(&screen)?;
         let mut record = IndexedRecord {
             file,
-            legacy: &magic == b"MUXYSAV2",
+            legacy,
             screen,
             total: usize::try_from(total).map_err(io::Error::other)?,
             generation,
@@ -137,7 +145,8 @@ impl IndexedRecord {
 pub(super) fn write(record: &Record, writer: impl Write) -> io::Result<()> {
     let mut writer = DeferredFlush(writer);
     record.validate()?;
-    let screen_len = serialized_size(&record.screen)?;
+    let screen = StoredScreen::from(&record.screen);
+    let screen_len = serialized_size(&screen)?;
     if screen_len > SCREEN_LIMIT || record.history.len() > u32::MAX as usize {
         return Err(invalid());
     }
@@ -145,7 +154,7 @@ pub(super) fn write(record: &Record, writer: impl Write) -> io::Result<()> {
     writer.write_all(&screen_len.to_le_bytes())?;
     writer.write_all(&(record.history.len() as u64).to_le_bytes())?;
     writer.write_all(&generation(record).to_le_bytes())?;
-    postcard::to_io(&record.screen, &mut writer).map_err(io::Error::other)?;
+    postcard::to_io(&screen, &mut writer).map_err(io::Error::other)?;
     let mut offset = HEADER_LEN + screen_len + (record.history.len() as u64 + 1) * 8;
     for row in &record.history {
         writer.write_all(&offset.to_le_bytes())?;

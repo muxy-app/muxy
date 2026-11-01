@@ -1,3 +1,4 @@
+mod layout;
 mod legacy;
 mod storage;
 
@@ -21,19 +22,18 @@ use muxy_protocol::{
     SavedScreen, SearchPage, SessionId,
 };
 use muxy_terminal::{TerminalArchive, TerminalSnapshot};
-use serde::{Deserialize, Serialize};
 
 use crate::ServerError;
 use crate::search::Search;
 
-const VERSION: u32 = 2;
+/// The only whole-file record version, written before records were indexed.
+const LEGACY_VERSION: u32 = 1;
 const SCREEN_LIMIT: u64 = 16 * 1024 * 1024 - 1024;
 type Completion = Sender<Result<(), String>>;
 type Queue = Arc<Mutex<BTreeMap<SessionId, Job>>>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Record {
-    version: u32,
     screen: SavedScreen,
     history: Vec<Vec<Run>>,
 }
@@ -41,7 +41,6 @@ struct Record {
 impl Record {
     fn new(terminal: TerminalArchive, reason: Option<ExitReason>) -> Self {
         Self {
-            version: VERSION,
             screen: SavedScreen {
                 graphics: terminal.graphics,
                 size: terminal.size,
@@ -54,12 +53,6 @@ impl Record {
     }
 
     fn validate(&self) -> io::Result<()> {
-        if self.version != VERSION {
-            return Err(io::Error::other(format!(
-                "unsupported terminal record version {}",
-                self.version
-            )));
-        }
         validate_screen(&self.screen)
     }
 }
@@ -577,22 +570,19 @@ fn read_record(path: &Path, budget: u64) -> io::Result<Record> {
         ));
     }
     let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(io::Error::other)?;
-    let record = if version == 1 {
-        let old: legacy::Record = postcard::from_bytes(&bytes).map_err(io::Error::other)?;
-        if old.version != 1 {
-            return Err(io::Error::other("unsupported legacy terminal record"));
-        }
-        Record {
-            version: VERSION,
-            screen: old.screen.into(),
-            history: old
-                .history
-                .into_iter()
-                .map(|row| row.into_iter().map(Into::into).collect())
-                .collect(),
-        }
-    } else {
-        postcard::from_bytes::<Record>(&bytes).map_err(io::Error::other)?
+    if version != LEGACY_VERSION {
+        return Err(io::Error::other(format!(
+            "unsupported terminal record version {version}"
+        )));
+    }
+    let old: legacy::Record = postcard::from_bytes(&bytes).map_err(io::Error::other)?;
+    let record = Record {
+        screen: old.screen.into(),
+        history: old
+            .history
+            .into_iter()
+            .map(|row| row.into_iter().map(Into::into).collect())
+            .collect(),
     };
     record.validate()?;
     Ok(record)
@@ -627,6 +617,10 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muxy_protocol::{
+        CellSize, Color, Cursor, CursorShape, GraphicImage, GraphicPlacement, Graphics, Style,
+        Underline,
+    };
     use muxy_terminal::{Size, Terminal};
     use std::error::Error;
     use std::io::Read;
@@ -685,14 +679,132 @@ mod tests {
             assert_eq!(record.screen().rows[0].runs[0].text, "preserved");
             assert_eq!(
                 record.screen().rows[0].runs[0].style.underline,
-                muxy_protocol::Underline::Single
+                Underline::Single
             );
-            assert_eq!(
-                record.screen().cursor.shape,
-                muxy_protocol::CursorShape::Block
-            );
+            assert_eq!(record.screen().cursor.shape, CursorShape::Block);
             assert_eq!(record.row(0)?[0].text, "preserved");
             assert_eq!(record.total(), 1);
+        }
+        Ok(())
+    }
+
+    fn sample() -> Record {
+        let style = Style {
+            fg: Color::Rgb(1, 2, 3),
+            bg: Color::Indexed(4),
+            bold: true,
+            italic: true,
+            underline: Underline::Curly,
+            underline_color: Color::Indexed(9),
+            invisible: false,
+            overline: true,
+            inverse: true,
+            strikethrough: true,
+            faint: true,
+        };
+        let run = |text: &str| Run {
+            text: text.into(),
+            width: u16::try_from(text.len()).unwrap_or(u16::MAX),
+            style,
+        };
+        Record {
+            screen: SavedScreen {
+                graphics: Graphics {
+                    cell: CellSize {
+                        width: 9,
+                        height: 18,
+                    },
+                    images: vec![GraphicImage {
+                        id: 7,
+                        generation: 2,
+                        width: 1,
+                        height: 2,
+                        rgba: Arc::from([1, 2, 3, 4, 5, 6, 7, 8].as_slice()),
+                    }],
+                    placements: vec![GraphicPlacement {
+                        image: 7,
+                        id: 3,
+                        column: -1,
+                        row: 1,
+                        offset: [1, 2],
+                        size: [3, 4],
+                        source: [0, 0, 1, 2],
+                        z: -5,
+                    }],
+                },
+                size: Size { cols: 20, rows: 2 },
+                rows: vec![
+                    Row {
+                        index: 0,
+                        runs: vec![run("screen")],
+                    },
+                    Row {
+                        index: 1,
+                        runs: Vec::new(),
+                    },
+                ],
+                cursor: Cursor {
+                    shape: CursorShape::Bar,
+                    row: 1,
+                    col: 4,
+                    visible: false,
+                },
+                reason: Some(ExitReason::Signaled(15)),
+            },
+            history: vec![
+                vec![run("first")],
+                vec![
+                    run("second"),
+                    Run {
+                        text: "plain".into(),
+                        width: 5,
+                        style: Style::default(),
+                    },
+                ],
+            ],
+        }
+    }
+
+    #[test]
+    fn this_release_keeps_writing_the_checked_in_layout() -> TestResult {
+        let mut written = Vec::new();
+        storage::write(&sample(), &mut written)?;
+        let fixture = include_bytes!("../tests/fixtures/terminal-v4.postcard");
+        let std_hash_that_rust_releases_may_change = 24..32;
+        assert_eq!(
+            written[..std_hash_that_rust_releases_may_change.start],
+            fixture[..std_hash_that_rust_releases_may_change.start]
+        );
+        assert_eq!(
+            written[std_hash_that_rust_releases_may_change.end..],
+            fixture[std_hash_that_rust_releases_may_change.end..]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn indexed_layouts_load_with_screen_graphics_reason_and_history() -> TestResult {
+        let directory = Directory::new()?;
+        let expected = sample();
+        for (name, bytes) in [
+            (
+                "v3",
+                include_bytes!("../tests/fixtures/terminal-v3.postcard").as_slice(),
+            ),
+            (
+                "v4",
+                include_bytes!("../tests/fixtures/terminal-v4.postcard").as_slice(),
+            ),
+        ] {
+            let path = directory.0.join(name);
+            fs::write(&path, bytes)?;
+            let mut record = StoredRecord::open(&path, 65536)?;
+            assert!(matches!(record, StoredRecord::Indexed(_)));
+            assert_eq!(*record.screen(), expected.screen, "{name}");
+            assert_eq!(record.total(), expected.history.len());
+            for (index, row) in expected.history.iter().enumerate() {
+                assert_eq!(record.row(index)?, *row, "{name} row {index}");
+            }
         }
         Ok(())
     }
@@ -740,7 +852,7 @@ mod tests {
                 Run {
                     text: "wide".into(),
                     width: 1,
-                    style: muxy_protocol::Style::default()
+                    style: Style::default()
                 };
                 4096
             ],
@@ -800,7 +912,7 @@ mod tests {
             runs: vec![Run {
                 text: "row".into(),
                 width: 3,
-                style: muxy_protocol::Style::default(),
+                style: Style::default(),
             }],
         };
         let page = bound_history_page(
@@ -868,9 +980,11 @@ mod tests {
         let path = record_path(&directory.0, second);
         fs::write(&path, b"broken")?;
         assert!(archive.read(second).is_err());
-        let mut unsupported = Record::new(capture("unsupported")?.archive()?, None);
-        unsupported.version = VERSION + 1;
-        fs::write(&path, postcard::to_stdvec(&unsupported)?)?;
+        let mut newer_version = include_bytes!("../tests/fixtures/render-v1.postcard").to_vec();
+        newer_version[0] = u8::try_from(LEGACY_VERSION + 1)?;
+        fs::write(&path, &newer_version)?;
+        newer_version[0] = u8::try_from(LEGACY_VERSION)?;
+        assert!(postcard::from_bytes::<legacy::Record>(&newer_version).is_ok());
         assert!(archive.read(second).is_err());
         assert!(archive.read(first).is_ok());
         Ok(())
