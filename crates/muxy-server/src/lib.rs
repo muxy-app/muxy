@@ -8,6 +8,7 @@ pub mod connection;
 mod error;
 mod exec;
 mod process;
+mod references;
 mod registry;
 mod search;
 mod session;

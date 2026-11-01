@@ -5,7 +5,7 @@
 )]
 
 use super::*;
-use crate::connection::Outbox;
+use crate::connection::Connection;
 use muxy_protocol::{Message, OperationId, ProjectDescriptor, ProjectIntent, ProjectMutation};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::mpsc;
@@ -81,15 +81,15 @@ impl Drop for Repository {
 fn every_subscriber_shares_one_watch_until_the_last_leaves() {
     let repository = Repository::new();
     let registry = &repository.registry;
-    let outboxes = [
-        Arc::new(Outbox::new(Arc::default())),
-        Arc::new(Outbox::new(Arc::default())),
+    let connections = [
+        Arc::new(Connection::new(Arc::default())),
+        Arc::new(Connection::new(Arc::default())),
     ];
-    let mut subscriptions: Vec<_> = outboxes
+    let mut subscriptions: Vec<_> = connections
         .iter()
-        .map(|outbox| {
+        .map(|connection| {
             registry
-                .watch_git(repository.project, outbox)
+                .watch_git(repository.project, connection)
                 .unwrap()
                 .unwrap()
         })
@@ -100,8 +100,8 @@ fn every_subscriber_shares_one_watch_until_the_last_leaves() {
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut notified = [false; 2];
     while notified.contains(&false) && Instant::now() < deadline {
-        for (outbox, notified) in outboxes.iter().zip(&mut notified) {
-            *notified |= outbox
+        for (connection, notified) in connections.iter().zip(&mut notified) {
+            *notified |= connection
                 .take_control()
                 .iter()
                 .any(|message| matches!(message, Message::GitChanged { .. }));

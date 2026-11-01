@@ -5,7 +5,7 @@ use muxy_protocol::{Message, ProjectId};
 
 use super::DebouncedWatch;
 use crate::ServerError;
-use crate::connection::Outbox;
+use crate::connection::Connection;
 
 /// One watch per project, whoever asks for it. A watch stops when its last
 /// subscription is dropped.
@@ -21,35 +21,38 @@ struct Slot {
 /// The connections a watch reports to, held weakly so a closed connection
 /// never stays alive for its watch.
 #[derive(Clone, Default)]
-pub(crate) struct Subscribers(Arc<Mutex<Vec<Weak<Outbox>>>>);
+pub(crate) struct Subscribers(Arc<Mutex<Vec<Weak<Connection>>>>);
 
 impl Subscribers {
     pub(crate) fn send(&self, message: &Message) {
-        let mut outboxes = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        outboxes.retain(|outbox| match outbox.upgrade() {
-            Some(outbox) => {
-                outbox.push_control(message.clone());
+        let mut connections = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        connections.retain(|connection| match connection.upgrade() {
+            Some(connection) => {
+                connection.push_control(message.clone());
                 true
             }
             None => false,
         });
     }
 
-    fn add(&self, outbox: Weak<Outbox>) {
+    fn add(&self, connection: Weak<Connection>) {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push(outbox);
+            .push(connection);
     }
 
     /// Returns whether anyone is still subscribed.
-    fn remove(&self, outbox: &Weak<Outbox>) -> bool {
-        let mut outboxes = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(index) = outboxes.iter().position(|other| other.ptr_eq(outbox)) {
-            outboxes.swap_remove(index);
+    fn remove(&self, connection: &Weak<Connection>) -> bool {
+        let mut connections = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(index) = connections
+            .iter()
+            .position(|other| other.ptr_eq(connection))
+        {
+            connections.swap_remove(index);
         }
-        outboxes.retain(|other| other.strong_count() > 0);
-        !outboxes.is_empty()
+        connections.retain(|other| other.strong_count() > 0);
+        !connections.is_empty()
     }
 }
 
@@ -57,7 +60,7 @@ pub(crate) struct Subscription {
     shared: Shared,
     project: ProjectId,
     slot: Arc<Slot>,
-    outbox: Weak<Outbox>,
+    connection: Weak<Connection>,
 }
 
 impl Subscription {
@@ -67,13 +70,13 @@ impl Subscription {
 }
 
 impl Shared {
-    /// Subscribes `outbox` to the project's watch, starting it with `start`
+    /// Subscribes `connection` to the project's watch, starting it with `start`
     /// when nobody watches the project yet. `start` returns `None` when there
     /// is nothing to watch.
     pub(crate) fn subscribe(
         &self,
         project: ProjectId,
-        outbox: &Arc<Outbox>,
+        connection: &Arc<Connection>,
         start: impl FnOnce(Subscribers) -> Result<Option<DebouncedWatch>, ServerError>,
     ) -> Result<Option<Subscription>, ServerError> {
         loop {
@@ -95,14 +98,14 @@ impl Shared {
                     }
                 }
             }
-            let outbox = Arc::downgrade(outbox);
-            slot.subscribers.add(Weak::clone(&outbox));
+            let connection = Arc::downgrade(connection);
+            slot.subscribers.add(Weak::clone(&connection));
             drop(watch);
             return Ok(Some(Subscription {
                 shared: self.clone(),
                 project,
                 slot,
-                outbox,
+                connection,
             }));
         }
     }
@@ -142,7 +145,7 @@ impl Drop for Subscription {
                 .watch
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            if self.slot.subscribers.remove(&self.outbox) {
+            if self.slot.subscribers.remove(&self.connection) {
                 None
             } else {
                 self.shared.forget(self.project, &self.slot);

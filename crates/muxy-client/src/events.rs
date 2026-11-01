@@ -4,8 +4,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use muxy_protocol::transport::StreamCancellation;
 use muxy_protocol::wire::Decoder;
 use muxy_protocol::{
-    CONTROL, ChannelId, ErrorCode, ErrorReply, ExitReason, Feature, Message, MetadataEvent,
-    ReplyBody, RequestId, ScreenFrame, SessionId, Topic,
+    CONTROL, ChannelId, CoalesceKey, ErrorCode, ErrorReply, ExitReason, Feature, Message,
+    MetadataEvent, ReplyBody, RequestId, ScreenFrame, SessionId, Topic,
 };
 
 use crate::handshake;
@@ -70,6 +70,42 @@ pub enum ClientEvent {
     },
     Disconnected,
     ServerRestarting,
+}
+
+impl ClientEvent {
+    /// The coalesce key of the message this event came from.
+    pub fn coalesce_key(&self) -> Option<CoalesceKey> {
+        match self {
+            Self::SessionMetadata { session, .. } => Some(CoalesceKey::SessionMetadata(*session)),
+            Self::Progress { session, .. } => Some(CoalesceKey::Progress(*session)),
+            Self::FilesChanged { project, .. } => Some(CoalesceKey::FilesChanged(*project)),
+            Self::GitChanged { project } => Some(CoalesceKey::GitChanged(*project)),
+            Self::CatalogChanged { .. } => Some(CoalesceKey::Changed(Topic::Catalog)),
+            Self::SessionsChanged { .. } => Some(CoalesceKey::Changed(Topic::Sessions)),
+            Self::ActivityChanged { .. } => Some(CoalesceKey::Changed(Topic::Activity)),
+            Self::RemoteAccessChanged { .. } => Some(CoalesceKey::Changed(Topic::RemoteAccess)),
+            _ => None,
+        }
+    }
+
+    /// Folds `newer`, which has the same coalesce key, into this event, as
+    /// [`Message::merge`] folds their messages.
+    pub fn merge(&mut self, newer: Self) {
+        match (self, newer) {
+            (Self::CatalogChanged { revision }, Self::CatalogChanged { revision: newer })
+            | (Self::SessionsChanged { revision }, Self::SessionsChanged { revision: newer })
+            | (Self::ActivityChanged { revision }, Self::ActivityChanged { revision: newer })
+            | (
+                Self::RemoteAccessChanged { revision },
+                Self::RemoteAccessChanged { revision: newer },
+            ) => *revision = (*revision).max(newer),
+            (Self::FilesChanged { changes, .. }, Self::FilesChanged { changes: newer, .. }) => {
+                changes.merge(&newer);
+            }
+            (Self::GitChanged { .. }, Self::GitChanged { .. }) => {}
+            (older, newer) => *older = newer,
+        }
+    }
 }
 
 /// Takes the terminal that `Client::attach` announced with `tag`, for a caller

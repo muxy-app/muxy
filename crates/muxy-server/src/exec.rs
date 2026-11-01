@@ -13,7 +13,7 @@ use muxy_protocol::{
     ErrorCode, ExecRequest, ExecResult, MAX_EXEC_OUTPUT, Message, ReplyBody, RequestId, ServerPath,
 };
 
-use crate::{Registry, ServerError, connection::Outbox};
+use crate::{Registry, ServerError, connection::Connection};
 
 #[derive(Default)]
 pub(crate) struct Jobs {
@@ -72,7 +72,7 @@ impl Jobs {
         mut request: ExecRequest,
         id: RequestId,
         registry: Arc<Registry>,
-        output: Arc<Outbox>,
+        output: Arc<Connection>,
     ) -> Result<(), ServerError> {
         let job = request.job;
         let cancelled = self.register(job)?;

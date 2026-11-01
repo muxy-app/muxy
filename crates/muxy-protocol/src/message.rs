@@ -23,6 +23,17 @@ open_enum! {
     }
 }
 
+/// What a queued message stands for: a newer message with the same key folds
+/// into it instead of waiting behind it.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CoalesceKey {
+    Changed(Topic),
+    SessionMetadata(SessionId),
+    Progress(SessionId),
+    FilesChanged(crate::ProjectId),
+    GitChanged(crate::ProjectId),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Message {
     SessionMetadata {
@@ -89,6 +100,35 @@ pub enum Message {
 }
 
 impl Message {
+    /// `None` for a message that is delivered on its own, however many follow it.
+    pub fn coalesce_key(&self) -> Option<CoalesceKey> {
+        match self {
+            Self::Changed { topic, .. } => Some(CoalesceKey::Changed(*topic)),
+            Self::SessionMetadata { session, .. } => Some(CoalesceKey::SessionMetadata(*session)),
+            Self::Progress { session, .. } => Some(CoalesceKey::Progress(*session)),
+            Self::FilesChanged { project, .. } => Some(CoalesceKey::FilesChanged(*project)),
+            Self::GitChanged { project } => Some(CoalesceKey::GitChanged(*project)),
+            _ => None,
+        }
+    }
+
+    /// Folds `newer`, which has the same coalesce key, into this message.
+    pub fn merge(&mut self, newer: Self) {
+        match (self, newer) {
+            (
+                Self::Changed { revision, .. },
+                Self::Changed {
+                    revision: newer, ..
+                },
+            ) => *revision = (*revision).max(newer),
+            (Self::FilesChanged { changes, .. }, Self::FilesChanged { changes: newer, .. }) => {
+                changes.merge(&newer);
+            }
+            (Self::GitChanged { .. }, Self::GitChanged { .. }) => {}
+            (older, newer) => *older = newer,
+        }
+    }
+
     pub fn channel_kind(&self) -> ChannelKind {
         match self {
             Self::FilesChanged { .. }

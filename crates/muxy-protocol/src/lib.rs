@@ -25,7 +25,7 @@ pub use control::{
     ErrorCode, ErrorReply, ReplyBody, RequestBody, ServerSettingsDoc, TerminalColors,
 };
 pub use ids::{CONTROL, ChannelId, RequestId, SessionId};
-pub use message::{ChannelKind, Message, Topic};
+pub use message::{ChannelKind, CoalesceKey, Message, Topic};
 pub use path::ServerPath;
 pub use screen::{
     Color, Cursor, CursorShape, Modes, Row, Run, ScreenFrame, Size, Style, Underline,

@@ -11,7 +11,7 @@ use muxy_protocol::{
     SessionProgress, Size, TerminalColors,
 };
 
-use crate::connection::Outbox;
+use crate::connection::Connection;
 use crate::error::ServerError;
 use crate::notifier::Notifier;
 pub(crate) use owner::OwnerEvent;
@@ -167,14 +167,14 @@ impl Published {
     }
 
     /// Queues the current state for a connection that just started referencing the session.
-    pub(crate) fn introduce(&self, outbox: &Outbox) {
+    pub(crate) fn introduce(&self, connection: &Connection) {
         let state = self.lock();
-        outbox.push_control(Message::SessionMetadata {
+        connection.push_control(Message::SessionMetadata {
             session: self.session,
             metadata: state.1.clone(),
         });
         if state.0 != SessionProgress::default() {
-            outbox.push_control(Message::Progress {
+            connection.push_control(Message::Progress {
                 session: self.session,
                 progress: state.0,
             });
@@ -207,8 +207,8 @@ impl SessionHandle {
     }
 
     /// Queues this session's progress and metadata for a connection that just referenced it.
-    pub(crate) fn introduce(&self, outbox: &Outbox) {
-        self.published.introduce(outbox);
+    pub(crate) fn introduce(&self, connection: &Connection) {
+        self.published.introduce(connection);
     }
 
     pub fn id(&self) -> SessionId {

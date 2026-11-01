@@ -302,12 +302,12 @@ fn connections_watching_one_project_share_its_watch_and_each_hear_changes() {
     };
     let connections: Vec<_> = (0..2)
         .map(|_| {
-            let outbox = Arc::new(crate::connection::Outbox::new(Arc::default()));
+            let connection = Arc::new(crate::connection::Connection::new(Arc::default()));
             let mut subscriptions = watch::Subscriptions::default();
             subscriptions
-                .request(&workspace.registry, &outbox, &request)
+                .request(&workspace.registry, &connection, &request)
                 .unwrap();
-            (outbox, subscriptions)
+            (connection, subscriptions)
         })
         .collect();
     assert_eq!(workspace.registry.files.watches.watching(), 1);
@@ -316,8 +316,8 @@ fn connections_watching_one_project_share_its_watch_and_each_hear_changes() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let mut heard = [false; 2];
     while heard.contains(&false) && std::time::Instant::now() < deadline {
-        for ((outbox, _), heard) in connections.iter().zip(&mut heard) {
-            *heard |= outbox.take_control().iter().any(|message| {
+        for ((connection, _), heard) in connections.iter().zip(&mut heard) {
+            *heard |= connection.take_control().iter().any(|message| {
                 matches!(message, muxy_protocol::Message::FilesChanged { changes, .. }
                     if changes.rescan || changes.paths.contains(&p("added.txt")))
             });

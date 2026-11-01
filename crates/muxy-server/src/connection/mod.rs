@@ -2,9 +2,11 @@ mod auth;
 mod handshake;
 mod merge;
 mod outbox;
+mod peer;
 mod policy;
 mod reader;
 mod sink;
+mod state;
 #[cfg(test)]
 mod tests;
 mod writer;
@@ -20,7 +22,7 @@ use muxy_protocol::wire::{Decoder, Encoder, MAX_FRAME, WireError};
 use muxy_protocol::{CONTROL, Message};
 
 use crate::{Admission, Registry};
-pub(crate) use outbox::{Outbox, References};
+pub(crate) use peer::Connection;
 pub(crate) use sink::OutboxSink;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -35,9 +37,9 @@ pub fn serve(stream: Box<dyn ByteStream>, registry: Arc<Registry>) -> Result<(),
     if !handshake::accept(&mut decoder, &mut encoder)? {
         return Ok(());
     }
-    let outbox = Arc::new(Outbox::new(Arc::clone(&registry.notifier)));
-    registry.notifier.register(&outbox);
-    run(decoder, encoder, &cancellation, registry, &outbox)
+    let connection = Arc::new(Connection::new(Arc::clone(&registry.notifier)));
+    registry.notifier.register(&connection);
+    run(decoder, encoder, &cancellation, registry, &connection)
 }
 
 /// Serves a network peer, which must authenticate as a paired device before
@@ -59,20 +61,20 @@ pub fn serve_remote(
     let Some(admitted) = auth::accept(&mut decoder, &mut encoder, &registry)? else {
         return Ok(());
     };
-    let outbox = Arc::new(Outbox::for_device(
+    let connection = Arc::new(Connection::for_device(
         Arc::clone(&registry.notifier),
         admitted.device,
         admitted.kind,
     ));
-    registry.notifier.register(&outbox);
+    registry.notifier.register(&connection);
     // Registering before this check means a concurrent revoke either sees this
     // connection and closes it, or this check sees the revoke.
     if !registry.remote.authorized(admitted.device) {
-        outbox.close();
+        connection.close();
         encoder.send(CONTROL, &auth::unauthorized(admitted.request))?;
         return Ok(());
     }
-    outbox.push_control(Message::Reply {
+    connection.push_control(Message::Reply {
         id: admitted.request,
         body: admitted.reply,
     });
@@ -85,7 +87,7 @@ pub fn serve_remote(
         admitted.kind
     );
     registry.remote.changed();
-    let result = run(decoder, encoder, &cancellation, registry, &outbox);
+    let result = run(decoder, encoder, &cancellation, registry, &connection);
     log::info!("device disconnected: {}", admitted.device);
     result
 }
@@ -111,9 +113,9 @@ fn run(
     encoder: Encoder<impl Write + Send + 'static>,
     cancellation: &Arc<dyn StreamCancellation>,
     registry: Arc<Registry>,
-    outbox: &Arc<Outbox>,
+    connection: &Arc<Connection>,
 ) -> Result<(), WireError> {
-    let output = Arc::clone(outbox);
+    let output = Arc::clone(connection);
     let cancel = Arc::clone(cancellation);
     let (done, finished) = mpsc::channel();
     let writer = thread::Builder::new()
@@ -124,9 +126,9 @@ fn run(
             cancel.cancel();
             result
         })?;
-    let result = reader::run(&mut decoder, &registry, outbox);
-    outbox.close();
-    registry.connection_closed(outbox);
+    let result = reader::run(&mut decoder, &registry, connection);
+    connection.close();
+    registry.connection_closed(connection);
     drop(registry);
     if !matches!(result, Ok(reader::Exit::Fatal))
         || matches!(

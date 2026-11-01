@@ -2,7 +2,7 @@ use std::sync::{Arc, mpsc};
 
 use crate::{Registry, ServerSettings};
 
-use super::Outbox;
+use super::Connection;
 
 #[test]
 fn a_phone_that_connects_first_never_receives_desktop_notifications() {
@@ -25,13 +25,13 @@ fn a_phone_that_connects_first_never_receives_desktop_notifications() {
         .iter()
         .map(|event| event.id)
         .collect();
-    let phone = Arc::new(Outbox::for_device(
+    let phone = Arc::new(Connection::for_device(
         Arc::clone(&registry.notifier),
         muxy_protocol::DeviceId::new(),
         muxy_protocol::DeviceKind::Phone,
     ));
     registry.notifier.register(&phone);
-    let desktop = Arc::new(Outbox::new(Arc::clone(&registry.notifier)));
+    let desktop = Arc::new(Connection::new(Arc::clone(&registry.notifier)));
     desktop.identify(muxy_protocol::ClientKind::Desktop);
     registry.notifier.register(&desktop);
     assert!(!events.is_empty());
@@ -144,8 +144,8 @@ fn every_session_ended_reaches_connections_before_they_close_at_shutdown()
         },
         sender,
     );
-    let outbox = Arc::new(Outbox::new(Arc::clone(&registry.notifier)));
-    registry.notifier.register(&outbox);
+    let connection = Arc::new(Connection::new(Arc::clone(&registry.notifier)));
+    registry.notifier.register(&connection);
     let size = muxy_protocol::Size { cols: 80, rows: 24 };
     let mut sessions: Vec<_> = (0..8)
         .map(|_| {
@@ -157,7 +157,7 @@ fn every_session_ended_reaches_connections_before_they_close_at_shutdown()
     registry.shutdown();
     registry.wait_stopped();
     registry.close_connections();
-    let mut ended: Vec<_> = outbox
+    let mut ended: Vec<_> = connection
         .take_control()
         .into_iter()
         .filter_map(|message| match message {
@@ -168,5 +168,66 @@ fn every_session_ended_reaches_connections_before_they_close_at_shutdown()
     sessions.sort();
     ended.sort();
     assert_eq!(ended, sessions);
+    Ok(())
+}
+
+#[test]
+fn connections_of_one_owner_share_its_references_until_the_last_one_closes()
+-> Result<(), Box<dyn std::error::Error>> {
+    use muxy_protocol::{Message, OperationId};
+
+    let (sender, _requests) = mpsc::channel();
+    let registry = Registry::new(
+        ServerSettings {
+            default_shell: Some("/bin/sh".into()),
+            ..ServerSettings::default()
+        },
+        sender,
+    );
+    let connect = || {
+        let connection = Arc::new(Connection::new(Arc::clone(&registry.notifier)));
+        registry.notifier.register(&connection);
+        connection
+    };
+    let introduced = |connection: &Connection| {
+        connection
+            .take_control()
+            .iter()
+            .filter(|message| matches!(message, Message::SessionMetadata { .. }))
+            .count()
+    };
+    let session = registry
+        .create(
+            std::path::Path::new("/tmp"),
+            muxy_protocol::Size { cols: 80, rows: 24 },
+        )?
+        .id;
+    let owner = Some(OperationId::new());
+    let (first, second) = (connect(), connect());
+
+    registry.set_references(&first, owner, 2, &[session]);
+    registry.set_references(&second, owner, 1, &[]);
+    assert!(first.references(session, false) && second.references(session, false));
+    assert_eq!((introduced(&first), introduced(&second)), (1, 1));
+
+    registry.set_references(&first, owner, 3, &[]);
+    registry.set_references(&first, owner, 4, &[session]);
+    assert_eq!((introduced(&first), introduced(&second)), (1, 1));
+    registry.set_references(&second, owner, 5, &[]);
+    assert!(!first.references(session, false));
+
+    let other = Some(OperationId::new());
+    registry.set_references(&second, other, 1, &[session]);
+    assert!(second.references(session, false) && !first.references(session, false));
+
+    for connection in [&first, &second] {
+        connection.close();
+        registry.connection_closed(connection);
+    }
+    let returning = connect();
+    registry.set_references(&returning, owner, 1, &[session]);
+    assert!(returning.references(session, false));
+    registry.shutdown();
+    registry.wait_stopped();
     Ok(())
 }

@@ -76,63 +76,13 @@ impl Delivery {
         if self.ready(&event) {
             return Ok(vec![Update::Event(event)]);
         }
-        if let ClientEvent::Metadata { channel, event: metadata } = &event
-            && let Some(previous) = self.deferred.iter_mut().find(|previous| {
-                matches!(previous, ClientEvent::Metadata { channel: old_channel, event: old }
-                    if old_channel == channel && std::mem::discriminant(old) == std::mem::discriminant(metadata))
-            })
-        {
-            *previous = event;
-            return Ok(Vec::new());
-        }
-        if let ClientEvent::ActivityChanged { revision } = &event
-            && let Some(ClientEvent::ActivityChanged { revision: pending }) = self
+        if let Some(key) = event.coalesce_key()
+            && let Some(deferred) = self
                 .deferred
                 .iter_mut()
-                .find(|event| matches!(event, ClientEvent::ActivityChanged { .. }))
+                .find(|deferred| deferred.coalesce_key() == Some(key))
         {
-            *pending = (*pending).max(*revision);
-            return Ok(Vec::new());
-        }
-        if let ClientEvent::SessionMetadata { session, .. } = &event
-            && let Some(previous) = self.deferred.iter_mut().find(|previous| matches!(previous, ClientEvent::SessionMetadata { session: id, .. } if id == session)) {
-            *previous = event;
-            return Ok(Vec::new());
-        }
-        if let ClientEvent::Progress { session, .. } = &event
-            && let Some(previous) = self.deferred.iter_mut().find(|previous| matches!(previous, ClientEvent::Progress { session: id, .. } if id == session)) {
-            *previous = event;
-            return Ok(Vec::new());
-        }
-        if let ClientEvent::GitChanged { project } = &event
-            && self.deferred.iter().any(|pending| matches!(pending, ClientEvent::GitChanged { project: id } if id == project)) {
-            return Ok(Vec::new());
-        }
-        if let ClientEvent::SessionsChanged { revision } = &event
-            && let Some(ClientEvent::SessionsChanged { revision: previous }) = self
-                .deferred
-                .iter_mut()
-                .find(|previous| matches!(previous, ClientEvent::SessionsChanged { .. }))
-        {
-            *previous = (*previous).max(*revision);
-            return Ok(Vec::new());
-        }
-        if let ClientEvent::CatalogChanged { revision } = &event
-            && let Some(ClientEvent::CatalogChanged { revision: previous }) = self
-                .deferred
-                .iter_mut()
-                .find(|previous| matches!(previous, ClientEvent::CatalogChanged { .. }))
-        {
-            *previous = (*previous).max(*revision);
-            return Ok(Vec::new());
-        }
-        if let ClientEvent::RemoteAccessChanged { revision } = &event
-            && let Some(ClientEvent::RemoteAccessChanged { revision: previous }) = self
-                .deferred
-                .iter_mut()
-                .find(|previous| matches!(previous, ClientEvent::RemoteAccessChanged { .. }))
-        {
-            *previous = (*previous).max(*revision);
+            deferred.merge(event);
             return Ok(Vec::new());
         }
         if self.deferred.len() == MAX_DEFERRED_EVENTS {
