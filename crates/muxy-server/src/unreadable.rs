@@ -38,17 +38,17 @@ fn kept_path(path: &Path) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    (0_u32..)
-        .map(|copy| {
-            let mut name = path.file_name().unwrap_or_default().to_owned();
-            name.push(format!(".unreadable-{millis}"));
-            if copy > 0 {
-                name.push(format!("-{copy}"));
-            }
-            path.with_file_name(name)
-        })
-        .find(|kept| !kept.exists())
-        .unwrap_or_else(|| path.to_owned())
+    let mut base = path.file_name().unwrap_or_default().to_owned();
+    base.push(format!(".unreadable-{millis}"));
+    let mut kept = path.with_file_name(&base);
+    let mut copy = 0_u64;
+    while kept.exists() {
+        copy += 1;
+        let mut name = base.clone();
+        name.push(format!("-{copy}"));
+        kept = path.with_file_name(name);
+    }
+    kept
 }
 
 fn truncated(mut error: String) -> String {
