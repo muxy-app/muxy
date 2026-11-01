@@ -7,16 +7,16 @@ use gpui::{FocusHandle, WeakFocusHandle, Window};
 #[derive(Default)]
 pub(crate) struct FocusOwner {
     next: Option<Target>,
-    /// What the open overlay gives the keyboard back to when it closes,
-    /// instead of the active pane.
-    overlay_return: Option<WeakFocusHandle>,
 }
 
 enum Target {
     /// The active pane, or the workspace when there is none. It waits for
     /// any open overlay to close.
     ActivePane,
-    /// One element, such as an overlay's input.
+    /// What a closed overlay gives the keyboard back to. Like the active
+    /// pane, it waits for any open overlay to close.
+    Return(WeakFocusHandle),
+    /// One element, such as an overlay's input, focused at once.
     Element(WeakFocusHandle),
 }
 
@@ -28,7 +28,7 @@ pub(crate) enum Next {
 
 impl FocusOwner {
     /// Gives the keyboard to the active pane once no overlay is open. An
-    /// element asked for by name still goes first.
+    /// element asked for by name, or an overlay's return, still goes first.
     pub(crate) fn request_active_pane(&mut self) {
         if self.next.is_none() {
             self.next = Some(Target::ActivePane);
@@ -51,39 +51,36 @@ impl FocusOwner {
         self.next = None;
     }
 
-    /// What the overlay being opened gives the keyboard back to.
-    pub(crate) fn return_after_overlay(&mut self, focus: Option<&FocusHandle>) {
-        self.overlay_return = focus.map(FocusHandle::downgrade);
+    /// An overlay closed: the keyboard goes back to what it names, or to the
+    /// active pane, in place of requests made while it was open.
+    pub(crate) fn overlay_closed(&mut self, returns_to: Option<&FocusHandle>) {
+        self.next = Some(match returns_to {
+            Some(focus) => Target::Return(focus.downgrade()),
+            None => Target::ActivePane,
+        });
     }
 
-    /// The open overlay closed: the keyboard goes back to what it named, or
-    /// to the active pane.
-    pub(crate) fn overlay_closed(&mut self) {
-        match self.overlay_return.take() {
-            Some(focus) => self.next = Some(Target::Element(focus)),
-            None => self.request_active_pane(),
-        }
-    }
-
-    /// `focus` is going away or out of sight: nothing gives it the keyboard
-    /// back, and a request for it goes to the active pane instead.
+    /// `focus` is going away: a request for it goes to the active pane
+    /// instead.
     pub(crate) fn forget(&mut self, focus: &FocusHandle) {
-        if self
-            .overlay_return
-            .as_ref()
-            .is_some_and(|other| other == focus)
-        {
-            self.overlay_return = None;
-        }
-        if matches!(&self.next, Some(Target::Element(other)) if other == focus) {
+        if matches!(
+            &self.next,
+            Some(Target::Return(other) | Target::Element(other)) if other == focus
+        ) {
             self.next = Some(Target::ActivePane);
         }
     }
 
-    /// The request to apply now. One for the active pane keeps waiting while
-    /// an overlay is open, as does one for an element that no longer exists.
+    /// The request to apply now. One that waits for overlays stays while one
+    /// is open; one for an element that no longer exists goes to the active
+    /// pane.
     pub(crate) fn take(&mut self, overlay_open: bool) -> Option<Next> {
-        if let Target::Element(focus) = self.next.take()?
+        let next = self.next.take()?;
+        if overlay_open && !matches!(next, Target::Element(_)) {
+            self.next = Some(next);
+            return None;
+        }
+        if let Target::Return(focus) | Target::Element(focus) = next
             && let Some(focus) = focus.upgrade()
         {
             return Some(Next::Element(focus));

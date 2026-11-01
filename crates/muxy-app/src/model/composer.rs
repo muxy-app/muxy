@@ -619,8 +619,7 @@ impl AppModel {
             .collect();
         let mut menu = Menu::new(items, button.bottom_left());
         menu.drops_from = Some(button);
-        self.focus_owner
-            .return_after_overlay(Some(&view.focus_handle(cx)));
+        menu.returns_focus_to = Some(view.focus_handle(cx).downgrade());
         self.overlay_subscription = None;
         self.overlay = Some(crate::views::overlays::Overlay::Menu(menu));
         self.focus_owner.request(&self.overlay_focus);

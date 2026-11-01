@@ -231,6 +231,9 @@ pub(crate) struct Menu {
     /// The control the menu drops down from. It opens above the control when
     /// there is no room below.
     pub(crate) drops_from: Option<Bounds<Pixels>>,
+    /// What takes the keyboard back when the menu closes, instead of the
+    /// active pane.
+    pub(crate) returns_focus_to: Option<gpui::WeakFocusHandle>,
     /// It was opened from the Remote popover, which stays shown under it and
     /// comes back when it closes.
     pub(crate) over_remote_servers: bool,
@@ -264,6 +267,7 @@ impl Menu {
             items,
             position,
             drops_from: None,
+            returns_focus_to: None,
             over_remote_servers: false,
             levels: vec![Level::default()],
             pointer: None,

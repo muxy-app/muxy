@@ -1,5 +1,6 @@
 use super::*;
 use crate::views::menu::{Command, Item};
+use crate::views::overlays::Overlay;
 use gpui::Focusable;
 use muxy_app_core::Direction;
 
@@ -113,6 +114,42 @@ fn session_providers_hand_the_keyboard_back_to_the_search_unless_it_hides(cx: &m
         model.appearance.agent_sessions_visible = false;
         model.sync_agent_sessions(cx);
         assert!(model.overlay.is_none());
+    });
+    cx.run_until_parked();
+    assert!(pane_focused(&view, pane, cx));
+}
+
+#[gpui::test]
+fn a_return_belongs_to_the_overlay_that_closes(cx: &mut TestAppContext) {
+    let (view, cx, pane) = split_workspace(cx);
+    view.update_in(cx, AppModel::toggle_agent_sessions);
+    cx.run_until_parked();
+
+    // Replaced without being dismissed: the next overlay closes to the pane.
+    view.update_in(cx, AppModel::toggle_session_providers);
+    view.update(cx, |model, cx| model.ask_password(ServerId::local(), cx));
+    cx.run_until_parked();
+    view.update(cx, AppModel::dismiss_overlay);
+    cx.run_until_parked();
+    assert!(pane_focused(&view, pane, cx));
+
+    // Closed while another overlay opens: that overlay keeps the keyboard.
+    view.update_in(cx, AppModel::toggle_session_providers);
+    view.update_in(cx, AppModel::toggle_remote_popover);
+    cx.run_until_parked();
+    view.update_in(cx, |model, window, _| {
+        assert!(matches!(model.overlay, Some(Overlay::RemoteServers)));
+        assert!(model.overlay_focus.is_focused(window));
+    });
+
+    // Closed without a dismiss: a later dismiss closes to the pane.
+    view.update(cx, |model, cx| {
+        model.overlay = Some(Overlay::SessionProviders);
+        cx.notify();
+    });
+    view.update(cx, |model, cx| {
+        model.overlay = None;
+        model.dismiss_overlay(cx);
     });
     cx.run_until_parked();
     assert!(pane_focused(&view, pane, cx));
