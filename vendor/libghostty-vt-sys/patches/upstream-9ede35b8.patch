@@ -1,0 +1,504 @@
+diff --git a/build.rs b/build.rs
+index e434019..189777e 100644
+--- a/build.rs
++++ b/build.rs
+@@ -1,10 +1,19 @@
++mod patch;
++
+ use std::env;
+ use std::path::{Path, PathBuf};
+-use std::process::Command;
++use std::process::{Command, ExitStatus, Stdio};
++use std::thread;
++use std::time::Duration;
+ 
+ /// Pinned ghostty commit. Update this to pull a newer version.
+ const GHOSTTY_REPO: &str = "https://github.com/ghostty-org/ghostty.git";
+-const GHOSTTY_COMMIT: &str = "521cf2c5d30bd48028ca61546c64e7913764073d";
++const GHOSTTY_COMMIT: &str = "83fb95624b0439ee660c2679b43b38c8b63769cd";
++
++/// Ghostty's source and Zig packages come from GitHub and Ghostty's package
++/// host. Each download gets this many tries, so one dropped connection does
++/// not fail the whole Cargo build.
++const DOWNLOAD_ATTEMPTS: u64 = 3;
+ 
+ /// File name of the static archive on Windows. Ghostty installs it under this
+ /// name for every Windows ABI so it does not collide with `ghostty-vt.lib`,
+@@ -95,7 +104,9 @@ fn main() {
+     println!("cargo:rerun-if-env-changed=HOST");
+     println!("cargo:rerun-if-env-changed=DEBUG");
+     println!("cargo:rerun-if-env-changed=OPT_LEVEL");
+-    println!("cargo:rerun-if-changed=crates/libghostty-vt-sys/build.rs");
++    println!("cargo:rerun-if-changed=build.rs");
++    println!("cargo:rerun-if-changed=patch.rs");
++    println!("cargo:rerun-if-changed=patches/clear-screen.patch");
+ 
+     // An explicit source override should stay authoritative even when the
+     // pkg-config feature is enabled, so local Ghostty checkouts remain easy to
+@@ -131,11 +142,15 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
+                 "GHOSTTY_SOURCE_DIR does not contain build.zig: {}",
+                 p.display()
+             );
++            println!("cargo:rerun-if-changed={}", p.display());
+             p
+         }
+         Err(_) => fetch_ghostty(&out_dir),
+     };
+ 
++    // Keep both the pinned checkout and any caller-provided source untouched.
++    let ghostty_dir = patch::prepare(&ghostty_dir, &out_dir);
++
+     // Build libghostty-vt via zig.
+     let install_prefix = out_dir.join("ghostty-install");
+     // Tell the gen-bindings tool, a binary of this crate, which headers
+@@ -212,7 +227,9 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
+         .arg(&install_prefix)
+         .arg("--cache-dir")
+         .arg(&zig_cache_dir)
+-        .current_dir(&ghostty_dir);
++        .current_dir(&ghostty_dir)
++        // The private source has no .git; don't discover the application's tags.
++        .env("GIT_CEILING_DIRECTORIES", &out_dir);
+ 
+     // Package managers can provide Ghostty's Zig package cache ahead of time
+     // and ask Zig to resolve packages from that immutable store path instead
+@@ -246,6 +263,12 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
+         build.arg(format!("-Dtarget={zig_target}"));
+     }
+ 
++    // Zig downloads the packages a build needs while configuring it. Configure
++    // alone first, with retries, so the build itself has nothing to download.
++    let mut configure = configure_only(&build);
++    retry_download("zig build package fetch", || {
++        exit_status(&mut configure, "zig build --list-steps")
++    });
+     run(build, "zig build");
+ 
+     // The emit also installs host-native flat artifacts; replace them with the
+@@ -340,6 +363,13 @@ fn try_pkg_config(link_mode: LinkMode, target: &str) -> bool {
+         Err(_) => return false,
+     };
+ 
++    assert!(
++        lib.include_paths.iter().any(|path| {
++            std::fs::read_to_string(path.join("ghostty/vt/terminal.h"))
++                .is_ok_and(|header| header.contains("ghostty_terminal_clear_screen("))
++        }),
++        "Muxy requires libghostty-vt with patches/clear-screen.patch applied"
++    );
+     if let LinkMode::Static = link_mode {
+         emit_static_pkg_config_metadata(&lib, target);
+     }
+@@ -433,12 +463,6 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
+         return src_dir;
+     }
+ 
+-    // Clean and clone fresh.
+-    if src_dir.exists() {
+-        std::fs::remove_dir_all(&src_dir)
+-            .unwrap_or_else(|e| panic!("failed to remove {}: {e}", src_dir.display()));
+-    }
+-
+     eprintln!("Fetching ghostty {GHOSTTY_COMMIT} ...");
+ 
+     let mut clone = Command::new("git");
+@@ -452,27 +476,82 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
+         .arg("--no-checkout")
+         .arg(GHOSTTY_REPO)
+         .arg(&src_dir);
+-    run(clone, "git clone ghostty");
+ 
++    // The blobless clone downloads file contents during checkout.
+     let mut checkout = Command::new("git");
+     checkout
+         .arg("checkout")
+         .arg(GHOSTTY_COMMIT)
+         .current_dir(&src_dir);
+-    run(checkout, "git checkout ghostty commit");
++
++    retry_download("fetching ghostty", || {
++        // Clean and clone fresh: git won't clone over a failed attempt.
++        if src_dir.exists() {
++            std::fs::remove_dir_all(&src_dir)
++                .unwrap_or_else(|e| panic!("failed to remove {}: {e}", src_dir.display()));
++        }
++        let cloned = exit_status(&mut clone, "git clone ghostty");
++        if !cloned.success() {
++            return cloned;
++        }
++        exit_status(&mut checkout, "git checkout ghostty commit")
++    });
+ 
+     std::fs::write(&stamp, GHOSTTY_COMMIT).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
+ 
+     src_dir
+ }
+ 
++/// A copy of a `zig build` command that stops once the build graph is
++/// configured, after Zig has fetched every package the graph needs.
++fn configure_only(build: &Command) -> Command {
++    let mut configure = Command::new(build.get_program());
++    configure
++        .args(build.get_args())
++        .arg("--list-steps")
++        .stdout(Stdio::null());
++    for (key, value) in build.get_envs() {
++        match value {
++            Some(value) => configure.env(key, value),
++            None => configure.env_remove(key),
++        };
++    }
++    if let Some(dir) = build.get_current_dir() {
++        configure.current_dir(dir);
++    }
++    configure
++}
++
++/// Run `download` until it succeeds, waiting a little longer after each
++/// failure, and panic once all `DOWNLOAD_ATTEMPTS` have failed.
++fn retry_download(context: &str, mut download: impl FnMut() -> ExitStatus) {
++    let mut attempt = 1;
++    loop {
++        let status = download();
++        if status.success() {
++            return;
++        }
++        assert!(
++            attempt < DOWNLOAD_ATTEMPTS,
++            "{context} failed with status {status} after {attempt} attempts"
++        );
++        eprintln!("{context} failed with status {status}; retrying");
++        thread::sleep(Duration::from_secs(5 * attempt));
++        attempt += 1;
++    }
++}
++
+ fn run(mut command: Command, context: &str) {
+-    let status = command
+-        .status()
+-        .unwrap_or_else(|error| panic!("failed to execute {context}: {error}"));
++    let status = exit_status(&mut command, context);
+     assert!(status.success(), "{context} failed with status {status}");
+ }
+ 
++fn exit_status(command: &mut Command, context: &str) -> ExitStatus {
++    command
++        .status()
++        .unwrap_or_else(|error| panic!("failed to execute {context}: {error}"))
++}
++
+ /// Returns directories to search for the built library artifact.
+ /// On Windows, Zig may place the DLL in `bin/` and the import lib in `lib/`,
+ /// so both are included.
+diff --git a/patch.rs b/patch.rs
+new file mode 100644
+index 0000000..ea3c495
+--- /dev/null
++++ b/patch.rs
+@@ -0,0 +1,47 @@
++use std::env;
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::process::Command;
++
++pub fn prepare(source: &Path, out_dir: &Path) -> PathBuf {
++    let patched = out_dir.join("ghostty-patched");
++    if patched.exists() {
++        fs::remove_dir_all(&patched).expect("remove previous private Ghostty copy");
++    }
++    copy_tree(source, &patched);
++    let patches = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("patches");
++    for name in ["clear-screen.patch"] {
++        let status = Command::new("git")
++            .current_dir(&patched)
++            .env("GIT_CEILING_DIRECTORIES", out_dir)
++            .arg("apply")
++            .arg(patches.join(name))
++            .status()
++            .expect("apply native Ghostty patch");
++        assert!(status.success(), "native Ghostty patch {name} failed");
++    }
++    patched
++}
++
++fn copy_tree(source: &Path, destination: &Path) {
++    fs::create_dir_all(destination).expect("create private Ghostty source directory");
++    for entry in fs::read_dir(source).expect("read Ghostty source directory") {
++        let entry = entry.expect("read Ghostty source entry");
++        if matches!(
++            entry.file_name().to_str(),
++            Some(".git" | ".zig-cache" | "zig-out")
++        ) {
++            continue;
++        }
++        let target = destination.join(entry.file_name());
++        if entry
++            .file_type()
++            .expect("read Ghostty source type")
++            .is_dir()
++        {
++            copy_tree(&entry.path(), &target);
++        } else {
++            fs::copy(entry.path(), target).expect("copy Ghostty source file");
++        }
++    }
++}
+diff --git a/src/bindings.rs b/src/bindings.rs
+index 2cae025..3de32bf 100644
+--- a/src/bindings.rs
++++ b/src/bindings.rs
+@@ -1921,7 +1921,7 @@ pub mod OscCommandData {
+     pub const MAX_VALUE: Type = 2147483647;
+ }
+ unsafe extern "C" {
+-    #[doc = " Create a new OSC parser instance.\n\n Creates a new OSC (Operating System Command) parser using the provided\n allocator. The parser must be freed using ghostty_vt_osc_free() when\n no longer needed.\n\n"]
++    #[doc = " Create a new OSC parser instance.\n\n Creates a new OSC (Operating System Command) parser using the provided\n allocator. The parser must be freed using ghostty_osc_free() when\n no longer needed.\n\n"]
+     pub fn ghostty_osc_new(allocator: *const Allocator, parser: *mut OscParser) -> Result::Type;
+ }
+ unsafe extern "C" {
+@@ -2447,6 +2447,111 @@ pub mod TerminalCursorStyle {
+     #[doc = " Hollow block cursor."]
+     pub const MAX_VALUE: Type = 2147483647;
+ }
++pub mod TerminalBoundary {
++    #[doc = " A point in the VT stream where ghostty_terminal_vt_write_until() can stop.\n\n The values are bit flags. Combine them with `|` to stop at any of several\n boundaries.\n\n Most boundaries mark the first or last byte of a control string: an APC,\n DCS or OSC sequence, made of an introducer, some content, and a\n terminator. GROUND is different. It marks the state between sequences\n rather than a byte inside one.\n\n Terminal protocols spell control bytes two ways, and both are recognized.\n A 7-bit introducer is ESC followed by one byte, such as `ESC ]` for OSC.\n The 8-bit form is a single byte in the range 0x80 to 0x9F, such as 0x9D\n for OSC. The string terminator ST is `ESC \\` or the single byte 0x9C.\n"]
++    pub type Type = ::std::os::raw::c_int;
++    #[doc = " The stream is not inside any escape sequence or partial UTF-8\n character. This is a safe point to insert your own sequences.\n\n Ground is a state, not an event. If the stream is already at ground,\n the call stops immediately and consumes nothing."]
++    pub const GROUND: Type = 1;
++    #[doc = " The byte that started an APC string: `_` after ESC, or 0x9F.\n\n SOS (`X` or 0x98) and PM (`^` or 0x9E) strings also report this\n boundary, because the parser handles all three the same way. Check\n GhosttyTerminalWriteStop.byte to tell them apart."]
++    pub const APC_START: Type = 2;
++    #[doc = " The byte that ended an APC, SOS or PM string."]
++    pub const APC_END: Type = 4;
++    #[doc = " The byte that started a DCS string: `P` after ESC, or 0x90.\n\n A DCS has a header before its payload: parameters, intermediates and\n a final byte, in the same shape as a CSI sequence. The stop lands on\n the introducer, so the header follows it. A 0x90 inside the header\n restarts the header without leaving the string, so it does not stop."]
++    pub const DCS_START: Type = 8;
++    #[doc = " The byte that ended a DCS string, whether it was still in its header\n or already in its payload. A DCS cut short in its header reports this\n without ever having had a payload."]
++    pub const DCS_END: Type = 16;
++    #[doc = " The byte that started an OSC string: `]` after ESC, or 0x9D."]
++    pub const OSC_START: Type = 32;
++    #[doc = " The byte that ended an OSC string. This is reported for every OSC,\n including ones the terminal does not understand."]
++    pub const OSC_END: Type = 64;
++    #[doc = " The byte that ended an OSC string. This is reported for every OSC,\n including ones the terminal does not understand."]
++    pub const MAX_VALUE: Type = 2147483647;
++}
++pub mod TerminalStringKind {
++    #[doc = " The kind of control string that started or ended.\n"]
++    pub type Type = ::std::os::raw::c_int;
++    #[doc = " An APC, SOS or PM string. GhosttyTerminalWriteStop.byte at the start\n of the string tells you which one it is:\n\n | Byte               | String |\n |--------------------|--------|\n | `_` (0x5F) or 0x9F | APC    |\n | `X` (0x58) or 0x98 | SOS    |\n | `^` (0x5E) or 0x9E | PM     |"]
++    pub const APC: Type = 0;
++    #[doc = " A DCS string, started by `P` (0x50) after ESC or by 0x90."]
++    pub const DCS: Type = 1;
++    #[doc = " An OSC string, started by `]` (0x5D) after ESC or by 0x9D."]
++    pub const OSC: Type = 2;
++    #[doc = " An OSC string, started by `]` (0x5D) after ESC or by 0x9D."]
++    pub const MAX_VALUE: Type = 2147483647;
++}
++pub mod TerminalStringIntroducer {
++    #[doc = " How a control string started.\n"]
++    pub type Type = ::std::os::raw::c_int;
++    #[doc = " ESC followed by `_`, `X`, `^`, `P` or `]`. The stop's `consumed`\n count includes only the final byte, because the ESC may have arrived\n in an earlier call."]
++    pub const ESC: Type = 0;
++    #[doc = " A single 8-bit byte: 0x9F (APC), 0x98 (SOS), 0x9E (PM), 0x90 (DCS) or\n 0x9D (OSC).\n\n When the stream is at ground, these bytes are decoded as UTF-8 and do\n not start a string. They only start a string when they arrive while\n the stream is already inside another escape sequence."]
++    pub const C1: Type = 1;
++    #[doc = " A single 8-bit byte: 0x9F (APC), 0x98 (SOS), 0x9E (PM), 0x90 (DCS) or\n 0x9D (OSC).\n\n When the stream is at ground, these bytes are decoded as UTF-8 and do\n not start a string. They only start a string when they arrive while\n the stream is already inside another escape sequence."]
++    pub const MAX_VALUE: Type = 2147483647;
++}
++pub mod TerminalStringEnd {
++    #[doc = " How a control string ended.\n"]
++    pub type Type = ::std::os::raw::c_int;
++    #[doc = " ESC, the first byte of the string terminator `ESC \\`.\n\n The ESC is consumed but the `\\` after it is not. Pass the `\\` as the\n first byte of your next write, where it completes the terminator. If\n you forward the stream elsewhere, forward the ESC along with the\n string."]
++    pub const ST_ESC: Type = 0;
++    #[doc = " 0x9C, the 8-bit string terminator. The stream is now at ground.\n\n Inside an OSC, and inside a DCS once its header is complete, 0x9C is\n content rather than a terminator. So this is only reported for an APC\n or for a DCS still in its header."]
++    pub const ST_C1: Type = 1;
++    #[doc = " CAN (0x18) or SUB (0x1A) cancelled the string. The stream is now at\n ground.\n\n The terminal discards a cancelled APC or OSC. Its command does not\n run and it is not passed to the unknown sequence callback. For\n example, `ESC _ G a=t,i=7;AAAA` followed by CAN stores no image."]
++    pub const CANCELLED: Type = 2;
++    #[doc = " Another 8-bit control byte cut the string short. Most of these return\n the stream to ground. CSI (0x9B) starts a CSI sequence instead. The\n introducers DCS (0x90), OSC (0x9D), APC (0x9F), SOS (0x98) and PM\n (0x9E) start a new string on the same byte, which the stop reports\n with a START flag as well. See GhosttyTerminalWriteStop.reached.\n\n Inside an OSC, and inside a DCS once its header is complete, 8-bit\n bytes are content. So this is only reported for an APC or for a DCS\n still in its header.\n\n The terminal discards an aborted APC, just like a cancelled one."]
++    pub const ABORTED: Type = 3;
++    #[doc = " BEL (0x07) terminated the string. Only an OSC ends this way."]
++    pub const BEL: Type = 4;
++    #[doc = " BEL (0x07) terminated the string. Only an OSC ends this way."]
++    pub const MAX_VALUE: Type = 2147483647;
++}
++#[doc = " Where ghostty_terminal_vt_write_until() stopped, and why.\n\n Initialize this struct with GHOSTTY_INIT_SIZED(). The call resets every\n field except `size` before it writes the result, so you can reuse one\n struct across calls.\n\n Fields that don't apply to a stop are zero. Zero is also a valid value\n for `kind`, `introducer` and `end`, so always check `reached` first to\n see which fields apply.\n"]
++#[repr(C)]
++#[derive(Debug, Copy, Clone)]
++pub struct TerminalWriteStop {
++    #[doc = " Size of this struct in bytes. Set by GHOSTTY_INIT_SIZED()."]
++    pub size: usize,
++    #[doc = " Number of input bytes consumed, including the byte that reached the\n boundary. This is 0 when the stream was already at ground and you\n asked for GHOSTTY_TERMINAL_BOUNDARY_GROUND."]
++    pub consumed: usize,
++    #[doc = " The GhosttyTerminalBoundary flags that the stopping byte reached. Only\n flags you asked for are set, and this is 0 when no boundary was\n reached.\n\n This is usually one flag. It holds two when a single byte does two\n things:\n\n - It ends a string and returns to ground. BEL, CAN, SUB, 0x9C and the\n   other 8-bit control bytes all do this. So if you asked for both\n   OSC_END and GROUND, an OSC_END stop can include GROUND too.\n - It ends one string and starts another. An 8-bit introducer of a\n   different kind does this inside an APC, or inside a DCS header: 0x90\n   or 0x9D in an APC ends it and starts a DCS or OSC, and 0x9F, 0x98,\n   0x9E or 0x9D in a DCS header ends it and starts an APC or OSC. The\n   stop has an END flag and a START flag, `end` is ABORTED and\n   `introducer` is C1. See ghostty_terminal_vt_write_until() for an\n   example.\n\n A START flag and an END flag of the same kind are never set together."]
++    pub reached: u32,
++    #[doc = " The kind of string. Valid when `reached` has a START or END flag.\n\n When one byte both ends a string and starts another, this is the kind\n of the string that ended. The START flag in `reached` names the kind\n that started, since APC_START, DCS_START and OSC_START each belong to\n one kind."]
++    pub kind: TerminalStringKind::Type,
++    #[doc = " How the string started. Valid when `reached` has a START flag."]
++    pub introducer: TerminalStringIntroducer::Type,
++    #[doc = " How the string ended. Valid when `reached` has an END flag."]
++    pub end: TerminalStringEnd::Type,
++    #[doc = " The byte that started or ended the string, such as `]`, 0x90, ESC or\n BEL. Valid when `reached` has a START or END flag."]
++    pub byte: u8,
++}
++#[allow(clippy::unnecessary_operation, clippy::identity_op)]
++const _: () = {
++    ["Size of TerminalWriteStop"][::std::mem::size_of::<TerminalWriteStop>() - 40usize];
++    ["Alignment of TerminalWriteStop"][::std::mem::align_of::<TerminalWriteStop>() - 8usize];
++    ["Offset of field: TerminalWriteStop::size"]
++        [::std::mem::offset_of!(TerminalWriteStop, size) - 0usize];
++    ["Offset of field: TerminalWriteStop::consumed"]
++        [::std::mem::offset_of!(TerminalWriteStop, consumed) - 8usize];
++    ["Offset of field: TerminalWriteStop::reached"]
++        [::std::mem::offset_of!(TerminalWriteStop, reached) - 16usize];
++    ["Offset of field: TerminalWriteStop::kind"]
++        [::std::mem::offset_of!(TerminalWriteStop, kind) - 20usize];
++    ["Offset of field: TerminalWriteStop::introducer"]
++        [::std::mem::offset_of!(TerminalWriteStop, introducer) - 24usize];
++    ["Offset of field: TerminalWriteStop::end"]
++        [::std::mem::offset_of!(TerminalWriteStop, end) - 28usize];
++    ["Offset of field: TerminalWriteStop::byte"]
++        [::std::mem::offset_of!(TerminalWriteStop, byte) - 32usize];
++};
++impl Default for TerminalWriteStop {
++    fn default() -> Self {
++        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
++        unsafe {
++            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
++            s.assume_init()
++        }
++    }
++}
+ #[doc = " Scrollbar state for the terminal viewport.\n\n Represents the scrollable area dimensions needed to render a scrollbar.\n"]
+ #[repr(C)]
+ #[derive(Debug, Default, Copy, Clone)]
+@@ -2671,7 +2776,7 @@ impl Default for TerminalUnknownSequence {
+         }
+     }
+ }
+-#[doc = " Callback function type for unsupported terminal sequences.\n\n Called once for each complete sequence that libghostty-vt does not\n implement. Check `sequence->tag` first, because more kinds of sequences\n may be reported in later versions.\n\n These are not reported:\n\n - Sequences the program cancelled partway through with CAN or SUB.\n - Sequences libghostty-vt implements, even when their contents are\n   malformed.\n - Supported protocols that the embedder turned off.\n\n The callback runs during ghostty_terminal_vt_write(). It may write a reply\n to the pty, and that reply stays in order with the terminal's own\n replies. It must not call ghostty_terminal_vt_write() on the same\n terminal.\n\n Nothing is reported until GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES is also\n set to a nonzero value. Installing the callback by itself keeps no data\n and allocates no memory.\n\n"]
++#[doc = " Callback function type for unsupported terminal sequences.\n\n Called once for each complete sequence that libghostty-vt does not\n implement. Check `sequence->tag` first, because more kinds of sequences\n may be reported in later versions.\n\n These are not reported:\n\n - Sequences cut short before their terminator, either cancelled by CAN\n   or SUB or aborted by another 8-bit control byte.\n - Sequences libghostty-vt implements, even when their contents are\n   malformed.\n - Supported protocols that the embedder turned off.\n\n The callback runs during ghostty_terminal_vt_write(). It may write a reply\n to the pty, and that reply stays in order with the terminal's own\n replies. It must not call ghostty_terminal_vt_write() on the same\n terminal.\n\n Nothing is reported until GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES is also\n set to a nonzero value. Installing the callback by itself keeps no data\n and allocates no memory.\n\n"]
+ pub type TerminalUnknownSequenceFn = ::std::option::Option<
+     unsafe extern "C" fn(
+         terminal: Terminal,
+@@ -3610,6 +3715,10 @@ unsafe extern "C" {
+     #[doc = " Free a terminal instance.\n\n Releases all resources associated with the terminal. After this call,\n the terminal handle becomes invalid and must not be used.\n\n"]
+     pub fn ghostty_terminal_free(terminal: Terminal);
+ }
++unsafe extern "C" {
++    #[doc = " Clear the primary screen and history without resetting modes or the VT parser.\n\n At a semantic prompt, clears the display and returns true so the caller can\n send form feed (0x0C) to the shell to repaint. Otherwise, removes rows above\n the cursor, deletes every Kitty image as Ghostty's own clear does, and\n returns false. On the alternate screen or a NULL terminal,\n does nothing and returns false. Does not write to the PTY callback.\n"]
++    pub fn ghostty_terminal_clear_screen(terminal: Terminal) -> bool;
++}
+ unsafe extern "C" {
+     #[doc = " Perform a full reset of the terminal (RIS).\n\n Resets all terminal state back to its initial configuration, including\n modes, scrollback, scrolling region, and screen contents. The terminal\n dimensions are preserved.\n\n If synchronized output was enabled, the GHOSTTY_TERMINAL_OPT_RENDER_HOLD\n callback is invoked to report that the hold ended.\n\n"]
+     pub fn ghostty_terminal_reset(terminal: Terminal);
+@@ -3625,7 +3734,7 @@ unsafe extern "C" {
+     ) -> Result::Type;
+ }
+ unsafe extern "C" {
+-    #[doc = " Set an option on the terminal.\n\n Configures terminal callbacks and associated state such as the\n write_pty callback and userdata pointer. The value is passed\n directly for pointer types (callbacks, userdata) or as a pointer\n to the value for non-pointer types (e.g. GhosttyString*).\n The behavior of a NULL value is specific to each option and is\n documented by the corresponding GhosttyTerminalOption value.\n\n Callbacks are invoked synchronously during VT writes. Callbacks must not\n call ghostty_terminal_vt_write() or\n ghostty_terminal_vt_write_until_ground() on the same terminal\n (no reentrancy).\n\n              or NULL to clear the option\n"]
++    #[doc = " Set an option on the terminal.\n\n Configures terminal callbacks and associated state such as the\n write_pty callback and userdata pointer. The value is passed\n directly for pointer types (callbacks, userdata) or as a pointer\n to the value for non-pointer types (e.g. GhosttyString*).\n The behavior of a NULL value is specific to each option and is\n documented by the corresponding GhosttyTerminalOption value.\n\n Callbacks are invoked synchronously during VT writes. Callbacks must not\n call ghostty_terminal_vt_write() or\n ghostty_terminal_vt_write_until() on the same terminal\n (no reentrancy).\n\n              or NULL to clear the option\n"]
+     pub fn ghostty_terminal_set(
+         terminal: Terminal,
+         option: TerminalOption::Type,
+@@ -3637,12 +3746,13 @@ unsafe extern "C" {
+     pub fn ghostty_terminal_vt_write(terminal: Terminal, data: *const u8, len: usize);
+ }
+ unsafe extern "C" {
+-    #[doc = " Write VT-encoded data, but only the shortest prefix needed to reach ground.\n\n Ground is when the stream isn't in the middle of any type of sequence:\n UTF-8, ESC, CSI, OSC, etc. It is the stateless point of the stream.\n\n This is useful to know because it is a point at which you can\n safely insert out-of-band VT sequences. For example, while reading\n from a pty if you want to make your own changes, you can wait until\n the pty input reaches ground, then write yours.\n\n If the stream is already at ground then this consumes nothing and returns\n GHOSTTY_SUCCESS. On success, out_consumed is the number of bytes consumed\n before reaching ground, including the byte that reaches it.\n GHOSTTY_NO_VALUE means the full slice was consumed without reaching ground.\n\n         was consumed without reaching ground, or GHOSTTY_INVALID_VALUE if\n         an argument is invalid\n"]
+-    pub fn ghostty_terminal_vt_write_until_ground(
++    #[doc = " Write VT-encoded data to the terminal, stopping right after the first\n byte that reaches one of the requested boundaries.\n\n This works like ghostty_terminal_vt_write(), but it can pause at points\n you care about. It tells you exactly where a control string starts or\n ends, using the same parse that updates the terminal. For example, a\n program that sits between a shell and a terminal can use it to:\n\n - Find the exact bytes of each APC, DCS or OSC string, such as a Kitty\n   graphics command, a tmux control mode message or a clipboard write,\n   so it can forward, rewrite or drop that string.\n - Wait until the stream is at ground before inserting its own\n   sequences, so it never splits a sequence from the program.\n\n Pass the boundaries to stop at as GhosttyTerminalBoundary flags. The\n call consumes input up to and including the first byte that reaches one\n of them, and reports that point in `out`. The terminal only processes\n the consumed bytes, and callbacks only run for those bytes. Pass the\n remaining bytes in your next call.\n\n Every byte you pass is eventually consumed in order, so the terminal\n ends up in the same state as if you had called\n ghostty_terminal_vt_write() with all of it.\n\n ## Finding string content\n\n After a START stop, the string's content begins at the first byte that\n was not consumed. For a Kitty graphics command that byte is `G`. For an\n OSC it is the first digit of the command number. An END stop consumes\n the byte that ended the string, which is not part of the content. A\n string can start in one call and end several calls later.\n\n This loop handles one chunk of output and finds the content of the APC\n strings in it. DCS and OSC strings work the same way with their own\n flags:\n\n uint32_t want = GHOSTTY_TERMINAL_BOUNDARY_APC_START |\n                 GHOSTTY_TERMINAL_BOUNDARY_APC_END;\n size_t off = 0;\n while (off < len) {\n   GhosttyTerminalWriteStop stop =\n       GHOSTTY_INIT_SIZED(GhosttyTerminalWriteStop);\n   GhosttyResult r = ghostty_terminal_vt_write_until(\n       terminal, data + off, len - off, want, &stop);\n   if (r == GHOSTTY_NO_VALUE) {\n     // No boundary in the rest of the chunk. Everything was consumed.\n     break;\n   }\n\n   off += stop.consumed;\n   if (stop.reached & GHOSTTY_TERMINAL_BOUNDARY_APC_START) {\n     // The content starts at data + off.\n   }\n   if (stop.reached & GHOSTTY_TERMINAL_BOUNDARY_APC_END) {\n     // The ending byte is at data + off - 1. The content stops just\n     // before it.\n   }\n }\n\n ## Strings that end with ESC\n\n The usual string terminator is the two bytes `ESC \\`. The call stops\n after the ESC with GHOSTTY_TERMINAL_STRING_END_ST_ESC and does not\n consume the `\\`. The loop above needs no special case for this. The\n `\\` is simply the first byte of the next call, where it completes the\n terminator and brings the stream back to ground.\n\n ## DCS strings\n\n A DCS_START stop lands on the introducer, before the header. The bytes\n after it are the parameters, intermediates and final byte of the header,\n then the payload. For `ESC P 1 ; 2 | data ESC \\` the stop lands on `P`,\n and `1;2|` is the header that follows.\n\n The string can end in its header. CAN, SUB, 0x9C, ESC or another 8-bit\n control byte there gives a DCS_END stop for a DCS that never had a\n payload. Past the header, only ESC, CAN and SUB end the string, and\n every other byte is payload, 8-bit bytes included. A 0x90 in the header\n restarts the header without ending the string, so it does not stop.\n\n ## One byte that ends a string and starts another\n\n An 8-bit introducer of a different kind inside an APC, or inside a DCS\n header, ends that string and starts the new one on the same byte. The\n stop has both an END flag and a START flag in `reached`, `end` is\n ABORTED and `introducer` is C1. The content of the new string begins\n right after the stop.\n\n For example, in `ESC _ a 0x9D 2 ; t BEL` the 0x9D ends the APC and\n starts an OSC. Asking for APC_END and OSC_START gives one stop on the\n 0x9D with both flags set, `kind` APC and `byte` 0x9D. The OSC content\n `2;t` begins right after it, and the BEL then gives an OSC_END stop.\n GhosttyTerminalWriteStop.reached lists which bytes do this.\n\n ## Waiting for ground\n\n GHOSTTY_TERMINAL_BOUNDARY_GROUND is a state, not an event. If the\n stream is already at ground, the call returns GHOSTTY_SUCCESS right away\n with `consumed` set to 0. If you keep asking for ground with the same\n input, you never make progress. After a ground stop, write the next\n bytes without the GROUND flag, or with ghostty_terminal_vt_write().\n\n                   nonzero and contain only defined flags.\n                 must be set with GHOSTTY_INIT_SIZED().\n         GHOSTTY_NO_VALUE if all input was consumed without reaching a\n         boundary. In that case `out->consumed` is `len` and\n         `out->reached` is 0.\n         GHOSTTY_INVALID_VALUE if an argument is invalid. No input is\n         consumed.\n"]
++    pub fn ghostty_terminal_vt_write_until(
+         terminal: Terminal,
+         data: *const u8,
+         len: usize,
+-        out_consumed: *mut usize,
++        boundaries: u32,
++        out: *mut TerminalWriteStop,
+     ) -> Result::Type;
+ }
+ unsafe extern "C" {
+@@ -4977,7 +5087,7 @@ pub mod Key {
+ unsafe extern "C" {
+     #[doc = " Create a new key event instance.\n\n Creates a new key event with default values. The event must be freed using\n ghostty_key_event_free() when no longer needed.\n\n"]
+     pub fn ghostty_key_event_new(allocator: *const Allocator, event: *mut KeyEvent)
+-    -> Result::Type;
++        -> Result::Type;
+ }
+ unsafe extern "C" {
+     #[doc = " Free a key event instance.\n\n Releases all resources associated with the key event. After this call,\n the event handle becomes invalid and must not be used.\n\n"]
+@@ -5541,7 +5651,7 @@ unsafe extern "C" {
+ unsafe extern "C" {
+     #[doc = " Make a bounded amount of search progress.\n\n This only works on data the search has already copied and never\n reads the terminal, so it is safe to call while another thread\n modifies the terminal. Call it in a loop while the status is\n GHOSTTY_SEARCH_STATUS_RUNNING. When the status becomes\n GHOSTTY_SEARCH_STATUS_FEED_REQUIRED, call ghostty_search_feed() to\n unblock it.\n\n         search is NULL or the terminal was freed\n"]
+     pub fn ghostty_search_tick(search: Search, out_status: *mut SearchStatus::Type)
+-    -> Result::Type;
++        -> Result::Type;
+ }
+ unsafe extern "C" {
+     #[doc = " Read the terminal to update the search.\n\n Each feed catches the search up with the terminal: it reconciles\n the tracked screens against the live ones, re-scans the active\n area, refreshes the viewport match list, gives the scrollback\n searcher its next chunk of data, and prunes results that scrollback\n eviction invalidated. Feeding is also the only way the search\n learns about terminal changes, so keep feeding periodically while\n the search is in use, even after it reports complete.\n\n This reads the terminal, so the caller must serialize it with all\n other access to the same terminal. Each call does a bounded amount\n of work so that any caller-held terminal lock is held only briefly.\n\n         search is NULL or the terminal was freed\n"]
+@@ -5586,7 +5696,19 @@ pub mod SnapshotDecoderOption {
+     pub const RETAIN_CONTINUATION: Type = 1;
+     #[doc = " Compress scrollback history while it is restored.\n\n By default, restoring a snapshot leaves all of its scrollback history\n uncompressed, even if the terminal that produced the snapshot had\n compressed it. The history stays that size until the application calls\n ghostty_terminal_compress(). For a terminal with a lot of scrollback,\n that can be many times more memory than the terminal needed before.\n\n When this option is true, the decoder compresses each history page right\n after restoring it. The restored terminal starts out compressed, and the\n decode never holds more than one uncompressed history page at a time.\n The result is the same as decoding normally and then calling\n ghostty_terminal_compress() with GHOSTTY_TERMINAL_COMPRESSION_MODE_FULL,\n without the memory spike in between.\n\n A history page that is on screen when it is restored stays uncompressed.\n This only happens if the viewport is scrolled to the top of the\n scrollback during an incremental decode. Compressed history is\n uncompressed automatically when it is accessed later, for example by\n scrolling or searching.\n\n This only changes how the restored terminal stores its history in\n memory. The snapshot format is unchanged, so it works with any snapshot.\n On platforms that do not support scrollback compression, this option is\n accepted and has no effect.\n\n This is false by default.\n\n Input type: bool *"]
+     pub const COMPRESS_HISTORY: Type = 2;
+-    #[doc = " Compress scrollback history while it is restored.\n\n By default, restoring a snapshot leaves all of its scrollback history\n uncompressed, even if the terminal that produced the snapshot had\n compressed it. The history stays that size until the application calls\n ghostty_terminal_compress(). For a terminal with a lot of scrollback,\n that can be many times more memory than the terminal needed before.\n\n When this option is true, the decoder compresses each history page right\n after restoring it. The restored terminal starts out compressed, and the\n decode never holds more than one uncompressed history page at a time.\n The result is the same as decoding normally and then calling\n ghostty_terminal_compress() with GHOSTTY_TERMINAL_COMPRESSION_MODE_FULL,\n without the memory spike in between.\n\n A history page that is on screen when it is restored stays uncompressed.\n This only happens if the viewport is scrolled to the top of the\n scrollback during an incremental decode. Compressed history is\n uncompressed automatically when it is accessed later, for example by\n scrolling or searching.\n\n This only changes how the restored terminal stores its history in\n memory. The snapshot format is unchanged, so it works with any snapshot.\n On platforms that do not support scrollback compression, this option is\n accepted and has no effect.\n\n This is false by default.\n\n Input type: bool *"]
++    #[doc = " Kitty graphics image storage limit, in bytes, for each restored screen.\n\n The limit of the terminal that wrote the snapshot is not part of the\n snapshot, so the decoder always applies this one. Images are restored\n oldest first, and an image that does not fit evicts older images,\n exactly as a live transmission would. The newest images are kept, and\n the placements of evicted images are dropped with them. Zero disables\n Kitty graphics on the restored terminal.\n\n The default is the storage limit of a new terminal. Change the limit\n of a restored terminal later with\n GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT.\n\n Input type: uint64_t *"]
++    pub const KITTY_IMAGE_STORAGE_LIMIT: Type = 3;
++    #[doc = " Kitty graphics image storage limit, in bytes, for each restored screen.\n\n The limit of the terminal that wrote the snapshot is not part of the\n snapshot, so the decoder always applies this one. Images are restored\n oldest first, and an image that does not fit evicts older images,\n exactly as a live transmission would. The newest images are kept, and\n the placements of evicted images are dropped with them. Zero disables\n Kitty graphics on the restored terminal.\n\n The default is the storage limit of a new terminal. Change the limit\n of a restored terminal later with\n GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT.\n\n Input type: uint64_t *"]
++    pub const MAX_VALUE: Type = 2147483647;
++}
++pub mod SnapshotDecoderProgressKind {
++    #[doc = " What the most recent successful ghostty_snapshot_decoder_next() call\n decoded.\n\n Query it with GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_KIND, then read the\n progress values that apply to that kind."]
++    pub type Type = ::std::os::raw::c_int;
++    #[doc = " One history page, together with the Kitty graphics placements pinned\n to it. GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_ROWS and\n GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING describe it."]
++    pub const PAGE: Type = 0;
++    #[doc = " The pixels of one Kitty graphics image or animation frame. The\n GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_* values describe it."]
++    pub const IMAGE: Type = 1;
++    #[doc = " The pixels of one Kitty graphics image or animation frame. The\n GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_* values describe it."]
+     pub const MAX_VALUE: Type = 2147483647;
+ }
+ pub mod SnapshotDecoderData {
+@@ -5602,17 +5724,35 @@ pub mod SnapshotDecoderData {
+     pub const HISTORY_ROWS_PRIMARY: Type = 3;
+     #[doc = " Advisory complete logical history extent for the alternate screen.\n\n The value has the same semantics and lifetime as\n GHOSTTY_SNAPSHOT_DECODER_DATA_HISTORY_ROWS_PRIMARY. Querying it returns\n GHOSTTY_NO_VALUE when the snapshot does not declare an alternate screen.\n\n Output type: uint64_t *"]
+     pub const HISTORY_ROWS_ALTERNATE: Type = 4;
+-    #[doc = " Screen associated with the most recently decoded history page.\n\n This value is available only after ghostty_snapshot_decoder_next()\n returns GHOSTTY_SUCCESS. A later call to next replaces it or clears it\n when FINISH is reached or an error occurs.\n\n Output type: GhosttyTerminalScreen *"]
++    #[doc = " Screen associated with the most recently decoded history page or\n image pixels.\n\n This value is available only after ghostty_snapshot_decoder_next()\n returns GHOSTTY_SUCCESS. A later call to next replaces it or clears it\n when FINISH is reached or an error occurs.\n\n Output type: GhosttyTerminalScreen *"]
+     pub const PROGRESS_SCREEN: Type = 5;
+-    #[doc = " Rows prepended by the most recently decoded history page.\n\n Zero means the page was consumed and validated but could not be\n applied to the live terminal.\n\n Output type: size_t *"]
++    #[doc = " Rows prepended by the most recently decoded history page.\n\n Zero means the page was consumed and validated but could not be\n applied to the live terminal. Returns GHOSTTY_NO_VALUE unless the\n progress kind is GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_PAGE.\n\n Output type: size_t *"]
+     pub const PROGRESS_ROWS: Type = 6;
+-    #[doc = " Page records remaining in the same screen's HISTORY sequence.\n\n This is not a count of all pages remaining in the snapshot.\n\n Output type: uint32_t *"]
++    #[doc = " Page records remaining in the same screen's HISTORY sequence.\n\n This is not a count of all pages remaining in the snapshot. Returns\n GHOSTTY_NO_VALUE unless the progress kind is\n GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_PAGE.\n\n Output type: uint32_t *"]
+     pub const PROGRESS_REMAINING: Type = 7;
+     #[doc = " Whether decoded continuation tracking is retained on returned terminals.\n\n This value is available in every non-failed decoder state.\n\n Output type: bool *"]
+     pub const RETAIN_CONTINUATION: Type = 8;
+     #[doc = " Whether history is compressed while it is restored.\n\n See GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY. This value is\n available in every non-failed decoder state.\n\n Output type: bool *"]
+     pub const COMPRESS_HISTORY: Type = 9;
+-    #[doc = " Whether history is compressed while it is restored.\n\n See GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY. This value is\n available in every non-failed decoder state.\n\n Output type: bool *"]
++    #[doc = " Kitty graphics image storage limit applied to each restored screen.\n\n See GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT. This value\n is available in every non-failed decoder state.\n\n Output type: uint64_t *"]
++    pub const KITTY_IMAGE_STORAGE_LIMIT: Type = 10;
++    #[doc = " What the most recent successful ghostty_snapshot_decoder_next() call\n decoded: a history page or the pixels of a Kitty graphics image.\n\n This value has the same lifetime as\n GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_SCREEN.\n\n Output type: GhosttySnapshotDecoderProgressKind *"]
++    pub const PROGRESS_KIND: Type = 11;
++    #[doc = " ID of the Kitty graphics image whose pixels the most recent\n ghostty_snapshot_decoder_next() call decoded.\n\n Returns GHOSTTY_NO_VALUE unless the progress kind is\n GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_IMAGE.\n\n Output type: uint32_t *"]
++    pub const PROGRESS_IMAGE_ID: Type = 12;
++    #[doc = " Which frame of the image those pixels are for, numbered as the Kitty\n graphics protocol numbers frames. 1 is the image itself, and 2 and up\n are its animation frames.\n\n Returns GHOSTTY_NO_VALUE unless the progress kind is\n GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_IMAGE.\n\n Output type: uint32_t *"]
++    pub const PROGRESS_IMAGE_FRAME: Type = 13;
++    #[doc = " Number of pixel bytes the most recent\n ghostty_snapshot_decoder_next() call attached to its image.\n\n Zero means the pixels were consumed and validated but dropped. That\n happens when live input deleted the image or sent a new image with the\n same ID, when the image did not fit the storage limit, or when its\n screen was removed or replaced. Returns GHOSTTY_NO_VALUE unless the\n progress kind is GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_IMAGE.\n\n Output type: size_t *"]
++    pub const PROGRESS_IMAGE_BYTES: Type = 14;
++    #[doc = " Number of Kitty graphics images restored for the primary screen at\n READY.\n\n These images can be placed and queried right away, but their pixels\n arrive later through ghostty_snapshot_decoder_next(). Until then,\n GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns GHOSTTY_NO_VALUE for them.\n This value becomes available after READY validates, and is zero in a\n library built without Kitty graphics.\n\n Output type: uint32_t *"]
++    pub const KITTY_IMAGES_PRIMARY: Type = 15;
++    #[doc = " Number of Kitty graphics images restored for the alternate screen at\n READY.\n\n Returns GHOSTTY_NO_VALUE when the snapshot does not declare an\n alternate screen. See GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGES_PRIMARY.\n\n Output type: uint32_t *"]
++    pub const KITTY_IMAGES_ALTERNATE: Type = 16;
++    #[doc = " Bytes of Kitty graphics pixels for the primary screen that were still\n to come at READY.\n\n Use it to size a progress indicator while the pixels arrive, adding\n up GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_BYTES for the primary\n screen after each call to ghostty_snapshot_decoder_next(), which has an\n example. Pixels that are dropped report zero bytes, so the sum can end\n up below this total. Pixels may arrive between history pages, so they\n are only known to be done once next returns GHOSTTY_NO_VALUE. This\n value becomes available after READY validates.\n\n Output type: uint64_t *"]
++    pub const KITTY_PENDING_BYTES_PRIMARY: Type = 17;
++    #[doc = " Bytes of Kitty graphics pixels for the alternate screen that were\n still to come at READY.\n\n Returns GHOSTTY_NO_VALUE when the snapshot does not declare an\n alternate screen. See\n GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_PRIMARY.\n\n Output type: uint64_t *"]
++    pub const KITTY_PENDING_BYTES_ALTERNATE: Type = 18;
++    #[doc = " Bytes of Kitty graphics pixels for the alternate screen that were\n still to come at READY.\n\n Returns GHOSTTY_NO_VALUE when the snapshot does not declare an\n alternate screen. See\n GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_PRIMARY.\n\n Output type: uint64_t *"]
+     pub const MAX_VALUE: Type = 2147483647;
+ }
+ unsafe extern "C" {
+@@ -5674,7 +5814,7 @@ unsafe extern "C" {
+     ) -> Result::Type;
+ }
+ unsafe extern "C" {
+-    #[doc = " Decode one history page into the terminal returned by READY.\n\n Each GHOSTTY_SUCCESS consumes and validates one PAGE record. Query the\n GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_* values before calling next again.\n GHOSTTY_NO_VALUE means FINISH was validated; repeated calls after FINISH\n also return GHOSTTY_NO_VALUE.\n\n The terminal may be rendered, resized, and fed live PTY input between calls.\n If a history page can no longer be applied safely, it is still consumed and\n validated and progress reports zero rows. The decoder applies history\n to the caller-owned terminal produced by its READY operation.\n\n If GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY is true, the page is\n compressed before this function returns, unless it is visible in the\n terminal's viewport.\n\n A decoding error invalidates the decoder's source position. The terminal\n remains caller-owned and usable with its already-restored history, but only\n ghostty_snapshot_decoder_free() may subsequently be called on the decoder.\n\n         error code on failure\n"]
++    #[doc = " Decode one history page, or the pixels of one Kitty graphics image, into\n the terminal returned by READY.\n\n Each GHOSTTY_SUCCESS consumes and validates one record: a history page\n together with the Kitty graphics placements pinned to it, or the pixels\n of one image or animation frame. Pixels may arrive at any point, even\n between history pages. Query GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_KIND\n and the progress values for that kind before calling next again.\n GHOSTTY_NO_VALUE means FINISH was validated; repeated calls after FINISH\n also return GHOSTTY_NO_VALUE.\n\n // How many image bytes the primary screen is waiting for, to show\n // progress while they arrive.\n uint64_t pending = 0;\n ghostty_snapshot_decoder_get(\n     decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_PRIMARY,\n     &pending);\n uint64_t received = 0;\n\n GhosttyResult result;\n while ((result = ghostty_snapshot_decoder_next(decoder)) == GHOSTTY_SUCCESS) {\n   GhosttySnapshotDecoderProgressKind kind;\n   ghostty_snapshot_decoder_get(\n       decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_KIND, &kind);\n\n   if (kind == GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_PAGE) {\n     // Scrollback grew by this many rows.\n     size_t rows = 0;\n     ghostty_snapshot_decoder_get(\n         decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_ROWS, &rows);\n     continue;\n   }\n\n   // An image's pixels arrived.\n   GhosttyTerminalScreen screen;\n   size_t bytes = 0;\n   ghostty_snapshot_decoder_get(\n       decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_SCREEN, &screen);\n   ghostty_snapshot_decoder_get(\n       decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_BYTES, &bytes);\n   if (screen == GHOSTTY_TERMINAL_SCREEN_PRIMARY) received += bytes;\n }\n\n // GHOSTTY_NO_VALUE means the snapshot is complete. Dropped pixels report\n // zero bytes, so received can end up below pending.\n\n The terminal may be rendered, resized, and fed live PTY input between calls.\n If a history page can no longer be applied safely, it is still consumed and\n validated and progress reports zero rows. Image pixels work the same way:\n if live input deleted the image, or sent a new image with the same ID, the\n pixels are consumed and validated and progress reports zero bytes. The\n decoder applies history and pixels to the caller-owned terminal produced\n by its READY operation.\n\n If GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY is true, the page is\n compressed before this function returns, unless it is visible in the\n terminal's viewport.\n\n A decoding error invalidates the decoder's source position. The terminal\n remains caller-owned and usable with its already-restored history, but only\n ghostty_snapshot_decoder_free() may subsequently be called on the decoder.\n\n         FINISH, or an error code on failure\n"]
+     pub fn ghostty_snapshot_decoder_next(decoder: SnapshotDecoder) -> Result::Type;
+ }
+ unsafe extern "C" {
