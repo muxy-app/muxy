@@ -715,33 +715,51 @@ fn removing_a_worktree_sends_a_new_operation_and_only_approved_hooks() {
         name: None,
         project: true,
     }];
+    let mut operations = Vec::new();
     for approved in [None, Some(hooks)] {
-        let (request, result) = fake.answer(ReplyBody::Git(GitReply::Done), |client| {
+        let sync = fake.answer(ReplyBody::Git(GitReply::Done), |client| {
             client.git_remove_worktree(project, removal(), approved.clone())
         });
-        result.expect("removed");
-        let RequestBody::Git(GitRequest {
-            project: sent,
-            action: GitAction::Worktree(intent),
-        }) = request
-        else {
-            panic!("expected a worktree request, got {request:?}");
-        };
-        assert_eq!(sent, project);
-        assert_eq!(
-            intent.action,
-            WorktreeAction::Remove {
-                expected: removal()
-            }
-        );
-        assert_eq!(
-            intent.options,
-            approved.map(|hooks| WorktreeOptions {
-                name: None,
-                hooks: Some(hooks),
-            })
-        );
+        let asynchronous = fake.answer(ReplyBody::Git(GitReply::Done), |client| {
+            wait(client.git_remove_worktree_async(project, removal(), approved.clone()))
+        });
+        for (request, result) in [sync, asynchronous] {
+            result.expect("removed");
+            let RequestBody::Git(GitRequest {
+                project: sent,
+                action: GitAction::Worktree(intent),
+            }) = request
+            else {
+                panic!("expected a worktree request, got {request:?}");
+            };
+            assert_eq!(sent, project);
+            assert_eq!(
+                intent.action,
+                WorktreeAction::Remove {
+                    expected: removal()
+                }
+            );
+            assert_eq!(
+                intent.options,
+                approved.clone().map(|hooks| WorktreeOptions {
+                    name: None,
+                    hooks: Some(hooks),
+                })
+            );
+            operations.push(intent.operation);
+        }
+        let (_, refused) = fake.answer(ReplyBody::Git(GitReply::Log(Vec::new())), |client| {
+            client.git_remove_worktree(project, removal(), approved.clone())
+        });
+        assert!(matches!(refused, Err(ClientError::UnexpectedReply(_))));
+        let (_, refused) = fake.answer(ReplyBody::Detached, |client| {
+            wait(client.git_remove_worktree_async(project, removal(), approved.clone()))
+        });
+        assert!(matches!(refused, Err(ClientError::UnexpectedReply(_))));
     }
+    operations.sort_by_key(|operation| format!("{operation:?}"));
+    operations.dedup();
+    assert_eq!(operations.len(), 4, "each removal is its own operation");
 }
 
 #[test]

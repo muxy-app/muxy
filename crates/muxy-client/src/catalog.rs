@@ -6,8 +6,8 @@ use muxy_protocol::{
     ProjectSessions, ReplyBody, RequestBody, SessionId, SessionStatus,
 };
 
-/// How many times a paged read starts over when the catalog changes between
-/// its pages.
+/// How many times a paged read is tried while the catalog keeps changing
+/// between its pages.
 const PAGED_ATTEMPTS: usize = 8;
 /// The most terminals one listing returns.
 const MAX_LISTED_SESSIONS: usize = 16_384;
