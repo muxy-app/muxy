@@ -4647,6 +4647,7 @@ version = "2.0.0-beta-0"
 dependencies = [
  "libproc",
  "ring",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "tempfile",

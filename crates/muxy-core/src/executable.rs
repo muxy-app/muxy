@@ -1,8 +1,7 @@
 use std::io;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 pub fn command_arguments(source: &str) -> io::Result<Vec<String>> {
     let invalid = |message| io::Error::new(io::ErrorKind::InvalidInput, message);
@@ -70,37 +69,24 @@ pub fn current_path() -> io::Result<std::path::PathBuf> {
 }
 
 pub fn build_metadata(executable: &Path) -> io::Result<Vec<u8>> {
-    use std::io::{Read, Seek};
-    let mut output = tempfile::tempfile()?;
-    let mut child = Command::new(executable)
-        .arg("--build-info")
-        .stdin(Stdio::null())
-        .stdout(output.try_clone()?)
-        .stderr(Stdio::null())
-        .spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            if !status.success() {
-                return Err(io::Error::other("Server build metadata is unavailable"));
-            }
-            break;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "Server build metadata timed out",
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
+    let output = crate::process::run(
+        Command::new(executable).arg("--build-info"),
+        crate::process::Limits {
+            stderr: crate::process::Cap::TruncateAt(0),
+            ..crate::process::Limits::new(Duration::from_secs(3), 4096)
+        },
+    )?;
+    if output.timed_out {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Server build metadata timed out",
+        ));
     }
-    output.rewind()?;
-    let mut bytes = Vec::new();
-    output.take(4097).read_to_end(&mut bytes)?;
-    if bytes.len() > 4096 {
+    if output.stdout.truncated {
         return Err(io::Error::other("Executable build metadata is too large"));
     }
-    Ok(bytes)
+    if !output.status.success() {
+        return Err(io::Error::other("Server build metadata is unavailable"));
+    }
+    Ok(output.stdout.bytes)
 }

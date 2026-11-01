@@ -96,7 +96,6 @@
 "AI Provider" = "AI Provider";
 "AI drafts only the commit message. Muxy commits, and pushes when you choose to. An empty prompt uses the default. Do not include secrets." = "AI drafts only the commit message. Muxy commits, and pushes when you choose to. An empty prompt uses the default. Do not include secrets.";
 "AI drafts the title, summary, branch name, and target branch. You review them before Muxy commits, pushes, and opens the pull request. An empty prompt uses the default." = "AI drafts the title, summary, branch name, and target branch. You review them before Muxy commits, pushes, and opens the pull request. An empty prompt uses the default.";
-"AI output pipe unavailable" = "AI output pipe unavailable";
 "AI prompt exceeds the 256 KB limit" = "AI prompt exceeds the 256 KB limit";
 "AI worker stopped" = "AI worker stopped";
 "ANSI colors" = "ANSI colors";

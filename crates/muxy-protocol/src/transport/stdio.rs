@@ -9,13 +9,14 @@ use std::os::unix::net::UnixStream;
 use std::process::{Child, ChildStderr, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use muxy_core::process::ExitWatch;
 
 use crate::transport::unix::socket_pair;
 use crate::transport::{ByteStream, StreamCancellation};
 
 const BUFFER: usize = 64 * 1024;
-const EXIT_POLL: Duration = Duration::from_millis(10);
 
 /// A child process's stdin and stdout as one byte stream, such as `ssh`
 /// running `muxy stdio` on another computer.
@@ -121,19 +122,18 @@ impl Drop for ChildStream {
 
 impl ChildProcess {
     /// Waits up to `timeout` for the child to exit on its own; `None` if it
-    /// is still running.
+    /// is still running. The child stays unlocked while waiting, so it can
+    /// still be killed.
     pub fn wait_timeout(&self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if let Some(status) = self.lock().try_wait()? {
+        let mut exit = {
+            let mut child = self.lock();
+            if let Some(status) = child.try_wait()? {
                 return Ok(Some(status));
             }
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Ok(None);
-            }
-            thread::sleep(left.min(EXIT_POLL));
-        }
+            ExitWatch::new(&child)?
+        };
+        exit.wait(Some(timeout))?;
+        self.lock().try_wait()
     }
 
     fn kill(&self) {

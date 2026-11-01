@@ -167,22 +167,34 @@ fn private_directory(parent: &File, name: &OsStr) -> io::Result<File> {
     Ok(directory)
 }
 
+/// The local time now, as the Trash specification's `DeletionDate`.
+#[allow(
+    unsafe_code,
+    reason = "the C library is the only authority on the local time zone"
+)]
 fn deletion_date() -> Result<String> {
-    let output = std::process::Command::new("/bin/date")
-        .arg("+%Y-%m-%dT%H:%M:%S")
-        .output()
-        .map_err(error)?;
-    let date = String::from_utf8(output.stdout).map_err(error)?;
-    let date = date.trim();
-    if !output.status.success()
-        || date.len() != 19
-        || !date
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || b"-T:".contains(&byte))
-    {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| libc::time_t::try_from(elapsed.as_secs()).ok())
+        .ok_or_else(|| error("Cannot determine Trash deletion time"))?;
+    let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: both pointers are valid, and localtime_r fills `local` when it
+    // returns non-null.
+    if unsafe { libc::localtime_r(&raw const now, local.as_mut_ptr()) }.is_null() {
         return Err(error("Cannot determine Trash deletion time"));
     }
-    Ok(date.into())
+    // SAFETY: localtime_r succeeded, so `local` is initialized.
+    let local = unsafe { local.assume_init() };
+    Ok(format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        local.tm_year + 1900,
+        local.tm_mon + 1,
+        local.tm_mday,
+        local.tm_hour,
+        local.tm_min,
+        local.tm_sec
+    ))
 }
 
 #[cfg(test)]

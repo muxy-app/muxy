@@ -69,7 +69,6 @@ fn desktop_session(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> boo
 fn launch(app: &Path, folder: Option<&Path>) -> bool {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
     let Ok(mut child) = Command::new(app)
         .args(folder)
         .stdin(Stdio::null())
@@ -80,15 +79,9 @@ fn launch(app: &Path, folder: Option<&Path>) -> bool {
     else {
         return false;
     };
-    let settled = Instant::now() + Duration::from_millis(500);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if Instant::now() < settled => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            _ => return true,
-        }
+    match muxy_core::process::wait_timeout(&mut child, std::time::Duration::from_millis(500)) {
+        Ok(Some(status)) => status.success(),
+        _ => true,
     }
 }
 

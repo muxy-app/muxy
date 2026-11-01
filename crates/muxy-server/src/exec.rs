@@ -1,15 +1,14 @@
 use std::collections::{BTreeSet, HashMap};
-use std::io::{self, Read, Write};
-use std::os::fd::AsFd;
-use std::os::unix::process::CommandExt;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use muxy_core::process::{Cap, Limits, Running};
 use muxy_protocol::{
     ErrorCode, ExecRequest, ExecResult, MAX_EXEC_OUTPUT, Message, ReplyBody, RequestId, ServerPath,
 };
@@ -196,45 +195,6 @@ fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> PathBuf {
     root.join(path)
 }
 
-fn nonblocking(fd: &impl AsFd) -> io::Result<()> {
-    let flags = rustix::fs::fcntl_getfl(fd)?;
-    rustix::fs::fcntl_setfl(fd, flags | rustix::fs::OFlags::NONBLOCK)?;
-    Ok(())
-}
-
-struct Process(Child);
-impl Process {
-    fn signal(&mut self, signal: rustix::process::Signal) {
-        if let Some(pid) = rustix::process::Pid::from_raw(self.0.id().cast_signed()) {
-            let _ = rustix::process::kill_process_group(pid, signal);
-        }
-    }
-}
-impl Drop for Process {
-    fn drop(&mut self) {
-        self.signal(rustix::process::Signal::KILL);
-        let _ = self.0.wait();
-    }
-}
-
-fn drain(reader: &mut impl Read, bytes: &mut Vec<u8>, truncated: &mut bool) -> io::Result<bool> {
-    let mut buffer = [0; 16 * 1024];
-    for _ in 0..16 {
-        match reader.read(&mut buffer) {
-            Ok(0) => return Ok(true),
-            Ok(n) => {
-                let take = n.min(MAX_EXEC_OUTPUT.saturating_sub(bytes.len()));
-                bytes.extend_from_slice(&buffer[..take]);
-                *truncated |= take < n;
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => (),
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(false)
-}
-
 fn utf8(bytes: &[u8], truncated: &mut bool) -> String {
     let mut text = String::from_utf8_lossy(bytes).into_owned();
     if text.len() > MAX_EXEC_OUTPUT {
@@ -276,99 +236,29 @@ fn execute(
     };
     command
         .envs(&request.env)
-        .current_dir(working_directory(root, request.cwd.as_ref()))
-        .process_group(0)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let child = command
-        .spawn()
-        .map_err(|cause| launch_failed(request, &cause))?;
-    supervise(Process(child), request, cancelled, disconnected).map_err(error)
-}
-
-/// Feeds stdin and collects output until the command exits, is cancelled, or
-/// runs out of time.
-fn supervise(
-    mut child: Process,
-    request: &ExecRequest,
-    cancelled: &AtomicBool,
-    disconnected: impl Fn() -> bool,
-) -> io::Result<ExecResult> {
-    let input = child
-        .0
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::other("missing stdin"))?;
-    let mut output = child
-        .0
-        .stdout
-        .take()
-        .ok_or_else(|| io::Error::other("missing stdout"))?;
-    let mut errors = child
-        .0
-        .stderr
-        .take()
-        .ok_or_else(|| io::Error::other("missing stderr"))?;
-    nonblocking(&input)?;
-    nonblocking(&output)?;
-    nonblocking(&errors)?;
-    let mut input = Some(input);
-    let mut written = 0;
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let mut truncated = false;
-    let mut timed_out = false;
-    let mut was_cancelled = false;
-    let start = Instant::now();
-    let mut stopping = None;
-    let mut exited = None;
-    let mut code = -1;
-    loop {
-        let output_done = drain(&mut output, &mut stdout, &mut truncated)?;
-        let errors_done = drain(&mut errors, &mut stderr, &mut truncated)?;
-        if written < request.stdin.len()
-            && let Some(pipe) = &mut input
-        {
-            match pipe.write(&request.stdin[written..]) {
-                Ok(n) => written += n,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => (),
-                Err(_) => input = None,
-            }
-        }
-        if written == request.stdin.len() {
-            input = None;
-        }
-        was_cancelled |= cancelled.load(Ordering::Acquire) || disconnected();
-        timed_out |= start.elapsed() >= Duration::from_millis(u64::from(request.timeout_ms));
-        if (was_cancelled || timed_out) && stopping.is_none() {
-            child.signal(rustix::process::Signal::TERM);
-            stopping = Some(Instant::now());
-        }
-        if stopping.is_some_and(|time| time.elapsed() >= Duration::from_millis(150)) {
-            child.signal(rustix::process::Signal::KILL);
-        }
-        if exited.is_none()
-            && let Some(status) = child.0.try_wait()?
-        {
-            code = status.code().unwrap_or(-1);
-            exited = Some(Instant::now());
-            child.signal(rustix::process::Signal::KILL);
-        }
-        if exited.is_some_and(|time| {
-            (output_done && errors_done) || time.elapsed() >= Duration::from_millis(250)
-        }) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+        .current_dir(working_directory(root, request.cwd.as_ref()));
+    let stopped = || cancelled.load(Ordering::Acquire) || disconnected();
+    let limits = Limits {
+        timeout: Duration::from_millis(u64::from(request.timeout_ms)),
+        stdout: Cap::TruncateAt(MAX_EXEC_OUTPUT),
+        stderr: Cap::TruncateAt(MAX_EXEC_OUTPUT),
+        stdin: Some(&request.stdin),
+        cancelled: Some(&stopped),
+        term_grace: Duration::from_millis(150),
+        kill_leftovers: true,
+    };
+    let output = Running::start(&mut command, limits)
+        .map_err(|cause| launch_failed(request, &cause))?
+        .wait()
+        .map_err(error)?;
+    let mut truncated = output.stdout.truncated || output.stderr.truncated;
     Ok(ExecResult {
-        stdout: utf8(&stdout, &mut truncated),
-        stderr: utf8(&stderr, &mut truncated),
-        exit_code: code,
-        timed_out,
+        stdout: utf8(&output.stdout.bytes, &mut truncated),
+        stderr: utf8(&output.stderr.bytes, &mut truncated),
+        exit_code: output.status.code().unwrap_or(-1),
+        timed_out: output.timed_out,
         truncated,
-        cancelled: was_cancelled,
+        cancelled: output.cancelled,
     })
 }
 
