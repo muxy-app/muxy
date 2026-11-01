@@ -1073,25 +1073,20 @@ pub(super) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::D
     super::git::form_field(label, input, model)
 }
 
+/// The card of a server dialog, found in tests by `id`.
 pub(super) fn modal(
     model: &AppModel,
     window: &Window,
     id: &'static str,
 ) -> gpui::Stateful<gpui::Div> {
-    let m = model.metrics;
-    let theme = &model.theme;
-    muxy_ui::popover::surface(theme, m)
-        .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
-        .id(id)
-        .debug_selector(move || id.into())
-        .w(m.scaled(460.0)
-            .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
-        .max_h((window.viewport_size().height - m.scaled(80.0)).max(px(0.0)))
-        .overflow_y_scroll()
-        .p(m.spacing8())
-        .gap(m.scaled(14.0))
-        .text_color(theme.fg)
-        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+    muxy_ui::popover::modal_card(
+        &model.theme,
+        model.metrics,
+        window.viewport_size(),
+        id,
+        model.metrics.scaled(460.0),
+    )
+    .debug_selector(move || id.into())
 }
 
 pub(super) fn title(text: &str, model: &AppModel) -> gpui::Div {
@@ -1099,40 +1094,6 @@ pub(super) fn title(text: &str, model: &AppModel) -> gpui::Div {
         .text_size(model.metrics.font_headline())
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.to_owned())
-}
-
-pub(crate) fn primary(
-    id: &'static str,
-    label: SharedString,
-    enabled: bool,
-    model: &AppModel,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-) -> AnyElement {
-    let m = model.metrics;
-    let theme = &model.theme;
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .h(m.control_medium())
-        .px(m.spacing5())
-        .rounded(m.radius_sm())
-        .bg(theme.accent)
-        .text_color(theme.accent_foreground)
-        .text_size(m.font_footnote())
-        .font_weight(FontWeight::MEDIUM)
-        .when(!enabled, |button| button.opacity(0.4))
-        .when(enabled, |button| {
-            button
-                .cursor_pointer()
-                .hover(|style| style.opacity(0.85))
-                .button_interaction(on_click)
-        })
-        .child(label)
-        .into_any_element()
 }
 
 fn connection_status(
@@ -1271,8 +1232,7 @@ pub(crate) fn render_form(
                     controls::button(
                         style,
                         "server-trust",
-                        &tr!("Trust & Test"),
-                        true,
+                        controls::Button::secondary(&tr!("Trust & Test")),
                         cx.listener(|model, _, _, cx| model.trust_server_form(cx)),
                     )
                     .debug_selector(|| "server-trust".into()),
@@ -1295,8 +1255,7 @@ fn install_offer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
             metrics: &model.metrics,
         },
         "server-install",
-        &tr!("Install muxy-server & Test Connection"),
-        true,
+        controls::Button::secondary(&tr!("Install muxy-server & Test Connection")),
         cx.listener(|model, _, window, cx| model.confirm_install_server_form(window, cx)),
     )
     .debug_selector(|| "server-install".into())
@@ -1385,8 +1344,7 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 .child(controls::button(
                     style,
                     "server-identity-browse",
-                    &tr!("Browse…"),
-                    true,
+                    controls::Button::secondary(&tr!("Browse…")),
                     cx.listener(|model, _, _, cx| model.choose_server_identity(cx)),
                 ))
                 .into_any_element(),
@@ -1449,8 +1407,7 @@ fn form_actions(
             controls::button(
                 style,
                 "server-test",
-                &tr!("Test Connection"),
-                testable,
+                controls::Button::secondary(&tr!("Test Connection")).enabled(testable),
                 cx.listener(|model, _, _, cx| model.test_server_form(cx)),
             )
             .debug_selector(|| "server-test".into()),
@@ -1459,17 +1416,18 @@ fn form_actions(
         .child(controls::button(
             style,
             "server-cancel",
-            &tr!("Cancel"),
-            true,
+            controls::Button::secondary(&tr!("Cancel")),
             cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
         ))
-        .child(primary(
-            "server-save",
-            tr!("Save"),
-            savable,
-            model,
-            cx.listener(|model, _, _, cx| model.submit_server_form(cx)),
-        ))
+        .child(
+            controls::button(
+                style,
+                "server-save",
+                controls::Button::primary(&tr!("Save")).enabled(savable),
+                cx.listener(|model, _, _, cx| model.submit_server_form(cx)),
+            )
+            .debug_selector(|| "server-save".into()),
+        )
         .into_any_element()
 }
 
@@ -1524,17 +1482,18 @@ pub(crate) fn render_password(
                 .child(controls::button(
                     style,
                     "server-password-cancel",
-                    &tr!("Cancel"),
-                    true,
+                    controls::Button::secondary(&tr!("Cancel")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 ))
-                .child(primary(
-                    "server-password-connect",
-                    tr!("Connect"),
-                    true,
-                    model,
-                    cx.listener(|model, _, _, cx| model.submit_password(cx)),
-                )),
+                .child(
+                    controls::button(
+                        style,
+                        "server-password-connect",
+                        controls::Button::primary(&tr!("Connect")),
+                        cx.listener(|model, _, _, cx| model.submit_password(cx)),
+                    )
+                    .debug_selector(|| "server-password-connect".into()),
+                ),
         )
         .into_any_element()
 }

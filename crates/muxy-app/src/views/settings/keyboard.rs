@@ -52,8 +52,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &id,
-                &label,
-                true,
+                controls::Button::secondary(&label),
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(&record, window, cx);
                 }),
@@ -64,8 +63,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                &tr!("Reset"),
-                true,
+                controls::Button::secondary(&tr!("Reset")),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(reset.clone(), None)));
@@ -77,8 +75,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                &tr!("Unassign"),
-                true,
+                controls::Button::secondary(&tr!("Unassign")),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Unassign(unassign.clone())));
@@ -119,8 +116,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 id,
-                &label,
-                true,
+                controls::Button::secondary(&label),
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(id, window, cx);
                 }),
@@ -131,8 +127,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                &tr!("Reset"),
-                true,
+                controls::Button::secondary(&tr!("Reset")),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(id.into(), None)));

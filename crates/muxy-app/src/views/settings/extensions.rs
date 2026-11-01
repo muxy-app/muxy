@@ -605,8 +605,8 @@ impl ExtensionsView {
                 metrics: &self.metrics,
             },
             &id,
-            &translate(self.button_label(&id, label)),
-            self.mutation.is_none() && self.loading.is_none(),
+            controls::Button::secondary(&translate(self.button_label(&id, label)))
+                .enabled(self.mutation.is_none() && self.loading.is_none()),
             cx.listener(move |view, _, window, cx| {
                 if view.mutation.is_none() && view.loading.is_none() {
                     view.completed = None;

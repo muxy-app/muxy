@@ -498,6 +498,8 @@ impl AppModel {
         let (notifications, opened) = muxy_ui::notifications::Notifications::start();
         #[cfg(test)]
         let (notifications, opened) = muxy_ui::notifications::Notifications::absent();
+        #[cfg(test)]
+        muxy_ui::dialog::simulate(cx);
         Self::follow_notifications(opened, cx);
         muxy_ui::webview::set_data_directory(&boot.state_path.with_file_name("webviews"));
         let mut capabilities = capabilities::backends();

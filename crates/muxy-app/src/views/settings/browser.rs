@@ -160,8 +160,7 @@ fn profiles(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             .child(controls::button(
                 view.style(),
                 "browser-add-profile",
-                &tr!("Add Profile"),
-                true,
+                controls::Button::secondary(&tr!("Add Profile")),
                 cx.listener(move |view, _, _, cx| {
                     view.clear_browser_profile_name(cx);
                     cx.emit(SettingsEvent::Change(Change::Browser(
@@ -195,8 +194,7 @@ fn profile_row(
         buttons = buttons.child(controls::button(
             view.style(),
             &format!("browser-default-{id}"),
-            &tr!("Make Default"),
-            true,
+            controls::Button::secondary(&tr!("Make Default")),
             cx.listener(move |_, _, _, cx| {
                 cx.emit(SettingsEvent::Change(Change::Browser(
                     BrowserChange::DefaultProfile(chosen.clone()),
@@ -208,8 +206,7 @@ fn profile_row(
     buttons = buttons.child(controls::button(
         view.style(),
         &format!("browser-rename-{id}"),
-        &tr!("Rename to Name Below"),
-        !name.is_empty(),
+        controls::Button::secondary(&tr!("Rename to Name Below")).enabled(!name.is_empty()),
         cx.listener(move |view, _, _, cx| {
             view.clear_browser_profile_name(cx);
             cx.emit(SettingsEvent::Change(Change::Browser(
@@ -221,8 +218,7 @@ fn profile_row(
     buttons = buttons.child(controls::button(
         view.style(),
         &format!("browser-clear-{id}"),
-        &tr!("Clear Data"),
-        true,
+        controls::Button::secondary(&tr!("Clear Data")),
         cx.listener(move |_, _, window, cx| {
             confirm(
                 BrowserChange::ClearProfile(cleared.clone()),
@@ -239,8 +235,7 @@ fn profile_row(
         buttons = buttons.child(controls::button(
             view.style(),
             &format!("browser-delete-{id}"),
-            &tr!("Delete"),
-            true,
+            controls::Button::secondary(&tr!("Delete")),
             cx.listener(move |_, _, window, cx| {
                 confirm(
                     BrowserChange::DeleteProfile(deleted.clone()),
@@ -303,8 +298,7 @@ fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             buttons = buttons.child(controls::button(
                 view.style(),
                 &format!("browser-import-{index}-{cookies}"),
-                &label,
-                true,
+                controls::Button::secondary(&label),
                 cx.listener(move |_, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::Browser(
                         BrowserChange::Import {
@@ -349,20 +343,16 @@ fn confirm(
     window: &mut Window,
     cx: &mut Context<SettingsView>,
 ) {
-    let (sender, answer) = async_channel::bounded(1);
-    let Ok(dialog) =
-        muxy_ui::dialog::confirm(window, cx, title, message, label, None, move |response| {
-            let _ = sender.try_send(matches!(
-                response,
-                muxy_ui::dialog::ConfirmationResponse::Confirmed { .. }
-            ));
-        })
-    else {
-        return;
-    };
+    let (title, message, label) = (title.to_owned(), message.to_owned(), label.to_owned());
+    let window = window.window_handle();
     cx.spawn(async move |view, cx| {
-        let _dialog = dialog;
-        if answer.recv().await.unwrap_or(false) {
+        let question = muxy_ui::dialog::Question::Confirm {
+            title: &title,
+            message: &message,
+            confirm: &label,
+            checkbox: None,
+        };
+        if let Ok(Some(_)) = muxy_ui::dialog::ask(window, question, cx).await {
             let _ = view.update(cx, |_, cx| {
                 cx.emit(SettingsEvent::Change(Change::Browser(change)));
             });

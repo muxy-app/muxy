@@ -141,8 +141,7 @@ pub(super) fn change_button(
     controls::button(
         pane.style(),
         id,
-        label,
-        enabled,
+        controls::Button::secondary(label).enabled(enabled),
         cx.listener(move |pane, _, _, cx| {
             pane.recording = None;
             cx.emit(SettingsEvent::Change(change.clone()));
@@ -667,10 +666,11 @@ pub(super) fn rows(
                 "terminal-reset" => controls::button(
                     pane.style(),
                     id,
-                    &tr!("Reset"),
-                    *terminal != TerminalSettings::default()
-                        || pane.snapshot.settings.panes.new_pane_directory
-                            != NewPaneDirectory::default(),
+                    controls::Button::secondary(&tr!("Reset")).enabled(
+                        *terminal != TerminalSettings::default()
+                            || pane.snapshot.settings.panes.new_pane_directory
+                                != NewPaneDirectory::default(),
+                    ),
                     cx.listener(|pane, _, _, cx| {
                         pane.recording = None;
                         cx.emit(SettingsEvent::ResetTerminal);

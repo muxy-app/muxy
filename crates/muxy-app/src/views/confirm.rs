@@ -1,5 +1,5 @@
 use gpui::{AnyWindowHandle, AsyncApp, Context};
-use muxy_ui::dialog::ConfirmationResponse;
+use muxy_ui::dialog::{ConfirmationResponse, Question, ask};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
@@ -50,7 +50,6 @@ impl AppModel {
     }
 }
 
-#[cfg(not(test))]
 async fn prompt(
     window: AnyWindowHandle,
     title: &'static str,
@@ -58,57 +57,20 @@ async fn prompt(
     action: &'static str,
     cx: &mut AsyncApp,
 ) -> Result<ConfirmationResponse, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm(
-                window,
-                cx,
-                &muxy_ui::l10n::translate(title),
-                &muxy_ui::l10n::translate(message),
-                &muxy_ui::l10n::translate(action),
-                Some(&tr!("Don't ask again")),
-                move |response| {
-                    let _ = sender.try_send(response);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Confirm {
+        title: &muxy_ui::l10n::translate(title),
+        message: &muxy_ui::l10n::translate(message),
+        confirm: &muxy_ui::l10n::translate(action),
+        checkbox: Some(&tr!("Don't ask again")),
+    };
+    let answer = ask(window, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or_default())
-}
-
-#[cfg(test)]
-pub(crate) const CLOSE_WITHOUT_ASKING: &str = "Close and don't ask again";
-
-#[cfg(test)]
-async fn prompt(
-    window: AnyWindowHandle,
-    title: &'static str,
-    message: &'static str,
-    _action: &'static str,
-    cx: &mut AsyncApp,
-) -> Result<ConfirmationResponse, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                title,
-                Some(message),
-                &["Close", "Cancel", CLOSE_WITHOUT_ASKING],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(match answer.await {
-        Ok(0) => ConfirmationResponse::Confirmed {
-            dont_ask_again: false,
-        },
-        Ok(2) => ConfirmationResponse::Confirmed {
-            dont_ask_again: true,
-        },
-        _ => ConfirmationResponse::Cancelled,
-    })
+    Ok(answer.map_or(ConfirmationResponse::Cancelled, |answer| {
+        ConfirmationResponse::Confirmed {
+            dont_ask_again: answer.ticked(),
+        }
+    }))
 }
 
 /// Stops or restarts a server; `name` is another computer's, `None` this one's.
@@ -308,60 +270,24 @@ async fn prompt_install(
 }
 
 /// Reports whether the server should restart too, or `None` when declined.
-#[cfg(not(test))]
 async fn install_prompt(
     window: AnyWindowHandle,
     message: &str,
     cx: &mut AsyncApp,
 ) -> Result<Option<bool>, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm_with_checkbox(
-                window,
-                cx,
-                &tr!("Muxy Update"),
-                message,
-                [&muxy_ui::l10n::translate(INSTALL), &tr!("Not Now")],
-                &tr!("Also restart the server"),
-                move |restart_server| {
-                    let _ = sender.try_send(restart_server);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Choose {
+        title: &tr!("Muxy Update"),
+        message,
+        confirm: &muxy_ui::l10n::translate(INSTALL),
+        decline: &tr!("Not Now"),
+        checkbox: &tr!("Also restart the server"),
+    };
+    let answer = ask(window, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or_default())
+    Ok(answer.map(|answer| answer.ticked()))
 }
 
-#[cfg(test)]
-pub(crate) const INSTALL_AND_RESTART_SERVER: &str = "Update and Restart App and Server";
-
-#[cfg(test)]
-async fn install_prompt(
-    window: AnyWindowHandle,
-    message: &str,
-    cx: &mut AsyncApp,
-) -> Result<Option<bool>, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Info,
-                "Muxy Update",
-                Some(message),
-                &[INSTALL, "Not Now", INSTALL_AND_RESTART_SERVER],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(match answer.await {
-        Ok(0) => Some(false),
-        Ok(2) => Some(true),
-        _ => None,
-    })
-}
-
-#[cfg(not(test))]
 async fn server_prompt(
     window: AnyWindowHandle,
     title: &str,
@@ -369,36 +295,14 @@ async fn server_prompt(
     message: &str,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm(window, cx, title, message, label, None, move |response| {
-                let _ = sender.try_send(matches!(response, ConfirmationResponse::Confirmed { .. }));
-            })
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Confirm {
+        title,
+        message,
+        confirm: label,
+        checkbox: None,
+    };
+    let answer = ask(window, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or(false))
-}
-
-#[cfg(test)]
-async fn server_prompt(
-    window: AnyWindowHandle,
-    title: &str,
-    label: &str,
-    message: &str,
-    cx: &mut AsyncApp,
-) -> Result<bool, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                title,
-                Some(message),
-                &[label, "Cancel"],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(answer.await == Ok(0))
+    Ok(answer.is_some())
 }

@@ -107,18 +107,16 @@ pub(super) fn error(
                 .child(error.url.clone()),
         )
         .child(
-            div()
-                .id("browser-try-again")
-                .mt(metrics.spacing4())
-                .px(metrics.spacing6())
-                .py(metrics.spacing3())
-                .rounded(metrics.radius_md())
-                .bg(theme.accent)
-                .text_color(theme.accent_foreground)
-                .text_size(metrics.font_body())
-                .cursor_pointer()
-                .on_click(cx.listener(|view, _, _, cx| view.reload(cx)))
-                .child(tr!("Try Again")),
+            muxy_ui::controls::button(
+                muxy_ui::controls::Style {
+                    theme,
+                    metrics: &metrics,
+                },
+                "browser-try-again",
+                muxy_ui::controls::Button::primary(&tr!("Try Again")),
+                cx.listener(|view, _, _, cx| view.reload(cx)),
+            )
+            .mt(metrics.spacing4()),
         )
         .into_any_element()
 }

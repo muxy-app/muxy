@@ -1,6 +1,6 @@
 use gpui::{AnyWindowHandle, AsyncApp, Context};
 use muxy_app_core::{AppState, Project, ProjectId, ProjectStatus, WorkspaceId};
-use muxy_ui::dialog::ConfirmationResponse;
+use muxy_ui::dialog::{ConfirmationResponse, Question, ask};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
@@ -306,7 +306,6 @@ impl AppModel {
     }
 }
 
-#[cfg(not(test))]
 async fn prompt(
     window: AnyWindowHandle,
     title: &'static str,
@@ -314,50 +313,18 @@ async fn prompt(
     action: &'static str,
     cx: &mut AsyncApp,
 ) -> Result<ConfirmationResponse, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm(
-                window,
-                cx,
-                &muxy_ui::l10n::translate(title),
-                &message,
-                &muxy_ui::l10n::translate(action),
-                None,
-                move |response| {
-                    let _ = sender.try_send(response);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Confirm {
+        title: &muxy_ui::l10n::translate(title),
+        message: &message,
+        confirm: &muxy_ui::l10n::translate(action),
+        checkbox: None,
+    };
+    let answer = ask(window, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or_default())
-}
-
-#[cfg(test)]
-async fn prompt(
-    window: AnyWindowHandle,
-    title: &'static str,
-    message: String,
-    action: &'static str,
-    cx: &mut AsyncApp,
-) -> Result<ConfirmationResponse, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                title,
-                Some(&message),
-                &[action, "Cancel"],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(if answer.await == Ok(0) {
+    Ok(answer.map_or(ConfirmationResponse::Cancelled, |_| {
         ConfirmationResponse::Confirmed {
             dont_ask_again: false,
         }
-    } else {
-        ConfirmationResponse::Cancelled
-    })
+    }))
 }

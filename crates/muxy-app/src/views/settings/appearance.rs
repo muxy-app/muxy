@@ -59,8 +59,7 @@ pub(super) fn rows(
                 controls::button(
                     pane.style(),
                     "browse-languages",
-                    &tr!("Browse language extensions…"),
-                    true,
+                    controls::Button::secondary(&tr!("Browse language extensions…")),
                     cx.listener(|pane, _, _, cx| pane.browse_languages(cx)),
                 )
                 .debug_selector(|| "settings-browse-languages".into())

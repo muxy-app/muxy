@@ -414,8 +414,7 @@ fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 muxy_ui::controls::button(
                     muxy_ui::controls::Style { theme, metrics: &m },
                     "reset-session-filters",
-                    &tr!("Reset filters"),
-                    true,
+                    muxy_ui::controls::Button::secondary(&tr!("Reset filters")),
                     cx.listener(|model, _, window, cx| {
                         model.clear_session_search(cx);
                         model.all_session_providers(cx);

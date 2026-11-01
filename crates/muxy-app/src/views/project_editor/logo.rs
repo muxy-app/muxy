@@ -1,12 +1,10 @@
 use crate::{model::AppModel, views::overlays::Overlay};
 use gpui::{
     AnyElement, AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Point, RenderImage, StatefulInteractiveElement, Styled, Window,
-    canvas, div, img, point, px,
+    MouseButton, ParentElement, Point, RenderImage, Styled, Window, canvas, div, img, point, px,
 };
 use image::ImageDecoder;
 use muxy_app_core::{ProjectId, ProjectStatus};
-use muxy_ui::components::ButtonInteraction;
 use muxy_ui::tr;
 use std::{
     collections::HashMap,
@@ -414,78 +412,76 @@ pub(crate) fn render(
         .min((window.viewport_size().height - m.scaled(180.0)).max(px(1.0)));
     let style = muxy_ui::controls::Style { theme, metrics: &m };
     muxy_ui::popover::modal(
-        muxy_ui::popover::surface(theme, m)
-            .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
-            .id("project-logo-dialog")
-            .debug_selector(|| "project-logo-cropper".into())
-            .max_h((window.viewport_size().height - m.scaled(80.0)).max(px(1.0)))
-            .overflow_y_scroll()
-            .p(m.spacing8())
-            .gap(m.spacing6())
-            .w(width)
-            .track_focus(&model.overlay_focus)
-            .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
-                match event.keystroke.key.as_str() {
-                    "escape" => model.dismiss_overlay(cx),
-                    "enter" => model.apply_project_logo(cx),
-                    _ => {}
-                }
-            }))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(tr!("Crop Logo")),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .justify_center()
-                    .child(crop_surface(cropper, side, model, cx)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(m.spacing4())
-                    .child(preview(
-                        cropper,
-                        m.icon_xxl(),
-                        m.radius_md(),
-                        theme.raised(),
-                        cx,
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .text_size(m.font_caption())
-                            .text_color(theme.fg_muted)
-                            .child(tr!("Drag to reposition, scroll to zoom")),
-                    )
-                    .child(muxy_ui::controls::button(
-                        style,
-                        "logo-zoom-out",
-                        "−",
-                        cropper.crop.zoom > 1.0,
-                        cx.listener(|model, _, _, cx| model.zoom_project_logo(1.0 / 1.2, cx)),
-                    ))
-                    .child(muxy_ui::controls::button(
-                        style,
-                        "logo-zoom-in",
-                        "+",
-                        cropper.crop.zoom < 5.0,
-                        cx.listener(|model, _, _, cx| model.zoom_project_logo(1.2, cx)),
-                    )),
-            )
-            .children(
-                cropper
-                    .error
-                    .as_ref()
-                    .map(|error| div().text_color(theme.danger).child(error.clone())),
-            )
-            .child(footer(model, cx)),
+        theme,
+        muxy_ui::popover::modal_card(
+            theme,
+            m,
+            window.viewport_size(),
+            "project-logo-dialog",
+            width,
+        )
+        .debug_selector(|| "project-logo-cropper".into())
+        .gap(m.spacing6())
+        .track_focus(&model.overlay_focus)
+        .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
+            match event.keystroke.key.as_str() {
+                "escape" => model.dismiss_overlay(cx),
+                "enter" => model.apply_project_logo(cx),
+                _ => {}
+            }
+        }))
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(tr!("Crop Logo")),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .justify_center()
+                .child(crop_surface(cropper, side, model, cx)),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(m.spacing4())
+                .child(preview(
+                    cropper,
+                    m.icon_xxl(),
+                    m.radius_md(),
+                    theme.raised(),
+                    cx,
+                ))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .text_size(m.font_caption())
+                        .text_color(theme.fg_muted)
+                        .child(tr!("Drag to reposition, scroll to zoom")),
+                )
+                .child(muxy_ui::controls::button(
+                    style,
+                    "logo-zoom-out",
+                    muxy_ui::controls::Button::secondary("−").enabled(cropper.crop.zoom > 1.0),
+                    cx.listener(|model, _, _, cx| model.zoom_project_logo(1.0 / 1.2, cx)),
+                ))
+                .child(muxy_ui::controls::button(
+                    style,
+                    "logo-zoom-in",
+                    muxy_ui::controls::Button::secondary("+").enabled(cropper.crop.zoom < 5.0),
+                    cx.listener(|model, _, _, cx| model.zoom_project_logo(1.2, cx)),
+                )),
+        )
+        .children(
+            cropper
+                .error
+                .as_ref()
+                .map(|error| div().text_color(theme.danger).child(error.clone())),
+        )
+        .child(footer(model, cx)),
     )
 }
 
@@ -564,8 +560,7 @@ fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
             muxy_ui::controls::button(
                 style,
                 "logo-cancel",
-                &tr!("Cancel"),
-                true,
+                muxy_ui::controls::Button::secondary(&tr!("Cancel")),
                 cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
             )
             .debug_selector(|| "logo-cancel".into()),
@@ -574,24 +569,14 @@ fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
 }
 
 fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
-    let m = model.metrics;
-    let theme = &model.theme;
-    div()
-        .id("logo-apply")
-        .debug_selector(|| "logo-apply".into())
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .h(m.control_medium())
-        .px(m.spacing5())
-        .rounded(m.radius_sm())
-        .bg(theme.accent)
-        .text_color(theme.accent_foreground)
-        .text_size(m.font_footnote())
-        .font_weight(FontWeight::MEDIUM)
-        .cursor_pointer()
-        .hover(|style| style.opacity(0.85))
-        .button_interaction(cx.listener(|model, _, _, cx| model.apply_project_logo(cx)))
-        .child(tr!("Apply"))
+    muxy_ui::controls::button(
+        muxy_ui::controls::Style {
+            theme: &model.theme,
+            metrics: &model.metrics,
+        },
+        "logo-apply",
+        muxy_ui::controls::Button::primary(&tr!("Apply")),
+        cx.listener(|model, _, _, cx| model.apply_project_logo(cx)),
+    )
+    .debug_selector(|| "logo-apply".into())
 }

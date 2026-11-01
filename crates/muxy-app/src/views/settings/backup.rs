@@ -51,8 +51,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 controls::button(
                     view.style(),
                     &selector,
-                    &label,
-                    !view.backup_busy,
+                    controls::Button::secondary(&label).enabled(!view.backup_busy),
                     cx.listener(move |_, _, _, cx| cx.emit(SettingsEvent::Backup(action))),
                 )
                 .debug_selector(move || selector.clone()),
@@ -62,15 +61,14 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             control = control.child(controls::button(
                 view.style(),
                 "backup-confirm",
-                &tr!("Restore on next launch"),
-                !view.backup_busy && view.backup_import.is_some(),
+                controls::Button::secondary(&tr!("Restore on next launch"))
+                    .enabled(!view.backup_busy && view.backup_import.is_some()),
                 cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Backup(Action::Confirm))),
             ));
             control = control.child(controls::button(
                 view.style(),
                 "backup-cancel",
-                &tr!("Cancel import"),
-                !view.backup_busy,
+                controls::Button::secondary(&tr!("Cancel import")).enabled(!view.backup_busy),
                 cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Backup(Action::Cancel))),
             ));
         }
@@ -91,8 +89,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             control = control.child(controls::button(
                 view.style(),
                 &format!("backup-edit-{name}"),
-                name,
-                true,
+                controls::Button::secondary(name),
                 cx.listener(move |_, _, _, cx| cx.emit(SettingsEvent::OpenConfiguration(name))),
             ));
         }

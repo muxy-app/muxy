@@ -13,6 +13,7 @@ use objc2_foundation::NSString;
 
 use crate::tr;
 
+mod ask;
 #[allow(
     unsafe_code,
     reason = "AppKit text delegates and target/action use Objective-C FFI."
@@ -22,6 +23,9 @@ pub use crate::dialog_types::{
     ADDITIONAL_PROMPT_LIMIT, ConfirmationResponse, ConsentResponse, DialogOptions, PromptCheckbox,
     PromptChoices, PromptPicker, PromptResponse,
 };
+pub use ask::{Question, ask};
+#[cfg(any(test, feature = "test-support"))]
+pub use ask::{simulate, ticked_label};
 pub use prompt::{PromptConfirmation, confirm_with_prompt};
 
 #[derive(Debug)]

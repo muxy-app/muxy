@@ -30,13 +30,18 @@ pub(super) fn heading(pane: &SettingsView, cx: &mut Context<SettingsView>) -> An
         .flex_col()
         .gap(px(8.0))
         .child(pane.note(&tr!("Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette."), false))
-        .child(div().flex().child(controls::button(
-            pane.style(),
-            "add-command",
-            &tr!("Add Command"),
-            pane.command_editor.is_none(),
-            cx.listener(|pane, _, window, cx| pane.edit_command(None, window, cx)),
-        ).debug_selector(|| "settings-add-command".into())))
+        .child(
+            div().flex().child(
+                controls::button(
+                    pane.style(),
+                    "add-command",
+                    controls::Button::secondary(&tr!("Add Command"))
+                        .enabled(pane.command_editor.is_none()),
+                    cx.listener(|pane, _, window, cx| pane.edit_command(None, window, cx)),
+                )
+                .debug_selector(|| "settings-add-command".into()),
+            ),
+        )
         .when(pane.snapshot.settings.commands.is_empty() && pane.command_editor.is_none(), |body| {
             body.child(pane.note(&tr!("No custom commands yet."), false))
         })
@@ -71,8 +76,7 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
                     controls::button(
                         pane.style(),
                         "save-command",
-                        &tr!("Save"),
-                        true,
+                        controls::Button::secondary(&tr!("Save")),
                         cx.listener(|pane, _, _, cx| pane.save_command(cx)),
                     )
                     .debug_selector(|| "settings-save-command".into()),
@@ -81,8 +85,7 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
                     controls::button(
                         pane.style(),
                         "cancel-command",
-                        &tr!("Cancel"),
-                        true,
+                        controls::Button::secondary(&tr!("Cancel")),
                         cx.listener(|pane, _, _, cx| pane.cancel_command(cx)),
                     )
                     .debug_selector(|| "settings-cancel-command".into()),
@@ -119,8 +122,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &id,
-                &label,
-                enabled,
+                controls::Button::secondary(&label).enabled(enabled),
                 cx.listener(move |pane, _, window, cx| pane.begin_recording(&record, window, cx)),
             )
             .track_focus(&focus[0])
@@ -133,8 +135,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                &tr!("Unassign"),
-                enabled && chord.is_some(),
+                controls::Button::secondary(&tr!("Unassign")).enabled(enabled && chord.is_some()),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(
@@ -149,8 +150,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("edit-{id}"),
-                &tr!("Edit"),
-                enabled,
+                controls::Button::secondary(&tr!("Edit")).enabled(enabled),
                 cx.listener(move |pane, _, window, cx| {
                     pane.edit_command(Some(edit.clone()), window, cx);
                 }),
@@ -165,8 +165,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("delete-{id}"),
-                &tr!("Delete"),
-                enabled,
+                controls::Button::secondary(&tr!("Delete")).enabled(enabled),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::RemoveCommand(delete.clone())));

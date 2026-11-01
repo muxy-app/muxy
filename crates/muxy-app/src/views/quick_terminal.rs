@@ -229,7 +229,7 @@ impl Render for QuickTerminalView {
         let bridge_foreground = theme.fg;
         let bridge_muted = theme.fg_alpha(0.58);
         let bridge_control = theme.fg_alpha(0.1);
-        let ready = gpui::hsla(0.39, 0.78, 0.52, 1.0);
+        let ready = theme.diff_add;
         let metrics = self.model.metrics;
         div()
             .key_context(if self.confirm_close {
@@ -343,20 +343,20 @@ impl Render for QuickTerminalView {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(px(20.0))
+            .rounded(metrics.scaled(20.0))
             .child(
                 div()
-                    .h(px(34.0))
+                    .h(metrics.scaled(34.0))
                     .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
-                    .px(px(10.0))
+                    .gap(metrics.spacing4())
+                    .px(metrics.spacing5())
                     .bg(bridge_background)
-                    .child(div().size(px(6.0)).rounded_full().bg(ready))
+                    .child(div().size(metrics.scaled(6.0)).rounded_full().bg(ready))
                     .child(
                         div()
-                            .text_size(px(12.0))
+                            .text_size(metrics.font_body())
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(bridge_foreground)
                             .child(tr!("Quick Terminal")),
@@ -366,7 +366,7 @@ impl Render for QuickTerminalView {
                             .flex_1()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .text_size(px(11.0))
+                            .text_size(metrics.font_footnote())
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(bridge_muted)
                             .child(status),
@@ -413,7 +413,7 @@ impl Render for QuickTerminalView {
                             },
                             bridge_foreground,
                         )
-                        .selected(pinned, bridge_control, px(5.0))
+                        .selected(pinned, bridge_control, metrics.radius_sm())
                         .tooltip(
                             if pinned { tr!("Unpin") } else { tr!("Pin") },
                             theme.raised(),
@@ -458,10 +458,9 @@ impl Render for QuickTerminalView {
                 panel.child(confirmation_dialog(
                     &self.owner,
                     &self.confirmation_focus,
+                    &theme,
                     metrics,
-                    theme.fg,
-                    theme.fg_muted,
-                    theme.border_solid(),
+                    window,
                 ))
             })
     }
@@ -479,19 +478,19 @@ fn bridge_header_button(
     div()
         .id(id)
         .h(metrics.control_small())
-        .px(px(8.0))
+        .px(metrics.spacing4())
         .flex()
         .items_center()
-        .rounded(px(5.0))
+        .rounded(metrics.radius_sm())
         .cursor_pointer()
         .bg(background)
-        .text_size(px(10.0))
+        .text_size(metrics.font_caption())
         .font_weight(FontWeight::MEDIUM)
         .text_color(muted)
         .hover(move |style| {
-            style
-                .bg(gpui::hsla(0.0, 0.0, 1.0, 0.16))
-                .text_color(foreground)
+            let mut hover = foreground;
+            hover.a = 0.16;
+            style.bg(hover).text_color(foreground)
         })
         .on_click(move |_, _, cx| dispatch_bridge_action(&owner, BridgeAction::OpenSettings, cx))
         .child(label.into())
@@ -511,19 +510,18 @@ fn dispatch_bridge_action(owner: &WeakEntity<AppModel>, action: BridgeAction, cx
 fn confirmation_dialog(
     owner: &WeakEntity<AppModel>,
     focus: &gpui::FocusHandle,
+    theme: &Theme,
     metrics: Metrics,
-    foreground: gpui::Hsla,
-    muted: gpui::Hsla,
-    border: gpui::Hsla,
+    window: &Window,
 ) -> AnyElement {
-    let background = gpui::hsla(0.0, 0.0, 0.08, 0.98);
-    let (title, body, approve) = (
-        tr!("Close active terminal?"),
-        tr!("A process is still running in this terminal."),
-        tr!("Close"),
-    );
+    let style = muxy_ui::controls::Style {
+        theme,
+        metrics: &metrics,
+    };
     let cancel_owner = owner.clone();
     let confirm_owner = owner.clone();
+    let cancel_click = owner.clone();
+    let confirm_click = owner.clone();
     div()
         .track_focus(focus)
         .on_action(move |_: &muxy_ui::picker::Dismiss, _, cx| {
@@ -538,89 +536,46 @@ fn confirmation_dialog(
         .items_center()
         .justify_center()
         .occlude()
-        .bg(gpui::hsla(0.0, 0.0, 0.0, 0.34))
+        .bg(theme.backdrop)
         .child(
-            div()
-                .w(px(420.0))
-                .max_w(px(420.0))
-                .p(px(22.0))
-                .flex()
-                .flex_col()
-                .gap(px(14.0))
-                .rounded(px(14.0))
-                .border_1()
-                .border_color(border)
-                .bg(background)
-                .shadow(muxy_ui::theme::Elevation::Modal.shadow(background))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .text_size(px(15.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(foreground)
-                        .child(title),
-                )
-                .child(div().text_size(px(12.0)).text_color(muted).child(body))
-                .child(
-                    div()
-                        .flex()
-                        .justify_end()
-                        .gap(px(8.0))
-                        .child(confirmation_button(
-                            "quick-terminal-confirm-cancel",
-                            tr!("Cancel"),
-                            owner.clone(),
-                            false,
-                            metrics,
-                            foreground,
-                            false,
-                        ))
-                        .child(confirmation_button(
-                            "quick-terminal-confirm-approve",
-                            approve,
-                            owner.clone(),
-                            true,
-                            metrics,
-                            foreground,
-                            true,
-                        )),
-                ),
+            popover::modal_card(
+                theme,
+                metrics,
+                window.viewport_size(),
+                "quick-terminal-confirmation",
+                metrics.scaled(420.0),
+            )
+            .child(
+                div()
+                    .text_size(metrics.font_title())
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(tr!("Close active terminal?")),
+            )
+            .child(
+                div()
+                    .text_size(metrics.font_body())
+                    .text_color(theme.fg_muted)
+                    .child(tr!("A process is still running in this terminal.")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(metrics.spacing4())
+                    .child(muxy_ui::controls::button(
+                        style,
+                        "quick-terminal-confirm-cancel",
+                        muxy_ui::controls::Button::secondary(&tr!("Cancel")),
+                        move |_, _, cx| resolve_confirmation(&cancel_click, false, cx),
+                    ))
+                    .child(muxy_ui::controls::button(
+                        style,
+                        "quick-terminal-confirm-approve",
+                        muxy_ui::controls::Button::primary(&tr!("Close")),
+                        move |_, _, cx| resolve_confirmation(&confirm_click, true, cx),
+                    )),
+            ),
         )
-        .into_any_element()
-}
-
-fn confirmation_button(
-    id: &'static str,
-    label: gpui::SharedString,
-    owner: WeakEntity<AppModel>,
-    approved: bool,
-    metrics: Metrics,
-    foreground: gpui::Hsla,
-    primary: bool,
-) -> AnyElement {
-    div()
-        .id(id)
-        .h(metrics.control_medium())
-        .px(px(14.0))
-        .flex()
-        .items_center()
-        .rounded(px(6.0))
-        .cursor_pointer()
-        .text_size(px(12.0))
-        .font_weight(FontWeight::MEDIUM)
-        .bg(if primary {
-            gpui::hsla(0.58, 0.72, 0.58, 1.0)
-        } else {
-            gpui::hsla(0.0, 0.0, 1.0, 0.1)
-        })
-        .text_color(if primary {
-            foreground
-        } else {
-            gpui::hsla(0.0, 0.0, 1.0, 0.64)
-        })
-        .hover(move |style| style.text_color(foreground))
-        .on_click(move |_, _, cx| resolve_confirmation(&owner, approved, cx))
-        .child(label)
         .into_any_element()
 }
 

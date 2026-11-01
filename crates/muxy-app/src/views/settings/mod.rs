@@ -736,7 +736,13 @@ impl SettingsView {
 
     /// A stored value shown without a control, for a setting whose feature cannot run here.
     fn stored(&self, id: &str, value: &str) -> AnyElement {
-        controls::button(self.style(), id, value, false, |_, _, _| {}).into_any_element()
+        controls::button(
+            self.style(),
+            id,
+            controls::Button::secondary(value).enabled(false),
+            |_, _, _| {},
+        )
+        .into_any_element()
     }
 
     fn field(&self, id: &'static str) -> AnyElement {

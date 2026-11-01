@@ -406,8 +406,7 @@ fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
                     controls::button(
                         style(model),
                         "servers-pair",
-                        &tr!("Pair with Link…"),
-                        true,
+                        controls::Button::secondary(&tr!("Pair with Link…")),
                         cx.listener(|model, _, _, cx| model.open_pair_form(None, cx)),
                     )
                     .debug_selector(|| "servers-pair".into()),
@@ -416,8 +415,7 @@ fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
                     controls::button(
                         style(model),
                         "servers-add",
-                        &tr!("Add Server…"),
-                        true,
+                        controls::Button::secondary(&tr!("Add Server…")),
                         cx.listener(|model, _, _, cx| model.open_server_form(None, cx)),
                     )
                     .debug_selector(|| "servers-add".into()),
@@ -481,8 +479,7 @@ fn select_bar(
         controls::button(
             style(model),
             id,
-            &label,
-            enabled,
+            controls::Button::secondary(&label).enabled(enabled),
             cx.listener(move |model, _, window, cx| {
                 let position = window.mouse_position();
                 model.perform_server_menu(Servers::Selected, action, position, window, cx);
@@ -551,8 +548,7 @@ fn select_bar(
                 controls::button(
                     style(model),
                     "servers-move",
-                    &tr!("Move to Group…"),
-                    true,
+                    controls::Button::secondary(&tr!("Move to Group…")),
                     cx.listener(|model, _, window, cx| {
                         let position = window.mouse_position();
                         model.open_move_menu(Servers::Selected, position, window, cx);
@@ -604,8 +600,7 @@ fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
             empty.child(controls::button(
                 style(model),
                 "servers-empty-add",
-                &tr!("Add Server…"),
-                true,
+                controls::Button::secondary(&tr!("Add Server…")),
                 cx.listener(|model, _, _, cx| model.open_server_form(None, cx)),
             ))
         })
@@ -695,8 +690,7 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
                 .child(controls::button(
                     style(model),
                     &format!("servers-group-connect-{key}"),
-                    &connect,
-                    !section.whole.is_empty(),
+                    controls::Button::secondary(&connect).enabled(!section.whole.is_empty()),
                     cx.listener(move |model, _, window, cx| {
                         let position = window.mouse_position();
                         model.perform_server_menu(servers, action, position, window, cx);

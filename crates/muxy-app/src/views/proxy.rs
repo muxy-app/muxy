@@ -172,8 +172,7 @@ pub(crate) fn render(
                 .child(controls::button(
                     style,
                     "close-proxy",
-                    &tr!("Close"),
-                    true,
+                    controls::Button::secondary(&tr!("Close")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )),
         )
@@ -306,21 +305,22 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 controls::button(
                     style,
                     "proxy-remove",
-                    &tr!("Remove Proxy"),
-                    true,
+                    controls::Button::secondary(&tr!("Remove Proxy")),
                     cx.listener(|model, _, _, cx| model.remove_proxy(cx)),
                 )
                 .debug_selector(|| "proxy-remove".into()),
             )
         })
         .child(div().flex_1())
-        .child(super::remote_servers::primary(
-            "proxy-save",
-            tr!("Save"),
-            true,
-            model,
-            cx.listener(|model, _, _, cx| model.submit_proxy_form(cx)),
-        ))
+        .child(
+            controls::button(
+                style,
+                "proxy-save",
+                controls::Button::primary(&tr!("Save")),
+                cx.listener(|model, _, _, cx| model.submit_proxy_form(cx)),
+            )
+            .debug_selector(|| "proxy-save".into()),
+        )
 }
 
 fn input(

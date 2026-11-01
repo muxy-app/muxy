@@ -3,7 +3,7 @@ pub(crate) mod logo;
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Point, StatefulInteractiveElement, Styled, Window, div, px, size,
+    ParentElement, Pixels, Point, Styled, Window, div, px, size,
 };
 use muxy_app_core::{ProjectId, ProjectStatus, TabId, WorkspaceId};
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
@@ -244,35 +244,22 @@ pub(crate) fn render(
                 .child(muxy_ui::controls::button(
                     muxy_ui::controls::Style { theme, metrics: &m },
                     "project-editor-cancel",
-                    &tr!("Cancel"),
-                    true,
+                    muxy_ui::controls::Button::secondary(&tr!("Cancel")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 ))
-                .child(
-                    div()
-                        .id("save-project-editor")
-                        .cursor_pointer()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .h(m.control_medium())
-                        .px(m.spacing5())
-                        .rounded(m.radius_md())
-                        .bg(theme.accent)
-                        .text_color(theme.accent_foreground)
-                        .text_size(m.font_body())
-                        .child(
-                            if matches!(
-                                editor.target,
-                                Target::NewWorkspace(_) | Target::NewServerGroup(_)
-                            ) {
-                                tr!("Create")
-                            } else {
-                                tr!("Save")
-                            },
-                        )
-                        .on_click(cx.listener(|model, _, _, cx| model.submit_project_editor(cx))),
-                ),
+                .child(muxy_ui::controls::button(
+                    muxy_ui::controls::Style { theme, metrics: &m },
+                    "save-project-editor",
+                    muxy_ui::controls::Button::primary(&if matches!(
+                        editor.target,
+                        Target::NewWorkspace(_) | Target::NewServerGroup(_)
+                    ) {
+                        tr!("Create")
+                    } else {
+                        tr!("Save")
+                    }),
+                    cx.listener(|model, _, _, cx| model.submit_project_editor(cx)),
+                )),
         )
         .into_any_element()
 }

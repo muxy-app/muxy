@@ -130,8 +130,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::button(
                 view.style(),
                 "quick-unassigned",
-                &tr!("No Shortcut"),
-                true,
+                controls::Button::secondary(&tr!("No Shortcut")),
                 cx.listener(move |_: &mut SettingsView, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::QuickTerminal(
                         unassigned.clone(),
@@ -148,12 +147,11 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::button(
                 view.style(),
                 "quick-record",
-                &if view.quick_recording.is_some() {
+                controls::Button::secondary(&if view.quick_recording.is_some() {
                     tr!("Cancel Recording")
                 } else {
                     tr!("Record Shortcut…")
-                },
-                true,
+                }),
                 cx.listener(|view, _, window, cx| view.record_quick_shortcut(window, cx)),
             )
             .debug_selector(|| "settings-quick-record".to_owned()),
@@ -204,8 +202,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     .child(controls::button(
                         view.style(),
                         "quick-size-reset",
-                        &tr!("Reset"),
-                        true,
+                        controls::Button::secondary(&tr!("Reset")),
                         cx.listener(move |_: &mut SettingsView, _, _, cx| {
                             cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
                         }),
@@ -265,8 +262,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 control = control.child(controls::button(
                     view.style(),
                     "quick-appearance-reset",
-                    &tr!("Reset"),
-                    true,
+                    controls::Button::secondary(&tr!("Reset")),
                     cx.listener(move |_: &mut SettingsView, _, _, cx| {
                         cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
                     }),

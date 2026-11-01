@@ -46,8 +46,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
                 .child(controls::button(
                     Style { theme, metrics: &m },
                     "close-updates",
-                    &tr!("Close"),
-                    true,
+                    controls::Button::secondary(&tr!("Close")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )),
         );
@@ -122,8 +121,8 @@ fn action_button(
             metrics: &model.metrics,
         },
         id,
-        &muxy_ui::l10n::translate(label),
-        model.update_action_enabled(action),
+        controls::Button::secondary(&muxy_ui::l10n::translate(label))
+            .enabled(model.update_action_enabled(action)),
         cx.listener(move |model, _, _, cx| model.perform_update_action(action, cx)),
     )
     .debug_selector(move || id.into())

@@ -20,12 +20,12 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 controls::button(
                     pane.style(),
                     "server-read",
-                    &if connected {
+                    controls::Button::secondary(&if connected {
                         tr!("Reload settings")
                     } else {
                         tr!("Connect")
-                    },
-                    !pane.snapshot.server_busy,
+                    })
+                    .enabled(!pane.snapshot.server_busy),
                     cx.listener(move |_, _, _, cx| {
                         cx.emit(if connected {
                             SettingsEvent::ReadServer
@@ -88,8 +88,8 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     controls::button(
                         pane.style(),
                         label,
-                        &translate(label),
-                        !pane.snapshot.server_busy,
+                        controls::Button::secondary(&translate(label))
+                            .enabled(!pane.snapshot.server_busy),
                         cx.listener(move |_, _, _, cx| {
                             cx.emit(SettingsEvent::ServerControl { restart });
                         }),
@@ -113,8 +113,7 @@ fn background_activity(pane: &SettingsView, cx: &mut Context<SettingsView>) -> O
             controls::button(
                 pane.style(),
                 "background-activity",
-                &translate(crate::views::confirm::OPEN_LOGIN_ITEMS),
-                true,
+                controls::Button::secondary(&translate(crate::views::confirm::OPEN_LOGIN_ITEMS)),
                 cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::OpenLoginItems)),
             )
             .into_any_element(),

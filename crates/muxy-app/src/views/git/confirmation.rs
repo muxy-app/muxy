@@ -1,67 +1,22 @@
 use gpui::{AnyWindowHandle, AsyncApp};
+use muxy_ui::dialog::{Question, ask};
+use muxy_ui::tr;
 
-#[cfg(not(test))]
+/// Asks before a Git operation. Reports whether the teardown commands should
+/// run too, or `None` when declined.
 pub(super) async fn prompt(
     window: AnyWindowHandle,
     message: &str,
     has_hooks: bool,
     cx: &mut AsyncApp,
 ) -> Option<bool> {
-    use muxy_ui::tr;
-
-    let (send, receive) = async_channel::bounded(1);
-    let dialog = window.update(cx, |_, window, cx| {
-        muxy_ui::dialog::confirm(
-            window,
-            cx,
-            &tr!("Confirm Git Operation"),
-            message,
-            &tr!("Confirm"),
-            has_hooks
-                .then(|| tr!("Run the teardown commands shown above"))
-                .as_ref()
-                .map(gpui::SharedString::as_str),
-            move |answer| {
-                let _ = send.try_send(answer);
-            },
-        )
-    });
-    let Ok(Ok(_dialog)) = dialog else {
-        return None;
+    let teardown = tr!("Run the teardown commands shown above");
+    let question = Question::Confirm {
+        title: &tr!("Confirm Git Operation"),
+        message,
+        confirm: &tr!("Confirm"),
+        checkbox: has_hooks.then_some(teardown.as_ref()),
     };
-    match receive.recv().await {
-        Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { dont_ask_again }) => {
-            Some(dont_ask_again)
-        }
-        _ => None,
-    }
-}
-
-#[cfg(test)]
-pub(super) async fn prompt(
-    window: AnyWindowHandle,
-    message: &str,
-    has_hooks: bool,
-    cx: &mut AsyncApp,
-) -> Option<bool> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            let mut buttons = vec!["Confirm", "Cancel"];
-            if has_hooks {
-                buttons.push("Confirm with teardown commands");
-            }
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                "Confirm Git Operation",
-                Some(message),
-                &buttons,
-                cx,
-            )
-        })
-        .ok()?;
-    match answer.await {
-        Ok(0) => Some(false),
-        Ok(2) if has_hooks => Some(true),
-        _ => None,
-    }
+    let answer = ask(window, question, cx).await.ok()??;
+    Some(answer.ticked())
 }

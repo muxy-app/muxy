@@ -12,8 +12,13 @@ use crate::{
     tr,
 };
 
+mod ask;
 mod picker;
 mod view;
+
+pub use ask::{Question, ask};
+#[cfg(any(test, feature = "test-support"))]
+pub use ask::{simulate, ticked_label};
 
 pub use picker::{FolderPicker, choose_file, choose_folder, choose_folder_with};
 
