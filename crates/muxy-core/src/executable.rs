@@ -73,6 +73,7 @@ pub fn build_metadata(executable: &Path) -> io::Result<Vec<u8>> {
         Command::new(executable).arg("--build-info"),
         crate::process::Limits {
             stderr: crate::process::Cap::TruncateAt(0),
+            kill_leftovers: true,
             ..crate::process::Limits::new(Duration::from_secs(3), 4096)
         },
     )?;

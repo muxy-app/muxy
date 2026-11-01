@@ -318,7 +318,7 @@ impl Stop {
     fn kill_at(&self, grace: Duration) -> Option<Instant> {
         self.since
             .filter(|_| !self.killed)
-            .map(|since| since + grace)
+            .and_then(|since| since.checked_add(grace))
     }
 
     fn escalate(&mut self, group: &Group, grace: Duration, now: Instant) {
