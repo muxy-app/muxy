@@ -482,7 +482,7 @@ pub(crate) fn ignored_names(
         input.extend_from_slice(&entry.name.0);
         input.push(0);
     }
-    command::ignored(directory, input)
+    command::ignored(directory, &input)
         .unwrap_or_default()
         .split(|byte| *byte == 0)
         .filter(|name| !name.is_empty())

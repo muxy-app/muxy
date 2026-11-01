@@ -1,10 +1,9 @@
 use std::ffi::OsStr;
-use std::io::{Read, Write};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
+
+use muxy_core::process::{self, Cap, Limits};
 
 use super::{Result, error};
 
@@ -91,13 +90,20 @@ fn git_command(path: &Path, args: &[impl AsRef<OsStr>]) -> Command {
         .arg("--literal-pathspecs")
         .args(args)
         .current_dir(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env("LC_ALL", "C")
-        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C");
+    without_inherited_git(&mut command);
+    command
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .process_group(0);
+        .env("GIT_EDITOR", "true")
+        .env("GIT_MERGE_AUTOEDIT", "no");
+    command
+}
+
+/// Drops the `GIT_*` variables the server inherited, which could point Git
+/// at another repository, and keeps Git from prompting. SSH and askpass
+/// settings stay so remotes still authenticate. Set other `GIT_*` variables
+/// after this, or it removes them too.
+pub(super) fn without_inherited_git(command: &mut Command) {
     for (name, _) in std::env::vars_os() {
         let key = name.to_string_lossy();
         if key.starts_with("GIT_")
@@ -109,173 +115,65 @@ fn git_command(path: &Path, args: &[impl AsRef<OsStr>]) -> Command {
             command.env_remove(name);
         }
     }
-    command
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_EDITOR", "true")
-        .env("GIT_MERGE_AUTOEDIT", "no");
-    command
+    command.env("GIT_TERMINAL_PROMPT", "0");
 }
 
 pub(super) fn capture(command: Command) -> Result<Vec<u8>> {
     capture_with(command, Duration::from_secs(20), None, false).map(|output| output.0)
 }
 
-pub(super) fn ignored(path: &Path, input: Vec<u8>) -> Result<Vec<u8>> {
-    capture_process(
-        git_command(
-            path,
-            &["--no-literal-pathspecs", "check-ignore", "-z", "--stdin"],
-        ),
-        Duration::from_secs(20),
-        None,
-        true,
-        Some(input),
-    )
-    .map(|output| output.0)
+pub(super) fn ignored(path: &Path, input: &[u8]) -> Result<Vec<u8>> {
+    let command = git_command(
+        path,
+        &["--no-literal-pathspecs", "check-ignore", "-z", "--stdin"],
+    );
+    let limits = Limits {
+        stdin: Some(input),
+        ..Limits::new(Duration::from_secs(20), LIMIT)
+    };
+    finish(command, limits, false, true).map(|output| output.0)
 }
 
+/// Runs `command`, keeping at most `truncate_stdout` bytes of its output if
+/// given and failing past 4 MiB otherwise. Returns whether it was cut short.
+/// `allow_difference` accepts exit code 1, which diff uses for "differs".
 pub(super) fn capture_with(
     command: Command,
     timeout: Duration,
     truncate_stdout: Option<usize>,
     allow_difference: bool,
 ) -> Result<(Vec<u8>, bool)> {
-    capture_process(command, timeout, truncate_stdout, allow_difference, None)
+    let limits = Limits {
+        stdout: Cap::StopAt(truncate_stdout.unwrap_or(LIMIT)),
+        ..Limits::new(timeout, LIMIT)
+    };
+    finish(command, limits, truncate_stdout.is_some(), allow_difference)
 }
 
-fn capture_process(
+fn finish(
     mut command: Command,
-    timeout: Duration,
-    truncate_stdout: Option<usize>,
+    limits: Limits<'_>,
+    truncates: bool,
     allow_difference: bool,
-    input: Option<Vec<u8>>,
 ) -> Result<(Vec<u8>, bool)> {
-    command
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0);
-    let mut child = command.spawn().map_err(error)?;
-    let id = child.id();
-    let input_task = input
-        .zip(child.stdin.take())
-        .map(|(bytes, mut pipe)| std::thread::spawn(move || pipe.write_all(&bytes)));
-    let (send, receive) = mpsc::sync_channel(16);
-    for (stream, pipe) in [
-        (
-            0,
-            Box::new(
-                child
-                    .stdout
-                    .take()
-                    .ok_or_else(|| error("missing Git stdout"))?,
-            ) as Box<dyn Read + Send>,
-        ),
-        (
-            1,
-            Box::new(
-                child
-                    .stderr
-                    .take()
-                    .ok_or_else(|| error("missing Git stderr"))?,
-            ) as Box<dyn Read + Send>,
-        ),
-    ] {
-        forward_output(stream, pipe, send.clone());
+    let output = process::run(&mut command, limits).map_err(error)?;
+    if output.timed_out {
+        return Err(error("Git command timed out; refresh before retrying"));
     }
-    drop(send);
-    let deadline = Instant::now() + timeout;
-    let mut output = [Vec::new(), Vec::new()];
-    let result = (|| {
-        loop {
-            if Instant::now() >= deadline {
-                return Err(error("Git command timed out; refresh before retrying"));
-            }
-            match receive.recv_timeout(Duration::from_millis(10)) {
-                Ok((stream, bytes)) => {
-                    let bytes = bytes.map_err(error)?;
-                    if stream == 0
-                        && let Some(limit) = truncate_stdout
-                        && output[0].len() + bytes.len() > limit
-                    {
-                        output[0].extend_from_slice(&bytes[..limit - output[0].len()]);
-                        terminate_group(id);
-                        return Ok((std::mem::take(&mut output[0]), true));
-                    }
-                    if output[stream].len() + bytes.len() > LIMIT {
-                        return Err(error("Git output exceeds the limit"));
-                    }
-                    output[stream].extend(bytes);
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => (),
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    if let Some(status) = child.try_wait().map_err(error)? {
-                        return if status.success() || allow_difference && status.code() == Some(1) {
-                            Ok((std::mem::take(&mut output[0]), false))
-                        } else {
-                            let message = String::from_utf8_lossy(&output[1]);
-                            Err(error(if message.trim().is_empty() {
-                                format!("Command failed with {status}")
-                            } else {
-                                message.trim().to_owned()
-                            }))
-                        };
-                    }
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-            }
-        }
-    })();
-    if result.is_err() {
-        terminate_group(id);
+    if output.stderr.truncated || output.stdout.truncated && !truncates {
+        return Err(error("Git output exceeds the limit"));
     }
-    let _ = child.wait();
-    if let Some(task) = input_task {
-        let written = task
-            .join()
-            .map_err(|_| error("Git input worker failed"))?
-            .map_err(error);
-        if result.is_ok() {
-            written?;
-        }
+    if output.stdout.truncated {
+        return Ok((output.stdout.bytes, true));
     }
-    result
-}
-
-fn terminate_group(id: u32) {
-    let _ = Command::new("/bin/kill")
-        .args(["-KILL", "--", &format!("-{id}")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
-fn forward_output(
-    stream: usize,
-    mut pipe: Box<dyn Read + Send>,
-    send: mpsc::SyncSender<(usize, std::io::Result<Vec<u8>>)>,
-) {
-    std::thread::spawn(move || {
-        let mut buffer = [0; 8192];
-        loop {
-            match pipe.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if send.send((stream, Ok(buffer[..n].to_vec()))).is_err() {
-                        return;
-                    }
-                }
-                Err(error) => {
-                    let _ = send.send((stream, Err(error)));
-                    break;
-                }
-            }
-        }
-    });
+    let status = output.status;
+    if status.success() || allow_difference && status.code() == Some(1) {
+        return Ok((output.stdout.bytes, false));
+    }
+    let message = String::from_utf8_lossy(&output.stderr.bytes);
+    Err(error(if message.trim().is_empty() {
+        format!("Command failed with {status}")
+    } else {
+        message.trim().to_owned()
+    }))
 }

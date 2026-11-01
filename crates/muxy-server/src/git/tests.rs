@@ -160,3 +160,56 @@ fn a_failed_remote_lookup_waits_before_asking_again() {
     status(true);
     assert!(asked() > first);
 }
+
+#[test]
+fn output_past_the_limit_fails_unless_it_may_be_cut_short() {
+    let flood = || {
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args(["-c", "head -c 5000000 /dev/zero"]);
+        command
+    };
+    let failed = command::capture(flood()).unwrap_err();
+    assert_eq!(failed.message(), "Git output exceeds the limit");
+    let (kept, truncated) =
+        command::capture_with(flood(), Duration::from_secs(20), Some(10), false).unwrap();
+    assert_eq!((kept, truncated), (vec![0; 10], true));
+}
+
+#[test]
+fn a_failing_hook_reports_the_hook_not_git() {
+    let repository = Repository::new();
+    let project = ProjectDescriptor {
+        id: ProjectId::new(),
+        home: false,
+        directory: ServerPath::from(&repository.path),
+        name: "Test".into(),
+        icon: None,
+        logo: None,
+        color: "#ffffff".into(),
+        kind: None,
+        parent_id: None,
+    };
+    let failure = |command: &str| {
+        let hook = muxy_protocol::WorktreeHook {
+            command: command.into(),
+            name: Some("Setup".into()),
+            project: true,
+        };
+        hooks::run(&repository.path, &project, "main", &[hook])
+            .unwrap_err()
+            .message()
+            .to_owned()
+    };
+    assert_eq!(
+        failure("echo broken >&2; exit 3"),
+        "Worktree hook failed (Setup): broken"
+    );
+    assert_eq!(
+        failure("exit 3"),
+        "Worktree hook failed (Setup): it exited with code 3"
+    );
+    assert_eq!(
+        failure("head -c 5000000 /dev/zero"),
+        "Worktree hook failed (Setup): its output exceeds 4 MiB"
+    );
+}

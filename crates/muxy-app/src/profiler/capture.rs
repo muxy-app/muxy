@@ -268,22 +268,23 @@ impl Log {
 }
 
 fn usage() -> io::Result<(Duration, u64)> {
-    let output = Command::new("/bin/ps")
-        .args([
-            "-p",
-            &std::process::id().to_string(),
-            "-o",
-            "time=",
-            "-o",
-            "rss=",
-        ])
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()?;
-    if !output.status.success() {
+    let output = muxy_core::process::run(
+        Command::new("/bin/ps")
+            .args([
+                "-p",
+                &std::process::id().to_string(),
+                "-o",
+                "time=",
+                "-o",
+                "rss=",
+            ])
+            .env("LC_ALL", "C"),
+        muxy_core::process::Limits::new(INTERVAL, 4096),
+    )?;
+    if !output.status.success() || output.timed_out || output.stdout.truncated {
         return Err(io::Error::other("ps could not read this process"));
     }
-    parse_usage(&String::from_utf8_lossy(&output.stdout))
+    parse_usage(&String::from_utf8_lossy(&output.stdout.bytes))
         .ok_or_else(|| io::Error::other("unrecognized ps resource output"))
 }
 

@@ -1,9 +1,7 @@
 use std::ffi::OsString;
 use std::io;
-#[cfg(target_os = "macos")]
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 #[cfg(target_os = "macos")]
@@ -205,13 +203,10 @@ fn launch(launch: &Launch) -> io::Result<()> {
     {
         return Ok(());
     }
-    process::run(
-        Command::new(&launch.program)
-            .args(&launch.args)
-            .stdout(Stdio::null()),
+    process::launch(
+        Command::new(&launch.program).args(&launch.args),
         Duration::from_secs(10),
     )
-    .map(drop)
     .map_err(|error| missing(&launch.program, error))
 }
 
@@ -511,25 +506,17 @@ fn discover(
 
 #[cfg(target_os = "macos")]
 fn bundle_identifier(path: &Path, remaining: Duration) -> Option<String> {
-    let mut child = process::run(
+    let output = muxy_core::process::run(
         Command::new("/usr/bin/plutil")
             .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-            .arg(path.join("Contents/Info.plist"))
-            .stdout(Stdio::piped()),
-        remaining.min(Duration::from_millis(500)),
+            .arg(path.join("Contents/Info.plist")),
+        muxy_core::process::Limits::new(remaining.min(Duration::from_millis(500)), 1024),
     )
     .ok()?;
-    let mut bytes = Vec::new();
-    child
-        .stdout
-        .take()?
-        .take(1025)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() > 1024 {
+    if !output.status.success() || output.timed_out || output.stdout.truncated {
         return None;
     }
-    String::from_utf8(bytes)
+    String::from_utf8(output.stdout.bytes)
         .ok()
         .map(|bundle| bundle.trim().to_owned())
 }

@@ -28,18 +28,7 @@ impl Cli {
             .env("GH_PAGER", "cat")
             .env("LC_ALL", "C")
             .env("NO_COLOR", "1");
-        for (name, _) in std::env::vars_os() {
-            let key = name.to_string_lossy();
-            if key.starts_with("GIT_")
-                && !matches!(
-                    key.as_ref(),
-                    "GIT_SSH" | "GIT_SSH_COMMAND" | "GIT_SSH_VARIANT" | "GIT_ASKPASS"
-                )
-            {
-                command.env_remove(name);
-            }
-        }
-        command.env("GIT_TERMINAL_PROMPT", "0");
+        command::without_inherited_git(&mut command);
         command
     }
 

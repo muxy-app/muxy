@@ -158,7 +158,7 @@ impl Changes {
             input.extend_from_slice(path.as_os_str().as_bytes());
             input.push(0);
         }
-        match command::ignored(worktree, input) {
+        match command::ignored(worktree, &input) {
             Ok(ignored) => {
                 ignored
                     .split(|byte| *byte == 0)

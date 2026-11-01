@@ -3,10 +3,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use muxy_core::process::{self, Limits};
 use muxy_protocol::{ProjectDescriptor, WorktreeHook};
 use serde::Deserialize;
 
-use super::{Result, command, error};
+use super::{Result, error};
+
+const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Default, Deserialize)]
 #[serde(default)]
@@ -148,7 +151,7 @@ pub(super) fn run(
         if let Some(path) = crate::exec::login_path() {
             process.env("PATH", path);
         }
-        command::capture_with(process, remaining, None, false).map_err(|cause| {
+        run_hook(&mut process, remaining).map_err(|cause| {
             error(format!(
                 "Worktree hook failed ({}): {cause}",
                 hook.name.as_deref().unwrap_or(&hook.command)
@@ -156,4 +159,29 @@ pub(super) fn run(
         })?;
     }
     Ok(())
+}
+
+fn run_hook(command: &mut Command, timeout: Duration) -> std::result::Result<(), String> {
+    let output = process::run(command, Limits::new(timeout, OUTPUT_LIMIT))
+        .map_err(|cause| cause.to_string())?;
+    if output.timed_out {
+        return Err("it timed out".into());
+    }
+    if output.stdout.truncated || output.stderr.truncated {
+        return Err(format!(
+            "its output exceeds {} MiB",
+            OUTPUT_LIMIT / (1024 * 1024)
+        ));
+    }
+    if output.status.success() {
+        return Ok(());
+    }
+    let message = String::from_utf8_lossy(&output.stderr.bytes);
+    Err(if !message.trim().is_empty() {
+        message.trim().to_owned()
+    } else if let Some(code) = output.status.code() {
+        format!("it exited with code {code}")
+    } else {
+        format!("it was stopped ({})", output.status)
+    })
 }

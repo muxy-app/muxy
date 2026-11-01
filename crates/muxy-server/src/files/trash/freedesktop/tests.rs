@@ -58,3 +58,22 @@ fn volume_trash_uses_sticky_shared_directory_or_private_fallback() {
             .is_absolute()
     );
 }
+
+#[test]
+fn deletion_date_is_the_local_time() {
+    let minute = || {
+        let output = std::process::Command::new("date")
+            .arg("+%Y-%m-%dT%H:%M")
+            .output()
+            .unwrap();
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    let before = minute();
+    let date = deletion_date().unwrap();
+    let after = minute();
+    assert_eq!(date.len(), 19, "{date}");
+    assert!(
+        date.starts_with(&before) || date.starts_with(&after),
+        "{date}"
+    );
+}

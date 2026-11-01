@@ -1,25 +1,22 @@
 //! Headless AI providers. Callers own their prompts and any resulting actions.
 
-use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 
+use muxy_core::process::{Group, Limits, Running};
 use muxy_core::worker::WorkerPool;
 use muxy_ui::tr;
 
 const OUTPUT_LIMIT: usize = 256 * 1024;
 const PROMPT_LIMIT: usize = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(300);
-/// How long to keep reading after a provider exits while its helpers hold the output open.
-const EXIT_GRACE: Duration = Duration::from_millis(250);
 static WORKERS: OnceLock<Result<WorkerPool, String>> = OnceLock::new();
 static LOGIN_PATH: OnceLock<Vec<PathBuf>> = OnceLock::new();
-static RUNNING_GROUPS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static RUNNING_GROUPS: Mutex<Vec<Group>> = Mutex::new(Vec::new());
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Provider {
@@ -205,10 +202,6 @@ impl Provider {
                 "-c",
                 "printf '__MUXY_PATH_START__%s__MUXY_PATH_END__' \"$PATH\"",
             ]);
-            command
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
             let Ok((stdout, _)) = capture(
                 command,
                 Duration::from_secs(5),
@@ -279,9 +272,6 @@ impl Provider {
             });
         command
             .current_dir(directory)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
             .env("MUXY_PANE_ID", "")
             .env("PWD", directory);
         if let Ok(path) = std::env::join_paths(Self::search_path()) {
@@ -309,12 +299,12 @@ impl Provider {
 /// Kills every provider that is still running, such as when the app quits.
 #[cfg(not(test))]
 pub(crate) fn terminate_all() {
-    let groups = RUNNING_GROUPS
+    for group in RUNNING_GROUPS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    for group in groups {
-        kill_group(group);
+        .iter()
+    {
+        group.kill();
     }
 }
 
@@ -343,28 +333,21 @@ impl Failure {
     }
 }
 
-enum Output {
-    Bytes(usize, Vec<u8>),
-    Done,
-    Failed(String),
-}
+/// A running provider's process group, listed so quitting the app can kill it.
+struct Registered(Group);
 
-/// A provider's process group, killed as a whole so helpers cannot outlive it.
-struct Group(u32);
-
-impl Group {
-    fn register(id: u32) -> Self {
+impl Registered {
+    fn new(group: Group) -> Self {
         RUNNING_GROUPS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push(id);
-        Self(id)
+            .push(group.clone());
+        Self(group)
     }
 }
 
-impl Drop for Group {
+impl Drop for Registered {
     fn drop(&mut self) {
-        kill_group(self.0);
         RUNNING_GROUPS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -372,113 +355,43 @@ impl Drop for Group {
     }
 }
 
-fn kill_group(id: u32) {
-    let _ = Command::new("/bin/kill")
-        .args(["-KILL", "--", &format!("-{id}")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
+/// Runs a provider and kills any helpers it leaves behind.
 fn capture(
     mut command: Command,
     timeout: Duration,
     limit: usize,
     cancellation: &Cancellation,
 ) -> Result<(Vec<u8>, Vec<u8>), Failure> {
-    let mut child = command
-        .process_group(0)
-        .spawn()
-        .map_err(|error| Failure::Io(error.to_string()))?;
-    let group = Group::register(child.id());
-    let (sender, receiver) = mpsc::sync_channel(16);
-    let pipes: [Option<Box<dyn Read + Send>>; 2] = [
-        child
-            .stdout
-            .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
-        child
-            .stderr
-            .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
-    ];
-    for (index, pipe) in pipes.into_iter().enumerate() {
-        let Some(mut pipe) = pipe else {
-            return Err(Failure::Io(tr!("AI output pipe unavailable").to_string()));
-        };
-        let sender = sender.clone();
-        std::thread::spawn(move || {
-            let mut buffer = [0; 8192];
-            loop {
-                match pipe.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(size) => {
-                        if sender
-                            .send(Output::Bytes(index, buffer[..size].to_vec()))
-                            .is_err()
-                        {
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        let _ = sender.send(Output::Failed(error.to_string()));
-                        return;
-                    }
-                }
-            }
-            let _ = sender.send(Output::Done);
-        });
-    }
-    drop(sender);
-    let mut output = [Vec::new(), Vec::new()];
-    let mut done = 0;
-    let mut exited = None;
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        if cancellation.is_cancelled() {
-            break Err(Failure::Cancelled);
-        }
-        if Instant::now() >= deadline {
-            break Err(Failure::TimedOut(timeout));
-        }
-        match receiver.recv_timeout(Duration::from_millis(25)) {
-            Ok(Output::Bytes(index, bytes)) => {
-                if output[index].len() + bytes.len() > limit {
-                    break Err(Failure::TooLarge);
-                }
-                output[index].extend(bytes);
-            }
-            Ok(Output::Done) => done += 1,
-            Ok(Output::Failed(error)) => break Err(Failure::Io(error)),
-            Err(mpsc::RecvTimeoutError::Timeout) => (),
-            Err(mpsc::RecvTimeoutError::Disconnected) => done = 2,
-        }
-        if exited.is_none() {
-            match child.try_wait() {
-                Ok(Some(status)) => exited = Some((status, Instant::now())),
-                Ok(None) => (),
-                Err(error) => break Err(Failure::Io(error.to_string())),
-            }
-        }
-        match exited {
-            Some((status, at)) if done >= 2 || at.elapsed() >= EXIT_GRACE => break Ok(status),
-            _ => (),
-        }
+    let cancelled = || cancellation.is_cancelled();
+    let limits = Limits {
+        cancelled: Some(&cancelled),
+        kill_leftovers: true,
+        ..Limits::new(timeout, limit)
     };
-    drop(group);
-    let _ = child.wait();
-    let status = status?;
-    if !status.success() {
-        let message = String::from_utf8_lossy(&output[1]);
+    let running =
+        Running::start(&mut command, limits).map_err(|error| Failure::Io(error.to_string()))?;
+    let _registered = Registered::new(running.group());
+    let output = running
+        .wait()
+        .map_err(|error| Failure::Io(error.to_string()))?;
+    if output.cancelled {
+        return Err(Failure::Cancelled);
+    }
+    if output.timed_out {
+        return Err(Failure::TimedOut(timeout));
+    }
+    if output.stdout.truncated || output.stderr.truncated {
+        return Err(Failure::TooLarge);
+    }
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr.bytes);
         return Err(Failure::Exited(if message.trim().is_empty() {
-            status.to_string()
+            output.status.to_string()
         } else {
             message.trim().chars().take(1000).collect()
         }));
     }
-    let [stdout, stderr] = output;
-    Ok((stdout, stderr))
+    Ok((output.stdout.bytes, output.stderr.bytes))
 }
 
 pub(crate) fn run<T: Send + 'static>(
