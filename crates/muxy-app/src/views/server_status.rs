@@ -8,7 +8,31 @@ use muxy_ui::l10n::translate;
 use muxy_ui::popover;
 use muxy_ui::tr;
 
+use super::overlays::{Mark, OverlayView, Placement};
 use crate::model::{AppModel, ServerStatus};
+
+/// The server popover above the status bar's server item.
+pub(crate) struct ServerPopover;
+
+impl OverlayView for ServerPopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(model, window, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::above_while(model.appearance.status_bar_visible, model.server_anchor())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
 
 fn status_color(status: ServerStatus, model: &AppModel) -> Hsla {
     match status {
@@ -75,7 +99,7 @@ pub(crate) fn control(model: &AppModel, cx: &mut Context<AppModel>) -> impl Into
         )
 }
 
-pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let status = model.server_status();

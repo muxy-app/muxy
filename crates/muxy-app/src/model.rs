@@ -310,7 +310,9 @@ impl AppModel {
             });
         }
         self.sync_preferences(cx);
-        if let Some(Overlay::Commands { palette, dark }) = &self.overlay {
+        if let Some(Overlay::Commands(crate::views::command_palette::Palette { palette, dark })) =
+            &self.overlay
+        {
             let active = self.themes.active_name(self.appearance.theme(*dark), *dark);
             palette.update(cx, |palette, cx| {
                 palette.set_appearance(self.theme.clone(), self.metrics, cx);

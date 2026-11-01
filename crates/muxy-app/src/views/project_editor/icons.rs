@@ -1,6 +1,6 @@
 use crate::{
     model::AppModel,
-    views::overlays::{Mark, Overlay, clamp},
+    views::overlays::{Mark, Overlay, OverlayView, clamp},
 };
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -81,7 +81,23 @@ impl AppModel {
     }
 }
 
-pub(crate) fn render(
+impl OverlayView for Icons {
+    fn render(
+        &self,
+        mark: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(self, mark, model, window, cx)
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
+
+fn render(
     picker: &Icons,
     mark: Option<Mark>,
     model: &AppModel,

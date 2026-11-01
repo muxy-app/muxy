@@ -1,8 +1,30 @@
 use crate::model::AppModel;
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div};
+use crate::views::overlays::{Dismissal, Mark, OverlayView};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
+
+/// The open extension popover.
+pub(crate) struct ExtensionPopover;
+
+impl OverlayView for ExtensionPopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        _: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(model, cx)
+    }
+
+    /// Outside clicks and toggles close it without asking the page.
+    fn on_dismiss(&self, model: &mut AppModel, cx: &mut Context<AppModel>) -> Dismissal {
+        model.close_extension_popover(cx);
+        Dismissal::Close
+    }
+}
 
 /// The open extension popover, below its topbar item or above its status-bar item.
-pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let Some(popover) = &model.webviews.popover else {
         return div().into_any_element();
     };
@@ -23,7 +45,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
         popover.anchor.set(None);
     }
     let weak = cx.entity().downgrade();
-    let lost = move |_: &mut gpui::Window, cx: &mut gpui::App| {
+    let lost = move |_: &mut Window, cx: &mut gpui::App| {
         let _ = weak.update(cx, AppModel::close_extension_popover);
     };
     if popover.above {

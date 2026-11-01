@@ -1,10 +1,36 @@
 use crate::model::AppModel;
+use crate::views::overlays::{Dismissal, Mark, OverlayView, Placement};
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
     Window, div, px,
 };
 
-pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+/// An extension's modal page.
+pub(crate) struct WebviewModal;
+
+impl OverlayView for WebviewModal {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(model, window, cx)
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::OwnBackdrop
+    }
+
+    /// The page may keep itself open.
+    fn on_dismiss(&self, model: &mut AppModel, cx: &mut Context<AppModel>) -> Dismissal {
+        model.dismiss_webview_modal(cx);
+        Dismissal::Stay
+    }
+}
+
+fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let Some(request) = &model.webviews.modal else {
         return div().into_any_element();
     };

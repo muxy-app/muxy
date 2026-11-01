@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use gpui::{AppContext, Context, Entity, Focusable, Window};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window};
 use muxy_app_core::project_layouts::{Config, Descriptor};
 use muxy_app_core::{PaneId, ProjectId, ProjectStatus, ServerId, TabId};
 use muxy_ui::icon::Icon;
@@ -13,7 +13,7 @@ use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting};
 use crate::boot::Work;
-use crate::views::overlays::Overlay;
+use crate::views::overlays::{Mark, Overlay, OverlayView};
 
 #[derive(Default)]
 pub(crate) struct ProjectLayouts {
@@ -35,6 +35,18 @@ pub(crate) struct LayoutPicker {
     directory: PathBuf,
     request: u64,
     loading: bool,
+}
+
+impl OverlayView for LayoutPicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
 }
 
 impl AppModel {

@@ -19,7 +19,7 @@ use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
 
 use super::command_palette::Handler;
-use super::overlays::Overlay;
+use super::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
 use crate::model::{AppModel, ConnectionTest, DeviceForm, RemoteServer, ServerStatus};
 
 /// The Add or Edit form for one remote server.
@@ -343,8 +343,31 @@ fn group_heading(group: Option<&str>, model: &AppModel, cx: &mut Context<AppMode
         .into_any_element()
 }
 
+/// The popover above the sidebar's Remote section.
+pub(crate) struct RemotePopover;
+
+impl OverlayView for RemotePopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        popover(model, window, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::Above(model.remote_anchor.clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
+
 /// The popover above the section, which has the keyboard.
-pub(crate) fn popover(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+fn popover(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     list(model, window, cx)
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -1055,9 +1078,7 @@ impl AppModel {
         if password.is_empty() {
             return;
         }
-        let pending = self.pending_remote;
-        self.dismiss_overlay(cx);
-        self.pending_remote = pending;
+        self.close_overlay(cx);
         self.remember_password(server, password, cx);
     }
 }
@@ -1136,6 +1157,27 @@ fn connection_status(
         Some(ConnectionTest::InstallFailed(error)) => {
             (tr!("Install failed: %@", error), theme.danger)
         }
+    }
+}
+
+impl OverlayView for ServerForm {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render_form(self, model, window, cx)
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::Modal
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        model.clear_server_probe();
+        Dismissal::Close
     }
 }
 
@@ -1422,6 +1464,28 @@ fn form_actions(
             .debug_selector(|| "server-save".into()),
         )
         .into_any_element()
+}
+
+impl OverlayView for PasswordPrompt {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render_password(self, model, window, cx)
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::Modal
+    }
+
+    /// Without a password, the connection it was asked for is dropped.
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        model.pending_remote = None;
+        Dismissal::Close
+    }
 }
 
 pub(crate) fn render_password(

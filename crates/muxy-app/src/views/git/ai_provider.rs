@@ -15,7 +15,8 @@ use muxy_ui::tr;
 use crate::ai::{PROVIDERS, Provider};
 use crate::model::AppModel;
 use crate::repository_actions::Action;
-use crate::views::{menu, overlays::Overlay};
+use crate::views::menu;
+use crate::views::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
 
 pub(crate) struct AiProviderMenu {
     pub(crate) action: Action,
@@ -222,11 +223,35 @@ fn provider_row(
     .into_any_element()
 }
 
+impl OverlayView for AiProviderMenu {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render_provider_menu(self, model, window, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::Above(model.ai.anchors[self.action.index()].clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        super::end_git_interaction(model)
+    }
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "Declarative provider menu and project prompt editor"
 )]
-pub(crate) fn render_provider_menu(
+fn render_provider_menu(
     menu: &AiProviderMenu,
     model: &AppModel,
     window: &Window,

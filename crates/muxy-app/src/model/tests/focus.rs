@@ -1,5 +1,7 @@
+use super::coverage::openers;
+use super::git;
 use super::*;
-use crate::views::menu::{Command, Item};
+use crate::model::{PendingRemote, RemoteIntent};
 use crate::views::overlays::Overlay;
 use gpui::Focusable;
 use muxy_app_core::Direction;
@@ -55,38 +57,83 @@ fn pane_focused(view: &Entity<AppModel>, pane: PaneId, cx: &mut VisualTestContex
     })
 }
 
+/// The current project, registered so Git overlays open, with one attached
+/// pane.
+fn project_workspace(
+    cx: &mut TestAppContext,
+) -> (Entity<AppModel>, &mut VisualTestContext, PaneId, ProjectId) {
+    let (mut state, project) = git::registered_current_project();
+    let tab = state.open_terminal_tab(project).expect("tab");
+    let tabs = &state.current_project().tabs;
+    let pane = tabs.iter().find(|open| open.id == tab).expect("tab").panes[0].id;
+    state
+        .set_pane_session(pane, SessionId::new(100))
+        .expect("session");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        let session = model.state.pane_session(pane).expect("session").1;
+        let attached = Update::Attached {
+            pane,
+            session,
+            attachment: attachment_on(1),
+            created: false,
+        };
+        model.receive((ServerId::local(), 1, attached), cx);
+        model.focus_pane(pane, cx);
+    });
+    cx.run_until_parked();
+    (view, cx, pane, project)
+}
+
 #[gpui::test]
 fn each_overlay_hands_the_keyboard_back_to_the_active_pane(cx: &mut TestAppContext) {
-    type Open = fn(&mut AppModel, &mut Window, &mut Context<AppModel>);
-    let overlays: [(&str, Open); 5] = [
-        ("command palette", |model, window, cx| {
-            model.toggle_command_palette(window, cx);
-        }),
-        ("menu", |model, window, cx| {
-            let items = vec![Item::action("Agents", Command::AgentsPanel(true))];
-            model.open_menu(items, gpui::point(px(40.0), px(40.0)), window, cx);
-        }),
-        ("remote popover", AppModel::toggle_remote_popover),
-        ("server form", |model, _, cx| {
-            model.open_server_form(None, cx);
-        }),
-        ("password prompt", |model, _, cx| {
-            model.ask_password(ServerId::local(), cx);
-        }),
-    ];
-    let (view, cx, pane) = split_workspace(cx);
+    let (view, cx, pane, project) = project_workspace(cx);
     assert!(pane_focused(&view, pane, cx));
-    for (name, open) in overlays {
-        view.update_in(cx, open);
+    for (name, open) in openers(project) {
+        view.update_in(cx, |model, window, cx| {
+            model.appearance.status_bar_visible = true;
+            open(model, window, cx);
+            assert!(model.overlay.is_some(), "{name} opens");
+        });
         cx.run_until_parked();
-        view.read_with(cx, |model, _| assert!(model.overlay.is_some(), "{name}"));
-        assert!(!pane_focused(&view, pane, cx), "{name} took the keyboard");
-        view.update(cx, AppModel::dismiss_overlay);
-        cx.run_until_parked();
+        while view.read_with(cx, |model, _| model.overlay.is_some()) {
+            view.update(cx, AppModel::dismiss_overlay);
+            cx.run_until_parked();
+        }
         assert!(
             pane_focused(&view, pane, cx),
             "{name} gave the keyboard back"
         );
+    }
+}
+
+#[gpui::test]
+fn each_overlay_dismiss_cancels_only_its_own_work(cx: &mut TestAppContext) {
+    let (view, cx, _, project) = project_workspace(cx);
+    for (name, open) in openers(project) {
+        let (interaction, probe) = view.update_in(cx, |model, window, cx| {
+            model.overlay = None;
+            model.appearance.status_bar_visible = true;
+            open(model, window, cx);
+            model.pending_remote =
+                Some(PendingRemote::new(ServerId::local(), RemoteIntent::HomeTab));
+            (model.git.interaction, model.server_probe_generation)
+        });
+        view.update(cx, |model, cx| {
+            model.dismiss_overlay(cx);
+            let git = matches!(name, "git branches" | "git form" | "ai provider");
+            assert_eq!(model.git.interaction != interaction, git, "{name}: Git");
+            let probed = model.server_probe_generation != probe;
+            assert_eq!(probed, name == "server form", "{name}: server probe");
+            let dropped = model.pending_remote.is_none();
+            assert_eq!(dropped, name == "password", "{name}: pending remote");
+            let reopened = matches!(model.overlay, Some(Overlay::RemoteServers));
+            let expected = name == "menu over remote servers";
+            assert_eq!(reopened, expected, "{name}: Remote popover");
+            assert_eq!(model.overlay.is_some(), expected, "{name}: closed");
+        });
     }
 }
 
