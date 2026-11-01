@@ -53,7 +53,7 @@ impl AppModel {
     }
 
     pub(super) fn show_settings(&mut self, cx: &mut Context<Self>) {
-        if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
+        if self.quitting != Quitting::Idle || self.dialogs.is_open() {
             return;
         }
         self.refresh_browser_profiles();
@@ -667,22 +667,19 @@ impl AppModel {
         window: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
+        if self.quitting != Quitting::Idle {
             return;
         }
-        let parent = self.dialog_parent(window);
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_reset_terminal(&parent, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                match response {
-                    Ok(true) => model.change_preference(Change::ResetTerminal, cx),
-                    Ok(false) => {}
-                    Err(error) => model.preference_result("terminal-reset", Some(&error), cx),
-                }
-                cx.notify();
-            });
-        }));
+        self.ask_dialog(
+            window,
+            async |parent, cx| crate::views::confirm::prompt_reset_terminal(parent, cx).await,
+            |model, response, cx| match response {
+                Ok(true) => model.change_preference(Change::ResetTerminal, cx),
+                Ok(false) => {}
+                Err(error) => model.preference_result("terminal-reset", Some(&error), cx),
+            },
+            cx,
+        );
     }
 
     pub(crate) fn preview_terminal_preference(
@@ -916,12 +913,12 @@ impl AppModel {
         self.dismiss_overlay(cx);
         let generation = self.generation(server);
         let name = (!server.is_local()).then(|| self.server_label(server));
-        let parent = self.dialog_parent(window);
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response =
-                crate::views::confirm::prompt_server(&parent, restart, name.as_deref(), cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        self.ask_dialog(
+            window,
+            async move |parent, cx| {
+                crate::views::confirm::prompt_server(parent, restart, name.as_deref(), cx).await
+            },
+            move |model, response, cx| {
                 model.focus_owner.request_active_pane();
                 if generation == model.generation(server) {
                     match response {
@@ -933,9 +930,9 @@ impl AppModel {
                         Err(error) => model.fail(error, cx),
                     }
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 
     fn stop_server(&mut self, server: ServerId, restart: bool, cx: &mut Context<Self>) {

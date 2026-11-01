@@ -11,6 +11,7 @@ pub(crate) mod commands;
 mod composer;
 mod coverage;
 mod diagnostics;
+pub(crate) mod dialogs;
 pub(crate) mod extensions;
 pub(crate) mod focus;
 pub(crate) mod git;
@@ -116,6 +117,8 @@ struct CloseRequest {
     behavior: muxy_app_core::settings::CloseBehavior,
     /// The pane gets a new terminal in its place, with the proxy or without.
     restart: Option<bool>,
+    /// The confirmation asked for the session being checked.
+    dialog: Option<dialogs::DialogId>,
 }
 
 #[allow(
@@ -218,7 +221,7 @@ pub(crate) struct AppModel {
     detached_pending: HashSet<PaneId>,
     pending_close: Option<CloseCheckId>,
     close_request: Option<CloseRequest>,
-    pub(crate) close_prompt: Option<Task<()>>,
+    pub(crate) dialogs: dialogs::Dialogs,
     retained: HashSet<PaneId>,
     loaded: HashSet<PaneId>,
     snapshots: HashMap<PaneId, RunGrid>,
@@ -629,7 +632,7 @@ impl AppModel {
             detached_pending: HashSet::new(),
             pending_close: None,
             close_request: None,
-            close_prompt: None,
+            dialogs: dialogs::Dialogs::default(),
             retained: HashSet::new(),
             loaded: HashSet::new(),
             snapshots: HashMap::new(),
@@ -1200,11 +1203,15 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn quitting(&self) -> bool {
+        self.quitting != Quitting::Idle
+    }
+
     pub(crate) fn can_detach_terminal(&self, pane: PaneId) -> bool {
         self.quitting == Quitting::Idle
             && self.close_request.is_none()
             && self.pending_close.is_none()
-            && self.close_prompt.is_none()
+            && !self.dialogs.is_open()
             && self.state.pane_tab(pane).is_some()
             && self.state.pane_session(pane).is_some()
     }
@@ -1247,7 +1254,6 @@ impl AppModel {
         if self.quitting != Quitting::Idle
             || self.close_request.is_some()
             || self.pending_close.is_some()
-            || self.close_prompt.is_some()
         {
             return;
         }
@@ -1296,6 +1302,7 @@ impl AppModel {
                 self.settings.window.close_behavior
             },
             restart,
+            dialog: None,
         });
         self.check_webview_closes(cx);
     }
@@ -1321,7 +1328,7 @@ impl AppModel {
                     return;
                 }
                 CloseCheck::Running => {
-                    self.confirm_close(tab, cx);
+                    self.ask_close(tab, cx);
                     return;
                 }
                 CloseCheck::Safe => {
@@ -1351,30 +1358,28 @@ impl AppModel {
             .is_some_and(|request| request.tabs.len() > 1)
     }
 
-    pub(crate) fn finish_confirmation(&mut self, cx: &mut Context<Self>) {
-        self.close_prompt = None;
-        let model = cx.weak_entity();
-        cx.defer(move |cx| {
-            let _ = model.update(cx, Self::resume_worktree_removal_confirmation);
-        });
-        cx.notify();
+    fn ask_close(&mut self, tab: TabId, cx: &mut Context<Self>) {
+        let dialog = self.confirm_close(tab, cx);
+        if let Some(request) = &mut self.close_request {
+            request.dialog = Some(dialog);
+        }
     }
 
-    pub(crate) fn finish_close_prompt(
+    pub(crate) fn finish_close_confirmation(
         &mut self,
         tab: TabId,
         response: Result<muxy_ui::dialog::ConfirmationResponse, String>,
         cx: &mut Context<Self>,
     ) {
-        self.finish_confirmation(cx);
         self.focus_owner.request_active_pane();
-        if self
+        let Some(request) = self
             .close_request
-            .as_ref()
-            .is_none_or(|request| request.tab != tab)
-        {
+            .as_mut()
+            .filter(|request| request.tab == tab)
+        else {
             return;
-        }
+        };
+        request.dialog = None;
         match response {
             Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { dont_ask_again }) => {
                 if dont_ask_again
@@ -2516,7 +2521,7 @@ impl AppModel {
             return;
         }
         match running {
-            Ok(true) => self.confirm_close(tab, cx),
+            Ok(true) => self.ask_close(tab, cx),
             Ok(false) => self.advance_close(cx),
             Err(message) => {
                 self.close_request = None;
@@ -2755,10 +2760,12 @@ impl AppModel {
                 .panes
                 .iter()
                 .any(|pane| self.state.pane_tab(*pane).is_none())
-        }) {
-            self.close_request = None;
+        }) && let Some(request) = self.close_request.take()
+        {
             self.pending_close = None;
-            self.finish_confirmation(cx);
+            if let Some(dialog) = request.dialog {
+                self.dismiss_dialog(dialog, cx);
+            }
         }
         if active != self.active_pane() {
             self.focus_owner.request_active_pane();
@@ -2843,6 +2850,7 @@ mod tests {
     mod composer;
     mod coverage;
     mod detach;
+    mod dialogs;
     mod find;
     mod focus;
     mod git;
@@ -3392,7 +3400,7 @@ mod tests {
         view.update(cx, acknowledge_close);
         cx.run_until_parked();
         view.read_with(cx, |model, _| {
-            assert!(model.close_prompt.is_some());
+            assert!(model.dialogs.is_open());
             assert!(model.overlay.is_none());
             assert_eq!(model.state.home().tabs.len(), 1);
             assert!(model.state.pending_discards(ServerId::local()).is_empty());
@@ -3410,7 +3418,7 @@ mod tests {
         cx.simulate_prompt_answer("Cancel");
         cx.run_until_parked();
         assert!(!cx.has_pending_prompt());
-        assert!(view.read_with(cx, |model, _| model.close_prompt.is_none()));
+        assert!(view.read_with(cx, |model, _| !model.dialogs.is_open()));
         assert!(view.read_with(cx, |model, _| model.settings.window.confirm_running_process));
         assert!(
             !requests
@@ -3505,7 +3513,7 @@ mod tests {
                     ),
                     cx,
                 );
-                assert!(model.close_prompt.is_some());
+                assert!(model.dialogs.is_open());
             });
             cx.run_until_parked();
             assert_eq!(
@@ -3521,7 +3529,7 @@ mod tests {
             view.read_with(cx, |model, _| {
                 assert_eq!(model.state.home().tabs.len(), 2);
                 assert!(model.state.pending_discards(ServerId::local()).is_empty());
-                assert!(model.close_prompt.is_none());
+                assert!(!model.dialogs.is_open());
             });
         }
     }

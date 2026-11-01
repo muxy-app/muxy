@@ -178,7 +178,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_update_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if matches!(self.overlay, Some(Overlay::Updates)) {
@@ -210,11 +210,11 @@ impl AppModel {
     pub(crate) fn update_action_enabled(&self, action: UpdateAction) -> bool {
         if action == UpdateAction::CancelSchedule {
             return self.quitting == Quitting::Idle
-                && self.close_prompt.is_none()
+                && !self.dialogs.is_open()
                 && self.updates.scheduled;
         }
         self.quitting == Quitting::Idle
-            && self.close_prompt.is_none()
+            && !self.dialogs.is_open()
             && (matches!(
                 action,
                 UpdateAction::RestartServer | UpdateAction::RetryServer | UpdateAction::Connect

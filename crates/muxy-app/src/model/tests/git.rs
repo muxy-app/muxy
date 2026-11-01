@@ -81,7 +81,7 @@ fn stale_git_mutations_and_inspections_do_not_change_a_new_form(cx: &mut TestApp
             cx,
         );
         assert!(matches!(model.overlay, Some(Overlay::GitForm(_))));
-        assert!(model.close_prompt.is_none());
+        assert!(!model.dialogs.is_open());
     });
 }
 

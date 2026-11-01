@@ -234,36 +234,28 @@ impl AppModel {
         }) else {
             return;
         };
-        if self.close_prompt.is_some() {
-            return;
-        }
         let generation = self.servers.local.generation;
-        let parent = self.dialog_parent(window);
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_revoke(&parent, &name, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                match response {
-                    Ok(true)
-                        if generation == model.servers.local.generation
-                            && model.mobile_available() =>
-                    {
-                        if model.mobile.busy {
-                            model.mobile.error = Some(
-                                tr!("Wait for the current device access change to finish")
-                                    .to_string(),
-                            );
-                        } else {
-                            model.mobile.busy =
-                                model.send(ServerId::local(), Work::RevokeDevice(device), cx);
-                        }
+        self.ask_dialog(
+            window,
+            async move |parent, cx| crate::views::confirm::prompt_revoke(parent, &name, cx).await,
+            move |model, response, cx| match response {
+                Ok(true)
+                    if generation == model.servers.local.generation && model.mobile_available() =>
+                {
+                    if model.mobile.busy {
+                        model.mobile.error = Some(
+                            tr!("Wait for the current device access change to finish").to_string(),
+                        );
+                    } else {
+                        model.mobile.busy =
+                            model.send(ServerId::local(), Work::RevokeDevice(device), cx);
                     }
-                    Err(error) => model.mobile.error = Some(error),
-                    Ok(_) => {}
                 }
-                cx.notify();
-            });
-        }));
+                Err(error) => model.mobile.error = Some(error),
+                Ok(_) => {}
+            },
+            cx,
+        );
     }
 
     pub(super) fn receive_remote_access(

@@ -293,7 +293,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_agents_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let focused = self.agents_panel.focus.contains_focused(window, cx);

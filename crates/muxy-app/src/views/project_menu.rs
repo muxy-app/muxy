@@ -280,15 +280,11 @@ impl AppModel {
         cx: &mut Context<Self>,
         confirmed: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
     ) {
-        if self.close_prompt.is_some() {
-            return;
-        }
         self.dismiss_overlay(cx);
-        let parent = self.dialog_parent(self.window);
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = prompt(&parent, title, message, action, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| prompt(parent, title, message, action, cx).await,
+            move |model, response, cx| {
                 model.focus_owner.request_active_pane();
                 match response {
                     Ok(ConfirmationResponse::Confirmed { .. }) => confirmed(model, cx),
@@ -300,9 +296,9 @@ impl AppModel {
                         );
                     }
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 }
 

@@ -524,7 +524,7 @@ fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
             Ok(GitReply::WorktreeHooks(vec![])),
             cx,
         );
-        assert!(model.close_prompt.is_some(), "removal is confirmed first");
+        assert!(model.dialogs.is_open(), "removal is confirmed first");
     });
 }
 

@@ -69,7 +69,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if let Some(Overlay::Commands { palette, .. }) = &self.overlay
@@ -97,7 +97,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let registry = self.command_registry(self.dark, cx);
@@ -112,7 +112,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let palette =

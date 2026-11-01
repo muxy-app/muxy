@@ -4,6 +4,7 @@ use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
 use crate::model::AppModel;
+use crate::model::dialogs::DialogId;
 
 pub(crate) const TITLE: &str = tr_key!("Close Tab?");
 pub(crate) const MESSAGE: &str =
@@ -14,12 +15,12 @@ pub(crate) const PANE_MESSAGE: &str =
     tr_key!("A process is still running in this pane.\nAre you sure you want to close it?");
 
 impl AppModel {
-    pub(crate) fn confirm_close(&mut self, tab: muxy_app_core::TabId, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
-            return;
-        }
+    pub(crate) fn confirm_close(
+        &mut self,
+        tab: muxy_app_core::TabId,
+        cx: &mut Context<Self>,
+    ) -> DialogId {
         self.dismiss_overlay(cx);
-        let parent = self.dialog_parent(self.window);
         let (title, message, action) = if self.restarting_terminal() {
             (
                 tr_key!("Restart Terminal?"),
@@ -41,12 +42,12 @@ impl AppModel {
         } else {
             (TITLE, MESSAGE, tr_key!("Close"))
         };
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = prompt(&parent, title, message, action, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_close_prompt(tab, response, cx);
-            });
-        }));
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| prompt(parent, title, message, action, cx).await,
+            move |model, response, cx| model.finish_close_confirmation(tab, response, cx),
+            cx,
+        )
     }
 }
 

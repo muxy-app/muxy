@@ -103,14 +103,8 @@ impl AppModel {
         expected: WorktreeRemoval,
         hooks: Result<Vec<WorktreeHook>, String>,
         cx: &mut Context<Self>,
-    ) {
-        let Some(name) = self
-            .state
-            .project(project)
-            .map(|record| record.name.clone())
-        else {
-            return;
-        };
+    ) -> Option<crate::model::dialogs::DialogId> {
+        let name = self.state.project(project)?.name.clone();
         let mut message = if expected.dirty {
             tr!("Remove worktree “%@” and permanently discard its uncommitted changes? Local processes will stop and its files will be deleted.", &name)
         } else {
@@ -152,7 +146,7 @@ impl AppModel {
                 None
             }
         };
-        self.confirm_git_action(
+        Some(self.confirm_git_action(
             project,
             GitAction::Worktree(WorktreeIntent {
                 operation: muxy_protocol::OperationId::new(),
@@ -161,7 +155,7 @@ impl AppModel {
             }),
             message,
             cx,
-        );
+        ))
     }
 
     fn choose_worktree_folder(&mut self, cx: &mut Context<Self>) {

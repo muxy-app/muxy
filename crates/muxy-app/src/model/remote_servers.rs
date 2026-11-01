@@ -561,18 +561,17 @@ impl AppModel {
             [server] => self.server_name(*server).map(str::to_owned),
             _ => None,
         };
-        if self.close_prompt.is_some() || self.quitting != Quitting::Idle {
+        if self.quitting != Quitting::Idle {
             return;
         }
         let count = servers.len();
-        let parent = self.dialog_parent(window);
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = match name {
-                Some(name) => crate::views::confirm::prompt_forget_server(&parent, &name, cx).await,
-                None => crate::views::confirm::prompt_forget_servers(&parent, count, cx).await,
-            };
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        self.ask_dialog(
+            window,
+            async move |parent, cx| match name {
+                Some(name) => crate::views::confirm::prompt_forget_server(parent, &name, cx).await,
+                None => crate::views::confirm::prompt_forget_servers(parent, count, cx).await,
+            },
+            move |model, response, cx| {
                 let result = match response {
                     Ok(true) => model.forget_remote_servers(&servers, cx),
                     Ok(false) => Ok(()),
@@ -581,9 +580,9 @@ impl AppModel {
                 if let Err(error) = result {
                     model.fail(error, cx);
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 
     /// Removes remote servers from settings in one write, and their projects
@@ -744,24 +743,22 @@ impl AppModel {
         ) else {
             return;
         };
-        if self.close_prompt.is_some() || self.quitting != Quitting::Idle {
+        if self.quitting != Quitting::Idle {
             return;
         }
-        let parent = self.dialog_parent(window);
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let source = crate::remote_install::Source::Release(version.into());
-            let response =
-                crate::views::confirm::prompt_install_server(&parent, &name, &source, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                match response {
-                    Ok(true) => model.install_server(server, version, cx),
-                    Ok(false) => {}
-                    Err(error) => model.fail(error, cx),
-                }
-                cx.notify();
-            });
-        }));
+        self.ask_dialog(
+            window,
+            async move |parent, cx| {
+                let source = crate::remote_install::Source::Release(version.into());
+                crate::views::confirm::prompt_install_server(parent, &name, &source, cx).await
+            },
+            move |model, response, cx| match response {
+                Ok(true) => model.install_server(server, version, cx),
+                Ok(false) => {}
+                Err(error) => model.fail(error, cx),
+            },
+            cx,
+        );
     }
 
     /// Installs release `version` on a remote server over its SSH login,
@@ -973,7 +970,7 @@ impl AppModel {
 
     /// Whether a password prompt or form may open now.
     pub(crate) fn accepts_prompts(&self) -> bool {
-        self.quitting == Quitting::Idle && self.close_prompt.is_none()
+        !self.quitting() && !self.dialogs.is_open()
     }
 
     /// The server refused the last login, so its password was wrong.

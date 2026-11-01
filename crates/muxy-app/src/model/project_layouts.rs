@@ -98,9 +98,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some()
-            || self.close_request.is_some()
-            || self.quitting != Quitting::Idle
+        if self.dialogs.is_open() || self.close_request.is_some() || self.quitting != Quitting::Idle
         {
             return;
         }

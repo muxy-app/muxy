@@ -40,7 +40,7 @@ impl AppModel {
             self.dismiss_overlay(cx);
             return;
         }
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let Some(project) = self.worktree_switcher_project() else {
