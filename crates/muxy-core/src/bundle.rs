@@ -204,19 +204,22 @@ mod tests {
         let first = wait_for_replacement(directory.path())?;
         let second = wait_for_replacement(directory.path())?;
         assert!(first.is_some() && second.is_some());
+        let mode = fs::metadata(replacement_lock(directory.path()))?.mode() & 0o777;
+        assert_eq!(mode & !0o644, 0, "only the owner may write the lock");
         assert_eq!(
-            fs::metadata(replacement_lock(directory.path()))?.mode() & 0o777,
-            0o644
+            lock_replacement(directory.path())
+                .err()
+                .map(|error| error.kind()),
+            Some(io::ErrorKind::WouldBlock)
         );
-        assert!(lock_replacement(directory.path()).is_err());
         drop((first, second));
 
         let update = lock_replacement(directory.path())?;
+        let started = std::time::Instant::now();
         let release = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(200));
             drop(update);
         });
-        let started = std::time::Instant::now();
         assert!(wait_for_replacement(directory.path())?.is_some());
         assert!(started.elapsed() >= Duration::from_millis(200));
         release
