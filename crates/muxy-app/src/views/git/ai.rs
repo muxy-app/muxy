@@ -1,8 +1,9 @@
-use gpui::{AnyWindowHandle, AsyncApp};
+use gpui::AsyncApp;
 use muxy_app_core::settings::CommitChoices;
 use muxy_protocol::ProjectId;
-use muxy_ui::controls::Style;
-use muxy_ui::dialog::{PromptCheckbox, PromptChoices, PromptPicker, PromptResponse, Question, ask};
+use muxy_ui::dialog::{
+    Parent, PromptCheckbox, PromptChoices, PromptPicker, PromptResponse, Question, ask,
+};
 use muxy_ui::tr;
 
 use crate::ai::Provider;
@@ -106,8 +107,7 @@ impl AiConfirmation {
 
     pub(crate) async fn prompt(
         &self,
-        window: AnyWindowHandle,
-        style: Style<'_>,
+        parent: &Parent,
         cx: &mut AsyncApp,
     ) -> Result<Option<PromptResponse>, String> {
         let question = Question::Prompt {
@@ -115,9 +115,8 @@ impl AiConfirmation {
             message: &self.message(),
             confirm: &muxy_ui::l10n::translate(self.action.settings_title()),
             choices: &self.prompt_choices(),
-            style,
         };
-        ask(window, question, cx)
+        ask(parent, question, cx)
             .await
             .map_err(|error| error.to_string())
     }

@@ -11,6 +11,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::NSString;
 
+use crate::controls::Style;
 use crate::tr;
 
 mod ask;
@@ -23,7 +24,7 @@ pub use crate::dialog_types::{
     ADDITIONAL_PROMPT_LIMIT, ConfirmationResponse, ConsentResponse, DialogOptions, PromptCheckbox,
     PromptChoices, PromptPicker, PromptResponse,
 };
-pub use ask::{Question, ask};
+pub use ask::{Parent, Question, ask};
 #[cfg(any(test, feature = "test-support"))]
 pub use ask::{simulate, ticked_label};
 pub use prompt::{PromptConfirmation, confirm_with_prompt};
@@ -65,6 +66,7 @@ pub fn consent(
     title: &str,
     message: &str,
     block_label: &str,
+    _style: Style<'_>,
     on_complete: impl FnOnce(ConsentResponse) + 'static,
 ) -> io::Result<Confirmation> {
     let main_thread = MainThreadMarker::new()
@@ -142,6 +144,7 @@ pub fn confirm(
     message: &str,
     confirm_label: &str,
     suppression_label: Option<&str>,
+    _style: Style<'_>,
     on_complete: impl FnOnce(ConfirmationResponse) + 'static,
 ) -> io::Result<Confirmation> {
     let cancel = tr!("Cancel");
@@ -158,6 +161,10 @@ pub fn confirm(
 
 /// Asks for confirmation with a checkbox that starts unchecked. Reports
 /// whether the checkbox was checked, or `None` when declined or dismissed.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Native confirmation fields and GPUI context"
+)]
 pub fn confirm_with_checkbox(
     window: &mut gpui::Window,
     _cx: &mut gpui::App,
@@ -165,6 +172,7 @@ pub fn confirm_with_checkbox(
     message: &str,
     [confirm_label, decline_label]: [&str; 2],
     checkbox_label: &str,
+    _style: Style<'_>,
     on_complete: impl FnOnce(Option<bool>) + 'static,
 ) -> io::Result<Confirmation> {
     two_button_alert(
@@ -365,6 +373,7 @@ pub fn present(
     window: &mut gpui::Window,
     _cx: &mut gpui::App,
     options: DialogOptions,
+    _style: Style<'_>,
     on_complete: impl FnOnce(Option<String>) + 'static,
 ) -> io::Result<Confirmation> {
     let main_thread = MainThreadMarker::new()

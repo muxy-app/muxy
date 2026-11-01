@@ -892,7 +892,7 @@ impl AppModel {
         let checked_path = path.clone();
         let checking = folders.clone();
         let job = self.extensions.reserve_job();
-        let window = self.window;
+        let parent = self.dialog_parent(self.window);
         picker.read(cx).picker.clone().update(cx, |picker, cx| {
             picker.set_status(PickerStatus::Loading(tr!("Checking folder…")), cx);
         });
@@ -919,7 +919,7 @@ impl AppModel {
                     &folders.name
                 )
                 .to_string();
-                result = match create_prompt(window, message, cx).await {
+                result = match create_prompt(&parent, message, cx).await {
                     Ok(true) if current(cx) => {
                         let creating_path = path.clone();
                         cx.background_executor()
@@ -1033,14 +1033,14 @@ impl AppModel {
         }
         let path = PathBuf::from(path_service::standardize(path));
         if !path.exists() && create_if_missing {
-            let window = self.window;
+            let parent = self.dialog_parent(self.window);
             let message = tr!(
                 "Muxy will create \"%@\" and add it as a project.",
                 path.display().to_string()
             )
             .to_string();
             self.close_prompt = Some(cx.spawn(async move |model, cx| {
-                let response = create_prompt(window, message, cx).await;
+                let response = create_prompt(&parent, message, cx).await;
                 if response.as_ref().is_ok_and(|confirmed| *confirmed) {
                     let created_path = path.clone();
                     let result = cx
@@ -1211,7 +1211,7 @@ fn folder_from_url(url: &str) -> Option<PathBuf> {
 }
 
 async fn create_prompt(
-    window: gpui::AnyWindowHandle,
+    parent: &muxy_ui::dialog::Parent,
     message: String,
     cx: &mut gpui::AsyncApp,
 ) -> Result<bool, String> {
@@ -1221,7 +1221,7 @@ async fn create_prompt(
         confirm: &tr!("Create & Add"),
         checkbox: None,
     };
-    let answer = muxy_ui::dialog::ask(window, question, cx)
+    let answer = muxy_ui::dialog::ask(parent, question, cx)
         .await
         .map_err(|error| error.to_string())?;
     Ok(answer.is_some())

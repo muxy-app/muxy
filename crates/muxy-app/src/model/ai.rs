@@ -294,17 +294,11 @@ impl AppModel {
             head: summary.head,
         };
         self.dismiss_overlay(cx);
-        let window = self.window;
-        let theme = self.theme.clone();
-        let metrics = self.metrics;
+        let parent = self.dialog_parent(self.window);
         self.ai.confirmation = Some(PendingConfirmation {
             project,
             _task: cx.spawn(async move |model, cx| {
-                let style = muxy_ui::controls::Style {
-                    theme: &theme,
-                    metrics: &metrics,
-                };
-                let response = confirmation.prompt(window, style, cx).await;
+                let response = confirmation.prompt(&parent, cx).await;
                 let mut confirmation = confirmation;
                 let _ = model.update(cx, |model, cx| {
                     model.ai.confirmation = None;

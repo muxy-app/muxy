@@ -670,8 +670,9 @@ impl AppModel {
         if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
             return;
         }
+        let parent = self.dialog_parent(window);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_reset_terminal(window, cx).await;
+            let response = crate::views::confirm::prompt_reset_terminal(&parent, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
                 match response {
@@ -915,9 +916,10 @@ impl AppModel {
         self.dismiss_overlay(cx);
         let generation = self.generation(server);
         let name = (!server.is_local()).then(|| self.server_label(server));
+        let parent = self.dialog_parent(window);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response =
-                crate::views::confirm::prompt_server(window, restart, name.as_deref(), cx).await;
+                crate::views::confirm::prompt_server(&parent, restart, name.as_deref(), cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
                 model.focus_requested = true;

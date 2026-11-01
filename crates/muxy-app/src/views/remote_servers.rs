@@ -947,11 +947,11 @@ impl AppModel {
         ) {
             return;
         }
-        let window = window.window_handle();
+        let parent = self.dialog_parent(window.window_handle());
         let source = crate::remote_install::Source::current();
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response =
-                super::confirm::prompt_install_server(window, &destination, &source, cx).await;
+                super::confirm::prompt_install_server(&parent, &destination, &source, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
                 let current = matches!(&model.overlay, Some(Overlay::ServerForm(form))

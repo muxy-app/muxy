@@ -6,6 +6,40 @@ use gpui::{AnyWindowHandle, AsyncApp};
 
 use super::{PromptChoices, PromptResponse};
 use crate::controls::Style;
+use crate::theme::{Metrics, Theme};
+
+/// The window [`ask`] shows a question on, and the look the question takes.
+#[derive(Clone)]
+pub struct Parent {
+    pub window: AnyWindowHandle,
+    pub theme: Theme,
+    pub metrics: Metrics,
+}
+
+impl std::fmt::Debug for Parent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Parent")
+            .field("window", &self.window.window_id())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Parent {
+    pub fn new(window: AnyWindowHandle, style: Style<'_>) -> Self {
+        Self {
+            window,
+            theme: style.theme.clone(),
+            metrics: *style.metrics,
+        }
+    }
+
+    fn style(&self) -> Style<'_> {
+        Style {
+            theme: &self.theme,
+            metrics: &self.metrics,
+        }
+    }
+}
 
 /// A question for [`ask`], answered by confirming or declining.
 #[derive(Clone, Copy, Debug)]
@@ -33,7 +67,6 @@ pub enum Question<'a> {
         message: &'a str,
         confirm: &'a str,
         choices: &'a PromptChoices,
-        style: Style<'a>,
     },
 }
 
@@ -44,10 +77,10 @@ impl PromptResponse {
     }
 }
 
-/// Shows `question` on `window` and waits for the answer: `None` when it was
+/// Shows `question` on `parent` and waits for the answer: `None` when it was
 /// declined or dismissed.
 pub async fn ask(
-    window: AnyWindowHandle,
+    parent: &Parent,
     question: Question<'_>,
     cx: &mut AsyncApp,
 ) -> io::Result<Option<PromptResponse>> {
@@ -56,10 +89,12 @@ pub async fn ask(
         .update(|cx| cx.has_global::<Simulated>())
         .unwrap_or_default()
     {
-        return simulated(window, question, cx).await;
+        return simulated(parent.window, question, cx).await;
     }
+    let style = parent.style();
     let (sender, receiver) = async_channel::bounded(1);
-    let _open_until_answered: Box<dyn std::any::Any> = window
+    let _open_until_answered: Box<dyn std::any::Any> = parent
+        .window
         .update(cx, |_, window, cx| match question {
             Question::Confirm {
                 title,
@@ -75,6 +110,7 @@ pub async fn ask(
                     message,
                     confirm,
                     checkbox,
+                    style,
                     move |answer| {
                         let _ = sender.try_send(match answer {
                             super::ConfirmationResponse::Confirmed { dont_ask_again } => {
@@ -105,6 +141,7 @@ pub async fn ask(
                 message,
                 [confirm, decline],
                 checkbox,
+                style,
                 move |answer| {
                     let _ = sender.try_send(answer.map(|checked| PromptResponse {
                         checked: vec![checked],
@@ -118,7 +155,6 @@ pub async fn ask(
                 message,
                 confirm,
                 choices,
-                style,
             } => super::confirm_with_prompt(
                 window,
                 cx,
@@ -258,9 +294,14 @@ mod tests {
         let answer = std::rc::Rc::new(std::cell::RefCell::new(None));
         let result = answer.clone();
         cx.update(|window, cx| {
-            let window = window.window_handle();
+            let theme = Theme::from_scheme(&crate::theme::ColorScheme::default());
+            let style = Style {
+                theme: &theme,
+                metrics: &Metrics::new(1.0),
+            };
+            let parent = Parent::new(window.window_handle(), style);
             cx.spawn(async move |cx| {
-                *result.borrow_mut() = Some(ask(window, question, cx).await.expect("asked"));
+                *result.borrow_mut() = Some(ask(&parent, question, cx).await.expect("asked"));
             })
             .detach();
         });
@@ -332,17 +373,11 @@ mod tests {
                 },
             ],
         }));
-        let theme: &'static crate::theme::Theme = Box::leak(Box::new(
-            crate::theme::Theme::from_scheme(&crate::theme::ColorScheme::default()),
-        ));
-        let metrics: &'static crate::theme::Metrics =
-            Box::leak(Box::new(crate::theme::Metrics::new(1.0)));
         let prompt = Question::Prompt {
             title: "Commit",
             message: "Commit the staged changes?",
             confirm: "Commit",
             choices,
-            style: Style { theme, metrics },
         };
         assert_eq!(answer(prompt, "Cancel", cx), None);
         assert_eq!(

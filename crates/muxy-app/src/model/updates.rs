@@ -500,12 +500,12 @@ impl AppModel {
             .is_some_and(|server| update.compatible_with(server));
         let scheduled = self.updates.scheduled;
         let sessions = self.updates.sessions;
-        let window = self.window;
+        let parent = self.dialog_parent(self.window);
         let generation = self.servers.local.generation;
         self.dismiss_overlay(cx);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = crate::views::confirm::prompt_update(
-                window, &version, compatible, scheduled, sessions, cx,
+                &parent, &version, compatible, scheduled, sessions, cx,
             )
             .await;
             let _ = model.update(cx, |model, cx| {

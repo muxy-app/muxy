@@ -23,6 +23,12 @@ pub(super) struct Dialog {
 }
 
 impl Dialog {
+    /// The card's background and one scaled point.
+    #[cfg(test)]
+    pub(super) fn look(&self) -> (gpui::Hsla, gpui::Pixels) {
+        (self.request.theme.bg, self.request.metrics.scaled(1.0))
+    }
+
     pub(super) fn new(
         title: &str,
         message: Option<&str>,

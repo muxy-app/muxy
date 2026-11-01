@@ -245,6 +245,18 @@ impl AppModel {
     pub(crate) fn terminal(&self, id: &PaneId) -> Option<&PaneView> {
         self.grids.get(id)
     }
+
+    /// Where a dialog opens: on `window`, in the app's theme.
+    pub(crate) fn dialog_parent(&self, window: gpui::AnyWindowHandle) -> muxy_ui::dialog::Parent {
+        muxy_ui::dialog::Parent::new(
+            window,
+            muxy_ui::controls::Style {
+                theme: &self.theme,
+                metrics: &self.metrics,
+            },
+        )
+    }
+
     pub(crate) fn refresh_theme(&mut self, cx: &mut Context<Self>) {
         let previous_colors = self.palette.terminal_colors();
         let (theme, palette) = self
