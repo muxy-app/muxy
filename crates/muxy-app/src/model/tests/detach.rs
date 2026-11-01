@@ -15,8 +15,7 @@ fn terminal_state() -> (AppState, PaneId) {
 }
 
 fn attach_pane(model: &mut AppModel, pane: PaneId, channel: u32, cx: &mut Context<AppModel>) {
-    let mut attached = attachment();
-    attached.channel = ChannelId(channel);
+    let mut attached = attachment_on(channel);
     attached.process = Some(muxy_protocol::ForegroundProcess {
         name: "sleep".into(),
         is_shell: false,

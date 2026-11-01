@@ -43,6 +43,8 @@ pub(crate) struct Runtime {
     pub(super) references: Option<Vec<SessionId>>,
     pub(super) discarding: HashSet<SessionId>,
     pub(super) sessions_revision: u64,
+    /// Channels up to this one were attached on this connection; the closed ones are acknowledged.
+    pub(super) last_channel: u32,
     pub(crate) progress: HashMap<SessionId, SessionProgress>,
     pub(crate) activity: activity::ActivityView,
 }
@@ -67,6 +69,7 @@ impl Runtime {
             references: None,
             discarding: HashSet::new(),
             sessions_revision: 0,
+            last_channel: 0,
             progress: HashMap::new(),
             activity: activity::ActivityView::default(),
         }

@@ -4,16 +4,50 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use muxy_protocol::{ReplyBody, RequestId};
+use muxy_protocol::{ChannelId, ReplyBody, RequestId, SessionId};
 
 use crate::ClientError;
+
+#[allow(
+    clippy::large_enum_variant,
+    reason = "A reply moves once, unboxed, as replies always have"
+)]
+pub(crate) enum Reply {
+    Body(ReplyBody),
+    /// The snapshot went to the event stream as `ClientEvent::Attached`.
+    Attached(ChannelId),
+}
+
+/// Who asked for an attach, so its reply can go to the event stream.
+#[derive(Clone, Copy)]
+pub(crate) struct Attaching {
+    pub(crate) tag: u64,
+    pub(crate) session: SessionId,
+}
 
 #[derive(Default)]
 struct State {
     next: u32,
-    waiting: HashMap<RequestId, Sender<ReplyBody>>,
+    waiting: HashMap<RequestId, Sender<Reply>>,
+    /// Kept after the caller stops waiting, so a late reply still reaches the event stream.
+    attaching: HashMap<RequestId, Attaching>,
     asynchronous: HashMap<RequestId, (Arc<Response>, Instant)>,
     closed: bool,
+}
+
+impl State {
+    fn next_id(&mut self) -> RequestId {
+        loop {
+            let id = RequestId(self.next);
+            self.next = self.next.wrapping_add(1);
+            if !self.waiting.contains_key(&id)
+                && !self.attaching.contains_key(&id)
+                && !self.asynchronous.contains_key(&id)
+            {
+                return id;
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -23,27 +57,44 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub(crate) fn register(&self) -> Result<(RequestId, Receiver<ReplyBody>), ClientError> {
+    pub(crate) fn register(&self) -> Result<(RequestId, Receiver<Reply>), ClientError> {
+        self.register_waiting(None)
+    }
+
+    pub(crate) fn register_attach(
+        &self,
+        attaching: Attaching,
+    ) -> Result<(RequestId, Receiver<Reply>), ClientError> {
+        self.register_waiting(Some(attaching))
+    }
+
+    fn register_waiting(
+        &self,
+        attaching: Option<Attaching>,
+    ) -> Result<(RequestId, Receiver<Reply>), ClientError> {
         let mut state = self.lock();
         if state.closed {
             return Err(ClientError::Disconnected);
         }
-        let id = loop {
-            let id = RequestId(state.next);
-            state.next = state.next.wrapping_add(1);
-            if !state.waiting.contains_key(&id) && !state.asynchronous.contains_key(&id) {
-                break id;
-            }
-        };
+        let id = state.next_id();
         let (sender, receiver) = mpsc::channel();
         state.waiting.insert(id, sender);
+        if let Some(attaching) = attaching {
+            state.attaching.insert(id, attaching);
+        }
         Ok((id, receiver))
+    }
+
+    /// Who asked for this attach; the reply is then theirs to announce.
+    pub(crate) fn take_attaching(&self, id: RequestId) -> Option<Attaching> {
+        self.lock().attaching.remove(&id)
     }
 
     pub(crate) fn resolve(&self, id: RequestId, body: ReplyBody) {
         let mut state = self.lock();
         let asynchronous = state.asynchronous.remove(&id);
         let sender = state.waiting.remove(&id);
+        state.attaching.remove(&id);
         drop(state);
         if let Some((response, _)) = asynchronous {
             response.resolve(match body {
@@ -51,14 +102,41 @@ impl Pending {
                 body => Ok(body),
             });
         } else if let Some(sender) = sender {
-            let _ = sender.send(body);
+            let _ = sender.send(Reply::Body(body));
         }
     }
 
+    pub(crate) fn resolve_attached(&self, id: RequestId, channel: ChannelId) {
+        if let Some(sender) = self.lock().waiting.remove(&id) {
+            let _ = sender.send(Reply::Attached(channel));
+        }
+    }
+
+    /// Stops waiting for an attach whose reply hasn't arrived, which still
+    /// reaches the event stream later. Returns false once the reply is being
+    /// announced, so the caller waits the moment it takes instead.
+    pub(crate) fn give_up_attach(&self, id: RequestId) -> bool {
+        let mut state = self.lock();
+        let waiting = state.attaching.contains_key(&id);
+        if waiting {
+            state.waiting.remove(&id);
+        }
+        waiting
+    }
+
+    /// Stops waiting for a reply.
     pub(crate) fn forget(&self, id: RequestId) {
         let mut state = self.lock();
         state.waiting.remove(&id);
         state.asynchronous.remove(&id);
+    }
+
+    /// Forgets a request the server never received.
+    pub(crate) fn abandon(&self, id: RequestId) {
+        let mut state = self.lock();
+        state.waiting.remove(&id);
+        state.asynchronous.remove(&id);
+        state.attaching.remove(&id);
     }
 
     pub(crate) fn close(&self) {
@@ -66,6 +144,7 @@ impl Pending {
         state.closed = true;
         self.deadlines.notify_one();
         state.waiting.clear();
+        state.attaching.clear();
         let responses = std::mem::take(&mut state.asynchronous);
         drop(state);
         for (response, _) in responses.into_values() {
@@ -88,13 +167,7 @@ impl Pending {
             )
             .into());
         }
-        let id = loop {
-            let id = RequestId(state.next);
-            state.next = state.next.wrapping_add(1);
-            if !state.waiting.contains_key(&id) && !state.asynchronous.contains_key(&id) {
-                break id;
-            }
-        };
+        let id = state.next_id();
         let response = Arc::new(Response::default());
         state
             .asynchronous
@@ -170,5 +243,40 @@ impl Pending {
 
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attaching() -> Attaching {
+        Attaching {
+            tag: 1,
+            session: SessionId::new(7).expect("session"),
+        }
+    }
+
+    #[test]
+    fn an_attach_given_up_before_its_reply_leaves_the_reply_to_the_event_stream() {
+        let pending = Pending::default();
+        let (id, reply) = pending.register_attach(attaching()).expect("register");
+        assert!(pending.give_up_attach(id));
+        assert!(pending.take_attaching(id).is_some());
+        pending.resolve_attached(id, ChannelId(3));
+        assert!(reply.try_recv().is_err());
+    }
+
+    #[test]
+    fn an_attach_whose_reply_is_being_announced_still_gets_its_channel() {
+        let pending = Pending::default();
+        let (id, reply) = pending.register_attach(attaching()).expect("register");
+        assert!(pending.take_attaching(id).is_some());
+        assert!(!pending.give_up_attach(id));
+        pending.resolve_attached(id, ChannelId(3));
+        assert!(matches!(
+            reply.try_recv(),
+            Ok(Reply::Attached(ChannelId(3)))
+        ));
     }
 }

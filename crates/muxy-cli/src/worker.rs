@@ -1,5 +1,5 @@
 mod io;
-pub(crate) use io::{Closing, Fetcher, InputWriter, Shared, View, lock};
+pub(crate) use io::{Attaching, Closing, Fetcher, InputWriter, Shared, View, lock};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -508,7 +508,7 @@ impl Core {
                 .and_then(State::tab)
                 .filter(|_| !shared.host_unfocused)
                 .and_then(|tab| shared.views.get(&tab.focus))
-                .filter(|view| view.channel.is_some())
+                .filter(|view| view.channel().is_some())
                 .map(|view| view.session);
             shared
                 .activity
@@ -579,22 +579,30 @@ impl Core {
                 .views
                 .get(&id)
                 .map_or(Size { cols: 80, rows: 24 }, |view| view.viewport);
-            match client.attach(session, size) {
-                Ok(attachment) => {
-                    let detached = client.detach(attachment.channel);
-                    lock(&self.shared).retire(attachment.channel);
-                    match detached {
+            let (reply, process) = mpsc::sync_channel(1);
+            let tag = lock(&self.shared).start_attach(Attaching::Process(reply));
+            match client.attach(tag, session, size) {
+                Ok(channel) => {
+                    match client.detach(channel) {
                         Ok(()) => {}
                         Err(ClientError::Server(error))
                             if error.code == ErrorCode::UnknownChannel => {}
                         Err(error) => return Err(error.to_string()),
                     }
-                    if runs_program(attachment.process.as_ref()) {
+                    let process = process
+                        .recv_timeout(Duration::from_secs(5))
+                        .map_err(|_| "lost the connection to the server".to_owned())?;
+                    if runs_program(process.as_ref()) {
                         return Ok(true);
                     }
                 }
-                Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownSession => {}
-                Err(error) => return Err(error.to_string()),
+                Err(error) => {
+                    lock(&self.shared).cancel_attach(tag);
+                    match error {
+                        ClientError::Server(error) if error.code == ErrorCode::UnknownSession => {}
+                        error => return Err(error.to_string()),
+                    }
+                }
             }
         }
         Ok(false)
@@ -629,7 +637,7 @@ impl Core {
             .views
             .iter()
             .filter(|(id, _)| !desired.contains_key(id))
-            .map(|(id, view)| (*id, view.channel))
+            .map(|(id, view)| (*id, view.channel()))
             .collect();
         for (id, channel) in obsolete {
             if let Some(channel) = channel {
@@ -727,7 +735,7 @@ impl Core {
         let existing = lock(&self.shared)
             .views
             .get(&id)
-            .map(|view| (view.ended, view.channel, view.viewport));
+            .map(|view| (view.ended, view.channel(), view.viewport));
         if let Some((ended, channel, viewport)) = existing {
             if ended {
                 return Ok(());
@@ -736,7 +744,7 @@ impl Core {
                 if viewport != size {
                     if let Some(view) = lock(&self.shared).views.get_mut(&id) {
                         view.viewport = size;
-                        view.grid.resize(size);
+                        view.terminal.grid.resize(size);
                         view.scroll.bottom();
                     }
                     client
@@ -746,23 +754,26 @@ impl Core {
                 return Ok(());
             }
         }
-        let mut view = match client.attach(session, size) {
-            Ok(attachment) => View::attached(session, size, attachment),
-            Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownSession => {
-                lock(&self.shared).session_ended(session);
-                self.close_ended_sessions(catalog)?;
+        let tag = {
+            let mut shared = lock(&self.shared);
+            if shared.is_attaching(id) {
                 return Ok(());
             }
-            Err(error) => return Err(error.to_string()),
+            shared.start_attach(Attaching::Pane { id, viewport: size })
         };
-        view.grid.graphics = muxy_protocol::Graphics::default();
-        let ack = lock(&self.shared).insert(id, view);
-        if let Some((channel, seq)) = ack {
-            client
-                .ack(channel, seq)
-                .map_err(|error| error.to_string())?;
+        match client.attach(tag, session, size) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                lock(&self.shared).cancel_attach(tag);
+                match error {
+                    ClientError::Server(error) if error.code == ErrorCode::UnknownSession => {
+                        lock(&self.shared).session_ended(session);
+                        self.close_ended_sessions(catalog)
+                    }
+                    error => Err(error.to_string()),
+                }
+            }
         }
-        Ok(())
     }
 
     fn create_pane(
@@ -991,10 +1002,10 @@ fn send_input(shared: &Mutex<Shared>, writer: &InputWriter, input: Input) -> Res
     else {
         return Ok(());
     };
-    let Some((client, channel)) = shared.client.clone().zip(view.channel) else {
+    let Some((client, channel)) = shared.client.clone().zip(view.channel()) else {
         return Ok(());
     };
-    let modes = view.grid.modes;
+    let modes = view.terminal.grid.modes;
     drop(shared);
     let bytes = input.encode(modes);
     if !bytes.is_empty() {

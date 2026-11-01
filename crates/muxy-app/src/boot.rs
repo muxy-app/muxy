@@ -307,9 +307,19 @@ pub(crate) struct CloseCheckId(u64);
 
 impl CloseCheckId {
     pub(crate) fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+        Self(attach_tag())
     }
+
+    /// A close check attaches to read the process, under this tag.
+    fn tag(self) -> u64 {
+        self.0
+    }
+}
+
+/// Tells each attach's terminal apart on the event stream.
+pub(crate) fn attach_tag() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 #[derive(Debug)]
@@ -373,6 +383,8 @@ pub(crate) enum Work {
         replace: bool,
     },
     Attach {
+        /// From `attach_tag`.
+        tag: u64,
         pane: PaneId,
         project: muxy_protocol::ProjectId,
         session: Option<SessionId>,
@@ -720,6 +732,9 @@ pub(crate) fn worker(
                     && let Some(client) = &client
                 {
                     client.disconnect();
+                }
+                for channel in delivery.take_strays() {
+                    ready.extend(requests.push(Work::Detach(channel), &mut delivery));
                 }
                 if let Some(client) = &client {
                     ready.extend(requests.start(
@@ -1114,6 +1129,7 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return Some(search(client, pane, source, request));
         }
         Work::Attach {
+            tag,
             pane,
             project,
             session,
@@ -1122,8 +1138,9 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             environment,
             colors,
         } => {
-            return Some(attach(
+            return attach(
                 client,
+                tag,
                 pane,
                 session,
                 size,
@@ -1133,7 +1150,7 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
                     environment,
                     colors,
                 },
-            ));
+            );
         }
         Work::ReadSaved { pane, session } => {
             return Some(Update::Saved {
@@ -1167,11 +1184,13 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             session,
             size,
         } => {
-            return Some(Update::CloseChecked {
-                check,
-                session,
-                result: check_close(client, session, size),
-            });
+            return check_close(client, check, session, size)
+                .err()
+                .map(|error| Update::CloseChecked {
+                    check,
+                    session,
+                    result: Err(error),
+                });
         }
         Work::EndAll(referenced) => return Some(Update::EndedAll(end_all(client, referenced))),
         Work::Detach(channel) => {
@@ -1326,15 +1345,15 @@ fn end_all(client: &Client, referenced: Vec<SessionId>) -> Result<(), ClientErro
 
 fn check_close(
     client: &Client,
+    check: CloseCheckId,
     session: SessionId,
     size: Size,
-) -> Result<Option<ForegroundProcess>, ClientError> {
-    let attachment = client.attach(session, size)?;
-    match client.detach(attachment.channel) {
-        Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownChannel => {}
-        result => result?,
+) -> Result<(), ClientError> {
+    let channel = client.attach(check.tag(), session, size)?;
+    match client.detach(channel) {
+        Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownChannel => Ok(()),
+        result => result,
     }
-    Ok(attachment.process)
 }
 
 /// What a new terminal starts with.
@@ -1345,13 +1364,16 @@ struct Launch {
     colors: Option<TerminalColors>,
 }
 
+/// Attaches `pane`, creating its session first if it has none. Its terminal
+/// arrives as `Update::Attached`; only a failure returns here.
 fn attach(
     client: &Client,
+    tag: u64,
     pane: PaneId,
     existing: Option<SessionId>,
     size: Size,
     launch: Launch,
-) -> Update {
+) -> Option<Update> {
     let session = match existing.map_or_else(
         || {
             client
@@ -1369,28 +1391,23 @@ fn attach(
     ) {
         Ok(session) => session,
         Err(error) => {
-            return Update::AttachFailed {
+            return Some(Update::AttachFailed {
                 pane,
                 session: None,
                 created: false,
                 error,
-            };
+            });
         }
     };
-    match client.attach(session, size) {
-        Ok(attachment) => Update::Attached {
-            pane,
-            session,
-            attachment,
-            created: existing.is_none(),
-        },
-        Err(error) => Update::AttachFailed {
+    client
+        .attach(tag, session, size)
+        .err()
+        .map(|error| Update::AttachFailed {
             pane,
             session: Some(session),
             created: existing.is_none(),
             error,
-        },
-    }
+        })
 }
 
 pub(crate) fn missing_session(error: &ClientError) -> bool {

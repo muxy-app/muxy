@@ -6,7 +6,7 @@ use gpui::{
     ParentElement, Render, Styled, Task, Window, div, prelude::FluentBuilder, px,
 };
 use muxy_app_core::ServerId;
-use muxy_client::{Attachment, RunGrid};
+use muxy_client::{AttachedTerminal, Attachment, RunGrid};
 use muxy_protocol::{
     ChannelId, ExitReason, ForegroundProcess, HistoryPage, InputModes, MetadataEvent, MouseAction,
     MouseEvent, SavedScreen, ScreenFrame, ScrollDirection, ServerPath, Size,
@@ -53,6 +53,48 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
     );
 }
 
+/// What a pane shows. It reads as the grid on screen.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Screen {
+    /// A terminal attached on this server.
+    Attached(ServerId, AttachedTerminal),
+    /// The last screen of a terminal no longer attached, or a saved one.
+    Detached(RunGrid),
+}
+
+impl Screen {
+    fn detached(self) -> Self {
+        Self::Detached(self.into_grid())
+    }
+
+    pub(crate) fn into_grid(self) -> RunGrid {
+        match self {
+            Self::Attached(_, terminal) => terminal.grid,
+            Self::Detached(grid) => grid,
+        }
+    }
+}
+
+impl std::ops::Deref for Screen {
+    type Target = RunGrid;
+
+    fn deref(&self) -> &RunGrid {
+        match self {
+            Self::Attached(_, terminal) => &terminal.grid,
+            Self::Detached(grid) => grid,
+        }
+    }
+}
+
+impl std::ops::DerefMut for Screen {
+    fn deref_mut(&mut self) -> &mut RunGrid {
+        match self {
+            Self::Attached(_, terminal) => &mut terminal.grid,
+            Self::Detached(grid) => grid,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PaneState {
     Connecting,
@@ -75,7 +117,7 @@ pub(crate) struct TerminalPane {
     pub(crate) images: element::images::Textures,
     pub(crate) rows: std::cell::RefCell<element::Rows>,
     pub(crate) shades: element::shade::Textures,
-    pub(crate) grid: Option<RunGrid>,
+    pub(crate) grid: Option<Screen>,
     pub(crate) copy_on_select: bool,
     pub(crate) open_context: Option<muxy_app_core::opener::OpenContext>,
     pub(crate) link_hover: super::links::Hover,
@@ -110,8 +152,6 @@ pub(crate) struct TerminalPane {
     pub(crate) cursor_blink: super::cursor::CursorBlink,
     pub(crate) focus_border: Option<gpui::Hsla>,
     pub(crate) corner_radius: gpui::Pixels,
-    /// The server that attached this pane, and its channel there.
-    attachment: Option<(ServerId, ChannelId)>,
     viewport: Option<Size>,
     pub(crate) palette: Palette,
     pub(crate) background_opacity: f32,
@@ -207,7 +247,6 @@ impl TerminalPane {
             cursor_blink: super::cursor::CursorBlink::default(),
             focus_border: None,
             corner_radius: px(0.0),
-            attachment: None,
             viewport: None,
             palette,
             background_opacity: 1.0,
@@ -228,11 +267,19 @@ impl TerminalPane {
     }
 
     pub(crate) fn channel(&self) -> Option<ChannelId> {
-        self.attachment.map(|(_, channel)| channel)
+        self.attachment().map(|(_, channel)| channel)
     }
 
+    /// The server that attached this pane, and its channel there.
     pub(crate) fn attachment(&self) -> Option<(ServerId, ChannelId)> {
-        self.attachment
+        match &self.grid {
+            Some(Screen::Attached(server, terminal)) => Some((*server, terminal.channel())),
+            _ => None,
+        }
+    }
+
+    fn detach(&mut self) {
+        self.grid = self.grid.take().map(Screen::detached);
     }
 
     pub(crate) fn viewport(&self) -> Option<Size> {
@@ -240,7 +287,7 @@ impl TerminalPane {
     }
 
     pub(crate) fn set_state(&mut self, state: PaneState, cx: &mut Context<Self>) {
-        self.attachment = None;
+        self.detach();
         self.reset_input();
         self.scroll.reset();
         self.saved_history = None;
@@ -263,11 +310,10 @@ impl TerminalPane {
             reason: screen.reason,
             unavailable: false,
         };
-        self.attachment = None;
         self.reset_input();
         self.scroll.reset();
         self.saved_history = None;
-        self.grid = Some(RunGrid::from_saved(screen));
+        self.grid = Some(Screen::Detached(RunGrid::from_saved(screen)));
         self.prepare_saved_history(cx);
         self.restart_find(cx);
         cx.notify();
@@ -279,19 +325,18 @@ impl TerminalPane {
         attachment: Attachment,
         cx: &mut Context<Self>,
     ) -> Option<Size> {
-        let resized = self.viewport.filter(|size| *size != attachment.grid.size);
+        let live = &attachment.terminal.grid;
+        let resized = self.viewport.filter(|size| *size != live.size);
         self.reset_input();
         self.clear_selection();
-        let history = if resized.is_none() && self.keeps_scroll(&attachment.grid) {
-            self.scroll
-                .reattached(usize::from(attachment.grid.size.rows))
+        let history = if resized.is_none() && self.keeps_scroll(live) {
+            self.scroll.reattached(usize::from(live.size.rows))
         } else {
             self.scroll.reset();
             None
         };
         self.saved_history = None;
         self.sent_cell_size = None;
-        self.attachment = Some((server, attachment.channel));
         self.server_input = attachment.server_input;
         self.state = PaneState::Live;
         self.cursor_blink = super::cursor::CursorBlink::default();
@@ -299,7 +344,7 @@ impl TerminalPane {
         self.directory = attachment.directory;
         self.process = attachment.process;
         self.emit_title(cx);
-        self.grid = Some(attachment.grid);
+        self.grid = Some(Screen::Attached(server, attachment.terminal));
         self.restart_find(cx);
         if let Some(size) = resized
             && let Some(grid) = &mut self.grid
@@ -328,32 +373,35 @@ impl TerminalPane {
             && !scrolls_on_output()
     }
 
-    pub(crate) fn apply(&mut self, frame: &ScreenFrame, cx: &mut Context<Self>) {
+    /// Applies the attached terminal's next frame; returns the sequence number to acknowledge.
+    pub(crate) fn apply(&mut self, frame: &ScreenFrame, cx: &mut Context<Self>) -> Option<u64> {
         let _span = crate::profiler::span(crate::profiler::Metric::FrameApply);
         crate::profiler::count(crate::profiler::Metric::FrameRows, frame.rows.len());
-        if let Some(grid) = &mut self.grid {
-            if frame.reset {
-                self.scroll.reset();
-                self.saved_history = None;
-            }
-            if grid.cursor != frame.cursor {
-                self.cursor_blink.reset();
-            }
-            let output_changed = !frame.rows.is_empty() || grid.cursor != frame.cursor;
-            grid.apply(frame);
-            if output_changed && self.terminal.options.scroll_on_output {
-                self.scroll.bottom();
-            }
-            if self.scroll.view.is_none() {
-                if frame.reset {
-                    self.restart_find(cx);
-                } else {
-                    self.refresh_find(cx);
-                }
-            }
-            self.validate_selection();
-            cx.notify();
+        let Some(Screen::Attached(_, terminal)) = &mut self.grid else {
+            return None;
+        };
+        if frame.reset {
+            self.scroll.reset();
+            self.saved_history = None;
         }
+        if terminal.grid.cursor != frame.cursor {
+            self.cursor_blink.reset();
+        }
+        let output_changed = !frame.rows.is_empty() || terminal.grid.cursor != frame.cursor;
+        let seq = terminal.apply(frame);
+        if output_changed && self.terminal.options.scroll_on_output {
+            self.scroll.bottom();
+        }
+        if self.scroll.view.is_none() {
+            if frame.reset {
+                self.restart_find(cx);
+            } else {
+                self.refresh_find(cx);
+            }
+        }
+        self.validate_selection();
+        cx.notify();
+        Some(seq)
     }
 
     pub(crate) fn scroll_rows(&mut self, delta: f32, cx: &mut Context<Self>) {
@@ -726,7 +774,7 @@ impl TerminalPane {
             return;
         }
         self.viewport = Some(size);
-        if self.attachment.is_some() {
+        if self.attachment().is_some() {
             self.scroll.reset();
             self.saved_history = None;
         } else {
@@ -734,7 +782,7 @@ impl TerminalPane {
             self.saved_history = None;
             self.prepare_saved_history(cx);
         }
-        if self.attachment.is_some()
+        if self.attachment().is_some()
             && let Some(grid) = &mut self.grid
         {
             grid.resize(size);
@@ -746,13 +794,13 @@ impl TerminalPane {
     }
 
     pub(crate) fn displayed_grid(&self) -> Option<&RunGrid> {
-        self.scroll.view.as_ref().or(self.grid.as_ref())
+        self.scroll.view.as_ref().or(self.grid.as_deref())
     }
 
     #[allow(clippy::cast_precision_loss)]
     pub(super) fn scrollable_rows(&self, viewport_rows: u16) -> f64 {
         self.displayed_grid().map_or(0.0, |grid| {
-            if self.attachment.is_some() && self.scroll.view.is_none() {
+            if self.attachment().is_some() && self.scroll.view.is_none() {
                 grid.history_total as f64
             } else {
                 (grid.history_total as f64 + grid.rows.len() as f64 - f64::from(viewport_rows))
@@ -1351,7 +1399,7 @@ impl TerminalPane {
 
     /// Whether another computer's server runs this terminal.
     pub(crate) fn remote(&self) -> bool {
-        self.attachment
+        self.attachment()
             .is_some_and(|(server, _)| !server.is_local())
     }
 
@@ -1825,10 +1873,20 @@ mod tests {
         }
     }
 
+    /// Shows the pane's screen as attached on `server`.
+    fn attach_screen(pane: &mut TerminalPane, server: ServerId) {
+        pane.grid = pane.grid.take().map(|screen| {
+            Screen::Attached(
+                server,
+                AttachedTerminal::new(ChannelId(1), screen.into_grid()),
+            )
+        });
+    }
+
     fn prepare_mouse(pane: &mut TerminalPane) {
-        pane.grid = Some(grid());
+        pane.grid = Some(Screen::Detached(grid()));
+        attach_screen(pane, ServerId::local());
         pane.state = PaneState::Live;
-        pane.attachment = Some((ServerId::local(), ChannelId(1)));
         pane.viewport = Some(Size { cols: 20, rows: 3 });
         pane.geometry = Some((
             Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(60.0))),
@@ -2140,7 +2198,7 @@ mod tests {
         let mut grid = grid();
         grid.history = (0..200).map(|index| row(index, "alpha")).collect();
         grid.history_total = 200;
-        pane.grid = Some(grid);
+        pane.grid = Some(Screen::Detached(grid));
         pane.state = PaneState::Live;
         pane.open_find(
             &muxy_ui::theme::Theme::from_scheme(&muxy_ui::theme::ColorScheme::default()),
@@ -2223,6 +2281,7 @@ mod tests {
             let find = pane.find.as_mut().unwrap();
             find.results.query = "alpha".into();
             let request = find.results.restart().unwrap();
+            attach_screen(pane, ServerId::local());
             pane.apply(
                 &ScreenFrame {
                     size: pane.grid.as_ref().unwrap().size,
@@ -2556,9 +2615,8 @@ mod tests {
                 pane.attach(
                     ServerId::local(),
                     Attachment {
-                        channel: ChannelId(2),
+                        terminal: AttachedTerminal::new(ChannelId(2), live),
                         server_input: false,
-                        grid: live,
                         title: String::new(),
                         directory: ServerPath(Vec::new()),
                         process: None,
@@ -2756,7 +2814,7 @@ mod tests {
         let remote = ServerId::new();
         pane.update(cx, |pane, cx| {
             prepare_mouse(pane);
-            pane.attachment = Some((remote, ChannelId(1)));
+            attach_screen(pane, remote);
             pane.open_context = Some(muxy_app_core::opener::OpenContext {
                 project: muxy_protocol::ProjectId::new(),
                 pane: muxy_app_core::PaneId::new(),
@@ -2795,7 +2853,7 @@ mod tests {
                 "web links open here, without asking"
             );
             pane.set_state(PaneState::Disconnected, cx);
-            pane.attachment = Some((remote, ChannelId(1)));
+            attach_screen(pane, remote);
             pane.drop_paths(&["/tmp/ignored".into()], cx);
         });
         cx.run_until_parked();

@@ -58,7 +58,7 @@ use muxy_protocol::{SessionId, SessionInfo, Size};
 use crate::boot::{Boot, CloseCheckId, Update, Work, missing_session};
 use crate::views::overlays::Overlay;
 use crate::views::terminal::colors::Palette;
-use crate::views::terminal::pane::{PaneEvent, PaneState, TerminalPane};
+use crate::views::terminal::pane::{PaneEvent, PaneState, Screen, TerminalPane};
 use crate::views::terminal::scroll::{Scroll, output_changed};
 use close_check::CloseCheck;
 use muxy_ui::theme::{Metrics, Theme};
@@ -1707,7 +1707,10 @@ impl AppModel {
                     self.send(server, Work::Detach(channel), cx);
                 }
                 let (grid, scroll) = pane.view.update(cx, |pane, _| {
-                    (pane.grid.take(), std::mem::take(&mut pane.scroll))
+                    (
+                        pane.grid.take().map(Screen::into_grid),
+                        std::mem::take(&mut pane.scroll),
+                    )
                 });
                 if let Some(grid) = grid {
                     self.snapshots.insert(id, grid);
@@ -1767,7 +1770,7 @@ impl AppModel {
             pane.configured_font_size = self.terminal.font_size;
             pane.copy_on_select = self.settings.clipboard.copy_on_select;
             pane.open_context = open_context;
-            pane.grid = snapshot;
+            pane.grid = snapshot.map(Screen::Detached);
             pane.set_state(state, cx);
             if state == PaneState::Live {
                 pane.scroll = scroll;
@@ -2013,6 +2016,7 @@ impl AppModel {
         self.send(
             server,
             Work::Attach {
+                tag: crate::boot::attach_tag(),
                 pane,
                 project: project_id,
                 session,
@@ -2135,6 +2139,7 @@ impl AppModel {
         runtime.activity.navigation = navigation;
         runtime.references = None;
         runtime.sessions_revision = 0;
+        runtime.last_channel = 0;
         self.forget_server_sessions(server, cx);
         self.sync_preferences(cx);
         if server.is_local() || (failure.is_some() && self.error == failure) {
@@ -2350,7 +2355,7 @@ impl AppModel {
             "terminal.attached",
             format_args!(
                 "pane={pane} server={server} session={session:?} channel={:?} created={created} visible={} detached_pending={}",
-                attachment.channel,
+                attachment.terminal.channel(),
                 self.terminal(&pane).is_some(),
                 self.detached_pending.contains(&pane)
             ),
@@ -2358,6 +2363,9 @@ impl AppModel {
         self.pending.remove(&pane);
         self.initial_directories.remove(&pane);
         self.proxy.choices.remove(&pane);
+        if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.last_channel = runtime.last_channel.max(attachment.terminal.channel().0);
+        }
         let detached = self.detached_pending.remove(&pane);
         if detached {
             if let Some(runtime) = self.servers.get_mut(server) {
@@ -2371,7 +2379,7 @@ impl AppModel {
             if created && !detached {
                 self.discard_created(server, session, cx);
             } else {
-                self.send(server, Work::Detach(attachment.channel), cx);
+                self.send(server, Work::Detach(attachment.terminal.channel()), cx);
             }
             return;
         }
@@ -2385,7 +2393,10 @@ impl AppModel {
             && (!saved
                 || !self.send(
                     server,
-                    Work::Input(attachment.channel, format!("{command}\r").into_bytes()),
+                    Work::Input(
+                        attachment.terminal.channel(),
+                        format!("{command}\r").into_bytes(),
+                    ),
                     cx,
                 ))
         {
@@ -2393,22 +2404,22 @@ impl AppModel {
             self.save(cx);
         }
         if let Some(view) = self.terminal(&pane).map(|pane| pane.view.clone()) {
-            let channel = attachment.channel;
+            let channel = attachment.terminal.channel();
             let size = view.update(cx, |pane, cx| pane.attach(server, attachment, cx));
             if let Some(size) = size {
                 self.send(server, Work::Resize(channel, size), cx);
             }
         } else {
-            self.send(server, Work::Detach(attachment.channel), cx);
+            self.send(server, Work::Detach(attachment.terminal.channel()), cx);
             if self.terminal.options.scroll_on_output
                 && self
                     .snapshots
                     .get(&pane)
-                    .is_some_and(|grid| output_changed(grid, &attachment.grid))
+                    .is_some_and(|grid| output_changed(grid, &attachment.terminal.grid))
             {
                 self.scrolls.remove(&pane);
             }
-            self.snapshots.insert(pane, attachment.grid);
+            self.snapshots.insert(pane, attachment.terminal.grid);
         }
     }
 
@@ -2636,9 +2647,15 @@ impl AppModel {
             }
             ClientEvent::RemoteAccessChanged { .. } if local => self.remote_access_changed(cx),
             ClientEvent::Frame { channel, frame } => {
-                if let Some(pane) = self.attached_view(server, channel, cx) {
-                    let seq = frame.seq;
-                    pane.update(cx, |pane, cx| pane.apply(&frame, cx));
+                let seq = match self.attached_view(server, channel, cx) {
+                    Some(pane) => pane.update(cx, |pane, cx| pane.apply(&frame, cx)),
+                    None => self
+                        .servers
+                        .get(server)
+                        .is_some_and(|runtime| channel.0 <= runtime.last_channel)
+                        .then_some(frame.seq),
+                };
+                if let Some(seq) = seq {
                     self.send(server, Work::Ack(channel, seq), cx);
                 }
             }
@@ -2653,7 +2670,9 @@ impl AppModel {
                 }
             }
             ClientEvent::ServerRestarting if local => self.expect_server_restart(),
-            ClientEvent::RemoteAccessChanged { .. } | ClientEvent::ServerRestarting => {}
+            ClientEvent::RemoteAccessChanged { .. }
+            | ClientEvent::ServerRestarting
+            | ClientEvent::Attached { .. } => {}
             ClientEvent::Disconnected if local => self.receive_disconnect(cx),
             ClientEvent::Disconnected => {
                 self.disconnect(server, cx);
@@ -3487,24 +3506,28 @@ mod tests {
     }
 
     pub(in crate::model) fn attachment() -> muxy_client::Attachment {
+        attachment_on(1)
+    }
+
+    pub(in crate::model) fn attachment_on(channel: u32) -> muxy_client::Attachment {
         let screen = saved_screen();
+        let grid = RunGrid {
+            graphics: muxy_protocol::Graphics::default(),
+            prompts: std::collections::BTreeSet::default(),
+            prompt_state: muxy_client::ScreenPrompts::default(),
+            links: muxy_client::ScreenLinks::default(),
+            size: screen.size,
+            rows: screen.rows.into_iter().map(|row| row.runs).collect(),
+            cursor: screen.cursor,
+            modes: muxy_protocol::Modes::default(),
+            history: std::collections::VecDeque::new(),
+            history_cursor: None,
+            history_total: 0,
+            history_fresh: true,
+        };
         muxy_client::Attachment {
-            channel: muxy_protocol::ChannelId(1),
+            terminal: muxy_client::AttachedTerminal::new(muxy_protocol::ChannelId(channel), grid),
             server_input: false,
-            grid: RunGrid {
-                graphics: muxy_protocol::Graphics::default(),
-                prompts: std::collections::BTreeSet::default(),
-                prompt_state: muxy_client::ScreenPrompts::default(),
-                links: muxy_client::ScreenLinks::default(),
-                size: screen.size,
-                rows: screen.rows.into_iter().map(|row| row.runs).collect(),
-                cursor: screen.cursor,
-                modes: muxy_protocol::Modes::default(),
-                history: std::collections::VecDeque::new(),
-                history_cursor: None,
-                history_total: 0,
-                history_fresh: true,
-            },
             title: String::new(),
             directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
             process: Some(muxy_protocol::ForegroundProcess {
