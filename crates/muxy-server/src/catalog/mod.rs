@@ -139,7 +139,10 @@ impl State {
                 .projects
                 .get(&parent)
                 .ok_or_else(|| bad("missing project parent"))?;
-            if parent.home || parent.parent_id.is_some() || parent.kind.is_some() {
+            if parent.home
+                || parent.parent_id.is_some()
+                || parent.kind == Some(muxy_protocol::ProjectKind::Worktree)
+            {
                 return Err(bad("invalid project parent"));
             }
         }

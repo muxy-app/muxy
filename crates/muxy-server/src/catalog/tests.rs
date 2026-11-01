@@ -394,3 +394,15 @@ fn values_from_a_newer_build_do_not_stop_startup() -> std::io::Result<()> {
     assert_eq!(state.git.len(), 3);
     Ok(())
 }
+
+#[test]
+fn a_parent_of_a_kind_from_a_newer_build_does_not_stop_startup() -> std::io::Result<()> {
+    let mut json = fixture();
+    json["projects"][ProjectId::from_u128(2).to_string()]["kind"] = "repository".into();
+    let state = open(&json)?;
+    assert_eq!(
+        state.projects[&ProjectId::from_u128(3)].parent_id,
+        Some(ProjectId::from_u128(2))
+    );
+    Ok(())
+}
