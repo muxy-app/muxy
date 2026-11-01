@@ -917,7 +917,7 @@ impl AppModel {
         let generation = self.generation(server);
         let name = (!server.is_local()).then(|| self.server_label(server));
         self.ask_once(
-            super::dialogs::Question::ServerControl(server),
+            super::dialogs::Question::ServerControl(server, restart),
             window,
             async move |parent, cx| {
                 crate::views::confirm::prompt_server(parent, restart, name.as_deref(), cx).await

@@ -941,7 +941,7 @@ impl AppModel {
         let source = crate::remote_install::Source::current();
         let described = source.clone();
         self.ask_once(
-            crate::model::dialogs::Question::InstallFormServer,
+            crate::model::dialogs::Question::InstallFormServer(destination.clone()),
             window.window_handle(),
             async move |parent, cx| {
                 super::confirm::prompt_install_server(parent, &destination, &described, cx).await

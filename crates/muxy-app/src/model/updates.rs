@@ -500,7 +500,7 @@ impl AppModel {
         self.dismiss_overlay(cx);
         let asked = version.clone();
         self.ask_once(
-            super::dialogs::Question::Update,
+            super::dialogs::Question::Update(version.clone()),
             self.window,
             async move |parent, cx| {
                 crate::views::confirm::prompt_update(

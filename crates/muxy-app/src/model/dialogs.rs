@@ -2,6 +2,9 @@
 //! while another is open waits its turn.
 
 use std::collections::VecDeque;
+use std::future::Future;
+use std::pin::pin;
+use std::task::Poll;
 
 use gpui::{AnyWindowHandle, AsyncApp, Context, Task};
 use muxy_app_core::ServerId;
@@ -18,16 +21,20 @@ pub(crate) struct DialogId(u64);
 /// waiting adds nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Question {
-    Update,
+    /// Installing this version.
+    Update(String),
     TerminalReset,
-    ServerControl(ServerId),
+    /// Stopping the server, or restarting it.
+    ServerControl(ServerId, bool),
     RevokeDevice(DeviceId),
     ForgetServers(Vec<ServerId>),
     InstallServer(ServerId),
-    InstallFormServer,
+    /// Installing the server the form names.
+    InstallFormServer(String),
 }
 
-type Show = Box<dyn FnOnce(&mut AppModel, &mut Context<AppModel>) -> Task<()>>;
+type Show =
+    Box<dyn FnOnce(&mut AppModel, async_channel::Receiver<()>, &mut Context<AppModel>) -> Task<()>>;
 
 struct Waiting {
     id: DialogId,
@@ -40,6 +47,9 @@ struct Open {
     id: DialogId,
     question: Option<Question>,
     window: AnyWindowHandle,
+    /// Closes the dialog from inside its task, so the dialog is gone before
+    /// the next one opens on the same window.
+    dismiss: async_channel::Sender<()>,
     _task: Task<()>,
 }
 
@@ -105,13 +115,26 @@ impl AppModel {
     ) -> DialogId {
         self.dialogs.last += 1;
         let id = DialogId(self.dialogs.last);
-        let show: Show = Box::new(move |model, cx| {
+        let show: Show = Box::new(move |model, dismissed, cx| {
             let parent = model.dialog_parent(window);
             cx.spawn(async move |model, cx| {
-                let answer = ask(&parent, cx).await;
+                let answer = {
+                    let mut asking = pin!(ask(&parent, cx));
+                    let mut dismissed = pin!(dismissed.recv());
+                    std::future::poll_fn(|context| {
+                        if dismissed.as_mut().poll(context).is_ready() {
+                            Poll::Ready(None)
+                        } else {
+                            asking.as_mut().poll(context).map(Some)
+                        }
+                    })
+                    .await
+                };
                 let _ = model.update(cx, |model, cx| {
                     model.dialogs.open = None;
-                    answered(model, answer, cx);
+                    if let Some(answer) = answer {
+                        answered(model, answer, cx);
+                    }
                     model.show_next_dialog(cx);
                     cx.notify();
                 });
@@ -129,9 +152,8 @@ impl AppModel {
 
     /// Closes dialog `id` without an answer, or takes it out of the queue.
     pub(crate) fn dismiss_dialog(&mut self, id: DialogId, cx: &mut Context<Self>) {
-        if self.dialogs.open.as_ref().is_some_and(|open| open.id == id) {
-            self.dialogs.open = None;
-            self.show_next_dialog(cx);
+        if let Some(open) = self.dialogs.open.as_ref().filter(|open| open.id == id) {
+            let _ = open.dismiss.try_send(());
         } else {
             self.dialogs.waiting.retain(|waiting| waiting.id != id);
         }
@@ -157,11 +179,13 @@ impl AppModel {
             return;
         }
         if let Some(next) = self.dialogs.waiting.pop_front() {
-            let task = (next.show)(self, cx);
+            let (dismiss, dismissed) = async_channel::bounded(1);
+            let task = (next.show)(self, dismissed, cx);
             self.dialogs.open = Some(Open {
                 id: next.id,
                 question: next.question,
                 window: next.window,
+                dismiss,
                 _task: task,
             });
         }
