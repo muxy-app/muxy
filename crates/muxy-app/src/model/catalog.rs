@@ -2,7 +2,7 @@ use super::{AppModel, ConnectionState, Overlay, Work};
 use gpui::Context;
 use muxy_app_core::browser::api;
 use muxy_app_core::browser::automation::{Args, string};
-use muxy_app_core::{AppError, PaneId, ServerId};
+use muxy_app_core::{AppError, LocalCatalog, PaneId, ServerId};
 use muxy_client::ClientError;
 use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation, SessionId};
 use muxy_ui::tr;
@@ -147,7 +147,14 @@ impl AppModel {
                 return;
             }
         };
-        if page.revision < self.state.catalog_revision(server) {
+        let replaced = server.is_local()
+            && self
+                .state
+                .server_identity(server)
+                .is_some_and(|identity| identity != page.server);
+        if replaced {
+            runtime.catalog.dirty = 0;
+        } else if page.revision < self.state.catalog_revision(server) {
             return;
         }
         if !server.is_local() && self.state.server_identity(local).is_none() {
@@ -162,13 +169,7 @@ impl AppModel {
             return;
         }
         let first = self.state.server_identity(server).is_none();
-        let previous = self.state.clone();
-        if let Err(error) = self.state.apply_catalog(server, &page) {
-            self.server_failed(server, &error, cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
+        if !self.take_catalog(server, &page, cx) {
             return;
         }
         if let Some(runtime) = self.servers.get_mut(server) {
@@ -226,6 +227,48 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Applies and saves `server`'s catalog. A fresh catalog on this
+    /// computer's server is announced once, when it replaces the known one or
+    /// is the first one the app sees while the server kept the old one aside.
+    fn take_catalog(
+        &mut self,
+        server: ServerId,
+        page: &CatalogPage,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let previous = self.state.clone();
+        let kept = self.kept_catalog().filter(|_| server.is_local());
+        let first = self.state.server_identity(server).is_none();
+        let applied = if server.is_local() {
+            self.state.apply_local_catalog(page, kept.is_some())
+        } else {
+            self.state
+                .apply_catalog(server, page)
+                .map(|()| LocalCatalog::Applied)
+        };
+        let applied = match applied {
+            Ok(applied) => applied,
+            Err(error) => {
+                self.server_failed(server, &error, cx);
+                return false;
+            }
+        };
+        if !self.save(cx) {
+            self.state = previous;
+            return false;
+        }
+        if applied == LocalCatalog::Fresh || (first && kept.is_some()) {
+            let kept =
+                kept.map(|kept| tr!("Your previous projects are kept in %@", kept).to_string());
+            self.show_toast(
+                tr!("The server started with a fresh project list").to_string(),
+                kept,
+                cx,
+            );
+        }
+        true
+    }
+
     /// A catalog this app can't take keeps the state as it was. For another
     /// computer, the reason shows in the sidebar's Remote section instead.
     fn server_failed(&mut self, server: ServerId, error: &AppError, cx: &mut Context<Self>) {
@@ -233,11 +276,15 @@ impl AppModel {
         let cause = matches!(error, AppError::ServerChanged(_))
             .then(|| self.unreadable_message(server))
             .flatten();
-        match cause {
-            Some(cause) if server.is_local() => self.fail_detail(cause, &error.to_string(), cx),
-            Some(cause) => self.server_problem(server, cause, cx),
-            None => self.server_problem(server, error.to_string(), cx),
-        }
+        self.server_problem(server, cause.unwrap_or_else(|| error.to_string()), cx);
+    }
+
+    /// Where this computer's server kept a catalog it couldn't read, which
+    /// could bring a set-aside view back.
+    fn kept_catalog(&self) -> Option<String> {
+        let info = self.servers.get(ServerId::local())?.info.as_ref()?;
+        let file = info.unreadable.iter().find(|file| file.is_catalog())?;
+        Some(file.kept_as.as_path().display().to_string())
     }
 }
 

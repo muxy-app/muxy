@@ -236,7 +236,7 @@ impl Catalog {
         legacy: LegacyImport,
         notifier: Arc<Notifier>,
     ) -> io::Result<Self> {
-        let path = directory.join("catalog.json");
+        let path = directory.join(muxy_protocol::CATALOG_FILE);
         let (mut state, unreadable) = match fs::read(&path) {
             Ok(bytes) => match parse(&bytes) {
                 Ok(state) => (state, None),

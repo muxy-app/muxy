@@ -383,17 +383,20 @@ impl AppModel {
         }
     }
 
-    /// Saved files the server couldn't read when it started, which it runs without.
+    /// Saved files the server couldn't read when it started, which it runs
+    /// without. This computer's catalog is explained once, when its fresh
+    /// project list replaces the old one.
     pub(super) fn unreadable_message(&self, server: ServerId) -> Option<String> {
         let info = self.servers.get(server)?.info.as_ref()?;
-        if info.unreadable.is_empty() {
-            return None;
-        }
         let kept: Vec<_> = info
             .unreadable
             .iter()
+            .filter(|file| !(server.is_local() && file.is_catalog()))
             .map(|file| file.kept_as.as_path().display().to_string())
             .collect();
+        if kept.is_empty() {
+            return None;
+        }
         let message = tr!(
             "The server couldn't read saved data and started without it. Kept for recovery: %@",
             kept.join(", ")

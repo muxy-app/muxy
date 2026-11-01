@@ -50,6 +50,11 @@ pub struct ServerInfo {
     pub unreadable: Vec<UnreadableFile>,
 }
 
+/// The server's project catalog, which also holds its identity.
+pub const CATALOG_FILE: &str = "catalog.json";
+/// Follows the original name of a file the server moved aside.
+pub const UNREADABLE_SUFFIX: &str = ".unreadable-";
+
 /// At most this many unreadable files are reported.
 pub const MAX_UNREADABLE_FILES: usize = 8;
 /// At most this many bytes of an unreadable file's error are reported.
@@ -64,6 +69,19 @@ pub struct UnreadableFile {
     pub kept_as: crate::ServerPath,
     #[n(1)]
     pub error: String,
+}
+
+impl UnreadableFile {
+    /// Whether this is a project catalog, which could bring its server's
+    /// identity back if restored.
+    pub fn is_catalog(&self) -> bool {
+        self.kept_as
+            .as_path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix(CATALOG_FILE))
+            .is_some_and(|rest| rest.starts_with(UNREADABLE_SUFFIX))
+    }
 }
 
 impl ServerInfo {

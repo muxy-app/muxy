@@ -439,15 +439,61 @@ fn requests_lost_when_the_server_stops_show_no_banner(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn saved_data_the_server_could_not_read_explains_its_new_identity(cx: &mut TestAppContext) {
+fn a_replaced_catalog_brings_the_servers_fresh_projects_with_one_notice(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
         let home = model.state.home().id;
+        let project = ProjectId::new();
         model.receive(local(1, Update::Connected(Vec::new())), cx);
-        model.receive(local(1, Update::Catalog(Ok(page(1, home, &[])))), cx);
-        assert_eq!(model.error, None);
+        let mut known = page(1, home, &[(project, "api")]);
+        known.revision = 40;
+        model.receive(local(1, Update::Catalog(Ok(known))), cx);
+        assert!(model.state.project(project).is_some());
 
+        let kept = |name: &str| muxy_protocol::UnreadableFile {
+            kept_as: ServerPath::from(format!("/state/{name}.unreadable-1")),
+            error: "expected value".into(),
+        };
+        let info = muxy_protocol::ServerInfo {
+            unreadable: vec![kept("catalog.json"), kept("remote.json")],
+            ..muxy_protocol::ServerInfo::current()
+        };
+        model.receive(local(1, Update::ServerInfo(info, Vec::new())), cx);
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        let reported = model.error.clone().unwrap_or_default();
+        assert!(reported.ends_with("/state/remote.json.unreadable-1"));
+        assert!(!reported.contains("catalog.json"));
+
+        let fresh_home = ProjectId::from_u128(9);
+        model.receive(local(1, Update::Catalog(Ok(page(2, fresh_home, &[])))), cx);
+        assert_eq!(model.state.home().id, fresh_home);
+        assert!(model.state.project(project).is_none());
+        assert_eq!(model.error_detail, None);
+        assert_eq!(
+            model.notice.as_deref(),
+            Some("The server started with a fresh project list")
+        );
+        assert!(
+            model
+                .notice_body
+                .as_deref()
+                .is_some_and(|body| body.ends_with("/state/catalog.json.unreadable-1"))
+        );
+
+        model.notice = None;
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        model.receive(local(1, Update::Catalog(Ok(page(2, fresh_home, &[])))), cx);
+        assert_eq!(model.notice, None);
+        assert_eq!(model.state.home().id, fresh_home);
+    });
+}
+
+#[gpui::test]
+fn a_first_catalog_names_the_catalog_the_server_kept(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
         let info = muxy_protocol::ServerInfo {
             unreadable: vec![muxy_protocol::UnreadableFile {
                 kept_as: ServerPath::from("/state/catalog.json.unreadable-1"),
@@ -457,21 +503,14 @@ fn saved_data_the_server_could_not_read_explains_its_new_identity(cx: &mut TestA
         };
         model.receive(local(1, Update::ServerInfo(info, Vec::new())), cx);
         model.receive(local(1, Update::Connected(Vec::new())), cx);
-        let reported = model.error.clone();
-        assert!(
-            reported
-                .as_deref()
-                .is_some_and(|error| error.ends_with("/state/catalog.json.unreadable-1"))
-        );
-
-        let fresh = page(2, ProjectId::from_u128(9), &[]);
-        model.receive(local(1, Update::Catalog(Ok(fresh))), cx);
-        assert_eq!(model.error, reported);
+        let home = ProjectId::new();
+        model.receive(local(1, Update::Catalog(Ok(page(2, home, &[])))), cx);
+        assert_eq!(model.state.home().id, home);
         assert!(
             model
-                .error_detail
+                .notice_body
                 .as_deref()
-                .is_some_and(|detail| detail.contains("server identity changed"))
+                .is_some_and(|body| body.ends_with("/state/catalog.json.unreadable-1"))
         );
     });
 }

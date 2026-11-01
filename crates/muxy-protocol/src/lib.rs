@@ -7,8 +7,8 @@
 
 mod build;
 pub use build::{
-    BuildInfo, COMPATIBILITY, MAX_UNREADABLE_ERROR, MAX_UNREADABLE_FILES, ServerInfo,
-    UnreadableFile,
+    BuildInfo, CATALOG_FILE, COMPATIBILITY, MAX_UNREADABLE_ERROR, MAX_UNREADABLE_FILES, ServerInfo,
+    UNREADABLE_SUFFIX, UnreadableFile,
 };
 mod control;
 mod exec;

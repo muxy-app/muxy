@@ -6,7 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use muxy_protocol::{MAX_UNREADABLE_ERROR, UnreadableFile};
+use muxy_protocol::{MAX_UNREADABLE_ERROR, UNREADABLE_SUFFIX, UnreadableFile};
 
 /// Renames `path` to `<name>.unreadable-<milliseconds>` so the next start
 /// doesn't read it again and nothing overwrites it.
@@ -39,7 +39,7 @@ fn kept_path(path: &Path) -> PathBuf {
         .unwrap_or_default()
         .as_millis();
     let mut base = path.file_name().unwrap_or_default().to_owned();
-    base.push(format!(".unreadable-{millis}"));
+    base.push(format!("{UNREADABLE_SUFFIX}{millis}"));
     let mut kept = path.with_file_name(&base);
     let mut copy = 0_u64;
     while kept.exists() {
@@ -77,6 +77,7 @@ mod tests {
         fs::write(&path, "damaged")?;
         let file = set_aside(&path, &io::Error::other("é".repeat(MAX_UNREADABLE_ERROR)))?;
         assert!(!path.exists());
+        assert!(file.is_catalog(), "apps recognize a kept catalog");
         let kept = PathBuf::from(file.kept_as);
         assert_eq!(kept.parent(), Some(directory.as_path()));
         assert!(

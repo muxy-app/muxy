@@ -1433,6 +1433,7 @@
 "The server kept the file at an invalid path." = "The server kept the file at an invalid path.";
 "The server sent an unexpected folder status" = "The server sent an unexpected folder status";
 "The server sent something other than the file." = "The server sent something other than the file.";
+"The server started with a fresh project list" = "The server started with a fresh project list";
 "The server took too long to check or create the folder." = "The server took too long to check or create the folder.";
 "The server update could not finish." = "The server update could not finish.";
 "The server version does not match the signed app" = "The server version does not match the signed app";
@@ -1608,6 +1609,7 @@
 "X11 returned an empty keyboard map." = "X11 returned an empty keyboard map.";
 "Yellow" = "Yellow";
 "You can show tips again in Settings → Appearance → Interface by turning on Show tips." = "You can show tips again in Settings → Appearance → Interface by turning on Show tips.";
+"Your previous projects are kept in %@" = "Your previous projects are kept in %@";
 "You’re running the latest version of %@." = "You’re running the latest version of %@.";
 "Zoom" = "Zoom";
 "Zoom Window" = "Zoom Window";
