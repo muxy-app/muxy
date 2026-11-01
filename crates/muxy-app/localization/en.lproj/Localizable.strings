@@ -487,7 +487,6 @@
 "Could not update the extension; the previous version was restored: %@" = "Could not update the extension; the previous version was restored: %@";
 "Could not update the server: %@" = "Could not update the server: %@";
 "Could not use the proxy for SSH: %@" = "Could not use the proxy for SSH: %@";
-"Could not verify that this branch has no pull request" = "Could not verify that this branch has no pull request";
 "Could not write clipboard data" = "Could not write clipboard data";
 "Couldn't close PR #%lld" = "Couldn't close PR #%lld";
 "Couldn't commit" = "Couldn't commit";
@@ -1432,7 +1431,6 @@
 "The server could not check or create the folder." = "The server could not check or create the folder.";
 "The server kept the file at an invalid path." = "The server kept the file at an invalid path.";
 "The server sent an unexpected folder status" = "The server sent an unexpected folder status";
-"The server sent an unexpected reply" = "The server sent an unexpected reply";
 "The server sent something other than the file." = "The server sent something other than the file.";
 "The server took too long to check or create the folder." = "The server took too long to check or create the folder.";
 "The server update could not finish." = "The server update could not finish.";
@@ -1505,14 +1503,7 @@
 "Unborn HEAD" = "Unborn HEAD";
 "Uncommitted changes" = "Uncommitted changes";
 "Underline" = "Underline";
-"Unexpected Git commit reply" = "Unexpected Git commit reply";
-"Unexpected Git log reply" = "Unexpected Git log reply";
-"Unexpected Git status reply" = "Unexpected Git status reply";
 "Unexpected backup entry: %@" = "Unexpected backup entry: %@";
-"Unexpected changes preview reply" = "Unexpected changes preview reply";
-"Unexpected layout directory response" = "Unexpected layout directory response";
-"Unexpected layout file response" = "Unexpected layout file response";
-"Unexpected remote branches reply" = "Unexpected remote branches reply";
 "Unexpected update download location" = "Unexpected update download location";
 "Ungrouped" = "Ungrouped";
 "Uninstall" = "Uninstall";

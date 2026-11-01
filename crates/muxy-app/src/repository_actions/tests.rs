@@ -1,6 +1,6 @@
 use super::*;
 use muxy_protocol::{
-    GitBranch, GitChecks, GitPreviewFile, GitPullRequest, GitRawDiff, GitStatus, GitSummary,
+    GitAction, GitBranch, GitChecks, GitPreviewFile, GitPullRequestAction, GitReply, GitSummary,
 };
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -25,14 +25,166 @@ impl FakeGit {
     }
 }
 
-impl Git for FakeGit {
-    fn call(&self, _: ProjectId, action: GitAction) -> Result<GitReply, String> {
+impl FakeGit {
+    /// Records `action` and decodes the next scripted reply.
+    fn answer<T>(
+        &self,
+        action: GitAction,
+        decode: impl FnOnce(GitReply) -> Option<T>,
+    ) -> Result<T, String> {
         self.actions.lock().unwrap().push(action);
-        self.replies
+        let reply = self
+            .replies
             .lock()
             .unwrap()
             .pop_front()
-            .unwrap_or_else(|| Err("missing fake reply".into()))
+            .unwrap_or_else(|| Err("missing fake reply".into()))?;
+        decode(reply).ok_or_else(|| "unexpected fake reply".into())
+    }
+}
+
+fn previewed(reply: GitReply) -> Option<GitChangesPreview> {
+    match reply {
+        GitReply::ChangesPreview(preview) => Some(*preview),
+        _ => None,
+    }
+}
+
+fn committed(reply: GitReply) -> Option<String> {
+    match reply {
+        GitReply::Commit(hash) => Some(hash),
+        _ => None,
+    }
+}
+
+impl Git for FakeGit {
+    fn status(&self, _: ProjectId) -> Result<GitStatus, String> {
+        let action = GitAction::Status {
+            local: true,
+            fresh: false,
+        };
+        self.answer(action, |reply| match reply {
+            GitReply::Status(status) => Some(*status),
+            _ => None,
+        })
+    }
+
+    fn pull_request(&self, _: ProjectId) -> Result<Option<GitPullRequest>, String> {
+        let action = GitAction::PullRequest(GitPullRequestAction::Info);
+        self.answer(action, |reply| match reply {
+            GitReply::PullRequest(found) => Some(found.map(|pr| *pr)),
+            _ => None,
+        })
+    }
+
+    fn stage_all(&self, _: ProjectId) -> Result<(), String> {
+        self.answer(GitAction::Stage(vec![]), |reply| {
+            (reply == GitReply::Done).then_some(())
+        })
+    }
+
+    fn changes_preview(
+        &self,
+        _: ProjectId,
+        line_limit: Option<u32>,
+    ) -> Result<GitChangesPreview, String> {
+        self.answer(GitAction::ChangesPreview { line_limit }, previewed)
+    }
+
+    fn staged_preview(
+        &self,
+        _: ProjectId,
+        line_limit: Option<u32>,
+    ) -> Result<GitChangesPreview, String> {
+        self.answer(GitAction::StagedPreview { line_limit }, previewed)
+    }
+
+    fn log(&self, _: ProjectId, max_count: u32) -> Result<Vec<GitCommit>, String> {
+        let action = GitAction::Log { max_count, skip: 0 };
+        self.answer(action, |reply| match reply {
+            GitReply::Log(commits) => Some(commits),
+            _ => None,
+        })
+    }
+
+    fn remote_branches(&self, _: ProjectId) -> Result<Vec<String>, String> {
+        self.answer(GitAction::RemoteBranches, |reply| match reply {
+            GitReply::RemoteBranches(branches) => Some(branches),
+            _ => None,
+        })
+    }
+
+    fn branch_diff(
+        &self,
+        _: ProjectId,
+        base: String,
+        line_limit: Option<u32>,
+    ) -> Result<GitRawDiff, String> {
+        self.answer(
+            GitAction::BranchDiff { base, line_limit },
+            |reply| match reply {
+                GitReply::RawDiff(diff) => Some(diff),
+                _ => None,
+            },
+        )
+    }
+
+    fn commit_all(&self, _: ProjectId, commit: Commit) -> Result<String, String> {
+        let action = GitAction::CommitAll {
+            message: commit.message,
+            expected_head: commit.expected_head,
+            expected_tree: commit.expected_tree,
+        };
+        self.answer(action, committed)
+    }
+
+    fn commit_staged(&self, _: ProjectId, commit: Commit) -> Result<String, String> {
+        let action = GitAction::CommitStaged {
+            message: commit.message,
+            expected_head: commit.expected_head,
+            expected_tree: commit.expected_tree,
+        };
+        self.answer(action, committed)
+    }
+
+    fn publish_branch(
+        &self,
+        _: ProjectId,
+        branch: String,
+        destination: GitPushDestination,
+    ) -> Result<(), String> {
+        self.answer(
+            GitAction::PublishBranch {
+                branch,
+                destination,
+            },
+            |reply| (reply == GitReply::Done).then_some(()),
+        )
+    }
+
+    fn create_branch(&self, _: ProjectId, name: String) -> Result<(), String> {
+        self.answer(GitAction::CreateBranch(name), |reply| {
+            (reply == GitReply::Done).then_some(())
+        })
+    }
+
+    fn create_pull_request(
+        &self,
+        _: ProjectId,
+        title: String,
+        body: String,
+        base_branch: String,
+    ) -> Result<Option<GitPullRequest>, String> {
+        let action = GitAction::PullRequest(GitPullRequestAction::Create {
+            title,
+            body,
+            base_branch: Some(base_branch),
+            draft: false,
+        });
+        self.answer(action, |reply| match reply {
+            GitReply::PullRequest(Some(created)) => Some(Some(*created)),
+            _ => Some(None),
+        })
     }
 
     fn read(&self, _: ProjectId, path: &str) -> Option<String> {

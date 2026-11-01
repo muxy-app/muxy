@@ -1,10 +1,8 @@
 //! Files in a project's folder. Paths are relative to the folder, and `""` is
 //! the folder itself.
 
-use muxy_client::{Client, ClientError};
-use muxy_protocol::{
-    self as protocol, FilesAction, FilesReply, FilesRequest, ProjectId, ReplyBody,
-};
+use muxy_client::Client;
+use muxy_protocol::{self as protocol, ProjectId};
 
 use crate::MobileError;
 use crate::records::{server_path, text};
@@ -37,129 +35,102 @@ impl ProjectFiles {
     pub(crate) fn new(client: Client, project: ProjectId) -> Self {
         Self { client, project }
     }
-
-    fn request(&self, action: FilesAction) -> Result<FilesReply, MobileError> {
-        let request = FilesRequest {
-            project: self.project,
-            action,
-        };
-        Ok(self.client.files(request)?)
-    }
-
-    /// Runs an action whose only answer is `Done`.
-    fn run(&self, action: FilesAction) -> Result<(), MobileError> {
-        match self.request(action)? {
-            FilesReply::Done => Ok(()),
-            other => Err(unexpected(other)),
-        }
-    }
 }
 
 #[uniffi::export]
 impl ProjectFiles {
     /// Folders first, then files, by name. `.git` is left out.
     pub fn list(&self, path: String) -> Result<Vec<FileEntry>, MobileError> {
-        match self.request(FilesAction::List(server_path(path)))? {
-            FilesReply::Entries(entries) => Ok(entries.into_iter().map(Into::into).collect()),
-            other => Err(unexpected(other)),
-        }
+        let entries = self
+            .client
+            .list_directory(self.project, server_path(path))?;
+        Ok(entries.into_iter().map(Into::into).collect())
     }
 
     pub fn stat(&self, path: String) -> Result<FileInfo, MobileError> {
-        match self.request(FilesAction::Stat(server_path(path)))? {
-            FilesReply::Info(info) => Ok(info.into()),
-            other => Err(unexpected(other)),
-        }
+        Ok(self
+            .client
+            .file_info(self.project, server_path(path))?
+            .into())
     }
 
     /// A UTF-8 text file of up to 5 MiB. Other files fail with `Server`; read
     /// them with `read_bytes`.
     pub fn read_text(&self, path: String) -> Result<String, MobileError> {
-        match self.request(FilesAction::Read(server_path(path)))? {
-            FilesReply::Content(file) => Ok(file.content),
-            other => Err(unexpected(other)),
-        }
+        Ok(self
+            .client
+            .read_file(self.project, server_path(path))?
+            .content)
     }
 
     /// Any file of up to 5 MiB, such as an image.
     pub fn read_bytes(&self, path: String) -> Result<Vec<u8>, MobileError> {
-        match self.request(FilesAction::ReadBytes(server_path(path)))? {
-            FilesReply::Bytes(file) => Ok(file.bytes),
-            other => Err(unexpected(other)),
-        }
+        Ok(self
+            .client
+            .read_file_bytes(self.project, server_path(path))?
+            .bytes)
     }
 
     /// Creates or replaces the file, whose folder must exist, and returns its path.
     pub fn write_text(&self, path: String, text: String) -> Result<String, MobileError> {
-        written(self.request(FilesAction::Write {
-            path: server_path(path),
-            content: text,
-        })?)
+        let written = self
+            .client
+            .write_file(self.project, server_path(path), text)?;
+        Ok(crate::records::text(&written))
     }
 
     /// Like `write_text`, for any content of up to 5 MiB.
     pub fn write_bytes(&self, path: String, bytes: Vec<u8>) -> Result<String, MobileError> {
-        written(self.request(FilesAction::WriteBytes {
-            path: server_path(path),
-            bytes,
-        })?)
+        let written = self
+            .client
+            .write_file_bytes(self.project, server_path(path), bytes)?;
+        Ok(text(&written))
     }
 
     /// Returns the folder's path, which gets a number, such as `notes 2`,
     /// when the name is taken.
     pub fn create_directory(&self, path: String) -> Result<String, MobileError> {
-        written(self.request(FilesAction::Mkdir(server_path(path)))?)
+        let created = self
+            .client
+            .create_directory(self.project, server_path(path))?;
+        Ok(text(&created))
     }
 
     /// Renames within the same folder and returns the new path. Fails when
     /// `name` is taken.
     pub fn rename(&self, path: String, name: String) -> Result<String, MobileError> {
-        written(self.request(FilesAction::Rename {
-            path: server_path(path),
-            name: server_path(name),
-        })?)
+        let renamed =
+            self.client
+                .rename_file(self.project, server_path(path), server_path(name))?;
+        Ok(text(&renamed))
     }
 
     /// Moves files and folders into the folder `into` and returns their new
     /// paths in order. A taken name gets a number.
     pub fn move_files(&self, paths: Vec<String>, into: String) -> Result<Vec<String>, MobileError> {
-        let action = FilesAction::Move {
-            paths: paths.into_iter().map(server_path).collect(),
-            into: server_path(into),
-        };
-        match self.request(action)? {
-            FilesReply::Paths(paths) => Ok(paths.iter().map(text).collect()),
-            other => Err(unexpected(other)),
-        }
+        let moved = self.client.move_files(
+            self.project,
+            paths.into_iter().map(server_path).collect(),
+            server_path(into),
+        )?;
+        Ok(moved.iter().map(text).collect())
     }
 
     /// Moves files and folders to the computer's Trash.
     pub fn delete_files(&self, paths: Vec<String>) -> Result<(), MobileError> {
-        self.run(FilesAction::Delete(
-            paths.into_iter().map(server_path).collect(),
-        ))
+        Ok(self
+            .client
+            .delete_files(self.project, paths.into_iter().map(server_path).collect())?)
     }
 
     /// Sends `FilesChanged` for this project until `unwatch`. A connection
     /// watches up to 32 projects.
     pub fn watch(&self) -> Result<(), MobileError> {
-        self.run(FilesAction::Watch)
+        Ok(self.client.watch_files(self.project)?)
     }
 
     pub fn unwatch(&self) -> Result<(), MobileError> {
-        self.run(FilesAction::Unwatch)
-    }
-}
-
-/// A reply of another kind than the request asked for.
-fn unexpected(reply: FilesReply) -> MobileError {
-    ClientError::UnexpectedReply(Box::new(ReplyBody::Files(reply))).into()
-}
-
-fn written(reply: FilesReply) -> Result<String, MobileError> {
-    match reply {
-        FilesReply::Path(path) => Ok(text(&path)),
-        other => Err(unexpected(other)),
+        Ok(self.client.unwatch_files(self.project)?)
     }
 }
 

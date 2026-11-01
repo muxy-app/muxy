@@ -6,27 +6,25 @@
 //! the channel receives into the other end, and a pump thread hands what the
 //! SDK writes on to the app.
 
-use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use muxy_client::bridge::{self, BridgeExit, Start};
-use muxy_client::{Client, ClientError};
+use muxy_client::bridge::{self, Start};
+use muxy_client::{Client, ClientError, ErrorTail};
 use muxy_protocol::transport::socket_pair;
 
 use crate::MobileError;
 
-/// Covers the remote shell starting and the bridge starting the server.
-const READY_TIMEOUT: Duration = Duration::from_secs(15);
+/// Covers the remote shell starting and the bridge starting the server; the
+/// channel is already connected.
+const BRIDGE_START_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long a channel that ended early gets to report how.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(1);
-/// How much of the channel's error output is kept for messages.
-const STDERR_TAIL: usize = 8 * 1024;
 const BUFFER: usize = 64 * 1024;
 
 /// The command an SSH exec channel runs to reach the computer's server.
@@ -57,7 +55,7 @@ pub struct BridgeChannel {
     /// The SDK's end, until a connection takes it.
     stream: Mutex<Option<UnixStream>>,
     writer: Arc<dyn ChannelWriter>,
-    ending: Ending,
+    ending: ErrorTail,
 }
 
 impl fmt::Debug for BridgeChannel {
@@ -77,7 +75,7 @@ impl BridgeChannel {
             socket,
             stream: Mutex::new(Some(stream)),
             writer: Arc::from(writer),
-            ending: Ending::default(),
+            ending: ErrorTail::default(),
         }))
     }
 
@@ -126,7 +124,7 @@ impl BridgeChannel {
             let _ = self.writer.close();
             return Err(error.into());
         }
-        Client::connect_bridge(Box::new(stream), host, READY_TIMEOUT, || {
+        Client::connect_bridge(Box::new(stream), host, BRIDGE_START_TIMEOUT, || {
             self.ending.wait(EXIT_TIMEOUT)
         })
     }
@@ -150,54 +148,4 @@ fn pump(mut socket: UnixStream, writer: &dyn ChannelWriter) {
     }
     let _ = socket.shutdown(Shutdown::Both);
     let _ = writer.close();
-}
-
-/// How the channel ended, to explain a connection that failed before the
-/// bridge was ready.
-#[derive(Default)]
-struct Ending {
-    state: Mutex<EndingState>,
-    finished: Condvar,
-}
-
-#[derive(Default)]
-struct EndingState {
-    stderr: VecDeque<u8>,
-    status: Option<i32>,
-    finished: bool,
-}
-
-impl Ending {
-    fn push(&self, bytes: &[u8]) {
-        let mut state = self.lock();
-        state.stderr.extend(bytes);
-        let excess = state.stderr.len().saturating_sub(STDERR_TAIL);
-        state.stderr.drain(..excess);
-    }
-
-    fn finish(&self, status: Option<i32>) {
-        let mut state = self.lock();
-        if !state.finished {
-            state.status = status;
-            state.finished = true;
-        }
-        drop(state);
-        self.finished.notify_all();
-    }
-
-    /// Waits up to `timeout` for the channel to finish, then tells how it ended.
-    fn wait(&self, timeout: Duration) -> BridgeExit {
-        let (mut state, _) = self
-            .finished
-            .wait_timeout_while(self.lock(), timeout, |state| !state.finished)
-            .unwrap_or_else(PoisonError::into_inner);
-        BridgeExit {
-            status: state.status,
-            stderr: String::from_utf8_lossy(state.stderr.make_contiguous()).into_owned(),
-        }
-    }
-
-    fn lock(&self) -> MutexGuard<'_, EndingState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 }

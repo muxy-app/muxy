@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use muxy_protocol::{FilesAction, FilesReply, FilesRequest, ProjectId, ServerPath};
+use muxy_protocol::{ProjectId, ServerPath};
 use muxy_ui::tr;
 
 use super::path_service::{DirectoryItem, TypedPathState, standardize};
@@ -180,21 +180,14 @@ fn home_folders(
         )
         .to_string()
     })?;
-    let request = FilesRequest {
-        project,
-        action: FilesAction::List(ServerPath::from(relative)),
-    };
-    match client.files(request) {
-        Ok(FilesReply::Entries(entries)) => Ok(entries
-            .into_iter()
-            .filter(|entry| entry.is_directory)
-            .map(|entry| {
-                DirectoryItem::Directory(String::from_utf8_lossy(&entry.name.0).into_owned())
-            })
-            .collect()),
-        Ok(_) => Err(tr!("The server sent an unexpected reply").to_string()),
-        Err(error) => Err(error.to_string()),
-    }
+    let entries = client
+        .list_directory(project, ServerPath::from(relative))
+        .map_err(|error| error.to_string())?;
+    Ok(entries
+        .into_iter()
+        .filter(|entry| entry.is_directory)
+        .map(|entry| DirectoryItem::Directory(String::from_utf8_lossy(&entry.name.0).into_owned()))
+        .collect())
 }
 
 /// `path` relative to `root`, or `None` outside it.
