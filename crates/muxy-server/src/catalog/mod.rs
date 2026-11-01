@@ -5,6 +5,9 @@ pub(crate) use git::GitReceipt;
 mod recovery;
 pub(crate) mod retention;
 mod sessions;
+mod storage;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -20,7 +23,6 @@ use muxy_protocol::{
     ProjectDescriptor, ProjectId, ProjectIntent, ServerIdentity, ServerPath, SessionId,
     SessionInfo, SessionStatus,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default)]
 pub struct LegacyImport {
@@ -28,30 +30,28 @@ pub struct LegacyImport {
     pub sessions: BTreeMap<SessionId, ProjectId>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Creation {
     info: SessionInfo,
     error: Option<ErrorReply>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Membership {
     info: SessionInfo,
     status: SessionStatus,
-    #[serde(default)]
     ended_at: Option<u64>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Receipt {
     intent: ProjectIntent,
     error: Option<ErrorReply>,
     complete: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct State {
-    #[serde(default)]
     git: BTreeMap<OperationId, GitReceipt>,
     version: u32,
     server: ServerIdentity,
@@ -65,9 +65,7 @@ struct State {
     sessions: BTreeMap<SessionId, Membership>,
     creations: BTreeMap<OperationId, Creation>,
     receipts: BTreeMap<OperationId, Receipt>,
-    #[serde(default)]
     closes: BTreeMap<OperationId, (SessionId, bool)>,
-    #[serde(default)]
     finished: expiry::Finished,
 }
 
@@ -235,7 +233,7 @@ impl Catalog {
     ) -> io::Result<Self> {
         let path = directory.join("catalog.json");
         let mut state = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<State>(&bytes)?,
+            Ok(bytes) => serde_json::from_slice::<storage::StoredState>(&bytes)?.into(),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let home = std::env::home_dir()
                     .ok_or_else(|| io::Error::other("home directory unavailable"))?;
@@ -365,7 +363,8 @@ fn check_revision(state: &State, revision: Option<u64>) -> Result<(), ServerErro
 }
 
 fn save(path: &Path, state: &State) -> Result<(), muxy_core::fs::WriteError> {
-    let bytes = serde_json::to_vec(state).map_err(io::Error::from)?;
+    let bytes =
+        serde_json::to_vec(&storage::StoredState::try_from(state)?).map_err(io::Error::from)?;
     muxy_core::fs::write_atomic(path, &bytes, 0o600)
 }
 
