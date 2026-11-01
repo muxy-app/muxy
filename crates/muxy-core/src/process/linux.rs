@@ -1,4 +1,4 @@
-//! Linux waits with poll(2) on a pidfd and the pipes.
+//! Linux and Android wait with poll(2) on the child's exit and its pipes.
 
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -7,14 +7,15 @@ use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, Timespec};
 use rustix::io::Errno;
-use rustix::process::{Pid, PidfdFlags, WaitId, WaitIdOptions};
+use rustix::process::{Pid, WaitId, WaitIdOptions};
 
 use super::{Ready, Watch};
 
 /// Learns when a child exits, without reaping it.
 ///
-/// It is a pidfd, or where a sandbox refuses those, a pipe that a thread
-/// closes once the child exits. Either becomes readable then.
+/// It is a pidfd, or where there is none (Android, or a sandbox that refuses
+/// it), a pipe that a thread closes once the child exits. Either becomes
+/// readable then.
 #[derive(Debug)]
 pub struct ExitWatch(OwnedFd);
 
@@ -22,11 +23,13 @@ impl ExitWatch {
     /// `child` must not have been reaped yet.
     pub fn new(child: &Child) -> io::Result<Self> {
         let pid = Pid::from_child(child);
-        match rustix::process::pidfd_open(pid, PidfdFlags::empty()) {
-            Ok(pidfd) => Ok(Self(pidfd)),
-            Err(Errno::NOSYS | Errno::PERM) => Self::waiter(pid),
-            Err(error) => Err(error.into()),
+        #[cfg(target_os = "linux")]
+        match rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()) {
+            Ok(pidfd) => return Ok(Self(pidfd)),
+            Err(Errno::NOSYS | Errno::PERM) => {}
+            Err(error) => return Err(error.into()),
         }
+        Self::waiter(pid)
     }
 
     fn waiter(pid: Pid) -> io::Result<Self> {

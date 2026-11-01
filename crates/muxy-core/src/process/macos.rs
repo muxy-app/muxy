@@ -1,4 +1,4 @@
-//! macOS waits with one kqueue for the child's exit and its pipes.
+//! Apple platforms wait with one kqueue for the child's exit and its pipes.
 
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
@@ -139,10 +139,6 @@ fn exited_unreaped(pid: Pid) -> io::Result<bool> {
     Ok(rustix::process::waitid(WaitId::Pid(pid), options)?.is_some())
 }
 
-#[allow(
-    unsafe_code,
-    reason = "kevent is unsafe only because events may name descriptors"
-)]
 /// Adds `changes`. With no room for events, a failed change is the error.
 fn register(queue: &OwnedFd, changes: &[Event]) -> rustix::io::Result<()> {
     let mut none: [Event; 0] = [];

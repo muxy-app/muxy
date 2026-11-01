@@ -168,15 +168,20 @@ fn run_hook(command: &mut Command, timeout: Duration) -> std::result::Result<(),
         return Err("it timed out".into());
     }
     if output.stdout.truncated || output.stderr.truncated {
-        return Err("its output exceeds 4 MiB".into());
+        return Err(format!(
+            "its output exceeds {} MiB",
+            OUTPUT_LIMIT / (1024 * 1024)
+        ));
     }
     if output.status.success() {
         return Ok(());
     }
     let message = String::from_utf8_lossy(&output.stderr.bytes);
-    Err(if message.trim().is_empty() {
-        format!("it exited with {}", output.status)
-    } else {
+    Err(if !message.trim().is_empty() {
         message.trim().to_owned()
+    } else if let Some(code) = output.status.code() {
+        format!("it exited with code {code}")
+    } else {
+        format!("it was stopped ({})", output.status)
     })
 }

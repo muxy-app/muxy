@@ -12,13 +12,13 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use linux as platform;
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 mod macos;
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 use macos as platform;
 
 pub use platform::ExitWatch;
@@ -194,6 +194,7 @@ impl<'a> Running<'a> {
             if exited.is_some()
                 && (stdout.closed() && stderr.closed() || drain.is_some_and(|end| now >= end))
             {
+                stop.kill_now(&self.group);
                 break;
             }
             let limited = running && !stop.begun();
@@ -322,6 +323,14 @@ impl Stop {
 
     fn escalate(&mut self, group: &Group, grace: Duration, now: Instant) {
         if self.kill_at(grace).is_some_and(|at| now >= at) {
+            self.kill_now(group);
+        }
+    }
+
+    /// A stopped command's group still gets KILL when the run ends before
+    /// its grace period does.
+    fn kill_now(&mut self, group: &Group) {
+        if self.begun() && !self.killed {
             group.signal(Signal::KILL);
             self.killed = true;
         }

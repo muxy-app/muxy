@@ -206,7 +206,7 @@ fn a_failing_hook_reports_the_hook_not_git() {
     );
     assert_eq!(
         failure("exit 3"),
-        "Worktree hook failed (Setup): it exited with exit status: 3"
+        "Worktree hook failed (Setup): it exited with code 3"
     );
     assert_eq!(
         failure("head -c 5000000 /dev/zero"),
