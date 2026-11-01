@@ -108,6 +108,7 @@ pub fn git_action(verb: &str, args: &Value) -> Result<GitAction, String> {
     Ok(match verb {
         "git.status" => GitAction::Status {
             local: boolean(args, "local"),
+            fresh: false,
         },
         "git.repoInfo" => GitAction::RepoInfo,
         "git.currentBranch" | "git.aheadBehind" => GitAction::Summary,

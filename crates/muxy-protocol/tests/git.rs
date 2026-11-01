@@ -151,3 +151,21 @@ fn diffs_from_builds_before_the_binary_flag_read_as_text() -> Result<(), Box<dyn
     assert_eq!((diff.additions, diff.deletions, diff.binary), (1, 2, false));
     Ok(())
 }
+
+#[test]
+fn a_status_request_from_an_older_app_reads_the_cache() -> Result<(), Box<dyn std::error::Error>> {
+    let mut older = Vec::new();
+    minicbor::Encoder::new(&mut older)
+        .array(2)?
+        .u32(13)?
+        .array(1)?
+        .bool(false)?;
+    assert_eq!(
+        minicbor::decode::<GitAction>(&older)?,
+        GitAction::Status {
+            local: false,
+            fresh: false
+        }
+    );
+    Ok(())
+}

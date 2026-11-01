@@ -20,6 +20,7 @@ fn error(cause: impl std::fmt::Display) -> ServerError {
 #[derive(Debug, Default)]
 pub(crate) struct Files {
     locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
+    pub(crate) watches: crate::watch::Shared,
 }
 
 impl Files {

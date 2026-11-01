@@ -292,3 +292,39 @@ fn batch_validation_precedes_mutation_and_rejects_overlaps() {
         "original"
     );
 }
+
+#[test]
+fn connections_watching_one_project_share_its_watch_and_each_hear_changes() {
+    let workspace = Workspace::new();
+    let request = FilesRequest {
+        project: workspace.project,
+        action: FilesAction::Watch,
+    };
+    let connections: Vec<_> = (0..2)
+        .map(|_| {
+            let outbox = Arc::new(crate::connection::Outbox::new(Arc::default()));
+            let mut subscriptions = watch::Subscriptions::default();
+            subscriptions
+                .request(&workspace.registry, &outbox, &request)
+                .unwrap();
+            (outbox, subscriptions)
+        })
+        .collect();
+    assert_eq!(workspace.registry.files.watches.watching(), 1);
+
+    std::fs::write(workspace.path.join("added.txt"), "new").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut heard = [false; 2];
+    while heard.contains(&false) && std::time::Instant::now() < deadline {
+        for ((outbox, _), heard) in connections.iter().zip(&mut heard) {
+            *heard |= outbox.take_control().iter().any(|message| {
+                matches!(message, muxy_protocol::Message::FilesChanged { changes, .. }
+                    if changes.rescan || changes.paths.contains(&p("added.txt")))
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(heard, [true; 2]);
+    drop(connections);
+    assert_eq!(workspace.registry.files.watches.watching(), 0);
+}

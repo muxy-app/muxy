@@ -403,6 +403,7 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                     GitAction::CommitStaged { .. } => "GitCommitStaged",
                     GitAction::PublishBranch { .. } => "GitPublishBranch",
                     GitAction::SwitchToBase(_) => "GitSwitchToBase",
+                    GitAction::Status { .. } => "GitStatus",
                     GitAction::PullRequest(GitPullRequestAction::UpdateBranch { .. }) => {
                         "GitUpdatePrBranch"
                     }
@@ -532,6 +533,7 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "GitCommitStaged",
             "GitPublishBranch",
             "GitSwitchToBase",
+            "GitStatus",
             "GitBaseSwitchReply",
             "GitUpdatePrBranch",
             "CatalogChanged",

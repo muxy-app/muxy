@@ -1,20 +1,24 @@
+mod cache;
 mod command;
 mod details;
 mod diff;
 mod github;
 mod hooks;
-mod metadata;
 mod mutate;
 mod operations;
 mod processes;
 mod read;
 mod snapshot;
+#[cfg(test)]
+mod tests;
 pub(crate) mod watch;
 mod worktree;
 
 use crate::{Registry, ServerError};
 use command::run;
-use muxy_protocol::{GitAction, GitReply, GitRequest, ProjectKind, ServerPath};
+use muxy_protocol::{
+    GitAction, GitPullRequestAction, GitReply, GitRequest, ProjectId, ProjectKind, ServerPath,
+};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
@@ -36,6 +40,7 @@ pub(crate) struct Git {
     github: github::Github,
     hook_config: Option<PathBuf>,
     pub(crate) operations: operations::Operations,
+    pub(crate) watches: crate::watch::Shared,
 }
 impl Git {
     fn lock_for(&self, path: &Path) -> Result<Arc<RwLock<()>>> {
@@ -136,12 +141,83 @@ impl Registry {
         ));
         let directory = root.as_path();
         let lock = self.git.lock_for(directory)?;
+        if let Some(reply) = self.read_remote(request.project, directory, &lock, &request.action) {
+            return reply;
+        }
         let read = is_read(&request.action);
         let _read = read.then(|| lock.read().unwrap_or_else(PoisonError::into_inner));
         let _write = (!read).then(|| lock.write().unwrap_or_else(PoisonError::into_inner));
         // The project may have been deleted while waiting for another repository operation.
         self.catalog.project(request.project)?;
-        self.dispatch_git(&project, directory, &request.action)
+        let reply = self.dispatch_git(&project, directory, &request.action);
+        if !read {
+            self.git.github.forget_pull_requests(directory);
+        }
+        reply
+    }
+
+    /// Reads that ask the remote. They hold the repository lock only while
+    /// reading local state, so changes never wait on the network.
+    fn read_remote(
+        &self,
+        project: ProjectId,
+        directory: &Path,
+        lock: &RwLock<()>,
+        action: &GitAction,
+    ) -> Option<Result<GitReply>> {
+        use GitPullRequestAction as Pr;
+        let github = &self.git.github;
+        Some(match action {
+            GitAction::Status { local, fresh } => self
+                .read_local(project, lock, || {
+                    let summary = read::summary(directory)?;
+                    Ok((
+                        github::Remote::read(directory, &summary),
+                        summary,
+                        read::branches(directory)?,
+                        read::file_status(directory)?,
+                    ))
+                })
+                .map(|(remote, summary, branches, files)| {
+                    GitReply::Status(Box::new(muxy_protocol::GitStatus {
+                        default_branch: github.default_branch(directory, &remote, *fresh),
+                        pull_request: if *local {
+                            None
+                        } else {
+                            github
+                                .pull_request(directory, &remote, *fresh)
+                                .ok()
+                                .flatten()
+                        },
+                        summary,
+                        branches,
+                        files,
+                    }))
+                }),
+            GitAction::RemoteBranches => {
+                details::remote_branches(directory).map(GitReply::RemoteBranches)
+            }
+            GitAction::PullRequest(
+                action @ (Pr::Info | Pr::Number | Pr::List { .. } | Pr::Diff { .. }),
+            ) => self
+                .read_local(project, lock, || {
+                    Ok(github::Remote::read(directory, &read::summary(directory)?))
+                })
+                .and_then(|remote| github.apply(directory, &remote, action)),
+            _ => return None,
+        })
+    }
+
+    fn read_local<T>(
+        &self,
+        project: ProjectId,
+        lock: &RwLock<()>,
+        read: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let _read = lock.read().unwrap_or_else(PoisonError::into_inner);
+        // The project may have been deleted while waiting for another repository operation.
+        self.catalog.project(project)?;
+        read()
     }
 
     fn dispatch_git(
@@ -154,31 +230,7 @@ impl Registry {
             GitAction::Summary => Ok(GitReply::Summary(Some(read::summary(directory)?))),
             GitAction::Branches => Ok(GitReply::Branches(read::branches(directory)?)),
             GitAction::Changes => Ok(GitReply::Changes(read::changes(directory)?)),
-            GitAction::Status { local } => {
-                let pull_request = if *local {
-                    None
-                } else {
-                    match self
-                        .git
-                        .github
-                        .apply(directory, &muxy_protocol::GitPullRequestAction::Info)
-                    {
-                        Ok(GitReply::PullRequest(pr)) => pr.map(|pr| *pr),
-                        _ => None,
-                    }
-                };
-                Ok(GitReply::Status(Box::new(muxy_protocol::GitStatus {
-                    summary: read::summary(directory)?,
-                    default_branch: self.git.github.default_branch(directory),
-                    branches: read::branches(directory)?,
-                    files: read::file_status(directory)?,
-                    pull_request,
-                })))
-            }
             GitAction::RepoInfo => Ok(GitReply::RepoInfo(details::repo_info(directory)?)),
-            GitAction::RemoteBranches => Ok(GitReply::RemoteBranches(details::remote_branches(
-                directory,
-            )?)),
             GitAction::Log { max_count, skip } => {
                 Ok(GitReply::Log(details::log(directory, *max_count, *skip)?))
             }
@@ -193,7 +245,11 @@ impl Registry {
             | GitAction::CommitStaged { .. }
             | GitAction::PublishBranch { .. }
             | GitAction::SwitchToBase(_) => review(directory, action),
-            GitAction::PullRequest(action) => self.git.github.apply(directory, action),
+            GitAction::PullRequest(action) => self.git.github.apply(
+                directory,
+                &github::Remote::read(directory, &read::summary(directory)?),
+                action,
+            ),
             GitAction::Commit { .. }
             | GitAction::Push { .. }
             | GitAction::Pull
@@ -245,7 +301,10 @@ impl Registry {
                 mutate_files(directory, action, paths)?;
                 Ok(GitReply::Done)
             }
-            GitAction::Worktree(_) | GitAction::Init => unreachable!(),
+            GitAction::Worktree(_)
+            | GitAction::Init
+            | GitAction::Status { .. }
+            | GitAction::RemoteBranches => unreachable!(),
             GitAction::Watch => Err(error("Git watches require a client connection")),
         }
     }

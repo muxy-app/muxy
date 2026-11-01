@@ -644,6 +644,16 @@ fn git_samples() -> Vec<Message> {
             }),
         },
         Message::Request {
+            id: RequestId(104),
+            body: RequestBody::Git(crate::GitRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::GitAction::Status {
+                    local: false,
+                    fresh: true,
+                },
+            }),
+        },
+        Message::Request {
             id: RequestId(103),
             body: RequestBody::Git(crate::GitRequest {
                 project: crate::ProjectId::from_u128(1),

@@ -82,7 +82,7 @@ pub(crate) struct Outbox {
 }
 
 impl Outbox {
-    pub(super) fn new(changes: Arc<AtomicU64>) -> Self {
+    pub(crate) fn new(changes: Arc<AtomicU64>) -> Self {
         Self {
             state: Mutex::new(State {
                 changes,
@@ -552,6 +552,12 @@ impl Outbox {
                 .wait(state)
                 .unwrap_or_else(PoisonError::into_inner);
         }
+    }
+
+    /// Takes the control messages waiting to be written.
+    #[cfg(test)]
+    pub(crate) fn take_control(&self) -> Vec<Message> {
+        self.lock().control.drain(..).collect()
     }
 
     pub(crate) fn is_closed(&self) -> bool {

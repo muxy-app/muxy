@@ -152,7 +152,7 @@ struct Requests {
     files_workers: WorkerPool,
     files_readers: WorkerPool,
     files_watch: Arc<Mutex<crate::files::watch::Subscriptions>>,
-    git_watch: Arc<Mutex<Option<crate::git::watch::RepositoryWatch>>>,
+    git_watch: Arc<Mutex<Option<crate::watch::Subscription>>>,
     search_cache: Arc<Mutex<SearchCache>>,
     last_channel: Arc<AtomicU32>,
 }
@@ -228,19 +228,24 @@ impl Requests {
                             let mut watch = watch
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-                            *watch = None;
-                            let events = Arc::downgrade(&output);
-                            let project = request.project;
-                            registry
-                                .watch_git(project, move || {
-                                    if let Some(events) = events.upgrade() {
-                                        events.push_control(Message::GitChanged { project });
+                            if watch
+                                .as_ref()
+                                .is_some_and(|current| current.project() == request.project)
+                            {
+                                Ok(muxy_protocol::GitReply::Done)
+                            } else {
+                                let subscribed = registry.watch_git(request.project, &output);
+                                match subscribed {
+                                    Ok(subscription) => {
+                                        *watch = subscription;
+                                        Ok(muxy_protocol::GitReply::Done)
                                     }
-                                })
-                                .map(|new_watch| {
-                                    *watch = new_watch;
-                                    muxy_protocol::GitReply::Done
-                                })
+                                    Err(error) => {
+                                        *watch = None;
+                                        Err(error)
+                                    }
+                                }
+                            }
                         } else {
                             registry.git(&request)
                         };
