@@ -2,13 +2,15 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::{
     ACTIVITY_HISTORY_LIMIT, ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity,
-    AgentState, SessionId,
+    AgentState, SessionId, Topic,
 };
+
+use crate::notifier::Notifier;
 
 #[derive(Debug, Default)]
 struct State {
@@ -38,10 +40,18 @@ impl State {
 #[derive(Debug, Default)]
 pub(crate) struct Activity {
     state: Mutex<State>,
+    notifier: Arc<Notifier>,
 }
 
 impl Activity {
-    pub(crate) fn open(directory: &Path) -> io::Result<Self> {
+    pub(crate) fn new(notifier: Arc<Notifier>) -> Self {
+        Self {
+            state: Mutex::default(),
+            notifier,
+        }
+    }
+
+    pub(crate) fn open(directory: &Path, notifier: Arc<Notifier>) -> io::Result<Self> {
         match fs::remove_file(directory.join("activity.json")) {
             Ok(()) => (),
             Err(error) if error.kind() == io::ErrorKind::NotFound => (),
@@ -61,9 +71,19 @@ impl Activity {
                 next_id,
                 ..State::default()
             }),
+            notifier,
         })
     }
 
+    /// Bumps the revision and tells watching connections once the lock is released.
+    fn changed(&self, mut state: MutexGuard<'_, State>) {
+        state.revision += 1;
+        let revision = state.revision;
+        drop(state);
+        self.notifier.notify(Topic::Activity, revision);
+    }
+
+    #[cfg(test)]
     pub(crate) fn revision(&self) -> u64 {
         lock(&self.state).revision
     }
@@ -119,13 +139,13 @@ impl Activity {
             }
         }
         state.agents.insert(activity.session, activity);
-        state.revision += 1;
+        self.changed(state);
     }
 
     pub(crate) fn clear_agent(&self, session: SessionId) {
         let mut state = lock(&self.state);
         if state.agents.remove(&session).is_some() {
-            state.revision += 1;
+            self.changed(state);
         }
     }
 
@@ -134,14 +154,14 @@ impl Activity {
         let agent_removed = state.agents.remove(&session).is_some();
         let event_removed = state.retain_events(|event| event.session != session);
         if agent_removed || event_removed {
-            state.revision += 1;
+            self.changed(state);
         }
     }
 
     pub(crate) fn acknowledge(&self, ids: &[u64]) {
         let mut state = lock(&self.state);
         if state.retain_events(|event| !ids.contains(&event.id)) {
-            state.revision += 1;
+            self.changed(state);
         }
     }
 

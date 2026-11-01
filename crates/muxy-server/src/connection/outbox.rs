@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
 use muxy_protocol::{
     AttachSnapshot, CONTROL, ChannelId, ErrorCode, ExitReason, ForegroundProcess, Message,
-    MetadataEvent, ReplyBody, RequestId, ScreenFrame, SessionId, SessionProgress, Size,
-    TerminalColors,
+    MetadataEvent, ReplyBody, RequestId, ScreenFrame, SessionId, Size, TerminalColors, Topic,
 };
 
+use crate::notifier::Notifier;
 use crate::{AttachmentId, ServerError, SessionCommand, SessionHandle};
 
 use super::merge::merge;
@@ -52,6 +52,17 @@ struct Watches {
     remote_access: bool,
 }
 
+impl Watches {
+    fn includes(self, topic: Topic) -> bool {
+        match topic {
+            Topic::Catalog | Topic::Sessions => self.catalog,
+            Topic::Activity => self.activity,
+            Topic::RemoteAccess => self.remote_access,
+            Topic::Unrecognized(_) => false,
+        }
+    }
+}
+
 #[derive(Default)]
 struct State {
     client: muxy_protocol::SessionClient,
@@ -60,10 +71,9 @@ struct State {
     positions: HashMap<SessionId, u64>,
     open_sessions: HashSet<SessionId>,
     created: HashSet<SessionId>,
-    changes: Arc<AtomicU64>,
+    /// Who shows which session changed; announced once the lock is released.
+    positions_changed: bool,
     references: References,
-    progress: HashMap<SessionId, SessionProgress>,
-    session_metadata: HashMap<SessionId, muxy_protocol::SessionMetadata>,
     watches: Watches,
     colors: Option<TerminalColors>,
     session_colors: HashMap<SessionId, TerminalColors>,
@@ -79,26 +89,58 @@ struct State {
 pub(crate) struct Outbox {
     state: Mutex<State>,
     ready: Condvar,
+    notifier: Arc<Notifier>,
+}
+
+/// The locked state; announces ownership changes after unlocking.
+struct Locked<'a> {
+    state: Option<MutexGuard<'a, State>>,
+    notifier: &'a Notifier,
+}
+
+impl Deref for Locked<'_> {
+    type Target = State;
+
+    fn deref(&self) -> &State {
+        self.state.as_deref().unwrap_or_else(|| unreachable!())
+    }
+}
+
+impl DerefMut for Locked<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        self.state.as_deref_mut().unwrap_or_else(|| unreachable!())
+    }
+}
+
+impl Drop for Locked<'_> {
+    fn drop(&mut self) {
+        let Some(mut state) = self.state.take() else {
+            return;
+        };
+        let changed = std::mem::take(&mut state.positions_changed);
+        drop(state);
+        if changed {
+            self.notifier.sessions_changed();
+        }
+    }
 }
 
 impl Outbox {
-    pub(crate) fn new(changes: Arc<AtomicU64>) -> Self {
+    pub(crate) fn new(notifier: Arc<Notifier>) -> Self {
         Self {
-            state: Mutex::new(State {
-                changes,
-                ..State::default()
-            }),
+            state: Mutex::default(),
             ready: Condvar::default(),
+            notifier,
         }
     }
 
     /// A computer says which app it is once connected, as local apps do.
     pub(super) fn for_device(
-        changes: Arc<AtomicU64>,
+        notifier: Arc<Notifier>,
         device: muxy_protocol::DeviceId,
         kind: muxy_protocol::DeviceKind,
     ) -> Self {
-        let outbox = Self::new(changes);
+        let outbox = Self::new(notifier);
         {
             let mut state = outbox.lock();
             state.device = Some((device, kind));
@@ -117,22 +159,27 @@ impl Outbox {
         self.lock().device.map(|(_, kind)| kind)
     }
 
-    pub(crate) fn referenced_sessions(&self) -> Vec<SessionId> {
-        self.lock().references.sessions.iter().copied().collect()
-    }
-
     pub(crate) fn reference_state(&self) -> Option<References> {
         let state = self.lock();
         (!state.closed).then(|| state.references.clone())
     }
 
+    /// Returns the sessions this connection didn't reference before.
     pub(crate) fn set_references(
         &self,
         references: References,
         reported: Option<&[SessionId]>,
         acknowledge_creation: bool,
-    ) {
+    ) -> Vec<SessionId> {
         let mut state = self.lock();
+        if state.closed {
+            return Vec::new();
+        }
+        let added = references
+            .sessions
+            .difference(&state.references.sessions)
+            .copied()
+            .collect();
         state
             .created
             .retain(|session| !acknowledge_creation && !references.sessions.contains(session));
@@ -143,21 +190,16 @@ impl Outbox {
             .open_sessions
             .retain(|session| references.sessions.contains(session));
         state.control.retain(|message| !matches!(message, Message::Progress { session, .. } | Message::SessionMetadata { session, .. } if !references.sessions.contains(session)));
-        state
-            .progress
-            .retain(|session, _| references.sessions.contains(session));
-        state
-            .session_metadata
-            .retain(|session, _| references.sessions.contains(session));
         state.references = references;
-        state.refresh_positions();
+        state.refresh_positions(&self.notifier);
+        added
     }
 
     pub(crate) fn created_session(&self, session: SessionId) {
         let mut state = self.lock();
         if !state.closed && !state.positions.contains_key(&session) {
             state.created.insert(session);
-            state.refresh_positions();
+            state.refresh_positions(&self.notifier);
         }
     }
 
@@ -166,12 +208,6 @@ impl Outbox {
     }
     pub(super) fn watch_remote_access(&self) {
         self.lock().watches.remote_access = true;
-    }
-    pub(super) fn remote_access_watched(&self) -> bool {
-        self.lock().watches.remote_access
-    }
-    pub(super) fn activity_watched(&self) -> bool {
-        self.lock().watches.activity
     }
 
     pub(crate) fn client(&self) -> muxy_protocol::SessionClient {
@@ -182,7 +218,8 @@ impl Outbox {
         let mut state = self.lock();
         if state.client.kind != kind {
             state.client.kind = kind;
-            state.changes.fetch_add(1, Ordering::AcqRel);
+            self.notifier.next_position();
+            state.positions_changed = true;
         }
         state.client
     }
@@ -227,17 +264,35 @@ impl Outbox {
             state.retire(
                 channel,
                 &ServerError::new(ErrorCode::UnknownChannel, "pane was closed"),
+                &self.notifier,
             );
         }
-        state.refresh_positions();
+        state.refresh_positions(&self.notifier);
         self.ready.notify_one();
     }
 
     pub(super) fn watch_catalog(&self) {
         self.lock().watches.catalog = true;
     }
-    pub(super) fn catalog_watched(&self) -> bool {
-        self.lock().watches.catalog
+
+    /// Tells the client to refetch a topic it reads.
+    pub(crate) fn changed(&self, topic: Topic, revision: u64) {
+        let mut state = self.lock();
+        if state.closed || !state.watches.includes(topic) {
+            return;
+        }
+        if let Some(Message::Changed {
+            revision: pending, ..
+        }) = state.control.iter_mut().find(
+            |message| matches!(message, Message::Changed { topic: pending, .. } if *pending == topic),
+        ) {
+            *pending = (*pending).max(revision);
+            return;
+        }
+        state
+            .control
+            .push_back(Message::Changed { topic, revision });
+        self.ready.notify_one();
     }
 
     pub(super) fn colors(&self) -> Option<TerminalColors> {
@@ -262,40 +317,19 @@ impl Outbox {
     pub(crate) fn push_control(&self, message: Message) {
         let mut state = self.lock();
         if !state.closed {
-            if let Message::Changed { topic, revision } = &message
-                && let Some(Message::Changed {
-                    revision: pending, ..
-                }) = state.control.iter_mut().find(
-                    |message| matches!(message, Message::Changed { topic: pending, .. } if pending == topic),
-                )
+            if let Message::SessionMetadata { session, .. } | Message::Progress { session, .. } =
+                &message
             {
-                *pending = (*pending).max(*revision);
-                return;
-            }
-            if let Message::SessionMetadata { session, metadata } = &message {
-                if !state.references.sessions.contains(session)
-                    || state.session_metadata.get(session) == Some(metadata)
-                {
+                if !state.references.sessions.contains(session) {
                     return;
                 }
-                state.session_metadata.insert(*session, metadata.clone());
-                if let Some(pending) = state.control.iter_mut().find(|pending| matches!(pending, Message::SessionMetadata { session: id, .. } if id == session)) {
+                if let Some(pending) = state.control.iter_mut().find(|pending| {
+                    std::mem::discriminant(*pending) == std::mem::discriminant(&message)
+                        && matches!(pending, Message::SessionMetadata { session: id, .. } | Message::Progress { session: id, .. } if id == session)
+                }) {
                     *pending = message;
                     return;
                 }
-            }
-            if let Message::Progress { session, progress } = &message {
-                if !state.references.sessions.contains(session)
-                    || *progress == state.progress.get(session).copied().unwrap_or_default()
-                {
-                    return;
-                }
-                state.progress.insert(*session, *progress);
-            }
-            if let Message::Progress { session, .. } = &message
-                && let Some(pending) = state.control.iter_mut().find(|pending| matches!(pending, Message::Progress { session: id, .. } if id == session)) {
-                *pending = message;
-                return;
             }
             if let Message::FilesChanged { project, changes } = &message
                 && let Some(Message::FilesChanged { changes: pending, .. }) = state.control.iter_mut().find(|pending| matches!(pending, Message::FilesChanged { project: id, .. } if id == project)) {
@@ -351,7 +385,7 @@ impl Outbox {
         );
         state.credit.insert(channel, true);
         state.created.remove(&session);
-        state.refresh_positions();
+        state.refresh_positions(&self.notifier);
         Ok(())
     }
 
@@ -380,7 +414,7 @@ impl Outbox {
 
     pub(super) fn attach_failed(&self, channel: ChannelId, error: &ServerError) {
         let mut state = self.lock();
-        state.retire(channel, error);
+        state.retire(channel, error, &self.notifier);
         self.ready.notify_one();
     }
 
@@ -437,12 +471,13 @@ impl Outbox {
         state.retire(
             channel,
             &ServerError::new(ErrorCode::UnknownChannel, "channel detached"),
+            &self.notifier,
         );
         self.ready.notify_one();
         Ok(())
     }
 
-    pub(super) fn session_ended(&self, session: SessionId, reason: ExitReason) {
+    pub(crate) fn session_ended(&self, session: SessionId, reason: ExitReason) {
         let mut state = self.lock();
         if state.closed {
             return;
@@ -452,8 +487,6 @@ impl Outbox {
             |message| !matches!(message, Message::Progress { session: id, .. } | Message::SessionMetadata { session: id, .. } if *id == session),
         );
         state.references.sessions.remove(&session);
-        state.progress.remove(&session);
-        state.session_metadata.remove(&session);
         state.session_colors.remove(&session);
         state.open_sessions.remove(&session);
         let channels: Vec<_> = state
@@ -465,9 +498,9 @@ impl Outbox {
             .collect();
         let error = ServerError::unknown_session(session);
         for channel in channels {
-            state.retire(channel, &error);
+            state.retire(channel, &error, &self.notifier);
         }
-        state.refresh_positions();
+        state.refresh_positions(&self.notifier);
         state
             .control
             .push_back(Message::SessionEnded { session, reason });
@@ -518,7 +551,7 @@ impl Outbox {
     }
 
     pub(super) fn next(&self) -> Option<(ChannelId, Message)> {
-        let mut state = self.lock();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(message) = state.control.pop_front() {
                 return Some((CONTROL, message));
@@ -568,18 +601,21 @@ impl Outbox {
         let mut state = self.lock();
         if !state.closed {
             state.control.push_back(message);
-            state.close();
+            state.close(&self.notifier);
             self.ready.notify_all();
         }
     }
 
     pub(crate) fn close(&self) {
-        self.lock().close();
+        self.lock().close(&self.notifier);
         self.ready.notify_all();
     }
 
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> Locked<'_> {
+        Locked {
+            state: Some(self.state.lock().unwrap_or_else(PoisonError::into_inner)),
+            notifier: &self.notifier,
+        }
     }
 }
 
@@ -602,7 +638,7 @@ impl State {
         }
     }
 
-    fn refresh_positions(&mut self) {
+    fn refresh_positions(&mut self, notifier: &Notifier) {
         if self.closed {
             return;
         }
@@ -618,19 +654,22 @@ impl State {
         self.positions
             .retain(|session, _| sessions.contains(session));
         if previous != self.positions.len() {
-            self.changes.fetch_add(1, Ordering::AcqRel);
+            notifier.next_position();
+            self.positions_changed = true;
         }
         for session in sessions {
-            self.positions
-                .entry(session)
-                .or_insert_with(|| self.changes.fetch_add(1, Ordering::AcqRel));
+            self.positions.entry(session).or_insert_with(|| {
+                self.positions_changed = true;
+                notifier.next_position()
+            });
         }
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, notifier: &Notifier) {
         if !self.positions.is_empty() {
             self.positions.clear();
-            self.changes.fetch_add(1, Ordering::AcqRel);
+            notifier.next_position();
+            self.positions_changed = true;
         }
         self.closed = true;
         for (_, attachment) in self.attachments.drain() {
@@ -639,13 +678,12 @@ impl State {
                 .send(SessionCommand::Detach(attachment.id));
         }
         self.pending.clear();
-        self.progress.clear();
         self.metadata.clear();
         self.credit.clear();
         self.sent.clear();
     }
 
-    fn retire(&mut self, channel: ChannelId, error: &ServerError) {
+    fn retire(&mut self, channel: ChannelId, error: &ServerError, notifier: &Notifier) {
         self.pending.remove(&channel);
         self.metadata.remove(&channel);
         self.credit.remove(&channel);
@@ -661,7 +699,7 @@ impl State {
                 });
             }
         }
-        self.refresh_positions();
+        self.refresh_positions(notifier);
     }
 }
 
@@ -768,7 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn title_updates_coalesce_and_resubscribe_without_screen_credit() {
+    fn title_updates_coalesce_and_only_reach_referencing_connections() {
         let outbox = Outbox::new(Arc::default());
         let session = SessionId::from(std::num::NonZeroU64::MIN);
         let message = |title: String| Message::SessionMetadata {
@@ -785,50 +823,80 @@ mod tests {
         }
         assert_eq!(outbox.lock().control.len(), 1);
         assert_eq!(outbox.next(), Some((CONTROL, message("999".into()))));
-        outbox.push_control(message("999".into()));
-        assert!(outbox.lock().control.is_empty());
         outbox.push_control(message("pending".into()));
         outbox.set_references(References::default(), Some(&[]), false);
         outbox.push_control(message("ignored".into()));
         assert!(outbox.lock().control.is_empty());
-        outbox.lock().references.sessions.insert(session);
-        outbox.push_control(message("pending".into()));
-        assert_eq!(outbox.next(), Some((CONTROL, message("pending".into()))));
     }
 
     #[test]
-    fn progress_resubscription_restores_unchanged_state_between_polls() {
-        for delivered in [false, true] {
-            let outbox = Outbox::new(Arc::default());
-            let session = SessionId::from(std::num::NonZeroU64::MIN);
-            let message = Message::Progress {
-                session,
-                progress: SessionProgress {
-                    progress: Some(muxy_protocol::TerminalProgress {
-                        state: muxy_protocol::ProgressState::Indeterminate,
-                        percent: None,
-                    }),
-                    completed: 0,
-                },
-            };
-            let mut references = References::default();
-            references.update(None, 1, vec![session]);
-            outbox.set_references(references.clone(), Some(&[session]), false);
-            outbox.push_control(message.clone());
-            if delivered {
-                assert_eq!(outbox.next(), Some((CONTROL, message.clone())));
-            }
-            outbox.set_references(References::default(), Some(&[]), false);
-            outbox.push_control(message.clone());
-            assert!(outbox.lock().control.is_empty());
-            outbox.set_references(references.clone(), Some(&[session]), false);
-            outbox.push_control(message.clone());
-            assert_eq!(outbox.lock().control.len(), 1);
-            assert_eq!(outbox.next(), Some((CONTROL, message.clone())));
-            outbox.set_references(references, Some(&[session]), false);
-            outbox.push_control(message);
-            assert!(outbox.lock().control.is_empty());
-        }
+    fn session_state_is_pushed_once_and_introduced_to_new_references() {
+        let notifier = Arc::new(Notifier::default());
+        let outbox = Arc::new(Outbox::new(Arc::clone(&notifier)));
+        notifier.register(&outbox);
+        let (handle, _commands) = SessionHandle::fake();
+        let session = handle.id();
+        let published = crate::session::Published::new(handle.info(), notifier);
+        let progress = |percent| muxy_protocol::SessionProgress {
+            progress: Some(muxy_protocol::TerminalProgress {
+                state: muxy_protocol::ProgressState::Running,
+                percent: Some(percent),
+            }),
+            completed: 0,
+        };
+        let metadata = Message::SessionMetadata {
+            session,
+            metadata: muxy_protocol::SessionMetadata {
+                title: String::new(),
+                directory: handle.info().directory.clone(),
+                process: None,
+            },
+        };
+        let mut references = References::default();
+        references.update(None, 1, vec![session]);
+
+        assert_eq!(
+            outbox.set_references(references.clone(), Some(&[session]), false),
+            [session]
+        );
+        published.introduce(&outbox);
+        published.set_progress(progress(10));
+        published.set_progress(progress(10));
+        assert_eq!(
+            outbox.take_control(),
+            [
+                metadata.clone(),
+                Message::Progress {
+                    session,
+                    progress: progress(10)
+                }
+            ]
+        );
+
+        outbox.set_references(References::default(), Some(&[]), false);
+        published.set_progress(progress(20));
+        assert!(outbox.take_control().is_empty());
+
+        assert_eq!(
+            outbox.set_references(references.clone(), Some(&[session]), false),
+            [session]
+        );
+        assert!(
+            outbox
+                .set_references(references, Some(&[session]), false)
+                .is_empty()
+        );
+        published.introduce(&outbox);
+        assert_eq!(
+            outbox.take_control(),
+            [
+                metadata,
+                Message::Progress {
+                    session,
+                    progress: progress(20)
+                }
+            ]
+        );
     }
 
     #[test]
@@ -920,6 +988,7 @@ mod tests {
         outbox.lock().retire(
             channel,
             &ServerError::new(ErrorCode::UnknownChannel, "detached"),
+            &outbox.notifier,
         );
         outbox.push_metadata(channel, MetadataEvent::Bell);
         assert!(outbox.lock().metadata.is_empty());
@@ -946,6 +1015,7 @@ mod tests {
         outbox.lock().retire(
             channel,
             &ServerError::new(ErrorCode::UnknownChannel, "detached"),
+            &outbox.notifier,
         );
         assert!(outbox.lock().metadata.is_empty());
     }

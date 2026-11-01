@@ -27,6 +27,7 @@ pub use catalog::LegacyImport;
 
 mod files;
 mod git;
+mod notifier;
 mod uploads;
 mod watch;
 

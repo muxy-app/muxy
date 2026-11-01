@@ -11,8 +11,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use crate::notifier::Notifier;
 use crate::{ServerError, archive::Archive};
 use muxy_protocol::{
     CATALOG_PAGE_SIZE, CatalogPage, ErrorCode, ErrorReply, MAX_PROJECTS, OperationId,
@@ -77,6 +78,7 @@ pub(crate) struct Catalog {
     path: Option<PathBuf>,
     revision: AtomicU64,
     pending_exits: Mutex<recovery::PendingExits>,
+    notifier: Arc<Notifier>,
 }
 
 impl State {
@@ -206,20 +208,22 @@ impl Catalog {
         self.lock().server
     }
 
-    pub(crate) fn memory() -> Self {
+    pub(crate) fn memory(notifier: Arc<Notifier>) -> Self {
         Self::from_state(
             State::fresh(&std::env::home_dir().unwrap_or_else(|| PathBuf::from("/"))),
             None,
+            notifier,
         )
     }
 
-    fn from_state(state: State, path: Option<PathBuf>) -> Self {
+    fn from_state(state: State, path: Option<PathBuf>, notifier: Arc<Notifier>) -> Self {
         Self {
             revision: AtomicU64::new(state.revision),
             state: Mutex::new(state),
             write: Mutex::new(()),
             path,
             pending_exits: Mutex::default(),
+            notifier,
         }
     }
 
@@ -227,6 +231,7 @@ impl Catalog {
         directory: &Path,
         archive: &Archive,
         legacy: LegacyImport,
+        notifier: Arc<Notifier>,
     ) -> io::Result<Self> {
         let path = directory.join("catalog.json");
         let mut state = match fs::read(&path) {
@@ -250,7 +255,7 @@ impl Catalog {
                 SessionStatus::Unavailable
             };
         }
-        let catalog = Self::from_state(state, Some(path));
+        let catalog = Self::from_state(state, Some(path), notifier);
         catalog.update(|_| Ok(())).map_err(io::Error::other)?;
         Ok(catalog)
     }
@@ -263,7 +268,7 @@ impl Catalog {
         &self,
         edit: impl FnOnce(&mut State) -> Result<T, ServerError>,
     ) -> Result<T, ServerError> {
-        let _write = self.write.lock().unwrap_or_else(PoisonError::into_inner);
+        let write = self.write.lock().unwrap_or_else(PoisonError::into_inner);
         let mut next = self.lock().clone();
         let result = edit(&mut next)?;
         next.expire_records(expiry::now_millis());
@@ -272,17 +277,22 @@ impl Catalog {
             .checked_add(1)
             .ok_or_else(|| bad("catalog revisions exhausted"))?;
         next.validate()?;
+        let revision = next.revision;
         let saved = self.path.as_ref().map_or(Ok(()), |path| save(path, &next));
-        if saved.as_ref().map_or_else(|error| error.renamed, |()| true) {
-            self.revision.store(next.revision, Ordering::Release);
+        let published = saved.as_ref().map_or_else(|error| error.renamed, |()| true);
+        if published {
+            self.revision.store(revision, Ordering::Release);
             *self.lock() = next;
+        }
+        drop(write);
+        if published {
+            self.notifier.catalog_changed(revision);
         }
         saved.map_err(|error| storage_error(&error.error))?;
         Ok(result)
     }
 
     pub(crate) fn revision(&self) -> u64 {
-        self.retry_exits();
         self.revision.load(Ordering::Acquire)
     }
 
