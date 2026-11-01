@@ -6,7 +6,7 @@ use crate::{AttachmentEvent, ServerError};
 
 use super::Connection;
 
-/// Writes one attached channel's events straight into its connection's connection.
+/// Writes one attached channel's events straight into its connection's outbox.
 ///
 /// Dropping it without an `Ended` event still fails the channel, so the
 /// client hears about a session that went away.
@@ -80,7 +80,7 @@ mod tests {
     const CHANNEL: ChannelId = ChannelId(1);
     const REQUEST: RequestId = RequestId(7);
 
-    /// An connection with `CHANNEL` attached and waiting on `REQUEST`, and that channel's sink.
+    /// A connection with `CHANNEL` attached and waiting on `REQUEST`, and that channel's sink.
     fn attached() -> Result<(Arc<Connection>, Receiver<impl Sized>, OutboxSink), Box<dyn Error>> {
         let connection = Arc::new(Connection::new(Arc::default()));
         let (handle, commands) = SessionHandle::fake();

@@ -653,15 +653,15 @@ impl Registry {
             return;
         };
         let previous = current.lock().sessions().clone();
-        let references = match owner {
+        let (references, started) = match owner {
             Some(owner) => owners.get_or_insert(owner, || current.lock().clone()),
-            None if requester.owner().is_none() => current,
-            None => SharedReferences::new(current.lock().clone()),
+            None if requester.owner().is_none() => (current, false),
+            None => (SharedReferences::new(current.lock().clone()), true),
         };
         let (before, accepted, after) = {
             let mut references = references.lock();
             let before = references.sessions().clone();
-            let accepted = owner.is_none() || revision >= references.revision();
+            let accepted = owner.is_none() || started || revision >= references.revision();
             if accepted {
                 references.update(revision, sessions);
             }

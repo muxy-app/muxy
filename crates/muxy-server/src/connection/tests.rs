@@ -216,6 +216,10 @@ fn connections_of_one_owner_share_its_references_until_the_last_one_closes()
     registry.set_references(&second, owner, 5, &[]);
     assert!(!first.references(session, false));
 
+    let other = Some(OperationId::new());
+    registry.set_references(&second, other, 1, &[session]);
+    assert!(second.references(session, false) && !first.references(session, false));
+
     for connection in [&first, &second] {
         connection.close();
         registry.connection_closed(connection);

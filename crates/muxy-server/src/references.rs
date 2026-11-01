@@ -1,5 +1,6 @@
 //! The sessions each app keeps open, shared by every connection it has.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -70,16 +71,17 @@ impl SharedReferences {
 pub(crate) struct Owners(HashMap<OperationId, SharedReferences>);
 
 impl Owners {
-    /// The owner's references, starting from `first` for an owner no live connection has.
+    /// The owner's references, and whether they were just started from
+    /// `first` because no live connection had the owner.
     pub(crate) fn get_or_insert(
         &mut self,
         owner: OperationId,
         first: impl FnOnce() -> References,
-    ) -> SharedReferences {
-        self.0
-            .entry(owner)
-            .or_insert_with(|| SharedReferences::new(first()))
-            .clone()
+    ) -> (SharedReferences, bool) {
+        match self.0.entry(owner) {
+            Entry::Occupied(entry) => (entry.get().clone(), false),
+            Entry::Vacant(entry) => (entry.insert(SharedReferences::new(first())).clone(), true),
+        }
     }
 
     /// Forgets owners none of whose connections are still open.
