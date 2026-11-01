@@ -479,6 +479,31 @@ fn a_failed_worktree_creation_is_reported_after_moving_elsewhere_and_clears_its_
 }
 
 #[gpui::test]
+fn a_finished_worktree_leaves_an_unrelated_overlay_open(cx: &mut TestAppContext) {
+    let (state, root) = registered_current_project();
+    let (view, cx, _sent) = connected(state, cx);
+    view.update(cx, |model, cx| {
+        let intent = creation("feature");
+        model.create_worktree(
+            root,
+            intent.clone(),
+            muxy_app_core::settings::WorktreeLocation::default(),
+            cx,
+        );
+        model.ask_password(ServerId::local(), cx);
+        model.receive_git(
+            &muxy_protocol::GitRequest {
+                project: root,
+                action: muxy_protocol::GitAction::Worktree(intent),
+            },
+            Ok(muxy_protocol::GitReply::Done),
+            cx,
+        );
+        assert!(matches!(model.overlay, Some(Overlay::Password(_))));
+    });
+}
+
+#[gpui::test]
 fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
     cx: &mut TestAppContext,
 ) {
@@ -503,6 +528,7 @@ fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
             work,
             Work::Git(GitRequest { project, action: GitAction::InspectRemoval }) if *project == worktree
         )));
+        model.open_git_form(worktree, false, cx);
         model.dismiss_overlay(cx);
         let expected = muxy_protocol::WorktreeRemoval {
             directory: ServerPath(b"/unused".to_vec()),
@@ -518,6 +544,7 @@ fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
             Ok(GitReply::Removal(expected)),
             cx,
         );
+        model.open_git_form(worktree, false, cx);
         model.dismiss_overlay(cx);
         model.receive_git(
             &request(GitAction::WorktreeHooks { teardown: true }),

@@ -142,6 +142,13 @@ impl Overlay {
         }
     }
 
+    pub(crate) fn is_git(&self) -> bool {
+        matches!(
+            self,
+            Self::Git(_) | Self::GitForm(_) | Self::PullRequest(_) | Self::AiProvider(_)
+        )
+    }
+
     /// The mark of the area the overlay covers. Rendering and
     /// [`AppModel::coverage`] both read it.
     pub(crate) fn mark(&self, model: &AppModel) -> Option<Mark> {
@@ -170,8 +177,8 @@ impl Mark {
 }
 
 impl AppModel {
-    /// Closes the overlay as the user's cancel: Escape, an outside click, or
-    /// its toggle.
+    /// Closes the overlay and cancels what it left pending, through its
+    /// [`OverlayView::on_dismiss`].
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
         let Some(overlay) = self.overlay.take() else {
             self.overlay_closed(None, cx);

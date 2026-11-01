@@ -87,6 +87,10 @@ fn project_workspace(
     (view, cx, pane, project)
 }
 
+/// The Agents opener sets its variant directly, and the Git form opens
+/// without a window.
+const OPEN_WITHOUT_THE_KEYBOARD: [&str; 2] = ["agents", "git form"];
+
 #[gpui::test]
 fn each_overlay_hands_the_keyboard_back_to_the_active_pane(cx: &mut TestAppContext) {
     let (view, cx, pane, project) = project_workspace(cx);
@@ -98,9 +102,7 @@ fn each_overlay_hands_the_keyboard_back_to_the_active_pane(cx: &mut TestAppConte
             assert!(model.overlay.is_some(), "{name} opens");
         });
         cx.run_until_parked();
-        // The Agents opener sets its variant directly, and the Git form
-        // opens without a window, so neither takes the keyboard.
-        if !matches!(name, "agents" | "git form") {
+        if !OPEN_WITHOUT_THE_KEYBOARD.contains(&name) {
             assert!(!pane_focused(&view, pane, cx), "{name} took the keyboard");
         }
         while view.read_with(cx, |model, _| model.overlay.is_some()) {
