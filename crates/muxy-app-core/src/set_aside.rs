@@ -45,25 +45,26 @@ impl AppState {
         kept_catalog: bool,
     ) -> Result<LocalCatalog, AppError> {
         let local = ServerId::local();
-        let mut next = self.clone();
-        let outcome = match next.server_identity(local) {
-            Some(known) if known != page.server => {
-                let previous = next.take_local_view();
-                let outcome = match next.set_aside.take() {
-                    Some(view) if view.server.identity == Some(page.server) => {
-                        next.put_back(view);
-                        LocalCatalog::Restored
-                    }
-                    _ => LocalCatalog::Fresh,
-                };
-                next.set_aside = Some(previous);
-                outcome
+        if self
+            .server_identity(local)
+            .is_none_or(|known| known == page.server)
+        {
+            self.apply_catalog(local, page)?;
+            if !kept_catalog {
+                self.set_aside = None;
             }
-            _ => LocalCatalog::Applied,
-        };
-        if !kept_catalog {
-            next.set_aside = None;
+            return Ok(LocalCatalog::Applied);
         }
+        let mut next = self.clone();
+        let previous = next.take_local_view();
+        let outcome = match next.set_aside.take() {
+            Some(view) if view.server.identity == Some(page.server) => {
+                next.put_back(view);
+                LocalCatalog::Restored
+            }
+            _ => LocalCatalog::Fresh,
+        };
+        next.set_aside = kept_catalog.then_some(previous);
         next.apply_catalog(local, page)?;
         *self = next;
         Ok(outcome)

@@ -797,3 +797,20 @@ fn ended_sessions_close_without_discarding_but_closed_ones_discard() -> TestResu
     assert_eq!(state.pending_discards(LOCAL), [quick_closed]);
     Ok(())
 }
+
+#[test]
+fn backups_leave_a_set_aside_view_out_and_restoring_keeps_it() -> TestResult {
+    let TwoServers { mut state, .. } = two_servers()?;
+    let kept = local_catalog(&mut state)?;
+    let fresh = remote_catalog(3, ProjectId::new(), &[]);
+    state.apply_local_catalog(&fresh, true)?;
+
+    let backup = state.configuration_backup();
+    assert_eq!(serde_json::to_value(&backup)?.get("set_aside"), None);
+    let mut restored = backup.restore_configuration(&state)?;
+    assert_eq!(
+        restored.apply_local_catalog(&kept, false)?,
+        LocalCatalog::Restored
+    );
+    Ok(())
+}

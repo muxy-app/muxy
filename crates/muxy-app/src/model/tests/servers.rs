@@ -488,3 +488,29 @@ fn a_replaced_catalog_brings_the_servers_fresh_projects_with_one_notice(cx: &mut
         assert_eq!(model.state.home().id, fresh_home);
     });
 }
+
+#[gpui::test]
+fn a_first_catalog_names_the_catalog_the_server_kept(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        let info = muxy_protocol::ServerInfo {
+            unreadable: vec![muxy_protocol::UnreadableFile {
+                kept_as: ServerPath::from("/state/catalog.json.unreadable-1"),
+                error: "expected value".into(),
+            }],
+            ..muxy_protocol::ServerInfo::current()
+        };
+        model.receive(local(1, Update::ServerInfo(info, Vec::new())), cx);
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        let home = ProjectId::new();
+        model.receive(local(1, Update::Catalog(Ok(page(2, home, &[])))), cx);
+        assert_eq!(model.state.home().id, home);
+        assert!(
+            model
+                .notice_body
+                .as_deref()
+                .is_some_and(|body| body.ends_with("/state/catalog.json.unreadable-1"))
+        );
+    });
+}

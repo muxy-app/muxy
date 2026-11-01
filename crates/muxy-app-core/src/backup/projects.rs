@@ -27,6 +27,7 @@ impl AppState {
             state.remove_remote_projects(server);
         }
         state.servers.clear();
+        state.set_aside = None;
         state.startup_commands.clear();
         state.starting_directories.clear();
         state.quick_terminal = None;
@@ -157,6 +158,7 @@ impl AppState {
                 .collect();
         }
         restored.servers.clone_from(&current.servers);
+        restored.set_aside.clone_from(&current.set_aside);
         if let Some(local) = restored.servers.get_mut(&ServerId::local()) {
             local.pending_cancellations.clear();
             local.pending_discards.clear();

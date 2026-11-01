@@ -147,7 +147,6 @@ impl AppModel {
                 return;
             }
         };
-        // A replaced catalog counts its revisions from the start again.
         let replaced = server.is_local()
             && self
                 .state
@@ -228,8 +227,9 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Applies and saves `server`'s catalog. This computer's server may have
-    /// replaced its catalog, which is announced once.
+    /// Applies and saves `server`'s catalog. A fresh catalog on this
+    /// computer's server is announced once, when it replaces the known one or
+    /// is the first one the app sees while the server kept the old one aside.
     fn take_catalog(
         &mut self,
         server: ServerId,
@@ -237,8 +237,9 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> bool {
         let previous = self.state.clone();
+        let kept = self.kept_catalog().filter(|_| server.is_local());
+        let first = self.state.server_identity(server).is_none();
         let applied = if server.is_local() {
-            let kept = self.kept_catalog();
             self.state.apply_local_catalog(page, kept.is_some())
         } else {
             self.state
@@ -256,10 +257,9 @@ impl AppModel {
             self.state = previous;
             return false;
         }
-        if applied == LocalCatalog::Fresh {
-            let kept = self
-                .kept_catalog()
-                .map(|kept| tr!("Your previous projects are kept in %@", kept).to_string());
+        if applied == LocalCatalog::Fresh || (first && kept.is_some()) {
+            let kept =
+                kept.map(|kept| tr!("Your previous projects are kept in %@", kept).to_string());
             self.show_toast(
                 tr!("The server started with a fresh project list").to_string(),
                 kept,
