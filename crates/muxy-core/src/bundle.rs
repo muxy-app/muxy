@@ -152,7 +152,8 @@ mod tests {
         assert!(matches!(old.try_lock(), Err(fs::TryLockError::WouldBlock)));
         let new = lease_file(root.path(), &identity(&current)?)?;
         new.try_lock()?;
-        drop(lease);
+        // Closing alone keeps the lock while a child spawned by another test still shares the file.
+        lease.unlock()?;
         old.try_lock()?;
         Ok(())
     }
