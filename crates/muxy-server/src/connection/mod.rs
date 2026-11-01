@@ -11,28 +11,23 @@ mod writer;
 
 use std::io::{self, Read, Write};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
 
 use muxy_protocol::transport::{ByteStream, StreamCancellation};
 use muxy_protocol::wire::{Decoder, Encoder, MAX_FRAME, WireError};
-use muxy_protocol::{CONTROL, Message, Topic};
+use muxy_protocol::{CONTROL, Message};
 
-use crate::{Admission, Registry, ServerEvent};
+use crate::{Admission, Registry};
 pub(crate) use outbox::{Outbox, References};
 pub(crate) use sink::OutboxSink;
 
-const POLL: Duration = Duration::from_millis(50);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 /// Hello and the authentication request are small; nothing larger is read before trust.
 const UNAUTHENTICATED_PAYLOAD: usize = 4 * 1024;
 
-pub fn serve(
-    stream: Box<dyn ByteStream>,
-    registry: Arc<Registry>,
-    events: Receiver<ServerEvent>,
-) -> Result<(), WireError> {
+pub fn serve(stream: Box<dyn ByteStream>, registry: Arc<Registry>) -> Result<(), WireError> {
     let cancellation: Arc<dyn StreamCancellation> = Arc::from(stream.cancellation()?);
     let (read, write) = stream.split()?;
     let mut decoder = Decoder::new(read);
@@ -40,9 +35,9 @@ pub fn serve(
     if !handshake::accept(&mut decoder, &mut encoder)? {
         return Ok(());
     }
-    let outbox = Arc::new(Outbox::new(Arc::clone(&registry.attachment_changes)));
-    registry.register_connection(&outbox);
-    run(decoder, encoder, &cancellation, registry, events, &outbox)
+    let outbox = Arc::new(Outbox::new(Arc::clone(&registry.notifier)));
+    registry.notifier.register(&outbox);
+    run(decoder, encoder, &cancellation, registry, &outbox)
 }
 
 /// Serves a network peer, which must authenticate as a paired device before
@@ -50,7 +45,6 @@ pub fn serve(
 pub fn serve_remote(
     stream: Box<dyn ByteStream>,
     registry: Arc<Registry>,
-    events: Receiver<ServerEvent>,
     admission: Admission,
 ) -> Result<(), WireError> {
     let cancellation: Arc<dyn StreamCancellation> = Arc::from(stream.cancellation()?);
@@ -66,11 +60,11 @@ pub fn serve_remote(
         return Ok(());
     };
     let outbox = Arc::new(Outbox::for_device(
-        Arc::clone(&registry.attachment_changes),
+        Arc::clone(&registry.notifier),
         admitted.device,
         admitted.kind,
     ));
-    registry.register_connection(&outbox);
+    registry.notifier.register(&outbox);
     // Registering before this check means a concurrent revoke either sees this
     // connection and closes it, or this check sees the revoke.
     if !registry.remote.authorized(admitted.device) {
@@ -91,7 +85,7 @@ pub fn serve_remote(
         admitted.kind
     );
     registry.remote.changed();
-    let result = run(decoder, encoder, &cancellation, registry, events, &outbox);
+    let result = run(decoder, encoder, &cancellation, registry, &outbox);
     log::info!("device disconnected: {}", admitted.device);
     result
 }
@@ -117,7 +111,6 @@ fn run(
     encoder: Encoder<impl Write + Send + 'static>,
     cancellation: &Arc<dyn StreamCancellation>,
     registry: Arc<Registry>,
-    events: Receiver<ServerEvent>,
     outbox: &Arc<Outbox>,
 ) -> Result<(), WireError> {
     let output = Arc::clone(outbox);
@@ -131,20 +124,6 @@ fn run(
             cancel.cancel();
             result
         })?;
-    let output = Arc::clone(outbox);
-    let catalog = Arc::clone(&registry);
-    let forward = match thread::Builder::new()
-        .name("connection-events".into())
-        .spawn(move || forward_events(&output, &catalog, &events))
-    {
-        Ok(forward) => forward,
-        Err(error) => {
-            outbox.close();
-            cancellation.cancel();
-            let _ = writer.join();
-            return Err(error.into());
-        }
-    };
     let result = reader::run(&mut decoder, &registry, outbox);
     outbox.close();
     registry.connection_closed(outbox);
@@ -160,66 +139,5 @@ fn run(
     let written = writer
         .join()
         .map_err(|_| io::Error::other("connection writer panicked"))?;
-    forward
-        .join()
-        .map_err(|_| io::Error::other("connection event forwarder panicked"))?;
     written.and(result.map(|_| ()))
-}
-
-fn forward_events(output: &Outbox, catalog: &Registry, events: &Receiver<ServerEvent>) {
-    let mut revision = 0;
-    let mut sessions_revision = 0;
-    let mut remote_revision = 0;
-    let mut activity_revision = None;
-    while !output.is_closed() {
-        let current = catalog.activity.revision();
-        if activity_revision != Some(current) && output.activity_watched() {
-            output.push_control(Message::Changed {
-                topic: Topic::Activity,
-                revision: current,
-            });
-            activity_revision = Some(current);
-        }
-        for (session, (progress, metadata)) in catalog.session_observations(output) {
-            output.push_control(Message::SessionMetadata { session, metadata });
-            output.push_control(Message::Progress { session, progress });
-        }
-        let current = catalog.catalog_revision();
-        if current > revision && output.catalog_watched() {
-            output.push_control(Message::Changed {
-                topic: Topic::Catalog,
-                revision: current,
-            });
-            revision = current;
-        }
-        let current = catalog.sessions_revision();
-        if current > sessions_revision && output.catalog_watched() {
-            output.push_control(Message::Changed {
-                topic: Topic::Sessions,
-                revision: current,
-            });
-            sessions_revision = current;
-        }
-        let current = catalog.remote.revision();
-        if current > remote_revision && output.remote_access_watched() {
-            output.push_control(Message::Changed {
-                topic: Topic::RemoteAccess,
-                revision: current,
-            });
-            remote_revision = current;
-        }
-        match events.recv_timeout(POLL) {
-            Ok(ServerEvent::SessionEnded { id, reason }) => {
-                output.session_ended(id, reason);
-            }
-            Ok(ServerEvent::RestartRequested) => {
-                output.push_control(Message::ServerRestarting);
-            }
-            Ok(ServerEvent::StopRequested) | Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => {
-                output.close();
-                break;
-            }
-        }
-    }
 }

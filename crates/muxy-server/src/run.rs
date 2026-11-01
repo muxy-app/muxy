@@ -6,10 +6,10 @@ use std::io::{self, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use muxy_protocol::transport::{
     BindError, ByteStream, Listener, StreamCancellation, UnixSocketListener,
@@ -22,12 +22,27 @@ use signal_hook::iterator::Signals;
 use crate::remote_listener::RemoteListener;
 use crate::{args::Args, logging, settings_file};
 
-const POLL: Duration = Duration::from_millis(10);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
-type Clients = Arc<Mutex<BTreeMap<u64, Client>>>;
+
+/// The connections being served; `gone` wakes whoever waits for them to end.
+#[derive(Default)]
+struct Clients {
+    serving: Mutex<BTreeMap<u64, Client>>,
+    gone: Condvar,
+}
+
+impl Clients {
+    fn lock(&self) -> MutexGuard<'_, BTreeMap<u64, Client>> {
+        self.serving.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn remove(&self, id: u64) {
+        self.lock().remove(&id);
+        self.gone.notify_all();
+    }
+}
 
 struct Client {
-    events: Option<Sender<ServerEvent>>,
     cancellation: Box<dyn StreamCancellation>,
     remote: bool,
 }
@@ -35,7 +50,7 @@ struct Client {
 /// Bookkeeping shared by the local and network accept loops.
 #[derive(Clone, Default)]
 pub(crate) struct Connections {
-    clients: Clients,
+    clients: Arc<Clients>,
     workers: Arc<Mutex<Workers>>,
     next: Arc<AtomicU64>,
 }
@@ -53,17 +68,13 @@ impl Connections {
         &self,
         stream: Box<dyn ByteStream>,
         remote: bool,
-        serve: impl FnOnce(Box<dyn ByteStream>, Receiver<ServerEvent>) -> Result<(), WireError>
-        + Send
-        + 'static,
+        serve: impl FnOnce(Box<dyn ByteStream>) -> Result<(), WireError> + Send + 'static,
     ) -> io::Result<()> {
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         let cancellation = stream.cancellation()?;
-        let (sender, events) = mpsc::channel();
-        lock(&self.clients).insert(
+        self.clients.lock().insert(
             id,
             Client {
-                events: Some(sender),
                 cancellation,
                 remote,
             },
@@ -75,13 +86,13 @@ impl Connections {
         let worker = thread::Builder::new()
             .name(format!("client-{id}"))
             .spawn(move || {
-                match serve(stream, events) {
+                match serve(stream) {
                     // Network peers fail handshakes routinely; devices log after authenticating.
                     Err(error) if remote => log::debug!("network client {id}: {error}"),
                     Err(error) => log::error!("client {id}: {error}"),
                     Ok(()) => {}
                 }
-                lock(&clients).remove(&id);
+                clients.remove(id);
                 if !remote {
                     log::info!("client disconnected: {id}");
                 }
@@ -89,7 +100,7 @@ impl Connections {
         let worker = match worker {
             Ok(worker) => worker,
             Err(error) => {
-                lock(&self.clients).remove(&id);
+                self.clients.remove(id);
                 return Err(error);
             }
         };
@@ -121,28 +132,24 @@ impl Connections {
 
     /// Ends every network connection, including ones not yet authenticated.
     pub(crate) fn cancel_remote(&self) {
-        for client in lock(&self.clients).values().filter(|client| client.remote) {
+        for client in self.clients.lock().values().filter(|client| client.remote) {
             client.cancellation.cancel();
         }
     }
 
     fn cancel_all(&self) {
-        for client in lock(&self.clients).values() {
+        for client in self.clients.lock().values() {
             client.cancellation.cancel();
         }
     }
 
-    fn drain(&self, deadline: Instant) {
-        while Instant::now() < deadline && {
-            let workers = self.workers.lock().unwrap_or_else(PoisonError::into_inner);
-            workers
-                .local
-                .iter()
-                .chain(&workers.remote)
-                .any(|worker| !worker.is_finished())
-        } {
-            thread::sleep(POLL);
-        }
+    /// Waits until every connection has ended, or the timeout passes.
+    fn drain(&self, timeout: Duration) {
+        let serving = self.clients.lock();
+        let _ = self
+            .clients
+            .gone
+            .wait_timeout_while(serving, timeout, |serving| !serving.is_empty());
     }
 
     fn join(&self) -> io::Result<()> {
@@ -238,6 +245,7 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     logging::init(&args.log)?;
     log::info!("server started: socket={}", args.socket.display());
     let (sender, events) = mpsc::channel();
+    let wake = sender.clone();
     let directory = args
         .socket
         .parent()
@@ -253,15 +261,14 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let requested_stop = Arc::clone(&stopping);
     let requested_socket = Arc::clone(&socket);
-    let subscribers = Arc::clone(&connections.clients);
-    let sessions = Arc::clone(&registry);
-    let broadcast = thread::Builder::new()
+    let requests = thread::Builder::new()
         .name("server-events".into())
         .spawn(move || {
-            broadcast(&events, &subscribers, &sessions, || {
+            // Stop and restart requests both end the accept loop.
+            if events.recv().is_ok() {
                 requested_stop.store(true, Ordering::Release);
                 requested_socket.close();
-            });
+            }
         })?;
     let signal_handle = signals.handle();
     let closing_socket = Arc::clone(&socket);
@@ -288,10 +295,14 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     remote.shutdown();
     drop(retention);
     registry.shutdown();
-    let broadcast_result = broadcast
+    // Already stopping, so this only releases the request thread if nothing asked to stop.
+    let _ = wake.send(ServerEvent::StopRequested);
+    let requests_result = requests
         .join()
         .map_err(|_| io::Error::other("event thread panicked"));
-    connections.drain(Instant::now() + DRAIN_TIMEOUT);
+    registry.wait_stopped();
+    registry.close_connections();
+    connections.drain(DRAIN_TIMEOUT);
     connections.cancel_all();
     let worker_result = connections.join();
     signal_handle.close();
@@ -304,7 +315,7 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     log::info!("server stopped");
     socket.remove()?;
     result
-        .and(broadcast_result)
+        .and(requests_result)
         .and(worker_result)
         .and(signal_result)
 }
@@ -336,59 +347,10 @@ fn accept(socket: &Socket, registry: &Arc<Registry>, connections: &Connections) 
     loop {
         let stream = socket.listener.accept()?;
         let registry = Arc::clone(registry);
-        connections.spawn(stream, false, move |stream, events| {
-            connection::serve(stream, registry, events)
+        connections.spawn(stream, false, move |stream| {
+            connection::serve(stream, registry)
         })?;
     }
-}
-
-fn broadcast(
-    events: &Receiver<ServerEvent>,
-    clients: &Clients,
-    registry: &Registry,
-    stop: impl Fn(),
-) {
-    loop {
-        match events.recv_timeout(POLL) {
-            Ok(event) => publish(&event, clients, &stop),
-            Err(RecvTimeoutError::Timeout) if !registry.is_stopped() => {}
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
-                for event in events.try_iter() {
-                    publish(&event, clients, &stop);
-                }
-                break;
-            }
-        }
-    }
-    for client in lock(clients).values_mut() {
-        client.events.take();
-    }
-}
-
-fn publish(event: &ServerEvent, clients: &Clients, stop: &impl Fn()) {
-    match event {
-        ServerEvent::StopRequested => stop(),
-        ServerEvent::RestartRequested => {
-            for client in lock(clients).values() {
-                if let Some(sender) = &client.events {
-                    let _ = sender.send(event.clone());
-                }
-            }
-            stop();
-        }
-        ServerEvent::SessionEnded { id, reason } => {
-            log::info!("session ended: {} ({reason:?})", id.get());
-            for client in lock(clients).values() {
-                if let Some(sender) = &client.events {
-                    let _ = sender.send(event.clone());
-                }
-            }
-        }
-    }
-}
-
-fn lock(clients: &Clients) -> MutexGuard<'_, BTreeMap<u64, Client>> {
-    clients.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn validate_socket(path: &Path) -> io::Result<()> {

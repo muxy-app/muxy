@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::process::ExitCode;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::{env, thread};
 
@@ -13,10 +12,9 @@ use muxy_protocol::{
     CONTROL, ChannelId, Message, ReplyBody, RequestBody, RequestId, Row, SUPPORTED, ServerPath,
     SessionId, Size,
 };
-use muxy_server::{Registry, ServerEvent, ServerSettings, connection};
+use muxy_server::{Registry, ServerSettings, connection};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
-type Subscribers = Arc<Mutex<HashMap<u64, Sender<ServerEvent>>>>;
 type Output = Arc<Mutex<Encoder<Box<dyn Write + Send>>>>;
 const SIZE: Size = Size { cols: 80, rows: 24 };
 
@@ -41,36 +39,18 @@ fn run() -> Result {
 
 fn serve(path: &Path) -> Result {
     let listener = UnixSocketListener::bind(path)?;
-    let (sender, events) = mpsc::channel();
+    let (sender, _requests) = mpsc::channel();
     let registry = Arc::new(Registry::new(ServerSettings::default(), sender));
-    let subscribers = Subscribers::default();
-    let sinks = Arc::clone(&subscribers);
-    thread::spawn(move || {
-        for event in events {
-            if let Ok(mut sinks) = sinks.lock() {
-                sinks.retain(|_, sink| sink.send(event.clone()).is_ok());
-            }
-        }
-    });
     writeln!(io::stdout(), "serving {}", path.display())?;
     let mut next_client = 0_u64;
     loop {
         let stream = listener.accept()?;
         let id = next_client;
         next_client = next_client.checked_add(1).ok_or("client IDs exhausted")?;
-        let (sender, events) = mpsc::channel();
-        subscribers
-            .lock()
-            .map_err(|_| "subscriber lock poisoned")?
-            .insert(id, sender);
         let registry = Arc::clone(&registry);
-        let subscribers = Arc::clone(&subscribers);
         thread::spawn(move || {
-            if let Err(error) = connection::serve(stream, registry, events) {
+            if let Err(error) = connection::serve(stream, registry) {
                 let _ = writeln!(io::stderr(), "client {id}: {error}");
-            }
-            if let Ok(mut subscribers) = subscribers.lock() {
-                subscribers.remove(&id);
             }
         });
     }

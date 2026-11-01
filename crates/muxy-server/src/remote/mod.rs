@@ -14,10 +14,11 @@ use muxy_protocol::transport::tls::TlsIdentity;
 use muxy_protocol::{
     ClientId, DeviceCredential, DeviceId, DeviceKind, ErrorCode, ListenerStatus, MAX_DEVICES,
     PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings,
-    RemoteAccessState, ServerIdentity,
+    RemoteAccessState, ServerIdentity, Topic,
 };
 
 use crate::ServerError;
+use crate::notifier::Notifier;
 use store::{Device, Stored};
 
 const PAIRING_SECONDS: u64 = 5 * 60;
@@ -35,6 +36,7 @@ pub struct RemoteAccess {
     writes: Mutex<()>,
     revision: AtomicU64,
     unauthenticated: Arc<AtomicUsize>,
+    notifier: Arc<Notifier>,
 }
 
 impl std::fmt::Debug for RemoteAccess {
@@ -106,6 +108,7 @@ impl RemoteAccess {
             writes: Mutex::new(()),
             revision: AtomicU64::new(1),
             unauthenticated: Arc::default(),
+            notifier: Arc::default(),
         }
     }
 
@@ -117,8 +120,13 @@ impl RemoteAccess {
         self.revision.load(Ordering::Acquire)
     }
 
+    pub(crate) fn set_notifier(&mut self, notifier: Arc<Notifier>) {
+        self.notifier = notifier;
+    }
+
     pub(crate) fn changed(&self) {
-        self.revision.fetch_add(1, Ordering::AcqRel);
+        let revision = self.revision.fetch_add(1, Ordering::AcqRel) + 1;
+        self.notifier.notify(Topic::RemoteAccess, revision);
     }
 
     pub(crate) fn state(&self, connected: &HashSet<DeviceId>) -> RemoteAccessState {

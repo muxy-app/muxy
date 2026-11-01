@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn full_catalog_forgets_the_oldest_discarded_creation_and_answers_recent_retries()
     -> Result<(), crate::ServerError> {
-        let catalog = Catalog::memory();
+        let catalog = Catalog::memory(std::sync::Arc::default());
         let project = catalog.home();
         let directory = catalog.project(project)?.directory;
         let mut created = Vec::new();

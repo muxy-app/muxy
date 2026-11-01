@@ -4,15 +4,13 @@ use std::net::Shutdown;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::sync::{Condvar, Mutex};
-use std::time::Duration;
 
+use crate::transport::accepting::Accepting;
 use crate::transport::{BindError, ByteStream, Listener, StreamCancellation};
 
 #[derive(Debug)]
 pub struct UnixSocketListener {
-    socket: Mutex<Option<UnixListener>>,
-    closed: Condvar,
+    socket: Accepting<UnixListener>,
 }
 
 impl UnixSocketListener {
@@ -45,46 +43,20 @@ impl UnixSocketListener {
         };
         socket.set_nonblocking(true)?;
         Ok(Self {
-            socket: Mutex::new(Some(socket)),
-            closed: Condvar::new(),
+            socket: Accepting::new(socket)?,
         })
     }
 }
 
 impl Listener for UnixSocketListener {
     fn accept(&self) -> io::Result<Box<dyn ByteStream>> {
-        let mut guard = self
-            .socket
-            .lock()
-            .map_err(|_| io::Error::other("listener lock poisoned"))?;
-        loop {
-            let socket = guard
-                .as_ref()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "listener is closed"))?;
-            match socket.accept() {
-                Ok((stream, _)) => {
-                    stream.set_nonblocking(false)?;
-                    return Ok(Box::new(stream));
-                }
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    (guard, _) = self
-                        .closed
-                        .wait_timeout(guard, Duration::from_millis(10))
-                        .map_err(|_| io::Error::other("listener lock poisoned"))?;
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        let stream = self.socket.accept(UnixListener::accept)?.0;
+        stream.set_nonblocking(false)?;
+        Ok(Box::new(stream))
     }
 
     fn close(&self) {
-        let mut guard = self
-            .socket
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.take();
-        self.closed.notify_all();
+        self.socket.close();
     }
 }
 

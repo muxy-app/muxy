@@ -9,8 +9,8 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::os::unix::net::UnixStream;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,7 @@ use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::{CertificateError, DigitallySignedStruct, SignatureScheme};
 
+use crate::transport::accepting::Accepting;
 use crate::transport::unix::socket_pair;
 use crate::transport::{ByteStream, Listener, StreamCancellation};
 
@@ -79,8 +80,7 @@ pub fn is_identity_mismatch(error: &io::Error) -> bool {
 
 #[derive(Debug)]
 pub struct TlsListener {
-    socket: Mutex<Option<TcpListener>>,
-    closed: Condvar,
+    socket: Accepting<TcpListener>,
     config: Arc<rustls::ServerConfig>,
     address: SocketAddr,
 }
@@ -92,8 +92,7 @@ impl TlsListener {
         socket.set_nonblocking(true)?;
         Ok(Self {
             address: socket.local_addr()?,
-            socket: Mutex::new(Some(socket)),
-            closed: Condvar::new(),
+            socket: Accepting::new(socket)?,
             config,
         })
     }
@@ -105,35 +104,13 @@ impl TlsListener {
 
 impl Listener for TlsListener {
     fn accept(&self) -> io::Result<Box<dyn ByteStream>> {
-        let mut guard = self
-            .socket
-            .lock()
-            .map_err(|_| io::Error::other("listener lock poisoned"))?;
-        loop {
-            let socket = guard
-                .as_ref()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "listener is closed"))?;
-            match socket.accept() {
-                Ok((stream, _)) => {
-                    stream.set_nonblocking(false)?;
-                    return Ok(Box::new(PendingTls::new(stream, Arc::clone(&self.config))?));
-                }
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    (guard, _) = self
-                        .closed
-                        .wait_timeout(guard, Duration::from_millis(10))
-                        .map_err(|_| io::Error::other("listener lock poisoned"))?;
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        let stream = self.socket.accept(TcpListener::accept)?.0;
+        stream.set_nonblocking(false)?;
+        Ok(Box::new(PendingTls::new(stream, Arc::clone(&self.config))?))
     }
 
     fn close(&self) {
-        let mut guard = self.socket.lock().unwrap_or_else(PoisonError::into_inner);
-        guard.take();
-        self.closed.notify_all();
+        self.socket.close();
     }
 }
 

@@ -81,8 +81,7 @@ struct Owner {
     pty: Pty,
     terminal: Terminal,
     metadata: Metadata,
-    progress: super::SharedProgress,
-    shared_metadata: super::SharedMetadata,
+    published: std::sync::Arc<super::Published>,
     activity: std::sync::Arc<crate::activity::Activity>,
     detector: crate::detection::Detector,
     detection_dirty: bool,
@@ -128,6 +127,7 @@ pub(crate) fn start(
     archive: Archive,
     colors: Option<TerminalColors>,
     activity: std::sync::Arc<crate::activity::Activity>,
+    notifier: std::sync::Arc<crate::notifier::Notifier>,
     on_exit: impl FnOnce(ExitReason) + Send + 'static,
 ) -> Result<SessionHandle, ServerError> {
     let id = info.id.get();
@@ -136,15 +136,8 @@ pub(crate) fn start(
     pty.start_reader(sender.clone())
         .map_err(ServerError::spawn_failed)?;
 
-    let progress = super::SharedProgress::default();
-    let session_progress = progress.clone();
-    let shared_metadata =
-        std::sync::Arc::new(std::sync::Mutex::new(muxy_protocol::SessionMetadata {
-            title: String::new(),
-            directory: info.directory.clone(),
-            process: None,
-        }));
-    let owner_metadata = shared_metadata.clone();
+    let published = std::sync::Arc::new(super::Published::new(&info, notifier));
+    let owner_published = std::sync::Arc::clone(&published);
     let session = info.clone();
     let failed = sender.clone();
     thread::Builder::new()
@@ -177,8 +170,7 @@ pub(crate) fn start(
             let _ = ready_sender.send(Ok(()));
             let owner = Owner {
                 metadata: Metadata::new(session.directory.clone()),
-                progress: session_progress,
-                shared_metadata: owner_metadata,
+                published: owner_published,
                 activity,
                 detector: crate::detection::Detector::default(),
                 detection_dirty: true,
@@ -220,7 +212,7 @@ pub(crate) fn start(
     ready
         .recv()
         .map_err(|_| ServerError::spawn_failed("session thread stopped before it was ready"))??;
-    Ok(SessionHandle::new(info, sender, progress, shared_metadata))
+    Ok(SessionHandle::new(info, sender, published))
 }
 
 fn set_colors(
@@ -725,10 +717,7 @@ impl Owner {
                         ProgressState::Paused => "4;4".into(),
                     },
                 );
-                *self
-                    .progress
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = *progress;
+                self.published.set_progress(*progress);
             }
         }
         let events = self.metadata.update(&self.pty, terminal);
@@ -740,15 +729,11 @@ impl Owner {
                     | MetadataEvent::ForegroundProcess { .. }
             )
         }) {
-            *self
-                .shared_metadata
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                muxy_protocol::SessionMetadata {
-                    title: self.metadata.title.clone(),
-                    directory: self.metadata.directory.clone(),
-                    process: self.metadata.process.clone(),
-                };
+            self.published.set_metadata(muxy_protocol::SessionMetadata {
+                title: self.metadata.title.clone(),
+                directory: self.metadata.directory.clone(),
+                process: self.metadata.process.clone(),
+            });
         }
         for event in events {
             self.attachments.retain(|_, attachment| {

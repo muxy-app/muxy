@@ -124,8 +124,8 @@ fn accept(listener: &TlsListener, registry: &Weak<Registry>, connections: &Conne
         let Some(admission) = registry.admit_remote() else {
             continue;
         };
-        if let Err(error) = connections.spawn(stream, true, move |stream, events| {
-            connection::serve_remote(stream, registry, events, admission)
+        if let Err(error) = connections.spawn(stream, true, move |stream| {
+            connection::serve_remote(stream, registry, admission)
         }) {
             log::error!("mobile access connection failed: {error}");
         }
