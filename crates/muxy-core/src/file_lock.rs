@@ -1,10 +1,13 @@
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-const RETRY: Duration = Duration::from_millis(25);
+const FIRST_RETRY: Duration = Duration::from_millis(1);
+const LAST_RETRY: Duration = Duration::from_millis(25);
 
 #[derive(Debug)]
 pub struct FileLock(File);
@@ -32,9 +35,12 @@ pub fn acquire(path: &Path, timeout: Duration) -> io::Result<FileLock> {
 }
 
 /// Locks an open file, such as a folder handle, waiting up to `timeout`. The
-/// lock lasts until the file closes.
+/// lock lasts until the file closes. Waiters in this process are served in
+/// the order they arrived.
 pub fn acquire_file(file: &File, timeout: Duration) -> io::Result<()> {
     let deadline = Instant::now() + timeout;
+    let _turn = Turn::wait(file, deadline)?;
+    let mut retry = FIRST_RETRY;
     loop {
         match file.try_lock() {
             Ok(()) => return Ok(()),
@@ -43,10 +49,84 @@ pub fn acquire_file(file: &File, timeout: Duration) -> io::Result<()> {
                 if left.is_zero() {
                     return Err(io::ErrorKind::WouldBlock.into());
                 }
-                std::thread::sleep(left.min(RETRY));
+                std::thread::sleep(left.min(retry));
+                retry = (retry * 2).min(LAST_RETRY);
             }
             Err(TryLockError::Error(error)) => return Err(error),
         }
+    }
+}
+
+/// A file, whatever path or handle reached it.
+type FileId = (u64, u64);
+
+/// This process's waiters, one line per file. Only the waiter at the front
+/// of a line tries the lock, so a thread that just released it can't take it
+/// straight back ahead of the others.
+struct Lines {
+    next_ticket: u64,
+    waiting: BTreeMap<FileId, VecDeque<u64>>,
+}
+
+static LINES: Mutex<Lines> = Mutex::new(Lines {
+    next_ticket: 0,
+    waiting: BTreeMap::new(),
+});
+static LINE_MOVED: Condvar = Condvar::new();
+
+fn lines() -> MutexGuard<'static, Lines> {
+    LINES.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl Lines {
+    fn is_first(&self, file: FileId, ticket: u64) -> bool {
+        self.waiting.get(&file).and_then(VecDeque::front) == Some(&ticket)
+    }
+
+    fn leave(&mut self, file: FileId, ticket: u64) {
+        if let Some(line) = self.waiting.get_mut(&file) {
+            line.retain(|waiting| *waiting != ticket);
+            if line.is_empty() {
+                self.waiting.remove(&file);
+            }
+        }
+        LINE_MOVED.notify_all();
+    }
+}
+
+/// The front place in a file's line, held until the file lock is taken or
+/// the wait gives up.
+struct Turn {
+    file: FileId,
+    ticket: u64,
+}
+
+impl Turn {
+    fn wait(file: &File, deadline: Instant) -> io::Result<Self> {
+        let metadata = file.metadata()?;
+        let file = (metadata.dev(), metadata.ino());
+        let mut lines = lines();
+        let ticket = lines.next_ticket;
+        lines.next_ticket += 1;
+        lines.waiting.entry(file).or_default().push_back(ticket);
+        while !lines.is_first(file, ticket) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                lines.leave(file, ticket);
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            lines = LINE_MOVED
+                .wait_timeout(lines, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        Ok(Self { file, ticket })
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        lines().leave(self.file, self.ticket);
     }
 }
 
@@ -114,6 +194,51 @@ mod tests {
         release
             .join()
             .map_err(|_| io::Error::other("release panicked"))?;
+        Ok(())
+    }
+
+    #[test]
+    fn waiters_in_one_process_are_served_in_arrival_order() -> io::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("settings.lock");
+        let holder = try_lock(&path)?;
+        let metadata = std::fs::metadata(&path)?;
+        let file = (metadata.dev(), metadata.ino());
+        let waiting = || lines().waiting.get(&file).map_or(0, VecDeque::len);
+        let served = Mutex::new(Vec::new());
+
+        std::thread::scope(|scope| -> io::Result<()> {
+            let waiters: Vec<_> = (0..6)
+                .map(|index| {
+                    let (path, served) = (&path, &served);
+                    let waiter = scope.spawn(move || -> io::Result<()> {
+                        let _lock = acquire(path, Duration::from_secs(10))?;
+                        served
+                            .lock()
+                            .map_err(|_| io::Error::other("poisoned"))?
+                            .push(index);
+                        Ok(())
+                    });
+                    let queued = Instant::now() + Duration::from_secs(10);
+                    while waiting() <= index && Instant::now() < queued {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    waiter
+                })
+                .collect();
+            drop(holder);
+            waiters.into_iter().try_for_each(|waiter| {
+                waiter
+                    .join()
+                    .map_err(|_| io::Error::other("waiter panicked"))?
+            })
+        })?;
+
+        let served = served
+            .into_inner()
+            .map_err(|_| io::Error::other("poisoned"))?;
+        assert_eq!(served, (0..6).collect::<Vec<_>>());
+        assert_eq!(waiting(), 0);
         Ok(())
     }
 
