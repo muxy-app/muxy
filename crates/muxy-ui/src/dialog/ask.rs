@@ -218,8 +218,8 @@ struct Simulated;
 #[cfg(any(test, feature = "test-support"))]
 impl gpui::Global for Simulated {}
 
-/// Sends every later [`ask`] through `Window::prompt`, so a test answers it
-/// with `simulate_prompt_answer`: the confirm or decline label, or
+/// Sends every later [`ask`] and [`choose`] through `Window::prompt`, so a
+/// test answers it with `simulate_prompt_answer`: a button's label, or
 /// [`ticked_label`] to confirm with the checkbox ticked.
 #[cfg(any(test, feature = "test-support"))]
 pub fn simulate(cx: &mut gpui::App) {
