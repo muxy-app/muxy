@@ -12,6 +12,16 @@ fn show(
     model.show_session(args.as_object().expect("args"), cx)
 }
 
+fn show_in_background(
+    model: &mut AppModel,
+    session: &str,
+    project: ProjectId,
+    cx: &mut Context<AppModel>,
+) -> Result<Value, String> {
+    let args = json!({"session": session, "project": project.to_string(), "background": true});
+    model.show_session(args.as_object().expect("args"), cx)
+}
+
 fn tab_count(model: &AppModel, project: ProjectId) -> usize {
     model
         .state
@@ -163,4 +173,56 @@ fn showing_a_terminal_leaves_the_app_in_the_background(cx: &mut TestAppContext) 
     });
     cx.run_until_parked();
     assert!(!in_front(cx));
+}
+
+#[gpui::test]
+fn showing_in_the_background_keeps_the_window_where_it_is(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    let home = state.home().id;
+    state.open_terminal_tab(home).expect("home tab");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        acknowledge_catalog(model, cx);
+        assert_eq!(model.state.current_project().id, home);
+        assert_eq!(tab_count(model, project), 0);
+        let focused = model.active_pane();
+        let selected =
+            |model: &AppModel, project| model.state.window().selected_tab.get(&project).copied();
+        let home_tab = selected(model, home);
+        assert!(home_tab.is_some() && focused.is_some());
+        let window_unchanged = |model: &AppModel| {
+            assert_eq!(model.state.current_project().id, home);
+            assert_eq!(selected(model, home), home_tab);
+            assert_eq!(model.active_pane(), focused);
+        };
+
+        let pane = show_in_background(model, "7", project, cx).expect("shown");
+        let (shown, first_tab, shown_pane) = model
+            .session_pane(ServerId::local(), SessionId::new(7).expect("session"))
+            .expect("a pane shows the terminal");
+        assert_eq!(shown.id, project);
+        assert_eq!(pane, json!(shown_pane.to_string()));
+        assert_eq!(tab_count(model, project), 1);
+        assert_eq!(selected(model, project), Some(first_tab));
+        window_unchanged(model);
+
+        assert_eq!(show_in_background(model, "7", project, cx), Ok(pane));
+        assert_eq!(tab_count(model, project), 1);
+        window_unchanged(model);
+
+        show_in_background(model, "8", project, cx).expect("second tab");
+        assert_eq!(tab_count(model, project), 2);
+        assert_eq!(selected(model, project), Some(first_tab));
+        window_unchanged(model);
+
+        let home_tabs = tab_count(model, home);
+        show_in_background(model, "9", home, cx).expect("shown in the current project");
+        assert_eq!(tab_count(model, home), home_tabs + 1);
+        window_unchanged(model);
+    });
 }

@@ -46,7 +46,10 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             client.discard_session(calling(client, session)?)?;
             output.ok()
         }
-        Session::Show(session) => show(client, calling(client, session)?, output, paths),
+        Session::Show {
+            session,
+            background,
+        } => show(client, calling(client, session)?, background, output, paths),
         Session::Send { session, text } => {
             input(client, calling(client, session)?, text.into_bytes(), output)
         }
@@ -126,7 +129,13 @@ fn calling(client: &Client, session: Option<SessionId>) -> Result<SessionId> {
     }
 }
 
-fn show(client: &Client, session: SessionId, output: &Output, paths: Paths) -> Result {
+fn show(
+    client: &Client,
+    session: SessionId,
+    background: bool,
+    output: &Output,
+    paths: Paths,
+) -> Result {
     if paths == Paths::Remote {
         return Err(
             "session show uses the desktop app on this computer; it doesn't take --host".into(),
@@ -149,6 +158,9 @@ fn show(client: &Client, session: SessionId, output: &Output, paths: Paths) -> R
     let mut args = serde_json::Map::new();
     args.insert("session".into(), session.get().to_string().into());
     args.insert("project".into(), entry.info.project.to_string().into());
+    if background {
+        args.insert("background".into(), true.into());
+    }
     show_when_ready(
         || crate::browser::call_app("session.show", args.clone(), true, Duration::ZERO),
         Instant::now,

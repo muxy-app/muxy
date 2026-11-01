@@ -473,21 +473,47 @@ impl AppState {
         self.open_terminal_tab_near(project, focused)
     }
 
+    /// Opens a terminal tab at the end of `project` while the window stays on
+    /// its current project, selected tabs and focused pane. The tab is selected
+    /// only when `project` had no selected tab.
+    pub fn open_background_terminal_tab(&mut self, project: ProjectId) -> Result<PaneId, AppError> {
+        let selected = self.window.selected_tab.get(&project).copied();
+        let (id, pane) = self.push_terminal_tab(project, selected)?;
+        self.window.selected_tab.entry(project).or_insert(id);
+        self.sync_groups(project);
+        Ok(pane)
+    }
+
     /// Opens a terminal tab at the end of `project`, in `near`'s group.
     fn open_terminal_tab_near(
         &mut self,
         project: ProjectId,
         near: Option<TabId>,
     ) -> Result<TabId, AppError> {
-        self.project_mut(project)?.require_available()?;
-        let tab = Tab::terminal();
-        let id = tab.id;
-        self.window.activate(tab.layout.leaves().first().copied());
-        self.add_tab(project, tab, near)?;
+        let (id, pane) = self.push_terminal_tab(project, near)?;
+        self.window.activate(Some(pane));
         self.window.selected_tab.insert(project, id);
         self.window.current_project = project;
         self.sync_groups(project);
         Ok(id)
+    }
+
+    fn push_terminal_tab(
+        &mut self,
+        project: ProjectId,
+        near: Option<TabId>,
+    ) -> Result<(TabId, PaneId), AppError> {
+        self.project_mut(project)?.require_available()?;
+        let tab = Tab::terminal();
+        let id = tab.id;
+        let pane = tab
+            .layout
+            .leaves()
+            .first()
+            .copied()
+            .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))?;
+        self.add_tab(project, tab, near)?;
+        Ok((id, pane))
     }
 
     pub fn open_terminal_tab_adjacent(

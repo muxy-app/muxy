@@ -1,7 +1,7 @@
 use super::{AppModel, ConnectionState, Overlay, Work};
 use gpui::Context;
 use muxy_app_core::browser::api;
-use muxy_app_core::browser::automation::{Args, string};
+use muxy_app_core::browser::automation::{Args, flag, string};
 use muxy_app_core::{AppError, LocalCatalog, PaneId, ServerId};
 use muxy_client::ClientError;
 use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation, SessionId};
@@ -411,7 +411,7 @@ impl AppModel {
         ) {
             return;
         }
-        let _ = self.open_session_tab(project, session.info.id, cx);
+        let _ = self.open_session_tab(project, session.info.id, Opening::Selected, cx);
     }
 
     pub(crate) fn show_session(
@@ -434,9 +434,17 @@ impl AppModel {
         if loading {
             return Err(api::NOT_READY.into());
         }
+        let opening = if flag(args, "background") {
+            Opening::Background
+        } else {
+            Opening::Selected
+        };
         let shown = self
             .session_pane(server, session)
             .map(|(project, tab, pane)| (project.id, tab, pane));
+        if let (Some((_, _, pane)), Opening::Background) = (shown, opening) {
+            return Ok(pane.to_string().into());
+        }
         let pane = if let Some((project, tab, pane)) = shown {
             self.select_project(project, cx);
             self.select_tab(tab, cx);
@@ -452,10 +460,12 @@ impl AppModel {
                 })
                 .map(|candidate| candidate.id)
                 .ok_or(api::NOT_READY)?;
-            self.open_session_tab(project, session, cx)?
+            self.open_session_tab(project, session, opening, cx)?
         };
-        self.dismiss_overlay(cx);
-        self.focus_owner.request_active_pane();
+        if opening == Opening::Selected {
+            self.dismiss_overlay(cx);
+            self.focus_owner.request_active_pane();
+        }
         Ok(pane.to_string().into())
     }
 
@@ -463,15 +473,20 @@ impl AppModel {
         &mut self,
         project: ProjectId,
         session: SessionId,
+        opening: Opening,
         cx: &mut Context<Self>,
     ) -> Result<PaneId, String> {
         let previous = self.state.clone();
-        let result = self.state.open_terminal_tab(project).and_then(|_| {
-            let pane = self
-                .state
-                .window()
-                .active_pane
-                .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))?;
+        let opened = match opening {
+            Opening::Selected => self.state.open_terminal_tab(project).and_then(|_| {
+                self.state
+                    .window()
+                    .active_pane
+                    .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))
+            }),
+            Opening::Background => self.state.open_background_terminal_tab(project),
+        };
+        let result = opened.and_then(|pane| {
             self.state.set_pane_session(pane, Some(session))?;
             Ok(pane)
         });
@@ -484,13 +499,24 @@ impl AppModel {
                 return Err(message);
             }
         };
-        self.state.reveal_current_project();
+        if opening == Opening::Selected {
+            self.state.reveal_current_project();
+        }
         if !self.save(cx) {
             self.state = previous;
             return Err("could not save tabs".into());
         }
-        self.dismiss_overlay(cx);
+        if opening == Opening::Selected {
+            self.dismiss_overlay(cx);
+        }
         self.sync_visible(cx);
         Ok(pane)
     }
+}
+
+/// Whether a session's new tab becomes the one the window shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Opening {
+    Selected,
+    Background,
 }
