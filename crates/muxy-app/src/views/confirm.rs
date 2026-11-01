@@ -1,5 +1,5 @@
-use gpui::{AnyWindowHandle, AsyncApp, Context};
-use muxy_ui::dialog::{ConfirmationResponse, Parent, Question, ask};
+use gpui::{AsyncApp, Context};
+use muxy_ui::dialog::{ConfirmationResponse, Parent, Question, ask, choose};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
@@ -156,7 +156,7 @@ pub(crate) const OPEN_LOGIN_ITEMS: &str = tr_key!("Open Login Items");
 /// Whether to open the setting that keeps terminals running after the app
 /// quits.
 pub(crate) async fn prompt_background_activity(
-    window: AnyWindowHandle,
+    parent: &Parent,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let message = tr!(
@@ -164,20 +164,11 @@ pub(crate) async fn prompt_background_activity(
     );
     let labels = [muxy_ui::l10n::translate(OPEN_LOGIN_ITEMS), tr!("Not Now")];
     let labels = labels.each_ref().map(gpui::SharedString::as_str);
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                &muxy_ui::l10n::translate(BACKGROUND_TITLE),
-                Some(&message),
-                &labels,
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let title = muxy_ui::l10n::translate(BACKGROUND_TITLE);
+    let answer = choose(parent, &title, &message, &labels, cx)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(answer == 0)
+    Ok(answer == Some(0))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -226,24 +217,13 @@ pub(crate) async fn prompt_update(
         ]
     };
     let labels = labels.each_ref().map(gpui::SharedString::as_str);
-    let answer = parent
-        .window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Info,
-                &tr!("Muxy Update"),
-                Some(&message),
-                &labels,
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let answer = choose(parent, &tr!("Muxy Update"), &message, &labels, cx)
         .await
         .map_err(|error| error.to_string())?;
     let choice = match (scheduled, answer) {
-        (true, 2) => UpdateChoice::CancelSchedule,
-        (_, 1) => UpdateChoice::EndSessions,
-        (false, 0) => UpdateChoice::Schedule,
+        (true, Some(2)) => UpdateChoice::CancelSchedule,
+        (_, Some(1)) => UpdateChoice::EndSessions,
+        (false, Some(0)) => UpdateChoice::Schedule,
         _ => UpdateChoice::Later,
     };
     if choice == UpdateChoice::EndSessions && !server_prompt(parent, &tr!("Update and End All Sessions?"), &tr!("Update and End Sessions"), &tr!("All terminal processes on this device will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain."), cx).await? {

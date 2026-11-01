@@ -16,7 +16,7 @@ mod ask;
 mod picker;
 mod view;
 
-pub use ask::{Parent, Question, ask};
+pub use ask::{Parent, Question, ask, choose};
 #[cfg(any(test, feature = "test-support"))]
 pub use ask::{simulate, ticked_label};
 

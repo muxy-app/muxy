@@ -4,7 +4,7 @@ use std::io;
 
 use gpui::{AnyWindowHandle, AsyncApp};
 
-use super::{PromptChoices, PromptResponse};
+use super::{DialogOptions, PromptChoices, PromptResponse};
 use crate::controls::Style;
 use crate::theme::{Metrics, Theme};
 
@@ -173,6 +173,41 @@ pub async fn ask(
     Ok(receiver.recv().await.ok().flatten())
 }
 
+/// Shows `message` on `parent` with `buttons` and waits for the index of the
+/// button chosen: `None` when it was dismissed.
+pub async fn choose(
+    parent: &Parent,
+    title: &str,
+    message: &str,
+    buttons: &[&str],
+    cx: &mut AsyncApp,
+) -> io::Result<Option<usize>> {
+    #[cfg(any(test, feature = "test-support"))]
+    if cx
+        .update(|cx| cx.has_global::<Simulated>())
+        .unwrap_or_default()
+    {
+        return simulated_choice(parent.window, title, message, buttons, cx).await;
+    }
+    let options = DialogOptions {
+        title: title.into(),
+        message: message.into(),
+        buttons: buttons.iter().map(|&label| label.into()).collect(),
+        ..DialogOptions::default()
+    };
+    let (sender, receiver) = async_channel::bounded(1);
+    let _open_until_answered = parent
+        .window
+        .update(cx, |_, window, cx| {
+            super::present(window, cx, options, parent.style(), move |label| {
+                let _ = sender.try_send(label);
+            })
+        })
+        .map_err(|error| io::Error::other(error.to_string()))??;
+    let label = receiver.recv().await.ok().flatten();
+    Ok(label.and_then(|label| buttons.iter().position(|&button| button == label)))
+}
+
 fn box_handle<T: 'static>(handle: T) -> Box<dyn std::any::Any> {
     Box::new(handle)
 }
@@ -195,6 +230,23 @@ pub fn simulate(cx: &mut gpui::App) {
 #[cfg(any(test, feature = "test-support"))]
 pub fn ticked_label(confirm: &str, checkbox: &str) -> String {
     format!("{confirm} + {checkbox}")
+}
+
+#[cfg(any(test, feature = "test-support"))]
+async fn simulated_choice(
+    window: AnyWindowHandle,
+    title: &str,
+    message: &str,
+    buttons: &[&str],
+    cx: &mut AsyncApp,
+) -> io::Result<Option<usize>> {
+    let answer = window
+        .update(cx, |_, window, cx| {
+            window.prompt(gpui::PromptLevel::Info, title, Some(message), buttons, cx)
+        })
+        .map_err(|error| io::Error::other(error.to_string()))?
+        .await;
+    Ok(answer.ok())
 }
 
 #[cfg(any(test, feature = "test-support"))]

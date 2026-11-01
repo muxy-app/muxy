@@ -24,7 +24,7 @@ pub use crate::dialog_types::{
     ADDITIONAL_PROMPT_LIMIT, ConfirmationResponse, ConsentResponse, DialogOptions, PromptCheckbox,
     PromptChoices, PromptPicker, PromptResponse,
 };
-pub use ask::{Parent, Question, ask};
+pub use ask::{Parent, Question, ask, choose};
 #[cfg(any(test, feature = "test-support"))]
 pub use ask::{simulate, ticked_label};
 pub use prompt::{PromptConfirmation, confirm_with_prompt};

@@ -468,19 +468,13 @@ impl AppModel {
     }
 
     fn update_message(&self, message: &str, cx: &mut Context<Self>) {
-        let _ = self.window.update(cx, |_, window, cx| {
-            let response = window.prompt(
-                gpui::PromptLevel::Info,
-                &tr!("%@ Updates", Channel::current().app_name()),
-                Some(message),
-                &[tr!("OK").as_ref()],
-                cx,
-            );
-            cx.spawn(async move |_| {
-                let _ = response.await;
-            })
-            .detach();
-        });
+        let parent = self.dialog_parent(self.window);
+        let title = tr!("%@ Updates", Channel::current().app_name());
+        let message = message.to_owned();
+        cx.spawn(async move |_, cx| {
+            let _ = muxy_ui::dialog::choose(&parent, &title, &message, &[&tr!("OK")], cx).await;
+        })
+        .detach();
     }
 
     pub(super) fn confirm_update(&mut self, cx: &mut Context<Self>) {
