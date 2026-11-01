@@ -117,15 +117,13 @@ fn editor_buttons(
         .child(controls::button(
             pane.style(),
             &format!("{field}-save"),
-            &tr!("Save"),
-            true,
+            controls::Button::secondary(&tr!("Save")),
             cx.listener(move |pane, _, _, cx| pane.save_terminal_editor(field, cx)),
         ))
         .child(controls::button(
             pane.style(),
             &format!("{field}-cancel"),
-            &tr!("Cancel"),
-            true,
+            controls::Button::secondary(&tr!("Cancel")),
             cx.listener(move |pane, _, _, cx| pane.cancel_terminal_editor(field, cx)),
         ))
 }
@@ -211,8 +209,7 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
                     controls::button(
                         pane.style(),
                         &format!("codepoint-edit-{index}"),
-                        &tr!("Edit"),
-                        !editing,
+                        controls::Button::secondary(&tr!("Edit")).enabled(!editing),
                         cx.listener(move |pane, _, window, cx| {
                             pane.edit_codepoint_map(Some(edit.clone()), window, cx);
                         }),
@@ -246,8 +243,7 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
                 .child(controls::button(
                     pane.style(),
                     "codepoint-add",
-                    &tr!("Add Map"),
-                    true,
+                    controls::Button::secondary(&tr!("Add Map")),
                     cx.listener(|pane, _, window, cx| pane.edit_codepoint_map(None, window, cx)),
                 ))
                 .into_any_element()
@@ -307,8 +303,7 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
                     controls::button(
                         pane.style(),
                         &format!("keybind-edit-{index}"),
-                        &tr!("Edit"),
-                        !editing,
+                        controls::Button::secondary(&tr!("Edit")).enabled(!editing),
                         cx.listener(move |pane, _, window, cx| {
                             pane.edit_binding(Some(edit.clone()), window, cx);
                         }),
@@ -345,8 +340,7 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
                 .child(controls::button(
                     pane.style(),
                     "keybind-add",
-                    &tr!("Add Binding"),
-                    true,
+                    controls::Button::secondary(&tr!("Add Binding")),
                     cx.listener(|pane, _, window, cx| pane.edit_binding(None, window, cx)),
                 ))
                 .into_any_element()
@@ -383,8 +377,7 @@ fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
             controls::button(
                 pane.style(),
                 BINDING_CHORD,
-                &key,
-                true,
+                controls::Button::secondary(&key),
                 cx.listener(|pane, _, window, cx| pane.begin_recording(BINDING_CHORD, window, cx)),
             )
             .into_any_element(),

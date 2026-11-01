@@ -610,10 +610,10 @@ fn merge_removal_waits_for_another_confirmation_and_still_requires_approval(
             "removal must wait for its own confirmation"
         );
         assert!(!view.read_with(cx, |model, _| model.worktree_removing(worktree)));
-        cx.simulate_prompt_answer(if approved_hooks.is_some() {
-            "Confirm with teardown commands"
+        cx.simulate_prompt_answer(&if approved_hooks.is_some() {
+            muxy_ui::dialog::ticked_label("Confirm", "Run the teardown commands shown above")
         } else {
-            "Confirm"
+            "Confirm".to_owned()
         });
         cx.run_until_parked();
         view.read_with(cx, |model, _| {

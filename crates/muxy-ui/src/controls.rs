@@ -134,38 +134,124 @@ pub fn checkbox(
         .into_any_element()
 }
 
+/// How a button reads: the main action, an ordinary one, or one that destroys.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ButtonKind {
+    Primary,
+    #[default]
+    Secondary,
+    Danger,
+}
+
+/// What a [`button`] shows and whether it can be pressed.
+#[derive(Clone, Copy, Debug)]
+pub struct Button<'a> {
+    kind: ButtonKind,
+    label: &'a str,
+    icon: Option<&'static str>,
+    enabled: bool,
+}
+
+impl<'a> Button<'a> {
+    pub fn primary(label: &'a str) -> Self {
+        Self::new(ButtonKind::Primary, label)
+    }
+
+    pub fn secondary(label: &'a str) -> Self {
+        Self::new(ButtonKind::Secondary, label)
+    }
+
+    pub fn danger(label: &'a str) -> Self {
+        Self::new(ButtonKind::Danger, label)
+    }
+
+    fn new(kind: ButtonKind, label: &'a str) -> Self {
+        Self {
+            kind,
+            label,
+            icon: None,
+            enabled: true,
+        }
+    }
+
+    /// An SF Symbol shown before the label.
+    #[must_use]
+    pub fn icon(mut self, symbol: &'static str) -> Self {
+        self.icon = Some(symbol);
+        self
+    }
+
+    #[must_use]
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+/// A button that the pointer and the keyboard (Tab, then Space or Return) can
+/// press, dimmed and inert while disabled.
 pub fn button(
     style: Style,
     id: &str,
-    label: &str,
-    enabled: bool,
+    button: Button,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> gpui::Stateful<gpui::Div> {
     let Style { theme, metrics } = style;
+    let (background, border, foreground, focus) = match button.kind {
+        ButtonKind::Primary => (
+            theme.accent,
+            theme.accent,
+            theme.accent_foreground,
+            theme.fg,
+        ),
+        ButtonKind::Secondary => (theme.surface, theme.border, theme.fg, theme.accent),
+        ButtonKind::Danger => (theme.surface, theme.border, theme.danger, theme.danger),
+    };
     div()
         .id(SharedString::from(format!("settings-button-{id}")))
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
+        .gap(metrics.spacing3())
+        .min_w(px(0.0))
         .h(metrics.control_medium())
         .px(metrics.spacing5())
         .rounded(metrics.radius_sm())
-        .bg(theme.surface)
+        .bg(background)
         .border_1()
-        .border_color(theme.border)
+        .border_color(border)
         .text_size(metrics.font_footnote())
         .font_weight(FontWeight::MEDIUM)
-        .text_color(theme.fg)
-        .when(!enabled, |element| element.opacity(0.4))
-        .when(enabled, |element| {
+        .text_color(foreground)
+        .when(!button.enabled, |element| element.opacity(0.4))
+        .when(button.enabled, |element| {
             element
                 .cursor_pointer()
-                .hover(|hover| hover.bg(theme.hover))
-                .focus(|focus| focus.border_color(theme.accent))
+                .map(|element| match button.kind {
+                    ButtonKind::Primary => element.hover(|hover| hover.opacity(0.85)),
+                    ButtonKind::Secondary | ButtonKind::Danger => {
+                        element.hover(|hover| hover.bg(theme.hover))
+                    }
+                })
+                .focus(|style| style.border_color(focus))
                 .button_interaction(on_click)
         })
-        .child(SharedString::from(label.to_owned()))
+        .when_some(button.icon, |element, symbol| {
+            element.child(SymbolGlyph::new(
+                symbol,
+                metrics.font_footnote(),
+                foreground,
+            ))
+        })
+        .when(!button.label.is_empty(), |element| {
+            element.child(
+                div()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .child(SharedString::from(button.label.to_owned())),
+            )
+        })
 }
 
 pub fn picker(
@@ -531,4 +617,75 @@ pub fn search_field(
             theme.fg_muted,
         ))
         .child(crate::text_input::growing_input(input))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::ActivateButton;
+    use crate::theme::ColorScheme;
+    use gpui::{Context, Render, TestAppContext};
+    use std::cell::RefCell;
+
+    struct Buttons {
+        theme: Theme,
+        enabled: bool,
+        pressed: Rc<RefCell<Vec<ButtonKind>>>,
+    }
+
+    impl Render for Buttons {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let metrics = Metrics::new(1.0);
+            let style = Style {
+                theme: &self.theme,
+                metrics: &metrics,
+            };
+            let kinds = [
+                Button::primary("Save"),
+                Button::secondary("Cancel"),
+                Button::danger("Delete"),
+            ];
+            div().children(kinds.into_iter().map(|kind| {
+                let pressed = self.pressed.clone();
+                let label = kind.label;
+                let kind = kind.enabled(self.enabled);
+                button(style, label, kind, move |_, _, _| {
+                    pressed.borrow_mut().push(kind.kind);
+                })
+            }))
+        }
+    }
+
+    fn press_each_from_the_keyboard(enabled: bool, cx: &mut TestAppContext) -> Vec<ButtonKind> {
+        let pressed = Rc::new(RefCell::new(Vec::new()));
+        let buttons = pressed.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| Buttons {
+            theme: Theme::from_scheme(&ColorScheme::default()),
+            enabled,
+            pressed: buttons,
+        });
+        cx.run_until_parked();
+        for _ in 0..3 {
+            cx.update(|window, _| window.focus_next());
+            cx.dispatch_action(ActivateButton);
+        }
+        pressed.take()
+    }
+
+    #[gpui::test]
+    fn every_kind_of_button_is_pressed_from_the_keyboard(cx: &mut TestAppContext) {
+        assert_eq!(
+            press_each_from_the_keyboard(true, cx),
+            [
+                ButtonKind::Primary,
+                ButtonKind::Secondary,
+                ButtonKind::Danger
+            ]
+        );
+    }
+
+    #[gpui::test]
+    fn a_disabled_button_cannot_be_pressed(cx: &mut TestAppContext) {
+        assert!(press_each_from_the_keyboard(false, cx).is_empty());
+    }
 }

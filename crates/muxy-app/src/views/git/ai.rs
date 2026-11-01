@@ -2,7 +2,7 @@ use gpui::{AnyWindowHandle, AsyncApp};
 use muxy_app_core::settings::CommitChoices;
 use muxy_protocol::ProjectId;
 use muxy_ui::controls::Style;
-use muxy_ui::dialog::{PromptCheckbox, PromptChoices, PromptPicker, PromptResponse};
+use muxy_ui::dialog::{PromptCheckbox, PromptChoices, PromptPicker, PromptResponse, Question, ask};
 use muxy_ui::tr;
 
 use crate::ai::Provider;
@@ -104,53 +104,22 @@ impl AiConfirmation {
         }
     }
 
-    #[cfg(not(test))]
     pub(crate) async fn prompt(
         &self,
         window: AnyWindowHandle,
         style: Style<'_>,
         cx: &mut AsyncApp,
     ) -> Result<Option<PromptResponse>, String> {
-        let (sender, receiver) = async_channel::bounded(1);
-        let _dialog = window
-            .update(cx, |_, window, cx| {
-                muxy_ui::dialog::confirm_with_prompt(
-                    window,
-                    cx,
-                    &self.title(),
-                    &self.message(),
-                    &muxy_ui::l10n::translate(self.action.settings_title()),
-                    &self.prompt_choices(),
-                    style,
-                    move |response| {
-                        let _ = sender.try_send(response);
-                    },
-                )
-            })
-            .map_err(|error| error.to_string())?
-            .map_err(|error| error.to_string())?;
-        Ok(receiver.recv().await.ok().flatten())
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn prompt(
-        &self,
-        window: AnyWindowHandle,
-        _style: Style<'_>,
-        cx: &mut AsyncApp,
-    ) -> Result<Option<PromptResponse>, String> {
-        let response = window
-            .update(cx, |_, window, cx| {
-                window.prompt(
-                    gpui::PromptLevel::Info,
-                    &self.title(),
-                    Some(&self.message()),
-                    &[self.action.settings_title(), "Cancel"],
-                    cx,
-                )
-            })
-            .map_err(|error| error.to_string())?;
-        Ok((response.await == Ok(0)).then(PromptResponse::default))
+        let question = Question::Prompt {
+            title: &self.title(),
+            message: &self.message(),
+            confirm: &muxy_ui::l10n::translate(self.action.settings_title()),
+            choices: &self.prompt_choices(),
+            style,
+        };
+        ask(window, question, cx)
+            .await
+            .map_err(|error| error.to_string())
     }
 }
 

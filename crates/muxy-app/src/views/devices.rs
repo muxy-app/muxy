@@ -241,8 +241,8 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
             .child(controls::button(
                 style(model),
                 "devices-show-code",
-                &tr!("Show Pairing Code"),
-                state.status == ListenerStatus::Listening && !access.busy,
+                controls::Button::secondary(&tr!("Show Pairing Code"))
+                    .enabled(state.status == ListenerStatus::Listening && !access.busy),
                 cx.listener(|model, _, _, cx| model.show_pairing_code(cx)),
             ))
             .into_any_element();
@@ -260,20 +260,8 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
             div()
                 .flex()
                 .gap(px(8.0))
-                .child(controls::button(
-                    style(model),
-                    "devices-copy-link",
-                    &tr!("Copy Link"),
-                    true,
-                    cx.listener(|model, _, _, cx| model.copy_pairing_link(cx)),
-                ))
-                .child(controls::button(
-                    style(model),
-                    "devices-cancel-code",
-                    &tr!("Cancel"),
-                    true,
-                    cx.listener(|model, _, _, cx| model.cancel_pairing(cx)),
-                )),
+                .child(controls::button(style(model), "devices-copy-link", controls::Button::secondary(&tr!("Copy Link")), cx.listener(|model, _, _, cx| model.copy_pairing_link(cx))))
+                .child(controls::button(style(model), "devices-cancel-code", controls::Button::secondary(&tr!("Cancel")), cx.listener(|model, _, _, cx| model.cancel_pairing(cx)))),
         )
         .into_any_element()
 }
@@ -369,8 +357,7 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                 .child(div().flex_none().child(controls::button(
                     style(model),
                     &format!("devices-revoke-{id}"),
-                    &tr!("Revoke"),
-                    !busy,
+                    controls::Button::secondary(&tr!("Revoke")).enabled(!busy),
                     cx.listener(move |model, _, window, cx| {
                         model.confirm_revoke(id, window.window_handle(), cx);
                     }),

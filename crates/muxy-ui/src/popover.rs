@@ -2,8 +2,8 @@ use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AvailableSpace, Bounds, ElementId, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Point, RenderOnce, Size, Styled, Window, canvas, div,
-    point, px, size,
+    IntoElement, ParentElement, Pixels, Point, RenderOnce, Size, StatefulInteractiveElement,
+    Styled, Window, canvas, div, point, px, size,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -33,24 +33,39 @@ pub fn surface(theme: &Theme, metrics: Metrics) -> gpui::Div {
 /// How far below the top of the window a modal dialog opens.
 pub const MODAL_TOP: f32 = 48.0;
 
-/// The dimming behind a modal dialog.
-pub fn modal_backdrop() -> gpui::Hsla {
-    gpui::hsla(0.0, 0.0, 0.0, 0.3)
-}
-
 /// `content` as a modal dialog: centered across the window, near its top,
 /// above a dimmed backdrop.
-pub fn modal(content: impl IntoElement) -> AnyElement {
+pub fn modal(theme: &Theme, content: impl IntoElement) -> AnyElement {
     div()
         .absolute()
         .inset_0()
         .flex()
         .flex_col()
         .items_center()
-        .bg(modal_backdrop())
+        .bg(theme.backdrop)
         .pt(px(MODAL_TOP))
         .child(content)
         .into_any_element()
+}
+
+/// The card of a modal dialog: `width` wide, or as wide as the window allows,
+/// and scrolling when taller than the window. Clicks inside stay inside.
+pub fn modal_card(
+    theme: &Theme,
+    metrics: Metrics,
+    window: Size<Pixels>,
+    id: impl Into<ElementId>,
+    width: Pixels,
+) -> gpui::Stateful<gpui::Div> {
+    surface(theme, metrics)
+        .shadow(crate::theme::Elevation::Modal.shadow(theme.bg))
+        .id(id)
+        .w(width.min((window.width - px(16.0)).max(px(0.0))))
+        .max_h((window.height - metrics.scaled(80.0)).max(px(0.0)))
+        .overflow_y_scroll()
+        .p(metrics.spacing8())
+        .gap(metrics.scaled(14.0))
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 pub fn row(

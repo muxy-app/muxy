@@ -22,6 +22,8 @@ pub struct Theme {
     pub accent_foreground: Hsla,
     pub warning: Hsla,
     pub danger: Hsla,
+    /// The dimming behind a modal dialog.
+    pub backdrop: Hsla,
     pub diff_add: Hsla,
     pub diff_remove: Hsla,
     pub diff_hunk: Hsla,
@@ -54,6 +56,7 @@ impl Theme {
             accent_foreground: contrasting_foreground(accent).into(),
             warning: warning.into(),
             danger: danger.into(),
+            backdrop: gpui::hsla(0.0, 0.0, 0.0, 0.3),
             diff_add: diff_add.into(),
             diff_remove: danger.into(),
             diff_hunk: diff_hunk.into(),

@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, Styled, Window, div, px, relative,
+    AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    SharedString, Styled, div, px, relative,
 };
 use muxy_protocol::{GitAction, GitMergeMethod, GitPullRequest, GitPullRequestAction, ProjectId};
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
@@ -214,28 +214,16 @@ impl AppModel {
         let window = self.window;
         let context = self.git.interaction;
         self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let (send, receive) = async_channel::bounded(1);
-            let dialog = window.update(cx, |_, window, cx| {
-                muxy_ui::dialog::confirm(
-                    window,
-                    cx,
-                    &title,
-                    &message,
-                    &label,
-                    None,
-                    move |answer| {
-                        let _ = send.try_send(answer);
-                    },
-                )
-            });
-            let confirmed = if let Ok(Ok(_dialog)) = dialog {
-                matches!(
-                    receive.recv().await,
-                    Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { .. })
-                )
-            } else {
-                false
+            let question = muxy_ui::dialog::Question::Confirm {
+                title: &title,
+                message: &message,
+                confirm: &label,
+                checkbox: None,
             };
+            let confirmed = matches!(
+                muxy_ui::dialog::ask(window, question, cx).await,
+                Ok(Some(_))
+            );
             let _ = this.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
                 if !confirmed {
@@ -289,55 +277,6 @@ fn detail_row(m: Metrics, theme: &Theme, label: &str, value: String, color: Hsla
                 .text_color(color)
                 .child(value),
         )
-        .into_any_element()
-}
-
-#[derive(Clone, Copy)]
-enum ActionTone {
-    Regular,
-    Primary,
-    Danger,
-}
-
-fn action_button(
-    style: Style<'_>,
-    id: &'static str,
-    symbol: &'static str,
-    label: String,
-    tone: ActionTone,
-    enabled: bool,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
-    let Style { theme, metrics: m } = style;
-    let (foreground, background) = match tone {
-        _ if !enabled => (theme.fg_dim, theme.surface),
-        ActionTone::Regular => (theme.fg, theme.surface),
-        ActionTone::Primary => (theme.accent_foreground, theme.accent),
-        ActionTone::Danger => (theme.danger, theme.surface),
-    };
-    div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(m.spacing3())
-        .px(m.spacing4())
-        .py(m.spacing3())
-        .rounded(m.radius_sm())
-        .bg(background)
-        .text_size(m.font_footnote())
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(foreground)
-        .when(enabled, |button| {
-            button
-                .cursor_pointer()
-                .when(!matches!(tone, ActionTone::Primary), |button| {
-                    button.hover(|button| button.bg(theme.hover))
-                })
-                .button_interaction(on_click)
-        })
-        .child(SymbolGlyph::new(symbol, m.font_footnote(), foreground))
-        .child(div().min_w(px(0.0)).truncate().child(label))
         .into_any_element()
 }
 
@@ -622,13 +561,10 @@ pub(crate) fn render_pr(
         .child(header(pr, project, busy, style, cx))
         .child(details(pr, has_local_changes, style))
         .child(div().flex_none().h(px(1.0)).bg(theme.border))
-        .child(action_button(
+        .child(controls::button(
             style,
             "pr-open",
-            "arrow.up.right.square",
-            tr!("Open on GitHub").into(),
-            ActionTone::Regular,
-            true,
+            controls::Button::secondary(&tr!("Open on GitHub")).icon("arrow.up.right.square"),
             cx.listener(move |model, _, _, cx| model.open_pull_request_url(project, cx)),
         ))
         .when(pr.state == "OPEN", |surface| {
@@ -637,13 +573,12 @@ pub(crate) fn render_pr(
                     pr.merge_state == "BEHIND" && !pr.cross_repository,
                     |surface| {
                         let head_oid = pr.head_oid.clone();
-                        surface.child(action_button(
+                        surface.child(controls::button(
                             style,
                             "pr-update-branch",
-                            "arrow.down.circle",
-                            tr!("Update from %@", &pr.base_branch).into(),
-                            ActionTone::Regular,
-                            !busy && !has_local_changes,
+                            controls::Button::secondary(&tr!("Update from %@", &pr.base_branch))
+                                .icon("arrow.down.circle")
+                                .enabled(!busy && !has_local_changes),
                             cx.listener(move |model, _, _, cx| {
                                 model.request_pull_request_action(
                                     project,
@@ -665,13 +600,12 @@ pub(crate) fn render_pr(
                         .is_some_and(|project| project.parent_id.is_some()),
                     |surface| surface.child(merge_removal(popover, style, !busy, cx)),
                 )
-                .child(action_button(
+                .child(controls::button(
                     style,
                     "pr-merge",
-                    "arrow.triangle.merge",
-                    merge_action_label(merge_method).into(),
-                    ActionTone::Primary,
-                    can_merge(pr) && !busy,
+                    controls::Button::primary(&merge_action_label(merge_method))
+                        .icon("arrow.triangle.merge")
+                        .enabled(can_merge(pr) && !busy),
                     cx.listener(move |model, _, _, cx| {
                         model.request_pull_request_action(
                             project,
@@ -685,13 +619,12 @@ pub(crate) fn render_pr(
                         );
                     }),
                 ))
-                .child(action_button(
+                .child(controls::button(
                     style,
                     "pr-close",
-                    "xmark.circle",
-                    tr!("Close PR").into(),
-                    ActionTone::Danger,
-                    !busy,
+                    controls::Button::danger(&tr!("Close PR"))
+                        .icon("xmark.circle")
+                        .enabled(!busy),
                     cx.listener(move |model, _, _, cx| {
                         model.request_pull_request_action(
                             project,

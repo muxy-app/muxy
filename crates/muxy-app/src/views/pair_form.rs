@@ -12,7 +12,7 @@ use muxy_ui::text_input::{InputEvent, TextInput};
 use muxy_ui::tr;
 
 use super::overlays::Overlay;
-use super::remote_servers::{field, input, modal, primary, title};
+use super::remote_servers::{field, input, modal, title};
 use crate::model::{AppModel, PairingForm};
 
 pub(crate) struct PairForm {
@@ -226,17 +226,21 @@ pub(crate) fn render(
                 .child(controls::button(
                     style,
                     "pair-cancel",
-                    &tr!("Cancel"),
-                    true,
+                    controls::Button::secondary(&tr!("Cancel")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 ))
-                .child(primary(
-                    "pair-submit",
-                    if editing { tr!("Save") } else { tr!("Pair") },
-                    ready && !pairing,
-                    model,
-                    cx.listener(|model, _, _, cx| model.submit_pair_form(cx)),
-                )),
+                .child(
+                    controls::button(
+                        style,
+                        "pair-submit",
+                        controls::Button::primary(
+                            &(if editing { tr!("Save") } else { tr!("Pair") }),
+                        )
+                        .enabled(ready && !pairing),
+                        cx.listener(|model, _, _, cx| model.submit_pair_form(cx)),
+                    )
+                    .debug_selector(|| "pair-submit".into()),
+                ),
         )
         .into_any_element()
 }

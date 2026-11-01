@@ -1,7 +1,7 @@
 use crate::model::AppModel;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
-    Window, div, px, rgba,
+    Window, div, px,
 };
 
 pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
@@ -25,7 +25,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
                 model.dismiss_webview_modal(cx);
             }),
         )
-        .bg(rgba(0x0000_004d))
+        .bg(model.theme.backdrop)
         .occlude()
         .on_mouse_down(
             MouseButton::Left,

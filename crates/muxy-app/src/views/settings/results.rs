@@ -303,8 +303,7 @@ impl SettingsView {
                         muxy_ui::controls::button(
                             self.style(),
                             "manage-extensions",
-                            &tr!("Manage Extensions"),
-                            true,
+                            muxy_ui::controls::Button::secondary(&tr!("Manage Extensions")),
                             cx.listener(|view, _, _, cx| view.show_extensions(cx)),
                         )
                         .into_any_element(),

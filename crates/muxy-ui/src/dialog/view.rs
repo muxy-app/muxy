@@ -163,8 +163,10 @@ impl Render for Dialog {
                 body = body.child(controls::button(
                     style,
                     &format!("dialog-choice-{index}"),
-                    &format!("{} {label}", if selected { "●" } else { "○" }),
-                    true,
+                    controls::Button::secondary(&format!(
+                        "{} {label}",
+                        if selected { "●" } else { "○" }
+                    )),
                     move |_, _, cx| {
                         let _ = weak.update(cx, |view, cx| {
                             if let Some(picker) = &mut view.request.choices.picker {
@@ -217,8 +219,7 @@ impl Render for Dialog {
             buttons = buttons.child(controls::button(
                 style,
                 &format!("dialog-answer-{index}"),
-                button.label(),
-                true,
+                controls::Button::secondary(button.label()),
                 move |_, _, cx| {
                     let _ = weak.update(cx, |view, cx| view.finish(Some(index), cx));
                 },
@@ -229,7 +230,7 @@ impl Render for Dialog {
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::black().opacity(0.5))
+            .bg(theme.backdrop)
             .occlude()
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(

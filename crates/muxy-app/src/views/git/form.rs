@@ -1,9 +1,7 @@
-use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
+    SharedString, Styled, Window, anchored, deferred, div, point, px,
 };
-use muxy_ui::components::ButtonInteraction;
 use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::tr;
 
@@ -26,34 +24,30 @@ pub(crate) fn render(
         && (!form.worktree
             || (!form.name.read(cx).text().trim().is_empty()
                 && model.worktree_directory(form, cx).is_ok()));
-    let mut view = muxy_ui::popover::surface(theme, m)
-        .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
-        .id("git-form-scroll")
-        .debug_selector(|| "git-form".into())
-        .w(m.scaled(460.0)
-            .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
-        .max_h((window.viewport_size().height - m.scaled(80.0)).max(px(0.0)))
-        .overflow_y_scroll()
-        .p(m.spacing8())
-        .gap(m.scaled(14.0))
-        .text_color(theme.fg)
-        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
-            if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
-                cx.stop_propagation();
-                model.dismiss_overlay(cx);
-            }
-        }))
-        .child(
-            div()
-                .text_size(m.font_headline())
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(if form.worktree {
-                    tr!("New Worktree")
-                } else {
-                    tr!("New Branch")
-                }),
-        );
+    let mut view = muxy_ui::popover::modal_card(
+        theme,
+        m,
+        window.viewport_size(),
+        "git-form-scroll",
+        m.scaled(460.0),
+    )
+    .debug_selector(|| "git-form".into())
+    .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
+        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
+            cx.stop_propagation();
+            model.dismiss_overlay(cx);
+        }
+    }))
+    .child(
+        div()
+            .text_size(m.font_headline())
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(if form.worktree {
+                tr!("New Worktree")
+            } else {
+                tr!("New Branch")
+            }),
+    );
     if form.worktree {
         view = view.child(field(
             &tr!("Name"),
@@ -131,41 +125,24 @@ pub(crate) fn render(
                 controls::button(
                     style,
                     "git-cancel",
-                    &tr!("Cancel"),
-                    true,
+                    controls::Button::secondary(&tr!("Cancel")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )
                 .debug_selector(|| "git-cancel".into()),
             )
             .child(
-                div()
-                    .id("git-submit")
-                    .debug_selector(|| "git-submit".into())
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .h(m.control_medium())
-                    .px(m.spacing5())
-                    .rounded(m.radius_sm())
-                    .bg(theme.accent)
-                    .text_color(theme.accent_foreground)
-                    .text_size(m.font_footnote())
-                    .font_weight(FontWeight::MEDIUM)
-                    .when(!valid || !ready || busy, |button| button.opacity(0.4))
-                    .when(valid && ready && !busy, |button| {
-                        button
-                            .cursor_pointer()
-                            .hover(|style| style.opacity(0.85))
-                            .button_interaction(
-                                cx.listener(|model, _, _, cx| model.submit_git_form(cx)),
-                            )
-                    })
-                    .child(if busy && !form.worktree {
+                controls::button(
+                    style,
+                    "git-submit",
+                    controls::Button::primary(&if busy && !form.worktree {
                         tr!("Creating…")
                     } else {
                         tr!("Create")
-                    }),
+                    })
+                    .enabled(valid && ready && !busy),
+                    cx.listener(|model, _, _, cx| model.submit_git_form(cx)),
+                )
+                .debug_selector(|| "git-submit".into()),
             ),
     )
     .into_any_element()

@@ -216,7 +216,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                     let _ = model.update(cx, AppModel::dismiss_overlay);
                 })
             } else {
-                muxy_ui::popover::modal(super::proxy::render(form, model, window, cx))
+                muxy_ui::popover::modal(&model.theme, super::proxy::render(form, model, window, cx))
             }
         }
         Overlay::Updates => {
@@ -260,19 +260,23 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                 let _ = owner.update(cx, AppModel::dismiss_overlay);
             })
         }
-        Overlay::ServerForm(form) => {
-            muxy_ui::popover::modal(super::remote_servers::render_form(form, model, window, cx))
-        }
-        Overlay::PairForm(form) => {
-            muxy_ui::popover::modal(super::pair_form::render(form, model, window, cx))
-        }
+        Overlay::ServerForm(form) => muxy_ui::popover::modal(
+            &model.theme,
+            super::remote_servers::render_form(form, model, window, cx),
+        ),
+        Overlay::PairForm(form) => muxy_ui::popover::modal(
+            &model.theme,
+            super::pair_form::render(form, model, window, cx),
+        ),
         Overlay::Password(prompt) => muxy_ui::popover::modal(
+            &model.theme,
             super::remote_servers::render_password(prompt, model, window, cx),
         ),
         Overlay::Native(picker) => picker.clone().into_any_element(),
-        Overlay::GitForm(form) => {
-            muxy_ui::popover::modal(super::git::render_form(form, model, window, cx))
-        }
+        Overlay::GitForm(form) => muxy_ui::popover::modal(
+            &model.theme,
+            super::git::render_form(form, model, window, cx),
+        ),
         Overlay::AiProvider(menu) => {
             let entity = cx.entity().downgrade();
             muxy_ui::popover::anchored_popover_above(

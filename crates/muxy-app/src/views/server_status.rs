@@ -149,8 +149,7 @@ pub(crate) fn render(model: &AppModel, window: &Window, cx: &mut Context<AppMode
                 .child(controls::button(
                     Style { theme, metrics: &m },
                     "close-server-status",
-                    &tr!("Close"),
-                    true,
+                    controls::Button::secondary(&tr!("Close")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )),
         )
@@ -171,8 +170,8 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
             controls::button(
                 Style { theme, metrics: &m },
                 "connect-server",
-                &tr!("Connect"),
-                model.server_connect_enabled(),
+                controls::Button::secondary(&tr!("Connect"))
+                    .enabled(model.server_connect_enabled()),
                 cx.listener(|model, _, _, cx| {
                     if model.server_connect_enabled() {
                         model.connect_server(model.status_server(), cx);
@@ -195,8 +194,7 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
                 controls::button(
                     Style { theme, metrics: &m },
                     id,
-                    &label,
-                    model.server_control_enabled(),
+                    controls::Button::secondary(&label).enabled(model.server_control_enabled()),
                     cx.listener(move |model, _, window, cx| {
                         model.confirm_server_control(
                             model.status_server(),

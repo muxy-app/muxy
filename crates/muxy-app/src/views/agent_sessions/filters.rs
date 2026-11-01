@@ -136,8 +136,8 @@ pub(crate) fn providers(
                     text_button(
                         style,
                         "session-select-none",
-                        &tr!("Clear"),
-                        !model.appearance.agent_sessions_providers.is_empty(),
+                        muxy_ui::controls::Button::secondary(&tr!("Clear"))
+                            .enabled(!model.appearance.agent_sessions_providers.is_empty()),
                         cx.listener(|model, _, _, cx| model.set_session_providers(Vec::new(), cx)),
                     )
                     .debug_selector(|| "session-select-none".into()),
@@ -146,8 +146,8 @@ pub(crate) fn providers(
                     text_button(
                         style,
                         "session-select-all",
-                        &tr!("Select all"),
-                        !all_selected(model),
+                        muxy_ui::controls::Button::secondary(&tr!("Select all"))
+                            .enabled(!all_selected(model)),
                         cx.listener(|model, _, _, cx| model.all_session_providers(cx)),
                     )
                     .debug_selector(|| "session-select-all".into()),

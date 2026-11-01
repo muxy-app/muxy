@@ -1532,12 +1532,12 @@ impl Picker {
                 metrics: &self.metrics,
             },
             &id,
-            if action.icon_only || action.shortcut.is_some() {
+            controls::Button::secondary(if action.icon_only || action.shortcut.is_some() {
                 ""
             } else {
                 &action.label
-            },
-            !action.disabled,
+            })
+            .enabled(!action.disabled),
             cx.listener(move |_, _, _, cx| {
                 cx.emit(PickerEvent::FooterAction(action_id.clone()));
             }),
@@ -1940,9 +1940,7 @@ impl Render for Picker {
                 .flex()
                 .flex_col()
                 .items_center()
-                .when(geometry.backdrop, |element| {
-                    element.bg(popover::modal_backdrop())
-                })
+                .when(geometry.backdrop, |element| element.bg(self.theme.backdrop))
                 .pt(px(geometry.top))
                 .child(panel)
                 .into_any_element(),

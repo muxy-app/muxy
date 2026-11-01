@@ -1210,53 +1210,21 @@ fn folder_from_url(url: &str) -> Option<PathBuf> {
     path.is_dir().then(|| path.components().collect())
 }
 
-#[cfg(not(test))]
 async fn create_prompt(
     window: gpui::AnyWindowHandle,
     message: String,
     cx: &mut gpui::AsyncApp,
 ) -> Result<bool, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm(
-                window,
-                cx,
-                &tr!("Create Project Folder?"),
-                &message,
-                &tr!("Create & Add"),
-                None,
-                move |response| {
-                    let _ = sender.try_send(response);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let question = muxy_ui::dialog::Question::Confirm {
+        title: &tr!("Create Project Folder?"),
+        message: &message,
+        confirm: &tr!("Create & Add"),
+        checkbox: None,
+    };
+    let answer = muxy_ui::dialog::ask(window, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(matches!(
-        receiver.recv().await,
-        Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { .. })
-    ))
-}
-
-#[cfg(test)]
-async fn create_prompt(
-    window: gpui::AnyWindowHandle,
-    message: String,
-    cx: &mut gpui::AsyncApp,
-) -> Result<bool, String> {
-    let response = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                "Create Project Folder?",
-                Some(&message),
-                &["Create & Add", "Cancel"],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(response.await == Ok(0))
+    Ok(answer.is_some())
 }
 
 pub(crate) fn display_path(path: &Path) -> String {

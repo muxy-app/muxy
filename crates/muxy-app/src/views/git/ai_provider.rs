@@ -312,8 +312,8 @@ pub(crate) fn render_provider_menu(
                         controls::button(
                             style,
                             "ai-project-prompt-reset",
-                            &tr!("Use Global Prompt"),
-                            overridden,
+                            controls::Button::secondary(&tr!("Use Global Prompt"))
+                                .enabled(overridden),
                             cx.listener(|model, _, _, cx| model.save_project_pr_prompt(true, cx)),
                         )
                         .text_color(theme.accent),
@@ -322,8 +322,7 @@ pub(crate) fn render_provider_menu(
                     .child(controls::button(
                         style,
                         "ai-project-prompt-cancel",
-                        &tr!("Cancel"),
-                        true,
+                        controls::Button::secondary(&tr!("Cancel")),
                         cx.listener(|model, _, window, cx| {
                             model.cancel_project_pr_prompt(window, cx);
                         }),
@@ -331,8 +330,8 @@ pub(crate) fn render_provider_menu(
                     .child(controls::button(
                         style,
                         "ai-project-prompt-save",
-                        &tr!("Save"),
-                        !input.read(cx).text().trim().is_empty(),
+                        controls::Button::secondary(&tr!("Save"))
+                            .enabled(!input.read(cx).text().trim().is_empty()),
                         cx.listener(|model, _, _, cx| model.save_project_pr_prompt(false, cx)),
                     )),
             );

@@ -252,8 +252,7 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
                     content.child(controls::button(
                         style,
                         "worktree-choose-folder",
-                        &tr!("Choose Folder…"),
-                        true,
+                        controls::Button::secondary(&tr!("Choose Folder…")),
                         cx.listener(|model, _, _, cx| model.choose_worktree_folder(cx)),
                     ))
                 });
