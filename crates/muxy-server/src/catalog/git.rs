@@ -1,9 +1,8 @@
 use super::{Catalog, ServerError, bad, unknown};
 use muxy_protocol::{GitReply, OperationId, ProjectDescriptor, ProjectId, WorktreeIntent};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct GitReceipt {
     pub(crate) owner: ProjectId,
     pub(crate) intent: WorktreeIntent,
@@ -11,13 +10,9 @@ pub(crate) struct GitReceipt {
     pub(crate) device: u64,
     pub(crate) inode: u64,
     pub(crate) applied: bool,
-    #[serde(default)]
     pub(crate) hooks_started: bool,
-    #[serde(default)]
     pub(crate) hooks_finished: bool,
-    #[serde(default)]
     pub(crate) hook_error: Option<String>,
-    #[serde(default)]
     pub(crate) failed: Option<muxy_protocol::ErrorReply>,
     pub(crate) reply: Option<GitReply>,
 }

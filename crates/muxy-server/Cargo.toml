@@ -23,10 +23,10 @@ getrandom = "0.3"
 libc = "0.2"
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 muxy-protocol = { path = "../muxy-protocol" }
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 log = { version = "0.4", features = ["std"] }
 muxy-core = { path = "../muxy-core" }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 signal-hook = "0.4"
 toml = "1.1"
 

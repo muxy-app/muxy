@@ -12,15 +12,15 @@ const MAX_RECORDS: usize = 1024;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct Finished {
     #[serde(default)]
-    creations: BTreeMap<OperationId, u64>,
+    pub(super) creations: BTreeMap<OperationId, u64>,
     #[serde(default)]
-    cancelled: BTreeMap<OperationId, u64>,
+    pub(super) cancelled: BTreeMap<OperationId, u64>,
     #[serde(default)]
-    receipts: BTreeMap<OperationId, u64>,
+    pub(super) receipts: BTreeMap<OperationId, u64>,
     #[serde(default)]
-    closes: BTreeMap<OperationId, u64>,
+    pub(super) closes: BTreeMap<OperationId, u64>,
     #[serde(default)]
-    git: BTreeMap<OperationId, u64>,
+    pub(super) git: BTreeMap<OperationId, u64>,
 }
 
 pub(super) fn now_millis() -> u64 {
@@ -133,6 +133,7 @@ fn expire(
 #[cfg(test)]
 mod tests {
     use super::{MAX_RECORDS, RECORD_MILLIS};
+    use crate::catalog::storage::StoredState;
     use crate::catalog::{Catalog, Creation, Membership, Receipt, State};
     use muxy_protocol::{
         OperationId, ProjectIntent, ProjectMutation, ServerPath, SessionId, SessionInfo,
@@ -182,11 +183,12 @@ mod tests {
 
     #[test]
     fn catalog_without_finish_times_loads() -> Result<(), serde_json::Error> {
-        let mut json = serde_json::to_value(state())?;
+        let mut json =
+            serde_json::to_value(StoredState::try_from(&state()).map_err(serde_json::Error::io)?)?;
         json.as_object_mut()
             .expect("catalog is an object")
             .remove("finished");
-        let loaded: State = serde_json::from_value(json)?;
+        let loaded: State = serde_json::from_value::<StoredState>(json)?.into();
         assert!(loaded.finished.creations.is_empty());
         Ok(())
     }
