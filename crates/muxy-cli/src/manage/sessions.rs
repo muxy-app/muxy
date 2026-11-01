@@ -304,31 +304,7 @@ fn record(session: &ProjectSession) -> Value {
 }
 
 fn list(client: &Client, project: ProjectId) -> Result<Vec<ProjectSession>> {
-    for _ in 0..8 {
-        match snapshot(client, project) {
-            Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged => (),
-            result => return Ok(result?),
-        }
-    }
-    Err("session catalog kept changing; try again".into())
-}
-
-fn snapshot(
-    client: &Client,
-    project: ProjectId,
-) -> std::result::Result<Vec<ProjectSession>, ClientError> {
-    let mut page = client.project_sessions(project, None, None)?;
-    let mut sessions = page.sessions;
-    while let Some(after) = page.next {
-        page = client.project_sessions(project, Some(after), Some(page.revision))?;
-        if page.next.is_some_and(|next| next <= after)
-            || sessions.len() + page.sessions.len() > 16_384
-        {
-            return Err(ClientError::Protocol("invalid session pagination".into()));
-        }
-        sessions.extend(page.sessions);
-    }
-    Ok(sessions)
+    Ok(client.all_project_sessions(project, |_| true)?.sessions)
 }
 
 fn input(client: &Client, session: SessionId, bytes: Vec<u8>, output: &Output) -> Result {

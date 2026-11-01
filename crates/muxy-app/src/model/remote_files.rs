@@ -13,10 +13,7 @@ use gpui::Context;
 use muxy_app_core::opener::{FileLocation, Target};
 use muxy_app_core::{PaneId, ServerId};
 use muxy_client::{Client, ClientError};
-use muxy_protocol::{
-    ErrorCode, FilesAction, FilesReply, FilesRequest, MAX_UPLOAD_BYTES, ProjectId, ServerPath,
-    SessionId,
-};
+use muxy_protocol::{ErrorCode, MAX_UPLOAD_BYTES, ProjectId, ServerPath, SessionId};
 use muxy_ui::tr;
 
 use super::AppModel;
@@ -140,34 +137,23 @@ impl RemoteFiles {
         })
     }
 
-    fn files(&self, path: &Path, action: fn(ServerPath) -> FilesAction) -> Option<FilesReply> {
-        let (project, relative) = self.locate(path)?;
-        self.client
-            .files(FilesRequest {
-                project,
-                action: action(ServerPath::from(&relative)),
-            })
-            .ok()
-    }
-
     fn exists(&self, path: &Path) -> bool {
-        self.files(path, FilesAction::Stat).is_some()
+        self.locate(path).is_some_and(|(project, relative)| {
+            self.client
+                .file_info(project, ServerPath::from(&relative))
+                .is_ok()
+        })
     }
 
     /// Whether a project's folder is there, as this computer checks its own:
     /// a worktree also needs its `.git` file. `None` when the server
     /// couldn't say.
     pub(crate) fn folder_available(&self, project: ProjectId, worktree: bool) -> Option<bool> {
-        let stat = |path: &[u8]| {
-            self.client.files(FilesRequest {
-                project,
-                action: FilesAction::Stat(ServerPath(path.to_vec())),
-            })
-        };
+        let stat = |path: &[u8]| self.client.file_info(project, ServerPath(path.to_vec()));
         let missing = |error: &ClientError| matches!(error, ClientError::Server(error) if error.code == ErrorCode::BadPath);
         match stat(b"") {
-            Ok(FilesReply::Info(info)) if info.is_directory => {}
-            Ok(FilesReply::Info(_)) => return Some(false),
+            Ok(info) if info.is_directory => {}
+            Ok(_) => return Some(false),
             Err(error) if missing(&error) => return Some(false),
             _ => return None,
         }
@@ -175,7 +161,7 @@ impl RemoteFiles {
             return Some(true);
         }
         match stat(b".git") {
-            Ok(FilesReply::Info(info)) => Some(!info.is_directory),
+            Ok(info) => Some(!info.is_directory),
             Err(error) if missing(&error) => Some(false),
             _ => None,
         }
@@ -190,13 +176,14 @@ impl RemoteFiles {
             )
             .to_string());
         };
-        let request = FilesRequest {
-            project,
-            action: FilesAction::ReadBytes(ServerPath::from(&relative)),
-        };
-        match self.client.files(request) {
-            Ok(FilesReply::Bytes(file)) => Ok(file.bytes),
-            Ok(_) => Err(tr!("The server sent something other than the file.").to_string()),
+        match self
+            .client
+            .read_file_bytes(project, ServerPath::from(&relative))
+        {
+            Ok(file) => Ok(file.bytes),
+            Err(ClientError::UnexpectedReply(_)) => {
+                Err(tr!("The server sent something other than the file.").to_string())
+            }
             Err(ClientError::Server(error)) => Err(error.message),
             Err(error) => Err(error.to_string()),
         }

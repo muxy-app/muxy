@@ -1,7 +1,5 @@
-use muxy_client::{Client, ClientError};
-use muxy_protocol::{
-    GitAction, GitDiffRequest, GitReply, GitRequest, ProjectId, ReplyBody, ServerPath,
-};
+use muxy_client::Client;
+use muxy_protocol::{ProjectId, ServerPath};
 
 use super::records::{
     GitBaseSwitch, GitBranch, GitChangesPreview, GitCommit, GitDiff, GitFile, GitPushDestination,
@@ -22,87 +20,48 @@ impl GitRepository {
     pub(crate) fn new(client: Client, project: ProjectId) -> Self {
         Self { client, project }
     }
-
-    pub(super) fn request(&self, action: GitAction) -> Result<GitReply, MobileError> {
-        self.request_in(self.project, action)
-    }
-
-    /// Runs `action` in another project, such as a worktree's parent.
-    pub(super) fn request_in(
-        &self,
-        project: ProjectId,
-        action: GitAction,
-    ) -> Result<GitReply, MobileError> {
-        Ok(self.client.git(GitRequest { project, action })?)
-    }
-
-    /// Runs an action whose only answer is `Done`.
-    pub(super) fn run(&self, action: GitAction) -> Result<(), MobileError> {
-        match self.request(action)? {
-            GitReply::Done => Ok(()),
-            other => Err(unexpected(other)),
-        }
-    }
 }
 
 #[uniffi::export]
 impl GitRepository {
     /// `None` when the project's folder has no repository.
     pub fn summary(&self) -> Result<Option<GitSummary>, MobileError> {
-        match self.request(GitAction::Summary)? {
-            GitReply::Summary(summary) => Ok(summary.map(Into::into)),
-            other => Err(unexpected(other)),
-        }
+        Ok(self.client.git_summary(self.project)?.map(Into::into))
     }
 
     /// The branch and its changes, and, when asked, its pull request, which
     /// takes longer because it asks GitHub.
     pub fn status(&self, include_pull_request: bool) -> Result<GitStatus, MobileError> {
-        let action = GitAction::Status {
-            local: !include_pull_request,
-            fresh: false,
-        };
-        match self.request(action)? {
-            GitReply::Status(status) => Ok((*status).into()),
-            other => Err(unexpected(other)),
-        }
+        Ok(self
+            .client
+            .git_status(self.project, !include_pull_request, false)?
+            .into())
     }
 
     pub fn changes(&self) -> Result<Vec<GitFile>, MobileError> {
-        match self.request(GitAction::Changes)? {
-            GitReply::Changes(files) => Ok(collect(files)),
-            other => Err(unexpected(other)),
-        }
+        Ok(collect(self.client.git_changes(self.project)?))
     }
 
     pub fn branches(&self) -> Result<Vec<GitBranch>, MobileError> {
-        match self.request(GitAction::Branches)? {
-            GitReply::Branches(branches) => Ok(collect(branches)),
-            other => Err(unexpected(other)),
-        }
+        Ok(collect(self.client.git_branches(self.project)?))
     }
 
     /// The branch names on `origin`, read over the network.
     pub fn remote_branches(&self) -> Result<Vec<String>, MobileError> {
-        match self.request(GitAction::RemoteBranches)? {
-            GitReply::RemoteBranches(branches) => Ok(branches),
-            other => Err(unexpected(other)),
-        }
+        Ok(self.client.git_remote_branches(self.project)?)
     }
 
     pub fn info(&self) -> Result<GitRepoInfo, MobileError> {
-        match self.request(GitAction::RepoInfo)? {
-            GitReply::RepoInfo(info) => Ok(info.into()),
-            other => Err(unexpected(other)),
-        }
+        Ok(self.client.git_repo_info(self.project)?.into())
     }
 
     /// Commits, newest first. `max_count` is at most 1000.
     pub fn log(&self, max_count: u32, skip: u32) -> Result<Vec<GitCommit>, MobileError> {
-        match self.request(GitAction::Log { max_count, skip })? {
-            GitReply::Log(commits) => Ok(collect(commits)),
-            other => Err(unexpected(other)),
-        }
+        Ok(collect(self.client.git_log(
+            self.project,
+            max_count,
+            skip,
+        )?))
     }
 
     /// One file's changes as rows to draw, from the index when `staged`.
@@ -113,16 +72,10 @@ impl GitRepository {
         staged: bool,
         line_limit: Option<u32>,
     ) -> Result<GitDiff, MobileError> {
-        let request = GitDiffRequest {
-            path: Some(server_path(path)),
-            staged,
-            raw: false,
-            line_limit,
-        };
-        match self.request(GitAction::Diff(request))? {
-            GitReply::Diff(diff) => Ok(diff.into()),
-            other => Err(unexpected(other)),
-        }
+        Ok(self
+            .client
+            .git_diff(self.project, server_path(path), staged, line_limit)?
+            .into())
     }
 
     /// Git's diff text for one file, or for every tracked change when `path`
@@ -133,13 +86,10 @@ impl GitRepository {
         staged: bool,
         line_limit: Option<u32>,
     ) -> Result<GitRawDiff, MobileError> {
-        let request = GitDiffRequest {
-            path: path.map(server_path),
-            staged,
-            raw: true,
-            line_limit,
-        };
-        raw_diff(self.request(GitAction::Diff(request))?)
+        Ok(self
+            .client
+            .git_raw_diff(self.project, path.map(server_path), staged, line_limit)?
+            .into())
     }
 
     /// The commits on this branch compared with `origin/<base>`.
@@ -148,7 +98,10 @@ impl GitRepository {
         base: String,
         line_limit: Option<u32>,
     ) -> Result<GitRawDiff, MobileError> {
-        raw_diff(self.request(GitAction::BranchDiff { base, line_limit })?)
+        Ok(self
+            .client
+            .git_branch_diff(self.project, base, line_limit)?
+            .into())
     }
 
     /// Every change as `commit_all` would commit it, without staging anything.
@@ -156,32 +109,32 @@ impl GitRepository {
         &self,
         line_limit: Option<u32>,
     ) -> Result<GitChangesPreview, MobileError> {
-        match self.request(GitAction::ChangesPreview { line_limit })? {
-            GitReply::ChangesPreview(preview) => Ok((*preview).into()),
-            other => Err(unexpected(other)),
-        }
+        Ok(self
+            .client
+            .git_changes_preview(self.project, line_limit)?
+            .into())
     }
 
     /// Stages the files, or every change when `paths` is empty.
     pub fn stage(&self, paths: Vec<String>) -> Result<(), MobileError> {
-        self.run(GitAction::Stage(server_paths(paths)))
+        Ok(self.client.git_stage(self.project, server_paths(paths))?)
     }
 
     /// Unstages the files, or everything when `paths` is empty.
     pub fn unstage(&self, paths: Vec<String>) -> Result<(), MobileError> {
-        self.run(GitAction::Unstage(server_paths(paths)))
+        Ok(self.client.git_unstage(self.project, server_paths(paths))?)
     }
 
     /// Throws away the files' unstaged changes and deletes the untracked ones.
     /// Unstage or resolve a file before discarding it. Does nothing when
     /// `paths` is empty.
     pub fn discard(&self, paths: Vec<String>) -> Result<(), MobileError> {
-        self.run(GitAction::Discard(server_paths(paths)))
+        Ok(self.client.git_discard(self.project, server_paths(paths))?)
     }
 
     /// Returns the new commit's hash. `stage_all` stages every change first.
     pub fn commit(&self, message: String, stage_all: bool) -> Result<String, MobileError> {
-        commit_hash(self.request(GitAction::Commit { message, stage_all })?)
+        Ok(self.client.git_commit(self.project, message, stage_all)?)
     }
 
     /// Stages every change and commits only while it still matches the
@@ -192,68 +145,68 @@ impl GitRepository {
         expected_head: Option<String>,
         expected_tree: String,
     ) -> Result<String, MobileError> {
-        commit_hash(self.request(GitAction::CommitAll {
-            message,
-            expected_head,
-            expected_tree,
-        })?)
+        Ok(self
+            .client
+            .git_commit_all(self.project, message, expected_head, expected_tree)?)
     }
 
     /// Creates a repository in the project's folder; call `watch` again after it.
     pub fn init_repository(&self) -> Result<(), MobileError> {
-        self.run(GitAction::Init)
+        Ok(self.client.git_init(self.project)?)
     }
 
     /// Sends `GitChanged` when this repository changes. A connection watches
     /// one repository, so this replaces the previous watch.
     pub fn watch(&self) -> Result<(), MobileError> {
-        self.run(GitAction::Watch)
+        Ok(self.client.git_watch(self.project)?)
     }
 
     pub fn switch_branch(&self, name: String) -> Result<(), MobileError> {
-        self.run(GitAction::SwitchBranch(name))
+        Ok(self.client.git_switch_branch(self.project, name)?)
     }
 
     /// Creates the branch at the current commit and switches to it.
     pub fn create_branch(&self, name: String) -> Result<(), MobileError> {
-        self.run(GitAction::CreateBranch(name))
+        Ok(self.client.git_create_branch(self.project, name)?)
     }
 
     /// `force` also deletes a branch whose commits aren't merged.
     pub fn delete_branch(&self, name: String, force: bool) -> Result<(), MobileError> {
-        self.run(GitAction::DeleteLocalBranch { name, force })
+        Ok(self
+            .client
+            .git_delete_local_branch(self.project, name, force)?)
     }
 
     pub fn delete_remote_branch(&self, name: String) -> Result<(), MobileError> {
-        self.run(GitAction::DeleteRemoteBranch(name))
+        Ok(self.client.git_delete_remote_branch(self.project, name)?)
     }
 
     /// Checks out a commit without a branch.
     pub fn checkout_commit(&self, hash: String) -> Result<(), MobileError> {
-        self.run(GitAction::Checkout(hash))
+        Ok(self.client.git_checkout(self.project, hash)?)
     }
 
     pub fn cherry_pick(&self, hash: String) -> Result<(), MobileError> {
-        self.run(GitAction::CherryPick(hash))
+        Ok(self.client.git_cherry_pick(self.project, hash)?)
     }
 
     /// Undoes the commit's changes in the working tree, without committing.
     pub fn revert(&self, hash: String) -> Result<(), MobileError> {
-        self.run(GitAction::Revert(hash))
+        Ok(self.client.git_revert(self.project, hash)?)
     }
 
     pub fn create_tag(&self, name: String, hash: String) -> Result<(), MobileError> {
-        self.run(GitAction::CreateTag { name, hash })
+        Ok(self.client.git_create_tag(self.project, name, hash)?)
     }
 
     /// Pushes the current branch. A branch without an upstream, or any branch
     /// when `set_upstream`, goes to `origin` and tracks it.
     pub fn push(&self, set_upstream: bool) -> Result<(), MobileError> {
-        self.run(GitAction::Push { set_upstream })
+        Ok(self.client.git_push(self.project, set_upstream)?)
     }
 
     pub fn pull(&self) -> Result<(), MobileError> {
-        self.run(GitAction::Pull)
+        Ok(self.client.git_pull(self.project)?)
     }
 
     /// Pushes `branch` where `changes_preview` said it would go.
@@ -262,37 +215,14 @@ impl GitRepository {
         branch: String,
         destination: GitPushDestination,
     ) -> Result<(), MobileError> {
-        self.run(GitAction::PublishBranch {
-            branch,
-            destination: destination.into(),
-        })
+        Ok(self
+            .client
+            .git_publish_branch(self.project, branch, destination.into())?)
     }
 
     /// Switches to a merged pull request's base branch and fast-forwards it.
     pub fn switch_to_base(&self, branch: String) -> Result<GitBaseSwitch, MobileError> {
-        match self.request(GitAction::SwitchToBase(branch))? {
-            GitReply::BaseSwitch(base_switch) => Ok(base_switch.into()),
-            other => Err(unexpected(other)),
-        }
-    }
-}
-
-/// A reply of another kind than the request asked for.
-pub(super) fn unexpected(reply: GitReply) -> MobileError {
-    ClientError::UnexpectedReply(Box::new(ReplyBody::Git(reply))).into()
-}
-
-pub(super) fn raw_diff(reply: GitReply) -> Result<GitRawDiff, MobileError> {
-    match reply {
-        GitReply::RawDiff(diff) => Ok(diff.into()),
-        other => Err(unexpected(other)),
-    }
-}
-
-fn commit_hash(reply: GitReply) -> Result<String, MobileError> {
-    match reply {
-        GitReply::Commit(hash) => Ok(hash),
-        other => Err(unexpected(other)),
+        Ok(self.client.git_switch_to_base(self.project, branch)?.into())
     }
 }
 

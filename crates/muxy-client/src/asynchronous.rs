@@ -1,7 +1,5 @@
 use crate::{Client, ClientError, Request};
-use muxy_protocol::{
-    CatalogPage, ChannelId, ErrorCode, MAX_PROJECTS, ProjectId, ReplyBody, RequestBody,
-};
+use muxy_protocol::{CatalogPage, ChannelId, MAX_PROJECTS, ProjectId, ReplyBody, RequestBody};
 use std::time::Duration;
 
 impl Client {
@@ -20,28 +18,6 @@ impl Client {
                 body => Err(ClientError::UnexpectedReply(Box::new(body))),
             },
         )
-    }
-
-    pub fn git_async(
-        &self,
-        request: muxy_protocol::GitRequest,
-    ) -> Request<muxy_protocol::GitReply> {
-        let timeout = crate::catalog::git_timeout(&request.action);
-        self.request_async(RequestBody::Git(request), timeout, |body| match body {
-            ReplyBody::Git(value) => Ok(value),
-            body => Err(ClientError::UnexpectedReply(Box::new(body))),
-        })
-    }
-
-    pub fn files_async(
-        &self,
-        request: muxy_protocol::FilesRequest,
-    ) -> Request<muxy_protocol::FilesReply> {
-        let timeout = Duration::from_secs(300);
-        self.request_async(RequestBody::Files(request), timeout, |body| match body {
-            ReplyBody::Files(value) => Ok(value),
-            body => Err(ClientError::UnexpectedReply(Box::new(body))),
-        })
     }
 
     pub fn exec_async(
@@ -80,13 +56,7 @@ impl Client {
     }
 
     pub async fn catalog_async(&self) -> Result<CatalogPage, ClientError> {
-        for _ in 0..8 {
-            match self.catalog_snapshot_async().await {
-                Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged => (),
-                result => return result,
-            }
-        }
-        Err(ClientError::Timeout)
+        crate::catalog::consistent_async(|| self.catalog_snapshot_async()).await
     }
 
     async fn catalog_page_async(

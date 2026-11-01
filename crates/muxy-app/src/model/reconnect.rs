@@ -2,11 +2,9 @@
 //! after an attempt that failed in a way the network or that computer can
 //! recover from. This computer's server connects only when needed, as before.
 
-use std::time::Duration;
-
 use gpui::{Context, Task};
 use muxy_app_core::ServerId;
-use muxy_client::RemoteReason;
+use muxy_client::{Backoff, RemoteReason};
 
 use super::{AppModel, ConnectionState, Quitting};
 
@@ -46,13 +44,6 @@ impl Retry {
     }
 }
 
-/// How long to wait before an attempt after `attempts` failed in a row:
-/// 2 s, doubling up to a minute, which then repeats. Backing off spares the
-/// other computer's sshd and keeps tools like fail2ban from blocking this one.
-pub(super) fn delay(attempts: u32) -> Duration {
-    Duration::from_secs((2_u64 << attempts.min(5)).min(60))
-}
-
 impl AppModel {
     /// Connects to another computer again after a wait, unless `reason` says
     /// the user must fix something first, such as a refused login or an
@@ -76,7 +67,7 @@ impl AppModel {
         if runtime.retry.held || runtime.stopping || runtime.work.is_none() {
             return;
         }
-        let wait = delay(runtime.retry.attempts);
+        let wait = Backoff::Background.delay(runtime.retry.attempts);
         runtime.retry.attempts = runtime.retry.attempts.saturating_add(1);
         let generation = runtime.generation;
         runtime.retry.timer = Some(cx.spawn(async move |model, cx| {

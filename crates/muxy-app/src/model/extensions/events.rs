@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gpui::{Context, Task};
 use muxy_app_core::{PaneContent, PaneId, Project, ProjectId, Tab, TabId};
-use muxy_protocol::{AgentProvider, AgentState, FilesAction, FilesRequest};
+use muxy_protocol::{AgentProvider, AgentState};
 use serde_json::{Map, Value, json};
 
 use super::AppModel;
@@ -549,13 +549,9 @@ impl AppModel {
         );
         let requests: Vec<_> = removed
             .into_iter()
-            .map(|project| (project, FilesAction::Unwatch))
-            .chain(
-                added
-                    .into_iter()
-                    .map(|project| (project, FilesAction::Watch)),
-            )
-            .filter_map(|(project, action)| Some((client(self, project)?, project, action)))
+            .map(|project| (project, false))
+            .chain(added.into_iter().map(|project| (project, true)))
+            .filter_map(|(project, watch)| Some((client(self, project)?, project, watch)))
             .collect();
         self.extensions.events.watched = desired;
         self.extensions.events.watch_pending = true;
@@ -563,8 +559,13 @@ impl AppModel {
         let task = cx.spawn(async move |_, _| {
             trace.stage(format_args!("phase=started"));
             let mut errors = Vec::new();
-            for (client, project, action) in requests {
-                if let Err(error) = client.files_async(FilesRequest { project, action }).await {
+            for (client, project, watch) in requests {
+                let request = if watch {
+                    client.watch_files_async(project)
+                } else {
+                    client.unwatch_files_async(project)
+                };
+                if let Err(error) = request.await {
                     errors.push(error.to_string());
                 }
             }

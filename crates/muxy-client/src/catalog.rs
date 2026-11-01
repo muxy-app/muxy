@@ -1,21 +1,54 @@
+use std::future::Future;
+
 use crate::{Client, ClientError};
 use muxy_protocol::{
-    CatalogPage, ErrorCode, MAX_PROJECTS, ProjectId, ProjectIntent, ProjectSessions, ReplyBody,
-    RequestBody, SessionId,
+    CatalogPage, ErrorCode, MAX_PROJECTS, ProjectId, ProjectIntent, ProjectSession,
+    ProjectSessions, ReplyBody, RequestBody, SessionId, SessionStatus,
 };
 
-pub(crate) fn git_timeout(action: &muxy_protocol::GitAction) -> std::time::Duration {
-    let hooks = match action {
-        muxy_protocol::GitAction::Worktree(intent) => intent
-            .options
-            .as_ref()
-            .and_then(|options| options.hooks.as_ref())
-            .is_some_and(|hooks| !hooks.is_empty()),
-        _ => false,
-    };
-    // Hooks have their own five-minute server budget, in addition to Git work.
-    // Leave reply headroom so the UI receives the final lifecycle result.
-    std::time::Duration::from_secs(if hooks { 610 } else { 300 })
+/// How many times a paged read starts over when the catalog changes between
+/// its pages.
+const PAGED_ATTEMPTS: usize = 8;
+/// The most terminals one listing returns.
+const MAX_LISTED_SESSIONS: usize = 16_384;
+
+fn catalog_changed<T>(result: &Result<T, ClientError>) -> bool {
+    matches!(result, Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged)
+}
+
+/// Reads every page again until no page saw the catalog change, a bounded
+/// number of times.
+pub(crate) fn consistent<T>(
+    mut read: impl FnMut() -> Result<T, ClientError>,
+) -> Result<T, ClientError> {
+    for _ in 0..PAGED_ATTEMPTS {
+        let result = read();
+        if !catalog_changed(&result) {
+            return result;
+        }
+    }
+    Err(ClientError::Timeout)
+}
+
+/// Like `consistent`, without blocking.
+pub(crate) async fn consistent_async<T, F: Future<Output = Result<T, ClientError>>>(
+    mut read: impl FnMut() -> F,
+) -> Result<T, ClientError> {
+    for _ in 0..PAGED_ATTEMPTS {
+        let result = read().await;
+        if !catalog_changed(&result) {
+            return result;
+        }
+    }
+    Err(ClientError::Timeout)
+}
+
+fn available(session: &ProjectSession) -> bool {
+    !session.attached
+        && matches!(
+            session.status,
+            SessionStatus::Live | SessionStatus::Starting
+        )
 }
 
 impl Client {
@@ -54,19 +87,6 @@ impl Client {
     pub fn claim_activity(&self, events: Vec<u64>) -> Result<Vec<u64>, ClientError> {
         match self.request(RequestBody::ClaimActivity(events))? {
             ReplyBody::ActivityClaimed(events) => Ok(events),
-            body => Err(ClientError::UnexpectedReply(Box::new(body))),
-        }
-    }
-
-    pub fn files(
-        &self,
-        request: muxy_protocol::FilesRequest,
-    ) -> Result<muxy_protocol::FilesReply, ClientError> {
-        match self.request_with_timeout(
-            RequestBody::Files(request),
-            std::time::Duration::from_secs(300),
-        )? {
-            ReplyBody::Files(reply) => Ok(reply),
             body => Err(ClientError::UnexpectedReply(Box::new(body))),
         }
     }
@@ -125,17 +145,6 @@ impl Client {
         }
     }
 
-    pub fn git(
-        &self,
-        request: muxy_protocol::GitRequest,
-    ) -> Result<muxy_protocol::GitReply, ClientError> {
-        let timeout = git_timeout(&request.action);
-        match self.request_with_timeout(RequestBody::Git(request), timeout)? {
-            ReplyBody::Git(reply) => Ok(reply),
-            body => Err(ClientError::UnexpectedReply(Box::new(body))),
-        }
-    }
-
     pub fn cancel_creation(
         &self,
         operation: muxy_protocol::OperationId,
@@ -165,15 +174,9 @@ impl Client {
         }
     }
 
-    /// Fetches one revision, retrying a bounded number of times if it changes between pages.
+    /// Every project, from one consistent catalog revision.
     pub fn catalog(&self) -> Result<CatalogPage, ClientError> {
-        for _ in 0..8 {
-            match self.catalog_snapshot() {
-                Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged => {}
-                result => return result,
-            }
-        }
-        Err(ClientError::Timeout)
+        consistent(|| self.catalog_snapshot())
     }
 
     fn catalog_snapshot(&self) -> Result<CatalogPage, ClientError> {
@@ -204,32 +207,31 @@ impl Client {
         }
     }
 
+    /// The project's terminals that are running and shown nowhere.
     pub fn available_project_sessions(
         &self,
         project: ProjectId,
     ) -> Result<ProjectSessions, ClientError> {
-        for _ in 0..8 {
-            match self.available_sessions_snapshot(project) {
-                Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged => {}
-                result => return result,
-            }
-        }
-        Err(ClientError::Timeout)
+        self.all_project_sessions(project, available)
     }
 
-    fn available_sessions_snapshot(
+    /// Every terminal of the project that `keep` accepts, from one consistent
+    /// listing.
+    pub fn all_project_sessions(
         &self,
         project: ProjectId,
+        keep: impl Fn(&ProjectSession) -> bool,
+    ) -> Result<ProjectSessions, ClientError> {
+        consistent(|| self.project_sessions_snapshot(project, &keep))
+    }
+
+    fn project_sessions_snapshot(
+        &self,
+        project: ProjectId,
+        keep: &impl Fn(&ProjectSession) -> bool,
     ) -> Result<ProjectSessions, ClientError> {
         let mut result = self.project_sessions(project, None, None)?;
-        let available = |session: &muxy_protocol::ProjectSession| {
-            !session.attached
-                && matches!(
-                    session.status,
-                    muxy_protocol::SessionStatus::Live | muxy_protocol::SessionStatus::Starting
-                )
-        };
-        result.sessions.retain(available);
+        result.sessions.retain(|session| keep(session));
         while let Some(after) = result.next {
             let page = self.project_sessions(project, Some(after), Some(result.revision))?;
             if page.next.is_some_and(|next| next <= after) {
@@ -237,9 +239,9 @@ impl Client {
             }
             result
                 .sessions
-                .extend(page.sessions.into_iter().filter(available));
-            if result.sessions.len() > 16_384 {
-                return Err(ClientError::Protocol("too many available terminals".into()));
+                .extend(page.sessions.into_iter().filter(|session| keep(session)));
+            if result.sessions.len() > MAX_LISTED_SESSIONS {
+                return Err(ClientError::Protocol("too many terminals".into()));
             }
             result.next = page.next;
         }
@@ -277,37 +279,84 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use muxy_protocol::{
-        GitAction, OperationId, ServerPath, WorktreeAction, WorktreeHook, WorktreeIntent,
-        WorktreeOptions,
-    };
-    use std::time::Duration;
+    use crate::fake::Fake;
+    use muxy_protocol::{ErrorReply, ProjectSession, ServerPath, SessionInfo};
+
+    fn changed() -> ReplyBody {
+        ReplyBody::Error(ErrorReply {
+            code: ErrorCode::CatalogChanged,
+            message: "changed".into(),
+        })
+    }
+
+    fn page(revision: u64, sessions: Vec<ProjectSession>, next: Option<SessionId>) -> ReplyBody {
+        ReplyBody::ProjectSessions(ProjectSessions {
+            revision,
+            sessions,
+            next,
+        })
+    }
+
+    fn session(project: ProjectId, id: u64, attached: bool) -> ProjectSession {
+        ProjectSession {
+            info: SessionInfo {
+                id: SessionId::new(id).expect("id"),
+                project,
+                directory: ServerPath(b"/tmp".to_vec()),
+            },
+            status: SessionStatus::Live,
+            attached,
+            owner: None,
+        }
+    }
 
     #[test]
-    fn worktree_request_budget_covers_git_hooks_and_reply_headroom() {
-        let normal = git_timeout(&GitAction::Summary);
-        let mut intent = WorktreeIntent {
-            operation: OperationId::new(),
-            action: WorktreeAction::Create {
-                project: ProjectId::new(),
-                directory: ServerPath(b"/tmp/worktree".to_vec()),
-                branch: "feature".into(),
-                base: Some("main".into()),
-            },
-            options: None,
-        };
-        assert_eq!(git_timeout(&GitAction::Worktree(intent.clone())), normal);
-        for hooks in [None, Some(vec![])] {
-            intent.options = Some(WorktreeOptions { name: None, hooks });
-            assert_eq!(git_timeout(&GitAction::Worktree(intent.clone())), normal);
+    fn a_listing_starts_over_when_the_catalog_changes_between_pages() {
+        let fake = Fake::start();
+        let project = ProjectId::new();
+        let first = session(project, 1, false);
+        let second = session(project, 2, true);
+        let third = session(project, 3, false);
+        fake.queue(page(1, vec![first.clone()], Some(first.info.id)));
+        fake.queue(changed());
+        fake.queue(page(
+            2,
+            vec![first.clone(), second],
+            Some(SessionId::new(2).expect("id")),
+        ));
+        fake.queue(page(2, vec![third.clone()], None));
+        let listing = fake
+            .client
+            .available_project_sessions(project)
+            .expect("listing");
+        assert_eq!(listing.revision, 2);
+        assert_eq!(listing.sessions, [first, third]);
+        assert_eq!(fake.answered().len(), 4);
+    }
+
+    #[test]
+    fn a_listing_gives_up_after_eight_changes() {
+        let fake = Fake::start();
+        for _ in 0..PAGED_ATTEMPTS {
+            fake.queue(changed());
         }
-        intent.options.as_mut().expect("options").hooks = Some(vec![WorktreeHook {
-            command: "sleep 295".into(),
-            name: None,
-            project: true,
-        }]);
-        let budget = git_timeout(&GitAction::Worktree(intent));
-        assert!(budget > normal + Duration::from_secs(300));
-        assert!(budget > Duration::from_secs(10 + 295));
+        let listing = fake.client.all_project_sessions(ProjectId::new(), |_| true);
+        assert!(matches!(listing, Err(ClientError::Timeout)), "{listing:?}");
+        assert_eq!(fake.answered().len(), PAGED_ATTEMPTS);
+    }
+
+    #[test]
+    fn other_errors_are_not_retried() {
+        let fake = Fake::start();
+        fake.queue(ReplyBody::Error(ErrorReply {
+            code: ErrorCode::BadRequest,
+            message: "bad".into(),
+        }));
+        let listing = fake.client.all_project_sessions(ProjectId::new(), |_| true);
+        assert!(
+            matches!(listing, Err(ClientError::Server(_))),
+            "{listing:?}"
+        );
+        assert_eq!(fake.answered().len(), 1);
     }
 }

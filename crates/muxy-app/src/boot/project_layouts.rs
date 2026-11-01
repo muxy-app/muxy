@@ -1,19 +1,12 @@
 use muxy_app_core::project_layouts::{Config, DIRECTORY, Descriptor, discover};
 use muxy_client::Client;
-use muxy_protocol::{FilesAction, FilesReply, FilesRequest, ProjectId, ServerPath};
-use muxy_ui::tr;
+use muxy_protocol::{ProjectId, ServerPath};
 
 pub(super) fn list(client: &Client, project: ProjectId) -> Result<Vec<Descriptor>, String> {
-    match client
-        .files(FilesRequest {
-            project,
-            action: FilesAction::List(ServerPath::from(DIRECTORY)),
-        })
-        .map_err(|error| error.to_string())?
-    {
-        FilesReply::Entries(entries) => Ok(discover(entries)),
-        _ => Err(tr!("Unexpected layout directory response").to_string()),
-    }
+    client
+        .list_directory(project, ServerPath::from(DIRECTORY))
+        .map(discover)
+        .map_err(|error| error.to_string())
 }
 
 pub(super) fn load(
@@ -21,14 +14,8 @@ pub(super) fn load(
     project: ProjectId,
     layout: &Descriptor,
 ) -> Result<Config, String> {
-    match client
-        .files(FilesRequest {
-            project,
-            action: FilesAction::Read(layout.path.clone()),
-        })
-        .map_err(|error| error.to_string())?
-    {
-        FilesReply::Content(file) => Config::parse(&file.content),
-        _ => Err(tr!("Unexpected layout file response").to_string()),
-    }
+    let file = client
+        .read_file(project, layout.path.clone())
+        .map_err(|error| error.to_string())?;
+    Config::parse(&file.content)
 }

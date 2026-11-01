@@ -3,10 +3,7 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 
 use muxy_client::{Client, ClientError, ClientEvent, RemoteEndpoint};
-use muxy_protocol::{
-    DeviceCredential, ErrorCode, OperationId, ProjectDescriptor, ProjectId, ProjectSession,
-    SessionId, Size,
-};
+use muxy_protocol::{DeviceCredential, OperationId, ProjectDescriptor, ProjectId, SessionId, Size};
 
 use crate::MobileError;
 use crate::channel::BridgeChannel;
@@ -149,7 +146,10 @@ impl Connection {
     /// Every session of a project, including ended ones whose content is kept.
     pub fn sessions(&self, project_id: String) -> Result<Vec<Session>, MobileError> {
         let project = project(&project_id)?;
-        Ok(all_sessions(&self.client, project)?
+        Ok(self
+            .client
+            .all_project_sessions(project, |_| true)?
+            .sessions
             .iter()
             .map(Session::from)
             .collect())
@@ -280,34 +280,6 @@ fn session(id: u64) -> Result<SessionId, MobileError> {
     SessionId::new(id).ok_or_else(|| MobileError::Server {
         reason: "Unknown session.".into(),
     })
-}
-
-/// Reads every page of one consistent listing, retrying if the catalog changes meanwhile.
-fn all_sessions(client: &Client, project: ProjectId) -> Result<Vec<ProjectSession>, ClientError> {
-    let mut changed = None;
-    for _ in 0..8 {
-        match session_pages(client, project) {
-            Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged => {
-                changed = Some(error);
-            }
-            result => return result,
-        }
-    }
-    Err(changed.map_or(ClientError::Timeout, ClientError::Server))
-}
-
-fn session_pages(client: &Client, project: ProjectId) -> Result<Vec<ProjectSession>, ClientError> {
-    let mut page = client.project_sessions(project, None, None)?;
-    let revision = page.revision;
-    let mut sessions = std::mem::take(&mut page.sessions);
-    while let Some(after) = page.next {
-        page = client.project_sessions(project, Some(after), Some(revision))?;
-        if page.next.is_some_and(|next| next <= after) {
-            return Err(ClientError::Protocol("invalid session pagination".into()));
-        }
-        sessions.append(&mut page.sessions);
-    }
-    Ok(sessions)
 }
 
 /// Applies frames and acknowledges them, then tells the app what to read again.

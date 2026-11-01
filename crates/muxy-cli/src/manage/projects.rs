@@ -2,11 +2,10 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use muxy_app_core::settings::{Settings, WorktreeSettings};
-use muxy_client::Client;
+use muxy_client::{AddedWorktree, Client};
 use muxy_protocol::{
-    GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectDescriptor, ProjectId,
-    ProjectIntent, ProjectMutation, ProjectPatch, ServerPath, WorktreeAction, WorktreeHook,
-    WorktreeIntent, WorktreeOptions,
+    GitWorktree, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
+    ProjectPatch, ServerPath, WorktreeAction, WorktreeHook, WorktreeIntent, WorktreeOptions,
 };
 use serde_json::{Value, json};
 
@@ -218,13 +217,7 @@ pub(super) fn worktree(
     match command {
         Worktree::List(selector) => {
             let root = root(client, &selector, paths)?;
-            let GitReply::Worktrees(worktrees) = client.git(GitRequest {
-                project: root.id,
-                action: GitAction::Worktrees,
-            })?
-            else {
-                return Err("unexpected worktree list reply".into());
-            };
+            let worktrees = client.git_worktrees(root.id)?;
             output.list(
                 &worktrees.iter().map(worktree_record).collect::<Vec<_>>(),
                 &["project_id", "branch", "directory"],
@@ -285,20 +278,17 @@ pub(super) fn worktree(
         }
         Worktree::Register { project, directory } => {
             let root = root(client, &project, paths)?;
-            let reply = client.git(GitRequest {
-                project: root.id,
-                action: intent(
+            let added = client.git_add_worktree(
+                root.id,
+                intent(
                     WorktreeAction::Register {
                         project: ProjectId::new(),
                         directory: ServerPath::from(&paths.directory(&directory)?),
                     },
                     None,
                 ),
-            })?;
-            let GitReply::Project(project) = reply else {
-                return Err("unexpected worktree registration reply".into());
-            };
-            output.record(&record(&project), &["id", "name", "directory"])
+            )?;
+            output.record(&record(&added.project), &["id", "name", "directory"])
         }
         Worktree::Remove {
             worktree,
@@ -315,28 +305,16 @@ fn remove(client: &Client, project: &ProjectDescriptor, force: bool, hooks: bool
     if project.parent_id.is_none() {
         return Err("project is not a worktree".into());
     }
-    let GitReply::Removal(expected) = client.git(GitRequest {
-        project: project.id,
-        action: GitAction::InspectRemoval,
-    })?
-    else {
-        return Err("unexpected worktree inspection reply".into());
-    };
+    let expected = client.git_inspect_removal(project.id)?;
     if expected.dirty && !force {
         return Err("worktree has uncommitted changes; use --force to discard them".into());
     }
-    let options = WorktreeOptions {
-        name: None,
-        hooks: if hooks {
-            Some(approve(client, project.id, true)?)
-        } else {
-            None
-        },
+    let hooks = if hooks {
+        Some(approve(client, project.id, true)?)
+    } else {
+        None
     };
-    client.git(GitRequest {
-        project: project.id,
-        action: intent(WorktreeAction::Remove { expected }, Some(options)),
-    })?;
+    client.git_remove_worktree(project.id, expected, hooks)?;
     Ok(())
 }
 
@@ -399,14 +377,10 @@ fn create(
             None
         },
     };
-    let (mut project, failure) = match client.git(GitRequest {
-        project: root.id,
-        action: intent(action, Some(options)),
-    })? {
-        GitReply::Project(project) => (project, None),
-        GitReply::WorktreeSetupFailed { project, message } => (project, Some(message)),
-        _ => return Err("unexpected worktree creation reply".into()),
-    };
+    let AddedWorktree {
+        mut project,
+        setup_failure,
+    } = client.git_add_worktree(root.id, intent(action, Some(options)))?;
     if let Some(name) = name.filter(|name| requested.is_none() && *name != project.name) {
         mutate(
             client,
@@ -418,7 +392,7 @@ fn create(
         project.name = name;
     }
     output.record(&record(&project), &["id", "name", "directory"])?;
-    match failure {
+    match setup_failure {
         Some(message) => Err(format!("worktree created, but setup failed: {message}").into()),
         None => Ok(()),
     }
@@ -437,13 +411,7 @@ fn requested_name(action: &WorktreeAction, name: Option<String>) -> Option<Strin
 /// The setup or teardown commands configured for `project`, printed as they
 /// are approved.
 fn approve(client: &Client, project: ProjectId, teardown: bool) -> Result<Vec<WorktreeHook>> {
-    let GitReply::WorktreeHooks(hooks) = client.git(GitRequest {
-        project,
-        action: GitAction::WorktreeHooks { teardown },
-    })?
-    else {
-        return Err("unexpected worktree hooks reply".into());
-    };
+    let hooks = client.git_worktree_hooks(project, teardown)?;
     let stage = if teardown { "teardown" } else { "setup" };
     let mut stderr = io::stderr().lock();
     for hook in &hooks {
@@ -459,12 +427,12 @@ fn worktree_record(worktree: &GitWorktree) -> Value {
         "detached":worktree.detached, "prunable":worktree.prunable})
 }
 
-fn intent(action: WorktreeAction, options: Option<WorktreeOptions>) -> GitAction {
-    GitAction::Worktree(WorktreeIntent {
+fn intent(action: WorktreeAction, options: Option<WorktreeOptions>) -> WorktreeIntent {
+    WorktreeIntent {
         options,
         operation: OperationId::new(),
         action,
-    })
+    }
 }
 
 #[cfg(test)]

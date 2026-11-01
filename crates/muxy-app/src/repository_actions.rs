@@ -1,10 +1,10 @@
 //! Confirmed Git workflows using AI only to generate commit and pull request text.
 
 use muxy_app_core::settings::CommitChoices;
-use muxy_client::Client;
+use muxy_client::{Client, ClientError};
 use muxy_protocol::{
-    FilesAction, FilesReply, FilesRequest, GitAction, GitChangesPreview, GitPullRequestAction,
-    GitPushDestination, GitRawDiff, GitReply, GitRequest, GitStatus, ProjectId, ServerPath,
+    GitChangesPreview, GitCommit, GitPullRequest, GitPushDestination, GitRawDiff, GitStatus,
+    ProjectId, ServerPath,
 };
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
@@ -183,38 +183,165 @@ impl Failure {
     }
 }
 
+/// The Git steps a repository action takes, so tests can script them.
 pub(crate) trait Git {
-    fn call(&self, project: ProjectId, action: GitAction) -> Result<GitReply, String>;
+    /// The local status, without asking GitHub.
+    fn status(&self, project: ProjectId) -> Result<GitStatus, String>;
+    fn pull_request(&self, project: ProjectId) -> Result<Option<GitPullRequest>, String>;
+    fn stage_all(&self, project: ProjectId) -> Result<(), String>;
+    fn changes_preview(
+        &self,
+        project: ProjectId,
+        line_limit: Option<u32>,
+    ) -> Result<GitChangesPreview, String>;
+    fn staged_preview(
+        &self,
+        project: ProjectId,
+        line_limit: Option<u32>,
+    ) -> Result<GitChangesPreview, String>;
+    fn log(&self, project: ProjectId, max_count: u32) -> Result<Vec<GitCommit>, String>;
+    fn remote_branches(&self, project: ProjectId) -> Result<Vec<String>, String>;
+    fn branch_diff(
+        &self,
+        project: ProjectId,
+        base: String,
+        line_limit: Option<u32>,
+    ) -> Result<GitRawDiff, String>;
+    fn commit_all(&self, project: ProjectId, commit: Commit) -> Result<String, String>;
+    fn commit_staged(&self, project: ProjectId, commit: Commit) -> Result<String, String>;
+    fn publish_branch(
+        &self,
+        project: ProjectId,
+        branch: String,
+        destination: GitPushDestination,
+    ) -> Result<(), String>;
+    fn create_branch(&self, project: ProjectId, name: String) -> Result<(), String>;
+    /// `None` when the server answered with something other than the new
+    /// pull request.
+    fn create_pull_request(
+        &self,
+        project: ProjectId,
+        title: String,
+        body: String,
+        base_branch: String,
+    ) -> Result<Option<GitPullRequest>, String>;
     fn read(&self, project: ProjectId, path: &str) -> Option<String>;
 }
 
+/// A commit of exactly what a preview showed.
+pub(crate) struct Commit {
+    pub(crate) message: String,
+    pub(crate) expected_head: Option<String>,
+    pub(crate) expected_tree: String,
+}
+
 impl Git for Client {
-    fn call(&self, project: ProjectId, action: GitAction) -> Result<GitReply, String> {
-        self.git(GitRequest { project, action })
+    fn status(&self, project: ProjectId) -> Result<GitStatus, String> {
+        self.git_status(project, true, false)
             .map_err(|error| error.to_string())
     }
 
-    fn read(&self, project: ProjectId, path: &str) -> Option<String> {
-        match self.files(FilesRequest {
+    fn pull_request(&self, project: ProjectId) -> Result<Option<GitPullRequest>, String> {
+        self.git_pull_request(project)
+            .map_err(|error| error.to_string())
+    }
+
+    fn stage_all(&self, project: ProjectId) -> Result<(), String> {
+        self.git_stage(project, Vec::new())
+            .map_err(|error| error.to_string())
+    }
+
+    fn changes_preview(
+        &self,
+        project: ProjectId,
+        line_limit: Option<u32>,
+    ) -> Result<GitChangesPreview, String> {
+        self.git_changes_preview(project, line_limit)
+            .map_err(|error| error.to_string())
+    }
+
+    fn staged_preview(
+        &self,
+        project: ProjectId,
+        line_limit: Option<u32>,
+    ) -> Result<GitChangesPreview, String> {
+        self.git_staged_preview(project, line_limit)
+            .map_err(|error| error.to_string())
+    }
+
+    fn log(&self, project: ProjectId, max_count: u32) -> Result<Vec<GitCommit>, String> {
+        self.git_log(project, max_count, 0)
+            .map_err(|error| error.to_string())
+    }
+
+    fn remote_branches(&self, project: ProjectId) -> Result<Vec<String>, String> {
+        self.git_remote_branches(project)
+            .map_err(|error| error.to_string())
+    }
+
+    fn branch_diff(
+        &self,
+        project: ProjectId,
+        base: String,
+        line_limit: Option<u32>,
+    ) -> Result<GitRawDiff, String> {
+        self.git_branch_diff(project, base, line_limit)
+            .map_err(|error| error.to_string())
+    }
+
+    fn commit_all(&self, project: ProjectId, commit: Commit) -> Result<String, String> {
+        self.git_commit_all(
             project,
-            action: FilesAction::Read(ServerPath::from(path)),
-        }) {
-            Ok(FilesReply::Content(content)) => Some(content.content),
-            _ => None,
+            commit.message,
+            commit.expected_head,
+            commit.expected_tree,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    fn commit_staged(&self, project: ProjectId, commit: Commit) -> Result<String, String> {
+        self.git_commit_staged(
+            project,
+            commit.message,
+            commit.expected_head,
+            commit.expected_tree,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    fn publish_branch(
+        &self,
+        project: ProjectId,
+        branch: String,
+        destination: GitPushDestination,
+    ) -> Result<(), String> {
+        self.git_publish_branch(project, branch, destination)
+            .map_err(|error| error.to_string())
+    }
+
+    fn create_branch(&self, project: ProjectId, name: String) -> Result<(), String> {
+        self.git_create_branch(project, name)
+            .map_err(|error| error.to_string())
+    }
+
+    fn create_pull_request(
+        &self,
+        project: ProjectId,
+        title: String,
+        body: String,
+        base_branch: String,
+    ) -> Result<Option<GitPullRequest>, String> {
+        match self.git_create_pull_request(project, title, body, Some(base_branch), false) {
+            Ok(created) => Ok(Some(created)),
+            Err(ClientError::UnexpectedReply(_)) => Ok(None),
+            Err(error) => Err(error.to_string()),
         }
     }
-}
 
-fn status(git: &impl Git, project: ProjectId) -> Result<GitStatus, String> {
-    match git.call(
-        project,
-        GitAction::Status {
-            local: true,
-            fresh: false,
-        },
-    )? {
-        GitReply::Status(status) => Ok(*status),
-        _ => Err(tr!("Unexpected Git status reply").into()),
+    fn read(&self, project: ProjectId, path: &str) -> Option<String> {
+        self.read_file(project, ServerPath::from(path))
+            .ok()
+            .map(|file| file.content)
     }
 }
 
@@ -228,38 +355,26 @@ pub(crate) fn prepare(
     branch: &str,
     head: Option<&str>,
 ) -> Result<Plan, String> {
-    let status = status(git, project)?;
+    let status = git.status(project)?;
     if status.summary.branch.as_deref() != Some(branch) || status.summary.head.as_deref() != head {
         return Err(translate(CHANGED).into());
     }
     if status.summary.conflicted > 0 {
         return Err(tr!("Resolve merge conflicts first").into());
     }
-    if action == Action::CreatePullRequest {
-        match git.call(project, GitAction::PullRequest(GitPullRequestAction::Info))? {
-            GitReply::PullRequest(None) => (),
-            GitReply::PullRequest(Some(_)) => {
-                return Err(tr!("This branch already has a pull request").into());
-            }
-            _ => {
-                return Err(tr!("Could not verify that this branch has no pull request").into());
-            }
-        }
+    if action == Action::CreatePullRequest && git.pull_request(project)?.is_some() {
+        return Err(tr!("This branch already has a pull request").into());
     }
     if status.summary.changed == 0 {
         return Err(tr!("The working tree is clean").into());
     }
     let line_limit = Some(DIFF_LINES);
     let preview = if choices.include_unstaged {
-        git.call(project, GitAction::Stage(vec![]))?;
-        GitAction::ChangesPreview { line_limit }
+        git.stage_all(project)?;
+        git.changes_preview(project, line_limit)?
     } else {
-        GitAction::StagedPreview { line_limit }
+        git.staged_preview(project, line_limit)?
     };
-    let GitReply::ChangesPreview(preview) = git.call(project, preview)? else {
-        return Err(tr!("Unexpected changes preview reply").into());
-    };
-    let preview = *preview;
     if preview.branch.as_deref() != Some(branch) || preview.head.as_deref() != head {
         return Err(translate(CHANGED).into());
     }
@@ -282,16 +397,7 @@ pub(crate) fn prepare(
     if mode != Mode::Commit && preview.destination.is_none() {
         return Err(tr!("Add a GitHub remote named origin to open a pull request").into());
     }
-    let GitReply::Log(commits) = git.call(
-        project,
-        GitAction::Log {
-            max_count: 12,
-            skip: 0,
-        },
-    )?
-    else {
-        return Err(tr!("Unexpected Git log reply").into());
-    };
+    let commits = git.log(project, 12)?;
     let mut plan = Plan {
         project,
         action,
@@ -314,22 +420,11 @@ pub(crate) fn prepare(
 
 /// Adds what a pull request draft needs: targets, committed changes, and the template.
 fn add_pull_request_context(git: &impl Git, plan: &mut Plan) -> Result<(), String> {
-    let GitReply::RemoteBranches(remote) = git.call(plan.project, GitAction::RemoteBranches)?
-    else {
-        return Err(tr!("Unexpected remote branches reply").into());
-    };
-    plan.remote_branches = remote;
+    plan.remote_branches = git.remote_branches(plan.project)?;
     if let Some(base) = plan.default_branch.clone() {
-        plan.branch_diff = match git.call(
-            plan.project,
-            GitAction::BranchDiff {
-                base: base.clone(),
-                line_limit: Some(DIFF_LINES),
-            },
-        ) {
-            Ok(GitReply::RawDiff(diff)) => Some(diff),
-            _ => None,
-        };
+        plan.branch_diff = git
+            .branch_diff(plan.project, base.clone(), Some(DIFF_LINES))
+            .ok();
         if !plan.has_changes()
             && plan
                 .branch_diff
@@ -581,25 +676,15 @@ fn steps(done: &[String], failed: &str) -> String {
 }
 
 fn commit(git: &impl Git, plan: &Plan, message: &str) -> Result<String, String> {
-    let message = message.to_owned();
-    let expected_head = plan.preview.head.clone();
-    let expected_tree = plan.preview.tree.clone();
-    let action = if plan.choices.include_unstaged {
-        GitAction::CommitAll {
-            message,
-            expected_head,
-            expected_tree,
-        }
-    } else {
-        GitAction::CommitStaged {
-            message,
-            expected_head,
-            expected_tree,
-        }
+    let commit = Commit {
+        message: message.to_owned(),
+        expected_head: plan.preview.head.clone(),
+        expected_tree: plan.preview.tree.clone(),
     };
-    match git.call(plan.project, action)? {
-        GitReply::Commit(hash) => Ok(hash),
-        _ => Err(tr!("Unexpected Git commit reply").into()),
+    if plan.choices.include_unstaged {
+        git.commit_all(plan.project, commit)
+    } else {
+        git.commit_staged(plan.project, commit)
     }
 }
 
@@ -609,14 +694,7 @@ fn publish(
     branch: &str,
     destination: &GitPushDestination,
 ) -> Result<(), String> {
-    git.call(
-        plan.project,
-        GitAction::PublishBranch {
-            branch: branch.to_owned(),
-            destination: destination.clone(),
-        },
-    )
-    .map(|_| ())
+    git.publish_branch(plan.project, branch.to_owned(), destination.clone())
 }
 
 /// Applies validated metadata, reporting each step as it starts and the
@@ -644,7 +722,7 @@ pub(crate) fn apply(
         Failure::new(tr!("No commit was created"), detail)
     };
     validate(plan, draft).map_err(not_committed)?;
-    let current = status(git, plan.project).map_err(not_committed)?;
+    let current = git.status(plan.project).map_err(not_committed)?;
     if current.summary.branch.as_deref() != Some(&plan.branch)
         || current.summary.head != plan.preview.head
     {
@@ -692,7 +770,7 @@ pub(crate) fn apply(
             let mut done = Vec::new();
             if plan.mode == Mode::NewBranch {
                 report(Step::Branching);
-                git.call(plan.project, GitAction::CreateBranch(branch.clone()))
+                git.create_branch(plan.project, branch.clone())
                     .map_err(|error| Failure::new(tr!("Couldn't create %@", branch), error))?;
                 done.push(tr!("Created branch %@", branch).into());
             }
@@ -724,17 +802,14 @@ pub(crate) fn apply(
             })?;
             done.push(tr!("pushed %@/%@", &destination.remote, &destination.branch).into());
             report(Step::Opening);
-            match git.call(
+            match git.create_pull_request(
                 plan.project,
-                GitAction::PullRequest(GitPullRequestAction::Create {
-                    title: title.clone(),
-                    body: summary.clone(),
-                    base_branch: Some(target.clone()),
-                    draft: false,
-                }),
+                title.clone(),
+                summary.clone(),
+                target.clone(),
             ) {
-                Ok(GitReply::PullRequest(Some(pr))) => Ok(Outcome::PullRequest(pr.url)),
-                Ok(_) => Err(Failure::new(
+                Ok(Some(pr)) => Ok(Outcome::PullRequest(pr.url)),
+                Ok(None) => Err(Failure::new(
                     steps(&done, &tr!("couldn't confirm the pull request")),
                     tr!("Refresh the pull request status before trying again."),
                 )),

@@ -1,28 +1,23 @@
 //! Servers on other computers, reached through ssh or a custom command that
 //! runs the bridge there.
 
-use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fmt;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ChildStderr, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::str::FromStr;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::thread;
 use std::time::Duration;
 
 use muxy_protocol::transport::ChildStream;
 
 use crate::bridge::{self, BridgeExit, Start};
-use crate::{Client, ClientError, RemoteReason};
+use crate::{Client, ClientError, ErrorTail, RemoteReason};
 
 /// Covers ssh's 10 s connect timeout, logging in, and starting the server.
-const READY_TIMEOUT: Duration = Duration::from_secs(20);
+const CONNECT_AND_START_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a failed ssh gets to exit and finish its error output.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(1);
-/// How much of ssh's error output is kept for messages.
-const STDERR_TAIL: usize = 8 * 1024;
 /// Keepalives end a dead connection instead of hanging. A shared master
 /// would keep running with our pipes, and the user's remote command and
 /// forwards belong to interactive sessions, not to the bridge.
@@ -395,84 +390,19 @@ impl Client {
         })?;
         let stderr = ErrorTail::drain(stream.take_stderr())?;
         let process = stream.process();
-        Self::connect_bridge(Box::new(stream), &target.destination, READY_TIMEOUT, || {
-            BridgeExit {
+        Self::connect_bridge(
+            Box::new(stream),
+            &target.destination,
+            CONNECT_AND_START_TIMEOUT,
+            || BridgeExit {
                 status: process
                     .wait_timeout(EXIT_TIMEOUT)
                     .ok()
                     .flatten()
                     .and_then(|status| status.code()),
-                stderr: stderr.wait(EXIT_TIMEOUT),
-            }
-        })
-    }
-}
-
-/// The end of a child's error output. A thread drains it for the child's
-/// whole life, so the child never blocks on a full pipe.
-#[derive(Default)]
-struct ErrorTail {
-    state: Mutex<TailState>,
-    ended: Condvar,
-}
-
-#[derive(Default)]
-struct TailState {
-    bytes: VecDeque<u8>,
-    ended: bool,
-}
-
-impl ErrorTail {
-    fn drain(stderr: Option<ChildStderr>) -> io::Result<Arc<Self>> {
-        let tail = Arc::new(Self::default());
-        let filling = Arc::clone(&tail);
-        match stderr {
-            Some(stderr) => {
-                thread::Builder::new()
-                    .name("muxy-ssh-stderr".into())
-                    .spawn(move || filling.fill(stderr))?;
-            }
-            None => filling.finish(),
-        }
-        Ok(tail)
-    }
-
-    fn fill(&self, mut stderr: impl Read) {
-        let mut chunk = [0; 4096];
-        loop {
-            match stderr.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(read) => self.push(&chunk[..read]),
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(_) => break,
-            }
-        }
-        self.finish();
-    }
-
-    fn push(&self, bytes: &[u8]) {
-        let mut state = self.lock();
-        state.bytes.extend(bytes);
-        let excess = state.bytes.len().saturating_sub(STDERR_TAIL);
-        state.bytes.drain(..excess);
-    }
-
-    fn finish(&self) {
-        self.lock().ended = true;
-        self.ended.notify_all();
-    }
-
-    /// Waits up to `timeout` for the output to end, then returns its tail.
-    fn wait(&self, timeout: Duration) -> String {
-        let (mut state, _) = self
-            .ended
-            .wait_timeout_while(self.lock(), timeout, |state| !state.ended)
-            .unwrap_or_else(PoisonError::into_inner);
-        String::from_utf8_lossy(state.bytes.make_contiguous()).into_owned()
-    }
-
-    fn lock(&self) -> MutexGuard<'_, TailState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+                stderr: stderr.wait(EXIT_TIMEOUT).stderr,
+            },
+        )
     }
 }
 
