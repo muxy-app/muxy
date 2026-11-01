@@ -5,6 +5,7 @@ use muxy_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 
 use crate::servers::ServerState;
+use crate::set_aside::SetAsideView;
 use crate::{
     AppError, Branch, Color, Direction, Pane, PaneContent, PaneId, Project, ProjectId, ProjectKind,
     ProjectStatus, RemovedProject, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
@@ -32,6 +33,8 @@ pub struct AppState {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) removed_projects: Vec<RemovedProject>,
     pub(crate) window: WindowState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) set_aside: Option<SetAsideView>,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +54,8 @@ struct StoredState {
     #[serde(default)]
     removed_projects: Vec<RemovedProject>,
     window: WindowState,
+    #[serde(default)]
+    set_aside: Option<SetAsideView>,
     /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
     catalog_server: Option<muxy_protocol::ServerIdentity>,
@@ -98,6 +103,7 @@ impl TryFrom<StoredState> for AppState {
             workspaces: stored.workspaces,
             removed_projects: stored.removed_projects,
             window: stored.window,
+            set_aside: stored.set_aside,
         };
         let previous_project = state.window.current_project;
         let previous_tab = state.window.selected_tab.get(&previous_project).copied();

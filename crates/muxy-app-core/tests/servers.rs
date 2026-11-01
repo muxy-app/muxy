@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::Path;
 
-use muxy_app_core::{AppError, AppState, ProjectId, ProjectStatus, ServerId, restore, store};
+use muxy_app_core::{
+    AppError, AppState, Direction, LocalCatalog, ProjectId, ProjectStatus, ServerId, restore, store,
+};
 use muxy_protocol::{
     CatalogPage, ProjectDescriptor, ServerIdentity, ServerPath, SessionId, SessionInfo,
 };
@@ -223,7 +225,7 @@ fn closing_ends_only_sessions_no_other_pane_shows() -> TestResult {
     state.open_terminal_tab(state.home().id)?;
     let shared = state.home().tabs[0].panes[0].id;
     state.set_pane_session(shared, Some(one))?;
-    let alone = state.split_pane(shared, muxy_app_core::Direction::Right)?;
+    let alone = state.split_pane(shared, Direction::Right)?;
     state.set_pane_session(alone, Some(two))?;
     let quick = state.ensure_quick_terminal();
     state.set_pane_session(quick, Some(one))?;
@@ -310,7 +312,7 @@ fn equal_session_ids_on_two_servers_never_mix() -> TestResult {
     assert!(state.home().tabs.is_empty());
     assert_eq!(state.session_references(remote), [one]);
 
-    let creating = state.split_pane(remote_pane, muxy_app_core::Direction::Right)?;
+    let creating = state.split_pane(remote_pane, Direction::Right)?;
     state.prepare_creation(creating, Path::new("/home/dev"));
     state.close_pane(creating)?;
     assert_eq!(
@@ -354,6 +356,110 @@ fn a_changed_identity_refuses_only_that_servers_catalog() -> TestResult {
         Some(remote_home)
     );
     assert!(state.project(api).is_none());
+    Ok(())
+}
+
+#[test]
+fn a_replaced_local_catalog_sets_the_view_aside_until_it_is_restored() -> TestResult {
+    let TwoServers { mut state, api, .. } = two_servers()?;
+    let project = state
+        .projects()
+        .iter()
+        .find(|project| project.server_id == LOCAL && !project.home)
+        .map(|project| project.id)
+        .ok_or("local project")?;
+    let tab = state.open_terminal_tab(project)?;
+    let pane = state.window().active_pane.ok_or("terminal pane")?;
+    state.split_pane(pane, Direction::Right)?;
+    let workspace = state.create_workspace("Work")?;
+    state.set_workspace_member(workspace, project, true)?;
+    let kept = local_catalog(&mut state)?;
+    state.rename_project(project, "Renamed")?;
+    let before = state.clone();
+
+    let fresh_home = ProjectId::new();
+    let fresh = remote_catalog(3, fresh_home, &[]);
+    assert_eq!(
+        state.apply_local_catalog(&fresh, true)?,
+        LocalCatalog::Fresh
+    );
+    assert_eq!(state.home().id, fresh_home);
+    assert!(state.project(project).is_none());
+    assert!(
+        state.project(api).is_some(),
+        "other servers keep their projects"
+    );
+    assert!(state.project_intents(LOCAL).is_empty());
+    assert!(
+        state
+            .workspace(workspace)
+            .is_some_and(|workspace| workspace.projects.is_empty())
+    );
+
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    store::save(&path, &state)?;
+    let mut state = store::load(&path)?;
+
+    assert_eq!(
+        state.apply_local_catalog(&kept, false)?,
+        LocalCatalog::Restored
+    );
+    assert_eq!(state.projects(), before.projects());
+    assert_eq!(state.project_intents(LOCAL), before.project_intents(LOCAL));
+    assert_eq!(state.window().selected_tab.get(&project), Some(&tab));
+    assert_eq!(state.workspace(workspace), before.workspace(workspace));
+    assert!(state.project(api).is_some());
+
+    assert_eq!(
+        state.apply_local_catalog(&fresh, false)?,
+        LocalCatalog::Fresh,
+        "nothing kept the fresh catalog, so its view was not set aside"
+    );
+    assert_eq!(state.home().id, fresh_home);
+    Ok(())
+}
+
+#[test]
+fn a_set_aside_view_is_dropped_once_no_kept_catalog_could_restore_it() -> TestResult {
+    let TwoServers { mut state, .. } = two_servers()?;
+    let kept = local_catalog(&mut state)?;
+    let fresh = remote_catalog(3, ProjectId::new(), &[]);
+    assert_eq!(
+        state.apply_local_catalog(&fresh, true)?,
+        LocalCatalog::Fresh
+    );
+    assert_eq!(
+        state.apply_local_catalog(&fresh, true)?,
+        LocalCatalog::Applied
+    );
+    let set_aside = state.clone();
+    assert_eq!(
+        state.apply_local_catalog(&fresh, false)?,
+        LocalCatalog::Applied
+    );
+    assert_ne!(state, set_aside, "the set-aside view is gone");
+
+    assert_eq!(
+        state.apply_local_catalog(&kept, false)?,
+        LocalCatalog::Fresh
+    );
+    assert_eq!(state.home().id, kept.home);
+    assert_eq!(
+        state
+            .projects()
+            .iter()
+            .filter(|project| project.server_id == LOCAL)
+            .count(),
+        kept.projects.len()
+    );
+    assert!(
+        state
+            .projects()
+            .iter()
+            .filter(|project| project.server_id == LOCAL)
+            .all(|project| project.tabs.is_empty())
+    );
     Ok(())
 }
 
@@ -519,7 +625,7 @@ fn restoring_and_ending_all_stay_on_one_server() -> TestResult {
     state.open_terminal_tab(remote_home)?;
     let remote_pane = state.project(remote_home).ok_or("remote Home")?.tabs[0].panes[0].id;
     state.set_pane_session(remote_pane, Some(one))?;
-    let fresh = state.split_pane(remote_pane, muxy_app_core::Direction::Down)?;
+    let fresh = state.split_pane(remote_pane, Direction::Down)?;
     let live = SessionInfo {
         id: one,
         project: home,

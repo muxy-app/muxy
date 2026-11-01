@@ -24,6 +24,7 @@ pub mod project_layouts;
 pub mod qr;
 pub mod restore;
 mod servers;
+mod set_aside;
 mod state;
 pub mod store;
 mod tab;
@@ -41,6 +42,7 @@ pub use panes::PlacedPane;
 pub use project::{
     Color, PROJECT_COLORS, Project, ProjectKind, ProjectStatus, RemovedProject, initial,
 };
+pub use set_aside::LocalCatalog;
 pub use state::AppState;
 pub use tab::{Tab, TabCloseScope, TabSide};
 pub use window::{WindowBounds, WindowState};
