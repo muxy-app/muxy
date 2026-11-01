@@ -198,6 +198,65 @@ fn frame_event(channel: ChannelId) -> ClientEvent {
 }
 
 #[test]
+fn events_that_wait_fold_into_the_one_already_waiting_for_the_same_thing() -> TestResult {
+    let mut delivery = delivery::Delivery::default();
+    delivery.pending = 1;
+    let session = SessionId::from(std::num::NonZeroU64::MIN);
+    let project = muxy_protocol::ProjectId::new();
+    let progress = |percent| ClientEvent::Progress {
+        session,
+        progress: muxy_protocol::SessionProgress {
+            progress: Some(muxy_protocol::TerminalProgress {
+                state: muxy_protocol::ProgressState::Running,
+                percent: Some(percent),
+            }),
+            completed: 0,
+        },
+    };
+    let files = |path: &str| ClientEvent::FilesChanged {
+        project,
+        changes: muxy_protocol::FileChanges {
+            paths: vec![muxy_protocol::ServerPath::from(path)],
+            rescan: false,
+        },
+    };
+    for event in [
+        ClientEvent::SessionsChanged { revision: 4 },
+        progress(10),
+        files("a"),
+        ClientEvent::GitChanged { project },
+        ClientEvent::SessionsChanged { revision: 3 },
+        progress(20),
+        files("b"),
+        ClientEvent::GitChanged { project },
+        ClientEvent::CatalogChanged { revision: 1 },
+    ] {
+        assert!(delivery.event(event)?.is_empty());
+    }
+    let ready: Vec<_> = delivery
+        .complete(None)
+        .into_iter()
+        .filter_map(|update| match update {
+            Update::Event(event) => Some(event),
+            _ => None,
+        })
+        .collect();
+    let mut combined = files("a");
+    combined.merge(files("b"));
+    assert_eq!(
+        ready,
+        [
+            ClientEvent::SessionsChanged { revision: 4 },
+            progress(20),
+            combined,
+            ClientEvent::GitChanged { project },
+            ClientEvent::CatalogChanged { revision: 1 },
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn a_full_event_buffer_preserves_the_only_disconnect_after_history_completion() -> TestResult {
     let mut delivery = delivery::Delivery::default();
     delivery.pending = 1;

@@ -11,9 +11,10 @@ use muxy_protocol::{
 };
 
 use crate::archive::Archive;
-use crate::connection::Outbox;
+use crate::connection::Connection;
 use crate::error::ServerError;
 use crate::notifier::Notifier;
+use crate::references::{Owners, SharedReferences};
 use crate::session::{self, SessionHandle};
 use crate::settings::ServerSettings;
 use crate::spawn::spawn_shell;
@@ -48,7 +49,8 @@ pub struct Registry {
     pub(crate) git: crate::git::Git,
     pub(crate) files: crate::files::Files,
     uploads: crate::uploads::Uploads,
-    pub(crate) operations: Mutex<()>,
+    /// Serializes session operations, and holds the references they consult.
+    pub(crate) operations: Mutex<Owners>,
     pub(crate) notifier: Arc<Notifier>,
     settings: Mutex<ServerSettings>,
     settings_write: Mutex<()>,
@@ -69,7 +71,7 @@ impl Registry {
         Self {
             activity: Arc::new(crate::activity::Activity::new(Arc::clone(&notifier))),
             catalog: Arc::new(crate::catalog::Catalog::memory(Arc::clone(&notifier))),
-            operations: Mutex::new(()),
+            operations: Mutex::default(),
             git: crate::git::Git::default(),
             files: crate::files::Files::default(),
             uploads: crate::uploads::Uploads::system(),
@@ -158,7 +160,7 @@ impl Registry {
         project: muxy_protocol::ProjectId,
         after: Option<SessionId>,
         revision: Option<u64>,
-        requester: Option<&Outbox>,
+        requester: Option<&Connection>,
     ) -> Result<muxy_protocol::ProjectSessions, ServerError> {
         let _operation = self.session_operation();
         let current = self.sessions_revision();
@@ -325,12 +327,23 @@ impl Registry {
         self.remote.pair(request, self.catalog.identity())
     }
 
-    pub(crate) fn connection_closed(&self, outbox: &Outbox) {
-        if outbox.device().is_some() {
+    pub(crate) fn connection_closed(&self, connection: &Connection) {
+        if connection.device().is_some() {
             self.remote.changed();
         } else {
-            self.remote.release_pairing(outbox.client().id);
+            self.remote.release_pairing(connection.client().id);
         }
+        self.forget_unused_owners(&mut self.session_operation());
+    }
+
+    /// An owner's references last as long as one of its connections.
+    fn forget_unused_owners(&self, owners: &mut Owners) {
+        let connections = self.live_connections();
+        owners.retain(|owner| {
+            connections
+                .iter()
+                .any(|connection| connection.owner() == Some(owner))
+        });
     }
 
     /// Closes the connections of one paired device, or of every paired device.
@@ -345,7 +358,7 @@ impl Registry {
         }
     }
 
-    fn live_connections(&self) -> Vec<Arc<Outbox>> {
+    fn live_connections(&self) -> Vec<Arc<Connection>> {
         self.notifier
             .connections()
             .into_iter()
@@ -437,7 +450,7 @@ impl Registry {
         directory: &Path,
         size: Size,
         launch: Launch,
-        requester: Option<&Outbox>,
+        requester: Option<&Connection>,
     ) -> Result<SessionInfo, ServerError> {
         let _operation = self.session_operation();
         let directory_bytes = session_directory(directory)?;
@@ -549,7 +562,7 @@ impl Registry {
         }
     }
 
-    fn attach_creator(&self, id: SessionId, requester: Option<&Outbox>) {
+    fn attach_creator(&self, id: SessionId, requester: Option<&Connection>) {
         if let Some(requester) = requester
             && self.handle(id).is_some()
         {
@@ -607,13 +620,13 @@ impl Registry {
         Ok(())
     }
 
-    pub(crate) fn session_operation(&self) -> MutexGuard<'_, ()> {
+    pub(crate) fn session_operation(&self) -> MutexGuard<'_, Owners> {
         self.operations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn claim_activity(&self, requester: &Outbox, ids: &[u64]) -> Vec<u64> {
+    pub(crate) fn claim_activity(&self, requester: &Connection, ids: &[u64]) -> Vec<u64> {
         let owner = self.notifier.connections().into_iter().find(|connection| {
             !connection.is_closed()
                 && connection.client().kind == muxy_protocol::ClientKind::Desktop
@@ -625,47 +638,58 @@ impl Registry {
         }
     }
 
-    pub(crate) fn sync_references(
+    /// Records the sessions an app references. Connections of the same
+    /// owner share one set; a set older than the current one is ignored.
+    pub(crate) fn set_references(
         &self,
-        requester: &Outbox,
+        requester: &Connection,
         owner: Option<muxy_protocol::OperationId>,
         revision: u64,
         sessions: &[SessionId],
     ) {
-        let _operation = self.session_operation();
-        let connections = self.notifier.connections();
-        let mut references: crate::connection::References = owner
-            .and_then(|owner| {
-                connections
-                    .iter()
-                    .filter_map(|connection| connection.reference_state())
-                    .filter(|references| references.owner == Some(owner))
-                    .max_by_key(|references| references.revision)
-            })
-            .or_else(|| requester.reference_state())
-            .unwrap_or_default();
-        let accepted =
-            owner.is_none() || references.owner != owner || revision >= references.revision;
-        if accepted {
-            references.update(owner, revision, sessions.to_vec());
+        let mut owners = self.session_operation();
+        self.forget_unused_owners(&mut owners);
+        let Some(current) = requester.shared_references() else {
+            return;
+        };
+        let previous = current.lock().sessions().clone();
+        let references = match owner {
+            Some(owner) => owners.get_or_insert(owner, || current.lock().clone()),
+            None if requester.owner().is_none() => current,
+            None => SharedReferences::new(current.lock().clone()),
+        };
+        let (before, accepted, after) = {
+            let mut references = references.lock();
+            let before = references.sessions().clone();
+            let accepted = owner.is_none() || revision >= references.revision();
+            if accepted {
+                references.update(revision, sessions);
+            }
+            (before, accepted, references.sessions().clone())
+        };
+        requester.use_references(owner, &references, Some(sessions), accepted);
+        self.introduce(requester, after.difference(&previous));
+        if owner.is_none() {
+            return;
         }
-        let added = requester.set_references(references.clone(), Some(sessions), accepted);
-        self.introduce(requester, &added);
-        if let Some(owner) = owner {
-            for connection in connections {
-                if connection
-                    .reference_state()
-                    .is_some_and(|state| state.owner == Some(owner))
-                {
-                    let added = connection.set_references(references.clone(), None, false);
-                    self.introduce(&connection, &added);
-                }
+        for connection in self.notifier.connections() {
+            if !std::ptr::eq(connection.as_ref(), requester)
+                && connection
+                    .shared_references()
+                    .is_some_and(|shared| shared.is(&references))
+            {
+                connection.use_references(owner, &references, None, false);
+                self.introduce(&connection, after.difference(&before));
             }
         }
     }
 
     /// Gives a connection the current state of sessions it just started referencing.
-    fn introduce(&self, connection: &Outbox, sessions: &[SessionId]) {
+    fn introduce<'a>(
+        &self,
+        connection: &Connection,
+        sessions: impl Iterator<Item = &'a SessionId>,
+    ) {
         for session in sessions {
             if let Some(handle) = self.handle(*session) {
                 handle.introduce(connection);
@@ -673,7 +697,7 @@ impl Registry {
         }
     }
 
-    pub(crate) fn session_shared(&self, session: SessionId, requester: &Outbox) -> bool {
+    pub(crate) fn session_shared(&self, session: SessionId, requester: &Connection) -> bool {
         self.notifier.connections().iter().any(|connection| {
             !std::ptr::eq(connection.as_ref(), requester) && connection.references(session, true)
         })
@@ -687,7 +711,7 @@ impl Registry {
         &self,
         session: SessionId,
         operation: muxy_protocol::OperationId,
-        requester: &Outbox,
+        requester: &Connection,
     ) -> Result<(), ServerError> {
         let _operation = self.session_operation();
         let discard = if let Some(discard) = self.catalog.close_receipt(operation, session)? {

@@ -5,14 +5,14 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use muxy_protocol::{ExitReason, Message, SessionId, Topic};
 
-use crate::connection::Outbox;
+use crate::connection::Connection;
 
 /// Every connection, and the counters behind the sessions revision.
 ///
-/// Delivery locks each outbox, so callers never notify while holding one.
+/// Delivery locks each connection, so callers never notify while holding one.
 #[derive(Debug, Default)]
 pub(crate) struct Notifier {
-    connections: Mutex<Vec<Weak<Outbox>>>,
+    connections: Mutex<Vec<Weak<Connection>>>,
     /// The catalog revision last announced.
     catalog: AtomicU64,
     /// Bumped whenever a connection starts or stops showing a session.
@@ -20,17 +20,17 @@ pub(crate) struct Notifier {
 }
 
 impl Notifier {
-    pub(crate) fn register(&self, outbox: &Arc<Outbox>) {
+    pub(crate) fn register(&self, connection: &Arc<Connection>) {
         let mut connections = self
             .connections
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         connections.retain(|connection| connection.strong_count() > 0);
-        connections.push(Arc::downgrade(outbox));
+        connections.push(Arc::downgrade(connection));
     }
 
     /// Connections in the order they connected, including closed ones not yet dropped.
-    pub(crate) fn connections(&self) -> Vec<Arc<Outbox>> {
+    pub(crate) fn connections(&self) -> Vec<Arc<Connection>> {
         self.connections
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

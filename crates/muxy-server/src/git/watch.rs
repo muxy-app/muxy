@@ -1,6 +1,6 @@
 use super::{Result, command, error, is_repository, run};
 use crate::Registry;
-use crate::connection::Outbox;
+use crate::connection::Connection;
 use crate::watch::{DebouncedWatch, MAX_DELAY, Subscribers, Subscription, Timing};
 use muxy_protocol::{Message, ProjectId};
 use notify::EventKind;
@@ -172,21 +172,23 @@ impl Changes {
 }
 
 impl Registry {
-    /// Subscribes `outbox` to the project's repository changes. `None` when
+    /// Subscribes `connection` to the project's repository changes. `None` when
     /// the project isn't a repository.
     pub(crate) fn watch_git(
         &self,
         project: ProjectId,
-        outbox: &Arc<Outbox>,
+        connection: &Arc<Connection>,
     ) -> Result<Option<Subscription>> {
         let descriptor = self.catalog.project(project)?;
         let directory = descriptor.directory.as_path();
-        self.git.watches.subscribe(project, outbox, |subscribers| {
-            if !directory.is_dir() || !is_repository(directory)? {
-                return Ok(None);
-            }
-            watch(Roots::resolve(directory)?, project, subscribers).map(Some)
-        })
+        self.git
+            .watches
+            .subscribe(project, connection, |subscribers| {
+                if !directory.is_dir() || !is_repository(directory)? {
+                    return Ok(None);
+                }
+                watch(Roots::resolve(directory)?, project, subscribers).map(Some)
+            })
     }
 }
 

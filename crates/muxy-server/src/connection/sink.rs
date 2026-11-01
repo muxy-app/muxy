@@ -4,38 +4,42 @@ use muxy_protocol::{ChannelId, SessionId};
 
 use crate::{AttachmentEvent, ServerError};
 
-use super::Outbox;
+use super::Connection;
 
-/// Writes one attached channel's events straight into its connection's outbox.
+/// Writes one attached channel's events straight into its connection's connection.
 ///
 /// Dropping it without an `Ended` event still fails the channel, so the
 /// client hears about a session that went away.
 pub(crate) struct OutboxSink {
-    outbox: Weak<Outbox>,
+    connection: Weak<Connection>,
     channel: ChannelId,
     session: SessionId,
 }
 
 impl OutboxSink {
-    pub(super) fn new(outbox: &Arc<Outbox>, channel: ChannelId, session: SessionId) -> Self {
+    pub(super) fn new(
+        connection: &Arc<Connection>,
+        channel: ChannelId,
+        session: SessionId,
+    ) -> Self {
         Self {
-            outbox: Arc::downgrade(outbox),
+            connection: Arc::downgrade(connection),
             channel,
             session,
         }
     }
 
     pub(crate) fn send(&mut self, event: AttachmentEvent) -> bool {
-        let Some(outbox) = self.outbox.upgrade() else {
+        let Some(connection) = self.connection.upgrade() else {
             return false;
         };
         match event {
             AttachmentEvent::Snapshot { snapshot, process } => {
-                outbox.snapshot(self.channel, snapshot, process)
+                connection.snapshot(self.channel, snapshot, process)
             }
-            AttachmentEvent::Metadata(event) => outbox.push_metadata(self.channel, event),
-            AttachmentEvent::Frame(frame) => outbox.push_frame(self.channel, frame),
-            AttachmentEvent::Resized(frame) => outbox.resized(self.channel, frame),
+            AttachmentEvent::Metadata(event) => connection.push_metadata(self.channel, event),
+            AttachmentEvent::Frame(frame) => connection.push_frame(self.channel, frame),
+            AttachmentEvent::Resized(frame) => connection.resized(self.channel, frame),
             AttachmentEvent::Ended(_) => {
                 self.end();
                 false
@@ -44,8 +48,8 @@ impl OutboxSink {
     }
 
     fn end(&mut self) {
-        if let Some(outbox) = std::mem::take(&mut self.outbox).upgrade() {
-            outbox.attach_failed(self.channel, &ServerError::unknown_session(self.session));
+        if let Some(connection) = std::mem::take(&mut self.connection).upgrade() {
+            connection.attach_failed(self.channel, &ServerError::unknown_session(self.session));
         }
     }
 }
@@ -68,7 +72,7 @@ mod tests {
     };
 
     use super::OutboxSink;
-    use crate::connection::Outbox;
+    use crate::connection::Connection;
     use crate::{AttachmentEvent, AttachmentId, SessionCommand, SessionHandle};
 
     type TestResult = Result<(), Box<dyn Error>>;
@@ -76,14 +80,14 @@ mod tests {
     const CHANNEL: ChannelId = ChannelId(1);
     const REQUEST: RequestId = RequestId(7);
 
-    /// An outbox with `CHANNEL` attached and waiting on `REQUEST`, and that channel's sink.
-    fn attached() -> Result<(Arc<Outbox>, Receiver<impl Sized>, OutboxSink), Box<dyn Error>> {
-        let outbox = Arc::new(Outbox::new(Arc::default()));
+    /// An connection with `CHANNEL` attached and waiting on `REQUEST`, and that channel's sink.
+    fn attached() -> Result<(Arc<Connection>, Receiver<impl Sized>, OutboxSink), Box<dyn Error>> {
+        let connection = Arc::new(Connection::new(Arc::default()));
         let (handle, commands) = SessionHandle::fake();
-        let sink = OutboxSink::new(&outbox, CHANNEL, handle.id());
+        let sink = OutboxSink::new(&connection, CHANNEL, handle.id());
         let id = AttachmentId(1);
-        outbox.attach(CHANNEL, id, REQUEST, handle, SessionCommand::Detach(id))?;
-        Ok((outbox, commands, sink))
+        connection.attach(CHANNEL, id, REQUEST, handle, SessionCommand::Detach(id))?;
+        Ok((connection, commands, sink))
     }
 
     fn snapshot() -> Result<AttachSnapshot, Box<dyn Error>> {
@@ -109,7 +113,7 @@ mod tests {
 
     #[test]
     fn events_reach_the_outbox_until_the_channel_is_detached() -> TestResult {
-        let (outbox, _commands, mut sink) = attached()?;
+        let (connection, _commands, mut sink) = attached()?;
         let snapshot = snapshot()?;
         let frame = ScreenFrame {
             size: snapshot.size,
@@ -126,7 +130,7 @@ mod tests {
             process: None,
         }));
         assert!(matches!(
-            outbox.next(),
+            connection.next(),
             Some((
                 CONTROL,
                 Message::Reply {
@@ -137,34 +141,34 @@ mod tests {
         ));
         assert!(sink.send(AttachmentEvent::Metadata(MetadataEvent::Bell)));
         assert_eq!(
-            outbox.next(),
+            connection.next(),
             Some((CHANNEL, Message::Metadata(MetadataEvent::Bell)))
         );
         assert!(sink.send(AttachmentEvent::Frame(frame.clone())));
         assert_eq!(
-            outbox.next(),
+            connection.next(),
             Some((CHANNEL, Message::Frame(frame.clone())))
         );
 
-        outbox.detach(CHANNEL)?;
+        connection.detach(CHANNEL)?;
         assert!(!sink.send(AttachmentEvent::Frame(frame)));
         drop(sink);
-        outbox.close();
-        assert_eq!(outbox.next(), None);
+        connection.close();
+        assert_eq!(connection.next(), None);
         Ok(())
     }
 
     #[test]
     fn a_session_that_goes_away_fails_the_pending_attach_once() -> TestResult {
         for ended in [false, true] {
-            let (outbox, _commands, mut sink) = attached()?;
+            let (connection, _commands, mut sink) = attached()?;
             if ended {
                 assert!(!sink.send(AttachmentEvent::Ended(ExitReason::Ended)));
             }
             drop(sink);
-            outbox.close();
-            assert!(is_failed_attach(outbox.next()), "ended: {ended}");
-            assert_eq!(outbox.next(), None);
+            connection.close();
+            assert!(is_failed_attach(connection.next()), "ended: {ended}");
+            assert_eq!(connection.next(), None);
         }
         Ok(())
     }

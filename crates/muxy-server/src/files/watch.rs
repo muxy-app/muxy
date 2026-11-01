@@ -9,7 +9,7 @@ use muxy_protocol::{
 use notify::EventKind;
 
 use crate::watch::{DebouncedWatch, MAX_DELAY, Subscribers, Subscription, Timing};
-use crate::{Registry, connection::Outbox};
+use crate::{Registry, connection::Connection};
 
 use super::{Result, error, root::Root};
 
@@ -28,7 +28,7 @@ impl Subscriptions {
     pub(crate) fn request(
         &mut self,
         registry: &Registry,
-        output: &Arc<Outbox>,
+        output: &Arc<Connection>,
         request: &FilesRequest,
     ) -> Result<FilesReply> {
         if request.action == FilesAction::Unwatch {

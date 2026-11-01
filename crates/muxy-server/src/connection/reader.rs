@@ -15,7 +15,7 @@ use muxy_protocol::{
 use crate::archive::SearchCache;
 use crate::{AttachmentId, AttachmentSink, Registry, ServerError, SessionCommand};
 
-use super::{OutboxSink, handshake::fatal, outbox::Outbox, policy};
+use super::{Connection, OutboxSink, handshake::fatal, policy};
 
 static NEXT_ATTACHMENT: AtomicU64 = AtomicU64::new(1);
 
@@ -31,12 +31,12 @@ pub(super) enum Exit {
 pub(super) fn run(
     decoder: &mut Decoder<impl Read>,
     registry: &Arc<Registry>,
-    outbox: &Arc<Outbox>,
+    connection: &Arc<Connection>,
 ) -> Result<Exit, WireError> {
     let requests = Requests {
         commands: crate::exec::Jobs::default(),
         registry: Arc::clone(registry),
-        outbox: Arc::clone(outbox),
+        connection: Arc::clone(connection),
         workers: WorkerPool::new("connection-work", 1, 32)?,
         git_workers: WorkerPool::new("connection-git", 1, 16)?,
         git_readers: WorkerPool::new("connection-git-read", 4, 32)?,
@@ -47,17 +47,17 @@ pub(super) fn run(
         search_cache: Arc::new(Mutex::new(SearchCache::default())),
         last_channel: Arc::new(AtomicU32::new(0)),
     };
-    while !outbox.is_closed() {
+    while !connection.is_closed() {
         let (channel, message) = match decoder.next() {
             Ok(frame) => frame,
             Err(WireError::Closed) => return Ok(Exit::Disconnected),
             Err(error @ WireError::Io(_)) => return Err(error),
             Err(error) => {
-                outbox.close_with(fatal(error.to_string()));
+                connection.close_with(fatal(error.to_string()));
                 return Ok(Exit::Fatal);
             }
         };
-        if outbox.is_closed() {
+        if connection.is_closed() {
             return Ok(Exit::Disconnected);
         }
         let validation = message.validate();
@@ -72,11 +72,11 @@ pub(super) fn run(
                     Ok(None) => continue,
                     Err(error) => ReplyBody::Error(error.to_reply()),
                 };
-                outbox.push_control(Message::Reply { id, body: reply });
+                connection.push_control(Message::Reply { id, body: reply });
             }
             (CONTROL, Message::UnsupportedRequest { id }) => {
                 log::debug!("unsupported request {}", id.0);
-                outbox.push_control(Message::Reply {
+                connection.push_control(Message::Reply {
                     id,
                     body: ReplyBody::Error(ServerError::unsupported_request().to_reply()),
                 });
@@ -84,28 +84,28 @@ pub(super) fn run(
             (CONTROL, Message::FrameAck { channel, seq })
                 if channel.0 > 0 && channel.0 <= requests.last_channel.load(Ordering::Acquire) =>
             {
-                outbox.ack(channel, seq);
+                connection.ack(channel, seq);
             }
             (channel, Message::Input(bytes))
                 if channel.0 > 0 && channel.0 <= requests.last_channel.load(Ordering::Acquire) =>
             {
-                if outbox.handle(channel).is_none() {
+                if connection.handle(channel).is_none() {
                     continue;
                 }
                 if muxy_protocol::validate_input(&bytes).is_err() {
-                    outbox.close_with(fatal("input exceeds the limit"));
+                    connection.close_with(fatal("input exceeds the limit"));
                     return Ok(Exit::Fatal);
                 }
-                if let Some(handle) = outbox.handle(channel) {
+                if let Some(handle) = connection.handle(channel) {
                     let _ = handle.send(SessionCommand::Input(bytes));
                 }
             }
             (channel, Message::TerminalInput(input))
                 if channel.0 > 0 && channel.0 <= requests.last_channel.load(Ordering::Acquire) =>
             {
-                if let Some(handle) = outbox.handle(channel) {
+                if let Some(handle) = connection.handle(channel) {
                     if validation.is_err() {
-                        outbox.close_with(fatal("invalid terminal input"));
+                        connection.close_with(fatal("invalid terminal input"));
                         return Ok(Exit::Fatal);
                     }
                     let _ = handle.send(SessionCommand::TerminalInput(input));
@@ -114,9 +114,9 @@ pub(super) fn run(
             (channel, Message::CellSize(cell))
                 if channel.0 > 0 && channel.0 <= requests.last_channel.load(Ordering::Acquire) =>
             {
-                if let Some(handle) = outbox.handle(channel) {
+                if let Some(handle) = connection.handle(channel) {
                     if validation.is_err() {
-                        outbox.close_with(fatal("invalid cell size"));
+                        connection.close_with(fatal("invalid cell size"));
                         return Ok(Exit::Fatal);
                     }
                     let _ = handle.send(SessionCommand::CellSize(cell));
@@ -125,16 +125,16 @@ pub(super) fn run(
             (channel, Message::Mouse(event))
                 if channel.0 > 0 && channel.0 <= requests.last_channel.load(Ordering::Acquire) =>
             {
-                if let Some(handle) = outbox.handle(channel) {
+                if let Some(handle) = connection.handle(channel) {
                     if validation.is_err() {
-                        outbox.close_with(fatal("invalid mouse event"));
+                        connection.close_with(fatal("invalid mouse event"));
                         return Ok(Exit::Fatal);
                     }
                     let _ = handle.send(SessionCommand::Mouse(event));
                 }
             }
             _ => {
-                outbox.close_with(fatal("misplaced client message"));
+                connection.close_with(fatal("misplaced client message"));
                 return Ok(Exit::Fatal);
             }
         }
@@ -145,7 +145,7 @@ pub(super) fn run(
 struct Requests {
     commands: crate::exec::Jobs,
     registry: Arc<Registry>,
-    outbox: Arc<Outbox>,
+    connection: Arc<Connection>,
     workers: WorkerPool,
     git_workers: WorkerPool,
     git_readers: WorkerPool,
@@ -163,13 +163,17 @@ impl Requests {
         reason = "Keep request dispatch exhaustive in one place"
     )]
     fn route(&self, body: RequestBody, id: RequestId) -> Result<Option<ReplyBody>, ServerError> {
-        policy::permit(self.outbox.device_kind(), &body)?;
-        let outbox = &self.outbox;
+        policy::permit(self.connection.device_kind(), &body)?;
+        let connection = &self.connection;
         match body {
             RequestBody::Ping => Ok(Some(ReplyBody::Pong)),
             RequestBody::Exec(request) => {
-                self.commands
-                    .start(request, id, Arc::clone(&self.registry), Arc::clone(outbox))?;
+                self.commands.start(
+                    request,
+                    id,
+                    Arc::clone(&self.registry),
+                    Arc::clone(connection),
+                )?;
                 Ok(None)
             }
             RequestBody::CancelExec(job) => {
@@ -179,7 +183,7 @@ impl Requests {
             RequestBody::Files(request) => {
                 let watch = Arc::clone(&self.files_watch);
                 let registry = Arc::clone(&self.registry);
-                let output = Arc::clone(outbox);
+                let output = Arc::clone(connection);
                 let workers = if crate::files::is_read(&request.action) {
                     &self.files_readers
                 } else {
@@ -213,7 +217,7 @@ impl Requests {
             RequestBody::Git(request) => {
                 let watch = Arc::clone(&self.git_watch);
                 let registry = Arc::clone(&self.registry);
-                let output = Arc::clone(outbox);
+                let output = Arc::clone(connection);
                 let workers = if crate::git::is_read(&request.action) {
                     &self.git_readers
                 } else {
@@ -260,7 +264,7 @@ impl Requests {
             }
             body => {
                 let registry = Arc::clone(&self.registry);
-                let output = Arc::clone(outbox);
+                let output = Arc::clone(connection);
                 let cache = Arc::clone(&self.search_cache);
                 let last_channel = Arc::clone(&self.last_channel);
                 self.workers
@@ -292,13 +296,13 @@ fn ordered_request(
     body: RequestBody,
     id: RequestId,
     registry: &Registry,
-    outbox: &Arc<Outbox>,
+    connection: &Arc<Connection>,
     search_cache: &Mutex<SearchCache>,
     last_channel: &AtomicU32,
 ) -> Result<Option<ReplyBody>, ServerError> {
     Ok(Some(match body {
         RequestBody::ReadActivity => {
-            outbox.watch_activity();
+            connection.watch_activity();
             ReplyBody::Activity(registry.activity.snapshot())
         }
         RequestBody::AcknowledgeActivity(ids) => {
@@ -306,9 +310,9 @@ fn ordered_request(
             ReplyBody::ActivityAcknowledged
         }
         RequestBody::ClaimActivity(ids) => {
-            ReplyBody::ActivityClaimed(registry.claim_activity(outbox, &ids))
+            ReplyBody::ActivityClaimed(registry.claim_activity(connection, &ids))
         }
-        RequestBody::IdentifyClient(kind) => ReplyBody::ClientIdentified(outbox.identify(kind)),
+        RequestBody::IdentifyClient(kind) => ReplyBody::ClientIdentified(connection.identify(kind)),
         RequestBody::ReadServerSettings => {
             ReplyBody::ServerSettings(registry.settings().document())
         }
@@ -318,7 +322,7 @@ fn ordered_request(
         }
         RequestBody::StopServerIfIdle if !registry.stop_if_idle() => ReplyBody::ServerBusy,
         RequestBody::StopServer | RequestBody::StopServerIfIdle => {
-            outbox.push_control(Message::Reply {
+            connection.push_control(Message::Reply {
                 id,
                 body: ReplyBody::ServerStopping,
             });
@@ -330,34 +334,34 @@ fn ordered_request(
             return Ok(None);
         }
         RequestBody::SetTerminalColors(colors) => {
-            outbox.set_colors(colors);
+            connection.set_colors(colors);
             ReplyBody::TerminalColorsSet
         }
         RequestBody::SetSessionColors { session, colors } => {
             if colors.is_some() && registry.handle(session).is_none() {
                 return Err(ServerError::unknown_session(session));
             }
-            outbox.set_session_colors(session, colors);
+            connection.set_session_colors(session, colors);
             ReplyBody::SessionColorsSet
         }
         RequestBody::Attach { session, size } => {
-            attach(session, Some(size), id, registry, outbox, last_channel)?;
+            attach(session, Some(size), id, registry, connection, last_channel)?;
             return Ok(None);
         }
         RequestBody::AttachWithoutResize(session) => {
-            attach(session, None, id, registry, outbox, last_channel)?;
+            attach(session, None, id, registry, connection, last_channel)?;
             return Ok(None);
         }
         RequestBody::Detach(channel) => {
-            outbox.detach(channel)?;
+            connection.detach(channel)?;
             ReplyBody::Detached
         }
         RequestBody::Resize { channel, size } => {
-            outbox.resize(channel, id, size)?;
+            connection.resize(channel, id, size)?;
             return Ok(None);
         }
         RequestBody::ClearScreen(channel) => {
-            let handle = outbox.handle(channel).ok_or_else(|| {
+            let handle = connection.handle(channel).ok_or_else(|| {
                 ServerError::new(ErrorCode::UnknownChannel, "terminal is no longer attached")
             })?;
             let (reply, result) = mpsc::channel();
@@ -368,7 +372,7 @@ fn ordered_request(
             ReplyBody::ScreenCleared
         }
         RequestBody::WriteInput { channel, bytes } => {
-            let handle = outbox.handle(channel).ok_or_else(|| {
+            let handle = connection.handle(channel).ok_or_else(|| {
                 ServerError::new(ErrorCode::UnknownChannel, "terminal is no longer attached")
             })?;
             let (reply, result) = mpsc::channel();
@@ -387,7 +391,7 @@ fn ordered_request(
         | RequestBody::CancelCreation(_)
         | RequestBody::ReadCatalog { .. }
         | RequestBody::MutateProject(_)
-        | RequestBody::ListProjectSessions { .. } => project_request(body, registry, outbox)?,
+        | RequestBody::ListProjectSessions { .. } => project_request(body, registry, connection)?,
         RequestBody::ListFolders(directory) => {
             ReplyBody::Folders(crate::files::folders(&directory)?)
         }
@@ -409,18 +413,20 @@ fn ordered_request(
             ));
         }
         RequestBody::ReadRemoteAccess => {
-            outbox.watch_remote_access();
+            connection.watch_remote_access();
             ReplyBody::RemoteAccess(registry.remote_access_state())
         }
         RequestBody::WriteRemoteAccess(settings) => {
             ReplyBody::RemoteAccess(registry.write_remote_access(settings)?)
         }
         RequestBody::StartPairing => {
-            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id, &[])?)
+            ReplyBody::Pairing(registry.remote.start_pairing(connection.client().id, &[])?)
         }
-        RequestBody::StartPairingWithHosts(hosts) => {
-            ReplyBody::Pairing(registry.remote.start_pairing(outbox.client().id, &hosts)?)
-        }
+        RequestBody::StartPairingWithHosts(hosts) => ReplyBody::Pairing(
+            registry
+                .remote
+                .start_pairing(connection.client().id, &hosts)?,
+        ),
         RequestBody::CancelPairing => {
             registry.remote.cancel_pairing();
             ReplyBody::RemoteAccess(registry.remote_access_state())
@@ -443,13 +449,13 @@ fn ordered_request(
                 directory.as_path(),
                 size,
                 crate::registry::Launch {
-                    colors: colors.clone().or_else(|| outbox.colors()),
+                    colors: colors.clone().or_else(|| connection.colors()),
                     environment,
                 },
-                Some(outbox),
+                Some(connection),
             )?;
             if colors.is_some() {
-                outbox.set_session_colors(info.id, colors);
+                connection.set_session_colors(info.id, colors);
             }
             ReplyBody::SessionCreated(info)
         }
@@ -464,7 +470,7 @@ fn ordered_request(
             channel,
             before,
             max_rows,
-        } => live_history(outbox, channel, before, max_rows)?,
+        } => live_history(connection, channel, before, max_rows)?,
         RequestBody::SavedHistoryPage {
             session,
             before,
@@ -479,7 +485,7 @@ fn ordered_request(
             max_results,
         } => match source {
             SearchSource::Live(channel) => {
-                live_search(outbox, channel, query, ignore_case, before, max_results)?
+                live_search(connection, channel, query, ignore_case, before, max_results)?
             }
             SearchSource::Saved(session) => ReplyBody::SearchPage(
                 registry.archive().search(
@@ -500,7 +506,7 @@ fn ordered_request(
 fn project_request(
     body: RequestBody,
     registry: &Registry,
-    outbox: &Outbox,
+    connection: &Connection,
 ) -> Result<ReplyBody, ServerError> {
     Ok(match body {
         RequestBody::SyncSessionReferences {
@@ -508,11 +514,11 @@ fn project_request(
             revision,
             sessions,
         } => {
-            registry.sync_references(outbox, owner, revision, &sessions);
+            registry.set_references(connection, owner, revision, &sessions);
             ReplyBody::SessionReferencesSynced
         }
         RequestBody::CloseSession { session, operation } => {
-            registry.close_session(session, operation, outbox)?;
+            registry.close_session(session, operation, connection)?;
             ReplyBody::SessionClosed
         }
         RequestBody::DiscardSession(session) => {
@@ -525,7 +531,7 @@ fn project_request(
         }
 
         RequestBody::ReadCatalog { after, revision } => {
-            outbox.watch_catalog();
+            connection.watch_catalog();
             ReplyBody::Catalog(registry.read_catalog(after, revision)?)
         }
         RequestBody::MutateProject(intent) => ReplyBody::ProjectMutated {
@@ -536,12 +542,12 @@ fn project_request(
             after,
             revision,
         } => {
-            outbox.watch_catalog();
+            connection.watch_catalog();
             ReplyBody::ProjectSessions(registry.project_sessions_for(
                 project,
                 after,
                 revision,
-                Some(outbox),
+                Some(connection),
             )?)
         }
         _ => {
@@ -554,12 +560,12 @@ fn project_request(
 }
 
 fn live_history(
-    outbox: &Arc<Outbox>,
+    connection: &Arc<Connection>,
     channel: ChannelId,
     before: HistoryCursor,
     max_rows: u16,
 ) -> Result<ReplyBody, ServerError> {
-    let handle = outbox
+    let handle = connection
         .handle(channel)
         .ok_or_else(|| ServerError::new(ErrorCode::UnknownChannel, "unknown channel"))?;
     let (reply, page) = mpsc::channel();
@@ -578,14 +584,14 @@ fn live_history(
 }
 
 fn live_search(
-    outbox: &Arc<Outbox>,
+    connection: &Arc<Connection>,
     channel: ChannelId,
     query: String,
     ignore_case: bool,
     before: HistoryCursor,
     max_results: u16,
 ) -> Result<ReplyBody, ServerError> {
-    let handle = outbox
+    let handle = connection
         .handle(channel)
         .ok_or_else(|| ServerError::new(ErrorCode::UnknownChannel, "unknown channel"))?;
     let (reply, response) = mpsc::channel();
@@ -610,7 +616,7 @@ fn attach(
     size: Option<Size>,
     request: RequestId,
     registry: &Registry,
-    outbox: &Arc<Outbox>,
+    connection: &Arc<Connection>,
     last_channel: &AtomicU32,
 ) -> Result<(), ServerError> {
     let _operation = registry.session_operation();
@@ -631,11 +637,11 @@ fn attach(
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| ServerError::new(ErrorCode::BadRequest, "attachment IDs exhausted"))?,
     );
-    // The session replies straight to the outbox, and the client may use the
+    // The session replies straight to the connection, and the client may use the
     // channel as soon as it reads that reply.
     last_channel.store(channel.0, Ordering::Release);
-    let sink = AttachmentSink::outbox(OutboxSink::new(outbox, channel, session));
-    outbox.attach(
+    let sink = AttachmentSink::outbox(OutboxSink::new(connection, channel, session));
+    connection.attach(
         channel,
         id,
         request,
