@@ -157,7 +157,6 @@ impl AppModel {
                 .projects
                 .get(&project)
                 .is_some_and(super::Repository::busy)
-            || self.close_prompt.is_some()
             || !self.session_listing_ready()
         {
             return;
@@ -211,21 +210,22 @@ impl AppModel {
             _ => return,
         };
         self.dismiss_overlay(cx);
-        let parent = self.dialog_parent(self.window);
         let context = self.git.interaction;
-        self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let question = muxy_ui::dialog::Question::Confirm {
-                title: &title,
-                message: &message,
-                confirm: &label,
-                checkbox: None,
-            };
-            let confirmed = matches!(
-                muxy_ui::dialog::ask(&parent, question, cx).await,
-                Ok(Some(_))
-            );
-            let _ = this.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| {
+                let question = muxy_ui::dialog::Question::Confirm {
+                    title: &title,
+                    message: &message,
+                    confirm: &label,
+                    checkbox: None,
+                };
+                matches!(
+                    muxy_ui::dialog::ask(parent, question, cx).await,
+                    Ok(Some(_))
+                )
+            },
+            move |model, confirmed, cx| {
                 if !confirmed {
                     return;
                 }
@@ -250,8 +250,9 @@ impl AppModel {
                 } else {
                     model.git_request(project, GitAction::PullRequest(action), cx);
                 }
-            });
-        }));
+            },
+            cx,
+        );
     }
 }
 

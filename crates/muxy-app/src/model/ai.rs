@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gpui::{Context, Task, Window};
+use gpui::{Context, Window};
 use muxy_protocol::{GitAction, GitPullRequestAction, ProjectId};
 use muxy_ui::dialog::ADDITIONAL_PROMPT_LIMIT;
 use muxy_ui::l10n::translate;
@@ -23,7 +23,7 @@ pub(crate) struct Runtime {
 
 pub(crate) struct PendingConfirmation {
     pub(crate) project: ProjectId,
-    _task: Task<()>,
+    pub(crate) dialog: super::dialogs::DialogId,
 }
 
 struct Run {
@@ -294,31 +294,31 @@ impl AppModel {
             head: summary.head,
         };
         self.dismiss_overlay(cx);
-        let parent = self.dialog_parent(self.window);
-        self.ai.confirmation = Some(PendingConfirmation {
-            project,
-            _task: cx.spawn(async move |model, cx| {
-                let response = confirmation.prompt(&parent, cx).await;
-                let mut confirmation = confirmation;
-                let _ = model.update(cx, |model, cx| {
-                    model.ai.confirmation = None;
-                    match response {
-                        Ok(Some(response)) => {
-                            confirmation.confirm(&response);
-                            model.remember_commit_choices(&confirmation, cx);
-                            model.advance_ai_action(confirmation, &response.prompt, cx);
-                        }
-                        Ok(None) => {}
-                        Err(error) => model.fail_detail(
-                            tr!("Couldn't start %@", &translate(action.settings_title()))
-                                .to_string(),
-                            &error,
-                            cx,
-                        ),
+        let dialog = self.ask_dialog(
+            self.window,
+            async move |parent, cx| {
+                let response = confirmation.prompt(parent, cx).await;
+                (confirmation, response)
+            },
+            move |model, (mut confirmation, response), cx| {
+                model.ai.confirmation = None;
+                match response {
+                    Ok(Some(response)) => {
+                        confirmation.confirm(&response);
+                        model.remember_commit_choices(&confirmation, cx);
+                        model.advance_ai_action(confirmation, &response.prompt, cx);
                     }
-                });
-            }),
-        });
+                    Ok(None) => {}
+                    Err(error) => model.fail_detail(
+                        tr!("Couldn't start %@", &translate(action.settings_title())).to_string(),
+                        &error,
+                        cx,
+                    ),
+                }
+            },
+            cx,
+        );
+        self.ai.confirmation = Some(PendingConfirmation { project, dialog });
     }
 
     /// Keeps a confirmed commit's provider and options for the next commit.

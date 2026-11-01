@@ -615,7 +615,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         if (self.overlay.is_some() && !in_overlay)
-            || self.close_prompt.is_some()
+            || self.dialogs.is_open()
             || pane.is_some_and(|pane| !self.visible_panes().contains(&pane))
             || (view.read(cx).kind == SurfaceKind::Panel
                 && !self.webviews.panels.iter().any(|(id, panel)| {

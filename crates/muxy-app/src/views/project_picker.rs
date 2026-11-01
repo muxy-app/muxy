@@ -673,7 +673,7 @@ impl AppModel {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if let Some(Overlay::Projects(picker)) = &self.overlay {
@@ -837,7 +837,7 @@ impl AppModel {
         secondary: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         match target {
@@ -881,9 +881,6 @@ impl AppModel {
         home_terminal: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
-            return;
-        }
         let Some(folders) = picker.read(cx).remote.clone() else {
             return;
         };
@@ -892,50 +889,57 @@ impl AppModel {
         let checked_path = path.clone();
         let checking = folders.clone();
         let job = self.extensions.reserve_job();
-        let parent = self.dialog_parent(self.window);
         picker.read(cx).picker.clone().update(cx, |picker, cx| {
             picker.set_status(PickerStatus::Loading(tr!("Checking folder…")), cx);
         });
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let mut result = cx
-                .background_executor()
-                .spawn(async move { checking.check(&checked_path, job).map(Some) })
-                .await;
-            let current = |cx: &gpui::AsyncApp| {
-                model
-                    .read_with(cx, |model, cx| {
-                        current_picker(model, &picker, generation, cx)
-                    })
-                    .unwrap_or(false)
-            };
-            if current(cx)
-                && allow_create
-                && !home_terminal
-                && result == Ok(Some(TypedPathState::Missing))
-            {
-                let message = tr!(
-                    "Muxy will create \"%@\" on %@ and add it as a project.",
-                    &path,
-                    &folders.name
-                )
-                .to_string();
-                result = match create_prompt(&parent, message, cx).await {
-                    Ok(true) if current(cx) => {
-                        let creating_path = path.clone();
-                        cx.background_executor()
-                            .spawn(async move {
-                                folders
-                                    .create(&creating_path, job)
-                                    .map(|()| Some(TypedPathState::Directory))
-                            })
-                            .await
-                    }
-                    Ok(_) => Ok(None),
-                    Err(error) => Err(error),
+        let model = cx.weak_entity();
+        let checked_picker = picker.clone();
+        let created_path = path.clone();
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| {
+                let picker = checked_picker;
+                let path = created_path;
+                let mut result = cx
+                    .background_executor()
+                    .spawn(async move { checking.check(&checked_path, job).map(Some) })
+                    .await;
+                let current = |cx: &gpui::AsyncApp| {
+                    model
+                        .read_with(cx, |model, cx| {
+                            current_picker(model, &picker, generation, cx)
+                        })
+                        .unwrap_or(false)
                 };
-            }
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+                if current(cx)
+                    && allow_create
+                    && !home_terminal
+                    && result == Ok(Some(TypedPathState::Missing))
+                {
+                    let message = tr!(
+                        "Muxy will create \"%@\" on %@ and add it as a project.",
+                        &path,
+                        &folders.name
+                    )
+                    .to_string();
+                    result = match create_prompt(parent, message, cx).await {
+                        Ok(true) if current(cx) => {
+                            let creating_path = path.clone();
+                            cx.background_executor()
+                                .spawn(async move {
+                                    folders
+                                        .create(&creating_path, job)
+                                        .map(|()| Some(TypedPathState::Directory))
+                                })
+                                .await
+                        }
+                        Ok(_) => Ok(None),
+                        Err(error) => Err(error),
+                    };
+                }
+                result
+            },
+            move |model, result, cx| {
                 if !current_picker(model, &picker, generation, cx) {
                     return;
                 }
@@ -969,9 +973,9 @@ impl AppModel {
                     Ok(None) => picker.update(cx, |picker, cx| picker.sync_picker(cx)),
                     Err(error) => model.project_picker_error(error, cx),
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 
     /// Adds a folder on another computer; its server checks that it exists.
@@ -1001,7 +1005,7 @@ impl AppModel {
     }
 
     fn open_terminal_at(&mut self, server: ServerId, path: &Path, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if let Some(id) = self.project_at(server, &path.to_string_lossy()) {
@@ -1028,45 +1032,37 @@ impl AppModel {
         create_if_missing: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
-            return;
-        }
         let path = PathBuf::from(path_service::standardize(path));
         if !path.exists() && create_if_missing {
-            let parent = self.dialog_parent(self.window);
             let message = tr!(
                 "Muxy will create \"%@\" and add it as a project.",
                 path.display().to_string()
             )
             .to_string();
-            self.close_prompt = Some(cx.spawn(async move |model, cx| {
-                let response = create_prompt(&parent, message, cx).await;
-                if response.as_ref().is_ok_and(|confirmed| *confirmed) {
-                    let created_path = path.clone();
-                    let result = cx
+            let created_path = path.clone();
+            self.ask_dialog(
+                self.window,
+                async move |parent, cx| {
+                    if !create_prompt(parent, message, cx).await? {
+                        return Ok(None);
+                    }
+                    let created = cx
                         .background_executor()
                         .spawn(async move { std::fs::create_dir_all(created_path) })
                         .await;
-                    let _ = model.update(cx, |model, cx| {
-                        model.finish_confirmation(cx);
-                        match result {
-                            Ok(()) => model.open_project_path(path, true, cx),
-                            Err(error) => model.project_picker_error(
-                                tr!("Could not create folder: %@", error.to_string()).to_string(),
-                                cx,
-                            ),
-                        }
-                    });
-                } else {
-                    let _ = model.update(cx, |model, cx| {
-                        model.finish_confirmation(cx);
-                        if let Err(error) = response {
-                            model.project_picker_error(error, cx);
-                        }
-                        cx.notify();
-                    });
-                }
-            }));
+                    Ok(Some(created))
+                },
+                move |model, response: Result<_, String>, cx| match response {
+                    Ok(Some(Ok(()))) => model.open_project_path(path, true, cx),
+                    Ok(Some(Err(error))) => model.project_picker_error(
+                        tr!("Could not create folder: %@", error.to_string()).to_string(),
+                        cx,
+                    ),
+                    Ok(None) => {}
+                    Err(error) => model.project_picker_error(error, cx),
+                },
+                cx,
+            );
         } else {
             self.open_project_path(path, true, cx);
         }

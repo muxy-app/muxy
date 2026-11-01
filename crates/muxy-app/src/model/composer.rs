@@ -71,7 +71,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if self.composer.view.is_some() {

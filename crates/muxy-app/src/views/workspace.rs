@@ -203,7 +203,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_none() {
+        if !self.dialogs.is_open() {
             self.open_session_picker(self.state.current_project().id, window, cx);
         }
     }
@@ -237,7 +237,7 @@ impl AppModel {
         }
     }
     fn prompt_action(&mut self, previous: Option<bool>, cx: &mut Context<Self>) {
-        if self.overlay.is_some() || self.close_prompt.is_some() {
+        if self.overlay.is_some() || self.dialogs.is_open() {
             return;
         }
         if let Some(pane) = self.active_pane().and_then(|id| self.terminal(&id)) {
@@ -423,7 +423,7 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             model.open_new_tab_picker(window, cx);
         }))
         .on_action(cx.listener(|model, _: &NewWorktree, window, cx| {
-            if model.close_prompt.is_none()
+            if !model.dialogs.is_open()
                 && let Some(project) = model.new_worktree_target()
             {
                 model.open_git_form(project, true, cx);

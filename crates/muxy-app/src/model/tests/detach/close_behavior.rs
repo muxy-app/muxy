@@ -45,7 +45,7 @@ fn configured_close_detaches_a_whole_split_tab_or_only_the_shortcut_pane(cx: &mu
                     .is_empty()
             );
             assert!(model.state.pending_discards(ServerId::local()).is_empty());
-            assert!(model.close_prompt.is_none());
+            assert!(!model.dialogs.is_open());
             assert_eq!(store::load(&model.path).expect("layout"), model.state);
         });
         let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();

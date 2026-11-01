@@ -253,7 +253,7 @@ impl AppModel {
                 }
             }
             BrowserViewEvent::Focus | BrowserViewEvent::PageClicked => {
-                if self.overlay.is_none() && self.close_prompt.is_none() {
+                if self.overlay.is_none() && !self.dialogs.is_open() {
                     self.focus_pane(pane, cx);
                     if let Some(view) = self.browser_view(pane) {
                         let clicked_into_page = matches!(event, BrowserViewEvent::PageClicked);

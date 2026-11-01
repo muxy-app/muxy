@@ -49,7 +49,7 @@ impl AppModel {
 
     fn can_run_custom_command(&self) -> bool {
         self.quitting == Quitting::Idle
-            && self.close_prompt.is_none()
+            && !self.dialogs.is_open()
             && self.close_request.is_none()
             && self.pending_close.is_none()
             && self.state.current_project().status() == ProjectStatus::Available

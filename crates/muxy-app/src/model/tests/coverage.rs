@@ -62,14 +62,15 @@ fn every_layer_hides_terminal_scroll_and_blocks_pane_drag(cx: &mut TestAppContex
         assert!(model.coverage().hides_spinners());
 
         model.overlay = None;
-        model.close_prompt = Some(Task::ready(()));
+        model.ask_dialog(model.window, async |_, _| {}, |_, (), _| {}, cx);
         assert!(!terminal_scroll_shown(model, pane, cx));
         let coverage = model.coverage();
         assert!(coverage.hides_webviews() && coverage.hides_overlay_webviews());
         assert!(!coverage.hides_spinners());
         assert!(coverage.blocks_pane_drag());
-
-        model.close_prompt = None;
+    });
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
         assert!(terminal_scroll_shown(model, pane, cx));
     });
 }

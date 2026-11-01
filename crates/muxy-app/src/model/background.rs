@@ -15,13 +15,16 @@ impl AppModel {
 
     /// Explains why the terminals ended after the app last quit, and offers to
     /// open the setting that keeps them running.
-    pub(super) fn explain_background_stop(&self, cx: &mut Context<Self>) {
-        let parent = self.dialog_parent(self.window);
-        cx.spawn(async move |model, cx| {
-            if crate::views::confirm::prompt_background_activity(&parent, cx).await == Ok(true) {
-                let _ = model.update(cx, Self::open_login_items);
-            }
-        })
-        .detach();
+    pub(super) fn explain_background_stop(&mut self, cx: &mut Context<Self>) {
+        self.ask_dialog(
+            self.window,
+            async |parent, cx| crate::views::confirm::prompt_background_activity(parent, cx).await,
+            |model, open, cx| {
+                if open == Ok(true) {
+                    model.open_login_items(cx);
+                }
+            },
+            cx,
+        );
     }
 }

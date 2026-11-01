@@ -69,7 +69,7 @@ impl AppModel {
     }
 
     fn server_actions_enabled(&self, server: ServerId) -> bool {
-        let idle = self.quitting == Quitting::Idle && self.close_prompt.is_none();
+        let idle = self.quitting == Quitting::Idle;
         if server.is_local() {
             idle && !self.server_preferences.control_busy
                 && !self.server_preferences.busy
@@ -84,7 +84,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_server_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if matches!(self.overlay, Some(Overlay::Server)) {

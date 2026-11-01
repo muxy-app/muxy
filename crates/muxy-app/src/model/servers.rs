@@ -505,14 +505,14 @@ impl AppModel {
         self.pending.retain(|_, owner| *owner != server);
         self.detached_pending
             .retain(|pane| self.pending.contains_key(pane));
-        let closing = self
-            .close_request
-            .as_ref()
-            .and_then(|request| self.tab_project(request.tab))
-            .is_some_and(|project| project.server_id == server);
-        if closing {
+        let closing = self.close_request.as_ref().filter(|request| {
+            self.tab_project(request.tab)
+                .is_some_and(|project| project.server_id == server)
+        });
+        if let Some(request) = closing {
+            let asking = request.dialog.is_some();
             self.pending_close = None;
-            if self.close_prompt.is_none() {
+            if !asking {
                 self.close_request = None;
             }
         }
@@ -536,10 +536,14 @@ impl AppModel {
         if current {
             self.git.reset_context();
         }
+        let mut removals = Vec::new();
         for (project, repository) in &mut self.git.projects {
             if self.state.project_server(*project) == Some(server) {
-                repository.disconnect();
+                removals.extend(repository.disconnect());
             }
+        }
+        for dialog in removals {
+            self.dismiss_dialog(dialog, cx);
         }
         let state = &self.state;
         self.git

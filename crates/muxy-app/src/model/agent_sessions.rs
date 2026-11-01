@@ -82,7 +82,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_agent_sessions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         self.appearance.agent_sessions_visible = !self.appearance.agent_sessions_visible;
@@ -293,7 +293,7 @@ impl AppModel {
 
     pub(crate) fn resume_agent_session(&mut self, session: &Session, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle
-            || self.close_prompt.is_some()
+            || self.dialogs.is_open()
             || self.close_request.is_some()
             || self.pending_close.is_some()
             || self.overlay.is_some()

@@ -29,12 +29,8 @@ pub(crate) struct Repository {
     post_merge: Option<(u64, String)>,
     removal: Option<muxy_protocol::WorktreeRemoval>,
     merge_removal: MergeRemoval,
-    removal_confirmation: Option<RemovalConfirmation>,
-}
-
-struct RemovalConfirmation {
-    expected: muxy_protocol::WorktreeRemoval,
-    hooks: Result<Vec<muxy_protocol::WorktreeHook>, String>,
+    /// The question asked before removing this worktree.
+    removal_dialog: Option<super::dialogs::DialogId>,
 }
 
 /// Removing a worktree once its pull request merges.
@@ -83,7 +79,9 @@ impl Repository {
             .as_ref()
             .or_else(|| read_slot(action).and_then(|slot| self.read_errors[slot].as_ref()))
     }
-    pub(super) fn disconnect(&mut self) {
+    /// Forgets the requests sent to a server that went away. Returns the
+    /// removal question to dismiss, if one was asked.
+    pub(super) fn disconnect(&mut self) -> Option<super::dialogs::DialogId> {
         self.pending = false;
         self.mutation = None;
         self.queued = None;
@@ -92,7 +90,7 @@ impl Repository {
         self.post_merge = None;
         self.removal = None;
         self.merge_removal = MergeRemoval::None;
-        self.removal_confirmation = None;
+        self.removal_dialog.take()
     }
 
     pub(crate) fn busy(&self) -> bool {
@@ -137,46 +135,18 @@ impl GitState {
     }
 }
 impl AppModel {
-    fn queue_worktree_removal_confirmation(
+    fn ask_worktree_removal(
         &mut self,
         project: ProjectId,
         expected: muxy_protocol::WorktreeRemoval,
         hooks: Result<Vec<muxy_protocol::WorktreeHook>, String>,
         cx: &mut Context<Self>,
     ) {
-        self.git
-            .projects
-            .entry(project)
-            .or_default()
-            .removal_confirmation = Some(RemovalConfirmation { expected, hooks });
-        self.resume_worktree_removal_confirmation(cx);
-    }
-
-    pub(crate) fn resume_worktree_removal_confirmation(&mut self, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() || self.quitting != super::Quitting::Idle {
+        if self.quitting != super::Quitting::Idle {
             return;
         }
-        while let Some((project, confirmation)) =
-            self.git
-                .projects
-                .iter_mut()
-                .find_map(|(project, repository)| {
-                    repository
-                        .removal_confirmation
-                        .take()
-                        .map(|confirmation| (*project, confirmation))
-                })
-        {
-            let Some(server) = self.state.project_server(project) else {
-                continue;
-            };
-            if !self.ready(server) {
-                continue;
-            }
-            self.confirm_worktree_removal(project, confirmation.expected, confirmation.hooks, cx);
-            cx.notify();
-            return;
-        }
+        let dialog = self.confirm_worktree_removal(project, expected, hooks, cx);
+        self.git.projects.entry(project).or_default().removal_dialog = dialog;
     }
 
     pub(super) fn git_invalidated(&mut self, project: ProjectId, cx: &mut Context<Self>) {
@@ -281,13 +251,12 @@ impl AppModel {
 
     pub(super) fn sync_git(&mut self, cx: &mut Context<Self>) {
         let current = self.state.current_project().id;
-        if self
+        if let Some(pending) = self
             .ai
             .confirmation
-            .as_ref()
-            .is_some_and(|pending| pending.project != current)
+            .take_if(|pending| pending.project != current)
         {
-            self.ai.confirmation = None;
+            self.dismiss_dialog(pending.dialog, cx);
         }
         if self.state.project_creation_pending(current) {
             return;
@@ -458,12 +427,7 @@ impl AppModel {
             {
                 repository.merge_removal = MergeRemoval::None;
                 if let Some(expected) = repository.removal.take() {
-                    self.queue_worktree_removal_confirmation(
-                        request.project,
-                        expected,
-                        Ok(hooks),
-                        cx,
-                    );
+                    self.ask_worktree_removal(request.project, expected, Ok(hooks), cx);
                 }
             }
             Ok(GitReply::WorktreeHooks(hooks)) if context_matches => {
@@ -601,7 +565,7 @@ impl AppModel {
                     {
                         if teardown {
                             if let Some(expected) = repository.removal.take() {
-                                self.queue_worktree_removal_confirmation(
+                                self.ask_worktree_removal(
                                     request.project,
                                     expected,
                                     Err(error.to_string()),

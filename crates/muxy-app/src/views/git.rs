@@ -300,8 +300,21 @@ impl AppModel {
             }
         };
         match &operation {
-            GitAction::DeleteBranch(branch) => self.confirm_git_action(project, operation.clone(), tr!("Permanently delete branch “%@”? Unmerged commits may become unreachable.", branch).into(), cx),
-            GitAction::Discard(paths) => self.confirm_git_action(project, operation.clone(), tr!("Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)).into(), cx),
+            GitAction::DeleteBranch(branch) => {
+                self.confirm_git_action(
+                    project,
+                    operation.clone(),
+                    tr!(
+                        "Permanently delete branch “%@”? Unmerged commits may become unreachable.",
+                        branch
+                    )
+                    .into(),
+                    cx,
+                );
+            }
+            GitAction::Discard(paths) => {
+                self.confirm_git_action(project, operation.clone(), tr!("Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)).into(), cx);
+            }
             _ => {
                 self.git_request(project, operation, cx);
             }
@@ -357,23 +370,19 @@ impl AppModel {
         mut action: GitAction,
         message: String,
         cx: &mut Context<Self>,
-    ) {
-        if self.close_prompt.is_some() {
-            return;
-        }
+    ) -> crate::model::dialogs::DialogId {
         let has_hooks = matches!(&action, GitAction::Worktree(intent) if intent.options.as_ref().and_then(|options| options.hooks.as_ref()).is_some_and(|hooks| !hooks.is_empty()));
-        let parent = self.dialog_parent(self.window);
         let context = self.git.interaction;
-        self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let confirmed = confirmation::prompt(&parent, &message, has_hooks, cx).await;
-            if confirmed == Some(false)
-                && let GitAction::Worktree(intent) = &mut action
-                && let Some(options) = &mut intent.options
-            {
-                options.hooks = None;
-            }
-            let _ = this.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| confirmation::prompt(parent, &message, has_hooks, cx).await,
+            move |model, confirmed, cx| {
+                if confirmed == Some(false)
+                    && let GitAction::Worktree(intent) = &mut action
+                    && let Some(options) = &mut intent.options
+                {
+                    options.hooks = None;
+                }
                 if confirmed.is_some()
                     && model.git.interaction == context
                     && model.state.project(project).is_some()
@@ -383,8 +392,9 @@ impl AppModel {
                         model.leave_worktree(project, cx);
                     }
                 }
-            });
-        }));
+            },
+            cx,
+        )
     }
 
     pub(crate) fn not_a_repository(&self, project: ProjectId) -> bool {

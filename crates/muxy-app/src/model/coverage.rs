@@ -10,8 +10,8 @@ use super::AppModel;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Coverage {
     overlay: Option<OverlayLayer>,
-    /// A native sheet above the window.
-    close_prompt: bool,
+    /// A dialog above the window.
+    dialog: bool,
     composer: Option<ComposerLayer>,
 }
 
@@ -33,10 +33,10 @@ enum ComposerLayer {
 }
 
 impl Coverage {
-    /// An overlay or the close prompt owns the window: resizes and window
-    /// drags stop.
+    /// An overlay or a dialog owns the window: resizes and window drags
+    /// stop.
     pub(crate) fn modal(self) -> bool {
-        self.overlay.is_some() || self.close_prompt
+        self.overlay.is_some() || self.dialog
     }
 
     /// Terminal scroll can't be cut out under a rectangle, so it hides under
@@ -53,13 +53,13 @@ impl Coverage {
     }
 
     /// A webview modal or extension popover is the overlay itself, so only
-    /// the close prompt is above it.
+    /// a dialog is above it.
     pub(crate) fn hides_overlay_webviews(self) -> bool {
-        self.close_prompt
+        self.dialog
     }
 
-    /// Spinners are cut out under a marked overlay. The close prompt is a
-    /// native sheet above the window, so it hides none.
+    /// Spinners are cut out under a marked overlay. A dialog sits above the
+    /// window, so it hides none.
     pub(crate) fn hides_spinners(self) -> bool {
         self.overlay == Some(OverlayLayer::Unmarked)
             || self.composer == Some(ComposerLayer::Floating)
@@ -95,7 +95,7 @@ impl AppModel {
         };
         Coverage {
             overlay,
-            close_prompt: self.close_prompt.is_some(),
+            dialog: self.dialogs.is_open(),
             composer,
         }
     }
@@ -147,9 +147,9 @@ mod tests {
                 [true, true, true, false, true, true],
             ),
             (
-                "close prompt",
+                "dialog",
                 Coverage {
-                    close_prompt: true,
+                    dialog: true,
                     ..Coverage::default()
                 },
                 [true, true, true, true, false, true],

@@ -235,7 +235,7 @@ impl AppModel {
             || !self.ready(local)
             || self.quitting != Quitting::Idle
             || self.updates.phase != ServerUpdatePhase::Idle
-            || self.close_prompt.is_some()
+            || self.dialogs.is_open()
             || self.updates.checking()
             || (self.updates.scheduled && self.updates.app_error.is_some())
             || self.pending_on(local)
@@ -302,7 +302,7 @@ impl AppModel {
                     self.connect_to_server(ServerId::local(), true, cx);
                 } else if self.updates.scheduled
                     && status.sessions == 0
-                    && self.close_prompt.is_none()
+                    && !self.dialogs.is_open()
                     && !self.updates.checking()
                     && self.updates.app_error.is_none()
                 {
@@ -326,7 +326,7 @@ impl AppModel {
     }
 
     pub(crate) fn check_for_updates(&mut self, manual: bool, cx: &mut Context<Self>) {
-        if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
+        if self.quitting != Quitting::Idle {
             return;
         }
         self.updates.manual |= manual;
@@ -467,19 +467,21 @@ impl AppModel {
             .detach();
     }
 
-    fn update_message(&self, message: &str, cx: &mut Context<Self>) {
-        let parent = self.dialog_parent(self.window);
+    fn update_message(&mut self, message: &str, cx: &mut Context<Self>) {
         let title = tr!("%@ Updates", Channel::current().app_name());
         let message = message.to_owned();
-        cx.spawn(async move |_, cx| {
-            let _ = muxy_ui::dialog::choose(&parent, &title, &message, &[&tr!("OK")], cx).await;
-        })
-        .detach();
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| {
+                let _ = muxy_ui::dialog::choose(parent, &title, &message, &[&tr!("OK")], cx).await;
+            },
+            |_, (), _| {},
+            cx,
+        );
     }
 
     pub(super) fn confirm_update(&mut self, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() || self.quitting != Quitting::Idle || self.updates.checking()
-        {
+        if self.quitting != Quitting::Idle || self.updates.checking() {
             return;
         }
         let Some(update) = &self.updates.ready else {
@@ -494,16 +496,19 @@ impl AppModel {
             .is_some_and(|server| update.compatible_with(server));
         let scheduled = self.updates.scheduled;
         let sessions = self.updates.sessions;
-        let parent = self.dialog_parent(self.window);
         let generation = self.servers.local.generation;
         self.dismiss_overlay(cx);
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_update(
-                &parent, &version, compatible, scheduled, sessions, cx,
-            )
-            .await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        let asked = version.clone();
+        self.ask_once(
+            super::dialogs::Question::Update(version.clone()),
+            self.window,
+            async move |parent, cx| {
+                crate::views::confirm::prompt_update(
+                    parent, &asked, compatible, scheduled, sessions, cx,
+                )
+                .await
+            },
+            move |model, response, cx| {
                 if model.servers.local.generation != generation
                     || model
                         .updates
@@ -531,8 +536,9 @@ impl AppModel {
                     Ok(crate::views::confirm::UpdateChoice::Later) => {}
                     Err(error) => model.fail(error, cx),
                 }
-            });
-        }));
+            },
+            cx,
+        );
     }
 
     fn schedule_update(&mut self, scheduled: bool, cx: &mut Context<Self>) {

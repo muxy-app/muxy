@@ -617,7 +617,7 @@ fn default_identity(home: &std::path::Path) -> Option<String> {
 
 impl AppModel {
     pub(crate) fn toggle_remote_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if matches!(self.overlay, Some(Overlay::RemoteServers)) {
@@ -925,7 +925,7 @@ impl AppModel {
         let Some(Overlay::ServerForm(form)) = &self.overlay else {
             return;
         };
-        if !self.accepts_prompts() {
+        if self.quitting() {
             return;
         }
         let (device, submitted, host) = (form.device, form.submitted(cx), form.host.clone());
@@ -938,13 +938,15 @@ impl AppModel {
         ) {
             return;
         }
-        let parent = self.dialog_parent(window.window_handle());
         let source = crate::remote_install::Source::current();
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response =
-                super::confirm::prompt_install_server(&parent, &destination, &source, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        let described = source.clone();
+        self.ask_once(
+            crate::model::dialogs::Question::InstallFormServer(destination.clone()),
+            window.window_handle(),
+            async move |parent, cx| {
+                super::confirm::prompt_install_server(parent, &destination, &described, cx).await
+            },
+            move |model, response, cx| {
                 let current = matches!(&model.overlay, Some(Overlay::ServerForm(form))
                     if form.host == host && form.submitted(cx) == submitted);
                 if current {
@@ -958,9 +960,9 @@ impl AppModel {
                         }
                     }
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 
     /// A file panel at `~/.ssh` that shows hidden files, for a key file.

@@ -129,7 +129,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_tip_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if matches!(self.overlay, Some(Overlay::Tip)) {
