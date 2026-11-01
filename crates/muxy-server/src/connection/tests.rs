@@ -231,3 +231,58 @@ fn connections_of_one_owner_share_its_references_until_the_last_one_closes()
     registry.wait_stopped();
     Ok(())
 }
+
+#[test]
+fn local_apps_learn_which_saved_files_the_server_could_not_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::net::UnixStream;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use muxy_protocol::wire::{Decoder, Encoder};
+    use muxy_protocol::{CONTROL, Message};
+
+    let directory = std::env::temp_dir().join(format!(
+        "muxy-unreadable-{}",
+        muxy_protocol::OperationId::new()
+    ));
+    let sessions = directory.join("sessions");
+    std::fs::create_dir_all(&sessions)?;
+    std::fs::write(sessions.join("catalog.json"), "damaged {")?;
+    std::fs::write(directory.join("remote.json"), "damaged {")?;
+    let (sender, _requests) = mpsc::channel();
+    let registry = Arc::new(
+        Registry::persistent(ServerSettings::default(), sender, &sessions)?
+            .with_remote_access(crate::RemoteAccess::open(directory.join("remote.json"))?),
+    );
+    let (client, server) = UnixStream::pair()?;
+    let serving = Arc::clone(&registry);
+    let connection = std::thread::spawn(move || super::serve(Box::new(server), serving));
+    client.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let mut decoder = Decoder::new(client.try_clone()?);
+    Encoder::new(client.try_clone()?).send(
+        CONTROL,
+        &Message::Hello {
+            versions: muxy_protocol::SUPPORTED.to_vec(),
+        },
+    )?;
+    let (CONTROL, Message::HelloReply { server, .. }) = decoder.next()? else {
+        return Err("expected HelloReply".into());
+    };
+    let mut kept: Vec<_> = server
+        .unreadable
+        .iter()
+        .map(|file| PathBuf::from(file.kept_as.clone()))
+        .collect();
+    kept.sort();
+    assert_eq!(kept.len(), 2);
+    assert!(kept[0].starts_with(&directory) && kept[1].starts_with(&sessions));
+    for path in kept {
+        assert_eq!(std::fs::read_to_string(path)?, "damaged {");
+    }
+    client.shutdown(std::net::Shutdown::Both)?;
+    let _ = connection.join();
+    drop(registry);
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}

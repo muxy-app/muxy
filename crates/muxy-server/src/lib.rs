@@ -29,6 +29,7 @@ pub use catalog::LegacyImport;
 mod files;
 mod git;
 mod notifier;
+mod unreadable;
 mod uploads;
 mod watch;
 

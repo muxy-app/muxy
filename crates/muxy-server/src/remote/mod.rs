@@ -5,6 +5,7 @@ mod identity;
 mod store;
 
 use std::collections::HashSet;
+use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -14,7 +15,7 @@ use muxy_protocol::transport::tls::TlsIdentity;
 use muxy_protocol::{
     ClientId, DeviceCredential, DeviceId, DeviceKind, ErrorCode, ListenerStatus, MAX_DEVICES,
     PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings,
-    RemoteAccessState, ServerIdentity, Topic,
+    RemoteAccessState, ServerIdentity, Topic, UnreadableFile,
 };
 
 use crate::ServerError;
@@ -37,6 +38,7 @@ pub struct RemoteAccess {
     revision: AtomicU64,
     unauthenticated: Arc<AtomicUsize>,
     notifier: Arc<Notifier>,
+    unreadable: Option<UnreadableFile>,
 }
 
 impl std::fmt::Debug for RemoteAccess {
@@ -52,8 +54,6 @@ struct State {
     stored: Stored,
     status: ListenerStatus,
     offer: Option<Offer>,
-    /// Why the saved state could not be read; access stays off until rewritten.
-    unreadable: Option<String>,
 }
 
 struct Offer {
@@ -80,28 +80,31 @@ impl RemoteAccess {
         Self::with_store(None, Stored::default(), None)
     }
 
-    /// Opens the saved state; an unreadable file keeps access off and is reported, not replaced.
-    pub fn open(path: PathBuf) -> Self {
-        match store::load(&path) {
+    /// Opens the saved state; contents this build can't understand are moved
+    /// aside and access starts off.
+    pub fn open(path: PathBuf) -> io::Result<Self> {
+        let Some(bytes) = store::read(&path)? else {
+            return Ok(Self::with_store(Some(path), Stored::default(), None));
+        };
+        Ok(match store::parse(&path, &bytes) {
             Ok(stored) => Self::with_store(Some(path), stored, None),
             Err(error) => {
-                log::error!("remote access disabled: {error}");
-                let unreadable = format!("{}: {error}", path.display());
+                let unreadable = crate::unreadable::set_aside(&path, &error)?;
                 Self::with_store(Some(path), Stored::default(), Some(unreadable))
             }
-        }
+        })
     }
 
-    fn with_store(store: Option<PathBuf>, stored: Stored, unreadable: Option<String>) -> Self {
-        let status = unreadable
-            .clone()
-            .map_or(ListenerStatus::Disabled, ListenerStatus::Failed);
+    fn with_store(
+        store: Option<PathBuf>,
+        stored: Stored,
+        unreadable: Option<UnreadableFile>,
+    ) -> Self {
         Self {
             state: Mutex::new(State {
                 stored,
-                status,
+                status: ListenerStatus::Disabled,
                 offer: None,
-                unreadable,
             }),
             store,
             listener: None,
@@ -109,7 +112,13 @@ impl RemoteAccess {
             revision: AtomicU64::new(1),
             unauthenticated: Arc::default(),
             notifier: Arc::default(),
+            unreadable,
         }
+    }
+
+    /// The saved state that couldn't be read when the server started.
+    pub(crate) fn unreadable(&self) -> Option<&UnreadableFile> {
+        self.unreadable.as_ref()
     }
 
     pub(crate) fn set_listener(&mut self, listener: Box<ListenerControl>) {
@@ -184,21 +193,12 @@ impl RemoteAccess {
         let _write = self.writes.lock().unwrap_or_else(PoisonError::into_inner);
         let listening = {
             let mut state = self.lock();
-            // Access is already off; keep the unreadable file for recovery.
-            if state.unreadable.is_some() && !settings.enabled {
-                return Ok(state.status.clone());
-            }
-            let mut stored = if state.unreadable.is_some() {
-                Stored::default()
-            } else {
-                state.stored.clone()
-            };
+            let mut stored = state.stored.clone();
             stored.settings = settings;
             if settings.enabled && stored.identity.is_none() {
                 stored.identity = Some(identity::generate()?);
             }
             self.save(&stored)?;
-            state.unreadable = None;
             if !settings.enabled {
                 state.offer = None;
             }
@@ -288,7 +288,7 @@ impl RemoteAccess {
 
     fn pair_at(&self, request: &PairRequest, server: ServerIdentity, now: u64) -> Option<Paired> {
         let mut state = self.lock();
-        if !state.stored.settings.enabled || state.unreadable.is_some() {
+        if !state.stored.settings.enabled {
             return None;
         }
         let offer = state.offer.as_ref()?;
@@ -342,7 +342,7 @@ impl RemoteAccess {
         let presented = hash(&credential.token);
         let now = now();
         let mut state = self.lock();
-        let usable = state.stored.settings.enabled && state.unreadable.is_none();
+        let usable = state.stored.settings.enabled;
         let device = state
             .stored
             .devices
@@ -367,7 +367,6 @@ impl RemoteAccess {
     pub(crate) fn authorized(&self, device: DeviceId) -> bool {
         let state = self.lock();
         state.stored.settings.enabled
-            && state.unreadable.is_none()
             && state
                 .stored
                 .devices

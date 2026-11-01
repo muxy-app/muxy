@@ -1429,6 +1429,7 @@
 "The server changed. Review the update again." = "The server changed. Review the update again.";
 "The server connection worker stopped" = "The server connection worker stopped";
 "The server could not check or create the folder." = "The server could not check or create the folder.";
+"The server couldn't read saved data and started without it. Kept for recovery: %@" = "The server couldn't read saved data and started without it. Kept for recovery: %@";
 "The server kept the file at an invalid path." = "The server kept the file at an invalid path.";
 "The server sent an unexpected folder status" = "The server sent an unexpected folder status";
 "The server sent something other than the file." = "The server sent something other than the file.";

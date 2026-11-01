@@ -75,13 +75,22 @@ impl From<DeviceKind> for StoredKind {
     }
 }
 
+#[cfg(test)]
 pub(super) fn load(path: &Path) -> io::Result<Stored> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Stored::default()),
-        Err(error) => return Err(error),
-    };
-    let document: Document = serde_json::from_slice(&bytes)?;
+    read(path)?.map_or_else(|| Ok(Stored::default()), |bytes| parse(path, &bytes))
+}
+
+/// `None` when nothing was saved yet.
+pub(super) fn read(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+pub(super) fn parse(path: &Path, bytes: &[u8]) -> io::Result<Stored> {
+    let document: Document = serde_json::from_slice(bytes)?;
     stored(document).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,

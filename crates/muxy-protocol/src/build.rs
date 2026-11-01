@@ -42,6 +42,28 @@ pub struct ServerInfo {
     pub build: BuildInfo,
     #[n(1)]
     pub instance: u64,
+    /// Saved files this process couldn't read when it started. Older servers
+    /// never send it.
+    #[n(2)]
+    #[cbor(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreadable: Vec<UnreadableFile>,
+}
+
+/// At most this many unreadable files are reported.
+pub const MAX_UNREADABLE_FILES: usize = 8;
+/// At most this many bytes of an unreadable file's error are reported.
+pub const MAX_UNREADABLE_ERROR: usize = 1024;
+
+/// A saved file the server moved aside because it couldn't read it, and
+/// started with defaults instead.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct UnreadableFile {
+    /// Where the file is kept for recovery.
+    #[n(0)]
+    pub kept_as: crate::ServerPath,
+    #[n(1)]
+    pub error: String,
 }
 
 impl ServerInfo {
@@ -56,6 +78,21 @@ impl ServerInfo {
         Self {
             build: BuildInfo::current(),
             instance,
+            unreadable: Vec::new(),
+        }
+    }
+
+    /// The unreadable files stay within the reported limits.
+    pub fn validate(&self) -> Result<(), crate::ErrorCode> {
+        let valid = self.unreadable.len() <= MAX_UNREADABLE_FILES
+            && self.unreadable.iter().all(|file| {
+                crate::validate_absolute_path(&file.kept_as).is_ok()
+                    && file.error.len() <= MAX_UNREADABLE_ERROR
+            });
+        if valid {
+            Ok(())
+        } else {
+            Err(crate::ErrorCode::BadRequest)
         }
     }
 }

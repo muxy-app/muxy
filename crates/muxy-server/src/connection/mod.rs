@@ -34,7 +34,7 @@ pub fn serve(stream: Box<dyn ByteStream>, registry: Arc<Registry>) -> Result<(),
     let (read, write) = stream.split()?;
     let mut decoder = Decoder::new(read);
     let mut encoder = Encoder::new(write);
-    if !handshake::accept(&mut decoder, &mut encoder)? {
+    if !handshake::accept(&mut decoder, &mut encoder, registry.server_info())? {
         return Ok(());
     }
     let connection = Arc::new(Connection::new(Arc::clone(&registry.notifier)));

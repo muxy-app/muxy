@@ -21,7 +21,7 @@ use crate::{ServerError, archive::Archive};
 use muxy_protocol::{
     CATALOG_PAGE_SIZE, CatalogPage, ErrorCode, ErrorReply, MAX_PROJECTS, OperationId,
     ProjectDescriptor, ProjectId, ProjectIntent, ServerIdentity, ServerPath, SessionId,
-    SessionInfo, SessionStatus,
+    SessionInfo, SessionStatus, UnreadableFile,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -77,6 +77,7 @@ pub(crate) struct Catalog {
     revision: AtomicU64,
     pending_exits: Mutex<recovery::PendingExits>,
     notifier: Arc<Notifier>,
+    unreadable: Option<UnreadableFile>,
 }
 
 impl State {
@@ -225,6 +226,7 @@ impl Catalog {
             path,
             pending_exits: Mutex::default(),
             notifier,
+            unreadable: None,
         }
     }
 
@@ -235,18 +237,21 @@ impl Catalog {
         notifier: Arc<Notifier>,
     ) -> io::Result<Self> {
         let path = directory.join("catalog.json");
-        let mut state = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<storage::StoredState>(&bytes)?.into(),
+        let (mut state, unreadable) = match fs::read(&path) {
+            Ok(bytes) => match parse(&bytes) {
+                Ok(state) => (state, None),
+                // The legacy import ran when this catalog was first written; only
+                // saved terminals are adopted again.
+                Err(error) => {
+                    let state = fresh(LegacyImport::default(), archive)?;
+                    (state, Some(crate::unreadable::set_aside(&path, &error)?))
+                }
+            },
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let home = std::env::home_dir()
-                    .ok_or_else(|| io::Error::other("home directory unavailable"))?;
-                let mut state = State::fresh(&home);
-                state.import(legacy, archive)?;
-                state
+                (fresh(legacy, archive)?, None)
             }
             Err(error) => return Err(error),
         };
-        state.validate().map_err(io::Error::other)?;
         let now = retention::now();
         for membership in state.sessions.values_mut() {
             membership.ended_at.get_or_insert(now);
@@ -256,9 +261,15 @@ impl Catalog {
                 SessionStatus::Unavailable
             };
         }
-        let catalog = Self::from_state(state, Some(path), notifier);
+        let mut catalog = Self::from_state(state, Some(path), notifier);
+        catalog.unreadable = unreadable;
         catalog.update(|_| Ok(())).map_err(io::Error::other)?;
         Ok(catalog)
+    }
+
+    /// The saved catalog that couldn't be read when the server started.
+    pub(crate) fn unreadable(&self) -> Option<&UnreadableFile> {
+        self.unreadable.as_ref()
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -363,6 +374,20 @@ fn check_revision(state: &State, revision: Option<u64>) -> Result<(), ServerErro
     } else {
         Ok(())
     }
+}
+
+fn parse(bytes: &[u8]) -> io::Result<State> {
+    let state: State = serde_json::from_slice::<storage::StoredState>(bytes)?.into();
+    state.validate().map_err(io::Error::other)?;
+    Ok(state)
+}
+
+fn fresh(legacy: LegacyImport, archive: &Archive) -> io::Result<State> {
+    let home =
+        std::env::home_dir().ok_or_else(|| io::Error::other("home directory unavailable"))?;
+    let mut state = State::fresh(&home);
+    state.import(legacy, archive)?;
+    Ok(state)
 }
 
 fn save(path: &Path, state: &State) -> Result<(), muxy_core::fs::WriteError> {
