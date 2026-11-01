@@ -4,7 +4,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px};
 use muxy_app_core::browser::SearchEngine;
-use muxy_ui::controls::{self, Choice};
+use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
@@ -219,12 +219,13 @@ fn profile_row(
         view.style(),
         &format!("browser-clear-{id}"),
         controls::Button::secondary(&tr!("Clear Data")),
-        cx.listener(move |_, _, window, cx| {
+        cx.listener(move |settings, _, window, cx| {
             confirm(
                 BrowserChange::ClearProfile(cleared.clone()),
                 &tr!("Clear data for “%@”?", &label),
                 &tr!("This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones."),
                 &tr!("Clear Data"),
+                settings.style(),
                 window,
                 cx,
             );
@@ -236,12 +237,13 @@ fn profile_row(
             view.style(),
             &format!("browser-delete-{id}"),
             controls::Button::secondary(&tr!("Delete")),
-            cx.listener(move |_, _, window, cx| {
+            cx.listener(move |settings, _, window, cx| {
                 confirm(
                     BrowserChange::DeleteProfile(deleted.clone()),
                     &tr!("Delete “%@”?", &label),
                     &tr!("This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile."),
                     &tr!("Delete"),
+                    settings.style(),
                     window,
                     cx,
                 );
@@ -340,11 +342,12 @@ fn confirm(
     title: &str,
     message: &str,
     label: &str,
+    style: Style<'_>,
     window: &mut Window,
     cx: &mut Context<SettingsView>,
 ) {
     let (title, message, label) = (title.to_owned(), message.to_owned(), label.to_owned());
-    let window = window.window_handle();
+    let parent = muxy_ui::dialog::Parent::new(window.window_handle(), style);
     cx.spawn(async move |view, cx| {
         let question = muxy_ui::dialog::Question::Confirm {
             title: &title,
@@ -352,7 +355,7 @@ fn confirm(
             confirm: &label,
             checkbox: None,
         };
-        if let Ok(Some(_)) = muxy_ui::dialog::ask(window, question, cx).await {
+        if let Ok(Some(_)) = muxy_ui::dialog::ask(&parent, question, cx).await {
             let _ = view.update(cx, |_, cx| {
                 cx.emit(SettingsEvent::Change(Change::Browser(change)));
             });

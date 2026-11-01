@@ -565,10 +565,11 @@ impl AppModel {
             return;
         }
         let count = servers.len();
+        let parent = self.dialog_parent(window);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let response = match name {
-                Some(name) => crate::views::confirm::prompt_forget_server(window, &name, cx).await,
-                None => crate::views::confirm::prompt_forget_servers(window, count, cx).await,
+                Some(name) => crate::views::confirm::prompt_forget_server(&parent, &name, cx).await,
+                None => crate::views::confirm::prompt_forget_servers(&parent, count, cx).await,
             };
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
@@ -746,10 +747,11 @@ impl AppModel {
         if self.close_prompt.is_some() || self.quitting != Quitting::Idle {
             return;
         }
+        let parent = self.dialog_parent(window);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
             let source = crate::remote_install::Source::Release(version.into());
             let response =
-                crate::views::confirm::prompt_install_server(window, &name, &source, cx).await;
+                crate::views::confirm::prompt_install_server(&parent, &name, &source, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
                 match response {

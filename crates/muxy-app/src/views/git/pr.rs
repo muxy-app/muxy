@@ -211,7 +211,7 @@ impl AppModel {
             _ => return,
         };
         self.dismiss_overlay(cx);
-        let window = self.window;
+        let parent = self.dialog_parent(self.window);
         let context = self.git.interaction;
         self.close_prompt = Some(cx.spawn(async move |this, cx| {
             let question = muxy_ui::dialog::Question::Confirm {
@@ -221,7 +221,7 @@ impl AppModel {
                 checkbox: None,
             };
             let confirmed = matches!(
-                muxy_ui::dialog::ask(window, question, cx).await,
+                muxy_ui::dialog::ask(&parent, question, cx).await,
                 Ok(Some(_))
             );
             let _ = this.update(cx, |model, cx| {

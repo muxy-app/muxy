@@ -1,6 +1,6 @@
-use gpui::{AnyWindowHandle, AsyncApp, Context};
+use gpui::{AsyncApp, Context};
 use muxy_app_core::{AppState, Project, ProjectId, ProjectStatus, WorkspaceId};
-use muxy_ui::dialog::{ConfirmationResponse, Question, ask};
+use muxy_ui::dialog::{ConfirmationResponse, Parent, Question, ask};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
@@ -284,9 +284,9 @@ impl AppModel {
             return;
         }
         self.dismiss_overlay(cx);
-        let window = self.window;
+        let parent = self.dialog_parent(self.window);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = prompt(window, title, message, action, cx).await;
+            let response = prompt(&parent, title, message, action, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
                 model.focus_requested = true;
@@ -307,7 +307,7 @@ impl AppModel {
 }
 
 async fn prompt(
-    window: AnyWindowHandle,
+    parent: &Parent,
     title: &'static str,
     message: String,
     action: &'static str,
@@ -319,7 +319,7 @@ async fn prompt(
         confirm: &muxy_ui::l10n::translate(action),
         checkbox: None,
     };
-    let answer = ask(window, question, cx)
+    let answer = ask(parent, question, cx)
         .await
         .map_err(|error| error.to_string())?;
     Ok(answer.map_or(ConfirmationResponse::Cancelled, |_| {

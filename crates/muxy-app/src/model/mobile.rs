@@ -238,8 +238,9 @@ impl AppModel {
             return;
         }
         let generation = self.servers.local.generation;
+        let parent = self.dialog_parent(window);
         self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_revoke(window, &name, cx).await;
+            let response = crate::views::confirm::prompt_revoke(&parent, &name, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
                 match response {

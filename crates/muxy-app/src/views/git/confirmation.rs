@@ -1,11 +1,11 @@
-use gpui::{AnyWindowHandle, AsyncApp};
-use muxy_ui::dialog::{Question, ask};
+use gpui::AsyncApp;
+use muxy_ui::dialog::{Parent, Question, ask};
 use muxy_ui::tr;
 
 /// Asks before a Git operation. Reports whether the teardown commands should
 /// run too, or `None` when declined.
 pub(super) async fn prompt(
-    window: AnyWindowHandle,
+    parent: &Parent,
     message: &str,
     has_hooks: bool,
     cx: &mut AsyncApp,
@@ -17,6 +17,6 @@ pub(super) async fn prompt(
         confirm: &tr!("Confirm"),
         checkbox: has_hooks.then_some(teardown.as_ref()),
     };
-    let answer = ask(window, question, cx).await.ok()??;
+    let answer = ask(parent, question, cx).await.ok()??;
     Some(answer.ticked())
 }

@@ -16,7 +16,7 @@ mod ask;
 mod picker;
 mod view;
 
-pub use ask::{Question, ask};
+pub use ask::{Parent, Question, ask};
 #[cfg(any(test, feature = "test-support"))]
 pub use ask::{simulate, ticked_label};
 
@@ -67,8 +67,8 @@ struct Request {
     metrics: Metrics,
 }
 
-impl Default for Request {
-    fn default() -> Self {
+impl Request {
+    fn new(style: Style<'_>) -> Self {
         Self {
             choices: PromptChoices::default(),
             input: None,
@@ -76,9 +76,20 @@ impl Default for Request {
             cancel: None,
             default: None,
             completion: Completion::default(),
-            theme: Theme::from_scheme(&ColorScheme::default()),
-            metrics: Metrics::new(1.0),
+            theme: style.theme.clone(),
+            metrics: *style.metrics,
         }
+    }
+}
+
+/// The look of a prompt opened straight through `Window::prompt`, which has no
+/// caller style.
+impl Default for Request {
+    fn default() -> Self {
+        Self::new(Style {
+            theme: &Theme::from_scheme(&ColorScheme::default()),
+            metrics: &Metrics::new(1.0),
+        })
     }
 }
 
@@ -184,6 +195,7 @@ pub fn confirm(
     message: &str,
     confirm_label: &str,
     suppression_label: Option<&str>,
+    style: Style<'_>,
     on_complete: impl FnOnce(ConfirmationResponse) + 'static,
 ) -> io::Result<Confirmation> {
     let choices = PromptChoices {
@@ -207,7 +219,7 @@ pub fn confirm(
             choices,
             cancel: Some(1),
             default: Some(0),
-            ..Request::default()
+            ..Request::new(style)
         },
         move |answer| {
             on_complete(if answer.index == Some(0) {
@@ -221,6 +233,10 @@ pub fn confirm(
     )
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Confirmation fields and GPUI context"
+)]
 pub fn confirm_with_checkbox(
     window: &mut Window,
     cx: &mut App,
@@ -228,6 +244,7 @@ pub fn confirm_with_checkbox(
     message: &str,
     labels: [&str; 2],
     checkbox_label: &str,
+    style: Style<'_>,
     on_complete: impl FnOnce(Option<bool>) + 'static,
 ) -> io::Result<Confirmation> {
     show(
@@ -247,7 +264,7 @@ pub fn confirm_with_checkbox(
             },
             cancel: Some(1),
             default: Some(0),
-            ..Request::default()
+            ..Request::new(style)
         },
         move |answer| {
             on_complete((answer.index == Some(0)).then(|| answer.checked.first() == Some(&true)));
@@ -261,6 +278,7 @@ pub fn consent(
     title: &str,
     message: &str,
     block_label: &str,
+    style: Style<'_>,
     on_complete: impl FnOnce(ConsentResponse) + 'static,
 ) -> io::Result<Confirmation> {
     show(
@@ -285,7 +303,7 @@ pub fn consent(
             },
             cancel: Some(2),
             default: Some(2),
-            ..Request::default()
+            ..Request::new(style)
         },
         move |answer| {
             on_complete(
@@ -325,9 +343,7 @@ pub fn confirm_with_prompt(
             input_limit: Some(ADDITIONAL_PROMPT_LIMIT),
             cancel: Some(1),
             default: Some(0),
-            theme: style.theme.clone(),
-            metrics: *style.metrics,
-            ..Request::default()
+            ..Request::new(style)
         },
         move |answer| {
             on_complete((answer.index == Some(0)).then_some(PromptResponse {
@@ -343,6 +359,7 @@ pub fn present(
     window: &mut Window,
     cx: &mut App,
     options: DialogOptions,
+    style: Style<'_>,
     on_complete: impl FnOnce(Option<String>) + 'static,
 ) -> io::Result<Confirmation> {
     let cancel = options
@@ -366,7 +383,7 @@ pub fn present(
             input: options.input,
             cancel,
             default,
-            ..Request::default()
+            ..Request::new(style)
         },
         move |answer| {
             on_complete(

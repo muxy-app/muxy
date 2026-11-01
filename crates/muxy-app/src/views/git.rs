@@ -362,10 +362,10 @@ impl AppModel {
             return;
         }
         let has_hooks = matches!(&action, GitAction::Worktree(intent) if intent.options.as_ref().and_then(|options| options.hooks.as_ref()).is_some_and(|hooks| !hooks.is_empty()));
-        let window = self.window;
+        let parent = self.dialog_parent(self.window);
         let context = self.git.interaction;
         self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let confirmed = confirmation::prompt(window, &message, has_hooks, cx).await;
+            let confirmed = confirmation::prompt(&parent, &message, has_hooks, cx).await;
             if confirmed == Some(false)
                 && let GitAction::Worktree(intent) = &mut action
                 && let Some(options) = &mut intent.options

@@ -328,6 +328,10 @@ impl AppModel {
             &tr!("Allow %@?", &call.owner),
             &message,
             &block_label(request.gate),
+            muxy_ui::controls::Style {
+                theme: &self.theme,
+                metrics: &self.metrics,
+            },
             move |response| {
                 let _ = sender.try_send(response);
             },
@@ -500,7 +504,11 @@ impl AppModel {
             dialog_options(&call.verb, &call.args).map_or_else(
                 |error| Err(std::io::Error::other(error)),
                 |options| {
-                    muxy_ui::dialog::present(window, cx, options, move |value| {
+                    let style = muxy_ui::controls::Style {
+                        theme: &self.theme,
+                        metrics: &self.metrics,
+                    };
+                    muxy_ui::dialog::present(window, cx, options, style, move |value| {
                         let _ = sender.try_send(Ok(value));
                     })
                     .map(|sheet| Box::new(sheet) as Box<dyn std::any::Any>)
