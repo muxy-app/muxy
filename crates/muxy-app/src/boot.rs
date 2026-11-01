@@ -1238,7 +1238,12 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return None;
         }
     };
-    result.err().map(|error| Update::Error(error.to_string()))
+    result.err().as_ref().and_then(reported_error)
+}
+
+/// A request lost with the connection is reported by the disconnect itself.
+fn reported_error(error: &ClientError) -> Option<Update> {
+    (!matches!(error, ClientError::Disconnected)).then(|| Update::Error(error.to_string()))
 }
 
 /// A request for a channel or session the server no longer has is finished;

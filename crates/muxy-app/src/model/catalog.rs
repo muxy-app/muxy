@@ -122,7 +122,8 @@ impl AppModel {
 
     /// Another computer's catalog is read again once this computer's is
     /// known, so an entry that reaches this computer never claims its server
-    /// first.
+    /// first. A read lost with the connection shows nothing: the status
+    /// already says the server disconnected.
     pub(super) fn receive_catalog(
         &mut self,
         server: ServerId,
@@ -136,6 +137,7 @@ impl AppModel {
         runtime.catalog.pending = false;
         let page = match result {
             Ok(page) => page,
+            Err(ClientError::Disconnected) => return,
             Err(error) => {
                 self.server_problem(
                     server,

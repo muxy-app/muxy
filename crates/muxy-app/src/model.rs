@@ -2310,6 +2310,9 @@ impl AppModel {
                         .update(cx, |pane, cx| pane.receive_history(request, result, cx));
                 }
             }
+            Update::ReferencesSynced(Err(muxy_client::ClientError::Disconnected)) => {
+                self.disconnect(server, cx);
+            }
             Update::ReferencesSynced(Err(error)) => {
                 self.disconnect(server, cx);
                 self.server_problem(
