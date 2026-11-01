@@ -59,8 +59,7 @@ pub async fn ask(
         return simulated(window, question, cx).await;
     }
     let (sender, receiver) = async_channel::bounded(1);
-    // Dropping the dialog's handle dismisses it, so it lives until answered.
-    let _dialog: Box<dyn std::any::Any> = window
+    let _open_until_answered: Box<dyn std::any::Any> = window
         .update(cx, |_, window, cx| match question {
             Question::Confirm {
                 title,
@@ -299,5 +298,60 @@ mod tests {
             checkbox: "Also restart the server",
         };
         assert_eq!(answer(choose, "Not Now", cx), None);
+        assert_eq!(
+            answer(choose, "Update", cx),
+            Some(PromptResponse {
+                checked: vec![false],
+                ..PromptResponse::default()
+            })
+        );
+        let ticked = ticked_label("Update", "Also restart the server");
+        assert!(answer(choose, &ticked, cx).is_some_and(|answer| answer.ticked()));
+    }
+
+    #[gpui::test]
+    fn the_test_hook_confirms_a_prompt_with_its_starting_choices(cx: &mut TestAppContext) {
+        let (_, cx) = cx.add_window_view(|_, _| Host);
+        cx.update(|_, cx| simulate(cx));
+        let choices: &'static PromptChoices = Box::leak(Box::new(PromptChoices {
+            picker: Some(super::super::PromptPicker {
+                label: "AI Provider".into(),
+                items: vec!["First".into(), "Second".into()],
+                selected: 1,
+            }),
+            checkboxes: vec![
+                super::super::PromptCheckbox {
+                    label: "Include unstaged changes".into(),
+                    checked: false,
+                    enabled: true,
+                },
+                super::super::PromptCheckbox {
+                    label: "Push after committing".into(),
+                    checked: true,
+                    enabled: true,
+                },
+            ],
+        }));
+        let theme: &'static crate::theme::Theme = Box::leak(Box::new(
+            crate::theme::Theme::from_scheme(&crate::theme::ColorScheme::default()),
+        ));
+        let metrics: &'static crate::theme::Metrics =
+            Box::leak(Box::new(crate::theme::Metrics::new(1.0)));
+        let prompt = Question::Prompt {
+            title: "Commit",
+            message: "Commit the staged changes?",
+            confirm: "Commit",
+            choices,
+            style: Style { theme, metrics },
+        };
+        assert_eq!(answer(prompt, "Cancel", cx), None);
+        assert_eq!(
+            answer(prompt, "Commit", cx),
+            Some(PromptResponse {
+                prompt: String::new(),
+                picked: Some(1),
+                checked: vec![false, true],
+            })
+        );
     }
 }

@@ -30,7 +30,18 @@ pub(super) fn heading(pane: &SettingsView, cx: &mut Context<SettingsView>) -> An
         .flex_col()
         .gap(px(8.0))
         .child(pane.note(&tr!("Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette."), false))
-        .child(div().flex().child(controls::button(pane.style(), "add-command", controls::Button::secondary(&tr!("Add Command")).enabled(pane.command_editor.is_none()), cx.listener(|pane, _, window, cx| pane.edit_command(None, window, cx))).debug_selector(|| "settings-add-command".into())))
+        .child(
+            div().flex().child(
+                controls::button(
+                    pane.style(),
+                    "add-command",
+                    controls::Button::secondary(&tr!("Add Command"))
+                        .enabled(pane.command_editor.is_none()),
+                    cx.listener(|pane, _, window, cx| pane.edit_command(None, window, cx)),
+                )
+                .debug_selector(|| "settings-add-command".into()),
+            ),
+        )
         .when(pane.snapshot.settings.commands.is_empty() && pane.command_editor.is_none(), |body| {
             body.child(pane.note(&tr!("No custom commands yet."), false))
         })

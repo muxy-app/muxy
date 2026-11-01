@@ -260,8 +260,18 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
             div()
                 .flex()
                 .gap(px(8.0))
-                .child(controls::button(style(model), "devices-copy-link", controls::Button::secondary(&tr!("Copy Link")), cx.listener(|model, _, _, cx| model.copy_pairing_link(cx))))
-                .child(controls::button(style(model), "devices-cancel-code", controls::Button::secondary(&tr!("Cancel")), cx.listener(|model, _, _, cx| model.cancel_pairing(cx)))),
+                .child(controls::button(
+                    style(model),
+                    "devices-copy-link",
+                    controls::Button::secondary(&tr!("Copy Link")),
+                    cx.listener(|model, _, _, cx| model.copy_pairing_link(cx)),
+                ))
+                .child(controls::button(
+                    style(model),
+                    "devices-cancel-code",
+                    controls::Button::secondary(&tr!("Cancel")),
+                    cx.listener(|model, _, _, cx| model.cancel_pairing(cx)),
+                )),
         )
         .into_any_element()
 }

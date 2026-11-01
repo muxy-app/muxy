@@ -157,12 +157,17 @@ fn profiles(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             .gap(px(8.0))
             .pt(px(4.0))
             .child(view.field("browser-profile-name"))
-            .child(controls::button(view.style(), "browser-add-profile", controls::Button::secondary(&tr!("Add Profile")), cx.listener(move |view, _, _, cx| {
+            .child(controls::button(
+                view.style(),
+                "browser-add-profile",
+                controls::Button::secondary(&tr!("Add Profile")),
+                cx.listener(move |view, _, _, cx| {
                     view.clear_browser_profile_name(cx);
                     cx.emit(SettingsEvent::Change(Change::Browser(
                         BrowserChange::AddProfile(added.clone()),
                     )));
-                }))),
+                }),
+            )),
     )
     .child(
         view.note(
@@ -210,7 +215,11 @@ fn profile_row(
         }),
     ));
     let (cleared, label) = (id.clone(), profile.name.clone());
-    buttons = buttons.child(controls::button(view.style(), &format!("browser-clear-{id}"), controls::Button::secondary(&tr!("Clear Data")), cx.listener(move |_, _, window, cx| {
+    buttons = buttons.child(controls::button(
+        view.style(),
+        &format!("browser-clear-{id}"),
+        controls::Button::secondary(&tr!("Clear Data")),
+        cx.listener(move |_, _, window, cx| {
             confirm(
                 BrowserChange::ClearProfile(cleared.clone()),
                 &tr!("Clear data for “%@”?", &label),
@@ -219,10 +228,15 @@ fn profile_row(
                 window,
                 cx,
             );
-        })));
+        }),
+    ));
     if !profile.default {
         let (deleted, label) = (id.clone(), profile.name.clone());
-        buttons = buttons.child(controls::button(view.style(), &format!("browser-delete-{id}"), controls::Button::secondary(&tr!("Delete")), cx.listener(move |_, _, window, cx| {
+        buttons = buttons.child(controls::button(
+            view.style(),
+            &format!("browser-delete-{id}"),
+            controls::Button::secondary(&tr!("Delete")),
+            cx.listener(move |_, _, window, cx| {
                 confirm(
                     BrowserChange::DeleteProfile(deleted.clone()),
                     &tr!("Delete “%@”?", &label),
@@ -231,7 +245,8 @@ fn profile_row(
                     window,
                     cx,
                 );
-            })));
+            }),
+        ));
     }
     div()
         .flex()
