@@ -253,3 +253,45 @@ fn a_confirmation_takes_the_callers_theme_and_metrics(cx: &mut TestAppContext) {
     });
     drop(prompt);
 }
+
+#[gpui::test]
+fn a_choice_takes_the_parents_theme_and_reports_the_button_chosen(cx: &mut TestAppContext) {
+    let (_, cx) = cx.add_window_view(|_, cx| Host::new(cx));
+    let light = Theme::from_scheme(&ColorScheme {
+        background: Some(rgb(0xff_ff_ff)),
+        foreground: Some(rgb(0x1c_1c_1c)),
+        ..ColorScheme::default()
+    });
+    let answer = Rc::new(RefCell::new(None));
+    cx.update(|window, cx| {
+        let parent = Parent::new(
+            window.window_handle(),
+            Style {
+                theme: &light,
+                metrics: &METRICS,
+            },
+        );
+        let answer = answer.clone();
+        cx.spawn(async move |cx| {
+            let buttons = [
+                "Update When Sessions End",
+                "Update and End Sessions…",
+                "Not Now",
+            ];
+            *answer.borrow_mut() =
+                Some(choose(&parent, "Muxy Update", "Restart?", &buttons, cx).await);
+        })
+        .detach();
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        let dialog = active(window, cx);
+        assert_eq!(dialog.read(cx).look().0, light.bg);
+        dialog.update(cx, |dialog, cx| dialog.finish(Some(1), cx));
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        answer.take().map(|answer| answer.expect("shown")),
+        Some(Some(1))
+    );
+}

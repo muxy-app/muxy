@@ -17,22 +17,11 @@ impl AppModel {
         if !self.require(Feature::CommandLineTool, cx) {
             return;
         }
-        let window = self.window;
+        let parent = self.dialog_parent(self.window);
         cx.spawn(async move |_, cx| {
             let result = cx.background_executor().spawn(async { install() }).await;
-            let response = window.update(cx, |_, window, cx| {
-                let (title, message) = installation_message(result);
-                window.prompt(
-                    gpui::PromptLevel::Info,
-                    &title,
-                    Some(&message),
-                    &[tr!("OK").as_ref()],
-                    cx,
-                )
-            });
-            if let Ok(answer) = response {
-                let _ = answer.await;
-            }
+            let (title, message) = installation_message(result);
+            let _ = muxy_ui::dialog::choose(&parent, &title, &message, &[&tr!("OK")], cx).await;
         })
         .detach();
     }

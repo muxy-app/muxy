@@ -16,9 +16,9 @@ impl AppModel {
     /// Explains why the terminals ended after the app last quit, and offers to
     /// open the setting that keeps them running.
     pub(super) fn explain_background_stop(&self, cx: &mut Context<Self>) {
-        let window = self.window;
+        let parent = self.dialog_parent(self.window);
         cx.spawn(async move |model, cx| {
-            if crate::views::confirm::prompt_background_activity(window, cx).await == Ok(true) {
+            if crate::views::confirm::prompt_background_activity(&parent, cx).await == Ok(true) {
                 let _ = model.update(cx, Self::open_login_items);
             }
         })
