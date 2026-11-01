@@ -151,7 +151,9 @@ impl AppModel {
         self.record_quick_shortcut(false, cx);
         self.flush_preferences(cx);
         self.retain_extension_updates(cx);
-        self.settings_window = None;
+        if let Some(settings) = self.settings_window.take() {
+            self.window_closed(settings.window.into(), cx);
+        }
         cx.notify();
     }
 
@@ -670,7 +672,8 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return;
         }
-        self.ask_dialog(
+        self.ask_once(
+            super::dialogs::Question::TerminalReset,
             window,
             async |parent, cx| crate::views::confirm::prompt_reset_terminal(parent, cx).await,
             |model, response, cx| match response {
@@ -913,7 +916,8 @@ impl AppModel {
         self.dismiss_overlay(cx);
         let generation = self.generation(server);
         let name = (!server.is_local()).then(|| self.server_label(server));
-        self.ask_dialog(
+        self.ask_once(
+            super::dialogs::Question::ServerControl(server),
             window,
             async move |parent, cx| {
                 crate::views::confirm::prompt_server(parent, restart, name.as_deref(), cx).await

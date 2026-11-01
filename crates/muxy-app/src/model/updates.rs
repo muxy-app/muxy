@@ -38,8 +38,6 @@ pub(super) struct Updater {
     phase: ServerUpdatePhase,
     reconcile: Option<Task<()>>,
     retry_preparation: Option<u64>,
-    /// The update question, asked once until it is answered.
-    confirmation: Option<super::dialogs::DialogId>,
 }
 
 #[derive(Default, Eq, PartialEq)]
@@ -328,7 +326,7 @@ impl AppModel {
     }
 
     pub(crate) fn check_for_updates(&mut self, manual: bool, cx: &mut Context<Self>) {
-        if self.quitting != Quitting::Idle || self.dialogs.is_open() {
+        if self.quitting != Quitting::Idle {
             return;
         }
         self.updates.manual |= manual;
@@ -469,22 +467,21 @@ impl AppModel {
             .detach();
     }
 
-    fn update_message(&self, message: &str, cx: &mut Context<Self>) {
-        let parent = self.dialog_parent(self.window);
+    fn update_message(&mut self, message: &str, cx: &mut Context<Self>) {
         let title = tr!("%@ Updates", Channel::current().app_name());
         let message = message.to_owned();
-        cx.spawn(async move |_, cx| {
-            let _ = muxy_ui::dialog::choose(&parent, &title, &message, &[&tr!("OK")], cx).await;
-        })
-        .detach();
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| {
+                let _ = muxy_ui::dialog::choose(parent, &title, &message, &[&tr!("OK")], cx).await;
+            },
+            |_, (), _| {},
+            cx,
+        );
     }
 
     pub(super) fn confirm_update(&mut self, cx: &mut Context<Self>) {
-        let asked = self
-            .updates
-            .confirmation
-            .is_some_and(|dialog| self.dialogs.pending(dialog));
-        if asked || self.quitting != Quitting::Idle || self.updates.checking() {
+        if self.quitting != Quitting::Idle || self.updates.checking() {
             return;
         }
         let Some(update) = &self.updates.ready else {
@@ -502,7 +499,8 @@ impl AppModel {
         let generation = self.servers.local.generation;
         self.dismiss_overlay(cx);
         let asked = version.clone();
-        let dialog = self.ask_dialog(
+        self.ask_once(
+            super::dialogs::Question::Update,
             self.window,
             async move |parent, cx| {
                 crate::views::confirm::prompt_update(
@@ -541,7 +539,6 @@ impl AppModel {
             },
             cx,
         );
-        self.updates.confirmation = Some(dialog);
     }
 
     fn schedule_update(&mut self, scheduled: bool, cx: &mut Context<Self>) {

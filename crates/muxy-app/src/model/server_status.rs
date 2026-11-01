@@ -69,7 +69,7 @@ impl AppModel {
     }
 
     fn server_actions_enabled(&self, server: ServerId) -> bool {
-        let idle = self.quitting == Quitting::Idle && !self.dialogs.is_open();
+        let idle = self.quitting == Quitting::Idle;
         if server.is_local() {
             idle && !self.server_preferences.control_busy
                 && !self.server_preferences.busy

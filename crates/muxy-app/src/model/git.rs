@@ -251,13 +251,12 @@ impl AppModel {
 
     pub(super) fn sync_git(&mut self, cx: &mut Context<Self>) {
         let current = self.state.current_project().id;
-        if self
+        if let Some(pending) = self
             .ai
             .confirmation
-            .as_ref()
-            .is_some_and(|pending| pending.project != current)
+            .take_if(|pending| pending.project != current)
         {
-            self.ai.confirmation = None;
+            self.dismiss_dialog(pending.dialog, cx);
         }
         if self.state.project_creation_pending(current) {
             return;

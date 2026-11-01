@@ -235,7 +235,8 @@ impl AppModel {
             return;
         };
         let generation = self.servers.local.generation;
-        self.ask_dialog(
+        self.ask_once(
+            super::dialogs::Question::RevokeDevice(device),
             window,
             async move |parent, cx| crate::views::confirm::prompt_revoke(parent, &name, cx).await,
             move |model, response, cx| match response {

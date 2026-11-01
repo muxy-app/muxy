@@ -565,7 +565,8 @@ impl AppModel {
             return;
         }
         let count = servers.len();
-        self.ask_dialog(
+        self.ask_once(
+            super::dialogs::Question::ForgetServers(servers.clone()),
             window,
             async move |parent, cx| match name {
                 Some(name) => crate::views::confirm::prompt_forget_server(parent, &name, cx).await,
@@ -746,7 +747,8 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return;
         }
-        self.ask_dialog(
+        self.ask_once(
+            super::dialogs::Question::InstallServer(server),
             window,
             async move |parent, cx| {
                 let source = crate::remote_install::Source::Release(version.into());

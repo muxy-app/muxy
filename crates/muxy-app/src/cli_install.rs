@@ -17,11 +17,21 @@ impl AppModel {
         if !self.require(Feature::CommandLineTool, cx) {
             return;
         }
-        let parent = self.dialog_parent(self.window);
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |model, cx| {
             let result = cx.background_executor().spawn(async { install() }).await;
             let (title, message) = installation_message(result);
-            let _ = muxy_ui::dialog::choose(&parent, &title, &message, &[&tr!("OK")], cx).await;
+            let _ = model.update(cx, |model, cx| {
+                model.ask_dialog(
+                    model.window,
+                    async move |parent, cx| {
+                        let _ =
+                            muxy_ui::dialog::choose(parent, &title, &message, &[&tr!("OK")], cx)
+                                .await;
+                    },
+                    |_, (), _| {},
+                    cx,
+                );
+            });
         })
         .detach();
     }
