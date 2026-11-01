@@ -90,8 +90,7 @@ impl AppModel {
         self.sync_agent_sessions(cx);
         if self.appearance.agent_sessions_visible {
             if let Some(input) = &self.agent_sessions.input {
-                input.focus_handle(cx).focus(window);
-                self.focus_requested = false;
+                self.focus_owner.place(&input.focus_handle(cx), window);
             }
         } else {
             self.focus_active(window, cx);
@@ -117,7 +116,7 @@ impl AppModel {
                         InputEvent::Changed => model.filter_agent_sessions(cx),
                         InputEvent::Submitted => model.resume_selected_agent_session(cx),
                         InputEvent::Cancelled => {
-                            model.focus_requested = true;
+                            model.focus_owner.request_active_pane();
                             cx.notify();
                         }
                     }));
@@ -286,8 +285,7 @@ impl AppModel {
             self.dismiss_overlay(cx);
             self.overlay = Some(Overlay::SessionProviders);
             self.agent_sessions.highlighted_provider = 0;
-            self.overlay_focus.focus(window);
-            self.focus_requested = false;
+            self.focus_owner.place(&self.overlay_focus, window);
             window.prevent_default();
         }
         cx.notify();
@@ -344,7 +342,7 @@ impl AppModel {
         self.initial_directories
             .insert(pane, self.state.current_project().directory.clone());
         self.changed(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         let server = self.state.current_project().server_id;
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);

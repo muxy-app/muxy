@@ -347,7 +347,7 @@ impl AppModel {
         self.cancel_titlebar_drag(cx);
         self.changed(cx);
         self.discard_pending(server, cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         match self.connection(server) {
             ConnectionState::Ready => {
                 for pane in panes {

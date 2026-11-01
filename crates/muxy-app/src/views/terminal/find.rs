@@ -219,16 +219,21 @@ impl TerminalPane {
                 .with_placeholder_key(tr_key!("Find in terminal…"))
                 .with_key_context(SEARCH_CONTEXT)
         });
-        let subscription = cx.subscribe(&input, |pane, input, event, cx| match event {
-            InputEvent::Changed => {
-                if let Some(find) = &mut pane.find {
-                    input.read(cx).text().clone_into(&mut find.results.query);
-                }
-                pane.find_query_changed(cx);
-            }
-            InputEvent::Submitted => pane.step_find(false, cx),
-            InputEvent::Cancelled => pane.close_find(cx),
-        });
+        let subscription =
+            cx.subscribe_in(
+                &input,
+                window,
+                |pane, input, event, window, cx| match event {
+                    InputEvent::Changed => {
+                        if let Some(find) = &mut pane.find {
+                            input.read(cx).text().clone_into(&mut find.results.query);
+                        }
+                        pane.find_query_changed(cx);
+                    }
+                    InputEvent::Submitted => pane.step_find(false, cx),
+                    InputEvent::Cancelled => pane.close_find(window, cx),
+                },
+            );
         input.focus_handle(cx).focus(window);
         self.find = Some(Find {
             input,
@@ -244,10 +249,10 @@ impl TerminalPane {
         cx.notify();
     }
 
-    pub(crate) fn close_find(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.find = None;
         self.find_refresh = None;
-        self.find_focus_pending = true;
+        self.focus.focus(window);
         cx.notify();
     }
 
@@ -485,7 +490,7 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
             )
             .child(
                 button("find-close", Icon::X, tr!("Close search"))
-                    .on_click(cx.listener(|pane, _, _, cx| pane.close_find(cx))),
+                    .on_click(cx.listener(|pane, _, window, cx| pane.close_find(window, cx))),
             )
             .into_any_element(),
     )

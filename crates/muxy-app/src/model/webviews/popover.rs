@@ -114,7 +114,7 @@ impl AppModel {
         };
         if matches!(self.overlay, Some(Overlay::Popover)) {
             self.overlay = None;
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
         }
         self.popover_event("popover.closed", &popover.owner, &popover.id, cx);
         cx.notify();

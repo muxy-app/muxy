@@ -258,9 +258,7 @@ impl AppModel {
                         model.overlay_subscription = None;
                         model.overlay =
                             Some(Overlay::ProjectLogo(Cropper::new(project, source, cx)));
-                        model.focus_requested = false;
-                        let focus = model.overlay_focus.clone();
-                        let _ = model.window.update(cx, |_, window, _| focus.focus(window));
+                        model.focus_owner.request(&model.overlay_focus);
                         cx.notify();
                     }
                     Err(error) => {

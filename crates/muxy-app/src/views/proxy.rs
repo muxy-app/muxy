@@ -384,7 +384,7 @@ impl AppModel {
                 })
             })
             .collect();
-        self.focus_later(host.focus_handle(cx), cx);
+        self.focus_owner.request(&host.focus_handle(cx));
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Proxy(Box::new(ProxyForm {
             kind: current.kind,

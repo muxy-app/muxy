@@ -2,8 +2,8 @@ use muxy_core::shortcuts::ShortcutId;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Context, Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window, actions, div, px, relative,
+    App, Context, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, actions, div, px, relative,
 };
 use muxy_app_core::Direction;
 use muxy_app_core::settings::Keymap;
@@ -15,6 +15,7 @@ use muxy_ui::tr;
 use super::{menu, overlays, sidebar, status_bar, tab_strip, titlebar};
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
+use crate::model::focus::Next;
 
 actions!(
     muxy,
@@ -883,22 +884,15 @@ impl AppModel {
 impl AppModel {
     fn prepare_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspacePrepare);
-        if self.overlay.is_none()
-            && (self.focus_requested
-                || (self.active_pane().is_none()
-                    && self.composer.view.is_none()
-                    && self.webviews.panels.is_empty()
-                    && !self.agents_panel.focus.contains_focused(window, cx)
-                    && !(self.appearance.agent_sessions_visible
-                        && self.agent_sessions.input.as_ref().is_some_and(|input| {
-                            input.focus_handle(cx).contains_focused(window, cx)
-                        }))))
-        {
-            match self.focus_return.take().and_then(|focus| focus.upgrade()) {
-                Some(focus) => focus.focus(window),
-                None => self.focus_active(window, cx),
+        let overlay = self.overlay.is_some();
+        match self.focus_owner.take(overlay) {
+            Some(Next::Element(focus)) => focus.focus(window),
+            Some(Next::ActivePane) => self.focus_active(window, cx),
+            // With no pane, the workspace keeps the keyboard for its shortcuts.
+            None if !overlay && self.active_pane().is_none() && window.focused(cx).is_none() => {
+                self.focus_active(window, cx);
             }
-            self.focus_requested = false;
+            None => {}
         }
         let modal = self.coverage().modal();
         if modal {

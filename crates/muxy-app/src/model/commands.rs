@@ -97,7 +97,7 @@ impl AppModel {
             return;
         }
         self.changed(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         let server = self.state.current_project().server_id;
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);

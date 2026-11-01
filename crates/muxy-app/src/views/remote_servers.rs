@@ -616,15 +616,6 @@ fn default_identity(home: &std::path::Path) -> Option<String> {
 }
 
 impl AppModel {
-    /// Focuses `focus` once the current update is done, from wherever the
-    /// overlay was opened, even outside the window.
-    pub(crate) fn focus_later(&self, focus: gpui::FocusHandle, cx: &mut Context<Self>) {
-        let window = self.window;
-        cx.defer(move |cx| {
-            let _ = window.update(cx, |_, window, _| focus.focus(window));
-        });
-    }
-
     pub(crate) fn toggle_remote_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.close_prompt.is_some() {
             return;
@@ -751,7 +742,7 @@ impl AppModel {
         })
         .collect();
         let focus = if custom_command { &command } else { &host };
-        self.focus_later(focus.focus_handle(cx), cx);
+        self.focus_owner.request(&focus.focus_handle(cx));
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::ServerForm(Box::new(ServerForm {
             device,
@@ -910,7 +901,7 @@ impl AppModel {
                 &form.host
             }
             .focus_handle(cx);
-            self.focus_later(focus, cx);
+            self.focus_owner.request(&focus);
             self.autofill_server_identity(cx);
             cx.notify();
         }
@@ -1043,7 +1034,7 @@ impl AppModel {
             InputEvent::Cancelled => model.dismiss_overlay(cx),
             InputEvent::Changed => {}
         });
-        self.focus_later(input.focus_handle(cx), cx);
+        self.focus_owner.request(&input.focus_handle(cx));
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Password(Box::new(PasswordPrompt {
             server,

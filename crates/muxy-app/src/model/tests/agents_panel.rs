@@ -343,7 +343,7 @@ fn the_shortcut_shows_and_focuses_then_hides_and_keys_open_only_live_panes(
     view.update(cx, |model, cx| {
         model.appearance.sidebar_expanded = true;
         model.appearance.agents_panel_visible = false;
-        model.focus_requested = true;
+        model.focus_owner.request_active_pane();
         cx.notify();
     });
     cx.run_until_parked();

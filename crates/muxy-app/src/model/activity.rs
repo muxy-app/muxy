@@ -457,7 +457,7 @@ impl AppModel {
             self.select_tab(tab, cx);
             self.focus_pane(pane, cx);
             self.dismiss_overlay(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.raise_window(cx);
         } else if server.is_local() && !self.quick.visible && self.supports(Feature::QuickTerminal)
         {

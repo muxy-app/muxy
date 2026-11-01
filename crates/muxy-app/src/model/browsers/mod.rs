@@ -263,7 +263,7 @@ impl AppModel {
                             view.read(cx).focus.focus(window);
                         }
                     }
-                    self.focus_requested = false;
+                    self.focus_owner.settle();
                 }
             }
             BrowserViewEvent::OpenTab(url) => {
@@ -454,7 +454,7 @@ impl AppModel {
         }
         if select {
             self.dismiss_overlay(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
         }
         self.changed(cx);
         Ok(pane)
@@ -630,7 +630,7 @@ impl AppModel {
             Ok(true) => {
                 self.browsers.views.remove(&pane);
                 self.save(cx);
-                self.focus_requested = true;
+                self.focus_owner.request_active_pane();
                 cx.notify();
             }
             Ok(false) => {}

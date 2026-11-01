@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, Context, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Pixels, Point, Styled, Window, div,
+    AnyElement, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Pixels, Point, Styled, Window, div,
 };
 
 use super::menu::{self, Item, Menu};
@@ -44,6 +44,20 @@ pub(crate) enum Overlay {
 }
 
 impl Overlay {
+    /// What gets the keyboard back when the overlay closes, instead of the
+    /// active pane.
+    pub(crate) fn returns_focus_to(&self, model: &AppModel, cx: &gpui::App) -> Option<FocusHandle> {
+        match self {
+            Self::Menu(menu) => menu.returns_focus_to.as_ref()?.upgrade(),
+            Self::SessionProviders if model.appearance.agent_sessions_visible => model
+                .agent_sessions
+                .input
+                .as_ref()
+                .map(|input| gpui::Focusable::focus_handle(input, cx)),
+            _ => None,
+        }
+    }
+
     /// The mark of the area the overlay covers, so native views elsewhere
     /// stay visible while it is open. Modal dialogs dim the whole window, so
     /// they have none. Rendering and [`AppModel::coverage`] both read it.
@@ -118,20 +132,15 @@ impl AppModel {
         if matches!(self.overlay, Some(Overlay::Password(_))) {
             self.pending_remote = None;
         }
-        let closed = self.overlay.take();
+        let returns_to = self
+            .overlay
+            .as_ref()
+            .and_then(|overlay| overlay.returns_focus_to(self, cx));
         let back_to_remote =
-            matches!(&closed, Some(Overlay::Menu(menu)) if menu.over_remote_servers);
-        self.focus_return = match closed {
-            Some(Overlay::Menu(menu)) => menu.returns_focus_to,
-            Some(Overlay::SessionProviders) if self.appearance.agent_sessions_visible => self
-                .agent_sessions
-                .input
-                .as_ref()
-                .map(|input| gpui::Focusable::focus_handle(input, cx).downgrade()),
-            _ => None,
-        };
+            matches!(&self.overlay, Some(Overlay::Menu(menu)) if menu.over_remote_servers);
+        self.overlay = None;
         self.overlay_subscription = None;
-        self.focus_requested = true;
+        self.focus_owner.overlay_closed(returns_to.as_ref());
         if back_to_remote {
             self.overlay = Some(Overlay::RemoteServers);
         }

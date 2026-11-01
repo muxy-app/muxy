@@ -784,7 +784,7 @@ impl AppModel {
             picker.set_shortcuts(&self.settings.keymap);
             picker.reload(cx);
         });
-        self.focus_later(picker.focus_handle(cx), cx);
+        self.focus_owner.request(&picker.focus_handle(cx));
         self.overlay_subscription =
             Some(
                 cx.subscribe(&picker, move |model, picker, event, cx| match event {

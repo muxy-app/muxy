@@ -177,14 +177,8 @@ fn keyboard_resume_keeps_its_identity_when_results_arrive(cx: &mut TestAppContex
                 .startup_command(model.active_pane().expect("pane")),
             Some("codex resume session-1")
         );
-        model
-            .agent_sessions
-            .input
-            .as_ref()
-            .expect("input")
-            .focus_handle(cx)
-            .focus(window);
-        model.focus_requested = false;
+        let input = model.agent_sessions.input.as_ref().expect("input");
+        model.focus_owner.place(&input.focus_handle(cx), window);
     });
     cx.simulate_keystrokes("escape");
     view.update_in(cx, |model, window, cx| {

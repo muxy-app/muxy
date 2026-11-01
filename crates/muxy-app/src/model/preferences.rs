@@ -382,7 +382,7 @@ impl AppModel {
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
                 if !settings.appearance.agents_panel_visible {
                     self.agents_panel.drag = None;
-                    self.focus_requested = true;
+                    self.focus_owner.request_active_pane();
                     if matches!(self.overlay, Some(Overlay::Agents)) {
                         self.dismiss_overlay(cx);
                     }
@@ -922,7 +922,7 @@ impl AppModel {
                 crate::views::confirm::prompt_server(&parent, restart, name.as_deref(), cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
-                model.focus_requested = true;
+                model.focus_owner.request_active_pane();
                 if generation == model.generation(server) {
                     match response {
                         Ok(true) => model.stop_server(server, restart, cx),
