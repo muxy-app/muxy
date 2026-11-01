@@ -1193,22 +1193,8 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
                 });
         }
         Work::EndAll(referenced) => return Some(Update::EndedAll(end_all(client, referenced))),
-        Work::Detach(channel) => {
-            let result = client.detach(channel);
-            if matches!(&result, Err(ClientError::Server(reply)) if reply.code == ErrorCode::UnknownChannel)
-            {
-                return None;
-            }
-            result
-        }
-        Work::Resize(channel, size) => {
-            let result = client.resize(channel, size);
-            if matches!(&result, Err(ClientError::Server(reply)) if reply.code == ErrorCode::UnknownChannel)
-            {
-                return None;
-            }
-            result
-        }
+        Work::Detach(channel) => finished_if_gone(client.detach(channel)),
+        Work::Resize(channel, size) => finished_if_gone(client.resize(channel, size)),
         Work::Colors(colors) => client.set_terminal_colors(colors),
         Work::SessionColors(session, colors) => match client.set_session_colors(session, colors) {
             Err(ClientError::Server(reply))
@@ -1253,6 +1239,22 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         }
     };
     result.err().map(|error| Update::Error(error.to_string()))
+}
+
+/// A request for a channel or session the server no longer has is finished;
+/// the session's end is reported on its own.
+fn finished_if_gone(result: Result<(), ClientError>) -> Result<(), ClientError> {
+    match result {
+        Err(ClientError::Server(reply))
+            if matches!(
+                reply.code,
+                ErrorCode::UnknownChannel | ErrorCode::UnknownSession
+            ) =>
+        {
+            Ok(())
+        }
+        result => result,
+    }
 }
 
 fn stop_server(client: &Client, target: &Target) -> Result<(), ClientError> {
