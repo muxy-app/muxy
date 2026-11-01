@@ -5,14 +5,14 @@ swaps them in through `[patch.crates-io]`.
 
 Each crate keeps its full diff against upstream in
 `<crate>/patches/upstream-*.patch`. Apply it with `git apply` inside a fresh
-upstream copy to rebuild the vendored crate. Packaging files (`LICENSE`,
+upstream copy, outside this repository, to rebuild the vendored crate. Packaging files (`LICENSE`,
 `Cargo.toml.orig`, `.cargo_vcs_info.json`) and upstream files we don't build
 (README, tests, binaries) are left out of the diff.
 
 | Crate | Upstream | Why it's vendored | Changes |
 | --- | --- | --- | --- |
 | `core-text` | crates.io 21.0.0 | gpui and font-kit need 21.x, and 21.0.0 leaks font descriptor arrays | `CTFontCollection::get_descriptors` takes ownership under the Create rule ([upstream fix](https://github.com/servo/core-foundation-rs/commit/6f844cf1a1a18e25b70fcdf1bcdc458555bd2eff)). `CTRun` getters spell out their elided `Cow` lifetimes. |
-| `xim-ctext` | crates.io 0.4.1, kept at version 0.3.0 | `zed-xim`, behind gpui's X11 input method, asks for 0.3, which can't decode Chinese, Korean, ISO-8859 or mixed-charset compound text | 0.4.1's decoder under the 0.3.0 version number. Text before the first escape is decoded as plain text, so commits like `(June)` or `$(echo)` aren't mistaken for escape sequences ([upstream PR](https://github.com/Riey/xim-rs/pull/50)). The demo binary is dropped. |
+| `xim-ctext` | crates.io 0.4.1, kept at version 0.3.0 | `zed-xim`, behind gpui's X11 input method, asks for 0.3, which can't decode Chinese, Korean, ISO-8859 or mixed-charset compound text | 0.4.1's decoder ([upstream PR](https://github.com/Riey/xim-rs/pull/50)) under the 0.3.0 version number. Local fix: text before the first escape is decoded as plain text, so commits like `(June)` or `$(echo)` aren't mistaken for escape sequences. Upstream only guards `(B` and `(J` so far. The demo binary is dropped. |
 | `libghostty-vt` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Muxy needs a newer Ghostty and a clear-screen call that no release has | `Terminal::clear_screen` wraps the patched Ghostty call. `vt_write_until_ground` uses Ghostty's newer `vt_write_until`. `key::Encoder::encode_to_vec` reserves the full required length when it retries. |
 | `libghostty-vt-sys` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Builds the Ghostty that `libghostty-vt` needs | Pins Ghostty `83fb9562`. Applies `patches/clear-screen.patch` to a private copy of the Ghostty source before building (`patch.rs`). Retries Ghostty and Zig package downloads. Hides the app's Git tags from Ghostty's build. Rejects a pkg-config Ghostty that lacks the patch. `src/bindings.rs` is regenerated for that Ghostty. |
 
