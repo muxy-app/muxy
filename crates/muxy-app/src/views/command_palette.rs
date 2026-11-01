@@ -137,7 +137,7 @@ impl AppModel {
                 }
                 model.dismiss_overlay(cx);
                 model.focus_active(window, cx);
-                model.focus_requested = false;
+                model.focus_owner.settle();
                 if let CommandPaletteEvent::Selected(handler) = event {
                     handler(model, window, cx);
                 }

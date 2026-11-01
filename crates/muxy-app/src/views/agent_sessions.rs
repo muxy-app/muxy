@@ -321,7 +321,7 @@ fn body(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
             if has_query {
                 model.clear_session_search(cx);
             } else {
-                model.focus_requested = true;
+                model.focus_owner.request_active_pane();
                 cx.notify();
             }
         }))

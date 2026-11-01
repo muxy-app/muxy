@@ -82,9 +82,8 @@ impl AppModel {
         self.open_composer(cx);
         self.blur_webviews(cx);
         if let Some(view) = &self.composer.view {
-            view.focus_handle(cx).focus(window);
+            self.focus_owner.place(&view.focus_handle(cx), window);
         }
-        self.focus_requested = false;
     }
 
     fn place_composer_panel(&mut self, view: &Entity<Composer>, cx: &mut Context<Self>) {
@@ -203,7 +202,7 @@ impl AppModel {
         self.composer.subscription = None;
         self.composer.key = None;
         self.composer.pane = None;
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         cx.notify();
     }
 
@@ -558,9 +557,8 @@ impl AppModel {
                 if let Some((_, command)) = selected.and_then(|index| choices.get(index)) {
                     active.update(cx, |view, cx| view.menu_action(*command, cx));
                 }
-                let focus = active.focus_handle(cx);
-                let _ = model.window.update(cx, |_, window, _| focus.focus(window));
-                model.focus_requested = false;
+                model.focus_owner.request(&active.focus_handle(cx));
+                cx.notify();
             });
         })
         .detach();
@@ -581,7 +579,9 @@ impl AppModel {
         {
             self.dismiss_overlay(cx);
         }
-        self.focus_return = None;
+        if let Some(view) = &self.composer.view {
+            self.focus_owner.forget(&view.focus_handle(cx));
+        }
     }
 
     /// The composer's menu, drawn by the app where the system pops up none.
@@ -619,11 +619,11 @@ impl AppModel {
             .collect();
         let mut menu = Menu::new(items, button.bottom_left());
         menu.drops_from = Some(button);
-        menu.returns_focus_to = Some(view.focus_handle(cx).downgrade());
+        self.focus_owner
+            .return_after_overlay(Some(&view.focus_handle(cx)));
         self.overlay_subscription = None;
         self.overlay = Some(crate::views::overlays::Overlay::Menu(menu));
-        let focus = self.overlay_focus.clone();
-        let _ = self.window.update(cx, |_, window, _| focus.focus(window));
+        self.focus_owner.request(&self.overlay_focus);
         cx.notify();
     }
 }

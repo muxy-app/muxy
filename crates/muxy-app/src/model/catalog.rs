@@ -408,7 +408,7 @@ impl AppModel {
             self.open_session_tab(project, session, cx)?
         };
         self.dismiss_overlay(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         Ok(pane.to_string().into())
     }
 

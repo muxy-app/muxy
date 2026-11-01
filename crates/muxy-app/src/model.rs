@@ -12,6 +12,7 @@ mod composer;
 mod coverage;
 mod diagnostics;
 pub(crate) mod extensions;
+pub(crate) mod focus;
 pub(crate) mod git;
 mod language;
 mod links;
@@ -179,9 +180,7 @@ pub(crate) struct AppModel {
     pub(crate) dark: bool,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) overlay_focus: FocusHandle,
-    pub(crate) focus_requested: bool,
-    /// What a requested focus goes back to, instead of the active pane.
-    pub(crate) focus_return: Option<gpui::WeakFocusHandle>,
+    pub(crate) focus_owner: focus::FocusOwner,
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
     #[cfg(target_os = "linux")]
@@ -409,7 +408,7 @@ impl AppModel {
         {
             self.navigation.commit(index);
             self.changed(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.connect_on_demand(self.state.current_project().server_id, cx);
         }
     }
@@ -599,8 +598,7 @@ impl AppModel {
             dark,
             overlay: None,
             overlay_focus: cx.focus_handle(),
-            focus_requested: false,
-            focus_return: None,
+            focus_owner: focus::FocusOwner::default(),
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
             #[cfg(target_os = "linux")]
@@ -755,7 +753,7 @@ impl AppModel {
         }
         self.split_resize.end();
         self.sync_visible(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
         match self.connection(server) {
             ConnectionState::Ready => self.start_attach(pane, size, cx),
@@ -776,7 +774,7 @@ impl AppModel {
             return;
         }
         if self.state.focus_pane(pane).is_ok() {
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.changed(cx);
         }
     }
@@ -808,7 +806,7 @@ impl AppModel {
             && self.state.toggle_zoom(pane).is_ok()
         {
             self.split_resize.end();
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.changed(cx);
         }
     }
@@ -841,7 +839,7 @@ impl AppModel {
         if self.state.select_project(project).is_ok() {
             self.dismiss_overlay(cx);
             self.changed(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.connect_on_demand(self.state.current_project().server_id, cx);
         }
     }
@@ -966,7 +964,7 @@ impl AppModel {
         }
         self.replay_projects(cx);
         self.sync_visible(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         cx.notify();
         true
     }
@@ -1087,7 +1085,7 @@ impl AppModel {
         match self.state.open_terminal_tab(project) {
             Ok(_) => {
                 self.changed(cx);
-                self.focus_requested = true;
+                self.focus_owner.request_active_pane();
             }
             Err(error) => self.fail(error.to_string(), cx),
         }
@@ -1123,7 +1121,7 @@ impl AppModel {
             return false;
         }
         self.changed(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
         }
@@ -1140,7 +1138,7 @@ impl AppModel {
         match self.state.select_tab(project, tab) {
             Ok(()) => {
                 self.changed(cx);
-                self.focus_requested = true;
+                self.focus_owner.request_active_pane();
                 self.connect_on_demand(self.state.current_project().server_id, cx);
             }
             Err(error) => self.fail(error.to_string(), cx),
@@ -1234,7 +1232,7 @@ impl AppModel {
         }
         self.split_resize.end();
         self.dismiss_overlay(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         self.sync_visible(cx);
         cx.notify();
     }
@@ -1369,7 +1367,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         self.finish_confirmation(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         if self
             .close_request
             .as_ref()
@@ -1490,7 +1488,7 @@ impl AppModel {
                 ConnectionState::Disconnected => self.connect_server(server, cx),
                 ConnectionState::Connecting => {}
             }
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             cx.notify();
             return;
         }
@@ -1508,7 +1506,7 @@ impl AppModel {
                 .record((self.state.current_project().id, tab));
         }
         self.split_resize.end();
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         self.sync_visible(cx);
         self.discard_pending(server, cx);
         cx.notify();
@@ -1853,7 +1851,7 @@ impl AppModel {
             },
         );
         if !self.is_quick_terminal(id) && self.state.pane_tab(id) == self.active_tab() {
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
         }
     }
 
@@ -1908,7 +1906,9 @@ impl AppModel {
                 return;
             }
         }
-        self.focus_requested |= active != self.active_pane();
+        if active != self.active_pane() {
+            self.focus_owner.request_active_pane();
+        }
         self.save(cx);
         self.discard_pending(server, cx);
         self.loaded
@@ -2760,7 +2760,9 @@ impl AppModel {
             self.pending_close = None;
             self.finish_confirmation(cx);
         }
-        self.focus_requested |= active != self.active_pane();
+        if active != self.active_pane() {
+            self.focus_owner.request_active_pane();
+        }
         self.changed(cx);
         self.discard_pending(server, cx);
     }
@@ -2842,6 +2844,7 @@ mod tests {
     mod coverage;
     mod detach;
     mod find;
+    mod focus;
     mod git;
     mod layout_drag;
     mod links;

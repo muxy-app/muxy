@@ -422,7 +422,7 @@ impl AppModel {
                 if matches!(&model.overlay, Some(Overlay::Native(view)) if view.entity_id() == weak.entity_id())
                 {
                     model.overlay = None;
-                    model.focus_requested = true;
+                    model.focus_owner.request_active_pane();
                 }
                 let value = selected.map_or(Value::Null, |item| {
                     json!({"id": item.id, "title": item.title, "subtitle": item.subtitle})

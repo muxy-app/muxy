@@ -544,8 +544,7 @@ impl AppModel {
 
     pub(crate) fn focus_agents_panel(&mut self, window: &mut Window) {
         self.agents_panel.selected = None;
-        self.agents_panel.focus.focus(window);
-        self.focus_requested = false;
+        self.focus_owner.place(&self.agents_panel.focus, window);
     }
 
     pub(crate) fn agents_panel_frame(&self, viewport: gpui::Size<Pixels>) -> [f32; 4] {

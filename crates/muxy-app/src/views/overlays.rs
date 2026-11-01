@@ -118,20 +118,11 @@ impl AppModel {
         if matches!(self.overlay, Some(Overlay::Password(_))) {
             self.pending_remote = None;
         }
-        let closed = self.overlay.take();
         let back_to_remote =
-            matches!(&closed, Some(Overlay::Menu(menu)) if menu.over_remote_servers);
-        self.focus_return = match closed {
-            Some(Overlay::Menu(menu)) => menu.returns_focus_to,
-            Some(Overlay::SessionProviders) if self.appearance.agent_sessions_visible => self
-                .agent_sessions
-                .input
-                .as_ref()
-                .map(|input| gpui::Focusable::focus_handle(input, cx).downgrade()),
-            _ => None,
-        };
+            matches!(&self.overlay, Some(Overlay::Menu(menu)) if menu.over_remote_servers);
+        self.overlay = None;
         self.overlay_subscription = None;
-        self.focus_requested = true;
+        self.focus_owner.overlay_closed();
         if back_to_remote {
             self.overlay = Some(Overlay::RemoteServers);
         }
@@ -148,6 +139,7 @@ impl AppModel {
         self.project_logo_task = None;
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::Menu(Menu::new(items, position)));
+        self.focus_owner.return_after_overlay(None);
         self.overlay_focus.focus(window);
         // A focusable ancestor of the clicked row would otherwise take focus back.
         window.prevent_default();

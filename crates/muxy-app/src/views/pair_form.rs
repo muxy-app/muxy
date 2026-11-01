@@ -94,7 +94,7 @@ impl AppModel {
                 })
             })
             .collect();
-        self.focus_later(link.focus_handle(cx), cx);
+        self.focus_owner.request(&link.focus_handle(cx));
         self.overlay_subscription = None;
         self.overlay = Some(Overlay::PairForm(Box::new(PairForm {
             device,

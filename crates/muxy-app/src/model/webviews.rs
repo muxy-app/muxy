@@ -123,8 +123,7 @@ impl AppModel {
                     self.panels.placement(id).is_some() && panel.surface.view == view
                 });
             if live {
-                view.read(cx).focus.focus(window);
-                self.focus_requested = false;
+                self.focus_owner.place(&view.read(cx).focus, window);
             }
         }
         self.webviews.occlusions.borrow_mut().clear();
@@ -447,7 +446,7 @@ impl AppModel {
             return Err("could not save webview tab".into());
         }
         self.sync_visible(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         cx.notify();
         Ok(pane)
     }
@@ -558,7 +557,7 @@ impl AppModel {
                         self.state = previous;
                     }
                     self.sync_visible(cx);
-                    self.focus_requested = true;
+                    self.focus_owner.request_active_pane();
                 }
                 return None;
             }
@@ -628,8 +627,7 @@ impl AppModel {
         if let Some(pane) = pane {
             self.focus_pane(pane, cx);
         }
-        view.read(cx).focus.focus(window);
-        self.focus_requested = false;
+        self.focus_owner.place(&view.read(cx).focus, window);
         if !in_overlay {
             let outside: Vec<_> = self
                 .webviews
@@ -755,7 +753,7 @@ impl AppModel {
             if matches!(self.overlay, Some(Overlay::Webview)) {
                 self.overlay = None;
             }
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             cx.notify();
         }
     }

@@ -191,7 +191,7 @@ impl AppModel {
             });
             let placement = panel.placement.clone();
             self.place_panel(placement, cx);
-            self.focus_requested = false;
+            self.focus_owner.settle();
             self.panel_event("panel.opened", &owner, kind, cx);
             return Ok(Value::Null);
         }
@@ -204,7 +204,7 @@ impl AppModel {
         {
             panel.surface.view.read(cx).focus.focus(window);
         }
-        self.focus_requested = false;
+        self.focus_owner.settle();
         self.panel_event("panel.opened", &owner, kind, cx);
         cx.notify();
         Ok(Value::Null)
@@ -486,7 +486,9 @@ impl AppModel {
             if self.panels.remove(id).is_some() {
                 self.panel_event("panel.closed", &panel.owner, &panel.kind, cx);
             }
-            self.focus_requested |= panel.focused;
+            if panel.focused {
+                self.focus_owner.request_active_pane();
+            }
             cx.notify();
         }
     }

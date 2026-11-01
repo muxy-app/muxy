@@ -124,7 +124,6 @@ pub(crate) struct TerminalPane {
     pub(crate) scroll: Scroll,
     pub(crate) find: Option<find::Find>,
     pub(crate) find_refresh: Option<Task<()>>,
-    pub(crate) find_focus_pending: bool,
     pub(crate) selection: Option<Selection>,
     selection_rows: Vec<Option<SelectedRow>>,
     selecting: Option<(Selection, usize)>,
@@ -219,7 +218,6 @@ impl TerminalPane {
             scroll: Scroll::default(),
             find: None,
             find_refresh: None,
-            find_focus_pending: false,
             selection: None,
             selection_rows: Vec::new(),
             selecting: None,
@@ -1727,10 +1725,6 @@ impl Render for TerminalPane {
         {
             self.render_count += 1;
         }
-        if self.find_focus_pending {
-            self.find_focus_pending = false;
-            self.focus.focus(window);
-        }
         #[cfg(target_os = "macos")]
         self.setup_native_scroll(window, cx);
         self.hover_link(window.mouse_position(), window.modifiers().secondary(), cx);
@@ -1768,8 +1762,8 @@ impl Render for TerminalPane {
             } else {
                 "TerminalPane"
             })
-            .on_action(cx.listener(|pane, _: &CloseFind, _, cx| {
-                pane.close_find(cx);
+            .on_action(cx.listener(|pane, _: &CloseFind, window, cx| {
+                pane.close_find(window, cx);
                 cx.stop_propagation();
             }))
             .when(self.link_hover.target.is_some(), |pane| {

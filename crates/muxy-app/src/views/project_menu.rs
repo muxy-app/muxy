@@ -289,7 +289,7 @@ impl AppModel {
             let response = prompt(&parent, title, message, action, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_confirmation(cx);
-                model.focus_requested = true;
+                model.focus_owner.request_active_pane();
                 match response {
                     Ok(ConfirmationResponse::Confirmed { .. }) => confirmed(model, cx),
                     Ok(ConfirmationResponse::Cancelled) => {}

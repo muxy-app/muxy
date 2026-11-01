@@ -188,7 +188,11 @@ impl AppModel {
             .map_err(|error| error.to_string())?;
         // A modal can temporarily switch worktrees while completing an action.
         self.changed(cx);
-        self.focus_requested = self.webviews.modal.is_none();
+        if self.webviews.modal.is_none() {
+            self.focus_owner.request_active_pane();
+        } else {
+            self.focus_owner.settle();
+        }
         Ok(Value::Null)
     }
 }

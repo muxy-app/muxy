@@ -873,7 +873,7 @@ impl AppModel {
         self.changed(cx);
         self.sync_devices_tab(true, cx);
         self.focus_active(window, cx);
-        self.focus_requested = false;
+        self.focus_owner.settle();
     }
 
     /// Connects, or connects again: a fresh SSH login and server check.

@@ -25,7 +25,7 @@ impl AppModel {
             cx,
         ) {
             self.changed(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
         }
     }
 
@@ -67,7 +67,7 @@ impl AppModel {
             cx,
         ) {
             self.changed(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
         }
     }
 
@@ -118,7 +118,7 @@ impl AppModel {
             cx,
         ) {
             self.changed(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             if self.connection(project_server) == ConnectionState::Disconnected {
                 self.connect_server(project_server, cx);
             }
