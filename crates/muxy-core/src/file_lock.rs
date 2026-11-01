@@ -21,7 +21,12 @@ impl Drop for FileLock {
 /// Takes the lock at `path`, or fails with `WouldBlock` while another holder
 /// has it.
 pub fn try_lock(path: &Path) -> io::Result<FileLock> {
-    let file = open(path)?;
+    try_lock_file(open(path)?)
+}
+
+/// Takes the lock on an open `file`, or fails with `WouldBlock` while another
+/// holder has it.
+pub fn try_lock_file(file: File) -> io::Result<FileLock> {
     file.try_lock().map_err(io::Error::from)?;
     Ok(FileLock(file))
 }
@@ -38,11 +43,26 @@ pub fn acquire(path: &Path, timeout: Duration) -> io::Result<FileLock> {
 /// lock lasts until the file closes. Waiters in this process are served in
 /// the order they arrived.
 pub fn acquire_file(file: &File, timeout: Duration) -> io::Result<()> {
+    wait_for(file, timeout, File::try_lock)
+}
+
+/// Shares the lock on an open `file` with other shared holders, waiting up to
+/// `timeout` while an exclusive holder has it. A read-only handle is enough.
+pub fn acquire_shared(file: File, timeout: Duration) -> io::Result<FileLock> {
+    wait_for(&file, timeout, File::try_lock_shared)?;
+    Ok(FileLock(file))
+}
+
+fn wait_for(
+    file: &File,
+    timeout: Duration,
+    try_lock: fn(&File) -> Result<(), TryLockError>,
+) -> io::Result<()> {
     let deadline = Instant::now() + timeout;
     let _turn = Turn::wait(file, deadline)?;
     let mut retry = FIRST_RETRY;
     loop {
-        match file.try_lock() {
+        match try_lock(file) {
             Ok(()) => return Ok(()),
             Err(TryLockError::WouldBlock) => {
                 let left = deadline.saturating_duration_since(Instant::now());
