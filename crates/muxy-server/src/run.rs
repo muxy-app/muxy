@@ -336,7 +336,7 @@ fn bootstrap_registry(
             .with_settings_persistence(move |settings| {
                 settings_file::save(&settings_path, settings)
             })
-            .with_remote_access(RemoteAccess::open(directory.with_file_name("remote.json")))
+            .with_remote_access(RemoteAccess::open(directory.with_file_name("remote.json"))?)
             .with_remote_listener(move |listening| listener.apply(listening)),
     ))
 }

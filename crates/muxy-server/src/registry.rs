@@ -127,6 +127,20 @@ impl Registry {
         Ok(registry)
     }
 
+    /// This process, with the saved files it couldn't read at startup.
+    pub fn server_info(&self) -> muxy_protocol::ServerInfo {
+        muxy_protocol::ServerInfo {
+            unreadable: self
+                .catalog
+                .unreadable()
+                .into_iter()
+                .chain(self.remote.unreadable())
+                .cloned()
+                .collect(),
+            ..muxy_protocol::ServerInfo::current()
+        }
+    }
+
     pub fn home_project(&self) -> muxy_protocol::ProjectId {
         self.catalog.home()
     }

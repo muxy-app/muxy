@@ -2157,6 +2157,9 @@ impl AppModel {
         if server.is_local() || (failure.is_some() && self.error == failure) {
             self.set_banner_error(None);
         }
+        if let Some(message) = self.unreadable_message(server) {
+            self.server_problem(server, message, cx);
+        }
         if server.is_local() {
             self.forget_quick_colors();
         }

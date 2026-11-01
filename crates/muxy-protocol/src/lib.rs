@@ -6,7 +6,10 @@
 //! types come from `muxy-core`.
 
 mod build;
-pub use build::{BuildInfo, COMPATIBILITY, ServerInfo};
+pub use build::{
+    BuildInfo, COMPATIBILITY, MAX_UNREADABLE_ERROR, MAX_UNREADABLE_FILES, ServerInfo,
+    UnreadableFile,
+};
 mod control;
 mod exec;
 pub use exec::{ExecRequest, ExecResult, MAX_EXEC_OUTPUT};

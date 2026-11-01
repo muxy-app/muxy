@@ -406,3 +406,40 @@ fn a_parent_of_a_kind_from_a_newer_build_does_not_stop_startup() -> std::io::Res
     );
     Ok(())
 }
+
+#[test]
+fn an_unreadable_catalog_is_moved_aside_and_startup_continues() -> std::io::Result<()> {
+    let mut invalid = fixture();
+    invalid["version"] = 2.into();
+    for contents in [b"damaged {".to_vec(), serde_json::to_vec(&invalid)?] {
+        let directory = std::env::temp_dir().join(format!("muxy-catalog-{}", OperationId::new()));
+        std::fs::create_dir(&directory)?;
+        let path = directory.join("catalog.json");
+        std::fs::write(&path, &contents)?;
+        let legacy = LegacyImport {
+            projects: vec![load(&fixture()).projects[&ProjectId::from_u128(2)].clone()],
+            sessions: BTreeMap::new(),
+        };
+        let catalog = Catalog::open(
+            &directory,
+            &Archive::memory(0),
+            legacy,
+            std::sync::Arc::default(),
+        )?;
+        let kept = catalog
+            .unreadable()
+            .map(|file| std::path::PathBuf::from(file.kept_as.clone()))
+            .ok_or_else(|| std::io::Error::other("the unreadable catalog is not reported"))?;
+        assert_eq!(std::fs::read(kept)?, contents);
+        assert!(path.exists(), "the fresh catalog is saved");
+        let state = catalog.lock().clone();
+        assert_eq!(
+            state.projects.len(),
+            1,
+            "only Home, without the legacy import"
+        );
+        assert!(state.projects[&state.home].home);
+        std::fs::remove_dir_all(&directory)?;
+    }
+    Ok(())
+}

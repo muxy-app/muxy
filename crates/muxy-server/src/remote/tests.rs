@@ -123,23 +123,24 @@ fn unauthenticated_admissions_are_capped_and_released() {
 }
 
 #[test]
-fn turning_access_off_keeps_an_unreadable_store_for_recovery()
+fn an_unreadable_store_is_moved_aside_and_access_starts_off()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory =
         std::env::temp_dir().join(format!("muxy-remote-{}", muxy_protocol::OperationId::new()));
     std::fs::create_dir(&directory)?;
     let path = directory.join("remote.json");
     std::fs::write(&path, "damaged")?;
-    let remote = RemoteAccess::open(path.clone());
-    assert!(matches!(
+    let remote = RemoteAccess::open(path.clone())?;
+    assert_eq!(
         remote.state(&HashSet::new()).status,
-        ListenerStatus::Failed(_)
-    ));
-    remote.configure(RemoteAccessSettings {
-        enabled: false,
-        port: 7419,
-    })?;
-    assert_eq!(std::fs::read_to_string(&path)?, "damaged");
+        ListenerStatus::Disabled
+    );
+    let kept = remote
+        .unreadable()
+        .map(|file| PathBuf::from(file.kept_as.clone()))
+        .ok_or("the unreadable store is not reported")?;
+    assert_eq!(std::fs::read_to_string(kept)?, "damaged");
+    assert!(!path.exists());
     remote.configure(RemoteAccessSettings {
         enabled: true,
         port: 7419,

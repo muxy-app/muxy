@@ -399,6 +399,10 @@ fn hello_reply_sample() -> Message {
                 protocol: crate::SUPPORTED.to_vec(),
             },
             instance: 1,
+            unreadable: vec![crate::UnreadableFile {
+                kept_as: ServerPath::from("/state/catalog.json.unreadable-1"),
+                error: "expected value at line 1 column 1".into(),
+            }],
         },
         features: vec![crate::Feature(1)],
     }

@@ -229,7 +229,15 @@ impl AppModel {
     /// A catalog this app can't take keeps the state as it was. For another
     /// computer, the reason shows in the sidebar's Remote section instead.
     fn server_failed(&mut self, server: ServerId, error: &AppError, cx: &mut Context<Self>) {
-        self.server_problem(server, error.to_string(), cx);
+        // A replaced catalog has a new identity; keep what the server couldn't read in view.
+        let cause = matches!(error, AppError::ServerChanged(_))
+            .then(|| self.unreadable_message(server))
+            .flatten();
+        match cause {
+            Some(cause) if server.is_local() => self.fail_detail(cause, &error.to_string(), cx),
+            Some(cause) => self.server_problem(server, cause, cx),
+            None => self.server_problem(server, error.to_string(), cx),
+        }
     }
 }
 

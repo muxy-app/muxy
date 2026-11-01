@@ -383,6 +383,24 @@ impl AppModel {
         }
     }
 
+    /// Saved files the server couldn't read when it started, which it runs without.
+    pub(super) fn unreadable_message(&self, server: ServerId) -> Option<String> {
+        let info = self.servers.get(server)?.info.as_ref()?;
+        if info.unreadable.is_empty() {
+            return None;
+        }
+        let kept: Vec<_> = info
+            .unreadable
+            .iter()
+            .map(|file| file.kept_as.as_path().display().to_string())
+            .collect();
+        let message = tr!(
+            "The server couldn't read saved data and started without it. Kept for recovery: %@",
+            kept.join(", ")
+        );
+        Some(self.server_message(server, &message))
+    }
+
     /// Names another computer's server in a message about it.
     pub(super) fn server_message(&self, server: ServerId, message: &str) -> String {
         match self.server_name(server) {

@@ -101,8 +101,12 @@ pub fn validate_versions(versions: &[Version]) -> Result<(), ErrorCode> {
 impl Message {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
-            Self::Hello { versions, .. } | Self::HelloReply { versions, .. } => {
-                validate_versions(versions)
+            Self::Hello { versions } => validate_versions(versions),
+            Self::HelloReply {
+                versions, server, ..
+            } => {
+                validate_versions(versions)?;
+                server.validate()
             }
             Self::Request { body, .. } => validate_request(body),
             Self::Reply { body, .. } => validate_reply(body),
