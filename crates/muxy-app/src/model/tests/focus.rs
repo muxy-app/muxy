@@ -98,6 +98,11 @@ fn each_overlay_hands_the_keyboard_back_to_the_active_pane(cx: &mut TestAppConte
             assert!(model.overlay.is_some(), "{name} opens");
         });
         cx.run_until_parked();
+        // The Agents opener sets its variant directly, and the Git form
+        // opens without a window, so neither takes the keyboard.
+        if !matches!(name, "agents" | "git form") {
+            assert!(!pane_focused(&view, pane, cx), "{name} took the keyboard");
+        }
         while view.read_with(cx, |model, _| model.overlay.is_some()) {
             view.update(cx, AppModel::dismiss_overlay);
             cx.run_until_parked();
