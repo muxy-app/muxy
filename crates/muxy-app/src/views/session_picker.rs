@@ -66,7 +66,7 @@ impl AppModel {
                 PickerEvent::QueryChanged { .. } => model.update_session_picker(cx),
                 _ => {}
             }));
-        self.overlay = Some(Overlay::Sessions(SessionPicker { project, picker }));
+        self.open_overlay(Overlay::Sessions(SessionPicker { project, picker }), cx);
         self.refresh_session_picker(cx);
     }
 

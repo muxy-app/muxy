@@ -142,13 +142,16 @@ impl AppModel {
                 PickerEvent::QueryChanged { .. } => model.update_layout_picker(cx),
                 _ => {}
             }));
-        self.overlay = Some(Overlay::Layouts(LayoutPicker {
-            picker,
-            project,
-            directory,
-            request,
-            loading: false,
-        }));
+        self.open_overlay(
+            Overlay::Layouts(LayoutPicker {
+                picker,
+                project,
+                directory,
+                request,
+                loading: false,
+            }),
+            cx,
+        );
         self.update_layout_picker(cx);
         cx.notify();
     }

@@ -412,17 +412,20 @@ impl AppModel {
             .collect();
         self.focus_owner.request(&host.focus_handle(cx));
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Proxy(Box::new(ProxyForm {
-            kind: current.kind,
-            host,
-            port,
-            username,
-            password,
-            bypass,
-            global: current.global,
-            error: None,
-            _subscriptions: subscriptions,
-        })));
+        self.open_overlay(
+            Overlay::Proxy(Box::new(ProxyForm {
+                kind: current.kind,
+                host,
+                port,
+                username,
+                password,
+                bypass,
+                global: current.global,
+                error: None,
+                _subscriptions: subscriptions,
+            })),
+            cx,
+        );
         self.overlay_focus.focus(window);
         cx.notify();
     }

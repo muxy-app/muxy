@@ -96,14 +96,17 @@ impl AppModel {
             .collect();
         self.focus_owner.request(&link.focus_handle(cx));
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::PairForm(Box::new(PairForm {
-            device,
-            link,
-            name,
-            group,
-            error: None,
-            _subscriptions: subscriptions,
-        })));
+        self.open_overlay(
+            Overlay::PairForm(Box::new(PairForm {
+                device,
+                link,
+                name,
+                group,
+                error: None,
+                _subscriptions: subscriptions,
+            })),
+            cx,
+        );
         cx.notify();
     }
 

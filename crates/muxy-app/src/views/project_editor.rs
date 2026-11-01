@@ -150,12 +150,15 @@ impl AppModel {
                 cx.notify();
             }
         }));
-        self.overlay = Some(Overlay::ProjectEditor(Editor {
-            target,
-            input,
-            position,
-            error: None,
-        }));
+        self.open_overlay(
+            Overlay::ProjectEditor(Editor {
+                target,
+                input,
+                position,
+                error: None,
+            }),
+            cx,
+        );
         cx.notify();
     }
 

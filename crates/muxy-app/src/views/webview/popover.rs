@@ -1,5 +1,5 @@
 use crate::model::AppModel;
-use crate::views::overlays::{Dismissal, Mark, OverlayView};
+use crate::views::overlays::{Mark, OverlayView};
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
 
 /// The open extension popover.
@@ -17,9 +17,8 @@ impl OverlayView for ExtensionPopover {
     }
 
     /// Outside clicks and toggles close it without asking the page.
-    fn on_dismiss(&self, model: &mut AppModel, cx: &mut Context<AppModel>) -> Dismissal {
+    fn on_close(&self, model: &mut AppModel, cx: &mut Context<AppModel>) {
         model.close_extension_popover(cx);
-        Dismissal::Close
     }
 }
 

@@ -85,27 +85,13 @@ pub(crate) struct Webviews {
     results: results::Results,
     sequence: u64,
     close_sequence: u64,
-    initialized: bool,
     restore_focus: Option<gpui::WeakEntity<Webview>>,
 }
 
 impl AppModel {
     pub(crate) fn sync_webviews(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.initialize_webview_demo(cx);
-        self.sync_extension_events(cx);
-        self.open_restored_panel(window, cx);
-        if !matches!(self.overlay, Some(Overlay::Webview))
-            && let Some(modal) = self.webviews.modal.take()
-        {
-            self.modal_event("modal.closed", &modal, cx);
-        }
-        if !matches!(self.overlay, Some(Overlay::Popover)) {
-            self.close_extension_popover(cx);
-        }
         self.sync_extension_sidebar(window, cx);
         let descriptors = self.ensure_webview_panes(window, cx);
-        self.prune_extension_jobs(cx);
-        self.prune_webview_results(cx);
         let visible = self.visible_panes();
         if self.overlay.is_none()
             && let Some(view) = self
@@ -298,6 +284,13 @@ impl AppModel {
         descriptors
     }
 
+    /// Cancels the extension calls, and forgets the modal results, whose
+    /// page, script or project is gone.
+    pub(in crate::model) fn forget_expired_calls(&mut self, cx: &mut Context<Self>) {
+        self.prune_extension_jobs(cx);
+        self.prune_webview_results(cx);
+    }
+
     fn prune_webview_results(&mut self, cx: &gpui::App) {
         let live_documents = self
             .webviews
@@ -327,37 +320,36 @@ impl AppModel {
         self.webviews.results.retain(live_documents);
     }
 
-    fn initialize_webview_demo(&mut self, cx: &mut Context<Self>) {
-        if !self.webviews.initialized {
-            self.webviews.initialized = true;
-            if cfg!(debug_assertions)
-                && std::env::var("MUXY_WEBVIEW_DEMO").is_ok_and(|value| value == "1")
-                && std::env::var_os("MUXY_DIR").is_some()
-            {
-                self.webviews.registered.insert(
-                    ("foundation".into(), "demo".into()),
-                    Registered {
-                        source: Source {
-                            owner: "foundation".into(),
-                            directory: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                                .join("fixtures/webview"),
-                            entry: "index.html".into(),
-                        },
-                        title: "Webview Foundation".into(),
-                    },
-                );
-                self.register_demo_panels();
-                let descriptor = WebviewDescriptor {
+    /// Opens the foundation demo tab in debug builds that ask for it.
+    pub(super) fn start_webview_demo(&mut self, cx: &mut Context<Self>) {
+        if !(cfg!(debug_assertions)
+            && std::env::var("MUXY_WEBVIEW_DEMO").is_ok_and(|value| value == "1")
+            && std::env::var_os("MUXY_DIR").is_some())
+        {
+            return;
+        }
+        self.webviews.registered.insert(
+            ("foundation".into(), "demo".into()),
+            Registered {
+                source: Source {
                     owner: "foundation".into(),
-                    kind: "demo".into(),
-                    data: json!({"message":"Foundation harness"}),
-                };
-                let restored = self.state.panes().any(|placed| matches!(&placed.pane.content,
-                    PaneContent::Webview(saved) if saved.owner == descriptor.owner && saved.kind == descriptor.kind));
-                if !restored {
-                    let _ = self.open_webview_tab(descriptor, true, cx);
-                }
-            }
+                    directory: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("fixtures/webview"),
+                    entry: "index.html".into(),
+                },
+                title: "Webview Foundation".into(),
+            },
+        );
+        self.register_demo_panels();
+        let descriptor = WebviewDescriptor {
+            owner: "foundation".into(),
+            kind: "demo".into(),
+            data: json!({"message":"Foundation harness"}),
+        };
+        let restored = self.state.panes().any(|placed| matches!(&placed.pane.content,
+            PaneContent::Webview(saved) if saved.owner == descriptor.owner && saved.kind == descriptor.kind));
+        if !restored {
+            let _ = self.open_webview_tab(descriptor, true, cx);
         }
     }
 
@@ -391,12 +383,15 @@ impl AppModel {
                     SurfaceEvent::Request(request) => {
                         model.webview_request(view, request, window, cx);
                     }
+                    SurfaceEvent::Navigated => model.forget_expired_calls(cx),
                     SurfaceEvent::Escape => model.webview_escape(view.read(cx).kind, cx),
                     SurfaceEvent::Shortcut(key) => {
                         dispatch_shortcut(key.clone(), window, cx);
                     }
                 },
             );
+        cx.observe_release(&view, |model, _, cx| model.forget_expired_calls(cx))
+            .detach();
         Ok(Surface {
             view,
             kind: String::new(),
@@ -721,14 +716,20 @@ impl AppModel {
 
     /// Shows a modal, replacing (and resolving with `null`) any open one.
     fn show_webview_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
-        if let Some(previous) = self.webviews.modal.take() {
-            self.modal_event("modal.closed", &previous, cx);
-        }
+        self.overlay_subscription = None;
+        self.open_overlay(Overlay::Webview, cx);
         self.modal_event("modal.opened", &modal, cx);
         self.webviews.modal = Some(modal);
-        self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Webview);
         cx.notify();
+    }
+
+    /// Closes the modal without asking its page, resolving it with `null`, as
+    /// when another overlay takes its place.
+    pub(crate) fn drop_webview_modal(&mut self, cx: &mut Context<Self>) {
+        if let Some(modal) = self.webviews.modal.take() {
+            self.modal_event("modal.closed", &modal, cx);
+            cx.notify();
+        }
     }
 
     fn modal_event(&self, event: &str, modal: &Modal, cx: &gpui::App) {

@@ -167,13 +167,16 @@ impl AppModel {
                 PickerEvent::FooterAction(action) => model.git_footer(action.as_ref(), cx),
                 _ => (),
             }));
-        self.overlay = Some(Overlay::Git(GitPicker {
-            project,
-            kind,
-            picker,
-            anchor,
-            selected: vec![],
-        }));
+        self.open_overlay(
+            Overlay::Git(GitPicker {
+                project,
+                kind,
+                picker,
+                anchor,
+                selected: vec![],
+            }),
+            cx,
+        );
         self.queue_git_refresh(project, vec![GitAction::Summary, kind.action()], cx);
         self.update_git_picker(cx);
     }
@@ -536,7 +539,7 @@ impl AppModel {
         };
         let _ = self.window.update(cx, |_, window, _| focus.focus(window));
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::GitForm(Box::new(Form {
+        let form = Form {
             project,
             worktree,
             existing: false,
@@ -554,7 +557,8 @@ impl AppModel {
             subscriptions,
             error: None,
             suggested_branch: String::new(),
-        })));
+        };
+        self.open_overlay(Overlay::GitForm(Box::new(form)), cx);
         if worktree {
             self.git_request(project, GitAction::Branches, cx);
             self.git_request(project, GitAction::WorktreeHooks { teardown: false }, cx);

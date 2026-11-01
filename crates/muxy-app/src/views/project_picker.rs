@@ -838,7 +838,7 @@ impl AppModel {
                     PickerEvent::Dismiss => model.dismiss_overlay(cx),
                 }),
             );
-        self.overlay = Some(Overlay::Projects(picker));
+        self.open_overlay(Overlay::Projects(picker), cx);
         cx.notify();
     }
 

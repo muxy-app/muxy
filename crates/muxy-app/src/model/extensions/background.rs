@@ -59,8 +59,11 @@ impl AppModel {
             })
             .map(|(owner, _)| owner.clone())
             .collect();
-        for owner in stale {
-            self.stop_backgrounds(Some(&owner));
+        if !stale.is_empty() {
+            for owner in stale {
+                self.stop_backgrounds(Some(&owner));
+            }
+            self.forget_expired_calls(cx);
         }
         for extension in wanted {
             if self.extensions.backgrounds.contains_key(&extension.name)

@@ -74,6 +74,10 @@ pub(crate) trait OverlayView {
     fn on_dismiss(&self, _model: &mut AppModel, _cx: &mut Context<AppModel>) -> Dismissal {
         Dismissal::Close
     }
+
+    /// Releases what the overlay holds once it is gone: closed, dismissed,
+    /// or replaced by another overlay.
+    fn on_close(&self, _model: &mut AppModel, _cx: &mut Context<AppModel>) {}
 }
 
 pub(crate) enum Placement {
@@ -177,6 +181,14 @@ impl Mark {
 }
 
 impl AppModel {
+    /// Shows `overlay` in place of the open one, which closes through its
+    /// [`OverlayView::on_close`].
+    pub(crate) fn open_overlay(&mut self, overlay: Overlay, cx: &mut Context<Self>) {
+        if let Some(previous) = self.overlay.replace(overlay) {
+            previous.view().on_close(self, cx);
+        }
+    }
+
     /// Closes the overlay and cancels what it left pending, through its
     /// [`OverlayView::on_dismiss`].
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
@@ -187,8 +199,12 @@ impl AppModel {
         let view = overlay.view();
         let returns_to = view.returns_focus_to(self, cx);
         match view.on_dismiss(self, cx) {
-            Dismissal::Close => self.overlay_closed(returns_to.as_ref(), cx),
+            Dismissal::Close => {
+                view.on_close(self, cx);
+                self.overlay_closed(returns_to.as_ref(), cx);
+            }
             Dismissal::Reopen(next) => {
+                view.on_close(self, cx);
                 self.overlay_closed(returns_to.as_ref(), cx);
                 self.overlay = Some(next);
             }
@@ -198,10 +214,12 @@ impl AppModel {
 
     /// Closes the overlay once its work is done, keeping what it started.
     pub(crate) fn close_overlay(&mut self, cx: &mut Context<Self>) {
-        let returns_to = self
-            .overlay
-            .take()
-            .and_then(|overlay| overlay.view().returns_focus_to(self, cx));
+        let returns_to = self.overlay.take().and_then(|overlay| {
+            let view = overlay.view();
+            let returns_to = view.returns_focus_to(self, cx);
+            view.on_close(self, cx);
+            returns_to
+        });
         self.overlay_closed(returns_to.as_ref(), cx);
     }
 
@@ -221,7 +239,7 @@ impl AppModel {
     ) {
         self.project_logo_task = None;
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Menu(Menu::new(items, position)));
+        self.open_overlay(Overlay::Menu(Menu::new(items, position)), cx);
         self.overlay_focus.focus(window);
         // A focusable ancestor of the clicked row would otherwise take focus back.
         window.prevent_default();

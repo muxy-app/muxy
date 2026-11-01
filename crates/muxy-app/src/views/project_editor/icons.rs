@@ -55,13 +55,16 @@ impl AppModel {
                     }
                 }
             }));
-        self.overlay = Some(Overlay::ProjectIcons(Icons {
-            project,
-            input,
-            position,
-            matches: muxy_ui::symbols::matching(""),
-            error: None,
-        }));
+        self.open_overlay(
+            Overlay::ProjectIcons(Icons {
+                project,
+                input,
+                position,
+                matches: muxy_ui::symbols::matching(""),
+                error: None,
+            }),
+            cx,
+        );
         cx.notify();
     }
 

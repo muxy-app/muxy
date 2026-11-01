@@ -310,7 +310,7 @@ impl AppModel {
             Placement::Popup => {
                 if !matches!(self.overlay, Some(Overlay::Agents)) {
                     self.dismiss_overlay(cx);
-                    self.overlay = Some(Overlay::Agents);
+                    self.open_overlay(Overlay::Agents, cx);
                 }
             }
             Placement::Docked | Placement::Right | Placement::Floating => {

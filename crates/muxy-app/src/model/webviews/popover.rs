@@ -102,7 +102,7 @@ impl AppModel {
             closing: false,
         });
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Popover);
+        self.open_overlay(Overlay::Popover, cx);
         self.popover_event("popover.opened", owner, popover, cx);
         cx.notify();
     }

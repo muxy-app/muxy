@@ -27,6 +27,8 @@ pub(crate) struct Request {
 
 pub(crate) enum SurfaceEvent {
     Request(Request),
+    /// The page started showing another document.
+    Navigated,
     Escape,
     Shortcut(gpui::Keystroke),
 }
@@ -250,6 +252,7 @@ impl Webview {
                 self.fail_closes();
                 self.error = None;
                 self.clear_snapshot(cx);
+                cx.emit(SurfaceEvent::Navigated);
             }
             Event::Loaded => {
                 self.push_state();
