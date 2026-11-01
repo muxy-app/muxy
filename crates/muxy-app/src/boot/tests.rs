@@ -243,6 +243,20 @@ fn resizing_or_detaching_a_session_that_already_ended_shows_no_error() -> TestRe
 }
 
 #[test]
+fn terminal_requests_lost_with_the_connection_show_no_error() -> TestResult {
+    let client = answering_every_request_with(ErrorReply {
+        code: ErrorCode::BadSize,
+        message: "bad size".to_owned(),
+    })?;
+    client.disconnect();
+    let target = Target::Local(PathBuf::from("/nonexistent"));
+    let size = Size { cols: 80, rows: 24 };
+    assert!(perform(Work::Resize(ChannelId(3), size), &client, &target).is_none());
+    assert!(perform(Work::Detach(ChannelId(3)), &client, &target).is_none());
+    Ok(())
+}
+
+#[test]
 fn a_resize_the_server_refuses_for_another_reason_still_shows_an_error() -> TestResult {
     let client = answering_every_request_with(ErrorReply {
         code: ErrorCode::BadSize,

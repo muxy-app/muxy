@@ -408,3 +408,32 @@ fn project_edits_wait_until_the_server_they_were_made_for_answers(cx: &mut TestA
         assert_eq!(edits(), 1, "the server they were made for gets them");
     });
 }
+
+#[gpui::test]
+fn requests_lost_when_the_server_stops_show_no_banner(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        acknowledge_catalog(model, cx);
+        let lost = muxy_client::ClientError::Disconnected;
+        model.receive(local(1, Update::ReferencesSynced(Err(lost))), cx);
+        let lost = muxy_client::ClientError::Disconnected;
+        model.receive(local(1, Update::Catalog(Err(lost))), cx);
+        model.receive(local(1, Update::Event(ClientEvent::Disconnected)), cx);
+        assert_eq!(model.error, None);
+        assert_eq!(
+            model.connection(ServerId::local()),
+            ConnectionState::Disconnected
+        );
+
+        let timeout = Update::Catalog(Err(muxy_client::ClientError::Timeout));
+        model.receive(local(1, timeout), cx);
+        assert!(
+            model
+                .error
+                .as_deref()
+                .is_some_and(|error| error.starts_with("Could not refresh projects"))
+        );
+    });
+}
