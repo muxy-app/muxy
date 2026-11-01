@@ -132,3 +132,41 @@ fn a_catalog_change_reaches_a_watching_connection_which_is_otherwise_quiet()
         .map_err(|error| error.to_string())?;
     Ok(())
 }
+
+#[test]
+fn every_session_ended_reaches_connections_before_they_close_at_shutdown()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (sender, _requests) = mpsc::channel();
+    let registry = Registry::new(
+        ServerSettings {
+            default_shell: Some("/bin/sh".into()),
+            ..ServerSettings::default()
+        },
+        sender,
+    );
+    let outbox = Arc::new(Outbox::new(Arc::clone(&registry.notifier)));
+    registry.notifier.register(&outbox);
+    let size = muxy_protocol::Size { cols: 80, rows: 24 };
+    let mut sessions: Vec<_> = (0..8)
+        .map(|_| {
+            registry
+                .create(std::path::Path::new("/tmp"), size)
+                .map(|info| info.id)
+        })
+        .collect::<Result<_, _>>()?;
+    registry.shutdown();
+    registry.wait_stopped();
+    registry.close_connections();
+    let mut ended: Vec<_> = outbox
+        .take_control()
+        .into_iter()
+        .filter_map(|message| match message {
+            muxy_protocol::Message::SessionEnded { session, .. } => Some(session),
+            _ => None,
+        })
+        .collect();
+    sessions.sort();
+    ended.sort();
+    assert_eq!(ended, sessions);
+    Ok(())
+}

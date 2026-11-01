@@ -90,6 +90,9 @@ mod tests {
         std::thread::spawn(move || {
             let _ = accepted.send(accepting.accept(|socket| socket.accept().map(|_| ())));
         });
+        while listener.socket.try_lock().is_ok() {
+            std::thread::yield_now();
+        }
         listener.close();
         let error = result
             .recv_timeout(Duration::from_secs(5))

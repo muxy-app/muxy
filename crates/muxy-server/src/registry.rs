@@ -539,12 +539,12 @@ impl Registry {
                 muxy_protocol::SessionStatus::Unavailable
             };
             catalog.record_exit(id, status);
+            log::info!("session ended: {} ({reason:?})", id.get());
             let mut state = lock(&listing);
             state.sessions.remove(&id);
             state.starting.remove(&id);
-            drop(state);
-            log::info!("session ended: {} ({reason:?})", id.get());
             notifier.session_ended(id, reason);
+            drop(state);
             completed.notify_all();
         }
     }

@@ -264,7 +264,6 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     let requests = thread::Builder::new()
         .name("server-events".into())
         .spawn(move || {
-            // Stop and restart requests both end the accept loop.
             if events.recv().is_ok() {
                 requested_stop.store(true, Ordering::Release);
                 requested_socket.close();
@@ -295,7 +294,6 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     remote.shutdown();
     drop(retention);
     registry.shutdown();
-    // Already stopping, so this only releases the request thread if nothing asked to stop.
     let _ = wake.send(ServerEvent::StopRequested);
     let requests_result = requests
         .join()

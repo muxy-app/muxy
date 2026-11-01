@@ -9,7 +9,7 @@ use crate::connection::Outbox;
 
 /// Every connection, and the counters behind the sessions revision.
 ///
-/// Callers notify after releasing their own locks: delivery locks each outbox.
+/// Delivery locks each outbox, so callers never notify while holding one.
 #[derive(Debug, Default)]
 pub(crate) struct Notifier {
     connections: Mutex<Vec<Weak<Outbox>>>,
