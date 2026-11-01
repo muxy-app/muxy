@@ -227,3 +227,64 @@ fn a_full_event_buffer_preserves_the_only_disconnect_after_history_completion() 
     assert!(delivery.event(ClientEvent::Disconnected)?.is_empty());
     Ok(())
 }
+
+#[test]
+fn resizing_or_detaching_a_session_that_already_ended_shows_no_error() -> TestResult {
+    let client = answering_every_request_with(muxy_protocol::ErrorReply {
+        code: ErrorCode::UnknownSession,
+        message: "session 7 does not exist".to_owned(),
+    })?;
+    let target = Target::Local(PathBuf::from("/nonexistent"));
+    let size = Size { cols: 80, rows: 24 };
+    assert!(perform(Work::Resize(ChannelId(3), size), &client, &target).is_none());
+    assert!(perform(Work::Detach(ChannelId(3)), &client, &target).is_none());
+    Ok(())
+}
+
+#[test]
+fn a_resize_the_server_refuses_for_another_reason_still_shows_an_error() -> TestResult {
+    let client = answering_every_request_with(muxy_protocol::ErrorReply {
+        code: ErrorCode::BadSize,
+        message: "bad size".to_owned(),
+    })?;
+    let target = Target::Local(PathBuf::from("/nonexistent"));
+    let size = Size { cols: 80, rows: 24 };
+    assert!(matches!(
+        perform(Work::Resize(ChannelId(3), size), &client, &target),
+        Some(Update::Error(_))
+    ));
+    Ok(())
+}
+
+/// A connected client whose server answers every request with `error`.
+fn answering_every_request_with(
+    error: muxy_protocol::ErrorReply,
+) -> Result<Client, Box<dyn Error + Send + Sync>> {
+    use muxy_protocol::wire::{Decoder, Encoder};
+    let (client, server) = muxy_protocol::transport::socket_pair()?;
+    let mut decoder = Decoder::new(server.try_clone()?);
+    let mut encoder = Encoder::new(server);
+    thread::spawn(move || {
+        if decoder.next().is_err() {
+            return;
+        }
+        let hello = Message::HelloReply {
+            versions: muxy_protocol::SUPPORTED.to_vec(),
+            server: muxy_protocol::ServerInfo::current(),
+            features: Vec::new(),
+        };
+        if encoder.send(muxy_protocol::CONTROL, &hello).is_err() {
+            return;
+        }
+        while let Ok((_, Message::Request { id, .. })) = decoder.next() {
+            let reply = Message::Reply {
+                id,
+                body: ReplyBody::Error(error.clone()),
+            };
+            if encoder.send(muxy_protocol::CONTROL, &reply).is_err() {
+                return;
+            }
+        }
+    });
+    Ok(Client::from_stream(Box::new(client))?)
+}
