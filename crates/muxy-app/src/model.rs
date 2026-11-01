@@ -2649,7 +2649,6 @@ impl AppModel {
             ClientEvent::Frame { channel, frame } => {
                 let seq = match self.attached_view(server, channel, cx) {
                     Some(pane) => pane.update(cx, |pane, cx| pane.apply(&frame, cx)),
-                    // A detached terminal's last frame still wants its acknowledgement.
                     None => self
                         .servers
                         .get(server)
@@ -2671,7 +2670,6 @@ impl AppModel {
                 }
             }
             ClientEvent::ServerRestarting if local => self.expect_server_restart(),
-            // The worker turns attached terminals into `Update::Attached`.
             ClientEvent::RemoteAccessChanged { .. }
             | ClientEvent::ServerRestarting
             | ClientEvent::Attached { .. } => {}

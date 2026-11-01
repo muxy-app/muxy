@@ -170,7 +170,6 @@ impl Delivery {
             }
             _ => {}
         }
-        // A session that ended before its attach failed closes right after.
         let failed = match &update {
             Some(Update::AttachFailed {
                 session: Some(session),
@@ -263,7 +262,6 @@ impl Delivery {
         if self.disconnect != Disconnect::Open {
             return Vec::new();
         }
-        // Nothing arrives after the disconnect, so no attach is on its way.
         self.waiting.clear();
         self.disconnect = Disconnect::Pending;
         let mut updates = Vec::new();
@@ -274,7 +272,6 @@ impl Delivery {
     fn ready(&self, event: &ClientEvent) -> bool {
         !self.busy()
             || match event {
-                // Each channel's frames follow its terminal, which is delivered at once.
                 ClientEvent::Attached { .. }
                 | ClientEvent::Frame { .. }
                 | ClientEvent::Metadata { .. }

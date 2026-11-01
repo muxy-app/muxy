@@ -111,7 +111,6 @@ pub(crate) fn route(
             if events.send(event).is_err() {
                 break;
             }
-            // The caller learns of the attach only once its terminal is queued.
             if let Some((id, channel)) = attached {
                 pending.resolve_attached(id, channel);
             }

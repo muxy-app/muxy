@@ -352,7 +352,17 @@ impl Client {
             .shared
             .pending
             .register_attach(Attaching { tag, session })?;
-        match self.exchange(id, &reply, request, self.timeout)? {
+        let reply = match self.exchange(id, &reply, request, self.timeout) {
+            Err(ClientError::Timeout) if !self.shared.pending.give_up_attach(id) => reply
+                .recv()
+                .map_err(|_| ClientError::Disconnected)
+                .and_then(|reply| match reply {
+                    Reply::Body(ReplyBody::Error(error)) => Err(ClientError::Server(error)),
+                    reply => Ok(reply),
+                }),
+            reply => reply,
+        };
+        match reply? {
             Reply::Attached(channel) => Ok(channel),
             Reply::Body(body) => Err(ClientError::UnexpectedReply(Box::new(body))),
         }
@@ -553,7 +563,11 @@ impl Client {
         timeout: Duration,
     ) -> Result<ReplyBody, ClientError> {
         let (id, reply) = self.shared.pending.register()?;
-        match self.exchange(id, &reply, body, timeout)? {
+        let reply = self.exchange(id, &reply, body, timeout);
+        if matches!(reply, Err(ClientError::Timeout)) {
+            self.shared.pending.forget(id);
+        }
+        match reply? {
             Reply::Body(body) => Ok(body),
             Reply::Attached(_) => Err(ClientError::Protocol(
                 "an attach reply answered another request".into(),
@@ -575,10 +589,7 @@ impl Client {
         match reply.recv_timeout(timeout) {
             Ok(Reply::Body(ReplyBody::Error(error))) => Err(ClientError::Server(error)),
             Ok(reply) => Ok(reply),
-            Err(RecvTimeoutError::Timeout) => {
-                self.shared.pending.forget(id);
-                Err(ClientError::Timeout)
-            }
+            Err(RecvTimeoutError::Timeout) => Err(ClientError::Timeout),
             Err(RecvTimeoutError::Disconnected) => Err(ClientError::Disconnected),
         }
     }

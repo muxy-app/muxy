@@ -112,7 +112,19 @@ impl Pending {
         }
     }
 
-    /// Stops waiting for a reply. An attach reply still reaches the event stream.
+    /// Stops waiting for an attach whose reply hasn't arrived, which still
+    /// reaches the event stream later. Returns false once the reply is being
+    /// announced, so the caller waits the moment it takes instead.
+    pub(crate) fn give_up_attach(&self, id: RequestId) -> bool {
+        let mut state = self.lock();
+        let waiting = state.attaching.contains_key(&id);
+        if waiting {
+            state.waiting.remove(&id);
+        }
+        waiting
+    }
+
+    /// Stops waiting for a reply.
     pub(crate) fn forget(&self, id: RequestId) {
         let mut state = self.lock();
         state.waiting.remove(&id);
@@ -231,5 +243,40 @@ impl Pending {
 
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attaching() -> Attaching {
+        Attaching {
+            tag: 1,
+            session: SessionId::new(7).expect("session"),
+        }
+    }
+
+    #[test]
+    fn an_attach_given_up_before_its_reply_leaves_the_reply_to_the_event_stream() {
+        let pending = Pending::default();
+        let (id, reply) = pending.register_attach(attaching()).expect("register");
+        assert!(pending.give_up_attach(id));
+        assert!(pending.take_attaching(id).is_some());
+        pending.resolve_attached(id, ChannelId(3));
+        assert!(reply.try_recv().is_err());
+    }
+
+    #[test]
+    fn an_attach_whose_reply_is_being_announced_still_gets_its_channel() {
+        let pending = Pending::default();
+        let (id, reply) = pending.register_attach(attaching()).expect("register");
+        assert!(pending.take_attaching(id).is_some());
+        assert!(!pending.give_up_attach(id));
+        pending.resolve_attached(id, ChannelId(3));
+        assert!(matches!(
+            reply.try_recv(),
+            Ok(Reply::Attached(ChannelId(3)))
+        ));
     }
 }

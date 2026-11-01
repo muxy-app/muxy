@@ -589,7 +589,6 @@ impl Core {
                             if error.code == ErrorCode::UnknownChannel => {}
                         Err(error) => return Err(error.to_string()),
                     }
-                    // The event reader has the terminal by now, unless the connection broke.
                     let process = process
                         .recv_timeout(Duration::from_secs(5))
                         .map_err(|_| "lost the connection to the server".to_owned())?;
@@ -762,7 +761,6 @@ impl Core {
             }
             shared.start_attach(Attaching::Pane { id, viewport: size })
         };
-        // The event reader shows the terminal when it arrives.
         match client.attach(tag, session, size) {
             Ok(_) => Ok(()),
             Err(error) => {

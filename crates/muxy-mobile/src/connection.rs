@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use std::thread;
-use std::time::Duration;
 
 use muxy_client::{Client, ClientError, ClientEvent, RemoteEndpoint};
 use muxy_protocol::{
@@ -16,9 +15,6 @@ use crate::git::GitRepository;
 use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
 use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
-
-/// How long an attach waits for the event thread to show its terminal.
-const ATTACHED_WAIT: Duration = Duration::from_secs(5);
 
 /// Receives connection events on an SDK thread; hop to the main thread before touching UI.
 #[uniffi::export(with_foreign)]
@@ -210,11 +206,7 @@ impl Connection {
             self.terminals.cancel_attach(tag);
             return Err(error.into());
         }
-        // The event thread has the terminal by now, unless the connection broke.
-        let Ok(view) = attached.recv_timeout(ATTACHED_WAIT) else {
-            self.terminals.cancel_attach(tag);
-            return Err(MobileError::Disconnected);
-        };
+        let view = attached.recv().map_err(|_| MobileError::Disconnected)?;
         Ok(Arc::new(Terminal {
             client: self.client.clone(),
             view,

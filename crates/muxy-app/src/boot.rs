@@ -1184,7 +1184,6 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             session,
             size,
         } => {
-            // The process arrives with the terminal, as `Update::CloseChecked`.
             return check_close(client, check, session, size)
                 .err()
                 .map(|error| Update::CloseChecked {
