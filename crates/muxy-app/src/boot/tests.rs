@@ -1,7 +1,8 @@
 use super::*;
 use std::error::Error;
 
-use muxy_protocol::{Message, ReplyBody};
+use muxy_protocol::wire::{Decoder, Encoder};
+use muxy_protocol::{CONTROL, ErrorReply, Message, ReplyBody, SUPPORTED, ServerInfo};
 
 type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
@@ -230,7 +231,7 @@ fn a_full_event_buffer_preserves_the_only_disconnect_after_history_completion() 
 
 #[test]
 fn resizing_or_detaching_a_session_that_already_ended_shows_no_error() -> TestResult {
-    let client = answering_every_request_with(muxy_protocol::ErrorReply {
+    let client = answering_every_request_with(ErrorReply {
         code: ErrorCode::UnknownSession,
         message: "session 7 does not exist".to_owned(),
     })?;
@@ -243,7 +244,7 @@ fn resizing_or_detaching_a_session_that_already_ended_shows_no_error() -> TestRe
 
 #[test]
 fn a_resize_the_server_refuses_for_another_reason_still_shows_an_error() -> TestResult {
-    let client = answering_every_request_with(muxy_protocol::ErrorReply {
+    let client = answering_every_request_with(ErrorReply {
         code: ErrorCode::BadSize,
         message: "bad size".to_owned(),
     })?;
@@ -257,10 +258,7 @@ fn a_resize_the_server_refuses_for_another_reason_still_shows_an_error() -> Test
 }
 
 /// A connected client whose server answers every request with `error`.
-fn answering_every_request_with(
-    error: muxy_protocol::ErrorReply,
-) -> Result<Client, Box<dyn Error + Send + Sync>> {
-    use muxy_protocol::wire::{Decoder, Encoder};
+fn answering_every_request_with(error: ErrorReply) -> Result<Client, Box<dyn Error + Send + Sync>> {
     let (client, server) = muxy_protocol::transport::socket_pair()?;
     let mut decoder = Decoder::new(server.try_clone()?);
     let mut encoder = Encoder::new(server);
@@ -269,11 +267,11 @@ fn answering_every_request_with(
             return;
         }
         let hello = Message::HelloReply {
-            versions: muxy_protocol::SUPPORTED.to_vec(),
-            server: muxy_protocol::ServerInfo::current(),
+            versions: SUPPORTED.to_vec(),
+            server: ServerInfo::current(),
             features: Vec::new(),
         };
-        if encoder.send(muxy_protocol::CONTROL, &hello).is_err() {
+        if encoder.send(CONTROL, &hello).is_err() {
             return;
         }
         while let Ok((_, Message::Request { id, .. })) = decoder.next() {
@@ -281,7 +279,7 @@ fn answering_every_request_with(
                 id,
                 body: ReplyBody::Error(error.clone()),
             };
-            if encoder.send(muxy_protocol::CONTROL, &reply).is_err() {
+            if encoder.send(CONTROL, &reply).is_err() {
                 return;
             }
         }

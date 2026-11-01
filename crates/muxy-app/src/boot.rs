@@ -1241,8 +1241,8 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
     result.err().map(|error| Update::Error(error.to_string()))
 }
 
-/// A request for a channel or session the server no longer has is finished:
-/// the session's own end event closes its pane.
+/// A request for a channel or session the server no longer has is finished;
+/// the session's end is reported on its own.
 fn finished_if_gone(result: Result<(), ClientError>) -> Result<(), ClientError> {
     match result {
         Err(ClientError::Server(reply))
