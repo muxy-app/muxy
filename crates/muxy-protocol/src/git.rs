@@ -51,6 +51,12 @@ pub enum GitAction {
     Status {
         #[n(0)]
         local: bool,
+        /// Ask the remote again instead of using what the server remembers.
+        /// Older servers ignore it; they remember nothing.
+        #[n(1)]
+        #[cbor(default)]
+        #[serde(default)]
+        fresh: bool,
     },
     #[n(14)]
     RepoInfo,

@@ -206,7 +206,13 @@ impl Git for Client {
 }
 
 fn status(git: &impl Git, project: ProjectId) -> Result<GitStatus, String> {
-    match git.call(project, GitAction::Status { local: true })? {
+    match git.call(
+        project,
+        GitAction::Status {
+            local: true,
+            fresh: false,
+        },
+    )? {
         GitReply::Status(status) => Ok(*status),
         _ => Err(tr!("Unexpected Git status reply").into()),
     }

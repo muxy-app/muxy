@@ -60,6 +60,7 @@ impl GitRepository {
     pub fn status(&self, include_pull_request: bool) -> Result<GitStatus, MobileError> {
         let action = GitAction::Status {
             local: !include_pull_request,
+            fresh: false,
         };
         match self.request(action)? {
             GitReply::Status(status) => Ok((*status).into()),

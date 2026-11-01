@@ -28,6 +28,7 @@ pub use catalog::LegacyImport;
 mod files;
 mod git;
 mod uploads;
+mod watch;
 
 mod activity;
 mod detection;
