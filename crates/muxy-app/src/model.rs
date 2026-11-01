@@ -256,6 +256,7 @@ impl AppModel {
             },
         )
     }
+
     pub(crate) fn refresh_theme(&mut self, cx: &mut Context<Self>) {
         let previous_colors = self.palette.terminal_colors();
         let (theme, palette) = self
