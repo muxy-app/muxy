@@ -1,8 +1,9 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, list, px,
+    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement, Role,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, list, px,
 };
+use muxy_ui::accessibility;
 use muxy_ui::components::{ButtonInteraction, IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::{tr_key, translate};
@@ -87,25 +88,33 @@ impl SettingsView {
             self.layout_style(),
             SharedString::from(format!("settings-disclosure-{}", category.label())),
             self.expanded.contains(&category),
-            cx.listener(move |view, _, _, cx| {
-                if !view.expanded.remove(&category) {
-                    view.expanded.insert(category);
-                }
-                cx.notify();
-            }),
+            cx.listener(move |view, _, _, cx| view.toggle_sections(category, cx)),
         )
         .debug_selector(move || format!("settings-disclosure-{}", category.label()))
         .into_any_element()
     }
 
+    fn toggle_sections(&mut self, category: Category, cx: &mut Context<Self>) {
+        if !self.expanded.remove(&category) {
+            self.expanded.insert(category);
+        }
+        cx.notify();
+    }
+
     fn categories(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut categories = div().flex().gap(px(2.0)).map(|nav| {
-            if self.compact {
-                nav.flex_wrap()
-            } else {
-                nav.flex_col()
-            }
-        });
+        let mut categories = div()
+            .id("settings-category-tabs")
+            .role(Role::TabList)
+            .aria_label(tr!("Settings"))
+            .flex()
+            .gap(px(2.0))
+            .map(|nav| {
+                if self.compact {
+                    nav.flex_wrap()
+                } else {
+                    nav.flex_col()
+                }
+            });
         for category in Category::ALL {
             let selected = self.query.is_empty() && self.category == category;
             let expanded = self.expanded.contains(&category);
@@ -113,6 +122,7 @@ impl SettingsView {
                 navigation::item(
                     self.layout_style(),
                     SharedString::from(format!("settings-category-{}", category.label())),
+                    translate(category.label()),
                     selected,
                     cx.listener(move |view, _, window, cx| {
                         view.select_category(category, None, window, cx);
@@ -125,6 +135,19 @@ impl SettingsView {
                 .child(self.disclosure(category, cx))
                 .child(translate(category.label())),
             );
+            if !self.compact && !category.sections().is_empty() {
+                let view = cx.weak_entity();
+                categories = categories.child(
+                    accessibility::hidden_button(
+                        format!("settings-disclosure-{}", category.label()),
+                        tr!("Sections of %@", &translate(category.label())),
+                        move |_, cx| {
+                            let _ = view.update(cx, |view, cx| view.toggle_sections(category, cx));
+                        },
+                    )
+                    .aria_expanded(expanded),
+                );
+            }
             if expanded && !self.compact {
                 for &section in category.sections() {
                     if category == Category::Terminal
@@ -136,7 +159,12 @@ impl SettingsView {
                     categories = categories.child(
                         navigation::subitem(
                             self.layout_style(),
-                            SharedString::from(format!("settings-subcategory-{section}")),
+                            // The same section can sit under two open categories.
+                            SharedString::from(format!(
+                                "settings-subcategory-{}-{section}",
+                                category.label()
+                            )),
+                            translate(section),
                             selected && self.section == Some(section),
                             cx.listener(move |view, _, window, cx| {
                                 view.select_category(category, Some(section), window, cx);
@@ -258,6 +286,9 @@ impl SettingsView {
                 let file = self.configuration_file();
                 div()
                     .id("settings-open-configuration")
+                    .role(Role::Button)
+                    .accessibility_id("settings-open-configuration")
+                    .aria_label(tr!("Edit in %@", file))
                     .debug_selector(|| "settings-open-configuration".into())
                     .px(px(9.0))
                     .py(px(4.0))
@@ -290,10 +321,20 @@ impl SettingsView {
             .flex()
             .items_center()
             .gap(px(8.0))
-            .child(self.note(error, true).flex_1().min_w(px(0.0)))
+            .child(accessibility::announced(
+                self.note(error, true)
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .id(SharedString::from(format!("settings-{id}-error"))),
+                error.to_owned(),
+                true,
+            ))
             .child(
                 div()
                     .id(SharedString::from(format!("settings-dismiss-{id}-error")))
+                    .role(Role::Button)
+                    .accessibility_id(format!("settings-dismiss-{id}-error"))
+                    .aria_label(tr!("Dismiss"))
                     .debug_selector(move || format!("settings-dismiss-{id}-error"))
                     .flex()
                     .flex_none()

@@ -2,8 +2,8 @@
 //! Devices shows, and renames or regroups a paired server.
 
 use gpui::{
-    AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, Styled,
-    Subscription, Window, div,
+    AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, Subscription, Window, div,
 };
 use muxy_app_core::ServerId;
 use muxy_ui::controls::{self, Style};
@@ -50,6 +50,8 @@ impl AppModel {
         let link = input(
             self,
             cx,
+            tr_key!("Pairing Link"),
+            "pair-link",
             if device.is_some() {
                 tr_key!("Paste a new link to pair again")
             } else {
@@ -60,12 +62,16 @@ impl AppModel {
         let name = input(
             self,
             cx,
+            tr_key!("Name"),
+            "pair-name",
             tr_key!("Shown in the sidebar"),
             entry.as_ref().map_or("", |entry| &entry.name),
         );
         let group = input(
             self,
             cx,
+            tr_key!("Group"),
+            "pair-group",
             tr_key!("optional"),
             entry
                 .as_ref()
@@ -214,11 +220,17 @@ fn render(
         .child(field(&tr!("Name"), text("pair-name", &form.name), model))
         .child(field(&tr!("Group"), text("pair-group", &form.group), model))
         .child(
-            div()
-                .debug_selector(|| "pair-form-status".into())
-                .text_size(m.font_footnote())
-                .text_color(color)
-                .child(status),
+            muxy_ui::accessibility::announced(
+                div()
+                    .id("pair-form-status")
+                    .accessibility_id("pair-form-status")
+                    .debug_selector(|| "pair-form-status".into())
+                    .text_size(m.font_footnote())
+                    .text_color(color),
+                status.clone(),
+                form.error.is_some(),
+            )
+            .child(status),
         )
         .child(
             div()

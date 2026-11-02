@@ -1,9 +1,10 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, Styled, Window, div, px, relative,
+    AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Role,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Toggled, Window, div, px, relative,
 };
 use muxy_protocol::{GitAction, GitMergeMethod, GitPullRequest, GitPullRequestAction, ProjectId};
+use muxy_ui::accessibility;
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
 use muxy_ui::controls::{self, Style};
 use muxy_ui::l10n::{tr_key, translate};
@@ -63,6 +64,7 @@ impl AppModel {
             }),
             cx,
         );
+        self.focus_owner.request(&self.overlay_focus);
         self.queue_git_refresh(
             project,
             vec![GitAction::PullRequest(GitPullRequestAction::Info)],
@@ -270,7 +272,10 @@ fn detail_row(m: Metrics, theme: &Theme, label: &str, value: String, color: Hsla
                 .flex_none()
                 .w(m.scaled(52.0))
                 .text_color(theme.fg_muted)
-                .child(label.to_owned()),
+                .child(accessibility::label(
+                    SharedString::from(format!("pr-detail-{label}")),
+                    label.to_owned(),
+                )),
         )
         .child(
             div()
@@ -279,7 +284,10 @@ fn detail_row(m: Metrics, theme: &Theme, label: &str, value: String, color: Hsla
                 .font_family(muxy_ui::font::monospace())
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(color)
-                .child(value),
+                .child(accessibility::label(
+                    SharedString::from(format!("pr-detail-value-{label}")),
+                    value,
+                )),
         )
         .into_any_element()
 }
@@ -307,6 +315,10 @@ fn merge_selector(
     let Style { theme, metrics: m } = style;
     let project = popover.project;
     let mut selector = div()
+        .id("pr-merge-method")
+        .role(Role::RadioGroup)
+        .accessibility_id("pr-merge-method")
+        .aria_label(tr!("Merge method"))
         .flex()
         .flex_none()
         .items_center()
@@ -331,6 +343,15 @@ fn merge_selector(
         selector = selector.child(
             div()
                 .id(id)
+                .role(Role::RadioButton)
+                .accessibility_id(id)
+                .aria_label(translate(label))
+                .aria_toggled(if selected {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                })
+                .aria_disabled(!enabled)
                 .flex()
                 .flex_1()
                 .justify_center()
@@ -456,22 +477,23 @@ fn header(
                 .flex_1()
                 .min_w(px(0.0))
                 .gap(m.spacing1())
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(tr!("Pull Request #%lld", pr.number)),
-                )
+                .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(
+                    accessibility::label("pr-title", tr!("Pull Request #%lld", pr.number)),
+                ))
                 .child(
                     div()
                         .text_size(m.font_caption())
                         .text_color(theme.fg_muted)
-                        .child(state),
+                        .child(accessibility::label("pr-state", state)),
                 ),
         )
         .child(
             div()
                 .id("pr-refresh")
+                .role(Role::Button)
+                .accessibility_id("pr-refresh")
+                .aria_label(tr!("Refresh"))
+                .aria_disabled(busy)
                 .flex()
                 .flex_none()
                 .items_center()
@@ -552,6 +574,22 @@ impl OverlayView for PullRequestPopover {
     }
 }
 
+/// The popover's card. It takes the keyboard, so a client lands inside it.
+fn surface(model: &AppModel, cx: &mut Context<AppModel>) -> Stateful<gpui::Div> {
+    muxy_ui::popover::surface(&model.theme, model.metrics)
+        .id("pull-request-popover")
+        .role(Role::Group)
+        .accessibility_id("pull-request-popover")
+        .key_context("Menu")
+        .track_focus(&model.overlay_focus)
+        .on_action(
+            cx.listener(|model, _: &crate::views::menu::DismissMenu, _, cx| {
+                model.dismiss_overlay(cx);
+            }),
+        )
+        .w(model.metrics.scaled(280.0))
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "Render the PR status and its actions together"
@@ -569,9 +607,12 @@ fn render_pr(
         .and_then(|repo| repo.pull_request.as_ref())
         .filter(|pr| pr.number == popover.number);
     let Some(pr) = pr else {
-        return muxy_ui::popover::surface(theme, m)
-            .w(m.scaled(280.0))
-            .child(muxy_ui::popover::body(m).child(tr!("Pull request changed. Reopen its status.")))
+        return surface(model, cx)
+            .aria_label(tr!("Pull Request"))
+            .child(muxy_ui::popover::body(m).child(accessibility::label(
+                "pr-changed",
+                tr!("Pull request changed. Reopen its status."),
+            )))
             .into_any_element();
     };
     let project = popover.project;
@@ -582,8 +623,8 @@ fn render_pr(
     let has_local_changes = repository
         .and_then(|repo| repo.summary.as_ref())
         .is_some_and(|summary| summary.changed > summary.untracked);
-    muxy_ui::popover::surface(theme, m)
-        .w(m.scaled(280.0))
+    surface(model, cx)
+        .aria_label(tr!("Pull Request #%lld", pr.number))
         .p(m.spacing6())
         .gap(m.spacing5())
         .line_height(relative(1.2))

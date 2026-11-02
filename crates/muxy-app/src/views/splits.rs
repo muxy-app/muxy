@@ -8,10 +8,13 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, DispatchPhase, HitboxBehavior, Hsla,
     InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Point, SharedString, Styled, Window, canvas, div, point, px, relative,
+    Pixels, Point, Role, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div,
+    point, px, relative,
 };
-use muxy_app_core::{Axis, Branch, GroupId, Layout, ProjectId, Tab, TabGroup, TabId};
+use muxy_app_core::{Axis, Branch, GroupId, Layout, PaneContent, ProjectId, Tab, TabGroup, TabId};
+use muxy_ui::tr;
 
+use super::terminal::pane::PaneEvent;
 use crate::model::AppModel;
 
 #[derive(Clone, Default)]
@@ -178,8 +181,8 @@ fn resize_tracker(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
 fn tab_content(tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let id = tab.id;
     let content = match tab.zoomed {
-        Some(zoomed) => zoomed_frame(zoomed, model, cx),
-        None => node(&tab.layout, id, Vec::new(), model, cx),
+        Some(zoomed) => zoomed_frame(zoomed, tab, model, cx),
+        None => node(&tab.layout, tab, Vec::new(), model, cx),
     };
     let geometry = model.layout_drag.geometry.clone();
     div()
@@ -271,6 +274,7 @@ fn group_element(
 
 fn zoomed_frame(
     pane: muxy_app_core::PaneId,
+    tab: &Tab,
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
@@ -310,14 +314,14 @@ fn zoomed_frame(
                 .border_color(model.theme.border_solid())
                 .shadow(muxy_ui::theme::Elevation::Elevated.shadow(model.theme.bg))
                 .overflow_hidden()
-                .child(pane_element(pane, model, cx)),
+                .child(pane_element(pane, tab, model, cx)),
         )
         .into_any_element()
 }
 
 fn node(
     layout: &Layout,
-    tab: TabId,
+    tab: &Tab,
     path: Vec<Branch>,
     model: &AppModel,
     cx: &Context<AppModel>,
@@ -330,7 +334,7 @@ fn node(
             second,
         } => (axis, ratio, first, second),
         Layout::Leaf(id) => {
-            return pane_element(*id, model, cx);
+            return pane_element(*id, tab, model, cx);
         }
     };
     let mut first_path = path.clone();
@@ -340,7 +344,7 @@ fn node(
     let first = node(first, tab, first_path, model, cx);
     let second = node(second, tab, second_path, model, cx);
     split(
-        SplitOwner::Tab(tab),
+        SplitOwner::Tab(tab.id),
         path,
         *axis,
         *ratio,
@@ -508,7 +512,80 @@ fn split_bounds(
     ]
 }
 
-fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+/// What a pane's region is called: the kind of thing it shows and, when it says
+/// more than that, its title.
+fn pane_name(content: &PaneContent, title: &str) -> SharedString {
+    let kind = match content {
+        PaneContent::Terminal { .. } => tr!("Terminal"),
+        PaneContent::Settings => tr!("Settings"),
+        PaneContent::Webview(_) => tr!("Extension"),
+        PaneContent::Browser(_) => tr!("Browser"),
+        PaneContent::Servers => tr!("Devices"),
+    };
+    if title.is_empty() || title == kind.as_ref() {
+        kind
+    } else {
+        tr!("%@: %@", kind.as_ref(), title)
+    }
+}
+
+fn pane_state(focused: bool, zoomed: bool) -> Option<SharedString> {
+    super::sidebar::describe([
+        focused.then(|| tr!("Focused")),
+        zoomed.then(|| tr!("Zoomed")),
+    ])
+}
+
+/// A named region around what a pane shows, so a client can tell the panes of a
+/// split apart.
+fn pane_element(
+    id: muxy_app_core::PaneId,
+    tab: &Tab,
+    model: &AppModel,
+    cx: &Context<AppModel>,
+) -> AnyElement {
+    let name = tab.panes.iter().find(|pane| pane.id == id).map_or_else(
+        || tr!("Pane"),
+        |pane| {
+            let title = match pane.content {
+                PaneContent::Browser(_) => model.browser_title(id, cx),
+                _ => None,
+            };
+            pane_name(&pane.content, title.unwrap_or(&pane.title))
+        },
+    );
+    let actions = model.grids.contains_key(&id).then(|| {
+        super::sidebar::client_button(
+            format!("pane-actions-{id}"),
+            tr!("Actions for %@", name.as_ref()),
+            cx,
+            move |model, window, cx| {
+                let position = window.mouse_position();
+                if let Some(pane) = model.terminal(&id) {
+                    pane.view
+                        .update(cx, |_, cx| cx.emit(PaneEvent::ContextMenu(position)));
+                }
+            },
+        )
+    });
+    div()
+        .id(SharedString::from(format!("pane-{id}")))
+        .role(Role::Group)
+        .aria_label(name)
+        .when_some(
+            pane_state(model.active_pane() == Some(id), tab.zoomed == Some(id)),
+            StatefulInteractiveElement::aria_description,
+        )
+        .flex()
+        .size_full()
+        .min_w(px(0.0))
+        .min_h(px(0.0))
+        .children(actions)
+        .child(pane_content(id, model, cx))
+        .into_any_element()
+}
+
+fn pane_content(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     if !model.grids.contains_key(&id) && model.state.is_servers_pane(id) {
         return super::servers_tab::render(id, model, cx);
     }
@@ -546,7 +623,7 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
         .flat_map(|p| &p.tabs)
         .flat_map(|t| &t.panes)
         .find_map(|pane| match &pane.content {
-            muxy_app_core::PaneContent::Webview(descriptor) if pane.id == id => Some(descriptor),
+            PaneContent::Webview(descriptor) if pane.id == id => Some(descriptor),
             _ => None,
         })
     {
@@ -574,4 +651,29 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
         return div().size_full().into_any_element();
     };
     pane.element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pane_says_what_it_shows_and_its_title_when_that_adds_anything() {
+        let terminal = PaneContent::Terminal { session: None };
+        assert_eq!(pane_name(&terminal, "Terminal").as_ref(), "Terminal");
+        assert_eq!(pane_name(&terminal, "").as_ref(), "Terminal");
+        assert_eq!(pane_name(&terminal, "vim").as_ref(), "Terminal: vim");
+        assert_eq!(
+            pane_name(&PaneContent::Servers, "Devices").as_ref(),
+            "Devices"
+        );
+    }
+
+    #[test]
+    fn a_pane_says_whether_it_is_focused_or_zoomed() {
+        assert_eq!(pane_state(false, false), None);
+        assert_eq!(pane_state(true, false), Some("Focused".into()));
+        assert_eq!(pane_state(false, true), Some("Zoomed".into()));
+        assert_eq!(pane_state(true, true), Some("Focused, Zoomed".into()));
+    }
 }

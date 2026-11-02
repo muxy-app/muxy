@@ -11,8 +11,9 @@ use crate::model::preferences::Change;
 
 pub(crate) const PAGE_ID: &str = "change_theme";
 pub(crate) const QUICK_PAGE_ID: &str = "change_quick_theme";
-/// The Quick Terminal entry that follows the app's theme. No theme file can be named this.
-pub(crate) const SAME_AS_APP: &str = "\0same-as-app";
+/// The Quick Terminal entry that follows the app's theme. No theme file can be named
+/// this. It reaches accessibility clients as part of an ID, so it holds no NUL.
+pub(crate) const SAME_AS_APP: &str = "/same-as-app";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ThemeTarget {

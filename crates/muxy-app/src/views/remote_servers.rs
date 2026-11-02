@@ -6,10 +6,11 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window, canvas, div, px,
+    IntoElement, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Window, canvas, div, px,
 };
 use muxy_app_core::ServerId;
+use muxy_ui::accessibility;
 use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph};
 use muxy_ui::controls::{self, Style};
@@ -160,6 +161,10 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
     };
     div()
         .id("remote-servers-section")
+        .role(Role::Button)
+        .accessibility_id("remote-servers-section")
+        .aria_label(tooltip.clone())
+        .aria_expanded(open)
         .debug_selector(|| "remote-servers-section".into())
         .group("remote-servers-section")
         .relative()
@@ -213,12 +218,17 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
     };
     let hint = (server.missing && crate::model::released_version().is_none())
         .then(|| tr!("Install a Linux build there by hand, from scripts/build-linux-dev.sh."));
+    let name = server.entry.name.clone();
+    let owner = cx.weak_entity();
     div()
         .flex()
         .flex_col()
         .child(
             muxy_ui::popover::row(theme, m, group.clone(), true, false)
                 .group(group.clone())
+                .role(Role::TreeItem)
+                .aria_label(name.clone())
+                .aria_description(status_label(server))
                 .debug_selector(move || format!("remote-server-{id}"))
                 .on_click(cx.listener(move |model, _, window, cx| {
                     model.open_remote_servers(id, window, cx);
@@ -253,17 +263,32 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
                                 .group_hover(group.clone(), |style| style.opacity(0.0))
                                 .child(status_label(server)),
                         )
-                        .child(edit_button(id, group, model, cx)),
-                ),
+                        .child(edit_button(id, &name, group, model, cx)),
+                )
+                .child(accessibility::hidden_button(
+                    format!("remote-server-actions-{id}"),
+                    tr!("Actions for %@", &name),
+                    move |window, cx| {
+                        let position = window.mouse_position();
+                        let _ = owner.update(cx, |model, cx| {
+                            model.open_server_menu(id, false, position, window, cx);
+                        });
+                    },
+                )),
         )
         .children(error.map(|error| {
-            div()
-                .debug_selector(move || format!("remote-server-error-{id}"))
-                .px(m.scaled(muxy_ui::popover::ROW_PADDING) + m.scaled(12.0))
-                .pb(m.spacing2())
-                .text_size(m.font_footnote())
-                .text_color(theme.danger)
-                .child(error)
+            accessibility::announced(
+                div()
+                    .id(SharedString::from(format!("remote-server-error-{id}")))
+                    .debug_selector(move || format!("remote-server-error-{id}"))
+                    .px(m.scaled(muxy_ui::popover::ROW_PADDING) + m.scaled(12.0))
+                    .pb(m.spacing2())
+                    .text_size(m.font_footnote())
+                    .text_color(theme.danger),
+                error.clone(),
+                true,
+            )
+            .child(error)
         }))
         .children(hint.map(|hint| {
             div()
@@ -272,13 +297,17 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
                 .pb(m.spacing2())
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_muted)
-                .child(hint)
+                .child(accessibility::label(
+                    SharedString::from(format!("remote-server-hint-{id}")),
+                    hint,
+                ))
         }))
 }
 
 /// Edit…, shown in place of the status while the row is hovered.
 fn edit_button(
     id: ServerId,
+    name: &str,
     group: SharedString,
     model: &AppModel,
     cx: &mut Context<AppModel>,
@@ -305,6 +334,7 @@ fn edit_button(
                 theme.fg_muted,
                 theme.fg,
             )
+            .named(tr!("Edit %@", name))
             .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();
@@ -318,7 +348,11 @@ fn edit_button(
 fn group_heading(group: Option<&str>, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let name = group.map(str::to_owned);
-    let selector = format!("remote-group-{}", group.unwrap_or_default());
+    let hidden_name = name.clone();
+    let key = group.unwrap_or_default();
+    let selector = format!("remote-group-{key}");
+    let title = group.map_or_else(|| tr!("Ungrouped"), |group| group.to_owned().into());
+    let owner = cx.weak_entity();
     muxy_ui::popover::header(&model.theme, m)
         .debug_selector(move || selector.clone())
         .pt(m.spacing3())
@@ -329,7 +363,20 @@ fn group_heading(group: Option<&str>, model: &AppModel, cx: &mut Context<AppMode
                 cx.stop_propagation();
             }),
         )
-        .child(group.map_or_else(|| tr!("Ungrouped"), |group| group.to_owned().into()))
+        .child(accessibility::label(
+            SharedString::from(format!("remote-group-title-{key}")),
+            title.clone(),
+        ))
+        .child(accessibility::hidden_button(
+            format!("remote-group-actions-{key}"),
+            tr!("Actions for %@", &title),
+            move |window, cx| {
+                let position = window.mouse_position();
+                let _ = owner.update(cx, |model, cx| {
+                    model.open_group_menu(hidden_name.as_deref(), position, window, cx);
+                });
+            },
+        ))
         .into_any_element()
 }
 
@@ -395,12 +442,18 @@ pub(crate) fn list(
     }
     let action = |id: &'static str, icon: Icon, label: SharedString| {
         muxy_ui::popover::row(theme, m, id, true, false)
+            .role(Role::Button)
+            .accessibility_id(id)
+            .aria_label(label.clone())
             .debug_selector(move || id.into())
             .child(IconGlyph::new(icon, m.font_body(), theme.fg_muted))
             .child(label)
     };
     muxy_ui::popover::surface(theme, m)
         .id("remote-servers-popover")
+        .role(Role::Group)
+        .accessibility_id("remote-servers-popover")
+        .aria_label(tr!("Devices"))
         .debug_selector(|| "remote-servers-popover".into())
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .w(width)
@@ -413,10 +466,25 @@ pub(crate) fn list(
                     .px(m.scaled(muxy_ui::popover::ROW_PADDING))
                     .pb(m.spacing2())
                     .text_color(theme.fg_muted)
-                    .child(tr!("No remote servers yet.")),
+                    .child(accessibility::label(
+                        "remote-servers-empty",
+                        tr!("No remote servers yet."),
+                    )),
             )
         })
-        .children(rows)
+        .when(!rows.is_empty(), |list| {
+            list.child(
+                div()
+                    .id("remote-servers-rows")
+                    .role(Role::Tree)
+                    .aria_label(tr!("Devices"))
+                    .flex()
+                    .flex_none()
+                    .flex_col()
+                    .gap(m.scaled(muxy_ui::popover::ROW_GAP))
+                    .children(rows),
+            )
+        })
         .child(muxy_ui::popover::divider(theme, m))
         .child(
             action("remote-add-server", Icon::Plus, tr!("Add Server…"))
@@ -602,14 +670,19 @@ fn server_command(server: &RemoteServer, model: gpui::WeakEntity<AppModel>) -> C
 pub(super) fn input(
     model: &AppModel,
     cx: &mut Context<AppModel>,
+    label: &'static str,
+    id: &str,
     placeholder: &'static str,
     text: &str,
 ) -> Entity<TextInput> {
     let style = InputStyle::field(&model.theme, &model.metrics);
     let text = text.to_owned();
+    let id = format!("settings-field-{id}");
     cx.new(|cx| {
         TextInput::new(style, cx)
             .with_placeholder_key(placeholder)
+            .with_accessible_label(label)
+            .with_accessibility_id(id)
             .with_text(text)
     })
 }
@@ -674,6 +747,7 @@ impl AppModel {
         }
     }
 
+    #[allow(clippy::too_many_lines, reason = "Creates all of the form's inputs")]
     fn open_ssh_form(
         &mut self,
         device: Option<ServerId>,
@@ -694,12 +768,16 @@ impl AppModel {
         let name = input(
             self,
             cx,
+            tr_key!("Name"),
+            "server-name",
             tr_key!("Shown in the sidebar"),
             entry.as_ref().map_or("", |entry| &entry.name),
         );
         let group = input(
             self,
             cx,
+            tr_key!("Group"),
+            "server-group",
             tr_key!("optional"),
             entry
                 .as_ref()
@@ -709,20 +787,31 @@ impl AppModel {
         let host = input(
             self,
             cx,
+            tr_key!("SSH host"),
+            "server-host",
             tr_key!("host, address, or ~/.ssh/config alias"),
             &host,
         );
         let command = input(
             self,
             cx,
+            tr_key!("SSH command"),
+            "server-command",
             "swiftvm ssh my-vm",
             entry
                 .as_ref()
                 .and_then(|entry| entry.ssh_command.as_deref())
                 .unwrap_or_default(),
         );
-        let user = input(self, cx, tr_key!("optional"), &user);
-        let port = input(self, cx, "22", &port);
+        let user = input(
+            self,
+            cx,
+            tr_key!("User"),
+            "server-user",
+            tr_key!("optional"),
+            &user,
+        );
+        let port = input(self, cx, tr_key!("Port"), "server-port", "22", &port);
         let default_identity = automatic_identity
             .then(|| std::env::home_dir().and_then(|home| default_identity(&home)))
             .flatten()
@@ -730,6 +819,8 @@ impl AppModel {
         let identity = input(
             self,
             cx,
+            tr_key!("Identity file"),
+            "server-identity",
             tr_key!("Use SSH config or agent"),
             entry
                 .as_ref()
@@ -741,6 +832,8 @@ impl AppModel {
             TextInput::new(style, cx)
                 .secure()
                 .with_placeholder_key(tr_key!("Asked when connecting if empty"))
+                .with_accessible_label(tr_key!("Password"))
+                .with_accessibility_id("settings-field-server-password")
         });
         let subscriptions = [
             &name, &group, &host, &command, &user, &port, &identity, &password,
@@ -1046,7 +1139,12 @@ impl AppModel {
             return;
         }
         let style = InputStyle::field(&self.theme, &self.metrics);
-        let input = cx.new(|cx| TextInput::new(style, cx).secure());
+        let input = cx.new(|cx| {
+            TextInput::new(style, cx)
+                .secure()
+                .with_accessible_label(tr_key!("Password"))
+                .with_accessibility_id("settings-field-server-password-input")
+        });
         let subscription = cx.subscribe(&input, |model, _, event, cx| match event {
             InputEvent::Submitted => model.submit_password(cx),
             InputEvent::Cancelled => model.dismiss_overlay(cx),
@@ -1106,6 +1204,18 @@ pub(super) fn title(text: &str, model: &AppModel) -> gpui::Div {
         .text_size(model.metrics.font_headline())
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.to_owned())
+}
+
+/// Whether testing the connection ended in something the user must act on.
+fn is_problem(probe: Option<&ConnectionTest>) -> bool {
+    matches!(
+        probe,
+        Some(
+            ConnectionTest::UntrustedHost(_)
+                | ConnectionTest::Failed(_)
+                | ConnectionTest::InstallFailed(_)
+        )
+    )
 }
 
 fn connection_status(
@@ -1236,18 +1346,30 @@ pub(crate) fn render_form(
         ))
         .child(connection_fields(form, model, cx))
         .child(
-            div()
-                .debug_selector(|| "server-form-probe".into())
-                .text_size(m.font_footnote())
-                .text_color(color)
-                .child(status),
+            accessibility::announced(
+                div()
+                    .id("server-form-probe")
+                    .accessibility_id("server-form-probe")
+                    .debug_selector(|| "server-form-probe".into())
+                    .text_size(m.font_footnote())
+                    .text_color(color),
+                status.clone(),
+                is_problem(probe),
+            )
+            .child(status),
         )
         .children(form.error.clone().map(|error| {
-            div()
-                .debug_selector(|| "server-form-error".into())
-                .text_size(m.font_footnote())
-                .text_color(theme.danger)
-                .child(error)
+            accessibility::announced(
+                div()
+                    .id("server-form-error")
+                    .accessibility_id("server-form-error")
+                    .debug_selector(|| "server-form-error".into())
+                    .text_size(m.font_footnote())
+                    .text_color(theme.danger),
+                error.clone(),
+                true,
+            )
+            .child(error)
         }))
         .when(installable, |form| form.child(install_offer(model, cx)))
         .when(
@@ -1381,8 +1503,11 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 div()
                     .text_size(m.font_footnote())
                     .text_color(theme.fg_muted)
-                    .child(tr!(
-                        "SSH can also try your other keys. Edit or browse to use a specific key."
+                    .child(accessibility::label(
+                        "server-identity-hint",
+                        tr!(
+                            "SSH can also try your other keys. Edit or browse to use a specific key."
+                        ),
                     )),
             )
         })
@@ -1506,9 +1631,9 @@ pub(crate) fn render_password(
             div()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_muted)
-                .child(tr!(
-                    "%@ · Muxy keeps it in memory until it quits.",
-                    &destination
+                .child(accessibility::label(
+                    "server-password-hint",
+                    tr!("%@ · Muxy keeps it in memory until it quits.", &destination),
                 )),
         )
         .child(controls::text_field(
@@ -1518,10 +1643,15 @@ pub(crate) fn render_password(
             None,
         ))
         .children(error.map(|error| {
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.danger)
-                .child(error)
+            accessibility::announced(
+                div()
+                    .id("server-password-error")
+                    .text_size(m.font_footnote())
+                    .text_color(theme.danger),
+                error.clone(),
+                true,
+            )
+            .child(error)
         }))
         .child(
             div()

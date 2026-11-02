@@ -1374,7 +1374,7 @@ impl Picker {
                             let row_id = row_id.clone();
                             let action_id = action_id.clone();
                             hidden_actions.push(crate::accessibility::hidden_button(
-                                format!("picker-action-{}-{}", row_id, action_id),
+                                format!("picker-action-{row_id}-{action_id}"),
                                 tr!("%@: %@", action.label.as_ref(), row.title.as_ref()),
                                 move |_, cx| {
                                     let _ = picker.update(cx, |_, cx| {

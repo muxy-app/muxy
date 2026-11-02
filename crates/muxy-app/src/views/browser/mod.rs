@@ -168,6 +168,7 @@ impl BrowserView {
             let address = cx.new(|cx| {
                 TextInput::new(InputStyle::compact(theme, &metrics), cx)
                     .with_placeholder_key(tr_key!("Search or enter address"))
+                    .with_accessibility_id("browser-address")
                     .with_text(display_address(&url))
             });
             let mut subscriptions = vec![cx.subscribe_in(&address, window, Self::address_event)];
@@ -625,6 +626,7 @@ impl BrowserView {
         let input = cx.new(|cx| {
             TextInput::new(InputStyle::compact(theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Find on page"))
+                .with_accessibility_id("browser-find-input")
                 .with_key_context(SEARCH_CONTEXT)
         });
         let subscription =
@@ -792,7 +794,10 @@ impl BrowserView {
         let rows = menu.options.iter().enumerate().map(|(index, option)| {
             if option.heading {
                 return muxy_ui::popover::header(&self.theme, self.metrics)
-                    .child(option.label.clone())
+                    .child(muxy_ui::accessibility::label(
+                        ("page-option-heading", index),
+                        option.label.clone(),
+                    ))
                     .into_any_element();
             }
             muxy_ui::popover::row(
@@ -802,6 +807,10 @@ impl BrowserView {
                 option.enabled,
                 option.selected,
             )
+            .role(gpui::Role::MenuItem)
+            .aria_label(option.label.clone())
+            .aria_disabled(!option.enabled)
+            .when(option.selected, |row| row.aria_toggled(gpui::Toggled::True))
             .child(option.label.clone())
             .when(option.enabled, |row| {
                 row.on_click(cx.listener(move |view, _, _, cx| view.choose(Some(index), cx)))
@@ -824,6 +833,7 @@ impl BrowserView {
                 px(240.0),
                 muxy_ui::popover::surface(&self.theme, self.metrics)
                     .id("page-options")
+                    .role(gpui::Role::Menu)
                     .overflow_y_scroll()
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .children(rows),
@@ -1048,14 +1058,20 @@ pub(crate) fn placeholder(
         .child(
             div()
                 .text_size(metrics.font_headline())
-                .child(reason.to_owned()),
+                .child(muxy_ui::accessibility::label(
+                    "browser-placeholder",
+                    reason.to_owned(),
+                )),
         )
         .when(disabled, |placeholder| {
             placeholder.child(
                 div()
                     .text_color(theme.fg_muted)
                     .text_size(metrics.font_body())
-                    .child(muxy_ui::tr!("Enable it in Settings → Browser.")),
+                    .child(muxy_ui::accessibility::label(
+                        "browser-placeholder-hint",
+                        muxy_ui::tr!("Enable it in Settings → Browser."),
+                    )),
             )
         })
         .into_any_element()

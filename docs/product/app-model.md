@@ -208,3 +208,9 @@ one is working, waiting for you, or done.
 - The desktop app notifies you about agents in the background. Looking at the
   terminal clears the alert in every app.
 - Detached terminals show no alerts, and no notification history is kept.
+
+## Accessibility
+
+Screen readers and automation tools can find and operate Muxy's controls:
+projects, worktrees, tabs, panes, menus, forms and dialogs. Terminal contents
+aren't exposed yet.

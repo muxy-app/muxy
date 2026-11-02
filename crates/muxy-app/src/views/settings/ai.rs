@@ -79,7 +79,12 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             let restore = controls::button(
                 view.style(),
                 &format!("{prompt_id}-restore"),
-                controls::Button::secondary(&tr!("Restore Default")).enabled(edited),
+                controls::Button::secondary(&tr!("Restore Default"))
+                    .named(&tr!(
+                        "Restore Default %@",
+                        &muxy_ui::l10n::translate(prompt)
+                    ))
+                    .enabled(edited),
                 cx.listener(move |_, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::Field(
                         prompt_id,

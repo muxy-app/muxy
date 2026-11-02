@@ -325,14 +325,25 @@ impl SettingsView {
                 metrics.spacing9()
             })
             .text_size(metrics.font_display())
-            .child(muxy_ui::l10n::translate(category.label()))
+            .child(muxy_ui::accessibility::label(
+                gpui::SharedString::from(format!("settings-heading-{}", category.label())),
+                muxy_ui::l10n::translate(category.label()),
+            ))
             .into_any_element()
     }
 
-    pub(super) fn subsection_heading(&self, section: &'static str) -> AnyElement {
-        muxy_ui::form::section_heading(self.layout_style(), &muxy_ui::l10n::translate(section))
-            .debug_selector(move || format!("settings-heading-{section}"))
-            .into_any_element()
+    pub(super) fn subsection_heading(
+        &self,
+        category: Category,
+        section: &'static str,
+    ) -> AnyElement {
+        muxy_ui::form::section_heading(
+            self.layout_style(),
+            gpui::SharedString::from(format!("settings-heading-{}-{section}", category.label())),
+            &muxy_ui::l10n::translate(section),
+        )
+        .debug_selector(move || format!("settings-heading-{section}"))
+        .into_any_element()
     }
 
     pub(super) fn result(
@@ -361,7 +372,7 @@ impl SettingsView {
                 .w_full()
                 .debug_selector(|| "settings-section-Keyboard".into())
                 .child(self.section_heading(Category::Keyboard, index == 0))
-                .child(self.subsection_heading(tr_key!("Shortcuts")))
+                .child(self.subsection_heading(Category::Keyboard, tr_key!("Shortcuts")))
                 .child(self.note(&tr!("Click a shortcut to record it. Escape cancels. Conflicts in the same context must be resolved first."), false))
                 .into_any_element(),
             Item::Shortcut(index) => {
@@ -371,7 +382,11 @@ impl SettingsView {
             },
             Item::ExtensionHeading(index) => {
                 let extension = self.snapshot.extension_shortcuts[index].extension.clone();
-                muxy_ui::form::section_heading(self.layout_style(), &extension)
+                muxy_ui::form::section_heading(
+                    self.layout_style(),
+                    gpui::SharedString::from(format!("settings-heading-extension-{extension}")),
+                    &extension,
+                )
                     .debug_selector(move || format!("settings-heading-extension-{extension}"))
                     .into_any_element()
             }
@@ -379,7 +394,14 @@ impl SettingsView {
             Item::Empty => div()
                 .w_full()
                 .debug_selector(|| "settings-empty".into())
-                .child(self.note(&tr!("No settings found. Try another search."), false))
+                .child({
+                    let empty = tr!("No settings found. Try another search.");
+                    muxy_ui::accessibility::announced(
+                        self.note(&empty, false).id("settings-empty"),
+                        empty,
+                        false,
+                    )
+                })
                 .into_any_element(),
             Item::Footer => self.note(
                     &if self.category == Category::Commands {

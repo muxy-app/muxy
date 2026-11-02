@@ -34,6 +34,7 @@
 "%@ returned an empty response: %@" = "%@ returned an empty response: %@";
 "%@ returned invalid UTF-8" = "%@ returned invalid UTF-8";
 "%@ runs an older Muxy that lists only folders inside %@. Update it there to browse others, or type a full path." = "%@ runs an older Muxy that lists only folders inside %@. Update it there to browse others, or type a full path.";
+"%@ unit" = "%@ unit";
 "%@ wants to delete a project." = "%@ wants to delete a project.";
 "%@ wants to make a network request." = "%@ wants to make a network request.";
 "%@ wants to modify the git repository." = "%@ wants to modify the git repository.";
@@ -56,6 +57,7 @@
 "%@. The commit is saved on %@; push it and open the pull request manually." = "%@. The commit is saved on %@; push it and open the pull request manually.";
 "%@. The previous app is available at %@" = "%@. The previous app is available at %@";
 "%@. Your changes are still uncommitted on %@." = "%@. Your changes are still uncommitted on %@.";
+"%@: %@" = "%@: %@";
 "%@; this app needs a version that speaks protocol V%lld, like %@. %@" = "%@; this app needs a version that speaks protocol V%lld, like %@. %@";
 "%lld Changes" = "%lld Changes";
 "%lld Existing Terminals" = "%lld Existing Terminals";
@@ -100,6 +102,7 @@
 "AI worker stopped" = "AI worker stopped";
 "ANSI colors" = "ANSI colors";
 "Action" = "Action";
+"Actions for %@" = "Actions for %@";
 "Active pane" = "Active pane";
 "Active sidebar" = "Active sidebar";
 "Active system-wide" = "Active system-wide";
@@ -187,6 +190,7 @@
 "Automatic updates require an installed %@.app" = "Automatic updates require an installed %@.app";
 "Automatic updates require an installed release of %@" = "Automatic updates require an installed release of %@";
 "Back" = "Back";
+"Back to Extensions" = "Back to Extensions";
 "Background" = "Background";
 "Background color" = "Background color";
 "Background script" = "Background script";
@@ -206,6 +210,7 @@
 "Base branch" = "Base branch";
 "Behavior" = "Behavior";
 "Behind base" = "Behind base";
+"Bell" = "Bell";
 "Block" = "Block";
 "Block all auto-run terminal commands from this extension" = "Block all auto-run terminal commands from this extension";
 "Block all file changes from this extension" = "Block all file changes from this extension";
@@ -223,8 +228,10 @@
 "Bold italic font" = "Bold italic font";
 "Both" = "Both";
 "Bottom" = "Bottom";
+"Bottom padding" = "Bottom padding";
 "Branch" = "Branch";
 "Branch name" = "Branch name";
+"Branch: %@" = "Branch: %@";
 "Bright colors for bold text" = "Bright colors for bold text";
 "Bring history, bookmarks, or sign-ins from a browser on this computer." = "Bring history, bookmarks, or sign-ins from a browser on this computer.";
 "Broadcast to Split Panes" = "Broadcast to Split Panes";
@@ -276,6 +283,7 @@
 "Choose Icon…" = "Choose Icon…";
 "Choose Logo" = "Choose Logo";
 "Choose Muxy backup or 1.x settings.json" = "Choose Muxy backup or 1.x settings.json";
+"Choose Provider for %@" = "Choose Provider for %@";
 "Choose Tab Focused from the layout menu at the top of the expanded sidebar to list every project's tabs there. By default, ⌘1–⌘9 then select tabs across projects." = "Choose Tab Focused from the layout menu at the top of the expanded sidebar to list every project's tabs there. By default, ⌘1–⌘9 then select tabs across projects.";
 "Choose a .muxy backup or a 1.x settings.json file. Review the import before applying it on the next launch." = "Choose a .muxy backup or a 1.x settings.json file. Review the import before applying it on the next launch.";
 "Choose a PNG, JPEG, GIF, or WebP image up to 8192 pixels and 64 MB decoded." = "Choose a PNG, JPEG, GIF, or WebP image up to 8192 pixels and 64 MB decoded.";
@@ -296,6 +304,7 @@
 "Clear" = "Clear";
 "Clear After Sending" = "Clear After Sending";
 "Clear Data" = "Clear Data";
+"Clear Data for %@" = "Clear Data for %@";
 "Clear after sending" = "Clear after sending";
 "Clear all" = "Clear all";
 "Clear data for “%@”?" = "Clear data for “%@”?";
@@ -318,6 +327,7 @@
 "Clipboard is too large to preserve. Use inline image paths instead." = "Clipboard is too large to preserve. Use inline image paths instead.";
 "Clipboard paste" = "Clipboard paste";
 "Close" = "Close";
+"Close %@" = "Close %@";
 "Close Composer" = "Close Composer";
 "Close Other Tabs" = "Close Other Tabs";
 "Close PR" = "Close PR";
@@ -369,6 +379,7 @@
 "Committed and pushed" = "Committed and pushed";
 "Committed locally" = "Committed locally";
 "Committing" = "Committing";
+"Completed" = "Completed";
 "Composer" = "Composer";
 "Composer font" = "Composer font";
 "Composer image storage is unavailable" = "Composer image storage is unavailable";
@@ -388,6 +399,7 @@
 "Conflict" = "Conflict";
 "Conflicts" = "Conflicts";
 "Connect" = "Connect";
+"Connect %@" = "Connect %@";
 "Connect %lld Servers" = "Connect %lld Servers";
 "Connect to server" = "Connect to server";
 "Connect to the server before changing device access" = "Connect to the server before changing device access";
@@ -537,6 +549,7 @@
 "Default worktree folder" = "Default worktree folder";
 "Default worktree path template" = "Default worktree path template";
 "Delete" = "Delete";
+"Delete %@" = "Delete %@";
 "Delete Group?" = "Delete Group?";
 "Delete Group…" = "Delete Group…";
 "Delete Workspace?" = "Delete Workspace?";
@@ -565,6 +578,7 @@
 "Disconnected" = "Disconnected";
 "Disconnected before settings were confirmed. Reconnect and reload before retrying." = "Disconnected before settings were confirmed. Reconnect and reload before retrying.";
 "Dismiss" = "Dismiss";
+"Dismiss %@" = "Dismiss %@";
 "Dismiss Error" = "Dismiss Error";
 "Distribute unused cell space equally around the terminal grid." = "Distribute unused cell space equally around the terminal grid.";
 "Dock Panel" = "Dock Panel";
@@ -578,6 +592,7 @@
 "Draw terminal text with a heavier stroke." = "Draw terminal text with a heavier stroke.";
 "Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar." = "Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar.";
 "Edit" = "Edit";
+"Edit %@" = "Edit %@";
 "Edit Paired Server" = "Edit Paired Server";
 "Edit Project Prompt…" = "Edit Project Prompt…";
 "Edit Remote Server" = "Edit Remote Server";
@@ -623,6 +638,7 @@
 "Export…" = "Export…";
 "Extend" = "Extend";
 "Extend always" = "Extend always";
+"Extension" = "Extension";
 "Extension %@ is not loaded" = "Extension %@ is not loaded";
 "Extension log writer is unavailable." = "Extension log writer is unavailable.";
 "Extension pages need WebKitGTK 4.1, which could not be loaded: %@" = "Extension pages need WebKitGTK 4.1, which could not be loaded: %@";
@@ -645,6 +661,7 @@
 "Find Next" = "Find Next";
 "Find Previous" = "Find Previous";
 "Find and install language packs in Extensions." = "Find and install language packs in Extensions.";
+"Find in Terminal" = "Find in Terminal";
 "Find in terminal…" = "Find in terminal…";
 "Find on page" = "Find on page";
 "Finding SSH key…" = "Finding SSH key…";
@@ -657,10 +674,13 @@
 "Focus Pane Right" = "Focus Pane Right";
 "Focus Pane Up" = "Focus Pane Up";
 "Focus Project" = "Focus Project";
+"Focused" = "Focused";
 "Focused Project" = "Focused Project";
 "Folder" = "Folder";
 "Folder is empty" = "Folder is empty";
 "Folder is required." = "Folder is required.";
+"Folder missing" = "Folder missing";
+"Folder: %@" = "Folder: %@";
 "Font" = "Font";
 "Font family" = "Font family";
 "Font family used for composing text." = "Font family used for composing text.";
@@ -678,12 +698,14 @@
 "Forward" = "Forward";
 "From 1024 to 65535. Press Return to save." = "From 1024 to 65535. Press Return to save.";
 "General" = "General";
+"Git Changes: %@" = "Git Changes: %@";
 "Global X11 shortcuts cannot cover a Wayland desktop." = "Global X11 shortcuts cannot cover a Wayland desktop.";
 "Global folder: %@" = "Global folder: %@";
 "Global template: %@" = "Global template: %@";
 "Green" = "Green";
 "Group" = "Group";
 "Group Actions" = "Group Actions";
+"Group Actions for %@" = "Group Actions for %@";
 "Has an update" = "Has an update";
 "Height" = "Height";
 "Height in pixels for a new workspace window when no saved bounds exist." = "Height in pixels for a new workspace window when no saved bounds exist.";
@@ -713,9 +735,12 @@
 "Icons" = "Icons";
 "Identity file" = "Identity file";
 "Identity file (automatic)" = "Identity file (automatic)";
+"Idle" = "Idle";
 "If it was revoked, moved, or reset, copy a new pairing link from its Devices tab to pair again." = "If it was revoked, moved, or reset, copy a new pairing link from its Devices tab to pair again.";
+"Ignore Case" = "Ignore Case";
 "Ignore key" = "Ignore key";
 "Image submission" = "Image submission";
+"Import %@ from %@" = "Import %@ from %@";
 "Import cancelled." = "Import cancelled.";
 "Import from Muxy 1.x" = "Import from Muxy 1.x";
 "Import from another browser" = "Import from another browser";
@@ -788,6 +813,7 @@
 "Keep terminals running after quitting" = "Keep terminals running after quitting";
 "Key" = "Key";
 "Key bindings" = "Key bindings";
+"Key: %@" = "Key: %@";
 "Keyboard" = "Keyboard";
 "Keys the terminal handles while it is focused. They take precedence over app shortcuts." = "Keys the terminal handles while it is focused. They take precedence over app shortcuts.";
 "Language" = "Language";
@@ -797,7 +823,9 @@
 "Last seen %lld h ago" = "Last seen %lld h ago";
 "Last seen %lld min ago" = "Last seen %lld min ago";
 "Last seen just now" = "Last seen just now";
+"Layout" = "Layout";
 "Left" = "Left";
+"Left padding" = "Left padding";
 "Let paired phones and computers reach this computer's server over the local network or a VPN. A paired phone gets full terminal access; a paired computer can also run commands and change or stop this server." = "Let paired phones and computers reach this computer's server over the local network or a VPN. A paired phone gets full terminal access; a paired computer can also run commands and change or stop this server.";
 "Let the desktop show through the terminal background." = "Let the desktop show through the terminal background.";
 "Light theme" = "Light theme";
@@ -829,6 +857,7 @@
 "Logs" = "Logs";
 "Looking for the newest release on your update channel." = "Looking for the newest release on your update channel.";
 "MUXY TIP" = "MUXY TIP";
+"Make %@ Default" = "Make %@ Default";
 "Make Default" = "Make Default";
 "Manage Devices…" = "Manage Devices…";
 "Manage Extensions" = "Manage Extensions";
@@ -844,6 +873,7 @@
 "Merge" = "Merge";
 "Merge %@ into %@ and push the updated branch?" = "Merge %@ into %@ and push the updated branch?";
 "Merge Commit" = "Merge Commit";
+"Merge method" = "Merge method";
 "Merge pull request?" = "Merge pull request?";
 "Merged" = "Merged";
 "Merged PR #%lld" = "Merged PR #%lld";
@@ -861,9 +891,12 @@
 "Missing update version" = "Missing update version";
 "Mobile settings may contain only enabled and port" = "Mobile settings may contain only enabled and port";
 "More Actions" = "More Actions";
+"More Actions for %@" = "More Actions for %@";
 "More Composer Actions" = "More Composer Actions";
 "More languages" = "More languages";
 "Mouse wheel scroll speed" = "Mouse wheel scroll speed";
+"Move %@ Down" = "Move %@ Down";
+"Move %@ Up" = "Move %@ Up";
 "Move %@.app to Applications and reopen it before installing its command line tool." = "Move %@.app to Applications and reopen it before installing its command line tool.";
 "Move %@.app to Applications and reopen it before updating" = "Move %@.app to Applications and reopen it before updating";
 "Move to Bottom" = "Move to Bottom";
@@ -899,6 +932,7 @@
 "Name" = "Name";
 "Name (A–Z)" = "Name (A–Z)";
 "Name (Z–A)" = "Name (Z–A)";
+"Needs input" = "Needs input";
 "Needs your attention" = "Needs your attention";
 "Neither" = "Neither";
 "Never connected" = "Never connected";
@@ -911,6 +945,7 @@
 "New Tab" = "New Tab";
 "New Tab (⌘T)" = "New Tab (⌘T)";
 "New Tab in Project…" = "New Tab in Project…";
+"New Tab on %@" = "New Tab on %@";
 "New Tab to the Left" = "New Tab to the Left";
 "New Tab to the Right" = "New Tab to the Right";
 "New Terminal Tab" = "New Terminal Tab";
@@ -1026,8 +1061,11 @@
 "Paired with the other computer." = "Paired with the other computer.";
 "Paired with this computer" = "Paired with this computer";
 "Pairing Link" = "Pairing Link";
+"Pairing code" = "Pairing code";
 "Pairing link copied" = "Pairing link copied";
 "Pairing… It is saved when it finishes, even if you close this form." = "Pairing… It is saved when it finishes, even if you close this form.";
+"Palette color %@" = "Palette color %@";
+"Pane" = "Pane";
 "Parent Directory" = "Parent Directory";
 "Password" = "Password";
 "Password for %@" = "Password for %@";
@@ -1051,6 +1089,7 @@
 "Pin Quick Terminal" = "Pin Quick Terminal";
 "Pin Tab" = "Pin Tab";
 "Pink" = "Pink";
+"Pinned" = "Pinned";
 "Pixels" = "Pixels";
 "Points to change the font size by, such as 1." = "Points to change the font size by, such as 1.";
 "Port" = "Port";
@@ -1062,20 +1101,24 @@
 "Previous Tab" = "Previous Tab";
 "Previous Tip" = "Previous Tip";
 "Previous match" = "Previous match";
+"Profile name" = "Profile name";
 "Profiles" = "Profiles";
 "Profiles keep cookies and logins apart. New tabs use the default profile." = "Profiles keep cookies and logins apart. New tabs use the default profile.";
 "Project" = "Project";
 "Project %lld" = "Project %lld";
 "Project Focused" = "Project Focused";
+"Project Logo" = "Project Logo";
 "Project edit is pending: %@" = "Project edit is pending: %@";
 "Project editor" = "Project editor";
 "Project folder is missing" = "Project folder is missing";
 "Project is unavailable" = "Project is unavailable";
 "Project server" = "Project server";
+"Projects" = "Projects";
 "Proxy" = "Proxy";
 "Proxy removed" = "Proxy removed";
 "Proxy saved" = "Proxy saved";
 "Proxy · On" = "Proxy · On";
+"Pull Request" = "Pull Request";
 "Pull Request #%lld" = "Pull Request #%lld";
 "Pull request changed" = "Pull request changed";
 "Pull request changed. Reopen its status." = "Pull request changed. Reopen its status.";
@@ -1106,6 +1149,7 @@
 "Recently Active" = "Recently Active";
 "Recently Removed" = "Recently Removed";
 "Reconnect" = "Reconnect";
+"Reconnect %@" = "Reconnect %@";
 "Reconnect %lld Servers" = "Reconnect %lld Servers";
 "Reconnect to load project layouts" = "Reconnect to load project layouts";
 "Reconnect to see existing terminals" = "Reconnect to see existing terminals";
@@ -1131,6 +1175,8 @@
 "Remote Servers" = "Remote Servers";
 "Remote project on %@" = "Remote project on %@";
 "Remove" = "Remove";
+"Remove %@" = "Remove %@";
+"Remove %@ %@ %@" = "Remove %@ %@ %@";
 "Remove %lld Servers…" = "Remove %lld Servers…";
 "Remove Icon" = "Remove Icon";
 "Remove Logo" = "Remove Logo";
@@ -1152,6 +1198,7 @@
 "Remove…" = "Remove…";
 "Removing worktree" = "Removing worktree";
 "Removing…" = "Removing…";
+"Rename %@ to Name Below" = "Rename %@ to Name Below";
 "Rename Group" = "Rename Group";
 "Rename Group…" = "Rename Group…";
 "Rename Project" = "Rename Project";
@@ -1166,6 +1213,7 @@
 "Replaces the theme's terminal text color. Leave empty to use the theme." = "Replaces the theme's terminal text color. Leave empty to use the theme.";
 "Requested permissions" = "Requested permissions";
 "Reset" = "Reset";
+"Reset %@" = "Reset %@";
 "Reset Composer Size" = "Reset Composer Size";
 "Reset Terminal Settings?" = "Reset Terminal Settings?";
 "Reset Title" = "Reset Title";
@@ -1187,6 +1235,7 @@
 "Restarting server…" = "Restarting server…";
 "Restarting…" = "Restarting…";
 "Restore Default" = "Restore Default";
+"Restore Default %@" = "Restore Default %@";
 "Restore Pane" = "Restore Pane";
 "Restore Window" = "Restore Window";
 "Restore backup" = "Restore backup";
@@ -1194,6 +1243,7 @@
 "Restore settings and %lld saved projects with their layouts on the next launch. Existing projects are kept; matching projects receive the saved layouts. A recovery copy is saved in the profile’s Backups folder. Restart the server from Settings to apply restored server settings." = "Restore settings and %lld saved projects with their layouts on the next launch. Existing projects are kept; matching projects receive the saved layouts. A recovery copy is saved in the profile’s Backups folder. Restart the server from Settings to apply restored server settings.";
 "Resume in a new terminal" = "Resume in a new terminal";
 "Retained terminal history, from 0 to 65536 MiB. Saved-history changes take effect at the next server start." = "Retained terminal history, from 0 to 65536 MiB. Saved-history changes take effect at the next server start.";
+"Retry Pull Request Status" = "Retry Pull Request Status";
 "Retry app update" = "Retry app update";
 "Retry connection" = "Retry connection";
 "Retry server update" = "Retry server update";
@@ -1209,9 +1259,11 @@
 "Review permissions and enable when ready: %@." = "Review permissions and enable when ready: %@.";
 "Review the permissions below, then enable this extension to use it." = "Review the permissions below, then enable this extension to use it.";
 "Revoke" = "Revoke";
+"Revoke %@" = "Revoke %@";
 "Revoke %@?" = "Revoke %@?";
 "Rich Input" = "Rich Input";
 "Right" = "Right";
+"Right padding" = "Right padding";
 "Right-click a terminal and choose Apply Proxy to use it there. The terminal restarts in the same folder." = "Right-click a terminal and choose Apply Proxy to use it there. The terminal restarts in the same folder.";
 "Right-click a terminal and choose Detach Terminal to put it away without ending it. By default, ⌘⌥T opens Existing Terminals to bring it back." = "Right-click a terminal and choose Detach Terminal to put it away without ending it. By default, ⌘⌥T opens Existing Terminals to bring it back.";
 "Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette." = "Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette.";
@@ -1258,6 +1310,8 @@
 "Search worktrees…" = "Search worktrees…";
 "Searches typed in the address bar use this engine." = "Searches typed in the address bar use this engine.";
 "Search…" = "Search…";
+"Sections of %@" = "Sections of %@";
+"Select %@" = "Select %@";
 "Select All" = "Select All";
 "Select Command Output" = "Select Command Output";
 "Select a local project to browse its saved agent sessions." = "Select a local project to browse its saved agent sessions.";
@@ -1335,6 +1389,7 @@
 "Sidebar vibrancy level" = "Sidebar vibrancy level";
 "Size" = "Size";
 "Some history exceeds the scan limit." = "Some history exceeds the scan limit.";
+"Sort Projects" = "Sort Projects";
 "Split Down" = "Split Down";
 "Split Right" = "Split Right";
 "Squash" = "Squash";
@@ -1348,6 +1403,7 @@
 "Starting" = "Starting";
 "Starting the server and reconnecting to Muxy." = "Starting the server and reconnecting to Muxy.";
 "Status" = "Status";
+"Status Bar" = "Status Bar";
 "Stays open when it loses focus" = "Stays open when it loses focus";
 "Still connecting to %@. Try again in a moment." = "Still connecting to %@. Try again in a moment.";
 "Stop" = "Stop";
@@ -1358,6 +1414,7 @@
 "Stop the Server on %@?" = "Stop the Server on %@?";
 "Stopped" = "Stopped";
 "Stopping…" = "Stopping…";
+"Suggestions" = "Suggestions";
 "Switch Project…" = "Switch Project…";
 "Switch Workspace…" = "Switch Workspace…";
 "Switch Worktree…" = "Switch Worktree…";
@@ -1368,6 +1425,8 @@
 "Tab Focused" = "Tab Focused";
 "Tab closed; server cleanup is pending: %@" = "Tab closed; server cleanup is pending: %@";
 "Tab type: %@" = "Tab type: %@";
+"Tabs" = "Tabs";
+"Tabs in %@" = "Tabs in %@";
 "Teal" = "Teal";
 "Teardown hooks could not be loaded: %@\nContinuing will remove without hooks." = "Teardown hooks could not be loaded: %@\nContinuing will remove without hooks.";
 "Template" = "Template";
@@ -1487,6 +1546,7 @@
 "Toggle Pane Zoom" = "Toggle Pane Zoom";
 "Toggle Sidebar" = "Toggle Sidebar";
 "Top" = "Top";
+"Top padding" = "Top padding";
 "Trackpad scroll speed" = "Trackpad scroll speed";
 "Transparency of the terminal background." = "Transparency of the terminal background.";
 "Trust & Test" = "Trust & Test";
@@ -1498,6 +1558,7 @@
 "Type" = "Type";
 "Type or speak…" = "Type or speak…";
 "Unassign" = "Unassign";
+"Unassign %@" = "Unassign %@";
 "Unassigned" = "Unassigned";
 "Unavailable" = "Unavailable";
 "Unavailable language" = "Unavailable language";
@@ -1556,11 +1617,13 @@
 "Use Composer Panel" = "Use Composer Panel";
 "Use Control or Alt with a supported key." = "Use Control or Alt with a supported key.";
 "Use Default" = "Use Default";
+"Use Default for %@" = "Use Default for %@";
 "Use Floating Composer" = "Use Floating Composer";
 "Use Global Prompt" = "Use Global Prompt";
 "Use SSH config or agent" = "Use SSH config or agent";
 "Use Save to keep command edits. Shortcut changes apply immediately." = "Use Save to keep command edits. Shortcut changes apply immediately.";
 "Use Theme" = "Use Theme";
+"Use Theme for %@" = "Use Theme for %@";
 "Use a port from 1 to 65535" = "Use a port from 1 to 65535";
 "Use a port from 1024 to 65535" = "Use a port from 1024 to 65535";
 "Use a specific font for a Unicode range, such as U+E000-U+F8FF for icons." = "Use a specific font for a Unicode range, such as U+E000-U+F8FF for icons.";
@@ -1578,6 +1641,7 @@
 "Vertical padding (points)" = "Vertical padding (points)";
 "Vibrancy of the glass background." = "Vibrancy of the glass background.";
 "View" = "View";
+"View %@" = "View %@";
 "Violet" = "Violet";
 "Wait for the AI repository action to finish" = "Wait for the AI repository action to finish";
 "Wait for the current AI action to finish" = "Wait for the current AI action to finish";
@@ -1600,6 +1664,7 @@
 "Work reported an error." = "Work reported an error.";
 "Working" = "Working";
 "Working over SSH? Run muxy on that machine for tabs and splits in the terminal, and press Ctrl-B then ? to see its keys." = "Working over SSH? Run muxy on that machine for tabs and splits in the terminal, and press Ctrl-B then ? to see its keys.";
+"Workspace Filter: %@" = "Workspace Filter: %@";
 "Workspaces" = "Workspaces";
 "Worktree created, but its location preference could not be saved: %@" = "Worktree created, but its location preference could not be saved: %@";
 "Worktree created, but setup failed" = "Worktree created, but setup failed";
@@ -1613,6 +1678,9 @@
 "Your previous projects are kept in %@" = "Your previous projects are kept in %@";
 "You’re running the latest version of %@." = "You’re running the latest version of %@.";
 "Zoom" = "Zoom";
+"Zoom In" = "Zoom In";
+"Zoom Out" = "Zoom Out";
+"Zoomed" = "Zoomed";
 "add project" = "add project";
 "allow" = "allow";
 "archive checksum does not match the marketplace" = "archive checksum does not match the marketplace";

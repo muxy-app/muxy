@@ -24,12 +24,13 @@ use std::collections::{HashMap, HashSet};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Render, Styled, Subscription, Window, canvas,
-    div, px,
+    InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled,
+    Subscription, Window, canvas, div, px,
 };
 use muxy_app_core::settings::{Settings, TerminalSettings};
 use muxy_core::l10n::{searchable, translate};
 use muxy_core::tr_key;
+use muxy_ui::accessibility;
 use muxy_ui::controls::{self, Style};
 use muxy_ui::form;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
@@ -191,6 +192,7 @@ impl SettingsView {
         let search = cx.new(|cx| {
             TextInput::new(InputStyle::field(&theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Search settings…"))
+                .with_accessibility_id("settings-search")
         });
         let search_subscription = cx.subscribe(&search, |pane: &mut Self, _, event, cx| {
             if matches!(event, InputEvent::Changed) {
@@ -283,35 +285,13 @@ impl SettingsView {
 
     fn create_fields(&mut self, cx: &mut Context<Self>) {
         let (theme, metrics) = (self.theme.clone(), self.metrics);
-        for (id, multiline) in [
-            "command-name",
-            "command-text",
-            "composer-font",
-            "composer-line-height",
-            "quick-width",
-            "quick-height",
-            "sidebar-vibrancy-level",
-            "worktree-template",
-            "worktree-folder",
-            "width",
-            "height",
-            "default-shell",
-            "history-budget",
-            "browser-home-page",
-            "browser-profile-name",
-        ]
-        .into_iter()
-        .chain(terminal::fields())
-        .chain(terminal_lists::EDITOR_FIELDS)
-        .map(|id| (id, false))
-        .chain(ai::PROMPTS.iter().map(|(_, id)| (*id, true)))
-        {
+        for (id, multiline) in field_ids() {
             let input = cx.new(|cx| {
                 let mut input = TextInput::new(InputStyle::field(&theme, &metrics), cx)
                     .with_accessibility_id(format!("settings-field-{id}"));
                 if let Some(label) = catalog::control_label(id) {
                     input = input.with_accessible_label(label);
-                } else if let Some(index) = id.strip_prefix("palette-") {
+                } else if let Some(index) = palette_index(id) {
                     input.set_accessible_name(muxy_ui::tr!("Palette color %@", index));
                 }
                 if multiline { input.multiline() } else { input }
@@ -626,18 +606,16 @@ impl SettingsView {
         let setting = catalog::setting(id);
         let catalog_description = setting.map(|setting| translate(setting.description));
         let description = description.or(catalog_description.as_deref());
-        let section = setting
-            .filter(|setting| {
-                !catalog::SETTINGS
-                    .iter()
-                    .take_while(|previous| previous.id != id)
-                    .any(|previous| {
-                        previous.category == setting.category
-                            && previous.section == setting.section
-                            && self.matches(previous.category, previous.label)
-                    })
-            })
-            .map(|setting| setting.section);
+        let section = setting.filter(|setting| {
+            !catalog::SETTINGS
+                .iter()
+                .take_while(|previous| previous.id != id)
+                .any(|previous| {
+                    previous.category == setting.category
+                        && previous.section == setting.section
+                        && self.matches(previous.category, previous.label)
+                })
+        });
         let focus = self.results.row_focus[id].clone();
         let reveal = self.results.reveal_focus.clone();
         div()
@@ -650,8 +628,8 @@ impl SettingsView {
             .min_w(px(0.0))
             .border_b_1()
             .border_color(self.theme.border)
-            .when_some(section, |row, section| {
-                row.child(self.subsection_heading(section))
+            .when_some(section, |row, setting| {
+                row.child(self.subsection_heading(setting.category, setting.section))
             })
             .child(form::row(
                 self.layout_style(),
@@ -661,7 +639,7 @@ impl SettingsView {
                 stacked,
             ))
             .when_some(self.errors.get(id), |row, error| {
-                row.child(self.note(error, true).pt_0())
+                row.child(announced_error(self.note(error, true).pt_0(), id, error))
             })
             .when(id == "quick-size", |row| {
                 row.children(
@@ -669,9 +647,13 @@ impl SettingsView {
                         .into_iter()
                         .filter_map(|id| {
                             self.errors.get(id).map(|error| {
-                                self.note(error, true)
-                                    .pt_0()
-                                    .debug_selector(move || format!("settings-error-{id}"))
+                                announced_error(
+                                    self.note(error, true)
+                                        .pt_0()
+                                        .debug_selector(move || format!("settings-error-{id}")),
+                                    id,
+                                    error,
+                                )
                             })
                         }),
                 )
@@ -698,12 +680,23 @@ impl SettingsView {
         form::note(self.style(), text, error)
     }
 
+    /// A note clients can read, for a list's empty state.
+    fn readable_note(&self, id: &'static str, text: &str) -> AnyElement {
+        self.note(text, false)
+            .id(id)
+            .role(gpui::Role::Label)
+            .aria_value(text.to_owned())
+            .into_any_element()
+    }
+
     /// A stored value shown without a control, for a setting whose feature cannot run here.
     fn stored(&self, id: &str, value: &str) -> AnyElement {
         controls::button(
             self.style(),
             id,
-            controls::Button::secondary(value).enabled(false),
+            controls::Button::secondary(value)
+                .named(&muxy_ui::tr!("%@: %@", &control_name(id), value))
+                .enabled(false),
             |_, _, _| {},
         )
         .into_any_element()
@@ -745,6 +738,45 @@ impl SettingsView {
             }),
         )
     }
+}
+
+/// A note saying why `id`'s control was refused, announced when it appears.
+fn announced_error(note: gpui::Div, id: &str, error: &str) -> accessibility::LiveRegion {
+    accessibility::announced(
+        note.id(gpui::SharedString::from(format!("settings-error-{id}"))),
+        error.to_owned(),
+        true,
+    )
+}
+
+/// Every text field Settings shows, and whether it takes several lines.
+fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
+    [
+        "command-name",
+        "command-text",
+        "composer-font",
+        "composer-line-height",
+        "quick-width",
+        "quick-height",
+        "sidebar-vibrancy-level",
+        "worktree-template",
+        "worktree-folder",
+        "width",
+        "height",
+        "default-shell",
+        "history-budget",
+        "browser-home-page",
+        "browser-profile-name",
+    ]
+    .into_iter()
+    .chain(terminal::fields())
+    .chain(terminal_lists::EDITOR_FIELDS)
+    .map(|id| (id, false))
+    .chain(ai::PROMPTS.iter().map(|(_, id)| (*id, true)))
+}
+
+fn palette_index(id: &str) -> Option<&str> {
+    id.strip_prefix("palette-")
 }
 
 /// What accessibility clients read for the control `id`.
@@ -848,4 +880,48 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
         ShortcutId::PreviousSettingsControl,
         &PreviousSettingsControl,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_text_field_has_a_name() {
+        for (id, _) in field_ids() {
+            assert!(
+                catalog::control_label(id).is_some() || palette_index(id).is_some(),
+                "{id} has no name"
+            );
+        }
+    }
+
+    #[test]
+    fn every_picker_and_slider_has_a_name() {
+        let pickers = pickers::FontSlot::ALL
+            .map(PickerKind::Font)
+            .into_iter()
+            .chain(terminal::PICKERS.iter().copied().map(PickerKind::Terminal))
+            .chain([
+                PickerKind::Theme(false),
+                PickerKind::Theme(true),
+                PickerKind::QuickTheme(false),
+                PickerKind::QuickTheme(true),
+                PickerKind::AiProvider(crate::repository_actions::Action::Commit),
+                PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
+                PickerKind::ExtensionSidebar,
+                PickerKind::FileOpener,
+                PickerKind::AppLanguage,
+            ])
+            .map(PickerKind::id);
+        let padding = [
+            "padding-left",
+            "padding-right",
+            "padding-top",
+            "padding-bottom",
+        ];
+        for id in pickers.chain(padding) {
+            assert!(catalog::control_label(id).is_some(), "{id} has no name");
+        }
+    }
 }

@@ -210,7 +210,11 @@ fn panel(
 }
 
 impl Item {
-    #[allow(clippy::too_many_arguments, reason = "One menu row and its placement")]
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::too_many_lines,
+        reason = "One menu row and its placement"
+    )]
     fn render(
         &self,
         level: usize,

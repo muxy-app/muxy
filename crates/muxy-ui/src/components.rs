@@ -138,6 +138,7 @@ fn svg_layer(icon: Icon, size: Pixels, color: Hsla) -> gpui::Div {
 pub struct IconButton {
     id: ElementId,
     name: SharedString,
+    accessible_name: Option<SharedString>,
     accessibility_id: Option<SharedString>,
     expanded: Option<bool>,
     icon: Icon,
@@ -167,6 +168,7 @@ impl IconButton {
         Self {
             id: id.into(),
             name: name.into(),
+            accessible_name: None,
             accessibility_id: None,
             expanded: None,
             icon,
@@ -191,6 +193,13 @@ impl IconButton {
         theme_background: Hsla,
     ) -> Self {
         self.tooltip = Some((background, foreground, border, theme_background));
+        self
+    }
+
+    /// What accessibility clients read when the tooltip isn't enough, such as a
+    /// row's Edit button, which has to say which row.
+    pub fn named(mut self, name: impl Into<SharedString>) -> Self {
+        self.accessible_name = Some(name.into());
         self
     }
 
@@ -245,7 +254,7 @@ impl RenderOnce for IconButton {
             .id(self.id)
             .role(Role::Button)
             .accessibility_id(accessibility_id)
-            .aria_label(name.clone())
+            .aria_label(self.accessible_name.unwrap_or_else(|| name.clone()))
             .group(group.clone())
             .flex()
             .flex_none()

@@ -477,22 +477,28 @@ fn render(
                 .child(muxy_ui::controls::button(
                     style,
                     "logo-zoom-out",
-                    muxy_ui::controls::Button::secondary("−").enabled(cropper.crop.zoom > 1.0),
+                    muxy_ui::controls::Button::secondary("−")
+                        .named(&tr!("Zoom Out"))
+                        .enabled(cropper.crop.zoom > 1.0),
                     cx.listener(|model, _, _, cx| model.zoom_project_logo(1.0 / 1.2, cx)),
                 ))
                 .child(muxy_ui::controls::button(
                     style,
                     "logo-zoom-in",
-                    muxy_ui::controls::Button::secondary("+").enabled(cropper.crop.zoom < 5.0),
+                    muxy_ui::controls::Button::secondary("+")
+                        .named(&tr!("Zoom In"))
+                        .enabled(cropper.crop.zoom < 5.0),
                     cx.listener(|model, _, _, cx| model.zoom_project_logo(1.2, cx)),
                 )),
         )
-        .children(
-            cropper
-                .error
-                .as_ref()
-                .map(|error| div().text_color(theme.danger).child(error.clone())),
-        )
+        .children(cropper.error.as_ref().map(|error| {
+            muxy_ui::accessibility::announced(
+                div().id("project-logo-error").text_color(theme.danger),
+                error.clone(),
+                true,
+            )
+            .child(error.clone())
+        }))
         .child(footer(model, cx)),
     )
 }

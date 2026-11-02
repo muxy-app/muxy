@@ -1,8 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, ClickEvent, Decorations, Div, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
-    div, px, svg,
+    MouseButton, ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    Window, div, px, svg,
 };
 use muxy_ui::components::Tooltip;
 use muxy_ui::theme::Theme;
@@ -94,6 +94,9 @@ fn button(
         (theme.raised(), theme.fg, theme.border, theme.bg);
     div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(label.clone())
         .group(id)
         .debug_selector(move || id.into())
         .flex_none()

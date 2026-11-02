@@ -69,6 +69,7 @@ impl std::fmt::Debug for LiveRegion {
 }
 
 impl LiveRegion {
+    #[must_use]
     pub fn child(mut self, child: impl IntoElement) -> Self {
         self.element = self.element.child(child);
         self

@@ -4,7 +4,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Pixels, StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    Pixels, Role, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
@@ -141,9 +141,13 @@ fn primary_button(
         },
         |image| gpui::img(image).size(m.icon_md()).into_any_element(),
     );
+    let name = tr!("Open Project in %@", shown.app.name.clone());
     with_tooltip(
         div()
             .id("open-in-ide-primary")
+            .role(Role::Button)
+            .accessibility_id("open-in-ide-primary")
+            .aria_label(name.clone())
             .debug_selector(|| "open-in-ide-primary".into())
             .flex()
             .items_center()
@@ -168,7 +172,7 @@ fn primary_button(
                         .child(shown.app.name.clone()),
                 )
             }),
-        tr!("Open Project in %@", shown.app.name.clone()),
+        name,
         model,
     )
 }
@@ -177,9 +181,13 @@ fn primary_button(
 fn menu_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     let m = model.metrics;
     let theme = &model.theme;
+    let name = tr!("Choose App to Open Project");
     with_tooltip(
         div()
             .id("open-in-ide-menu")
+            .role(Role::Button)
+            .accessibility_id("open-in-ide-menu")
+            .aria_label(name.clone())
             .debug_selector(|| "open-in-ide-menu".into())
             .flex()
             .items_center()
@@ -198,7 +206,7 @@ fn menu_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement
                 m.icon_xs(),
                 theme.fg_muted,
             )),
-        tr!("Choose App to Open Project"),
+        name,
         model,
     )
 }

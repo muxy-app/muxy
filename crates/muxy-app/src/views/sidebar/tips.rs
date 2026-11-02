@@ -1,7 +1,8 @@
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Styled, Window, canvas, div,
+    Role, StatefulInteractiveElement, Styled, Window, canvas, div,
 };
+use muxy_ui::accessibility;
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
@@ -99,6 +100,9 @@ fn popover_card(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     muxy_ui::popover::surface(&model.theme, m)
         .id("tip-popover")
+        .role(Role::Dialog)
+        .accessibility_id("tip-popover")
+        .aria_label(tr!("MUXY TIP"))
         .debug_selector(|| "tip-popover".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -138,7 +142,7 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .text_size(m.font_caption())
                 .font_weight(FontWeight::BOLD)
                 .text_color(theme.accent)
-                .child(tr!("MUXY TIP")),
+                .child(accessibility::label("tip-heading", tr!("MUXY TIP"))),
         )
         .child(
             div().debug_selector(|| "hide-tips".into()).child(
@@ -164,7 +168,10 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .flex_1()
                 .text_size(m.font_caption())
                 .text_color(theme.fg_dim)
-                .child(tr!("%lld of %lld", model.tips.position(), TIPS.len())),
+                .child(accessibility::label(
+                    "tip-position",
+                    tr!("%lld of %lld", model.tips.position(), TIPS.len()),
+                )),
         )
         .child(step_button(false, model, cx))
         .child(step_button(true, model, cx));
@@ -178,7 +185,7 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .debug_selector(|| "tip-text".into())
                 .text_size(m.font_body())
                 .text_color(theme.fg)
-                .child(model.tips.current()),
+                .child(accessibility::label("tip-text", model.tips.current())),
         )
         .child(controls)
 }

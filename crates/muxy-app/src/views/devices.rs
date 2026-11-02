@@ -7,11 +7,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, Styled, canvas, div, point, px, size,
+    AnyElement, Bounds, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Role,
+    SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px, size,
 };
 use muxy_app_core::qr::{QUIET_ZONE, QrCode};
 use muxy_protocol::{DeviceKind, ListenerStatus, PairedDevice, PairingOffer, RemoteAccessState};
+use muxy_ui::accessibility;
 use muxy_ui::controls;
 use muxy_ui::tr;
 
@@ -120,7 +121,10 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
             div()
                 .text_color(theme.fg_muted)
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(tr!("This Computer")),
+                .child(accessibility::label(
+                    "devices-this-computer-heading",
+                    tr!("This Computer"),
+                )),
         )
         .children(
             access
@@ -133,7 +137,15 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
 }
 
 fn note(text: &str, error: bool, model: &AppModel) -> AnyElement {
-    muxy_ui::form::note(style(model), text, error).into_any_element()
+    let note = muxy_ui::form::note(style(model), text, error);
+    if error {
+        accessibility::announced(note.id("devices-error"), text.to_owned(), true).into_any_element()
+    } else {
+        note.id("devices-note")
+            .role(Role::Label)
+            .aria_value(text.to_owned())
+            .into_any_element()
+    }
 }
 
 /// A label and its description beside the control.
@@ -223,15 +235,21 @@ fn status(state: &RemoteAccessState, model: &AppModel) -> AnyElement {
         (ListenerStatus::Disabled, false) => (tr!("Off"), false),
         (ListenerStatus::Unrecognized(_), _) => (tr!("Update Muxy to see this status"), false),
     };
-    div()
-        .debug_selector(|| "devices-status".into())
-        .text_color(if failed {
-            model.theme.danger
-        } else {
-            model.theme.fg_muted
-        })
-        .child(text)
-        .into_any_element()
+    accessibility::announced(
+        div()
+            .id("devices-status")
+            .accessibility_id("devices-status")
+            .debug_selector(|| "devices-status".into())
+            .text_color(if failed {
+                model.theme.danger
+            } else {
+                model.theme.fg_muted
+            }),
+        text.clone(),
+        failed,
+    )
+    .child(text)
+    .into_any_element()
 }
 
 fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
@@ -254,8 +272,11 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .flex_col()
         .gap(px(10.0))
         .child(code(pairing.code.clone()))
-        .child(div().min_w(px(0.0)).text_color(model.theme.fg_muted).child(tr!(
-            "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes."
+        .child(div().min_w(px(0.0)).text_color(model.theme.fg_muted).child(accessibility::label(
+            "devices-code-hint",
+            tr!(
+                "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes."
+            ),
         )))
         .child(
             div()
@@ -281,7 +302,10 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
 fn code(code: Option<Arc<QrCode>>) -> AnyElement {
     let Some(code) = code else {
         return div()
-            .child(tr!("The pairing code is too long to show."))
+            .child(accessibility::label(
+                "devices-code-too-long",
+                tr!("The pairing code is too long to show."),
+            ))
             .into_any_element();
     };
     let painted = canvas(
@@ -316,6 +340,10 @@ fn code(code: Option<Arc<QrCode>>) -> AnyElement {
     )
     .size(px(CODE_SIZE));
     div()
+        .id("devices-code")
+        .role(Role::Image)
+        .accessibility_id("devices-code")
+        .aria_label(tr!("Pairing code"))
         .debug_selector(|| "devices-code".into())
         .child(painted)
         .into_any_element()
@@ -325,7 +353,10 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
     if state.devices.is_empty() {
         return div()
             .text_color(model.theme.fg_muted)
-            .child(tr!("No paired devices yet."))
+            .child(accessibility::label(
+                "devices-none",
+                tr!("No paired devices yet."),
+            ))
             .into_any_element();
     }
     let now = SystemTime::now()
@@ -353,26 +384,29 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                         .flex_col()
                         .flex_1()
                         .min_w(px(0.0))
-                        .child(div().truncate().child(device.name.clone()))
-                        .child(
-                            div()
-                                .truncate()
-                                .text_color(model.theme.fg_muted)
-                                .child(format!(
-                                    "{} · {}",
-                                    kind(device.kind),
-                                    presence(device, now)
-                                )),
-                        ),
+                        .child(div().truncate().child(accessibility::label(
+                            SharedString::from(format!("devices-paired-name-{id}")),
+                            device.name.clone(),
+                        )))
+                        .child(div().truncate().text_color(model.theme.fg_muted).child(
+                            accessibility::label(
+                                SharedString::from(format!("devices-paired-state-{id}")),
+                                format!("{} · {}", kind(device.kind), presence(device, now)),
+                            ),
+                        )),
                 )
-                .child(div().flex_none().child(controls::button(
-                    style(model),
-                    &format!("devices-revoke-{id}"),
-                    controls::Button::secondary(&tr!("Revoke")).enabled(!busy),
-                    cx.listener(move |model, _, window, cx| {
-                        model.confirm_revoke(id, window.window_handle(), cx);
-                    }),
-                )))
+                .child(
+                    div().flex_none().child(controls::button(
+                        style(model),
+                        &format!("devices-revoke-{id}"),
+                        controls::Button::secondary(&tr!("Revoke"))
+                            .named(&tr!("Revoke %@", device.name.as_str()))
+                            .enabled(!busy),
+                        cx.listener(move |model, _, window, cx| {
+                            model.confirm_revoke(id, window.window_handle(), cx);
+                        }),
+                    )),
+                )
         }))
         .into_any_element()
 }

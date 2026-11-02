@@ -3,9 +3,10 @@ use crate::views::terminal::pane::TerminalPane;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Context, Entity, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
-    div, px,
+    ParentElement, Render, Role, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
+    Window, div, px,
 };
+use muxy_ui::accessibility;
 use muxy_ui::components::IconButton;
 use muxy_ui::icon::Icon;
 use muxy_ui::popover;
@@ -397,6 +398,7 @@ impl Render for QuickTerminalView {
                             bridge_muted,
                             bridge_foreground,
                         )
+                        .named(tr!("Open Quick Terminal settings"))
                         .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_settings, BridgeAction::OpenSettings, cx);
@@ -416,6 +418,11 @@ impl Render for QuickTerminalView {
                             },
                             bridge_foreground,
                         )
+                        .named(if pinned {
+                            tr!("Unpin Quick Terminal")
+                        } else {
+                            tr!("Pin Quick Terminal")
+                        })
                         .selected(pinned, bridge_control, metrics.radius_sm())
                         .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
@@ -432,6 +439,7 @@ impl Render for QuickTerminalView {
                             bridge_muted,
                             bridge_foreground,
                         )
+                        .named(tr!("Close Quick Terminal"))
                         .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_close, BridgeAction::Close, cx);
@@ -468,8 +476,13 @@ fn bridge_header_button(
     muted: gpui::Hsla,
     background: gpui::Hsla,
 ) -> AnyElement {
+    let label = label.into();
     div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(tr!("Quick Terminal shortcut"))
+        .aria_value(label.clone())
         .h(metrics.control_small())
         .px(metrics.spacing4())
         .flex()
@@ -486,7 +499,7 @@ fn bridge_header_button(
             style.bg(hover).text_color(foreground)
         })
         .on_click(move |_, _, cx| dispatch_bridge_action(&owner, BridgeAction::OpenSettings, cx))
-        .child(label.into())
+        .child(label)
         .into_any_element()
 }
 
@@ -501,7 +514,9 @@ fn dispatch_bridge_action(owner: &WeakEntity<AppModel>, action: BridgeAction, cx
     });
 }
 
-/// What accessibility clients read of the panel. These nodes draw nothing.
+/// What accessibility clients read of the panel. These nodes draw nothing. The
+/// model's buttons are left out, as the real ones publish themselves and a
+/// second node with their ID would be dropped from the tree.
 fn accessibility_nodes(
     status: &str,
     shortcut: &str,
@@ -509,13 +524,14 @@ fn accessibility_nodes(
 ) -> impl Iterator<Item = gpui::Stateful<gpui::Div>> {
     bridge_accessibility_model(status, shortcut, pinned)
         .into_iter()
+        .filter(|node| !matches!(node.role, AccessibilityRole::Button))
         .map(|node| {
             div()
                 .id(node.identifier)
-                .role(match node.role {
-                    AccessibilityRole::Group => gpui::Role::Group,
-                    AccessibilityRole::Status => gpui::Role::Status,
-                    AccessibilityRole::Button => gpui::Role::Button,
+                .role(if matches!(node.role, AccessibilityRole::Group) {
+                    Role::Group
+                } else {
+                    Role::Status
                 })
                 .accessibility_id(node.identifier)
                 .aria_label(node.label)
@@ -574,7 +590,10 @@ fn confirmation_dialog(
                 div()
                     .text_size(metrics.font_body())
                     .text_color(theme.fg_muted)
-                    .child(tr!("A process is still running in this terminal.")),
+                    .child(accessibility::label(
+                        "quick-terminal-confirm-message",
+                        tr!("A process is still running in this terminal."),
+                    )),
             )
             .child(
                 div()
@@ -619,6 +638,8 @@ impl QuickTerminalView {
         );
         let mut menu = popover::surface(theme, m)
             .id("quick-context-menu")
+            .role(Role::Menu)
+            .accessibility_id("quick-context-menu")
             .debug_selector(|| "quick-context-menu".into())
             .key_context("Menu")
             .track_focus(&self.menu_focus)
@@ -667,6 +688,8 @@ impl QuickTerminalView {
         {
             menu = menu.child(
                 popover::row(theme, m, ("quick-menu", index), true, highlighted == index)
+                    .role(Role::MenuItem)
+                    .aria_label(label.clone())
                     .on_click(cx.listener(move |view, _, window, cx| {
                         view.menu_command(index, window, cx);
                     }))
@@ -706,7 +729,7 @@ mod tests {
         use gpui::{Element as _, accesskit};
 
         let nodes = accessibility_nodes("Ready", "Ctrl+J", false).collect::<Vec<_>>();
-        assert_eq!(nodes.len(), 6);
+        assert_eq!(nodes.len(), 2);
 
         let status = &nodes[1];
         let mut node = accesskit::Node::new(gpui::Role::Status);

@@ -4,10 +4,11 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, FontWeight, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, Window, canvas, div, px,
+    IntoElement, MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, Window, canvas, div, px,
 };
 use muxy_app_core::settings::{DEFAULT_PROXY_BYPASS, ProxyKind, ProxySettings};
+use muxy_ui::accessibility;
 use muxy_ui::components::{ButtonInteraction, IconGlyph};
 use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::form::{NextControl, PreviousControl};
@@ -69,6 +70,14 @@ pub(crate) fn control(model: &AppModel, cx: &mut Context<AppModel>) -> impl Into
     let global = model.proxy.global();
     div()
         .id("proxy-status")
+        .role(Role::Button)
+        .accessibility_id("proxy-status")
+        .aria_label(if global {
+            tr!("Proxy · On")
+        } else {
+            tr!("Proxy")
+        })
+        .aria_expanded(matches!(model.overlay, Some(Overlay::Proxy(_))))
         .debug_selector(|| "proxy-status".into())
         .relative()
         .flex()
@@ -151,6 +160,9 @@ fn render(
         .min((window.viewport_size().width - px(16.0)).max(px(0.0)));
     popover::surface(theme, m)
         .id("proxy-popover")
+        .role(Role::Dialog)
+        .accessibility_id("proxy-popover")
+        .aria_label(tr!("Proxy"))
         .debug_selector(|| "proxy-popover".into())
         .key_context("Menu Form")
         .track_focus(&model.overlay_focus)
@@ -287,11 +299,15 @@ fn fields(form: &ProxyForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
 }
 
 /// What the whole-app choice covers, and anything that stops the proxy.
-fn notes(form: &ProxyForm, model: &AppModel) -> Vec<gpui::Div> {
+fn notes(form: &ProxyForm, model: &AppModel) -> Vec<AnyElement> {
     let m = model.metrics;
     let theme = &model.theme;
     let note = |color| div().text_size(m.font_footnote()).text_color(color);
-    let mut notes = vec![note(theme.fg_muted).child(if form.global {
+    let mut notes = vec![
+        note(theme.fg_muted)
+            .child(accessibility::label(
+                "proxy-scope",
+                if form.global {
                     tr!(
                         "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings."
                     )
@@ -299,21 +315,38 @@ fn notes(form: &ProxyForm, model: &AppModel) -> Vec<gpui::Div> {
                     tr!(
                         "Right-click a terminal and choose Apply Proxy to use it there. The terminal restarts in the same folder."
                     )
-                })];
+                },
+            ))
+            .into_any_element(),
+    ];
     if model.proxy_needs_newer_server() {
+        let warning = tr!(
+            "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it."
+        );
         notes.push(
-            note(theme.warning)
-                .debug_selector(|| "proxy-server-outdated".into())
-                .child(tr!(
-                    "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it."
-                )),
+            accessibility::announced(
+                note(theme.warning)
+                    .debug_selector(|| "proxy-server-outdated".into())
+                    .id("proxy-server-outdated"),
+                warning.clone(),
+                false,
+            )
+            .child(warning)
+            .into_any_element(),
         );
     }
     if let Some(error) = form.error.clone().or_else(|| model.proxy.error.clone()) {
         notes.push(
-            note(theme.danger)
-                .debug_selector(|| "proxy-error".into())
-                .child(error),
+            accessibility::announced(
+                note(theme.danger)
+                    .debug_selector(|| "proxy-error".into())
+                    .id("proxy-error")
+                    .accessibility_id("proxy-error"),
+                error.clone(),
+                true,
+            )
+            .child(error)
+            .into_any_element(),
         );
     }
     notes
@@ -352,16 +385,21 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
 fn input(
     model: &AppModel,
     cx: &mut Context<AppModel>,
+    label: &'static str,
+    id: &str,
     placeholder: &'static str,
     text: &str,
     secure: bool,
 ) -> Entity<TextInput> {
+    let id = format!("settings-field-{id}");
     let style = InputStyle::field(&model.theme, &model.metrics);
     let text = text.to_owned();
     cx.new(|cx| {
         let input = TextInput::new(style, cx);
         if secure { input.secure() } else { input }
             .with_placeholder_key(placeholder)
+            .with_accessible_label(label)
+            .with_accessibility_id(id)
             .with_text(text)
     })
 }
@@ -390,11 +428,51 @@ impl AppModel {
         } else {
             current.port.to_string()
         };
-        let host = input(self, cx, "127.0.0.1", &current.host, false);
-        let port = input(self, cx, "8080", &port, false);
-        let username = input(self, cx, tr_key!("optional"), &current.username, false);
-        let password = input(self, cx, tr_key!("optional"), &current.password, true);
-        let bypass = input(self, cx, DEFAULT_PROXY_BYPASS, &current.bypass, false);
+        let host = input(
+            self,
+            cx,
+            tr_key!("Host"),
+            "proxy-host",
+            "127.0.0.1",
+            &current.host,
+            false,
+        );
+        let port = input(
+            self,
+            cx,
+            tr_key!("Port"),
+            "proxy-port",
+            "8080",
+            &port,
+            false,
+        );
+        let username = input(
+            self,
+            cx,
+            tr_key!("User"),
+            "proxy-username",
+            tr_key!("optional"),
+            &current.username,
+            false,
+        );
+        let password = input(
+            self,
+            cx,
+            tr_key!("Password"),
+            "proxy-password",
+            tr_key!("optional"),
+            &current.password,
+            true,
+        );
+        let bypass = input(
+            self,
+            cx,
+            tr_key!("No proxy for"),
+            "proxy-bypass",
+            DEFAULT_PROXY_BYPASS,
+            &current.bypass,
+            false,
+        );
         let subscriptions = [&host, &port, &username, &password, &bypass]
             .into_iter()
             .map(|input| {

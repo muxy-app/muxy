@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Div, Focusable, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, div,
+    ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, div,
 };
 use muxy_ui::tr;
 
@@ -42,6 +42,9 @@ pub(super) fn list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     )
     .size_full();
     div()
+        .id("agent-sessions-rows")
+        .role(Role::Tree)
+        .aria_label(tr!("Agent Sessions"))
         .relative()
         .size_full()
         .child(list)
@@ -59,10 +62,10 @@ pub(super) fn list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
 
 fn section(recency: Recency, model: &AppModel) -> Div {
     let m = model.metrics;
-    let label = match recency {
-        Recency::Recent => tr!("Last 24 hours"),
-        Recency::Week => tr!("Previous 7 days"),
-        Recency::Older => tr!("Older sessions"),
+    let (id, label) = match recency {
+        Recency::Recent => ("agent-session-section-recent", tr!("Last 24 hours")),
+        Recency::Week => ("agent-session-section-week", tr!("Previous 7 days")),
+        Recency::Older => ("agent-session-section-older", tr!("Older sessions")),
     };
     div()
         .px(m.spacing2())
@@ -70,6 +73,9 @@ fn section(recency: Recency, model: &AppModel) -> Div {
         .pb(m.spacing1())
         .child(
             div()
+                .id(id)
+                .role(Role::Label)
+                .aria_value(label.clone())
                 .px(m.spacing3())
                 .text_size(m.font_micro())
                 .font_weight(FontWeight::BOLD)
@@ -120,6 +126,10 @@ fn row(
         .child(
             div()
                 .id(("agent-session", index))
+                .role(Role::TreeItem)
+                .aria_label(title.clone())
+                .aria_description(format!("{} · {}", session.provider.name(), age(&session)))
+                .aria_selected(selected)
                 .debug_selector(move || format!("agent-session-{index}"))
                 .flex()
                 .items_center()

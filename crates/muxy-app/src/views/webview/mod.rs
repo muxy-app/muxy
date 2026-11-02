@@ -464,7 +464,10 @@ impl Webview {
         let rows = menu.options.iter().enumerate().map(|(index, option)| {
             if option.heading {
                 return muxy_ui::popover::header(&self.palette, self.metrics)
-                    .child(option.label.clone())
+                    .child(muxy_ui::accessibility::label(
+                        ("page-option-heading", index),
+                        option.label.clone(),
+                    ))
                     .into_any_element();
             }
             muxy_ui::popover::row(
@@ -474,6 +477,10 @@ impl Webview {
                 option.enabled,
                 option.selected,
             )
+            .role(gpui::Role::MenuItem)
+            .aria_label(option.label.clone())
+            .aria_disabled(!option.enabled)
+            .when(option.selected, |row| row.aria_toggled(gpui::Toggled::True))
             .child(option.label.clone())
             .when(option.enabled, |row| {
                 row.on_click(cx.listener(move |view, _, _, cx| view.choose(Some(index), cx)))
@@ -496,6 +503,7 @@ impl Webview {
                 px(240.0),
                 muxy_ui::popover::surface(&self.palette, self.metrics)
                     .id("page-options")
+                    .role(gpui::Role::Menu)
                     .overflow_y_scroll()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .children(rows),

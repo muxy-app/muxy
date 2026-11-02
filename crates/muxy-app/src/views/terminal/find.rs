@@ -429,6 +429,9 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
     Some(
         div()
             .id("terminal-find")
+            .role(gpui::Role::Group)
+            .accessibility_id("terminal-find")
+            .aria_label(tr!("Find in Terminal"))
             .debug_selector(|| "terminal-find".into())
             .flex()
             .flex_none()
@@ -460,7 +463,10 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     .truncate()
                     .text_size(metrics.font_caption())
                     .text_color(theme.fg_muted)
-                    .child(find.results.counter()),
+                    .child(muxy_ui::accessibility::label(
+                        "find-counter",
+                        find.results.counter(),
+                    )),
             )
             .child(
                 button("find-previous", Icon::ChevronLeft, tr!("Previous match"))
@@ -473,6 +479,14 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
             .child(
                 div()
                     .id("find-ignore-case")
+                    .role(gpui::Role::Switch)
+                    .accessibility_id("find-ignore-case")
+                    .aria_label(tr!("Ignore Case"))
+                    .aria_toggled(if find.results.ignore_case {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .debug_selector(|| "find-ignore-case".into())
                     .cursor_pointer()
                     .px(metrics.spacing2())

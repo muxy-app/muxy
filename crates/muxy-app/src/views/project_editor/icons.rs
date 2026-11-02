@@ -5,11 +5,12 @@ use crate::{
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    px, size,
+    ParentElement, Pixels, Point, Role, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, size,
 };
 use muxy_app_core::ProjectId;
 use muxy_ui::{
+    accessibility,
     components::{ButtonInteraction, SymbolGlyph, Tooltip},
     l10n::tr_key,
     text_input::{InputEvent, InputStyle, TextInput},
@@ -35,6 +36,7 @@ impl AppModel {
         let input = cx.new(|cx| {
             TextInput::new(InputStyle::compact(&self.theme, &self.metrics), cx)
                 .with_placeholder_key(tr_key!("Search symbols…"))
+                .with_accessibility_id("settings-field-project-symbol-search")
         });
         input.focus_handle(cx).focus(window);
         self.overlay_subscription =
@@ -121,6 +123,10 @@ fn render(
         .min((window.viewport_size().height - px(16.0)).max(px(0.0)));
     let origin = clamp(picker.position, size(width, height), window.viewport_size());
     muxy_ui::popover::surface(theme, m)
+        .id("project-symbol-picker")
+        .role(Role::Dialog)
+        .accessibility_id("project-symbol-picker")
+        .aria_label(tr!("Icon"))
         .debug_selector(|| "project-symbol-picker".into())
         .absolute()
         .left(origin.x)
@@ -162,23 +168,30 @@ fn render(
                             ),
                         )
                         .when(picker.matches.is_empty(), |grid| {
-                            grid.child(
-                                div()
-                                    .text_color(theme.fg_muted)
-                                    .child(tr!("No symbols found")),
-                            )
+                            grid.child(div().text_color(theme.fg_muted).child(
+                                accessibility::label(
+                                    "project-symbols-empty",
+                                    tr!("No symbols found"),
+                                ),
+                            ))
                         }),
                 )
-                .children(
-                    picker
-                        .error
-                        .as_ref()
-                        .map(|error| div().text_color(theme.danger).child(error.clone())),
-                ),
+                .children(picker.error.as_ref().map(|error| {
+                    accessibility::announced(
+                        div().id("project-symbol-error").text_color(theme.danger),
+                        error.clone(),
+                        true,
+                    )
+                    .child(error.clone())
+                })),
         )
         .child(muxy_ui::popover::divider(theme, m))
         .child(
             muxy_ui::popover::row(theme, m, "remove-project-icon", selected.is_some(), false)
+                .role(Role::Button)
+                .accessibility_id("remove-project-icon")
+                .aria_label(tr!("Remove Icon"))
+                .aria_disabled(selected.is_none())
                 .debug_selector(|| "remove-project-icon".into())
                 .when(selected.is_some(), |button| {
                     button.button_interaction(
@@ -206,8 +219,13 @@ fn symbol_button(
     let name = symbol.symbol;
     let active = selected.and_then(|value| value.strip_prefix("sf:")) == Some(name);
     let tooltip_theme = theme.clone();
+    let id = SharedString::from(format!("project-symbol-{name}"));
     div()
-        .id(SharedString::from(format!("project-symbol-{name}")))
+        .id(id.clone())
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(symbol.name)
+        .aria_selected(active)
         .debug_selector(move || format!("project-symbol-{name}"))
         .size(m.control_large())
         .flex_none()

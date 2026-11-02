@@ -12,6 +12,7 @@ pub(super) fn button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
         tr!("Apply Layout"),
         model,
     )
+    .accessibility_id("project-layouts-button")
     .debug_selector(|| "project-layouts-button".into())
     .on_click(cx.listener(move |model, _, window, cx| {
         cx.stop_propagation();

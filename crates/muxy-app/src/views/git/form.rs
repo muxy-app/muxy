@@ -1,7 +1,8 @@
 use gpui::{
     AnyElement, App, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, Styled, Window, anchored, deferred, div, point, px,
+    SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
 };
+use muxy_ui::accessibility;
 use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::form::{NextControl, PreviousControl};
 use muxy_ui::tr;
@@ -105,25 +106,43 @@ pub(crate) fn render(
         .or_else(|| repository.and_then(|r| r.load_error(&muxy_protocol::GitAction::Branches)));
     if let Some(error) = error {
         view = view.child(
-            div()
-                .debug_selector(|| "git-form-error".into())
-                .text_size(m.font_footnote())
-                .text_color(theme.danger)
-                .child(error.clone()),
+            accessibility::announced(
+                div()
+                    .id("git-form-error")
+                    .accessibility_id("git-form-error")
+                    .debug_selector(|| "git-form-error".into())
+                    .text_size(m.font_footnote())
+                    .text_color(theme.danger),
+                error.clone(),
+                true,
+            )
+            .child(error.clone()),
         );
     } else if !ready {
+        let status = tr!("Connect to the server to create.");
         view = view.child(
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child(tr!("Connect to the server to create.")),
+            accessibility::announced(
+                div()
+                    .id("git-form-status")
+                    .text_size(m.font_footnote())
+                    .text_color(theme.fg_muted),
+                status.clone(),
+                false,
+            )
+            .child(status),
         );
     } else if busy && form.worktree {
+        let status = tr!("Wait for the running Git action to finish.");
         view = view.child(
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child(tr!("Wait for the running Git action to finish.")),
+            accessibility::announced(
+                div()
+                    .id("git-form-status")
+                    .text_size(m.font_footnote())
+                    .text_color(theme.fg_muted),
+                status.clone(),
+                false,
+            )
+            .child(status),
         );
     }
     view.child(

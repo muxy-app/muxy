@@ -44,10 +44,12 @@ pub(super) fn heading(pane: &SettingsView, cx: &mut Context<SettingsView>) -> An
             ),
         )
         .when(pane.snapshot.settings.commands.is_empty() && pane.command_editor.is_none(), |body| {
-            body.child(pane.note(&tr!("No custom commands yet."), false))
+            body.child(pane.readable_note("settings-no-commands", &tr!("No custom commands yet.")))
         })
         .when(pane.command_editor.is_some(), |body| body.child(editor(pane, cx)))
-        .when_some(pane.errors.get("commands"), |body, error| body.child(pane.note(error, true)))
+        .when_some(pane.errors.get("commands"), |body, error| {
+            body.child(super::announced_error(pane.note(error, true), "commands", error))
+        })
         .into_any_element()
 }
 
@@ -123,7 +125,9 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &id,
-                controls::Button::secondary(&label).enabled(enabled),
+                controls::Button::secondary(&label)
+                    .named(&tr!("%@: %@", &command.name, &label))
+                    .enabled(enabled),
                 cx.listener(move |pane, _, window, cx| pane.begin_recording(&record, window, cx)),
             )
             .track_focus(&focus[0])
@@ -136,7 +140,9 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                controls::Button::secondary(&tr!("Unassign")).enabled(enabled && chord.is_some()),
+                controls::Button::secondary(&tr!("Unassign"))
+                    .named(&tr!("Unassign %@", &command.name))
+                    .enabled(enabled && chord.is_some()),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(
@@ -151,7 +157,9 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("edit-{id}"),
-                controls::Button::secondary(&tr!("Edit")).enabled(enabled),
+                controls::Button::secondary(&tr!("Edit"))
+                    .named(&tr!("Edit %@", &command.name))
+                    .enabled(enabled),
                 cx.listener(move |pane, _, window, cx| {
                     pane.edit_command(Some(edit.clone()), window, cx);
                 }),
@@ -166,7 +174,9 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("delete-{id}"),
-                controls::Button::secondary(&tr!("Delete")).enabled(enabled),
+                controls::Button::secondary(&tr!("Delete"))
+                    .named(&tr!("Delete %@", &command.name))
+                    .enabled(enabled),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::RemoveCommand(delete.clone())));

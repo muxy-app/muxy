@@ -7,8 +7,10 @@ pub(crate) use rows::age_label;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Div, Focusable, Hsla, InteractiveElement, IntoElement, MouseDownEvent,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
+    canvas, div, px,
 };
+use muxy_ui::accessibility;
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::panel::{
@@ -304,8 +306,12 @@ fn search(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         .child(filters::button(model, cx))
 }
 
-fn body(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
+fn body(model: &AppModel, cx: &mut Context<AppModel>) -> Stateful<Div> {
     div()
+        .id("agent-sessions")
+        .role(Role::Group)
+        .accessibility_id("agent-sessions")
+        .aria_label(tr!("Agent Sessions"))
         .key_context("Picker")
         .on_action(cx.listener(|model, _: &SelectNext, _, cx| model.move_agent_session(false, cx)))
         .on_action(
@@ -371,7 +377,9 @@ fn notices(model: &AppModel) -> Option<Div> {
             .border_color(model.theme.border)
             .text_size(m.font_footnote())
             .text_color(model.theme.fg_muted)
-            .children(messages)
+            .children(messages.into_iter().enumerate().map(|(index, message)| {
+                accessibility::label(("agent-session-notice", index), message)
+            }))
     })
 }
 
@@ -410,7 +418,7 @@ fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 .text_center()
                 .text_size(m.font_body())
                 .text_color(theme.fg_muted)
-                .child(message),
+                .child(accessibility::label("agent-sessions-empty", message)),
         )
         .when(reset, |body| {
             body.child(

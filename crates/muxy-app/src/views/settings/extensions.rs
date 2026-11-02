@@ -8,6 +8,7 @@ use gpui::{
     div,
 };
 use muxy_ui::{
+    accessibility,
     components::{ButtonInteraction, SymbolGlyph},
     controls::{self, Choice, Style},
     form,
@@ -137,6 +138,7 @@ impl ExtensionsView {
         let search = cx.new(|cx| {
             TextInput::new(InputStyle::field(&theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Search extensions…"))
+                .with_accessibility_id("extension-search")
         });
         let changes = cx.subscribe(&search, |view: &mut Self, _, event, cx| {
             if matches!(event, InputEvent::Changed) {
@@ -650,6 +652,7 @@ impl ExtensionsView {
 }
 
 impl Render for ExtensionsView {
+    #[allow(clippy::too_many_lines, reason = "The page's one declarative layout")]
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(model) = self.model.upgrade() else {
             return div().into_any_element();
@@ -730,16 +733,27 @@ impl Render for ExtensionsView {
                                 ))
                             })
                             .when_some(self.error.as_ref(), |body, error| {
-                                body.child(form::note(self.style(), error, true))
+                                body.child(accessibility::announced(
+                                    form::note(self.style(), error, true).id("extension-error"),
+                                    error.clone(),
+                                    true,
+                                ))
                             })
                             .when_some(status.as_ref(), |body, status| {
-                                body.child(form::note(self.style(), status, false))
+                                body.child(accessibility::announced(
+                                    form::note(self.style(), status, false).id("extension-status"),
+                                    status.clone(),
+                                    false,
+                                ))
                             })
-                            .children(
-                                errors
-                                    .iter()
-                                    .map(|error| form::note(self.style(), error, true)),
-                            )
+                            .children(errors.iter().enumerate().map(|(index, error)| {
+                                accessibility::announced(
+                                    form::note(self.style(), error, true)
+                                        .id(("extension-registry-error", index)),
+                                    error.clone(),
+                                    true,
+                                )
+                            }))
                             .children(
                                 unavailable
                                     .iter()
@@ -814,6 +828,7 @@ impl ExtensionsView {
                     },
                     cx,
                 )
+                .aria_label(tr!("Back to Extensions"))
                 .flex_row_reverse()
                 .gap(self.metrics.spacing3())
                 .child(SymbolGlyph::new(
@@ -844,7 +859,10 @@ impl ExtensionsView {
                                 div()
                                     .text_size(self.metrics.font_title())
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child(tr!("Extensions")),
+                                    .child(accessibility::label(
+                                        "extensions-heading",
+                                        tr!("Extensions"),
+                                    )),
                             ),
                     )
                     .child(self.tab_control(cx)),
@@ -981,7 +999,10 @@ impl ExtensionsView {
                         div()
                             .text_size(self.metrics.font_emphasis())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(title.to_owned()),
+                            .child(accessibility::label(
+                                SharedString::from(format!("extension-section-{title}")),
+                                title.to_owned(),
+                            )),
                     )
                     .child(actions),
             )
@@ -1016,8 +1037,9 @@ impl ExtensionsView {
                 ))
             });
         let content = if rules.is_empty() {
-            div().text_color(self.theme.fg_muted).child(tr!(
-                "No saved rules. When you choose to remember an answer to a permission request, it appears here."
+            div().text_color(self.theme.fg_muted).child(accessibility::label(
+                "extension-no-rules",
+                tr!("No saved rules. When you choose to remember an answer to a permission request, it appears here."),
             ))
         } else {
             rules.iter().enumerate().fold(
@@ -1040,6 +1062,7 @@ impl ExtensionsView {
             rule.scope().into()
         };
         let (owner, removed) = (owner.to_owned(), rule.clone());
+        let name = tr!("Remove %@ %@ %@", &decision, rule.gate.name(), &scope);
         div()
             .flex()
             .items_center()
@@ -1073,12 +1096,15 @@ impl ExtensionsView {
                     .text_color(self.theme.fg_muted)
                     .child(scope),
             )
-            .child(self.button(
-                format!("extension-rule-remove-{index}"),
-                tr_key!("Remove"),
-                move |view, _, cx| view.remove_rule(&owner, removed.clone(), cx),
-                cx,
-            ))
+            .child(
+                self.button(
+                    format!("extension-rule-remove-{index}"),
+                    tr_key!("Remove"),
+                    move |view, _, cx| view.remove_rule(&owner, removed.clone(), cx),
+                    cx,
+                )
+                .aria_label(name),
+            )
     }
 
     fn empty_state(&self, title: &str, description: &str) -> gpui::Div {
@@ -1096,13 +1122,19 @@ impl ExtensionsView {
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(title.to_owned()),
+                    .child(accessibility::label(
+                        "extension-empty-title",
+                        title.to_owned(),
+                    )),
             )
             .child(
                 div()
                     .text_color(self.theme.fg_muted)
                     .text_center()
-                    .child(description.to_owned()),
+                    .child(accessibility::label(
+                        "extension-empty-description",
+                        description.to_owned(),
+                    )),
             )
     }
 
@@ -1199,15 +1231,15 @@ impl ExtensionsView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .min_w_0()
                     .truncate()
-                    .child(name.to_owned()),
+                    .child(accessibility::label(
+                        "extension-detail-name",
+                        name.to_owned(),
+                    )),
             )
             .when_some(version, |heading, version| {
-                heading.child(
-                    div()
-                        .flex_none()
-                        .text_color(self.theme.fg_muted)
-                        .child(format!("v{version}")),
-                )
+                heading.child(div().flex_none().text_color(self.theme.fg_muted).child(
+                    accessibility::label("extension-detail-version", format!("v{version}")),
+                ))
             })
     }
 
@@ -1290,11 +1322,15 @@ impl ExtensionsView {
             .child(
                 div()
                     .text_color(self.theme.fg_muted)
-                    .child(details.description.clone()),
+                    .child(accessibility::label(
+                        "extension-detail-description",
+                        details.description.clone(),
+                    )),
             )
             .when(local.is_some_and(|(_, enabled, _)| !enabled), |hero| {
-                hero.child(div().text_color(self.theme.fg_muted).child(tr!(
-                    "Review the permissions below, then enable this extension to use it."
+                hero.child(div().text_color(self.theme.fg_muted).child(accessibility::label(
+                    "extension-review-permissions",
+                    tr!("Review the permissions below, then enable this extension to use it."),
                 )))
             })
     }
@@ -1339,7 +1375,7 @@ impl ExtensionsView {
             .flex_col()
             .gap(self.metrics.spacing4())
             .text_color(self.theme.fg_muted)
-            .child(message);
+            .child(accessibility::label("extension-update-status", message));
         if available.is_some() {
             let added: Vec<_> = details
                 .permissions
@@ -1349,9 +1385,12 @@ impl ExtensionsView {
                 .map(String::as_str)
                 .collect();
             if !added.is_empty() {
-                content = content.child(tr!(
-                    "New permissions: %@. After updating, review the permissions and enable the extension again.",
-                    added.join(", ")
+                content = content.child(accessibility::label(
+                    "extension-update-permissions",
+                    tr!(
+                        "New permissions: %@. After updating, review the permissions and enable the extension again.",
+                        added.join(", ")
+                    ),
                 ));
             }
         }
@@ -1362,7 +1401,14 @@ impl ExtensionsView {
         let permissions = details.permissions.as_ref();
         let mut permission_tags = div().flex().flex_wrap().gap(self.metrics.spacing4());
         for permission in permissions.into_iter().flatten() {
-            permission_tags = permission_tags.child(self.badge(permission.clone(), false));
+            permission_tags = permission_tags.child(
+                self.badge(permission.clone(), false)
+                    .id(SharedString::from(format!(
+                        "extension-permission-{permission}"
+                    )))
+                    .role(gpui::Role::Label)
+                    .aria_value(permission.clone()),
+            );
         }
         div()
             .flex()
@@ -1370,7 +1416,11 @@ impl ExtensionsView {
             .gap(self.metrics.spacing6())
             .child(permission_tags)
             .when_some(permissions_note(permissions), |body, note| {
-                body.child(div().text_color(self.theme.fg_muted).child(note))
+                body.child(
+                    div()
+                        .text_color(self.theme.fg_muted)
+                        .child(accessibility::label("extension-permissions-note", note)),
+                )
             })
             .child(
                 div()
@@ -1431,6 +1481,13 @@ impl ExtensionsView {
         cx: &Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let details = ExtensionDetails::from(extension);
+        let name = extension.name.clone();
+        let status = if enabled {
+            tr!("Enabled")
+        } else {
+            tr!("Disabled")
+        };
+        let description = extension.manifest.description.clone();
         let mut title = div()
             .flex()
             .flex_none()
@@ -1468,6 +1525,11 @@ impl ExtensionsView {
                 "extension-row-{}",
                 extension.name
             )))
+            .role(gpui::Role::Button)
+            .accessibility_id(format!("extension-row-{}", extension.name))
+            .aria_label(name)
+            .aria_value(status)
+            .aria_description(description)
             .flex()
             .items_center()
             .gap(self.metrics.spacing6())
@@ -1515,6 +1577,7 @@ impl ExtensionsView {
             ))
     }
 
+    #[allow(clippy::too_many_lines, reason = "One declarative list of results")]
     fn marketplace_body(&self, cx: &mut Context<Self>) -> gpui::Div {
         let mut body = div().flex().flex_col().gap(self.metrics.spacing6());
         if self.languages_only {
@@ -1528,7 +1591,10 @@ impl ExtensionsView {
                     .child(
                         div()
                             .text_color(self.theme.fg_muted)
-                            .child(tr!("Showing language extensions")),
+                            .child(accessibility::label(
+                                "extension-languages-only-note",
+                                tr!("Showing language extensions"),
+                            )),
                     )
                     .child(self.button(
                         "extension-category-clear",
@@ -1543,13 +1609,19 @@ impl ExtensionsView {
         }
         if self.loading == Some(Loading::Search) {
             body = body.child(
-                div()
-                    .text_color(self.theme.fg_muted)
-                    .child(tr!("Loading extensions…")),
+                accessibility::announced(
+                    div()
+                        .text_color(self.theme.fg_muted)
+                        .id("extension-loading"),
+                    tr!("Loading extensions…"),
+                    false,
+                )
+                .child(tr!("Loading extensions…")),
             );
         }
         for item in &self.items {
             let selected = item.name.clone();
+            let view_name = tr!("View %@", &item.name);
             body = body.child(
                 self.card()
                     .p(self.metrics.spacing7())
@@ -1581,12 +1653,16 @@ impl ExtensionsView {
                                     .child(item.description.clone()),
                             ),
                     )
-                    .child(self.button(
-                        format!("details-{selected}"),
-                        tr_key!("View"),
-                        move |view, _, cx| view.details(selected.clone(), cx),
-                        cx,
-                    )),
+                    .child(
+                        self.button(
+                            format!("details-{selected}"),
+                            tr_key!("View"),
+                            move |view, _, cx| view.details(selected.clone(), cx),
+                            cx,
+                        )
+                        .aria_label(view_name)
+                        .aria_description(item.description.clone()),
+                    ),
             );
         }
         if self.loading.is_none() && self.items.is_empty() && self.error.is_none() {

@@ -897,8 +897,13 @@ pub(super) fn control_label(id: &str) -> Option<&'static str> {
         "quick-width" => Some(tr_key!("Width")),
         "quick-height" => Some(tr_key!("Height")),
         "browser-profile-name" => Some(tr_key!("Profile name")),
-        "codepoint-range" => Some(tr_key!("Codepoint range")),
-        "keybind-parameter" => Some(tr_key!("Parameter")),
+        "codepoint-range" => Some(tr_key!("Range")),
+        "keybind-parameter" => Some(tr_key!("Value")),
+        "keybind-action" => Some(tr_key!("Action")),
+        "padding-left" => Some(tr_key!("Left padding")),
+        "padding-right" => Some(tr_key!("Right padding")),
+        "padding-top" => Some(tr_key!("Top padding")),
+        "padding-bottom" => Some(tr_key!("Bottom padding")),
         _ => None,
     })
 }

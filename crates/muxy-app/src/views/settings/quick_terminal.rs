@@ -177,8 +177,18 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     .flex_col()
                     .gap(px(8.0))
                     .child(buttons)
-                    .children(label.map(|label| div().child(label)))
-                    .child(view.note(&status, false))
+                    .children(label.map(|label| {
+                        div().child(muxy_ui::accessibility::label(
+                            "settings-quick-shortcut",
+                            label,
+                        ))
+                    }))
+                    .child(muxy_ui::accessibility::announced(
+                        view.note(&status, false)
+                            .id("settings-quick-shortcut-status"),
+                        status.clone(),
+                        false,
+                    ))
                     .into_any_element(),
             ),
         );
@@ -203,7 +213,8 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     .child(controls::button(
                         view.style(),
                         "quick-size-reset",
-                        controls::Button::secondary(&tr!("Reset")),
+                        controls::Button::secondary(&tr!("Reset"))
+                            .named(&tr!("Reset %@", &tr!("Terminal size"))),
                         cx.listener(move |_: &mut SettingsView, _, _, cx| {
                             cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
                         }),
@@ -267,7 +278,8 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 control = control.child(controls::button(
                     view.style(),
                     "quick-appearance-reset",
-                    controls::Button::secondary(&tr!("Reset")),
+                    controls::Button::secondary(&tr!("Reset"))
+                        .named(&tr!("Reset %@", &tr!("Appearance"))),
                     cx.listener(move |_: &mut SettingsView, _, _, cx| {
                         cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
                     }),
@@ -306,6 +318,11 @@ impl SettingsView {
         self.set_quick_slider(id, fraction * max, cx);
     }
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "These sliders stay between 0 and 100"
+    )]
     fn set_quick_slider(&mut self, id: &'static str, value: f32, cx: &mut Context<Self>) {
         let mut next = self.snapshot.settings.quick_terminal.clone();
         if id == "quick-transparency" {
