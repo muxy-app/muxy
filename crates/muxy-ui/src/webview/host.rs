@@ -41,7 +41,7 @@ struct Focus {
     /// When the user last clicked into the page.
     last_click: Cell<Option<std::time::Instant>>,
     modal: Cell<bool>,
-    shortcuts: RefCell<Vec<gpui::Keystroke>>,
+    shortcuts: RefCell<Rc<Vec<gpui::Keystroke>>>,
 }
 
 #[derive(Debug, Default)]
@@ -271,7 +271,7 @@ impl Host {
         self.page = Some(page);
     }
 
-    pub(crate) fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
+    pub(crate) fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<gpui::Keystroke>>) {
         self.focus.modal.set(modal);
         *self.focus.shortcuts.borrow_mut() = shortcuts;
     }
@@ -819,11 +819,10 @@ fn route_key_event(
         return true;
     }
     // Routing can redraw Muxy before it returns, as when WebKit hands a key
-    // back to GPUI, and a redraw sets new shortcuts. So they are borrowed
-    // only for this comparison.
-    let kept = focus
-        .shortcuts
-        .borrow()
+    // back to GPUI, and a redraw sets new shortcuts. So the list is cloned out
+    // and never borrowed across a call back into Muxy.
+    let shortcuts = focus.shortcuts.borrow().clone();
+    let kept = shortcuts
         .iter()
         .any(|key| key.key == keystroke.key && key.modifiers == keystroke.modifiers);
     if kept {
@@ -909,7 +908,7 @@ mod tests {
         };
         let shortcut = gpui::Keystroke::parse("cmd-t").expect("binding");
         let focus = Focus::default();
-        *focus.shortcuts.borrow_mut() = vec![shortcut.clone()];
+        *focus.shortcuts.borrow_mut() = Rc::new(vec![shortcut.clone()]);
         assert!(route_key_event(
             shortcut,
             &focus,
@@ -936,7 +935,7 @@ mod tests {
         let focus = Focus::default();
         let redraws = Cell::new(0);
         let redraw = || {
-            *focus.shortcuts.borrow_mut() = vec![shortcut.clone()];
+            *focus.shortcuts.borrow_mut() = Rc::new(vec![shortcut.clone()]);
             redraws.set(redraws.get() + 1);
         };
         let on_key = |_: Signal| {
@@ -946,7 +945,7 @@ mod tests {
         for (binding, handled, routed_redraws) in
             [("j", true, 1), ("cmd-j", false, 2), ("cmd-t", true, 1)]
         {
-            *focus.shortcuts.borrow_mut() = vec![shortcut.clone()];
+            *focus.shortcuts.borrow_mut() = Rc::new(vec![shortcut.clone()]);
             redraws.set(0);
             let result = route_key_event(
                 gpui::Keystroke::parse(binding).expect("binding"),

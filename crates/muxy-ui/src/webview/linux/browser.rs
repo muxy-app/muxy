@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -93,7 +94,7 @@ impl NativeBrowser {
     pub fn browser(&self) -> &Self {
         self
     }
-    pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<Keystroke>) {
+    pub fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<Keystroke>>) {
         self.page.set_shortcuts(modal, shortcuts);
     }
     pub fn set_focused(&self, focused: bool) {

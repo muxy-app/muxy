@@ -5,6 +5,7 @@ mod results;
 mod sidebar;
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui::{Context, Entity, Subscription, Window};
 use muxy_app_core::{
@@ -80,8 +81,8 @@ pub(crate) struct Webviews {
     pub sidebar: Option<sidebar::SidebarSurface>,
     /// The sidebar page that failed to load, so it is not retried every frame.
     sidebar_failure: Option<(String, String)>,
-    pub occlusions: std::rc::Rc<std::cell::RefCell<Vec<Occlusion>>>,
-    grips: std::rc::Rc<std::cell::RefCell<Vec<Grip>>>,
+    pub occlusions: Rc<std::cell::RefCell<Vec<Occlusion>>>,
+    grips: Rc<std::cell::RefCell<Vec<Grip>>>,
     results: results::Results,
     sequence: u64,
     close_sequence: u64,
@@ -125,7 +126,7 @@ impl AppModel {
                 .view
                 .read(cx)
                 .native
-                .set_shortcuts(self.layout_drag_pending(), shortcuts.to_vec());
+                .set_shortcuts(self.layout_drag_pending(), shortcuts.clone());
             let Some(descriptor) = descriptors.get(id) else {
                 continue;
             };
@@ -151,7 +152,7 @@ impl AppModel {
                 .view
                 .read(cx)
                 .native
-                .set_shortcuts(true, Vec::new());
+                .set_shortcuts(true, Rc::default());
             modal.surface.view.update(cx, |view, cx| {
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
@@ -194,7 +195,7 @@ impl AppModel {
     /// Presents the extension sidebar and the open popover.
     fn sync_extension_surfaces(
         &self,
-        shortcuts: &[gpui::Keystroke],
+        shortcuts: &Rc<Vec<gpui::Keystroke>>,
         coverage: super::coverage::Coverage,
         resizing: bool,
         window: &Window,
@@ -204,7 +205,7 @@ impl AppModel {
             let visible = self.extension_sidebar_active() && self.sidebar_width() > 0.0;
             sidebar.surface.view.update(cx, |view, cx| {
                 view.native
-                    .set_shortcuts(self.layout_drag_pending(), shortcuts.to_vec());
+                    .set_shortcuts(self.layout_drag_pending(), shortcuts.clone());
                 view.native.set_mouse_passthrough(resizing);
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
@@ -218,7 +219,7 @@ impl AppModel {
         }
         if let Some(popover) = &self.webviews.popover {
             popover.surface.view.update(cx, |view, cx| {
-                view.native.set_shortcuts(true, shortcuts.to_vec());
+                view.native.set_shortcuts(true, shortcuts.clone());
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     true,
@@ -1011,13 +1012,13 @@ fn surface_shortcuts(keymap: &muxy_app_core::settings::Keymap) -> Vec<gpui::Keys
 impl AppModel {
     /// Keystrokes webviews hand back to the app, rebuilt only after the
     /// keymap or the extension registry changes.
-    pub(super) fn webview_shortcuts(&mut self) -> std::rc::Rc<Vec<gpui::Keystroke>> {
+    pub(super) fn webview_shortcuts(&mut self) -> Rc<Vec<gpui::Keystroke>> {
         if let Some(shortcuts) = &self.webview_shortcuts {
             return shortcuts.clone();
         }
         let mut shortcuts = surface_shortcuts(&self.settings.keymap);
         shortcuts.extend(self.extension_keystrokes());
-        let shortcuts = std::rc::Rc::new(shortcuts);
+        let shortcuts = Rc::new(shortcuts);
         self.webview_shortcuts = Some(shortcuts.clone());
         shortcuts
     }

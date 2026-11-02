@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::rc::Rc;
 
 use async_channel::Receiver;
 use gpui::{Bounds, CursorStyle, Keystroke, Pixels, Rgba, Window};
@@ -28,7 +29,7 @@ impl NativeWebview {
     ) -> Result<(Self, Receiver<Event>), String> {
         Err(Feature::ExtensionWebviews.unsupported_reason().into_owned())
     }
-    pub(super) fn set_shortcuts(&self, _modal: bool, _shortcuts: Vec<Keystroke>) {
+    pub(super) fn set_shortcuts(&self, _modal: bool, _shortcuts: Rc<Vec<Keystroke>>) {
         match *self {}
     }
     pub(super) fn set_focused(&self, _focused: bool) {

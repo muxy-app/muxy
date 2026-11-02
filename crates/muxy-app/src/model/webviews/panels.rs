@@ -511,8 +511,7 @@ impl AppModel {
             let visible = self.panels.placement(id).is_some();
             panel.focused = panel.is_focused(window, cx);
             panel.surface.view.update(cx, |view, cx| {
-                view.native
-                    .set_shortcuts(capture_escape, shortcuts.to_vec());
+                view.native.set_shortcuts(capture_escape, shortcuts.clone());
                 view.native.set_mouse_passthrough(resizing);
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(

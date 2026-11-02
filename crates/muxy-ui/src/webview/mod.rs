@@ -11,6 +11,7 @@ mod rules;
 pub(crate) use macos::parent_view;
 
 use std::path::Path;
+use std::rc::Rc;
 
 use async_channel::Receiver;
 use gpui::{Bounds, CursorStyle, Keystroke, Modifiers, MouseButton, Pixels, Point, Rgba, Window};
@@ -158,7 +159,7 @@ impl NativeWebview {
 
     /// Which keys the app takes back from the page: Escape while `modal`, and
     /// `shortcuts` where the system gives the page its keys first.
-    pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<Keystroke>) {
+    pub fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<Keystroke>>) {
         self.0.set_shortcuts(modal, shortcuts);
     }
 

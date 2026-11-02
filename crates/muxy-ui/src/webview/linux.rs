@@ -196,7 +196,7 @@ impl NativeWebview {
 
     /// GPUI offers a key to the app's shortcuts before the page, so only
     /// Escape is taken back here.
-    pub(super) fn set_shortcuts(&self, modal: bool, _shortcuts: Vec<Keystroke>) {
+    pub(super) fn set_shortcuts(&self, modal: bool, _shortcuts: Rc<Vec<Keystroke>>) {
         self.modal.set(modal);
     }
 

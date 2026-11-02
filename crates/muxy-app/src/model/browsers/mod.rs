@@ -165,7 +165,7 @@ impl AppModel {
         for (id, surface) in &self.browsers.views {
             let command_drag = window.modifiers().platform && self.pane_drag_available(*id);
             surface.view.update(cx, |view, cx| {
-                view.native.set_shortcuts(drag, shortcuts.to_vec());
+                view.native.set_shortcuts(drag, shortcuts.clone());
                 view.native.set_mouse_passthrough(resizing || command_drag);
                 view.engine = engine;
                 view.refresh_theme(&theme, metrics, cx);

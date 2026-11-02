@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ptr;
+use std::rc::Rc;
 
 use async_channel::{Receiver, Sender};
 use block2::{DynBlock, RcBlock};
@@ -350,7 +351,7 @@ impl NativeWebview {
         ))
     }
 
-    pub(super) fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
+    pub(super) fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<gpui::Keystroke>>) {
         self.host.set_shortcuts(modal, shortcuts);
     }
 
