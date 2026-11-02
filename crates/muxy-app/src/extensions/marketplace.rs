@@ -139,23 +139,28 @@ fn parse_page(body: &[u8]) -> Result<MarketplacePage> {
     let items = listings
         .iter()
         .enumerate()
-        .filter_map(
-            |(index, listing)| match MarketplaceItem::deserialize(listing) {
-                Ok(item) => Some(item),
-                Err(error) => {
-                    crate::diagnostics::event(
-                        "marketplace-listing-skipped",
-                        format_args!("index={index} error={error}"),
-                    );
-                    None
-                }
-            },
-        )
+        .filter_map(|(index, listing)| match parse_listing(listing) {
+            Ok(item) => Some(item),
+            Err(error) => {
+                crate::diagnostics::event(
+                    "marketplace-listing-skipped",
+                    format_args!("index={index} error={error}"),
+                );
+                None
+            }
+        })
         .collect();
     Ok(MarketplacePage {
         items,
         has_next: response["links"]["next"].is_string(),
     })
+}
+
+fn parse_listing(listing: &Value) -> Result<MarketplaceItem> {
+    if !listing.is_object() {
+        return Err("not an object".into());
+    }
+    MarketplaceItem::deserialize(listing).map_err(|error| error.to_string())
 }
 
 pub(crate) fn detail(name: &str) -> Result<ExtensionDetails> {
@@ -445,7 +450,8 @@ mod tests {
             {"description": "no name"},
             {"name": "", "description": "empty name"},
             {"name": 12},
-            "not an object"
+            "not an object",
+            ["array-name", "array description"]
         ],
         "links": {"next": "https://muxy.app/api/extensions?page=2"},
         "meta": {"current_page": 1}
@@ -498,6 +504,18 @@ mod tests {
             ]
         );
         assert!(parsed.has_next);
+    }
+
+    #[test]
+    fn skipped_listings_are_recorded_without_their_contents() {
+        for listing in [
+            serde_json::json!("private text"),
+            serde_json::json!(["private text"]),
+            serde_json::json!({"name": "", "description": "private text"}),
+            serde_json::json!({"name": ["private text"]}),
+        ] {
+            assert!(!parse_listing(&listing).unwrap_err().contains("private"));
+        }
     }
 
     #[test]
@@ -557,17 +575,18 @@ mod tests {
         assert_eq!(wrong_size.size, None);
         assert_eq!(rejection(&wrong_size), "invalid archive size");
 
-        let mut unlisted = details();
-        unlisted.permissions = parse_details(
-            r#"{"data": {"name": "reader", "permissions": ["files:read", 7]}}"#.as_bytes(),
-        )
-        .unwrap()
-        .permissions;
-        assert_eq!(unlisted.permissions, None);
-        assert_eq!(
-            rejection(&unlisted),
-            "The marketplace did not list this extension's permissions."
-        );
+        for body in [
+            r#"{"data": {"name": "reader"}}"#,
+            r#"{"data": {"name": "reader", "permissions": ["files:read", 7]}}"#,
+        ] {
+            let mut unlisted = details();
+            unlisted.permissions = parse_details(body.as_bytes()).unwrap().permissions;
+            assert_eq!(unlisted.permissions, None);
+            assert_eq!(
+                rejection(&unlisted),
+                "The marketplace did not list this extension's permissions."
+            );
+        }
     }
 
     #[test]
