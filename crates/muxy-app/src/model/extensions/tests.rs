@@ -140,3 +140,27 @@ fn a_finished_script_cancels_its_commands_without_a_frame(cx: &mut TestAppContex
         assert!(model.extensions.jobs.is_empty());
     });
 }
+
+#[gpui::test]
+fn rendering_sends_no_extension_events(cx: &mut TestAppContext) {
+    use gpui::Render;
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        model.flush_extension_events(window, cx);
+        let home = model.state.home().id;
+        model.state.open_terminal_tab(home).expect("tab");
+        model.extensions.events.sent.borrow_mut().clear();
+        let _ = model.render(window, cx);
+        let _ = model.render(window, cx);
+        assert!(model.extensions.events.sent.borrow().is_empty());
+        model.flush_extension_events(window, cx);
+        let sent = model.extensions.events.sent.take();
+        assert_eq!(
+            sent.iter().filter(|event| *event == "tab.created").count(),
+            1
+        );
+        model.flush_extension_events(window, cx);
+        assert!(model.extensions.events.sent.borrow().is_empty());
+    });
+}

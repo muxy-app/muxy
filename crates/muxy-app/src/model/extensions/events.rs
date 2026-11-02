@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
-use gpui::{Context, Task};
+use gpui::{Context, Task, Window};
 use muxy_app_core::{PaneContent, PaneId, Project, ProjectId, Tab, TabId};
 use muxy_protocol::{AgentProvider, AgentState};
 use serde_json::{Map, Value, json};
@@ -17,6 +17,11 @@ const TITLE_DEBOUNCE: Duration = Duration::from_millis(500);
 #[derive(Default)]
 pub(super) struct Tracker {
     initialized: bool,
+    /// A sync waits for the next frame, so a burst of changes syncs once.
+    scheduled: bool,
+    /// The names of the events sent, for tests.
+    #[cfg(test)]
+    pub(super) sent: std::cell::RefCell<Vec<String>>,
     root: Option<ProjectId>,
     current: Option<ProjectId>,
     projects: Value,
@@ -218,6 +223,12 @@ impl AppModel {
                         extension.allows_event(event) || self.runtime_command_event(name, event)
                     })
         };
+        #[cfg(test)]
+        self.extensions
+            .events
+            .sent
+            .borrow_mut()
+            .push(event.to_owned());
         let source = format!("globalThis.__muxyEvent?.({}, {payload});", json!(event));
         for view in self.extension_views() {
             if permitted(&view.read(cx).source.owner) {
@@ -264,6 +275,31 @@ impl AppModel {
             .ok_or("background script unavailable")?;
         background.script.evaluate(source);
         Ok(())
+    }
+
+    /// Syncs events and reopens a restored panel before the next frame, once
+    /// however many changes come before it.
+    pub(in crate::model) fn schedule_extension_events(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if std::mem::replace(&mut self.extensions.events.scheduled, true) {
+            return;
+        }
+        cx.on_next_frame(window, Self::flush_extension_events);
+    }
+
+    /// Sends the events for what changed since the last sync, and creates the
+    /// page of a panel its project's return reopened.
+    pub(in crate::model) fn flush_extension_events(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.extensions.events.scheduled = false;
+        self.sync_extension_events(cx);
+        self.open_restored_panel(window, cx);
     }
 
     pub(in crate::model) fn sync_extension_events(&mut self, cx: &mut Context<Self>) {

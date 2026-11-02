@@ -492,8 +492,7 @@ impl AppModel {
         let changes = cx.observe_in(&cx.entity(), window, |model: &mut Self, _, window, cx| {
             model.sync_pane_focus(cx);
             model.update_worktree_switcher(cx);
-            model.sync_extension_events(cx);
-            model.open_restored_panel(window, cx);
+            model.schedule_extension_events(window, cx);
         });
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
             #[cfg(not(test))]

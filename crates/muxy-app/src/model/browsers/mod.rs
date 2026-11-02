@@ -236,7 +236,9 @@ impl AppModel {
             BrowserViewEvent::Escape => {
                 self.cancel_layout_drag(cx);
             }
+            BrowserViewEvent::TitleChanged => cx.notify(),
             BrowserViewEvent::Navigated(url) => {
+                cx.notify();
                 if self
                     .state
                     .set_browser_url(pane, url.clone())
