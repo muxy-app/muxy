@@ -2093,7 +2093,7 @@ mod gpui_regression_tests {
             assert_eq!(named.a11y_role(), Some(Role::TextInput));
             assert_eq!(node.label(), Some("Search"));
             assert_eq!(node.value(), Some("typed"));
-            assert!(node.supports_action(gpui::AccessibleAction::Click));
+            assert!(node.supports_action(AccessibleAction::Click));
 
             input.accessible_label = Some("Composer");
             input.accessibility_id = Some("composer".into());
