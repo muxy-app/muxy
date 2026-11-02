@@ -99,6 +99,10 @@ struct Ids {
 /// A remote server with projects `api` and `web`, each with a `feature`
 /// worktree.
 fn projects() -> TestResult<(AppState, Ids)> {
+    projects_with_worktrees("feature", "feature")
+}
+
+fn projects_with_worktrees(api_worktree: &str, web_worktree: &str) -> TestResult<(AppState, Ids)> {
     let mut state = AppState::bootstrap()?;
     let home = ProjectId::new();
     let ids = Ids {
@@ -131,13 +135,13 @@ fn projects() -> TestResult<(AppState, Ids)> {
                 descriptor(ids.web, "web", "/srv/web", None),
                 descriptor(
                     ids.api_feature,
-                    "feature",
+                    api_worktree,
                     "/srv/wt/api-feature",
                     Some(ids.api),
                 ),
                 descriptor(
                     ids.web_feature,
-                    "feature",
+                    web_worktree,
                     "/srv/wt/web-feature",
                     Some(ids.web),
                 ),
@@ -187,6 +191,49 @@ fn targets_resolve_projects_and_worktrees() -> TestResult {
     assert_eq!(
         resolve_target(&state, Some("web"), Some("missing")),
         Err("no worktree named 'missing'".into())
+    );
+    Ok(())
+}
+
+#[test]
+fn targets_match_names_that_differ_in_case() -> TestResult {
+    let (mut state, ids) = projects()?;
+    state.select_project(ids.web)?;
+    assert_eq!(resolve_target(&state, Some("API"), None), Ok(ids.api));
+    assert_eq!(
+        resolve_target(&state, None, Some("FEATURE")),
+        Ok(ids.web_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, Some("API"), Some("FEATURE")),
+        Ok(ids.api_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, None, Some("API-FEATURE")),
+        Ok(ids.api_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, Some("API"), Some("MISSING")),
+        Err("no worktree named 'MISSING'".into())
+    );
+    Ok(())
+}
+
+#[test]
+fn an_exact_worktree_name_elsewhere_beats_a_nearby_one_that_differs_in_case() -> TestResult {
+    let (mut state, ids) = projects_with_worktrees("feature", "Feature")?;
+    state.select_project(ids.web)?;
+    assert_eq!(
+        resolve_target(&state, None, Some("feature")),
+        Ok(ids.api_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, None, Some("FEATURE")),
+        Ok(ids.web_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, Some("web"), Some("feature")),
+        Ok(ids.web_feature)
     );
     Ok(())
 }
