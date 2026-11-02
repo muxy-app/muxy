@@ -165,7 +165,7 @@ impl AppModel {
             },
         ));
         palette.focus_handle(cx).focus(window);
-        self.overlay = Some(Overlay::Commands(Palette { palette, dark }));
+        self.open_overlay(Overlay::Commands(Palette { palette, dark }), cx);
         cx.notify();
     }
 }

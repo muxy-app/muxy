@@ -283,7 +283,7 @@ impl AppModel {
             self.dismiss_overlay(cx);
         } else {
             self.dismiss_overlay(cx);
-            self.overlay = Some(Overlay::SessionProviders);
+            self.open_overlay(Overlay::SessionProviders, cx);
             self.agent_sessions.highlighted_provider = 0;
             self.focus_owner.place(&self.overlay_focus, window);
             window.prevent_default();

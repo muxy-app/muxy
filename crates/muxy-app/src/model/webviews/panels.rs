@@ -263,7 +263,8 @@ impl AppModel {
     /// Extension panels belong to the root project they were opened in, as on
     /// main. Switching projects closes the open panel without asking its page,
     /// and announces the new project's panel before `project.switched`; its
-    /// page is created at the next frame. Worktree switches keep panels.
+    /// page is created once the update that switched is done, by
+    /// [`Self::open_restored_panel`]. Worktree switches keep panels.
     pub(in crate::model) fn switch_panel_session(&mut self, cx: &mut Context<Self>) {
         let root = root_of(self.state.current_project());
         let Some(previous) = self.webviews.panel_sessions.enter(root) else {
@@ -323,7 +324,11 @@ impl AppModel {
 
     /// Creates the page of a panel reopened by a project switch. Panel
     /// operations call it first, so they act on the reopened panel.
-    pub(super) fn open_restored_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::model) fn open_restored_panel(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(panel) = self.webviews.panel_sessions.pending.take() else {
             return;
         };

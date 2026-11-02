@@ -266,6 +266,7 @@ impl AppModel {
                 cx,
             );
         }
+        self.forget_expired_calls(cx);
         true
     }
 

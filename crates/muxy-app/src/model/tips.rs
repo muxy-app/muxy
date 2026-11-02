@@ -137,7 +137,7 @@ impl AppModel {
             return;
         }
         self.dismiss_overlay(cx);
-        self.overlay = Some(Overlay::Tip);
+        self.open_overlay(Overlay::Tip, cx);
         self.overlay_focus.focus(window);
         cx.notify();
     }

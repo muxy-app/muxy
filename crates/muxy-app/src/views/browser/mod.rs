@@ -33,6 +33,8 @@ pub(crate) enum BrowserViewEvent {
     Escape,
     /// The page's address changed; the pane saves it.
     Navigated(Option<String>),
+    /// The page's title changed.
+    TitleChanged,
     /// The page asked for a new window.
     OpenTab(String),
     /// The page called `window.close()`.
@@ -311,7 +313,10 @@ impl BrowserView {
                 }
                 cx.emit(BrowserViewEvent::Navigated(Some(url)));
             }
-            BrowserEvent::TitleChanged { title } => self.page.title = title,
+            BrowserEvent::TitleChanged { title } => {
+                self.page.title = title;
+                cx.emit(BrowserViewEvent::TitleChanged);
+            }
             BrowserEvent::LoadFinished { .. } => {
                 self.page.loading = false;
                 self.page.progress = 1.0;

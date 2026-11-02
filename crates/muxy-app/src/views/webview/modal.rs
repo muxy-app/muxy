@@ -28,6 +28,10 @@ impl OverlayView for WebviewModal {
         model.dismiss_webview_modal(cx);
         Dismissal::Stay
     }
+
+    fn on_close(&self, model: &mut AppModel, cx: &mut Context<AppModel>) {
+        model.drop_webview_modal(cx);
+    }
 }
 
 fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {

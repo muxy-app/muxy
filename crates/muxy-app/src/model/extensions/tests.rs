@@ -93,3 +93,74 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
         assert!(model.extensions.jobs.is_empty());
     });
 }
+
+#[gpui::test]
+fn a_finished_script_cancels_its_commands_without_a_frame(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        let registry = &mut model.extensions.registry;
+        registry.extensions.insert(
+            "files".into(),
+            muxy_app_core::extensions::Extension {
+                name: "files".into(),
+                version: "1.0.0".into(),
+                directory: std::env::temp_dir(),
+                manifest: muxy_app_core::extensions::Manifest::default(),
+            },
+        );
+        registry.set_enabled("files", true).expect("enabled");
+        let (reply, _replies) = std::sync::mpsc::sync_channel(4);
+        let call = Call {
+            owner: "files".into(),
+            epoch: model.extensions.epoch_for("files"),
+            generation: model.project_generation(model.state.home().id),
+            project: model.state.home().id,
+            verb: "exec.start".into(),
+            args: json!({"id": "1", "argv": ["sleep", "60"]}),
+            reply: Reply::Script(7, reply),
+            approved: true,
+        };
+        model.extensions.jobs.insert(
+            (call.reply.key(), "1".into()),
+            Job {
+                id: 1,
+                call: call.clone(),
+            },
+        );
+        model.dispatch_extension(
+            Call {
+                verb: "script.finished".into(),
+                args: Value::Null,
+                ..call
+            },
+            window,
+            cx,
+        );
+        assert!(model.extensions.jobs.is_empty());
+    });
+}
+
+#[gpui::test]
+fn rendering_sends_no_extension_events(cx: &mut TestAppContext) {
+    use gpui::Render;
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        model.flush_extension_events(window, cx);
+        let home = model.state.home().id;
+        model.state.open_terminal_tab(home).expect("tab");
+        model.extensions.events.sent.borrow_mut().clear();
+        let _ = model.render(window, cx);
+        let _ = model.render(window, cx);
+        assert!(model.extensions.events.sent.borrow().is_empty());
+        model.flush_extension_events(window, cx);
+        let sent = model.extensions.events.sent.take();
+        assert_eq!(
+            sent.iter().filter(|event| *event == "tab.created").count(),
+            1
+        );
+        model.flush_extension_events(window, cx);
+        assert!(model.extensions.events.sent.borrow().is_empty());
+    });
+}

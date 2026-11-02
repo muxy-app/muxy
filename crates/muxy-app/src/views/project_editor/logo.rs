@@ -257,8 +257,8 @@ impl AppModel {
                 match result {
                     Ok(source) => {
                         model.overlay_subscription = None;
-                        model.overlay =
-                            Some(Overlay::ProjectLogo(Cropper::new(project, source, cx)));
+                        let cropper = Cropper::new(project, source, cx);
+                        model.open_overlay(Overlay::ProjectLogo(cropper), cx);
                         model.focus_owner.request(&model.overlay_focus);
                         cx.notify();
                     }

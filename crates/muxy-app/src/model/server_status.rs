@@ -92,7 +92,7 @@ impl AppModel {
             return;
         }
         self.dismiss_overlay(cx);
-        self.overlay = Some(Overlay::Server);
+        self.open_overlay(Overlay::Server, cx);
         self.overlay_focus.focus(window);
         cx.notify();
     }

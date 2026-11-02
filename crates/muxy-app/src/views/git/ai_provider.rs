@@ -44,13 +44,16 @@ impl AppModel {
         #[cfg(not(test))]
         self.ai.refresh_installed();
         self.dismiss_overlay(cx);
-        self.overlay = Some(Overlay::AiProvider(AiProviderMenu {
-            action,
-            project: self.ai_prompt_project(project),
-            prompt: None,
-            highlighted: None,
-            subscription: None,
-        }));
+        self.open_overlay(
+            Overlay::AiProvider(AiProviderMenu {
+                action,
+                project: self.ai_prompt_project(project),
+                prompt: None,
+                highlighted: None,
+                subscription: None,
+            }),
+            cx,
+        );
         self.overlay_focus.focus(window);
         cx.notify();
     }

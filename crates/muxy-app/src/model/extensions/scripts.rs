@@ -413,7 +413,7 @@ impl AppModel {
         });
         view.focus_handle(cx).focus(window);
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Native(view.clone()));
+        self.open_overlay(Overlay::Native(view.clone()), cx);
         let request = id.clone();
         let weak = view.downgrade();
         cx.spawn(async move |model, cx| {

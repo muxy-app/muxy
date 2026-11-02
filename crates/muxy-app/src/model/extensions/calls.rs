@@ -25,6 +25,7 @@ impl AppModel {
                     && !self.is_background(*id)
                 {
                     self.extensions.scripts.remove(id);
+                    self.forget_expired_calls(cx);
                 }
                 Ok(Value::Null)
             }

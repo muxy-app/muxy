@@ -89,7 +89,7 @@ impl AppModel {
                     _ => {}
                 }),
             );
-        self.overlay = Some(Overlay::Worktrees(WorktreePicker { project, picker }));
+        self.open_overlay(Overlay::Worktrees(WorktreePicker { project, picker }), cx);
         self.update_worktree_switcher(cx);
         let current = self.state.current_project().id.to_string();
         if let Some(Overlay::Worktrees(switcher)) = &self.overlay {

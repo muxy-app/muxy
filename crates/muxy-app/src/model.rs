@@ -239,7 +239,7 @@ pub(crate) struct AppModel {
     _appearance: Subscription,
     _bounds: Subscription,
     _activation: Subscription,
-    _panes: Subscription,
+    _changes: Subscription,
     _quit: Subscription,
 }
 
@@ -489,9 +489,10 @@ impl AppModel {
             model.save_bounds(window, cx);
         });
         let activation = cx.observe_window_activation(window, Self::activation_changed);
-        let panes = cx.observe(&cx.entity(), |model: &mut Self, _, cx| {
+        let changes = cx.observe_in(&cx.entity(), window, |model: &mut Self, _, window, cx| {
             model.sync_pane_focus(cx);
             model.update_worktree_switcher(cx);
+            model.schedule_extension_events(window, cx);
         });
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
             #[cfg(not(test))]
@@ -651,7 +652,7 @@ impl AppModel {
             _appearance: appearance,
             _bounds: bounds,
             _activation: activation,
-            _panes: panes,
+            _changes: changes,
             _quit: quit,
         };
         if !model.project_shown(model.state.current_project()) {
@@ -662,6 +663,7 @@ impl AppModel {
         model.ensure_servers_search(cx);
         model.bind_extension_keys(cx);
         model.refresh_installed_extensions(cx);
+        model.start_webview_demo(cx);
         #[cfg(not(test))]
         Self::discover_ai_providers(cx);
         #[cfg(not(test))]
@@ -1065,6 +1067,7 @@ impl AppModel {
             cx,
         ) {
             self.discard_pending(server, cx);
+            self.forget_expired_calls(cx);
         }
     }
 

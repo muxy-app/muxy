@@ -648,7 +648,7 @@ impl AppModel {
             return;
         }
         self.dismiss_overlay(cx);
-        self.overlay = Some(Overlay::RemoteServers);
+        self.open_overlay(Overlay::RemoteServers, cx);
         self.overlay_focus.focus(window);
         cx.notify();
     }
@@ -767,23 +767,26 @@ impl AppModel {
         let focus = if custom_command { &command } else { &host };
         self.focus_owner.request(&focus.focus_handle(cx));
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::ServerForm(Box::new(ServerForm {
-            device,
-            name,
-            group,
-            host,
-            command,
-            custom_command,
-            user,
-            port,
-            identity,
-            automatic_identity,
-            identity_task: None,
-            password,
-            password_login: entry.as_ref().is_some_and(|entry| entry.password_login),
-            error: None,
-            _subscriptions: subscriptions,
-        })));
+        self.open_overlay(
+            Overlay::ServerForm(Box::new(ServerForm {
+                device,
+                name,
+                group,
+                host,
+                command,
+                custom_command,
+                user,
+                port,
+                identity,
+                automatic_identity,
+                identity_task: None,
+                password,
+                password_login: entry.as_ref().is_some_and(|entry| entry.password_login),
+                error: None,
+                _subscriptions: subscriptions,
+            })),
+            cx,
+        );
         self.autofill_server_identity(cx);
         cx.notify();
     }
@@ -1061,11 +1064,14 @@ impl AppModel {
         });
         self.focus_owner.request(&input.focus_handle(cx));
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Password(Box::new(PasswordPrompt {
-            server,
-            input,
-            _subscription: subscription,
-        })));
+        self.open_overlay(
+            Overlay::Password(Box::new(PasswordPrompt {
+                server,
+                input,
+                _subscription: subscription,
+            })),
+            cx,
+        );
         cx.notify();
     }
 

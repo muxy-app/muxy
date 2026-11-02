@@ -54,12 +54,15 @@ impl AppModel {
         else {
             return;
         };
-        self.overlay = Some(Overlay::PullRequest(PullRequestPopover {
-            project,
-            number: pr.number,
-            merge_method: GitMergeMethod::Squash,
-            remove_worktree: false,
-        }));
+        self.open_overlay(
+            Overlay::PullRequest(PullRequestPopover {
+                project,
+                number: pr.number,
+                merge_method: GitMergeMethod::Squash,
+                remove_worktree: false,
+            }),
+            cx,
+        );
         self.queue_git_refresh(
             project,
             vec![GitAction::PullRequest(GitPullRequestAction::Info)],

@@ -621,7 +621,7 @@ impl AppModel {
         menu.drops_from = Some(button);
         menu.returns_focus_to = Some(view.focus_handle(cx).downgrade());
         self.overlay_subscription = None;
-        self.overlay = Some(crate::views::overlays::Overlay::Menu(menu));
+        self.open_overlay(crate::views::overlays::Overlay::Menu(menu), cx);
         self.focus_owner.request(&self.overlay_focus);
         cx.notify();
     }
