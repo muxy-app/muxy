@@ -441,7 +441,7 @@ impl AppModel {
         self.acknowledge_focused_activity(cx);
         let active = self.active_pane();
         if let Some(active) = active {
-            self.completions.remove(&active);
+            self.set_pane_completed(active, false);
         }
         let zoomed: Vec<_> = self
             .visible_tabs()

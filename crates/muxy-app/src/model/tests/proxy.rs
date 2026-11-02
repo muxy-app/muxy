@@ -217,3 +217,114 @@ fn a_pinned_tab_with_one_terminal_can_restart_with_the_proxy(cx: &mut TestAppCon
         assert_eq!(new_terminals(&requests).len(), 1);
     });
 }
+
+/// The folder and environment each new terminal was asked to start with.
+fn new_terminal(
+    requests: &std::sync::mpsc::Receiver<(u64, Work)>,
+    expected: PaneId,
+) -> (PathBuf, BTreeMap<String, String>) {
+    requests
+        .try_iter()
+        .find_map(|(_, work)| match work {
+            Work::Attach {
+                pane,
+                session: None,
+                directory,
+                environment,
+                ..
+            } if pane == expected => Some((directory, environment)),
+            _ => None,
+        })
+        .expect("creation request")
+}
+
+#[gpui::test]
+fn a_split_made_while_disconnected_keeps_its_folder_and_proxy_after_a_restart(
+    cx: &mut TestAppContext,
+) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let source = state.home().tabs[0].panes[0].id;
+    state
+        .set_pane_session(source, SessionId::new(100))
+        .expect("session");
+    state.set_pane_proxy(source, true).expect("proxy");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.panes.new_pane_directory = muxy_app_core::settings::NewPaneDirectory::Current;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let (saved, new) = view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        let mut data = attachment();
+        data.directory = muxy_protocol::ServerPath(b"/tmp".to_vec());
+        model.receive(
+            local(
+                1,
+                Update::Attached {
+                    pane: source,
+                    session: SessionId::new(100).expect("session"),
+                    attachment: data,
+                    created: false,
+                },
+            ),
+            cx,
+        );
+        model.servers.local.connection = ConnectionState::Disconnected;
+        model.split_pane(Direction::Right, cx);
+        let new = model.active_pane().expect("split");
+        assert_ne!(new, source);
+        (store::load(&model.path).expect("saved"), new)
+    });
+    assert_eq!(saved.starting_proxy(new), Some(true));
+
+    let (boot, requests) = stub_boot(saved);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        connect(model, vec![Feature::SESSION_ENVIRONMENT], cx);
+        model.set_proxy(Some(proxy(false)), cx).expect("saved");
+        let _ = requests.try_iter().count();
+        model.start_attach(new, Size { cols: 80, rows: 24 }, cx);
+        let (directory, environment) = new_terminal(&requests, new);
+        assert_eq!(directory, PathBuf::from("/tmp"));
+        assert_eq!(environment["http_proxy"], "http://127.0.0.1:8080");
+        assert!(model.pane_uses_proxy(new));
+    });
+}
+
+#[gpui::test]
+fn remove_proxy_outlasts_a_restart_while_the_whole_app_proxy_is_on(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let pane = state.home().tabs[0].panes[0].id;
+    state
+        .set_pane_session(pane, SessionId::new(100))
+        .expect("session");
+    state.set_pane_proxy(pane, true).expect("proxy");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let (saved, restarted) = view.update(cx, |model, cx| {
+        connect(model, vec![Feature::SESSION_ENVIRONMENT], cx);
+        attach(model, pane, 100, cx);
+        model.set_proxy(Some(proxy(true)), cx).expect("saved");
+        model.restart_terminal(pane, false, cx);
+        acknowledge_close(model, cx);
+        let restarted = model.state.home().tabs[0].panes[0].id;
+        assert_ne!(restarted, pane);
+        let saved = store::load(&model.path).expect("saved");
+        attach(model, restarted, 101, cx);
+        assert_eq!(model.state.starting_proxy(restarted), None);
+        (saved, restarted)
+    });
+    assert_eq!(saved.starting_proxy(restarted), Some(false));
+
+    let (boot, requests) = stub_boot(saved);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        connect(model, vec![Feature::SESSION_ENVIRONMENT], cx);
+        model.set_proxy(Some(proxy(true)), cx).expect("saved");
+        let _ = requests.try_iter().count();
+        model.start_attach(restarted, Size { cols: 80, rows: 24 }, cx);
+        let (_, environment) = new_terminal(&requests, restarted);
+        assert!(environment.is_empty());
+        assert!(!model.pane_uses_proxy(restarted));
+    });
+}

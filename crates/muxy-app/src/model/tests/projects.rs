@@ -281,7 +281,7 @@ fn switching_projects_detaches_and_reattaches_in_the_owning_directory(cx: &mut T
         assert!(work.iter().any(|work| matches!(work, Work::Attach { pane, session: Some(session), directory, .. } if *pane == second_pane && *session == second_session && *directory == std::env::current_dir().expect("cwd"))));
         assert_eq!(model.grids.len(), 1);
         assert!(model.grids.contains_key(&second_pane));
-        assert!(model.snapshots.contains_key(&first_pane));
+        assert!(model.hidden_screen(first_pane).is_some());
         model.navigate(false, cx);
         assert_eq!(model.state.current_project().id, first);
         model.navigate(true, cx);

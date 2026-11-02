@@ -15,15 +15,13 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return false;
         }
-        let previous = self.state.clone();
-        if let Err(error) = edit(&mut self.state) {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return false;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return false;
+        match self.transact(edit, cx) {
+            Ok(Some(())) => {}
+            Ok(None) => return false,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return false;
+            }
         }
         self.select_listed_project(cx);
         cx.notify();

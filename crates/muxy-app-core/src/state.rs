@@ -22,6 +22,10 @@ const REMOVED_PROJECTS: usize = 10;
 pub struct AppState {
     pub(crate) servers: BTreeMap<ServerId, ServerState>,
     pub(crate) starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
+    /// Whether a pane's terminal, once it starts, uses the proxy, where someone
+    /// chose. Other new terminals follow the whole-app setting.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) startup_commands: BTreeMap<PaneId, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,6 +47,8 @@ struct StoredState {
     servers: BTreeMap<ServerId, ServerState>,
     #[serde(default)]
     starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
+    #[serde(default)]
+    starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(default)]
     startup_commands: BTreeMap<PaneId, String>,
     #[serde(default)]
@@ -96,6 +102,7 @@ impl TryFrom<StoredState> for AppState {
         let mut state = Self {
             servers,
             starting_directories: stored.starting_directories,
+            starting_proxies: stored.starting_proxies,
             startup_commands: stored.startup_commands,
             quick_terminal: stored.quick_terminal,
             version: VERSION,
@@ -457,6 +464,8 @@ impl AppState {
         let mut sessions = Vec::new();
         for pane in project.tabs.into_iter().flat_map(|tab| tab.panes) {
             self.startup_commands.remove(&pane.id);
+            self.starting_directories.remove(&pane.id);
+            self.starting_proxies.remove(&pane.id);
             if let PaneContent::Terminal {
                 session: Some(session),
             } = pane.content

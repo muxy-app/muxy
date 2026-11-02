@@ -205,7 +205,8 @@ fn encode_query(query: &str) -> String {
 
 impl AppState {
     /// Opens a browser tab in `project`. With `select`, the window shows it;
-    /// otherwise it waits there without moving the user's view.
+    /// otherwise it waits there without moving the user's view, and becomes
+    /// the project's selected tab only if the project had none.
     pub fn open_browser(
         &mut self,
         project: ProjectId,
@@ -221,6 +222,10 @@ impl AppState {
             self.select_project(project)?;
             self.select_tab(project, id)?;
         } else {
+            self.window.selected_tab.entry(project).or_insert(id);
+            if self.window.current_project == project && self.window.active_pane.is_none() {
+                self.focus_selected_tab();
+            }
             self.sync_groups(project);
         }
         Ok((id, pane))

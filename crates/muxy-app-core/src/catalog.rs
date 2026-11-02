@@ -76,6 +76,7 @@ impl AppState {
     }
     pub(crate) fn cancel_pending_creation(&mut self, pane: PaneId) {
         self.startup_commands.remove(&pane);
+        self.starting_proxies.remove(&pane);
         if self.starting_directories.remove(&pane).is_some()
             && self.pane_mut(pane).is_ok_and(|pane| {
                 matches!(pane.content, crate::PaneContent::Terminal { session: None })
@@ -207,6 +208,27 @@ impl AppState {
             .clone()
     }
 
+    /// Saves what a pane's terminal should start with, before it can start, so
+    /// the choice survives quitting first.
+    pub fn plan_creation(&mut self, pane: PaneId, directory: Option<&Path>, proxy: Option<bool>) {
+        if let Some(directory) = directory {
+            self.starting_directories
+                .insert(pane, ServerPath::from(directory));
+        }
+        if let Some(proxy) = proxy {
+            self.starting_proxies.insert(pane, proxy);
+        }
+    }
+
+    pub fn starting_proxy(&self, pane: PaneId) -> Option<bool> {
+        self.starting_proxies.get(&pane).copied()
+    }
+
+    /// The pane's terminal has started, so its proxy choice is spent.
+    pub fn forget_starting_proxy(&mut self, pane: PaneId) {
+        self.starting_proxies.remove(&pane);
+    }
+
     /// Replaces `server`'s projects with its catalog, overlaid with its
     /// pending edits. Other servers' projects are untouched.
     pub fn apply_catalog(&mut self, server: ServerId, page: &CatalogPage) -> Result<(), AppError> {
@@ -293,13 +315,10 @@ impl AppState {
             .collect();
         self.window.focus_history.retain(|id| panes.contains(id));
         self.startup_commands.retain(|id, _| panes.contains(id));
-        self.starting_directories.retain(|id, _| {
-            panes.contains(id)
-                || self
-                    .quick_terminal
-                    .as_ref()
-                    .is_some_and(|pane| pane.id == *id)
-        });
+        let quick_terminal = self.quick_terminal.as_ref().map(|pane| pane.id);
+        let still_here = |id: &PaneId| panes.contains(id) || quick_terminal == Some(*id);
+        self.starting_directories.retain(|id, _| still_here(id));
+        self.starting_proxies.retain(|id, _| still_here(id));
         if !projects.contains(&self.window.current_project) {
             self.window.current_project = page.home;
         }

@@ -1,10 +1,69 @@
+use std::path::Path;
+
 use gpui::{Context, Pixels, Point, Window};
-use muxy_app_core::{AppError, AppState, ProjectStatus, Tab, TabCloseScope, TabId, TabSide};
+use muxy_app_core::{
+    AppError, AppState, PaneId, ProjectId, ProjectStatus, Tab, TabCloseScope, TabId, TabSide,
+};
 
 use super::{AppModel, ConnectionState, Quitting};
 use crate::views::tab_strip::TabDrop;
 
+/// A terminal tab to open, and what its terminal starts with.
+pub(crate) struct OpenTerminal<'a> {
+    pub(crate) project: ProjectId,
+    pub(crate) title: Option<&'a str>,
+    pub(crate) command: Option<&'a str>,
+    pub(crate) directory: Option<&'a Path>,
+}
+
 impl AppModel {
+    /// Opens and selects a terminal tab, leaving the state as it was if any
+    /// of it fails. `Ok(None)` means saving failed, and that has been reported.
+    pub(crate) fn open_terminal(
+        &mut self,
+        OpenTerminal {
+            project,
+            title,
+            command,
+            directory,
+        }: OpenTerminal<'_>,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<(TabId, PaneId)>, String> {
+        let opened = self.transact(
+            |state| {
+                let tab = state
+                    .open_terminal_tab(project)
+                    .map_err(|error| error.to_string())?;
+                let pane = state
+                    .window()
+                    .active_pane
+                    .ok_or_else(|| "could not create tab".to_owned())?;
+                if let Some(title) = title {
+                    state
+                        .set_tab_title(tab, Some(title.into()))
+                        .map_err(|error| error.to_string())?;
+                }
+                state.plan_creation(pane, directory, None);
+                if let Some(command) = command {
+                    state
+                        .set_startup_command(pane, command)
+                        .map_err(|error| error.to_string())?;
+                }
+                Ok::<_, String>((tab, pane))
+            },
+            cx,
+        )?;
+        if opened.is_some() {
+            self.changed(cx);
+            self.focus_owner.request_active_pane();
+            let server = self.state.current_project().server_id;
+            if self.connection(server) == ConnectionState::Disconnected {
+                self.connect_server(server, cx);
+            }
+        }
+        Ok(opened)
+    }
+
     pub(crate) fn apply_layout_drop(
         &mut self,
         intent: crate::views::splits::drag::DropIntent,
@@ -83,15 +142,13 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return false;
         }
-        let previous = self.state.clone();
-        if let Err(error) = edit(&mut self.state) {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return false;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return false;
+        match self.transact(edit, cx) {
+            Ok(Some(())) => {}
+            Ok(None) => return false,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return false;
+            }
         }
         cx.notify();
         true

@@ -30,6 +30,7 @@ impl AppState {
         state.set_aside = None;
         state.startup_commands.clear();
         state.starting_directories.clear();
+        state.starting_proxies.clear();
         state.quick_terminal = None;
         for pane in state
             .projects

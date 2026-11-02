@@ -260,6 +260,12 @@ impl TerminalPane {
         }
     }
 
+    /// The font size the user zoomed to, if it isn't the configured one.
+    pub(crate) fn zoomed_font_size(&self) -> Option<f32> {
+        (self.terminal.font_size.to_bits() != self.configured_font_size.to_bits())
+            .then_some(self.terminal.font_size)
+    }
+
     pub(crate) fn directory(&self) -> Option<PathBuf> {
         let path = self.directory.as_path().to_path_buf();
         path.is_absolute().then_some(path)

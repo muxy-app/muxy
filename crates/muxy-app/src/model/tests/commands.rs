@@ -136,3 +136,58 @@ fn every_menu_item_has_a_label_and_a_handler_in_the_workspace(cx: &mut TestAppCo
         }
     });
 }
+
+#[gpui::test]
+fn a_failed_save_leaves_the_state_as_it_was(cx: &mut TestAppContext) {
+    use crate::model::tabs::OpenTerminal;
+    use muxy_app_core::store;
+
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let directory = tempfile::tempdir().expect("directory");
+    view.update(cx, |model, cx| {
+        let before = model.state.clone();
+        let path = std::mem::replace(&mut model.path, directory.path().to_path_buf());
+
+        model.split_pane(Direction::Right, cx);
+        assert_eq!(model.state, before, "a converted edit rolls back");
+
+        let opened = model.open_terminal(
+            OpenTerminal {
+                project: before.home().id,
+                title: Some("Title"),
+                command: Some("echo hi"),
+                directory: Some(std::path::Path::new("/chosen")),
+            },
+            cx,
+        );
+        assert_eq!(opened, Ok(None));
+        assert_eq!(model.state, before);
+
+        model.path = path;
+        let (tab, pane) = model
+            .open_terminal(
+                OpenTerminal {
+                    project: before.home().id,
+                    title: Some("Title"),
+                    command: Some("echo hi"),
+                    directory: Some(std::path::Path::new("/chosen")),
+                },
+                cx,
+            )
+            .expect("opened")
+            .expect("saved");
+        assert_eq!(model.active_pane(), Some(pane));
+        assert_eq!(model.active_tab(), Some(tab));
+        let mut saved = store::load(&model.path).expect("saved");
+        assert_eq!(saved.startup_command(pane), Some("echo hi"));
+        assert_eq!(
+            saved
+                .prepare_creation(pane, std::path::Path::new("/project"))
+                .0,
+            b"/chosen"
+        );
+    });
+}

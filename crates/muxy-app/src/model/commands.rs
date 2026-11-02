@@ -3,7 +3,8 @@ use muxy_app_core::settings::KeyChord;
 use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::tr;
 
-use super::{AppModel, ConnectionState, ProjectStatus, Quitting};
+use super::tabs::OpenTerminal;
+use super::{AppModel, ProjectStatus, Quitting};
 use crate::views::command_palette::Handler;
 
 #[derive(Clone, PartialEq, gpui::Action)]
@@ -72,35 +73,17 @@ impl AppModel {
             return;
         }
         let command = command.clone();
-        let previous = self.state.clone();
-        let result = (|| {
-            let tab = self
-                .state
-                .open_terminal_tab(self.state.current_project().id)?;
-            self.state
-                .set_tab_title(tab, Some(command.name.trim().into()))?;
-            let pane = self
-                .state
-                .window()
-                .active_pane
-                .ok_or_else(|| "could not create command pane".to_owned())?;
-            self.state.set_startup_command(pane, &command.command)?;
-            Ok::<_, Box<dyn std::error::Error>>(())
-        })();
-        if let Err(error) = result {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
-        }
-        self.changed(cx);
-        self.focus_owner.request_active_pane();
-        let server = self.state.current_project().server_id;
-        if self.connection(server) == ConnectionState::Disconnected {
-            self.connect_server(server, cx);
+        let opened = self.open_terminal(
+            OpenTerminal {
+                project: self.state.current_project().id,
+                title: Some(command.name.trim()),
+                command: Some(&command.command),
+                directory: None,
+            },
+            cx,
+        );
+        if let Err(error) = opened {
+            self.fail(error, cx);
         }
     }
 
