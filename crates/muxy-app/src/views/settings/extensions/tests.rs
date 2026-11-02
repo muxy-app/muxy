@@ -169,9 +169,14 @@ fn views_show_a_running_job_and_its_result_once(cx: &mut TestAppContext) {
             "Updating…"
         );
         assert_eq!(
-            model.read(cx).extensions.installs.status.as_deref(),
+            view.status_note(cx).as_deref(),
             Some("Updating reader (1 of 1)…")
         );
+    });
+    during.update(cx, |view, cx| {
+        let revision = view.revision;
+        view.fetch(true, cx);
+        assert_eq!(view.revision, revision);
     });
     drop(during);
     cx.run_until_parked();
@@ -332,6 +337,22 @@ fn only_the_view_that_started_a_job_opens_the_extension(cx: &mut TestAppContext)
         );
         assert_eq!(view.install_status, None);
         assert!(!view.started_install);
+    });
+}
+
+#[gpui::test]
+fn a_load_can_be_replaced_while_it_runs(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&[], cx);
+    let view = open_view(&model, cx);
+    view.update(cx, |view, cx| {
+        view.tab = Tab::Marketplace;
+        view.fetch(true, cx);
+        let revision = view.revision;
+        view.fetch(true, cx);
+        assert_eq!(view.revision, revision + 1);
+        view.switch_tab(Tab::Installed, cx);
+        assert!(view.tab == Tab::Installed);
+        assert_eq!(view.loading, None);
     });
 }
 
