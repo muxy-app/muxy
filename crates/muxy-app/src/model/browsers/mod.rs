@@ -437,19 +437,20 @@ impl AppModel {
         }
         let profile = self.browser_profile(profile.as_deref())?.id().to_string();
         let browser = BrowserPane::new(url, Some(profile));
+        let previous = self.state.clone();
         let anchor = split.then(|| self.shown_pane_of(project)).flatten();
-        let opened = self.transact(
-            |state| match anchor {
-                Some(anchor) => state.split_browser(anchor, browser, select),
-                None => state
-                    .open_browser(project, browser, select)
-                    .map(|(_, pane)| pane),
-            },
-            cx,
-        );
-        let pane = opened
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| tr!("Could not save tabs").to_string())?;
+        let opened = match anchor {
+            Some(anchor) => self.state.split_browser(anchor, browser, select),
+            None => self
+                .state
+                .open_browser(project, browser, select)
+                .map(|(_, pane)| pane),
+        };
+        let pane = opened.map_err(|error| error.to_string())?;
+        if !self.save(cx) {
+            self.state = previous;
+            return Err(tr!("Could not save tabs").into());
+        }
         if focus_address {
             self.browsers.focus_address.insert(pane);
         }

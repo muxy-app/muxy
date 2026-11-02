@@ -427,18 +427,20 @@ impl AppModel {
             .source
             .entry_url()
             .map_err(|error| error.to_string())?;
-        let title = registered.title.clone();
-        let project = self.state.current_project().id;
+        let previous = self.state.clone();
         let (_, pane) = self
-            .transact(
-                |state| {
-                    state
-                        .open_webview(project, descriptor, &title, singleton)
-                        .map_err(|error| error.to_string())
-                },
-                cx,
-            )?
-            .ok_or("could not save webview tab")?;
+            .state
+            .open_webview(
+                self.state.current_project().id,
+                descriptor,
+                &registered.title,
+                singleton,
+            )
+            .map_err(|error| error.to_string())?;
+        if !self.save(cx) {
+            self.state = previous;
+            return Err("could not save webview tab".into());
+        }
         self.sync_visible(cx);
         self.focus_owner.request_active_pane();
         cx.notify();

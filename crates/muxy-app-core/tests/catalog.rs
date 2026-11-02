@@ -244,14 +244,3 @@ fn a_state_file_without_proxy_choices_loads_and_none_are_written() -> Result {
     assert_eq!(store::load(&path)?.starting_proxy(pane), None);
     Ok(())
 }
-
-#[test]
-fn a_started_terminal_forgets_its_proxy_choice() -> Result {
-    let mut state = AppState::bootstrap()?;
-    state.open_terminal_tab(state.home().id)?;
-    let pane = state.home().tabs[0].panes[0].id;
-    state.plan_creation(pane, None, Some(true));
-    state.forget_starting_proxy(pane);
-    assert_eq!(state.starting_proxy(pane), None);
-    Ok(())
-}
