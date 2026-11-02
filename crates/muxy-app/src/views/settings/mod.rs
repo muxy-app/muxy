@@ -109,6 +109,7 @@ pub(crate) enum SettingsEvent {
     ServerControl { restart: bool },
     OpenLoginItems,
     ReadServer,
+    CheckExtensionUpdates,
     Connect,
     OpenConfiguration(&'static str),
     DismissProblem,
@@ -531,6 +532,7 @@ impl SettingsView {
         self.category = Category::Extensions;
         self.query.clear();
         self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.emit(SettingsEvent::CheckExtensionUpdates);
         cx.notify();
     }
 

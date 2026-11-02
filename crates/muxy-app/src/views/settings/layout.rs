@@ -79,6 +79,9 @@ impl SettingsView {
         if category == Category::Server {
             cx.emit(SettingsEvent::ReadServer);
         }
+        if category == Category::Extensions {
+            cx.emit(SettingsEvent::CheckExtensionUpdates);
+        }
         cx.notify();
     }
 

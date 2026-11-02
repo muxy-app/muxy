@@ -1,5 +1,6 @@
 mod background;
 mod calls;
+mod checks;
 mod commands;
 mod consent;
 mod events;
@@ -51,6 +52,7 @@ pub(crate) struct Runtime {
     connection_installs: HashMap<ServerId, u64>,
     next_install: u64,
     pub(crate) installs: installs::Installs,
+    checks: checks::Checks,
     /// Connections being opened, by server and connection generation, so
     /// only one opens at a time.
     opening: HashSet<(ServerId, u64)>,
@@ -95,6 +97,7 @@ impl Runtime {
             connection_installs: HashMap::new(),
             next_install: 0,
             installs: installs::Installs::default(),
+            checks: checks::Checks::default(),
             opening: HashSet::new(),
             scripts: HashMap::new(),
             backgrounds: HashMap::new(),
@@ -353,6 +356,7 @@ impl AppModel {
         if snapshot.revision <= self.extensions.local_revision {
             return;
         }
+        let first_load = !self.extensions_loaded();
         let disabled: Vec<_> = self
             .extensions
             .registry
@@ -365,6 +369,12 @@ impl AppModel {
         }
         self.extensions.local_revision = snapshot.revision;
         self.extensions.registry = snapshot.registry;
+        self.extensions
+            .checks
+            .retain_installed(&self.extensions.registry);
+        if first_load {
+            self.check_extension_updates(cx);
+        }
         self.probe_extension_runtimes(cx);
         self.extensions.grants = snapshot.grants;
         self.extensions.settings = snapshot.settings;

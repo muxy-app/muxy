@@ -1460,6 +1460,10 @@ impl ExtensionsView {
             ));
         if unpacked {
             title = title.child(self.badge(tr!("Unpacked"), false));
+        } else if let Some(model) = self.model.upgrade()
+            && let Some(version) = model.read(cx).extension_update_version(&extension.name)
+        {
+            title = title.child(self.badge(tr!("Version %@ is available.", version), true));
         }
 
         div()
