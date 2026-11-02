@@ -5,6 +5,7 @@
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::rc::Rc;
 
 use async_channel::{Receiver, Sender};
 use gpui::{Bounds, CursorStyle, Pixels, Window};
@@ -127,7 +128,7 @@ impl NativeBrowser {
         &self.browser
     }
 
-    pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
+    pub fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<gpui::Keystroke>>) {
         self.host.set_shortcuts(modal, shortcuts);
     }
 
