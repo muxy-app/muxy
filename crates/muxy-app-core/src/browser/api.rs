@@ -161,9 +161,11 @@ mod tests {
 
     #[test]
     fn requests_keep_their_wire_format() -> io::Result<()> {
-        let request = Request::read(br#"{"verb":"session.show","args":{"id":"abc"}}"#.as_slice())?;
+        let literal = br#"{"verb":"session.show","args":{"session":"1","project":"p"}}"#;
+        let request = Request::read(literal.as_slice())?;
         assert_eq!(request.verb, "session.show");
-        assert_eq!(request.args["id"], json!("abc"));
+        assert_eq!(request.args["session"], json!("1"));
+        assert_eq!(request.args["project"], json!("p"));
         Ok(())
     }
 

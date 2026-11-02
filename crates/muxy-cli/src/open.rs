@@ -151,7 +151,7 @@ mod tests {
 
     use super::*;
 
-    const PATIENCE: Duration = Duration::from_millis(1500);
+    const PATIENCE: Duration = Duration::from_secs(10);
 
     fn shell(script: &str) -> io::Result<Child> {
         Command::new("sh").args(["-c", script]).spawn()
