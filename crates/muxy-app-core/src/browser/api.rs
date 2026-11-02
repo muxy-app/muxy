@@ -139,6 +139,34 @@ mod tests {
         assert!(decode_reply(b"not json").is_err());
     }
 
+    /// Released command-line tools read these replies, so a change here breaks
+    /// them. Compared as JSON: key order follows the build's `serde_json` features.
+    #[test]
+    fn replies_keep_their_wire_format() {
+        let ok = r#"{"ok":true,"value":{"title":"Docs"}}"#;
+        let failed = r#"{"ok":false,"error":"nope"}"#;
+        let encoded = |result| serde_json::from_slice::<Value>(&encode_reply(&result)).ok();
+        let literal = |text| serde_json::from_str::<Value>(text).ok();
+        assert_eq!(encoded(Ok(json!({"title": "Docs"}))), literal(ok));
+        assert_eq!(encoded(Err("nope".into())), literal(failed));
+        assert_eq!(decode_reply(ok.as_bytes()), Ok(json!({"title": "Docs"})));
+        assert_eq!(decode_reply(failed.as_bytes()), Err("nope".to_owned()));
+    }
+
+    /// Released command-line tools retry `session show` on this exact text.
+    #[test]
+    fn not_ready_keeps_its_text() {
+        assert_eq!(NOT_READY, "Muxy hasn't loaded that terminal's project yet");
+    }
+
+    #[test]
+    fn requests_keep_their_wire_format() -> io::Result<()> {
+        let request = Request::read(br#"{"verb":"session.show","args":{"id":"abc"}}"#.as_slice())?;
+        assert_eq!(request.verb, "session.show");
+        assert_eq!(request.args["id"], json!("abc"));
+        Ok(())
+    }
+
     #[test]
     fn requests_are_read_to_the_end() -> io::Result<()> {
         let request = Request::new("browser.list", Map::new());
