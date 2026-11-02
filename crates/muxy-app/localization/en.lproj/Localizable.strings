@@ -752,7 +752,9 @@
 "Install muxy-server & Test Connection" = "Install muxy-server & Test Connection";
 "Install muxy-server on %@?" = "Install muxy-server on %@?";
 "Installed" = "Installed";
+"Installed %@." = "Installed %@.";
 "Installed %@.\n\n%@" = "Installed %@.\n\n%@";
+"Installing %@…" = "Installing %@…";
 "Installing muxy-server, then testing connection…" = "Installing muxy-server, then testing connection…";
 "Installing the app update and restarting Muxy." = "Installing the app update and restarting Muxy.";
 "Installing the command line tool is not available on this platform yet." = "Installing the command line tool is not available on this platform yet.";
@@ -1546,6 +1548,7 @@
 "Updates apply only to this computer's server" = "Updates apply only to this computer's server";
 "Updating %@" = "Updating %@";
 "Updating %@ (%@ of %@)…" = "Updating %@ (%@ of %@)…";
+"Updating %@…" = "Updating %@…";
 "Updating PR #%lld" = "Updating PR #%lld";
 "Updating app…" = "Updating app…";
 "Updating…" = "Updating…";

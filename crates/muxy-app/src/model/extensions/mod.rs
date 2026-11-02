@@ -4,6 +4,7 @@ mod commands;
 mod consent;
 mod events;
 mod http;
+mod installs;
 mod items;
 mod local;
 mod logs;
@@ -17,6 +18,7 @@ mod worktrees;
 
 pub(crate) use commands::{ExtensionShortcut, RunCommand};
 pub(in crate::model) use events::root_of;
+pub(crate) use installs::{ActiveInstall, FinishedInstall};
 pub(crate) use logs::log_file;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -46,8 +48,9 @@ pub(crate) struct Runtime {
     clients: HashMap<ServerId, muxy_client::Client>,
     /// Which install each server's connection is, so events from one that was
     /// replaced are ignored.
-    installs: HashMap<ServerId, u64>,
+    connection_installs: HashMap<ServerId, u64>,
     next_install: u64,
+    pub(crate) installs: installs::Installs,
     /// Connections being opened, by server and connection generation, so
     /// only one opens at a time.
     opening: HashSet<(ServerId, u64)>,
@@ -89,8 +92,9 @@ impl Runtime {
             epoch: 1,
             epochs: HashMap::new(),
             clients: HashMap::new(),
-            installs: HashMap::new(),
+            connection_installs: HashMap::new(),
             next_install: 0,
+            installs: installs::Installs::default(),
             opening: HashSet::new(),
             scripts: HashMap::new(),
             backgrounds: HashMap::new(),
@@ -245,7 +249,7 @@ impl AppModel {
                     model.extensions.next_install += 1;
                     let install = model.extensions.next_install;
                     model.extensions.clients.insert(server, client.clone());
-                    model.extensions.installs.insert(server, install);
+                    model.extensions.connection_installs.insert(server, install);
                     model.sync_extension_events(cx);
                     model.resume_remote(server, cx);
                     model.check_remote_projects(server, cx);
@@ -262,7 +266,7 @@ impl AppModel {
                 if model
                     .update(cx, |model, cx| {
                         if model.generation(server) != generation
-                            || model.extensions.installs.get(&server) != Some(&install)
+                            || model.extensions.connection_installs.get(&server) != Some(&install)
                         {
                             return;
                         }
@@ -293,7 +297,7 @@ impl AppModel {
 
     /// Closes `server`'s extension connection. Its file watches end with it.
     pub(super) fn disconnect_extensions(&mut self, server: ServerId) {
-        self.extensions.installs.remove(&server);
+        self.extensions.connection_installs.remove(&server);
         if let Some(client) = self.extensions.clients.remove(&server) {
             client.disconnect();
         }
