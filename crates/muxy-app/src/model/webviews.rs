@@ -427,20 +427,18 @@ impl AppModel {
             .source
             .entry_url()
             .map_err(|error| error.to_string())?;
-        let previous = self.state.clone();
+        let title = registered.title.clone();
+        let project = self.state.current_project().id;
         let (_, pane) = self
-            .state
-            .open_webview(
-                self.state.current_project().id,
-                descriptor,
-                &registered.title,
-                singleton,
-            )
-            .map_err(|error| error.to_string())?;
-        if !self.save(cx) {
-            self.state = previous;
-            return Err("could not save webview tab".into());
-        }
+            .transact(
+                |state| {
+                    state
+                        .open_webview(project, descriptor, &title, singleton)
+                        .map_err(|error| error.to_string())
+                },
+                cx,
+            )?
+            .ok_or("could not save webview tab")?;
         self.sync_visible(cx);
         self.focus_owner.request_active_pane();
         cx.notify();
@@ -1325,5 +1323,69 @@ impl AppModel {
             .filter(|view| owner.is_none_or(|owner| view.read(cx).source.owner == owner))
             .cloned()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod open_failure_tests {
+    use gpui::TestAppContext;
+    use muxy_app_core::webview::WebviewDescriptor;
+    use muxy_app_core::{AppState, ServerId};
+    use muxy_core::capability::{Capability, Feature};
+
+    use super::{Registered, Source};
+    use crate::model::AppModel;
+    use crate::model::tests::stub_boot;
+
+    #[gpui::test]
+    fn a_tab_that_cannot_open_in_a_missing_project_leaves_nothing_behind(cx: &mut TestAppContext) {
+        let root = tempfile::tempdir().expect("directory");
+        let folder = root.path().join("project");
+        std::fs::create_dir(&folder).expect("folder");
+        let mut state = AppState::bootstrap().expect("state");
+        state
+            .add_project(ServerId::local(), folder.clone())
+            .expect("project");
+        let (boot, _requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model
+                .capabilities
+                .set(Feature::ExtensionWebviews, Capability::Supported);
+            model.webviews.registered.insert(
+                ("owner".into(), "kind".into()),
+                Registered {
+                    source: Source {
+                        owner: "owner".into(),
+                        directory: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                            .join("fixtures/webview"),
+                        entry: "index.html".into(),
+                    },
+                    title: "Title".into(),
+                },
+            );
+            std::fs::remove_dir(&folder).expect("remove");
+            model.state.refresh_project_statuses();
+            let before = model.state.clone();
+
+            let descriptor = WebviewDescriptor {
+                owner: "owner".into(),
+                kind: "kind".into(),
+                data: serde_json::Value::Null,
+            };
+            assert!(model.open_webview_tab(descriptor, false, cx).is_err());
+            assert_eq!(model.state, before, "webview tab");
+
+            let browser = crate::model::browsers::OpenBrowser {
+                url: None,
+                profile: None,
+                project: model.state.current_project().id,
+                split: false,
+                select: true,
+                focus_address: false,
+            };
+            assert!(model.open_browser(browser, cx).is_err());
+            assert_eq!(model.state, before, "browser tab");
+        });
     }
 }
