@@ -5,8 +5,9 @@ use crate::{AppState, Project, ProjectId};
 
 /// The project a browser command acts in: the current one, or the one named
 /// by `--project` and `--worktree`. A worktree is looked for in the named or
-/// current project first, then in every project. A name that only differs in
-/// case counts only when nothing anywhere has the exact name.
+/// current project first, then in every project. Without `--project`, a
+/// worktree name that only differs in case counts only when no worktree
+/// anywhere has the exact name.
 pub fn resolve_target(
     state: &AppState,
     project: Option<&str>,
