@@ -217,6 +217,7 @@ impl TerminalPane {
         let input = cx.new(|cx| {
             TextInput::new(InputStyle::compact(theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Find in terminal…"))
+                .with_accessible_label(tr_key!("Find in terminal…"))
                 .with_key_context(SEARCH_CONTEXT)
         });
         let subscription =

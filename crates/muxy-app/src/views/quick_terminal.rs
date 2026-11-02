@@ -11,6 +11,7 @@ use muxy_ui::icon::Icon;
 use muxy_ui::popover;
 use muxy_ui::quick_terminal::panel::{EffectiveAppearance, QuickTerminalConfiguration};
 use muxy_ui::quick_terminal::platform::PanelAdapter;
+use muxy_ui::quick_terminal::view::{AccessibilityRole, bridge_accessibility_model};
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 use std::time::Duration;
@@ -109,7 +110,6 @@ impl QuickTerminalView {
     ) {
         set_window_appearance(window, model.appearance);
         if let Ok(panel) = &mut self.panel {
-            panel.install_accessibility(&model.status, &model.shortcut, model.pinned);
             panel.set_pinned(model.pinned);
         }
         self.model = model;
@@ -216,6 +216,13 @@ impl Render for QuickTerminalView {
             terminal.update(cx, |pane, cx| pane.set_native_visible(visible, cx));
         }
         let menu = self.render_menu(window, cx);
+        let accessibility_nodes = window
+            .is_a11y_active()
+            .then(|| {
+                accessibility_nodes(&self.model.status, &self.model.shortcut, self.model.pinned)
+            })
+            .into_iter()
+            .flatten();
         let owner_settings = self.owner.clone();
         let owner_close = self.owner.clone();
         let owner_pin = self.owner.clone();
@@ -453,6 +460,7 @@ impl Render for QuickTerminalView {
                     .overflow_hidden()
                     .children(terminal),
             )
+            .children(accessibility_nodes)
             .children(menu)
             .when(self.confirm_close, |panel| {
                 panel.child(confirmation_dialog(
@@ -507,6 +515,31 @@ fn dispatch_bridge_action(owner: &WeakEntity<AppModel>, action: BridgeAction, cx
         });
     });
 }
+
+/// What accessibility clients read of the panel. These nodes draw nothing.
+fn accessibility_nodes(
+    status: &str,
+    shortcut: &str,
+    pinned: bool,
+) -> impl Iterator<Item = gpui::Stateful<gpui::Div>> {
+    bridge_accessibility_model(status, shortcut, pinned)
+        .into_iter()
+        .map(|node| {
+            div()
+                .id(node.identifier)
+                .role(match node.role {
+                    AccessibilityRole::Group => gpui::Role::Group,
+                    AccessibilityRole::Status => gpui::Role::Status,
+                    AccessibilityRole::Button => gpui::Role::Button,
+                })
+                .accessibility_id(node.identifier)
+                .aria_label(node.label)
+                .aria_value(node.value)
+                .absolute()
+                .inset_0()
+        })
+}
+
 fn confirmation_dialog(
     owner: &WeakEntity<AppModel>,
     focus: &gpui::FocusHandle,
@@ -680,7 +713,23 @@ fn resolve_confirmation(owner: &WeakEntity<AppModel>, approved: bool, cx: &mut A
 
 #[cfg(test)]
 mod tests {
-    use super::hide_for_activation_change;
+    use super::{accessibility_nodes, hide_for_activation_change};
+
+    #[test]
+    fn accessibility_clients_read_the_panel_status_and_controls() {
+        use gpui::{Element as _, accesskit};
+
+        let nodes = accessibility_nodes("Ready", "Ctrl+J", false).collect::<Vec<_>>();
+        assert_eq!(nodes.len(), 6);
+
+        let status = &nodes[1];
+        let mut node = accesskit::Node::new(gpui::Role::Status);
+        status.write_a11y_info(&mut node);
+        assert_eq!(status.a11y_role(), Some(gpui::Role::Status));
+        assert_eq!(node.author_id(), Some("quick-terminal-status"));
+        assert_eq!(node.label(), Some("Quick Terminal status"));
+        assert_eq!(node.value(), Some("Ready"));
+    }
 
     #[test]
     fn losing_focus_hides_only_an_unpinned_visible_panel() {

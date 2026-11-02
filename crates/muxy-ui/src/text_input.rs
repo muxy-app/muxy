@@ -7,9 +7,9 @@ use gpui::{
     ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, Hsla, InteractiveElement, IntoElement, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render,
-    ScrollWheelEvent, ShapedLine, SharedString, Size, Style, Styled, Task, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, WrapBoundary, WrappedLine, actions, div, fill, point,
-    px, size,
+    Role, ScrollWheelEvent, ShapedLine, SharedString, Size, StatefulInteractiveElement, Style,
+    Styled, Task, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, WrapBoundary,
+    WrappedLine, actions, div, fill, point, prelude::FluentBuilder, px, size,
 };
 use std::cell::RefCell;
 use std::ops::Range;
@@ -543,6 +543,8 @@ pub struct TextInput {
     paste_delegate: Option<PasteDelegate>,
     /// Shows `*` for the text, such as a password, and never copies it.
     secure: bool,
+    /// The English key of the name accessibility clients read, in the app language.
+    accessible_label: Option<&'static str>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -580,6 +582,7 @@ impl TextInput {
             coalesce_next: true,
             paste_delegate: None,
             secure: false,
+            accessible_label: None,
         }
     }
 
@@ -606,6 +609,13 @@ impl TextInput {
     pub fn with_placeholder_key(mut self, key: &'static str) -> Self {
         self.placeholder = key.into();
         self.placeholder_key = true;
+        self
+    }
+
+    /// Names the input for accessibility clients, so dictation and automation
+    /// tools find a text field to insert into. Given as a `tr_key!` literal.
+    pub fn with_accessible_label(mut self, key: &'static str) -> Self {
+        self.accessible_label = Some(key);
         self
     }
 
@@ -1494,7 +1504,19 @@ impl Focusable for TextInput {
 impl Render for TextInput {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let style = self.style;
+        let role = if self.multiline {
+            Role::MultilineTextInput
+        } else {
+            Role::TextInput
+        };
         let mut container = div()
+            .id("text-input")
+            .when_some(self.accessible_label, |input, key| {
+                input
+                    .role(role)
+                    .aria_label(crate::l10n::translate(key))
+                    .aria_read_only(true)
+            })
             .flex()
             .key_context(self.key_context)
             .track_focus(&self.focus_handle)
@@ -1999,7 +2021,23 @@ mod tests {
 mod gpui_regression_tests {
     use super::*;
     use crate::theme::ColorScheme;
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{TestAppContext, VisualTestContext, accesskit};
+
+    #[gpui::test]
+    fn only_a_labelled_input_is_published_to_accessibility_clients(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "");
+        input.update_in(cx, |input, window, cx| {
+            let plain = input.render(window, cx).into_element();
+            assert_eq!(plain.a11y_role(), None);
+
+            input.accessible_label = Some("Composer");
+            let labelled = input.render(window, cx).into_element();
+            let mut node = accesskit::Node::new(Role::TextInput);
+            labelled.write_a11y_info(&mut node);
+            assert_eq!(labelled.a11y_role(), Some(Role::TextInput));
+            assert_eq!(node.label(), Some("Composer"));
+        });
+    }
 
     fn open<'a>(
         cx: &'a mut TestAppContext,

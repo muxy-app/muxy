@@ -16,7 +16,7 @@ use x11rb::{
     wrapper::ConnectionExt as _,
 };
 
-use crate::quick_terminal::{panel::QuickTerminalConfiguration, view::AccessibilityNode};
+use crate::quick_terminal::panel::QuickTerminalConfiguration;
 
 #[derive(Debug)]
 pub(in crate::quick_terminal::platform) struct PanelAdapter {
@@ -307,12 +307,6 @@ impl PanelAdapter {
 
     fn activate(&self, window: u32) {
         activate(&self.connection, self.root, self.active_window, window);
-    }
-
-    pub(in crate::quick_terminal::platform) fn install_accessibility(
-        &mut self,
-        _nodes: &[AccessibilityNode],
-    ) {
     }
 }
 
