@@ -202,3 +202,56 @@ fn foreign_session_membership_is_never_inferred_from_directory() -> Result {
     assert_eq!(plan.close, [(pane, session)]);
     Ok(())
 }
+
+#[test]
+fn choices_for_a_pane_that_has_not_started_are_saved_until_it_closes() -> Result {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    let mut state = AppState::bootstrap()?;
+    let tab = state.open_terminal_tab(state.home().id)?;
+    let pane = state.home().tabs[0].panes[0].id;
+    state.plan_creation(pane, Some(Path::new("/chosen")), Some(false));
+    store::save(&path, &state)?;
+
+    let mut restored = store::load(&path)?;
+    assert_eq!(restored, state);
+    assert_eq!(restored.starting_proxy(pane), Some(false));
+    assert_eq!(
+        restored.prepare_creation(pane, Path::new("/project")),
+        ServerPath::from(Path::new("/chosen"))
+    );
+
+    let home = restored.home().id;
+    restored.close_tab(home, tab)?;
+    assert_eq!(restored.starting_proxy(pane), None);
+    assert_eq!(
+        restored.prepare_creation(pane, Path::new("/project")),
+        ServerPath::from(Path::new("/project"))
+    );
+    Ok(())
+}
+
+#[test]
+fn a_state_file_without_proxy_choices_loads_and_none_are_written() -> Result {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    let mut state = AppState::bootstrap()?;
+    state.open_terminal_tab(state.home().id)?;
+    let pane = state.home().tabs[0].panes[0].id;
+    store::save(&path, &state)?;
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    assert!(saved.get("starting_proxies").is_none());
+    assert_eq!(store::load(&path)?.starting_proxy(pane), None);
+    Ok(())
+}
+
+#[test]
+fn a_started_terminal_forgets_its_proxy_choice() -> Result {
+    let mut state = AppState::bootstrap()?;
+    state.open_terminal_tab(state.home().id)?;
+    let pane = state.home().tabs[0].panes[0].id;
+    state.plan_creation(pane, None, Some(true));
+    state.forget_starting_proxy(pane);
+    assert_eq!(state.starting_proxy(pane), None);
+    Ok(())
+}

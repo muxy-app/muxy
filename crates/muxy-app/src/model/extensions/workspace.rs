@@ -566,33 +566,21 @@ impl AppModel {
         self.check_tab_request(args)?;
         if args["kind"] == "terminal" {
             let directory = self.tab_directory(args)?;
-            let tab = self
-                .state
-                .open_terminal_tab(self.state.current_project().id)
-                .map_err(|error| error.to_string())?;
-            let pane = self
-                .tab(tab)
-                .and_then(|tab| tab.panes.first())
-                .map(|pane| pane.id)
-                .ok_or("could not create tab")?;
-            if let Some(directory) = directory {
-                self.initial_directories.insert(pane, directory);
-            }
-            if let Some(command) = args["command"]
+            let command = args["command"]
                 .as_str()
                 .map(str::trim)
-                .filter(|c| !c.is_empty())
-            {
-                self.state
-                    .set_startup_command(pane, command)
-                    .map_err(|error| error.to_string())?;
-            }
-            self.changed(cx);
-            self.focus_owner.request_active_pane();
-            let server = self.state.current_project().server_id;
-            if self.connection(server) == super::super::ConnectionState::Disconnected {
-                self.connect_server(server, cx);
-            }
+                .filter(|command| !command.is_empty());
+            let (tab, _) = self
+                .open_terminal(
+                    crate::model::tabs::OpenTerminal {
+                        project: self.state.current_project().id,
+                        title: None,
+                        command,
+                        directory: directory.as_deref(),
+                    },
+                    cx,
+                )?
+                .ok_or_else(|| muxy_ui::tr!("Could not save tabs").to_string())?;
             return Ok(json!(tab.to_string()));
         }
         if args["kind"] == "browser" {
@@ -723,8 +711,7 @@ impl AppModel {
                             .map(|grid| screen_text(grid, lines))
                     })
                     .or_else(|| {
-                        self.snapshots
-                            .get(&pane)
+                        self.hidden_screen(pane)
                             .map(|grid| screen_text(grid, lines))
                     })
                     .ok_or_else(not_ready)?;
@@ -739,10 +726,9 @@ impl AppModel {
                     .as_str()
                     .ok_or("missing argument 'title'")?;
                 let title = Some(title.trim().to_owned()).filter(|title| !title.is_empty());
-                let previous = self.state.clone();
-                if self.state.set_tab_title(tab, title).is_err() || !self.save(cx) {
-                    self.state = previous;
-                    return Err("could not rename pane".into());
+                match self.transact(|state| state.set_tab_title(tab, title), cx) {
+                    Ok(Some(())) => {}
+                    Ok(None) | Err(_) => return Err("could not rename pane".into()),
                 }
                 cx.notify();
                 Ok(Value::Null)

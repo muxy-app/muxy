@@ -164,3 +164,32 @@ fn rendering_sends_no_extension_events(cx: &mut TestAppContext) {
         assert!(model.extensions.events.sent.borrow().is_empty());
     });
 }
+
+#[gpui::test]
+fn a_terminal_tab_that_cannot_open_leaves_nothing_behind(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let directory = tempfile::tempdir().expect("directory");
+    view.update(cx, |model, cx| {
+        let before = model.state.clone();
+        let args = json!({"kind": "terminal", "command": "echo hi"});
+
+        let outside = json!({"kind": "terminal", "directory": "../../../../../../../../nope"});
+        assert!(model.extension_open_tab(&outside, cx).is_err());
+        assert_eq!(model.state, before);
+
+        let path = std::mem::replace(&mut model.path, directory.path().to_path_buf());
+        assert_eq!(
+            model.extension_open_tab(&args, cx),
+            Err("Could not save tabs".to_owned())
+        );
+        assert_eq!(model.state, before);
+
+        model.path = path;
+        let tab = model.extension_open_tab(&args, cx).expect("opened");
+        assert_eq!(
+            model.active_tab().map(|tab| json!(tab.to_string())),
+            Some(tab)
+        );
+    });
+}

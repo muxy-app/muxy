@@ -563,15 +563,7 @@ impl AppModel {
         runtime.references = None;
         runtime.sessions_revision = 0;
         runtime.discarding.clear();
-        let panes: Vec<_> = self
-            .completions
-            .iter()
-            .copied()
-            .filter(|pane| self.on_server(*pane, server))
-            .collect();
-        for pane in panes {
-            self.completions.remove(&pane);
-        }
+        self.forget_pane_completions(server);
         self.forget_server_sessions(server, cx);
         self.forget_server_layouts(server, cx);
         if server.is_local() {
@@ -592,8 +584,7 @@ impl AppModel {
         }
         self.sync_preferences(cx);
         self.forget_requests(server);
-        self.loaded
-            .retain(|pane| self.state.pane_server(*pane) != Some(server));
+        self.forget_pane_loads(server);
         self.set_server_panes(server, PaneState::Disconnected, cx);
         cx.notify();
     }

@@ -865,7 +865,7 @@ impl AppModel {
             reset_zoom || self.terminal.font_size.to_bits() != effective.font_size.to_bits();
         self.terminal = effective;
         if reset_zoom {
-            self.font_sizes.clear();
+            self.clear_pane_zooms();
         }
         for pane in self.grids.values() {
             pane.view.update(cx, |pane, cx| {

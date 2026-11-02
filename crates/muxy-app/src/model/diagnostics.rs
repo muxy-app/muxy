@@ -60,7 +60,7 @@ impl AppModel {
                     pane.is_some_and(|pane| pane.grid.is_some()),
                     pane.and_then(TerminalPane::viewport),
                     pane.and_then(|pane| pane.geometry),
-                    self.retained.contains(&id),
+                    self.pane_retained(id),
                 ),
             );
         }

@@ -247,7 +247,7 @@ impl AppModel {
                     .filter_map(|placed| self.pane_agent(placed.pane.id).map(|_| placed.pane.id))
                     .collect();
                 for pane in agent_panes {
-                    self.completions.remove(&pane);
+                    self.set_pane_completed(pane, false);
                 }
                 let Some(activity) = self.activity_mut(server) else {
                     return;

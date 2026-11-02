@@ -858,15 +858,14 @@ impl AppModel {
     /// isn't open, and reads this computer's device access.
     pub(crate) fn open_servers_tab(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         self.ensure_servers_search(cx);
-        let previous = self.state.clone();
         let project = self.state.current_project().id;
-        if let Err(error) = self.state.show_servers_tab(project, &tr!("Devices")) {
-            self.fail(error.to_string(), cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
+        match self.transact(|state| state.show_servers_tab(project, &tr!("Devices")), cx) {
+            Ok(Some(_)) => {}
+            Ok(None) => return,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
         }
         self.dismiss_overlay(cx);
         self.changed(cx);

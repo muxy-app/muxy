@@ -35,7 +35,7 @@ impl AppModel {
         session: SessionId,
         cx: &mut Context<Self>,
     ) -> CloseCheck {
-        if self.ready(server) && !self.retained.contains(&pane) {
+        if self.ready(server) && !self.pane_retained(pane) {
             let size = self
                 .terminal(&pane)
                 .and_then(|pane| pane.view.read(cx).viewport())

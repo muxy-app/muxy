@@ -20,6 +20,7 @@ impl AppState {
         Ok(Self {
             servers: BTreeMap::new(),
             starting_directories: BTreeMap::new(),
+            starting_proxies: BTreeMap::new(),
             startup_commands: BTreeMap::new(),
             quick_terminal: None,
             version: crate::state::VERSION,

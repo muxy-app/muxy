@@ -300,7 +300,7 @@ impl AppModel {
             return Err(tr!("Could not save Quick Terminal session").to_string());
         }
         self.quick.visible = true;
-        self.completions.remove(&quick);
+        self.set_pane_completed(quick, false);
         self.sync_visible(cx);
         self.refresh_quick_terminal(cx);
         let duration = transition_duration(true, self.quick.accessibility.reduce_motion);

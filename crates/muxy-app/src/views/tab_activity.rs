@@ -89,9 +89,7 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
     resolve(
         server,
         &sessions,
-        tab.panes
-            .iter()
-            .any(|pane| model.completions.contains(&pane.id)),
+        tab.panes.iter().any(|pane| model.pane_completed(pane.id)),
         false,
         model,
     )
@@ -102,7 +100,7 @@ pub(super) fn agent_status(agent: &RunningAgent, model: &AppModel) -> Status {
     resolve(
         agent.server,
         &[agent.session],
-        model.completions.contains(&agent.pane),
+        model.pane_completed(agent.pane),
         false,
         model,
     )
@@ -168,9 +166,7 @@ fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel)
         .flat_map(|tab| &tab.panes)
         .collect();
     let sessions: Vec<_> = panes.iter().filter_map(|pane| pane.session()).collect();
-    let completion = panes
-        .iter()
-        .any(|pane| model.completions.contains(&pane.id));
+    let completion = panes.iter().any(|pane| model.pane_completed(pane.id));
     resolve(
         model
             .state

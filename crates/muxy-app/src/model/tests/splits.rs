@@ -201,7 +201,7 @@ fn a_hidden_tab_comes_back_scrolled_where_it_was_left(cx: &mut TestAppContext) {
         attach_panes(model, &panes, cx);
         assert_eq!(top_row(model, panes[0], cx), left);
         assert_eq!(top_row(model, panes[1], cx)[0].text, "final marker");
-        assert!(model.scrolls.is_empty());
+        assert!(!model.has_saved_scroll());
     });
 }
 
@@ -389,7 +389,34 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
                     .pending_discards(ServerId::local())
                     .contains(&SessionId::new(101).expect("session"))
             );
-            assert!(model.initial_directories.is_empty());
+            assert_eq!(model.state.starting_proxy(new), None);
+            let mut after_close = model.state.clone();
+            let folder = after_close.prepare_creation(new, std::path::Path::new("/closed"));
+            assert_eq!(folder.0, b"/closed");
         });
     }
+}
+
+#[gpui::test]
+fn a_panes_record_ends_with_the_pane_or_when_it_has_nothing_to_keep(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let first_tab = state.open_terminal_tab(state.home().id).expect("tab");
+    let hidden = state.home().tabs[0].panes[0].id;
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.set_pane_completed(hidden, true);
+        model.set_pane_zoom(hidden, Some(20.0));
+        assert_eq!(model.pane_runtime.len(), 1);
+        model.set_pane_completed(hidden, false);
+        model.set_pane_zoom(hidden, None);
+        assert!(model.pane_runtime.is_empty());
+
+        model.set_pane_zoom(hidden, Some(20.0));
+        let home = model.state.home().id;
+        model.state.close_tab(home, first_tab).expect("close");
+        model.sync_visible(cx);
+        assert!(model.pane_runtime.is_empty());
+    });
 }
