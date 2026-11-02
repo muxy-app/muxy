@@ -2,18 +2,6 @@
 
 Thank you for your interest in contributing to Muxy! This guide will help you get started.
 
-## Humans Only Policy
-
-Muxy is a community project and we want communication to stay between humans. You are welcome to use AI to help you write code, but **only humans may**:
-
-- Create commits and push changes
-- Open issues or pull requests
-- Interact with issues or pull requests, including comments, reviews, and replies
-
-These actions must be done without AI assistance. AI agents must not perform them, even when a human asks. Write commit messages and all GitHub text yourself, in your own words, without AI help. This includes issue and PR titles, descriptions, summaries, comments, discussion replies, and code review comments.
-
-Issues and PRs opened by AI or containing AI-generated text will be closed without review.
-
 ## Getting Started
 
 Read [docs/product](docs/product/README.md) and [docs/tech](docs/tech/README.md) first. They describe how Muxy works and how it is built.
