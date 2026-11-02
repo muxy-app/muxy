@@ -1555,7 +1555,9 @@ impl Render for TextInput {
             .when_some(self.accessibility_id.clone(), |input, id| {
                 input.accessibility_id(id)
             })
-            .when(!self.secure, |input| input.aria_value(self.content.clone()))
+            .when(!self.secure, |input| {
+                crate::accessibility::value(input, self.content.clone())
+            })
             .on_a11y_action(AccessibleAction::SetValue, {
                 let input = cx.entity().downgrade();
                 move |data, _, cx| {

@@ -28,6 +28,17 @@ pub fn hidden_button(
         })
 }
 
+/// Gives a control text as its current value. AT-SPI only reads a value through
+/// text runs, which GPUI doesn't publish, so Linux clients get it as the description.
+pub fn value(element: Stateful<Div>, value: impl Into<SharedString>) -> Stateful<Div> {
+    let value = value.into();
+    if cfg!(target_os = "linux") && !value.is_empty() {
+        element.aria_description(value.clone()).aria_value(value)
+    } else {
+        element.aria_value(value)
+    }
+}
+
 /// Text accessibility clients can read where it stands, such as an empty state.
 pub fn label(id: impl Into<ElementId>, text: impl Into<SharedString>) -> AnyElement {
     gpui::Text::new(id.into(), text.into()).into_any_element()
@@ -169,6 +180,16 @@ mod tests {
         status.write_a11y_info(&mut node);
         assert_eq!(status.a11y_role(), Some(Role::Status));
         assert_eq!(node.live(), Some(Live::Polite));
+    }
+
+    #[test]
+    fn a_value_is_published_and_on_linux_also_described() {
+        let control = value(div().id("control"), "main");
+        let mut node = Node::new(Role::ComboBox);
+        control.write_a11y_info(&mut node);
+        assert_eq!(node.value(), Some("main"));
+        let expected = cfg!(target_os = "linux").then_some("main");
+        assert_eq!(node.description(), expected);
     }
 
     #[test]

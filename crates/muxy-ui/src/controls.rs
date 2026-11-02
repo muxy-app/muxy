@@ -354,51 +354,53 @@ pub fn picker_trigger(
     on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let Style { theme, metrics } = style;
-    div()
-        .id(SharedString::from(format!("settings-picker-{id}")))
-        .role(Role::ComboBox)
-        .accessibility_id(format!("settings-picker-{id}"))
-        .aria_label(name.to_owned())
-        .aria_value(label.to_owned())
-        .aria_expanded(open)
-        .flex()
-        .flex_row()
-        .items_center()
-        .justify_between()
-        .gap(metrics.spacing3())
-        .map(|field| {
-            if let Some(width) = width {
-                field.w(metrics.scaled(width))
-            } else {
-                field.w_full()
-            }
-        })
-        .h(metrics.control_medium())
-        .px(metrics.spacing4())
-        .rounded(metrics.radius_sm())
-        .cursor_pointer()
-        .bg(theme.surface)
-        .border_1()
-        .border_color(if open { theme.accent } else { theme.border })
-        .hover(|hover| hover.bg(theme.hover))
-        .child(
-            div()
-                .flex_grow()
-                .min_w(px(0.0))
-                .truncate()
-                .text_size(metrics.font_footnote())
-                .text_color(theme.fg)
-                .child(SharedString::from(label.to_owned())),
-        )
-        .child(SymbolGlyph::new(
-            "chevron.up.chevron.down",
-            metrics.font_caption(),
-            theme.fg_muted,
-        ))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .focus(|focus| focus.border_color(theme.accent))
-        .button_interaction(on_toggle)
-        .into_any_element()
+    crate::accessibility::value(
+        div()
+            .id(SharedString::from(format!("settings-picker-{id}")))
+            .role(Role::ComboBox)
+            .accessibility_id(format!("settings-picker-{id}"))
+            .aria_label(name.to_owned())
+            .aria_expanded(open),
+        label.to_owned(),
+    )
+    .flex()
+    .flex_row()
+    .items_center()
+    .justify_between()
+    .gap(metrics.spacing3())
+    .map(|field| {
+        if let Some(width) = width {
+            field.w(metrics.scaled(width))
+        } else {
+            field.w_full()
+        }
+    })
+    .h(metrics.control_medium())
+    .px(metrics.spacing4())
+    .rounded(metrics.radius_sm())
+    .cursor_pointer()
+    .bg(theme.surface)
+    .border_1()
+    .border_color(if open { theme.accent } else { theme.border })
+    .hover(|hover| hover.bg(theme.hover))
+    .child(
+        div()
+            .flex_grow()
+            .min_w(px(0.0))
+            .truncate()
+            .text_size(metrics.font_footnote())
+            .text_color(theme.fg)
+            .child(SharedString::from(label.to_owned())),
+    )
+    .child(SymbolGlyph::new(
+        "chevron.up.chevron.down",
+        metrics.font_caption(),
+        theme.fg_muted,
+    ))
+    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+    .focus(|focus| focus.border_color(theme.accent))
+    .button_interaction(on_toggle)
+    .into_any_element()
 }
 
 pub fn segmented(
