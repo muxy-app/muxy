@@ -17,14 +17,18 @@ use muxy_ui::{
 
 use crate::{
     extensions::marketplace::{self, ExtensionDetails, MarketplaceItem},
-    model::AppModel,
+    model::{
+        AppModel,
+        extensions::{ActiveInstall, FinishedInstall},
+    },
 };
 use muxy_app_core::extensions::{Consent, Extension, Rule};
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
 
 mod configuration;
-mod updates;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -44,6 +48,16 @@ enum Mutation {
     Reload,
     ResetPermissions,
     RemoveRule,
+}
+
+impl From<&ActiveInstall> for Mutation {
+    fn from(job: &ActiveInstall) -> Self {
+        match job {
+            ActiveInstall::Install { .. } => Self::Install,
+            ActiveInstall::Update { .. } => Self::Update,
+            ActiveInstall::UpdateAll => Self::UpdateAll,
+        }
+    }
 }
 
 impl Mutation {
@@ -102,7 +116,10 @@ pub(crate) struct ExtensionsView {
     mutation: Option<Mutation>,
     completed: Option<Mutation>,
     error: Option<String>,
-    update_all_status: Option<String>,
+    /// The last marketplace job's result, until the next action clears it.
+    install_status: Option<String>,
+    /// Whether this view started the running job, and so opens what it installs.
+    started_install: bool,
     selected: Option<ExtensionDetails>,
     folder: Option<muxy_ui::dialog::FolderPicker>,
     /// Text fields for string and number extension settings, by extension and key.
@@ -134,8 +151,15 @@ impl ExtensionsView {
         });
         let mut subscriptions = vec![changes];
         if let Some(model) = model.upgrade() {
-            subscriptions.push(cx.observe(&model, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&model, |view, _, cx| {
+                view.take_finished_install(cx);
+                cx.notify();
+            }));
         }
+        let view = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = view.update(cx, Self::take_finished_install);
+        });
         Self {
             model,
             theme,
@@ -152,7 +176,8 @@ impl ExtensionsView {
             mutation: None,
             completed: None,
             error: None,
-            update_all_status: None,
+            install_status: None,
+            started_install: false,
             selected: None,
             folder: None,
             setting_inputs: std::collections::HashMap::new(),
@@ -168,8 +193,28 @@ impl ExtensionsView {
         cx.notify();
     }
 
+    fn active_install<'a>(&self, cx: &'a gpui::App) -> Option<&'a ActiveInstall> {
+        let model = self.model.upgrade()?;
+        model.read(cx).extensions.installs.active.as_ref()
+    }
+
+    fn status_note(&self, cx: &gpui::App) -> Option<String> {
+        self.model
+            .upgrade()
+            .and_then(|model| model.read(cx).extensions.installs.status.clone())
+            .or_else(|| self.install_status.clone())
+    }
+
+    fn mutating(&self, cx: &gpui::App) -> bool {
+        self.mutation.is_some() || self.active_install(cx).is_some()
+    }
+
+    fn busy(&self, cx: &gpui::App) -> bool {
+        self.mutating(cx) || self.loading.is_some()
+    }
+
     fn fetch(&mut self, reset: bool, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         self.revision += 1;
@@ -222,7 +267,7 @@ impl ExtensionsView {
     }
 
     fn details(&mut self, name: String, cx: &mut Context<Self>) {
-        if self.loading.is_some() || self.mutation.is_some() {
+        if self.busy(cx) {
             return;
         }
         self.revision += 1;
@@ -248,7 +293,7 @@ impl ExtensionsView {
     }
 
     fn load_unpacked(&mut self, cx: &mut Context<Self>) {
-        if self.folder.is_some() || self.mutation.is_some() {
+        if self.folder.is_some() || self.mutating(cx) {
             return;
         }
         let (sender, receiver) = async_channel::bounded(1);
@@ -304,100 +349,82 @@ impl ExtensionsView {
     }
 
     fn install(&mut self, cx: &mut Context<Self>) {
-        if self.loading.is_some() || self.mutation.is_some() {
+        if self.busy(cx) {
             return;
         }
         let Some(details) = self.selected.clone() else {
             return;
         };
-        let name = details.name.clone();
-        let Some(model) = self.model.upgrade() else {
-            return;
-        };
-        let directory = model.read(cx).extensions.registry.directory();
-        let registry = &model.read(cx).extensions.registry;
-        if registry.is_unpacked(&name) {
-            return;
-        }
-        let installed = registry.extensions.get(&name).cloned();
-        self.mutation = Some(if installed.is_some() {
-            Mutation::Update
-        } else {
-            Mutation::Install
+        let started = self.model.update(cx, |model, cx| {
+            model.install_marketplace_extension(details, cx)
         });
-        self.error = None;
-        cx.spawn(async move |view, cx| {
-            let installed_name = name.clone();
-            let download_directory = directory.clone();
-            let result = crate::extensions::io::network(move || {
-                marketplace::download(&details, &download_directory)
-            })
-            .await;
-            let result = match result {
-                Ok(stage) => {
-                    if let Some(installed) = installed {
-                        match model
-                            .update(cx, |model, cx| model.update_extension(installed, stage, cx))
-                        {
-                            Ok(task) => task.await,
-                            Err(error) => Err(error.to_string()),
-                        }
-                    } else {
-                        let result = crate::extensions::io::run(move || {
-                            marketplace::install(&stage, &directory, &name)
-                        })
-                        .await;
-                        match result {
-                            Ok(()) => match model
-                                .update(cx, AppModel::refresh_installed_extensions_task)
-                            {
-                                Ok(task) => task.await,
-                                Err(error) => Err(error.to_string()),
-                            },
-                            Err(error) => Err(error),
-                        }
-                    }
-                }
-                Err(error) => Err(error),
-            };
-            let _ = view.update(cx, |view, cx| {
-                view.finish_install(&installed_name, result, cx);
-            });
-        })
-        .detach();
+        self.install_started(started.unwrap_or(false));
     }
 
-    fn finish_install(&mut self, name: &str, result: Result<(), String>, cx: &mut Context<Self>) {
-        let updated = self.mutation == Some(Mutation::Update);
-        self.mutation = None;
-        match result {
-            Ok(()) => {
-                let details = self.model.upgrade().and_then(|model| {
-                    model
-                        .read(cx)
-                        .extensions
-                        .registry
-                        .extensions
-                        .get(name)
-                        .map(ExtensionDetails::from)
-                });
-                if let Some(details) = details {
-                    self.tab = Tab::Installed;
-                    self.query.clear();
-                    self.search.update(cx, |search, cx| search.set_text("", cx));
-                    self.selected = Some(details);
-                    self.completed = updated.then_some(Mutation::Update);
-                    self.error = None;
-                } else {
-                    self.error = Some(
-                        tr!("The installed extension could not be loaded. Reload extensions to try again.")
-                            .to_string(),
-                    );
-                }
-            }
-            Err(error) => self.error = Some(error),
+    fn update_all(&mut self, cx: &mut Context<Self>) {
+        if self.busy(cx) {
+            return;
         }
-        cx.notify();
+        let started = self.model.update(cx, AppModel::update_all_extensions);
+        self.install_started(started.unwrap_or(false));
+    }
+
+    fn install_started(&mut self, started: bool) {
+        if started {
+            self.started_install = true;
+            self.install_status = None;
+            self.completed = None;
+            self.error = None;
+        }
+    }
+
+    fn take_finished_install(&mut self, cx: &mut Context<Self>) {
+        let finished = self
+            .model
+            .update(cx, |model, _| model.extensions.installs.finished.take());
+        if let Ok(Some(finished)) = finished {
+            self.show_finished_install(finished, cx);
+            cx.notify();
+        }
+    }
+
+    fn show_finished_install(&mut self, finished: FinishedInstall, cx: &mut Context<Self>) {
+        let started = std::mem::take(&mut self.started_install);
+        let succeeded = finished.error.is_none();
+        self.error = finished.error;
+        let opened = match &finished.job {
+            ActiveInstall::Install { name } if started && succeeded => {
+                self.open_installed(name, false, cx)
+            }
+            ActiveInstall::Update { name } if started && succeeded => {
+                self.open_installed(name, true, cx)
+            }
+            _ => false,
+        };
+        if !opened {
+            self.install_status = finished.status;
+        }
+    }
+
+    fn open_installed(&mut self, name: &str, updated: bool, cx: &mut Context<Self>) -> bool {
+        let details = self.model.upgrade().and_then(|model| {
+            model
+                .read(cx)
+                .extensions
+                .registry
+                .extensions
+                .get(name)
+                .map(ExtensionDetails::from)
+        });
+        let Some(details) = details else {
+            return false;
+        };
+        self.tab = Tab::Installed;
+        self.query.clear();
+        self.search.update(cx, |search, cx| search.set_text("", cx));
+        self.selected = Some(details);
+        self.completed = updated.then_some(Mutation::Update);
+        true
     }
 
     fn enable(&mut self, name: &str, enabled: bool, cx: &mut Context<Self>) {
@@ -409,7 +436,7 @@ impl ExtensionsView {
     }
 
     fn change_extension(&mut self, name: &str, enabled: Option<bool>, cx: &mut Context<Self>) {
-        if self.loading.is_some() || self.mutation.is_some() {
+        if self.busy(cx) {
             return;
         }
         let name = name.to_owned();
@@ -499,7 +526,7 @@ impl ExtensionsView {
         change: impl FnOnce(&mut AppModel, &mut Context<AppModel>) -> gpui::Task<Result<(), String>>,
         cx: &mut Context<Self>,
     ) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         let task = self.model.update(cx, change);
@@ -544,7 +571,7 @@ impl ExtensionsView {
     }
 
     fn reload(&mut self, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         let task = self.model.update(cx, AppModel::reload_extensions);
@@ -567,8 +594,11 @@ impl ExtensionsView {
         cx.notify();
     }
 
-    fn button_label<'a>(&self, id: &str, idle: &'a str) -> &'a str {
-        if let Some(mutation) = self.mutation
+    fn button_label<'a>(&self, id: &str, idle: &'a str, cx: &gpui::App) -> &'a str {
+        let mutation = self
+            .mutation
+            .or_else(|| self.active_install(cx).map(Mutation::from));
+        if let Some(mutation) = mutation
             && mutation.button() == id
         {
             return mutation.label(idle);
@@ -605,12 +635,12 @@ impl ExtensionsView {
                 metrics: &self.metrics,
             },
             &id,
-            controls::Button::secondary(&translate(self.button_label(&id, label)))
-                .enabled(self.mutation.is_none() && self.loading.is_none()),
+            controls::Button::secondary(&translate(self.button_label(&id, label, cx)))
+                .enabled(!self.busy(cx)),
             cx.listener(move |view, _, window, cx| {
-                if view.mutation.is_none() && view.loading.is_none() {
+                if !view.busy(cx) {
                     view.completed = None;
-                    view.update_all_status = None;
+                    view.install_status = None;
                     action(view, window, cx);
                     cx.notify();
                 }
@@ -646,6 +676,7 @@ impl Render for ExtensionsView {
             })
             .collect();
         let errors = registry.errors.clone();
+        let status = self.status_note(cx);
         let capabilities = &model.read(cx).capabilities;
         let mut unavailable: Vec<_> = [
             muxy_core::capability::Feature::ExtensionScripts,
@@ -701,7 +732,7 @@ impl Render for ExtensionsView {
                             .when_some(self.error.as_ref(), |body, error| {
                                 body.child(form::note(self.style(), error, true))
                             })
-                            .when_some(self.update_all_status.as_ref(), |body, status| {
+                            .when_some(status.as_ref(), |body, status| {
                                 body.child(form::note(self.style(), status, false))
                             })
                             .children(
@@ -731,7 +762,7 @@ impl ExtensionsView {
 
     /// Opens Browse limited to language packs, with an empty search.
     pub(crate) fn browse_languages(&mut self, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         self.languages_only = true;
@@ -741,7 +772,7 @@ impl ExtensionsView {
     }
 
     fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         if tab != Tab::Marketplace {
@@ -752,7 +783,7 @@ impl ExtensionsView {
         self.error = None;
         self.completed = None;
         self.revision += 1;
-        self.update_all_status = None;
+        self.install_status = None;
         self.loading = None;
         if tab == Tab::Marketplace {
             self.fetch(true, cx);
@@ -824,12 +855,13 @@ impl ExtensionsView {
     }
 
     fn tab_control(&self, cx: &Context<Self>) -> gpui::AnyElement {
+        let enabled = !self.mutating(cx);
         let choices = [
             Choice::new("installed", tr!("Installed")),
             Choice::new("marketplace", tr!("Browse")),
         ]
         .map(|mut choice| {
-            choice.enabled = self.mutation.is_none();
+            choice.enabled = enabled;
             choice
         });
         controls::segmented(
@@ -1446,11 +1478,11 @@ impl ExtensionsView {
             .hover(|row| row.bg(self.theme.hover))
             .focus(|row| row.bg(self.theme.accent_soft))
             .button_interaction(cx.listener(move |view, _, _, cx| {
-                if view.mutation.is_none() {
+                if !view.mutating(cx) {
                     view.selected = Some(details.clone());
                     view.error = None;
                     view.completed = None;
-                    view.update_all_status = None;
+                    view.install_status = None;
                     cx.notify();
                 }
             }))
@@ -1584,28 +1616,5 @@ fn permissions_note(permissions: Option<&BTreeSet<String>>) -> Option<SharedStri
         )),
         Some(permissions) if permissions.is_empty() => Some(tr!("No permissions requested.")),
         Some(_) => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-
-    use super::permissions_note;
-
-    #[test]
-    fn unknown_permissions_are_not_described_as_none() {
-        let note = |permissions: Option<&BTreeSet<String>>| {
-            permissions_note(permissions).map(|note| note.to_string())
-        };
-        assert_eq!(
-            note(None).as_deref(),
-            Some("The marketplace did not list this extension's permissions.")
-        );
-        assert_eq!(
-            note(Some(&BTreeSet::new())).as_deref(),
-            Some("No permissions requested.")
-        );
-        assert_eq!(note(Some(&BTreeSet::from(["files:read".to_owned()]))), None);
     }
 }

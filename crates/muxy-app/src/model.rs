@@ -171,7 +171,6 @@ pub(crate) struct AppModel {
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
-    pending_extension_updates: Option<Entity<crate::views::settings::extensions::ExtensionsView>>,
     font_sizes: HashMap<PaneId, f32>,
     terminal_preview: Option<preferences::TerminalPreview>,
     terminal_background: preferences::TerminalBackground,
@@ -590,7 +589,6 @@ impl AppModel {
             remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
             settings_window: None,
-            pending_extension_updates: None,
             font_sizes: HashMap::new(),
             terminal_preview: None,
             terminal_background: preferences::TerminalBackground::default(),
@@ -2841,7 +2839,7 @@ impl Drop for AppModel {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     mod capabilities;
     mod webviews;
     use muxy_protocol::ExitReason;
@@ -2959,7 +2957,7 @@ mod tests {
         }
     }
 
-    pub(super) fn stub_boot(state: AppState) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>) {
+    pub(crate) fn stub_boot(state: AppState) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>) {
         let (boot, requests, _) = remote_boot(state, Vec::new());
         (boot, requests)
     }
