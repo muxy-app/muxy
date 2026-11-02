@@ -1558,6 +1558,10 @@ impl Render for TextInput {
             .when(!self.secure, |input| {
                 crate::accessibility::value(input, self.content.clone())
             })
+            .on_a11y_action(AccessibleAction::Click, {
+                let focus = self.focus_handle.clone();
+                move |_, window, _| window.focus(&focus)
+            })
             .on_a11y_action(AccessibleAction::SetValue, {
                 let input = cx.entity().downgrade();
                 move |data, _, cx| {
@@ -2089,6 +2093,7 @@ mod gpui_regression_tests {
             assert_eq!(named.a11y_role(), Some(Role::TextInput));
             assert_eq!(node.label(), Some("Search"));
             assert_eq!(node.value(), Some("typed"));
+            assert!(node.supports_action(gpui::AccessibleAction::Click));
 
             input.accessible_label = Some("Composer");
             input.accessibility_id = Some("composer".into());
