@@ -6,7 +6,7 @@ use gpui::{Context, Entity};
 use muxy_app_core::extensions::Extension;
 use muxy_ui::tr;
 
-use super::{ExtensionsView, Mutation, available_update};
+use super::{ExtensionsView, Mutation};
 use crate::{
     extensions::{io, marketplace},
     model::AppModel,
@@ -22,7 +22,7 @@ impl ExtensionsView {
             marketplace::versions,
             |extension, directory| {
                 let details = marketplace::detail(&extension.name)?;
-                if available_update(extension, &details).is_none() {
+                if marketplace::available_update(extension, &details).is_none() {
                     return Err(
                         tr!("The extension changed. Check for updates and try again.").into(),
                     );

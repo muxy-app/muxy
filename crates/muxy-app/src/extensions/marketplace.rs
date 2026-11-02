@@ -1,10 +1,12 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
 use muxy_app_core::extensions::Extension;
 use muxy_ui::tr;
+use serde::de::{DeserializeOwned, Error as _};
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 mod version;
@@ -15,6 +17,71 @@ const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
 const MAX_EXPANDED: u64 = 512 * 1024 * 1024;
 
 type Result<T> = std::result::Result<T, String>;
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub(crate) struct MarketplaceItem {
+    #[serde(deserialize_with = "required_name")]
+    pub(crate) name: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) description: String,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct MarketplacePage {
+    pub(crate) items: Vec<MarketplaceItem>,
+    pub(crate) has_next: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub(crate) struct ExtensionDetails {
+    #[serde(deserialize_with = "required_name")]
+    pub(crate) name: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) description: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) version: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) current_version: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) permissions: Option<BTreeSet<String>>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) download_url: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) size: Option<u64>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) sha256: Option<String>,
+}
+
+impl From<&Extension> for ExtensionDetails {
+    fn from(extension: &Extension) -> Self {
+        Self {
+            name: extension.name.clone(),
+            description: extension.manifest.description.clone(),
+            version: Some(extension.version.clone()),
+            current_version: None,
+            permissions: Some(extension.manifest.permissions.clone()),
+            download_url: None,
+            size: None,
+            sha256: None,
+        }
+    }
+}
+
+fn required_name<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<String, D::Error> {
+    match Value::deserialize(deserializer)? {
+        Value::String(name) if !name.is_empty() => Ok(name),
+        _ => Err(D::Error::custom("name must be a non-empty string")),
+    }
+}
+
+/// The marketplace is an external API, so `null` or a wrong type reads as absent.
+fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
+    deserializer: D,
+) -> std::result::Result<T, D::Error> {
+    Ok(serde_json::from_value(Value::deserialize(deserializer)?).unwrap_or_default())
+}
 
 fn client() -> Result<reqwest::blocking::Client> {
     crate::proxy::configure(
@@ -47,7 +114,7 @@ fn bytes(response: reqwest::blocking::Response, limit: u64) -> Result<Vec<u8>> {
 
 /// One page of published extensions, optionally limited to a marketplace
 /// category such as `localization`.
-pub(crate) fn list(search: &str, page: u32, category: Option<&str>) -> Result<Value> {
+pub(crate) fn list(search: &str, page: u32, category: Option<&str>) -> Result<MarketplacePage> {
     let page = page.to_string();
     let mut query = vec![
         ("search", search),
@@ -61,10 +128,37 @@ pub(crate) fn list(search: &str, page: u32, category: Option<&str>) -> Result<Va
         .query(&query)
         .send()
         .map_err(|error| error.to_string())?;
-    serde_json::from_slice(&bytes(response, 2 * 1024 * 1024)?).map_err(|error| error.to_string())
+    parse_page(&bytes(response, 2 * 1024 * 1024)?)
 }
 
-pub(crate) fn detail(name: &str) -> Result<Value> {
+fn parse_page(body: &[u8]) -> Result<MarketplacePage> {
+    let response: Value = serde_json::from_slice(body).map_err(|error| error.to_string())?;
+    let Some(listings) = response["data"].as_array() else {
+        return Err(tr!("Invalid marketplace response").into());
+    };
+    let items = listings
+        .iter()
+        .enumerate()
+        .filter_map(
+            |(index, listing)| match MarketplaceItem::deserialize(listing) {
+                Ok(item) => Some(item),
+                Err(error) => {
+                    crate::diagnostics::event(
+                        "marketplace-listing-skipped",
+                        format_args!("index={index} error={error}"),
+                    );
+                    None
+                }
+            },
+        )
+        .collect();
+    Ok(MarketplacePage {
+        items,
+        has_next: response["links"]["next"].is_string(),
+    })
+}
+
+pub(crate) fn detail(name: &str) -> Result<ExtensionDetails> {
     let mut url = reqwest::Url::parse(&format!("{BASE}/api/extensions/"))
         .map_err(|error| error.to_string())?;
     url.path_segments_mut()
@@ -75,13 +169,25 @@ pub(crate) fn detail(name: &str) -> Result<Value> {
         .get(url)
         .send()
         .map_err(|error| error.to_string())?;
-    let value: Value = serde_json::from_slice(&bytes(response, 2 * 1024 * 1024)?)
-        .map_err(|error| error.to_string())?;
-    value
+    parse_details(&bytes(response, 2 * 1024 * 1024)?)
+}
+
+fn parse_details(body: &[u8]) -> Result<ExtensionDetails> {
+    let response: Value = serde_json::from_slice(body).map_err(|error| error.to_string())?;
+    response
         .get("data")
-        .filter(|v| v.is_object())
-        .cloned()
+        .filter(|data| data.is_object())
+        .and_then(|data| ExtensionDetails::deserialize(data).ok())
         .ok_or_else(|| tr!("invalid marketplace details").into())
+}
+
+/// The marketplace's newer version of `extension`, if `details` describes one.
+pub(crate) fn available_update<'a>(
+    extension: &Extension,
+    details: &'a ExtensionDetails,
+) -> Option<&'a str> {
+    let version = details.current_version.as_deref()?;
+    (details.name == extension.name && is_update(&extension.version, version)).then_some(version)
 }
 
 pub(crate) fn versions(names: &[String]) -> Result<BTreeMap<String, String>> {
@@ -115,10 +221,11 @@ fn versions_with(
 }
 
 /// Download and validate into a sibling staging directory; callers decide when to activate it.
-pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::TempDir> {
+pub(crate) fn download(details: &ExtensionDetails, directory: &Path) -> Result<tempfile::TempDir> {
     let url = reqwest::Url::parse(
-        details["download_url"]
-            .as_str()
+        details
+            .download_url
+            .as_deref()
             .ok_or_else(|| tr!("missing archive URL").to_string())?,
     )
     .map_err(|error| error.to_string())?;
@@ -130,14 +237,18 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
     {
         return Err(tr!("untrusted marketplace download URL").into());
     }
-    let size = details["size"]
-        .as_u64()
+    let size = details
+        .size
         .filter(|size| *size > 0 && *size <= MAX_ARCHIVE)
         .ok_or_else(|| tr!("invalid archive size").to_string())?;
-    let expected = details["sha256"]
-        .as_str()
+    let expected = details
+        .sha256
+        .as_deref()
         .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
         .ok_or_else(|| tr!("invalid archive checksum").to_string())?;
+    let permissions = details.permissions.as_ref().ok_or_else(|| {
+        tr!("The marketplace did not list this extension's permissions.").to_string()
+    })?;
     let data = bytes(
         client()?
             .get(url)
@@ -174,15 +285,12 @@ pub(crate) fn download(details: &Value, directory: &Path) -> Result<tempfile::Te
         std::fs::rename(nested, &extracted).map_err(|e| e.to_string())?;
     }
     let extension = Extension::load(&extracted)?;
-    if Some(extension.name.as_str()) != details["name"].as_str()
-        || Some(extension.version.as_str()) != details["current_version"].as_str()
+    if extension.name != details.name
+        || Some(extension.version.as_str()) != details.current_version.as_deref()
     {
         return Err(tr!("archive identity does not match the marketplace").into());
     }
-    let permissions: std::collections::BTreeSet<String> =
-        serde_json::from_value(details["permissions"].clone())
-            .map_err(|error| error.to_string())?;
-    if extension.manifest.permissions != permissions {
+    if extension.manifest.permissions != *permissions {
         return Err(tr!("archive permissions do not match the marketplace").into());
     }
     Ok(stage)
@@ -328,6 +436,173 @@ mod tests {
         reason = "Tests fail immediately on fixture errors"
     )]
     use super::*;
+
+    const PAGE: &str = r#"{
+        "data": [
+            {"name": "ai-usage", "description": "AI usage status bar", "downloads": 2464,
+             "author": {"name": "Wonjin"}, "install_url": "muxy://extensions/install/ai-usage"},
+            {"name": "beads", "description": null, "categories": ["productivity"]},
+            {"description": "no name"},
+            {"name": "", "description": "empty name"},
+            {"name": 12},
+            "not an object"
+        ],
+        "links": {"next": "https://muxy.app/api/extensions?page=2"},
+        "meta": {"current_page": 1}
+    }"#;
+
+    fn page(body: &str) -> Result<MarketplacePage> {
+        parse_page(body.as_bytes())
+    }
+
+    fn details() -> ExtensionDetails {
+        parse_details(
+            serde_json::json!({"data": {
+                "name": "reader",
+                "description": "Reads",
+                "current_version": "1.2.0",
+                "permissions": ["files:read"],
+                "download_url": "https://muxy.app/api/extensions/reader/download",
+                "size": 100,
+                "sha256": "a".repeat(64),
+                "published_at": "2026-10-11T09:18:43.000000Z"
+            }})
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap()
+    }
+
+    fn rejection(details: &ExtensionDetails) -> String {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("extensions");
+        let error = download(details, &directory).unwrap_err();
+        assert!(!directory.exists());
+        error
+    }
+
+    #[test]
+    fn a_page_keeps_good_listings_and_skips_bad_ones() {
+        let parsed = page(PAGE).unwrap();
+        assert_eq!(
+            parsed.items,
+            [
+                MarketplaceItem {
+                    name: "ai-usage".into(),
+                    description: "AI usage status bar".into(),
+                },
+                MarketplaceItem {
+                    name: "beads".into(),
+                    description: String::new(),
+                },
+            ]
+        );
+        assert!(parsed.has_next);
+    }
+
+    #[test]
+    fn a_page_needs_a_data_array_but_not_links() {
+        for body in [
+            r#"{"data": {}}"#,
+            r#"{"data": null}"#,
+            r#"{"links": {}}"#,
+            "[]",
+        ] {
+            assert_eq!(page(body).unwrap_err(), "Invalid marketplace response");
+        }
+        assert!(!page(r#"{"data": []}"#).unwrap().has_next);
+        assert!(
+            !page(r#"{"data": [], "links": {"next": null}}"#)
+                .unwrap()
+                .has_next
+        );
+    }
+
+    #[test]
+    fn details_read_the_live_shape_and_ignore_unknown_fields() {
+        let details = details();
+        assert_eq!(details.name, "reader");
+        assert_eq!(details.version, None);
+        assert_eq!(details.current_version.as_deref(), Some("1.2.0"));
+        assert_eq!(details.size, Some(100));
+        assert!(details.permissions.unwrap().contains("files:read"));
+    }
+
+    #[test]
+    fn details_need_a_data_object_and_a_name() {
+        for body in [
+            "{}",
+            r#"{"data": []}"#,
+            r#"{"data": {}}"#,
+            r#"{"data": {"name": ""}}"#,
+            r#"{"data": {"name": null}}"#,
+        ] {
+            assert_eq!(
+                parse_details(body.as_bytes()).unwrap_err(),
+                "invalid marketplace details"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_fields_parse_and_are_rejected_before_any_request() {
+        let wrong_size = parse_details(
+            r#"{"data": {"name": "reader", "description": null, "size": "100",
+                "permissions": ["files:read"], "sha256": null,
+                "download_url": "https://muxy.app/download"}}"#
+                .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(wrong_size.description, "");
+        assert_eq!(wrong_size.size, None);
+        assert_eq!(rejection(&wrong_size), "invalid archive size");
+
+        let mut unlisted = details();
+        unlisted.permissions = parse_details(
+            r#"{"data": {"name": "reader", "permissions": ["files:read", 7]}}"#.as_bytes(),
+        )
+        .unwrap()
+        .permissions;
+        assert_eq!(unlisted.permissions, None);
+        assert_eq!(
+            rejection(&unlisted),
+            "The marketplace did not list this extension's permissions."
+        );
+    }
+
+    #[test]
+    fn downloads_reject_untrusted_urls_and_malformed_checksums() {
+        for url in [
+            "https://example.com/archive.zip",
+            "http://muxy.app/archive.zip",
+            "https://user:secret@muxy.app/archive.zip",
+            "https://user@muxy.app/archive.zip",
+            "https://muxy.app:8443/archive.zip",
+        ] {
+            let mut foreign = details();
+            foreign.download_url = Some(url.into());
+            assert_eq!(rejection(&foreign), "untrusted marketplace download URL");
+        }
+        for checksum in ["a".repeat(63), "g".repeat(64)] {
+            let mut malformed = details();
+            malformed.sha256 = Some(checksum);
+            assert_eq!(rejection(&malformed), "invalid archive checksum");
+        }
+    }
+
+    #[test]
+    fn installed_details_never_offer_an_update() {
+        let root = tempfile::tempdir().unwrap();
+        let installed = package(&root.path().join("reader"), "reader", "1.0.0");
+        let local = ExtensionDetails::from(&installed);
+        assert_eq!(local.version.as_deref(), Some("1.0.0"));
+        assert_eq!(available_update(&installed, &local), None);
+
+        let mut listed = details();
+        assert_eq!(available_update(&installed, &listed), Some("1.2.0"));
+        listed.name = "other".into();
+        assert_eq!(available_update(&installed, &listed), None);
+    }
 
     fn archive(path: &str, mode: Option<u32>) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));

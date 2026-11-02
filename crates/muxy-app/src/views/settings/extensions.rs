@@ -1,3 +1,6 @@
+use std::borrow::Cow;
+use std::collections::BTreeSet;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -11,9 +14,11 @@ use muxy_ui::{
     text_input::{InputEvent, InputStyle, TextInput},
     theme::{Metrics, Theme},
 };
-use serde_json::{Value, json};
 
-use crate::{extensions::marketplace, model::AppModel};
+use crate::{
+    extensions::marketplace::{self, ExtensionDetails, MarketplaceItem},
+    model::AppModel,
+};
 use muxy_app_core::extensions::{Consent, Extension, Rule};
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
@@ -86,7 +91,7 @@ pub(crate) struct ExtensionsView {
     metrics: Metrics,
     tab: Tab,
     search: Entity<TextInput>,
-    items: Vec<Value>,
+    items: Vec<MarketplaceItem>,
     page: u32,
     has_next: bool,
     query: String,
@@ -98,7 +103,7 @@ pub(crate) struct ExtensionsView {
     completed: Option<Mutation>,
     error: Option<String>,
     update_all_status: Option<String>,
-    selected: Option<Value>,
+    selected: Option<ExtensionDetails>,
     folder: Option<muxy_ui::dialog::FolderPicker>,
     /// Text fields for string and number extension settings, by extension and key.
     setting_inputs: std::collections::HashMap<(String, String), Entity<TextInput>>,
@@ -194,21 +199,18 @@ impl ExtensionsView {
                 return;
             }
             let result =
-                crate::extensions::io::run(move || marketplace::list(&query, page, category)).await;
+                crate::extensions::io::network(move || marketplace::list(&query, page, category))
+                    .await;
             let _ = view.update(cx, |view, cx| {
                 if view.revision != revision {
                     return;
                 }
                 view.loading = None;
                 match result {
-                    Ok(result) => {
-                        view.has_next = result["links"]["next"].is_string();
-                        if let Some(items) = result["data"].as_array() {
-                            view.page = page;
-                            view.items.extend(items.clone());
-                        } else {
-                            view.error = Some(tr!("Invalid marketplace response").to_string());
-                        }
+                    Ok(listing) => {
+                        view.has_next = listing.has_next;
+                        view.page = page;
+                        view.items.extend(listing.items);
                     }
                     Err(error) => view.error = Some(error),
                 }
@@ -308,9 +310,7 @@ impl ExtensionsView {
         let Some(details) = self.selected.clone() else {
             return;
         };
-        let Some(name) = details["name"].as_str().map(str::to_owned) else {
-            return;
-        };
+        let name = details.name.clone();
         let Some(model) = self.model.upgrade() else {
             return;
         };
@@ -379,7 +379,7 @@ impl ExtensionsView {
                         .registry
                         .extensions
                         .get(name)
-                        .map(installed_details)
+                        .map(ExtensionDetails::from)
                 });
                 if let Some(details) = details {
                     self.tab = Tab::Installed;
@@ -624,16 +624,13 @@ impl Render for ExtensionsView {
         let Some(model) = self.model.upgrade() else {
             return div().into_any_element();
         };
-        let selected = self
-            .selected
-            .as_ref()
-            .and_then(|details| details["name"].as_str())
-            .and_then(|name| {
-                let runtime = &model.read(cx).extensions;
-                let extension = runtime.registry.extensions.get(name)?.clone();
-                let stored = runtime.settings.get(name).cloned().unwrap_or_default();
-                Some((extension, stored))
-            });
+        let selected = self.selected.as_ref().and_then(|details| {
+            let name = details.name.as_str();
+            let runtime = &model.read(cx).extensions;
+            let extension = runtime.registry.extensions.get(name)?.clone();
+            let stored = runtime.settings.get(name).cloned().unwrap_or_default();
+            Some((extension, stored))
+        });
         if let Some((extension, stored)) = selected {
             self.sync_setting_inputs(&extension, &stored, cx);
         }
@@ -1078,22 +1075,21 @@ impl ExtensionsView {
 
     fn details_body(
         &self,
-        details: &Value,
+        details: &ExtensionDetails,
         installed: &[(Extension, bool, bool)],
         cx: &mut Context<Self>,
     ) -> gpui::Div {
-        let name = details["name"].as_str().unwrap_or("").to_owned();
+        let name = details.name.clone();
         let local = installed
             .iter()
             .find(|(extension, _, _)| extension.name == name);
         let updates = local
             .filter(|(_, _, unpacked)| !unpacked)
             .map(|(extension, _, _)| self.update_section(extension, details, cx));
-        let details = local.map_or_else(
-            || details.clone(),
-            |(extension, _, _)| installed_details(extension),
-        );
-        let hero = self.detail_header(&name, &details, local, cx);
+        let shown = local.map_or(Cow::Borrowed(details), |(extension, _, _)| {
+            Cow::Owned(extension.into())
+        });
+        let hero = self.detail_header(&name, &shown, local, cx);
         let mut body = div()
             .flex()
             .flex_col()
@@ -1101,10 +1097,7 @@ impl ExtensionsView {
             .min_w_0()
             .child(hero)
             .children(updates)
-            .child(self.section(
-                &tr!("Requested permissions"),
-                self.permissions_body(&details),
-            ));
+            .child(self.section(&tr!("Requested permissions"), self.permissions_body(&shown)));
         if let Some((extension, _, _)) = local
             && let Some(model) = self.model.upgrade()
         {
@@ -1156,14 +1149,12 @@ impl ExtensionsView {
         body
     }
 
-    fn detail_header(
-        &self,
-        name: &str,
-        details: &Value,
-        local: Option<&(Extension, bool, bool)>,
-        cx: &Context<Self>,
-    ) -> gpui::Div {
-        let heading = div()
+    fn detail_heading(&self, name: &str, details: &ExtensionDetails) -> gpui::Div {
+        let version = details
+            .version
+            .as_ref()
+            .or(details.current_version.as_ref());
+        div()
             .flex()
             .flex_1()
             .min_w_0()
@@ -1177,14 +1168,24 @@ impl ExtensionsView {
                     .truncate()
                     .child(name.to_owned()),
             )
-            .when_some(details["version"].as_str(), |heading, version| {
+            .when_some(version, |heading, version| {
                 heading.child(
                     div()
                         .flex_none()
                         .text_color(self.theme.fg_muted)
                         .child(format!("v{version}")),
                 )
-            });
+            })
+    }
+
+    fn detail_header(
+        &self,
+        name: &str,
+        details: &ExtensionDetails,
+        local: Option<&(Extension, bool, bool)>,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        let heading = self.detail_heading(name, details);
         let mut badges = div()
             .flex()
             .flex_none()
@@ -1256,7 +1257,7 @@ impl ExtensionsView {
             .child(
                 div()
                     .text_color(self.theme.fg_muted)
-                    .child(details["description"].as_str().unwrap_or("").to_owned()),
+                    .child(details.description.clone()),
             )
             .when(local.is_some_and(|(_, enabled, _)| !enabled), |hero| {
                 hero.child(div().text_color(self.theme.fg_muted).child(tr!(
@@ -1268,10 +1269,10 @@ impl ExtensionsView {
     fn update_section(
         &self,
         extension: &Extension,
-        details: &Value,
+        details: &ExtensionDetails,
         cx: &Context<Self>,
     ) -> gpui::Div {
-        let available = available_update(extension, details);
+        let available = marketplace::available_update(extension, details);
         let owner = extension.name.clone();
         let actions = div()
             .flex()
@@ -1295,7 +1296,7 @@ impl ExtensionsView {
             tr!("Version %@ is available.", version)
         } else if self.completed == Some(Mutation::Update) {
             tr!("Extension updated.")
-        } else if details["current_version"].is_string() {
+        } else if details.current_version.is_some() {
             tr!("This extension is up to date.")
         } else {
             tr!("Check the marketplace for a newer version.")
@@ -1307,12 +1308,12 @@ impl ExtensionsView {
             .text_color(self.theme.fg_muted)
             .child(message);
         if available.is_some() {
-            let added: Vec<_> = details["permissions"]
-                .as_array()
-                .into_iter()
+            let added: Vec<_> = details
+                .permissions
+                .iter()
                 .flatten()
-                .filter_map(Value::as_str)
                 .filter(|permission| !extension.manifest.permissions.contains(*permission))
+                .map(String::as_str)
                 .collect();
             if !added.is_empty() {
                 content = content.child(tr!(
@@ -1324,28 +1325,19 @@ impl ExtensionsView {
         self.section_with_actions(&tr!("Updates"), actions, content)
     }
 
-    fn permissions_body(&self, details: &Value) -> gpui::Div {
-        let permissions: Vec<_> = details["permissions"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect();
+    fn permissions_body(&self, details: &ExtensionDetails) -> gpui::Div {
+        let permissions = details.permissions.as_ref();
         let mut permission_tags = div().flex().flex_wrap().gap(self.metrics.spacing4());
-        for permission in &permissions {
-            permission_tags = permission_tags.child(self.badge((*permission).to_owned(), false));
+        for permission in permissions.into_iter().flatten() {
+            permission_tags = permission_tags.child(self.badge(permission.clone(), false));
         }
         div()
             .flex()
             .flex_col()
             .gap(self.metrics.spacing6())
             .child(permission_tags)
-            .when(permissions.is_empty(), |body| {
-                body.child(
-                    div()
-                        .text_color(self.theme.fg_muted)
-                        .child(tr!("No permissions requested.")),
-                )
+            .when_some(permissions_note(permissions), |body, note| {
+                body.child(div().text_color(self.theme.fg_muted).child(note))
             })
             .child(
                 div()
@@ -1405,7 +1397,7 @@ impl ExtensionsView {
         separator: bool,
         cx: &Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let details = installed_details(extension);
+        let details = ExtensionDetails::from(extension);
         let mut title = div()
             .flex()
             .flex_none()
@@ -1524,8 +1516,7 @@ impl ExtensionsView {
             );
         }
         for item in &self.items {
-            let name = item["name"].as_str().unwrap_or("").to_owned();
-            let selected = name.clone();
+            let selected = item.name.clone();
             body = body.child(
                 self.card()
                     .p(self.metrics.spacing7())
@@ -1544,13 +1535,17 @@ impl ExtensionsView {
                             .flex()
                             .flex_col()
                             .gap(self.metrics.spacing2())
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(item.name.clone()),
+                            )
                             .child(
                                 div()
                                     .text_size(self.metrics.font_footnote())
                                     .text_color(self.theme.fg_muted)
                                     .line_clamp(2)
-                                    .child(item["description"].as_str().unwrap_or("").to_owned()),
+                                    .child(item.description.clone()),
                             ),
                     )
                     .child(self.button(
@@ -1581,18 +1576,36 @@ impl ExtensionsView {
     }
 }
 
-fn installed_details(extension: &Extension) -> Value {
-    json!({
-        "name": extension.name,
-        "version": extension.version,
-        "description": extension.manifest.description,
-        "permissions": extension.manifest.permissions,
-    })
+/// Why no permission tags are shown. Unknown permissions never read as none.
+fn permissions_note(permissions: Option<&BTreeSet<String>>) -> Option<SharedString> {
+    match permissions {
+        None => Some(tr!(
+            "The marketplace did not list this extension's permissions."
+        )),
+        Some(permissions) if permissions.is_empty() => Some(tr!("No permissions requested.")),
+        Some(_) => None,
+    }
 }
 
-fn available_update<'a>(extension: &Extension, details: &'a Value) -> Option<&'a str> {
-    let version = details["current_version"].as_str()?;
-    (details["name"].as_str() == Some(extension.name.as_str())
-        && marketplace::is_update(&extension.version, version))
-    .then_some(version)
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::permissions_note;
+
+    #[test]
+    fn unknown_permissions_are_not_described_as_none() {
+        let note = |permissions: Option<&BTreeSet<String>>| {
+            permissions_note(permissions).map(|note| note.to_string())
+        };
+        assert_eq!(
+            note(None).as_deref(),
+            Some("The marketplace did not list this extension's permissions.")
+        );
+        assert_eq!(
+            note(Some(&BTreeSet::new())).as_deref(),
+            Some("No permissions requested.")
+        );
+        assert_eq!(note(Some(&BTreeSet::from(["files:read".to_owned()]))), None);
+    }
 }
