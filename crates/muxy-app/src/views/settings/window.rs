@@ -560,6 +560,9 @@ impl SettingsWindow {
             SettingsEvent::ReadServer => {
                 let _ = self.model.update(cx, AppModel::read_server_settings);
             }
+            SettingsEvent::CheckExtensionUpdates => {
+                let _ = self.model.update(cx, AppModel::check_extension_updates);
+            }
             SettingsEvent::Connect => {
                 let _ = self.model.update(cx, AppModel::connect);
             }

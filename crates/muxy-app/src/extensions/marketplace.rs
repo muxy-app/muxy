@@ -88,7 +88,12 @@ fn client() -> Result<reqwest::blocking::Client> {
         reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(120))
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent("Muxy/2 Extensions"),
+            .user_agent(format!(
+                "Muxy/{} ({}; {}) Extensions",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            )),
     )
     .and_then(reqwest::blocking::ClientBuilder::build)
     .map_err(|error| error.to_string())
