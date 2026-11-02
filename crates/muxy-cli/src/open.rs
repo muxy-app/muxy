@@ -1,5 +1,15 @@
 use std::error::Error;
 use std::path::Path;
+#[cfg(not(target_os = "macos"))]
+use std::time::{Duration, Instant};
+
+/// More than a launch takes to reach the running app and hear back from it.
+#[cfg(not(target_os = "macos"))]
+const HANDOFF_PATIENCE: Duration = Duration::from_secs(5);
+#[cfg(not(target_os = "macos"))]
+const START_PATIENCE: Duration = Duration::from_secs(10);
+#[cfg(not(target_os = "macos"))]
+const START_POLL: Duration = Duration::from_millis(50);
 
 /// Opens `word`, a folder, in the desktop app. Without it, or over SSH, the
 /// folder opens in the terminal UI instead.
@@ -62,13 +72,19 @@ fn desktop_session(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> boo
         .any(|name| variable(name).is_some_and(|value| !value.is_empty()))
 }
 
-/// Starts the app with `folder`, away from this terminal. An app that is
-/// already running takes the folder from the new one, which then leaves:
-/// that, or an app still running after a moment, is a folder opened.
+/// Starts the app with `folder`, away from this terminal, and reports whether
+/// it opened. An app that is already running takes the folder from the new one,
+/// which then leaves with the answer. A new one that stays is opened once its
+/// socket answers. Running out of time counts as opened, since an app too old
+/// to have that socket never answers.
 #[cfg(not(target_os = "macos"))]
 fn launch(app: &Path, folder: Option<&Path>) -> bool {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
+    let socket = muxy_core::dirs::muxy_dir()
+        .ok()
+        .map(|profile| muxy_app_core::browser::api::socket_path(&profile));
+    let handoff = socket.as_deref().is_some_and(app_answers);
     let Ok(mut child) = Command::new(app)
         .args(folder)
         .stdin(Stdio::null())
@@ -79,10 +95,40 @@ fn launch(app: &Path, folder: Option<&Path>) -> bool {
     else {
         return false;
     };
-    match muxy_core::process::wait_timeout(&mut child, std::time::Duration::from_millis(500)) {
+    if handoff {
+        handed_over(&mut child, HANDOFF_PATIENCE)
+    } else {
+        started(&mut child, socket.as_deref(), START_PATIENCE)
+    }
+}
+
+/// Connecting without sending a request is harmless: the app replies with an
+/// error and closes.
+#[cfg(not(target_os = "macos"))]
+fn app_answers(socket: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(socket).is_ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn handed_over(child: &mut std::process::Child, patience: Duration) -> bool {
+    match muxy_core::process::wait_timeout(child, patience) {
         Ok(Some(status)) => status.success(),
         _ => true,
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn started(child: &mut std::process::Child, socket: Option<&Path>, patience: Duration) -> bool {
+    let deadline = Instant::now() + patience;
+    while Instant::now() < deadline {
+        match muxy_core::process::wait_timeout(child, START_POLL) {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if socket.is_some_and(app_answers) => return true,
+            Ok(None) => {}
+            Err(_) => return true,
+        }
+    }
+    true
 }
 
 #[cfg(target_os = "macos")]
@@ -99,8 +145,59 @@ fn containing_app(executable: &Path) -> Option<&Path> {
 #[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use std::ffi::OsString;
+    use std::io;
+    use std::os::unix::net::UnixListener;
+    use std::process::{Child, Command};
 
     use super::*;
+
+    const PATIENCE: Duration = Duration::from_secs(10);
+
+    fn shell(script: &str) -> io::Result<Child> {
+        Command::new("sh").args(["-c", script]).spawn()
+    }
+
+    fn stop(mut child: Child) -> io::Result<()> {
+        child.kill()?;
+        child.wait().map(drop)
+    }
+
+    #[test]
+    fn a_launch_answers_with_how_it_exited() -> io::Result<()> {
+        assert!(!handed_over(&mut shell("sleep 0.6; exit 1")?, PATIENCE));
+        assert!(!started(&mut shell("sleep 0.6; exit 1")?, None, PATIENCE));
+        assert!(handed_over(&mut shell("exit 0")?, PATIENCE));
+        assert!(started(&mut shell("exit 0")?, None, PATIENCE));
+        Ok(())
+    }
+
+    #[test]
+    fn a_launch_still_running_at_the_deadline_counts_as_opened() -> io::Result<()> {
+        let patience = Duration::from_millis(100);
+        let mut running = shell("exec sleep 30")?;
+        assert!(handed_over(&mut running, patience));
+        assert!(started(&mut running, None, patience));
+        stop(running)
+    }
+
+    #[test]
+    fn a_new_app_has_started_once_its_socket_answers() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let socket = folder.path().join("app.sock");
+        assert!(!app_answers(&socket));
+        let _listener = UnixListener::bind(&socket)?;
+        assert!(app_answers(&socket));
+
+        let mut running = shell("exec sleep 30")?;
+        let before = Instant::now();
+        assert!(started(
+            &mut running,
+            Some(&socket),
+            Duration::from_secs(20)
+        ));
+        assert!(before.elapsed() < Duration::from_secs(10));
+        stop(running)
+    }
 
     #[test]
     fn the_desktop_app_opens_only_in_a_desktop_session() {
