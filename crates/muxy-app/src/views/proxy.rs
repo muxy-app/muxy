@@ -10,6 +10,7 @@ use gpui::{
 use muxy_app_core::settings::{DEFAULT_PROXY_BYPASS, ProxyKind, ProxySettings};
 use muxy_ui::components::{ButtonInteraction, IconGlyph};
 use muxy_ui::controls::{self, Choice, Style};
+use muxy_ui::form::{NextControl, PreviousControl};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::popover;
@@ -151,41 +152,17 @@ fn render(
     popover::surface(theme, m)
         .id("proxy-popover")
         .debug_selector(|| "proxy-popover".into())
-        .key_context("Menu")
+        .key_context("Menu Form")
         .track_focus(&model.overlay_focus)
         .on_action(
             cx.listener(|model, _: &super::menu::DismissMenu, _, cx| model.dismiss_overlay(cx)),
         )
-        .on_key_down(
-            cx.listener(|model, event: &gpui::KeyDownEvent, window, cx| {
-                let modifiers = event.keystroke.modifiers;
-                if event.keystroke.key == "tab"
-                    && !modifiers.control
-                    && !modifiers.alt
-                    && !modifiers.platform
-                    && !modifiers.function
-                {
-                    let advance = |window: &mut Window| {
-                        if modifiers.shift {
-                            window.focus_prev();
-                        } else {
-                            window.focus_next();
-                        }
-                    };
-                    advance(window);
-                    let first = window.focused(cx);
-                    while !model.overlay_focus.contains_focused(window, cx) {
-                        advance(window);
-                        if window.focused(cx) == first {
-                            model.overlay_focus.focus(window);
-                            break;
-                        }
-                    }
-                    window.prevent_default();
-                    cx.stop_propagation();
-                }
-            }),
-        )
+        .on_action(cx.listener(|model, _: &NextControl, window, cx| {
+            advance_focus(model, false, window, cx);
+        }))
+        .on_action(cx.listener(|model, _: &PreviousControl, window, cx| {
+            advance_focus(model, true, window, cx);
+        }))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .w(width)
         .max_h((window.viewport_size().height - m.status_bar_height() - px(16.0)).max(px(0.0)))
@@ -205,6 +182,27 @@ fn render(
         .child(fields(form, model, cx))
         .child(actions(model, cx))
         .into_any_element()
+}
+
+/// Stops on the popover's toggles and buttons too, so it walks the window's
+/// tab order and skips what lies outside the popover.
+fn advance_focus(model: &AppModel, backwards: bool, window: &mut Window, cx: &gpui::App) {
+    let advance = |window: &mut Window| {
+        if backwards {
+            window.focus_prev();
+        } else {
+            window.focus_next();
+        }
+    };
+    advance(window);
+    let first = window.focused(cx);
+    while !model.overlay_focus.contains_focused(window, cx) {
+        advance(window);
+        if window.focused(cx) == first {
+            model.overlay_focus.focus(window);
+            break;
+        }
+    }
 }
 
 fn fields(form: &ProxyForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {

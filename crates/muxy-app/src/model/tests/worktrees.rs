@@ -917,6 +917,103 @@ fn worktree_switcher_refreshes_catalog_without_losing_query_or_selection(cx: &mu
 }
 
 #[gpui::test]
+fn tab_moves_through_the_visible_git_form_fields_and_stays_in_the_branch_chooser(
+    cx: &mut TestAppContext,
+) {
+    let (mut state, root, _, _directory) = pruning_fixture();
+    state.select_project(root).expect("project");
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let focused = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        cx.update(|window, cx| match &view.read(cx).overlay {
+            Some(Overlay::GitForm(form)) => form.focused_input(window, cx),
+            _ => panic!("the form is open"),
+        })
+    };
+    let set_modes = |view: &Entity<AppModel>, cx: &mut VisualTestContext, existing, location| {
+        view.update(cx, |model, cx| {
+            if let Some(Overlay::GitForm(form)) = &mut model.overlay {
+                form.set_modes(existing, location);
+            }
+            cx.notify();
+        });
+        cx.run_until_parked();
+    };
+    let press = |view: &Entity<AppModel>, cx: &mut VisualTestContext, key, expected| {
+        cx.simulate_keystrokes(key);
+        assert_eq!(focused(view, cx), Some(expected), "after {key}");
+    };
+
+    cx.simulate_keystrokes(NEW_WORKTREE);
+    cx.run_until_parked();
+    assert_eq!(focused(&view, cx), Some("name"));
+    press(&view, cx, "tab", "branch");
+    press(&view, cx, "tab", "name");
+    press(&view, cx, "shift-tab", "branch");
+
+    set_modes(&view, cx, false, "template");
+    press(&view, cx, "tab", "template");
+    press(&view, cx, "tab", "name");
+    press(&view, cx, "shift-tab", "template");
+
+    set_modes(&view, cx, true, "folder");
+    cx.update(|window, cx| {
+        view.read(cx).focus_git_form(window, cx);
+    });
+    cx.run_until_parked();
+    press(&view, cx, "tab", "directory");
+    press(&view, cx, "tab", "name");
+
+    set_modes(&view, cx, false, "default");
+    view.update(cx, |model, cx| model.choose_worktree_branch(true, cx));
+    cx.run_until_parked();
+    assert_eq!(focused(&view, cx), Some("chooser"));
+    press(&view, cx, "tab", "chooser");
+    press(&view, cx, "shift-tab", "chooser");
+}
+
+#[gpui::test]
+fn a_new_branch_form_ignores_the_location_it_does_not_show(cx: &mut TestAppContext) {
+    let (mut state, root, _, _directory) = pruning_fixture();
+    state.select_project(root).expect("project");
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.open_git_form(root, false, cx);
+        if let Some(Overlay::GitForm(form)) = &mut model.overlay {
+            form.set_modes(false, "template");
+        }
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| view.read(cx).focus_git_form(window, cx));
+    cx.run_until_parked();
+    cx.simulate_keystrokes("tab");
+    let focused = cx.update(|window, cx| match &view.read(cx).overlay {
+        Some(Overlay::GitForm(form)) => form.focused_input(window, cx),
+        _ => panic!("the form is open"),
+    });
+    assert_eq!(focused, Some("branch"));
+}
+
+#[gpui::test]
+fn with_no_field_focused_tab_takes_the_first_field_and_shift_tab_the_last(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, cx| {
+        let fields = [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()];
+        muxy_ui::form::advance_focus(&fields, false, window);
+        assert!(fields[0].is_focused(window));
+        window.blur();
+        muxy_ui::form::advance_focus(&fields, true, window);
+        assert!(fields[2].is_focused(window));
+        muxy_ui::form::advance_focus(&fields, false, window);
+        assert!(fields[0].is_focused(window));
+        muxy_ui::form::advance_focus(&[], false, window);
+    });
+}
+
+#[gpui::test]
 fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_worktrees(
     cx: &mut TestAppContext,
 ) {

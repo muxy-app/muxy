@@ -301,7 +301,7 @@ const RETIRED: [&str; 9] = [
 ];
 
 /// Built-in defaults that give way to a key a user binding already has.
-const YIELDING: [ShortcutId; 55] = [
+const YIELDING: [ShortcutId; 57] = [
     ShortcutId::OpenSettings,
     ShortcutId::NewHomeTab,
     ShortcutId::NewTabInProject,
@@ -357,6 +357,8 @@ const YIELDING: [ShortcutId; 55] = [
     ShortcutId::BrowserZoomReset,
     ShortcutId::BrowserCopyUrl,
     ShortcutId::BrowserInspect,
+    ShortcutId::FormNextControl,
+    ShortcutId::FormPreviousControl,
 ];
 
 fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {

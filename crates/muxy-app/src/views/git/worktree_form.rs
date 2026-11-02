@@ -1,7 +1,10 @@
 use std::fmt::Write as _;
 
 use gpui::prelude::FluentBuilder;
-use gpui::{AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled, div};
+use gpui::{
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Styled,
+    div,
+};
 use muxy_app_core::settings::{DEFAULT_WORKTREE_FOLDER, WorktreeLocation};
 use muxy_protocol::{
     GitAction, ProjectId, WorktreeHook, WorktreeIntent, WorktreeOptions, WorktreeRemoval,
@@ -18,12 +21,60 @@ impl Form {
         (self.project, self.worktree)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_modes(&mut self, existing: bool, location_mode: &'static str) {
+        self.existing = existing;
+        self.location_mode = location_mode;
+    }
+
+    /// Which of the form's inputs has focus, or `chooser` inside the branch chooser.
+    #[cfg(test)]
+    pub(crate) fn focused_input(&self, window: &gpui::Window, cx: &App) -> Option<&'static str> {
+        if let Some(chooser) = &self.chooser
+            && chooser.focus_handle(cx).contains_focused(window, cx)
+        {
+            return Some("chooser");
+        }
+        [
+            ("name", &self.name),
+            ("branch", &self.branch),
+            ("template", &self.template),
+            ("directory", &self.directory),
+        ]
+        .into_iter()
+        .find(|(_, input)| input.focus_handle(cx).is_focused(window))
+        .map(|(name, _)| name)
+    }
+
     pub(super) fn branch_input(&self) -> &Entity<TextInput> {
         if self.worktree && self.existing {
             &self.existing_branch
         } else {
             &self.branch
         }
+    }
+
+    /// The text fields shown, in order. The branch chooser fills `existing_branch`
+    /// and `base`, so they aren't typed in.
+    pub(super) fn visible_fields(&self, cx: &App) -> Vec<FocusHandle> {
+        let mut fields = Vec::new();
+        if self.worktree {
+            fields.push(&self.name);
+        }
+        if !(self.worktree && self.existing) {
+            fields.push(&self.branch);
+        }
+        if self.worktree {
+            match self.location_mode {
+                "template" => fields.push(&self.template),
+                "folder" => fields.push(&self.directory),
+                _ => {}
+            }
+        }
+        fields
+            .into_iter()
+            .map(|input| input.focus_handle(cx))
+            .collect()
     }
 
     pub(super) fn location(&self, cx: &App) -> WorktreeLocation {

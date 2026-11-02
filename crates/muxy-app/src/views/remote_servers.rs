@@ -13,6 +13,7 @@ use muxy_app_core::ServerId;
 use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph};
 use muxy_ui::controls::{self, Style};
+use muxy_ui::form::{NextControl, PreviousControl};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
@@ -64,17 +65,11 @@ impl ServerForm {
         } else {
             6
         };
-        let inputs = &inputs[..count];
-        let current = inputs
+        let fields: Vec<_> = inputs[..count]
             .iter()
-            .position(|input| input.focus_handle(cx).is_focused(window));
-        let next = match current {
-            Some(index) if backwards => (index + inputs.len() - 1) % inputs.len(),
-            Some(index) => (index + 1) % inputs.len(),
-            None if backwards => inputs.len() - 1,
-            None => 0,
-        };
-        inputs[next].focus_handle(cx).focus(window);
+            .map(|input| input.focus_handle(cx))
+            .collect();
+        muxy_ui::form::advance_focus(&fields, backwards, window);
     }
 
     fn submitted(&self, cx: &gpui::App) -> DeviceForm {
@@ -1219,23 +1214,17 @@ pub(crate) fn render_form(
     );
     let text = |id: &str, input: &Entity<TextInput>| controls::text_field(style, id, input, None);
     modal(model, window, "server-form")
-        .on_key_down(
-            cx.listener(|model, event: &gpui::KeyDownEvent, window, cx| {
-                let modifiers = event.keystroke.modifiers;
-                if event.keystroke.key == "tab"
-                    && !modifiers.control
-                    && !modifiers.alt
-                    && !modifiers.platform
-                    && !modifiers.function
-                {
-                    if let Some(Overlay::ServerForm(form)) = &model.overlay {
-                        form.advance_focus(modifiers.shift, window, cx);
-                    }
-                    window.prevent_default();
-                    cx.stop_propagation();
-                }
-            }),
-        )
+        .key_context("Form")
+        .on_action(cx.listener(|model, _: &NextControl, window, cx| {
+            if let Some(Overlay::ServerForm(form)) = &model.overlay {
+                form.advance_focus(false, window, cx);
+            }
+        }))
+        .on_action(cx.listener(|model, _: &PreviousControl, window, cx| {
+            if let Some(Overlay::ServerForm(form)) = &model.overlay {
+                form.advance_focus(true, window, cx);
+            }
+        }))
         .child(title(
             &if form.device.is_some() {
                 tr!("Edit Remote Server")

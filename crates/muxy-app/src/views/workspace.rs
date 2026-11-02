@@ -119,6 +119,7 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     muxy_ui::text_input::register_shortcuts(&mut registry);
     muxy_ui::picker::register_shortcuts(&mut registry);
     muxy_ui::components::register_shortcuts(&mut registry);
+    muxy_ui::form::register_shortcuts(&mut registry);
     menu::register_shortcuts(&mut registry);
     super::terminal::pane::register_shortcuts(&mut registry);
     super::settings::register_shortcuts(&mut registry);

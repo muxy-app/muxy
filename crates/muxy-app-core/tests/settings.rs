@@ -874,3 +874,19 @@ fn linux_defaults_avoid_the_command_key_and_replace_former_worktree_keys() -> Re
     );
     Ok(())
 }
+
+#[test]
+fn an_extension_that_took_tab_keeps_it_over_the_form_defaults() -> Result {
+    let fixture = Fixture::new()?;
+    let source = "[keymap]\n\"popover.tab_pressed\" = 'f13'\n\"settings.next_control\" = 'f14'\n\"extension.acme.run\" = 'tab'\n";
+    let path = fixture.write("settings.toml", source)?;
+    let keymap = Settings::load(&path)?.keymap;
+    assert_eq!(keymap.binding("extension.acme.run"), Some(&"tab".parse()?));
+    assert_eq!(keymap.chord(ShortcutId::FormNextControl), None);
+    assert_eq!(
+        keymap.chord(ShortcutId::FormPreviousControl),
+        Some(&"shift-tab".parse()?)
+    );
+    assert_eq!(fs::read_to_string(&path)?, source);
+    Ok(())
+}

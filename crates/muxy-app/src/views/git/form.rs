@@ -1,11 +1,12 @@
 use gpui::{
-    AnyElement, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, App, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window, anchored, deferred, div, point, px,
 };
 use muxy_ui::controls::{self, Choice, Style};
+use muxy_ui::form::{NextControl, PreviousControl};
 use muxy_ui::tr;
 
-use super::{AppModel, Form, Repository};
+use super::{AppModel, Form, Overlay, Repository};
 
 #[allow(clippy::too_many_lines, reason = "Declarative Git creation form")]
 pub(crate) fn render(
@@ -32,6 +33,13 @@ pub(crate) fn render(
         m.scaled(460.0),
     )
     .debug_selector(|| "git-form".into())
+    .key_context("Form")
+    .on_action(cx.listener(|model, _: &NextControl, window, cx| {
+        advance_focus(model, false, window, cx);
+    }))
+    .on_action(cx.listener(|model, _: &PreviousControl, window, cx| {
+        advance_focus(model, true, window, cx);
+    }))
     .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
         if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
             cx.stop_propagation();
@@ -146,6 +154,12 @@ pub(crate) fn render(
             ),
     )
     .into_any_element()
+}
+
+fn advance_focus(model: &AppModel, backwards: bool, window: &mut Window, cx: &App) {
+    if let Some(Overlay::GitForm(form)) = &model.overlay {
+        muxy_ui::form::advance_focus(&form.visible_fields(cx), backwards, window);
+    }
 }
 
 pub(crate) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {

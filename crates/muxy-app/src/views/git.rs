@@ -603,7 +603,7 @@ impl AppModel {
         cx.notify();
     }
 
-    fn choose_worktree_branch(&mut self, base: bool, cx: &mut Context<Self>) {
+    pub(crate) fn choose_worktree_branch(&mut self, base: bool, cx: &mut Context<Self>) {
         let Some(Overlay::GitForm(form)) = &self.overlay else {
             return;
         };

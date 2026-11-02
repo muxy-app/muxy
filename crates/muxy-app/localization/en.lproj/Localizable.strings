@@ -1666,6 +1666,8 @@
 "focus pane left" = "focus pane left";
 "focus pane right" = "focus pane right";
 "focus pane up" = "focus pane up";
+"form next control" = "form next control";
+"form previous control" = "form previous control";
 "hide app" = "hide app";
 "hide others" = "hide others";
 "host, address, or ~/.ssh/config alias" = "host, address, or ~/.ssh/config alias";
