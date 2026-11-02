@@ -6,7 +6,6 @@ use crate::quick_terminal::platform::SystemMutation;
 use crate::quick_terminal::shortcut_service::{
     ShortcutBackend, ShortcutBackendFactory, ShortcutState,
 };
-use crate::quick_terminal::view::{AccessibilityNode, AccessibilityRole};
 use crate::quick_terminal::{ShortcutCapture, ShortcutRecordingEvent};
 use crate::tr;
 use block2::RcBlock;
@@ -17,9 +16,7 @@ use muxy_core::quick_terminal::keys::{COMMAND, CONTROL, KeyCombo, OPTION, SHIFT}
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, ProtocolObject, Sel};
 use objc2_app_kit::{
-    NSAccessibility, NSAccessibilityButtonRole, NSAccessibilityElement, NSAccessibilityGroupRole,
-    NSAccessibilityPostNotification, NSAccessibilityStaticTextRole,
-    NSAccessibilityValueChangedNotification, NSApplication, NSApplicationActivationOptions,
+    NSApplication, NSApplicationActivationOptions,
     NSApplicationDidChangeScreenParametersNotification, NSColor, NSEvent, NSEventMask,
     NSEventModifierFlags, NSRunningApplication, NSScreen, NSStatusWindowLevel,
     NSTextInputContextKeyboardSelectionDidChangeNotification, NSView, NSWindow,
@@ -29,7 +26,7 @@ use objc2_app_kit::{
 use objc2_core_graphics::CGEvent;
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSNotification, NSNotificationCenter, NSObjectProtocol,
-    NSOperationQueue, NSPoint, NSRect, NSSize, NSString,
+    NSOperationQueue, NSPoint, NSRect, NSSize,
 };
 use objc2_quartz_core::{CACornerMask, CALayer, CATransaction, kCACornerCurveContinuous};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -296,7 +293,6 @@ struct FocusSnapshot {
 pub struct PanelAdapter {
     window: Retained<NSWindow>,
     original_window_class: &'static AnyClass,
-    view: Retained<NSView>,
     mask_host: Retained<NSView>,
     reveal_mask: Retained<CALayer>,
     target_frame: Option<NSRect>,
@@ -304,7 +300,6 @@ pub struct PanelAdapter {
     collapsed_mask_radius: f64,
     telemetry: Option<PanelTelemetry>,
     focus_snapshot: Option<FocusSnapshot>,
-    accessibility_children: Vec<Retained<AnyObject>>,
 }
 
 impl PanelAdapter {
@@ -361,7 +356,6 @@ impl PanelAdapter {
         let adapter = Self {
             window: native_window,
             original_window_class,
-            view,
             mask_host,
             reveal_mask,
             target_frame: None,
@@ -369,7 +363,6 @@ impl PanelAdapter {
             collapsed_mask_radius: 14.0,
             telemetry: None,
             focus_snapshot: None,
-            accessibility_children: Vec::new(),
         };
         let properties = adapter.properties();
         if !properties.satisfies_contract() {
@@ -593,50 +586,6 @@ impl PanelAdapter {
 
     pub fn native_frame(&self) -> Rect {
         rect_from_ns(self.window.frame())
-    }
-
-    pub fn install_accessibility(&mut self, nodes: &[AccessibilityNode]) {
-        let frame = self.window.frame();
-        let children = nodes
-            .iter()
-            .map(|node| {
-                let label = NSString::from_str(&node.label);
-                let role = unsafe {
-                    match node.role {
-                        AccessibilityRole::Group => NSAccessibilityGroupRole,
-                        AccessibilityRole::Status => NSAccessibilityStaticTextRole,
-                        AccessibilityRole::Button => NSAccessibilityButtonRole,
-                    }
-                };
-                let element = unsafe {
-                    NSAccessibilityElement::accessibilityElementWithRole_frame_label_parent(
-                        role,
-                        frame,
-                        Some(&label),
-                        Some(&self.view),
-                    )
-                };
-                if !node.value.is_empty() {
-                    let value = NSString::from_str(&node.value);
-                    let _: () =
-                        unsafe { objc2::msg_send![&element, setAccessibilityValue: &*value] };
-                }
-                if node.announces_changes {
-                    unsafe {
-                        NSAccessibilityPostNotification(
-                            &element,
-                            NSAccessibilityValueChangedNotification,
-                        );
-                    };
-                }
-                element
-            })
-            .collect::<Vec<_>>();
-        let array = NSArray::from_retained_slice(&children);
-        unsafe {
-            self.view.setAccessibilityChildren(Some(&array));
-        }
-        self.accessibility_children = children;
     }
 
     pub fn is_visible(&self) -> bool {

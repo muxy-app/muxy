@@ -2,9 +2,6 @@
 //! app settings resolve them through the registration interface.
 
 #[cfg(target_os = "macos")]
-#[allow(unsafe_code, reason = "Main-thread AppKit accessibility attributes")]
-pub mod accessibility;
-#[cfg(target_os = "macos")]
 pub mod app_icon;
 pub mod assets;
 #[cfg(target_os = "macos")]
