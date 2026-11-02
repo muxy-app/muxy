@@ -89,6 +89,38 @@ fn background_tabs_leave_the_view_alone() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn a_background_tab_is_what_its_empty_project_shows() -> TestResult {
+    let (mut state, ids) = projects()?;
+    state.select_project(ids.api)?;
+    let api_tab = state.open_terminal_tab(ids.api)?;
+    let before = state.window().clone();
+
+    let (tab, pane) = state.open_browser(ids.web, browser("https://a.dev"), false)?;
+    assert_eq!(state.window().selected_tab.get(&ids.web), Some(&tab));
+    assert_eq!(state.window().current_project, ids.api);
+    assert_eq!(state.window().active_pane, before.active_pane);
+    assert_eq!(state.window().selected_tab.get(&ids.api), Some(&api_tab));
+
+    let (later, _) = state.open_browser(ids.web, browser("https://b.dev"), false)?;
+    assert_ne!(later, tab);
+    assert_eq!(state.window().selected_tab.get(&ids.web), Some(&tab));
+
+    state.select_project(ids.web)?;
+    assert_eq!(state.window().active_pane, Some(pane));
+    Ok(())
+}
+
+#[test]
+fn a_background_tab_in_the_empty_project_on_screen_is_focused() -> TestResult {
+    let (mut state, ids) = projects()?;
+    state.select_project(ids.web)?;
+    let (tab, pane) = state.open_browser(ids.web, browser("https://a.dev"), false)?;
+    assert_eq!(state.window().selected_tab.get(&ids.web), Some(&tab));
+    assert_eq!(state.window().active_pane, Some(pane));
+    Ok(())
+}
+
 struct Ids {
     api: ProjectId,
     web: ProjectId,

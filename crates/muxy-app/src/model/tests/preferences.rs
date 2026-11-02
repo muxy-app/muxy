@@ -503,3 +503,30 @@ fn configuration_errors_in_settings_can_be_dismissed(cx: &mut TestAppContext) {
         assert!(!view.errors.contains_key("configuration"));
     });
 }
+
+#[gpui::test]
+fn a_zoomed_pane_stays_zoomed_through_hiding_and_a_settings_reload(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let first = state.open_terminal_tab(state.home().id).expect("tab");
+    let pane = state.home().tabs[0].panes[0].id;
+    let second = state.open_terminal_tab(state.home().id).expect("tab");
+    state.select_tab(state.home().id, first).expect("select");
+    let (boot, _) = stub_boot(state);
+    let (model, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    model.update(cx, |model, cx| {
+        let view = model.terminal(&pane).expect("pane").view.clone();
+        view.update(cx, |pane, _| pane.terminal.font_size = 20.0);
+
+        model.select_tab(second, cx);
+        assert!(model.terminal(&pane).is_none());
+        assert_eq!(model.pane_zoom(pane), Some(20.0));
+        model.reload_configuration(cx);
+
+        model.select_tab(first, cx);
+        let view = model.terminal(&pane).expect("pane").view.clone();
+        assert_eq!(view.read(cx).terminal.font_size, 20.0);
+        model.reload_configuration(cx);
+        assert_eq!(view.read(cx).terminal.font_size, 20.0);
+        assert_eq!(view.read(cx).zoomed_font_size(), Some(20.0));
+    });
+}

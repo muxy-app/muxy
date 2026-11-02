@@ -221,6 +221,8 @@ impl AppState {
             .retain(|pane, _| !panes.contains(pane));
         self.starting_directories
             .retain(|pane, _| !panes.contains(pane));
+        self.starting_proxies
+            .retain(|pane, _| !panes.contains(pane));
         self.retain_workspace_members();
         if projects.contains(&self.window.current_project) {
             self.window.current_project = self.home().id;

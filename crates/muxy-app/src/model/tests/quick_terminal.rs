@@ -365,9 +365,9 @@ fn quick_terminal_takes_session_titles_and_marks_completions_only_while_hidden(
         };
         model.quick.visible = true;
         model.receive_progress(ServerId::local(), session, finished(1), cx);
-        assert!(!model.completions.contains(&quick));
+        assert!(!model.pane_completed(quick));
         model.quick.visible = false;
         model.receive_progress(ServerId::local(), session, finished(2), cx);
-        assert!(model.completions.contains(&quick));
+        assert!(model.pane_completed(quick));
     });
 }

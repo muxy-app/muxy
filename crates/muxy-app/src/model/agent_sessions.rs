@@ -14,7 +14,7 @@ use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition, PanelRes
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
 
-use super::{AppModel, ConnectionState, Quitting};
+use super::{AppModel, Quitting};
 use crate::views::overlays::Overlay;
 
 pub(crate) const PANEL: &str = "builtin:agent-sessions";
@@ -313,39 +313,17 @@ impl AppModel {
             );
             return;
         }
-        let previous = self.state.clone();
-        let result = (|| {
-            let tab = self
-                .state
-                .open_terminal_tab(self.state.current_project().id)?;
-            self.state.set_tab_title(tab, Some(session.title.clone()))?;
-            let pane = self
-                .state
-                .window()
-                .active_pane
-                .ok_or_else(|| "could not create session pane".to_owned())?;
-            self.state.set_startup_command(pane, &command)?;
-            Ok::<_, Box<dyn std::error::Error>>(pane)
-        })();
-        let pane = match result {
-            Ok(pane) => pane,
-            Err(error) => {
-                self.state = previous;
-                self.fail(error.to_string(), cx);
-                return;
-            }
-        };
-        if !self.save(cx) {
-            self.state = previous;
-            return;
-        }
-        self.initial_directories
-            .insert(pane, self.state.current_project().directory.clone());
-        self.changed(cx);
-        self.focus_owner.request_active_pane();
-        let server = self.state.current_project().server_id;
-        if self.connection(server) == ConnectionState::Disconnected {
-            self.connect_server(server, cx);
+        let opened = self.open_terminal(
+            super::tabs::OpenTerminal {
+                project: self.state.current_project().id,
+                title: Some(&session.title),
+                command: Some(&command),
+                directory: None,
+            },
+            cx,
+        );
+        if let Err(error) = opened {
+            self.fail(error, cx);
         }
     }
 }

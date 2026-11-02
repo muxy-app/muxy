@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use super::{AppModel, ConnectionState, Overlay, Work};
 use gpui::Context;
 use muxy_app_core::browser::api;
@@ -90,19 +92,19 @@ impl AppModel {
                 return;
             }
         }
-        let previous = self.state.clone();
-        if let Err(error) = self
-            .state
-            .complete_project_intent(server, operation, accepted)
-        {
-            self.fail(error.to_string(), cx);
-            return;
+        let removed = self.state.removed_projects().len();
+        match self.transact(
+            |state| state.complete_project_intent(server, operation, accepted),
+            cx,
+        ) {
+            Ok(Some(())) => {}
+            Ok(None) => return,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
         }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
-        }
-        if self.state.removed_projects().len() != previous.removed_projects().len()
+        if self.state.removed_projects().len() != removed
             && matches!(&self.overlay, Some(Overlay::Menu(menu)) if menu.restores_removed_projects())
         {
             self.dismiss_overlay(cx);
@@ -313,11 +315,13 @@ impl AppModel {
         }
         match result {
             Ok(()) => {
-                let previous = self.state.clone();
-                self.state.complete_cancellation(server, operation);
-                if !self.save(cx) {
-                    self.state = previous;
-                }
+                let _ = self.transact(
+                    |state| {
+                        state.complete_cancellation(server, operation);
+                        Ok::<_, Infallible>(())
+                    },
+                    cx,
+                );
             }
             Err(error) => self.fail(
                 tr!("Closed pane cleanup is pending: %@", error.to_string()).to_string(),
@@ -337,11 +341,13 @@ impl AppModel {
         }
         match result {
             Ok(()) => {
-                let previous = self.state.clone();
-                self.state.complete_discard(server, session);
-                if !self.save(cx) {
-                    self.state = previous;
-                }
+                let _ = self.transact(
+                    |state| {
+                        state.complete_discard(server, session);
+                        Ok::<_, Infallible>(())
+                    },
+                    cx,
+                );
             }
             Err(ClientError::Disconnected) => self.disconnect(server, cx),
             Err(error) => self.fail(
@@ -477,36 +483,34 @@ impl AppModel {
         opening: Opening,
         cx: &mut Context<Self>,
     ) -> Result<PaneId, String> {
-        let previous = self.state.clone();
-        let opened = match opening {
-            Opening::Selected => self.state.open_terminal_tab(project).and_then(|_| {
-                self.state
-                    .window()
-                    .active_pane
-                    .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))
-            }),
-            Opening::Background => self.state.open_background_terminal_tab(project),
-        };
-        let result = opened.and_then(|pane| {
-            self.state.set_pane_session(pane, Some(session))?;
-            Ok(pane)
-        });
-        let pane = match result {
-            Ok(pane) => pane,
+        let opened = self.transact(
+            |state| {
+                let pane = match opening {
+                    Opening::Selected => {
+                        state.open_terminal_tab(project)?;
+                        state.window().active_pane.ok_or_else(|| {
+                            AppError::InvalidState("new terminal has no pane".into())
+                        })?
+                    }
+                    Opening::Background => state.open_background_terminal_tab(project)?,
+                };
+                state.set_pane_session(pane, Some(session))?;
+                if opening == Opening::Selected {
+                    state.reveal_current_project();
+                }
+                Ok::<_, AppError>(pane)
+            },
+            cx,
+        );
+        let pane = match opened {
+            Ok(Some(pane)) => pane,
+            Ok(None) => return Err("could not save tabs".into()),
             Err(error) => {
-                self.state = previous;
                 let message = error.to_string();
                 self.fail(message.clone(), cx);
                 return Err(message);
             }
         };
-        if opening == Opening::Selected {
-            self.state.reveal_current_project();
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return Err("could not save tabs".into());
-        }
         if opening == Opening::Selected {
             self.dismiss_overlay(cx);
         }

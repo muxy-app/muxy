@@ -1,7 +1,7 @@
 //! The app's one proxy: which terminals start with it, and keeping the app's
 //! own requests and ssh on it while it applies to the whole app.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use gpui::Context;
@@ -18,9 +18,6 @@ pub(crate) struct ProxyState {
     pub(crate) error: Option<String>,
     pub(crate) anchor: muxy_ui::popover::PopoverAnchor,
     path: PathBuf,
-    /// Whether the terminal a pane is about to start uses the proxy, as Apply
-    /// or Remove Proxy chose. Other new terminals follow the whole-app choice.
-    pub(super) choices: HashMap<PaneId, bool>,
 }
 
 impl ProxyState {
@@ -35,7 +32,6 @@ impl ProxyState {
             error,
             anchor: std::rc::Rc::default(),
             path,
-            choices: HashMap::new(),
         }
     }
 
@@ -152,10 +148,8 @@ impl AppModel {
         server: ServerId,
     ) -> BTreeMap<String, String> {
         let proxy = self
-            .proxy
-            .choices
-            .get(&pane)
-            .copied()
+            .state
+            .starting_proxy(pane)
             .unwrap_or_else(|| server.is_local() && self.proxy.global());
         let settings = self
             .proxy

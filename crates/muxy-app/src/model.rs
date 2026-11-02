@@ -20,6 +20,7 @@ mod links;
 mod mobile;
 mod pairing;
 pub(crate) use pairing::PairingForm;
+mod pane_runtime;
 pub(crate) mod preferences;
 pub(crate) mod project_apps;
 pub(crate) mod project_layouts;
@@ -54,14 +55,13 @@ use muxy_app_core::{
     AppState, Direction, PaneContent, PaneId, ProjectId, ProjectStatus, ServerId, TabId,
     WindowBounds, restore, store,
 };
-use muxy_client::{ClientEvent, RunGrid};
+use muxy_client::ClientEvent;
 use muxy_protocol::{SessionId, SessionInfo, Size};
 
 use crate::boot::{Boot, CloseCheckId, Update, Work, missing_session};
 use crate::views::overlays::Overlay;
 use crate::views::terminal::colors::Palette;
 use crate::views::terminal::pane::{PaneEvent, PaneState, Screen, TerminalPane};
-use crate::views::terminal::scroll::{Scroll, output_changed};
 use close_check::CloseCheck;
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
@@ -171,10 +171,9 @@ pub(crate) struct AppModel {
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
     pub(crate) settings_window: Option<preferences::SettingsWindowState>,
-    font_sizes: HashMap<PaneId, f32>,
+    pane_runtime: HashMap<PaneId, pane_runtime::PaneRuntime>,
     terminal_preview: Option<preferences::TerminalPreview>,
     terminal_background: preferences::TerminalBackground,
-    initial_directories: HashMap<PaneId, PathBuf>,
     pub(crate) theme: Theme,
     pub(crate) themes: crate::theme::Catalog,
     pub(crate) metrics: Metrics,
@@ -221,15 +220,10 @@ pub(crate) struct AppModel {
     pending_close: Option<CloseCheckId>,
     close_request: Option<CloseRequest>,
     pub(crate) dialogs: dialogs::Dialogs,
-    retained: HashSet<PaneId>,
-    loaded: HashSet<PaneId>,
-    snapshots: HashMap<PaneId, RunGrid>,
-    scrolls: HashMap<PaneId, Scroll>,
     pub(crate) window_active: bool,
     window_accessibility: window_accessibility::WindowAccessibility,
     notifications: muxy_ui::notifications::Notifications,
     pub(crate) capabilities: muxy_core::capability::Capabilities,
-    pub(crate) completions: HashSet<PaneId>,
     /// Servers still finishing their work before the app quits.
     flushing: HashSet<ServerId>,
     quitting: Quitting,
@@ -341,10 +335,7 @@ impl AppModel {
                 self.themes = themes;
                 self.set_configuration_error(None);
                 for pane in self.grids.values() {
-                    let old = pane.view.read(cx);
-                    let zoom = (old.terminal.font_size.to_bits()
-                        != old.configured_font_size.to_bits())
-                    .then_some(old.terminal.font_size);
+                    let zoom = pane.view.read(cx).zoomed_font_size();
                     pane.view.update(cx, |pane, cx| {
                         pane.terminal = self.terminal.clone();
                         pane.configured_font_size = self.terminal.font_size;
@@ -589,10 +580,9 @@ impl AppModel {
             remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
             settings_window: None,
-            font_sizes: HashMap::new(),
+            pane_runtime: HashMap::new(),
             terminal_preview: None,
             terminal_background: preferences::TerminalBackground::default(),
-            initial_directories: HashMap::new(),
             project_layouts: project_layouts::ProjectLayouts::default(),
             project_apps: project_apps::ProjectApps::default(),
             theme,
@@ -634,15 +624,10 @@ impl AppModel {
             pending_close: None,
             close_request: None,
             dialogs: dialogs::Dialogs::default(),
-            retained: HashSet::new(),
-            loaded: HashSet::new(),
-            snapshots: HashMap::new(),
-            scrolls: HashMap::new(),
             window_active: window.is_window_active(),
             window_accessibility: window_accessibility::WindowAccessibility::default(),
             capabilities,
             notifications,
-            completions: HashSet::new(),
             flushing: HashSet::new(),
             quitting: Quitting::Idle,
             updates: updates::Updater::default(),
@@ -740,22 +725,23 @@ impl AppModel {
             muxy_app_core::Axis::Horizontal => size.cols = (size.cols / 2).max(1),
             muxy_app_core::Axis::Vertical => size.rows = (size.rows / 2).max(1),
         }
-        let previous = self.state.clone();
-        let pane = match self.state.split_pane(source, edge) {
-            Ok(pane) => pane,
+        let proxy = self.pane_uses_proxy(source).then_some(true);
+        let split = self.transact(
+            |state| {
+                let pane = state.split_pane(source, edge)?;
+                state.plan_creation(pane, Some(&directory), proxy);
+                Ok::<_, muxy_app_core::AppError>(pane)
+            },
+            cx,
+        );
+        let pane = match split {
+            Ok(Some(pane)) => pane,
+            Ok(None) => return,
             Err(error) => {
                 self.fail(error.to_string(), cx);
                 return;
             }
         };
-        if !self.save(cx) {
-            self.state = previous;
-            return;
-        }
-        self.initial_directories.insert(pane, directory);
-        if self.pane_uses_proxy(source) {
-            self.proxy.choices.insert(pane, true);
-        }
         self.split_resize.end();
         self.sync_visible(cx);
         self.focus_owner.request_active_pane();
@@ -953,15 +939,13 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return false;
         }
-        let previous = self.state.clone();
-        if let Err(error) = edit(&mut self.state) {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return false;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return false;
+        match self.transact(edit, cx) {
+            Ok(Some(())) => {}
+            Ok(None) => return false,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return false;
+            }
         }
         if let Some(tab) = self.active_tab() {
             self.navigation
@@ -1223,15 +1207,13 @@ impl AppModel {
         if !self.can_detach_terminal(pane) {
             return;
         }
-        let previous = self.state.clone();
-        if let Err(error) = self.state.detach_pane(pane) {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
+        match self.transact(|state| state.detach_pane(pane), cx) {
+            Ok(Some(())) => {}
+            Ok(None) => return,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
         }
         if self.pending.contains_key(&pane) {
             self.detached_pending.insert(pane);
@@ -1460,9 +1442,11 @@ impl AppModel {
             (proxy, directory, size)
         });
         let mut restarted = None;
-        let result = if let Some((proxy, ..)) = restart {
+        let result = if let Some((proxy, directory, _)) = &restart {
             self.state.restart_terminal(request.panes[0]).map(|pane| {
-                restarted = Some((pane, proxy));
+                self.state
+                    .plan_creation(pane, Some(directory), Some(*proxy));
+                restarted = Some(pane);
             })
         } else if detach {
             request
@@ -1486,9 +1470,7 @@ impl AppModel {
             self.state = previous;
             return;
         }
-        if let (Some((pane, proxy)), Some((_, directory, size))) = (restarted, restart) {
-            self.initial_directories.insert(pane, directory);
-            self.proxy.choices.insert(pane, proxy);
+        if let (Some(pane), Some((_, _, size))) = (restarted, restart) {
             self.sync_visible(cx);
             self.discard_pending(server, cx);
             match self.connection(server) {
@@ -1626,6 +1608,30 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Applies `edit` to the state and saves it, leaving memory and disk the
+    /// same if either fails. A failed edit returns its error for the caller to
+    /// show. A failed save returns `Ok(None)`, and `save` has reported it.
+    fn transact<T, E>(
+        &mut self,
+        edit: impl FnOnce(&mut AppState) -> Result<T, E>,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<T>, E> {
+        let previous = self.state.clone();
+        let value = match edit(&mut self.state) {
+            Ok(value) => value,
+            Err(error) => {
+                self.state = previous;
+                return Err(error);
+            }
+        };
+        if self.save(cx) {
+            Ok(Some(value))
+        } else {
+            self.state = previous;
+            Ok(None)
+        }
+    }
+
     fn save(&mut self, cx: &mut Context<Self>) -> bool {
         self.bounds_save = None;
         match store::save(&self.path, &self.state) {
@@ -1708,13 +1714,8 @@ impl AppModel {
             .collect();
         for id in hidden {
             if let Some(pane) = self.grids.remove(&id) {
-                let terminal = pane.view.read(cx);
-                if terminal.terminal.font_size.to_bits() == terminal.configured_font_size.to_bits()
-                {
-                    self.font_sizes.remove(&id);
-                } else {
-                    self.font_sizes.insert(id, terminal.terminal.font_size);
-                }
+                let zoom = pane.view.read(cx).zoomed_font_size();
+                self.set_pane_zoom(id, zoom);
                 pane.view.update(cx, |pane, cx| {
                     pane.set_focused(false, cx);
                     pane.set_native_visible(false, cx);
@@ -1731,16 +1732,13 @@ impl AppModel {
                     )
                 });
                 if let Some(grid) = grid {
-                    self.snapshots.insert(id, grid);
-                    if scroll.view.is_some() {
-                        self.scrolls.insert(id, scroll);
-                    }
+                    self.keep_hidden_screen(id, grid, scroll);
                 }
-                self.loaded.remove(&id);
+                self.set_pane_loaded(id, false);
             }
         }
         let panes: HashSet<_> = self.state.panes().map(|placed| placed.pane.id).collect();
-        self.completions.retain(|id| panes.contains(id));
+        self.pane_runtime.retain(|id, _| panes.contains(id));
         for server in self.servers.ids() {
             let sessions = self.state.session_references(server);
             if let Some(runtime) = self.servers.get_mut(server) {
@@ -1748,13 +1746,6 @@ impl AppModel {
             }
             self.sync_activity_panes(server, sessions);
         }
-        self.font_sizes.retain(|id, _| panes.contains(id));
-        self.initial_directories.retain(|id, _| panes.contains(id));
-        self.proxy.choices.retain(|id, _| panes.contains(id));
-        self.snapshots.retain(|id, _| panes.contains(id));
-        self.scrolls.retain(|id, _| panes.contains(id));
-        self.retained.retain(|id| panes.contains(id));
-        self.loaded.retain(|id| panes.contains(id));
         for id in visible {
             if self.grids.contains_key(&id) {
                 continue;
@@ -1769,12 +1760,11 @@ impl AppModel {
 
     fn create_terminal_view(&mut self, id: PaneId, cx: &mut Context<Self>) {
         let mut terminal = self.terminal.clone();
-        if let Some(font_size) = self.font_sizes.get(&id) {
-            terminal.font_size = *font_size;
+        if let Some(font_size) = self.pane_zoom(id) {
+            terminal.font_size = font_size;
         }
         let open_context = self.opener_context(id);
-        let snapshot = self.snapshots.remove(&id);
-        let scroll = self.scrolls.remove(&id).unwrap_or_default();
+        let (snapshot, scroll) = self.take_hidden_screen(id);
         let state = self.pane_state(id);
         let palette = self
             .is_quick_terminal(id)
@@ -1833,7 +1823,7 @@ impl AppModel {
                         "pane={id} channel={channel:?} length={} quitting={:?} retained={}",
                         bytes.len(),
                         model.quitting,
-                        model.retained.contains(&id)
+                        model.pane_retained(id)
                     ),
                 );
                 model.send_channel(id, Work::Input(*channel, bytes.clone()), cx);
@@ -1866,7 +1856,7 @@ impl AppModel {
     /// Sends a pane's channel work to the server that attached it.
     fn send_channel(&mut self, pane: PaneId, work: Work, cx: &mut Context<Self>) {
         if self.quitting == Quitting::Idle
-            && !self.retained.contains(&pane)
+            && !self.pane_retained(pane)
             && let Some((server, _)) = self.attachment(pane, cx)
         {
             self.send(server, work, cx);
@@ -1878,7 +1868,7 @@ impl AppModel {
         match self.connection(server) {
             ConnectionState::Connecting => PaneState::Connecting,
             ConnectionState::Disconnected => PaneState::Disconnected,
-            ConnectionState::Ready if self.retained.contains(&id) => PaneState::Exited {
+            ConnectionState::Ready if self.pane_retained(id) => PaneState::Exited {
                 reason: None,
                 unavailable: false,
             },
@@ -1919,8 +1909,7 @@ impl AppModel {
         }
         self.save(cx);
         self.discard_pending(server, cx);
-        self.loaded
-            .retain(|pane| self.state.pane_server(*pane) != Some(server));
+        self.forget_pane_loads(server);
         self.pending.retain(|_, owner| *owner != server);
         for (id, pane) in &self.grids {
             if self.state.pane_server(*id) != Some(server) {
@@ -1957,8 +1946,8 @@ impl AppModel {
             if self.pending.contains_key(&id) || !self.ready(server) || !self.confirmed(server) {
                 continue;
             }
-            if self.retained.contains(&id) {
-                if !self.loaded.contains(&id)
+            if self.pane_retained(id) {
+                if !self.pane_loaded(id)
                     && let Some((_, session)) = self.state.pane_session(id)
                 {
                     self.pending.insert(id, server);
@@ -2009,11 +1998,7 @@ impl AppModel {
         if project.status() == ProjectStatus::Missing {
             return;
         }
-        let directory = self
-            .initial_directories
-            .get(&pane)
-            .unwrap_or(&project.directory)
-            .clone();
+        let directory = project.directory.clone();
         let project_id = project.id;
         let directory = self.state.prepare_creation(pane, &directory);
         let session = self.state.pane_session(pane).map(|(_, session)| session);
@@ -2089,7 +2074,7 @@ impl AppModel {
             .attachment(pane, cx)
             .filter(|(owner, _)| *owner == server)
             .map(|(_, channel)| channel);
-        if channel.is_none() && !self.retained.contains(&pane) {
+        if channel.is_none() && !self.pane_retained(pane) {
             return;
         }
         self.send(
@@ -2122,7 +2107,7 @@ impl AppModel {
             .map(|(_, channel)| channel);
         let source = match channel {
             Some(channel) => muxy_protocol::SearchSource::Live(channel),
-            None if self.retained.contains(&pane) => muxy_protocol::SearchSource::Saved(session),
+            None if self.pane_retained(pane) => muxy_protocol::SearchSource::Saved(session),
             None => return,
         };
         self.send(
@@ -2387,8 +2372,7 @@ impl AppModel {
             ),
         );
         self.pending.remove(&pane);
-        self.initial_directories.remove(&pane);
-        self.proxy.choices.remove(&pane);
+        self.state.forget_starting_proxy(pane);
         if let Some(runtime) = self.servers.get_mut(server) {
             runtime.last_channel = runtime.last_channel.max(attachment.terminal.channel().0);
         }
@@ -2437,15 +2421,7 @@ impl AppModel {
             }
         } else {
             self.send(server, Work::Detach(attachment.terminal.channel()), cx);
-            if self.terminal.options.scroll_on_output
-                && self
-                    .snapshots
-                    .get(&pane)
-                    .is_some_and(|grid| output_changed(grid, &attachment.terminal.grid))
-            {
-                self.scrolls.remove(&pane);
-            }
-            self.snapshots.insert(pane, attachment.terminal.grid);
+            self.refresh_hidden_screen(pane, attachment.terminal.grid);
         }
     }
 
@@ -2478,7 +2454,7 @@ impl AppModel {
             return;
         }
         if let Some(session) = session {
-            self.initial_directories.remove(&pane);
+            self.state.forget_starting_proxy(pane);
             if self.state.pane_server(pane) != Some(server)
                 || self.state.set_pane_session(pane, Some(session)).is_err()
             {
@@ -2550,7 +2526,7 @@ impl AppModel {
         if self.state.pane_tab(pane).is_none() {
             return;
         }
-        self.loaded.insert(pane);
+        self.set_pane_loaded(pane, true);
         if let Some(view) = self.terminal(&pane).map(|pane| pane.view.clone()) {
             match result {
                 Ok(screen) => view.update(cx, |pane, cx| pane.restore(screen, cx)),
@@ -2575,7 +2551,7 @@ impl AppModel {
                 }
             }
         } else {
-            self.loaded.remove(&pane);
+            self.set_pane_loaded(pane, false);
         }
     }
 
@@ -2609,7 +2585,7 @@ impl AppModel {
             for pane in panes {
                 let shown_quick = self.quick.visible && self.is_quick_terminal(pane);
                 if Some(pane) != active && !shown_quick {
-                    self.completions.insert(pane);
+                    self.set_pane_completed(pane, true);
                 }
             }
         }
@@ -2805,23 +2781,23 @@ impl AppModel {
             return;
         }
         let local = ServerId::local();
-        let previous = self.state.clone();
-        if let Err(error) = self.state.clear_terminal_panes(local) {
-            self.state = previous;
-            self.fail(
+        let cleared = self.transact(
+            |state| {
+                state.clear_terminal_panes(local)?;
+                for session in state.pending_discards(local).to_vec() {
+                    state.complete_discard(local, session);
+                }
+                Ok::<_, muxy_app_core::AppError>(())
+            },
+            cx,
+        );
+        match cleared {
+            Ok(Some(())) => cx.quit(),
+            Ok(None) => self.sync_visible(cx),
+            Err(error) => self.fail(
                 tr!("Could not clear terminal panes: %@", error.to_string()).to_string(),
                 cx,
-            );
-            return;
-        }
-        for session in self.state.pending_discards(local).to_vec() {
-            self.state.complete_discard(local, session);
-        }
-        if self.save(cx) {
-            cx.quit();
-        } else {
-            self.state = previous;
-            self.sync_visible(cx);
+            ),
         }
     }
 
@@ -3543,7 +3519,7 @@ pub(crate) mod tests {
 
     pub(in crate::model) fn attachment_on(channel: u32) -> muxy_client::Attachment {
         let screen = saved_screen();
-        let grid = RunGrid {
+        let grid = muxy_client::RunGrid {
             graphics: muxy_protocol::Graphics::default(),
             prompts: std::collections::BTreeSet::default(),
             prompt_state: muxy_client::ScreenPrompts::default(),
@@ -3859,7 +3835,7 @@ pub(crate) mod tests {
                 ),
                 cx,
             );
-            assert!(!model.retained.contains(&pane));
+            assert!(!model.pane_retained(pane));
             assert!(
                 model
                     .terminal(&pane)

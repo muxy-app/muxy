@@ -548,10 +548,7 @@ impl AppModel {
                 } else if let Some(panel) = panel {
                     self.remove_webview_panel(&panel, cx);
                 } else if let Some(pane) = pane {
-                    let previous = self.state.clone();
-                    if self.state.close_pane(pane).is_err() || !self.save(cx) {
-                        self.state = previous;
-                    }
+                    let _ = self.transact(|state| state.close_pane(pane), cx);
                     self.sync_visible(cx);
                     self.focus_owner.request_active_pane();
                 }

@@ -105,8 +105,13 @@ fn resume_is_transactional_and_uses_the_selected_project(cx: &mut TestAppContext
             Some("codex resume session-123")
         );
         assert_eq!(
-            model.initial_directories.get(&pane),
-            Some(&model.state.current_project().directory)
+            model
+                .state
+                .clone()
+                .prepare_creation(pane, std::path::Path::new("/project"))
+                .0,
+            b"/project",
+            "a resumed session starts in the project folder"
         );
         model.agent_sessions.scope = None;
         model.resume_agent_session(&session, cx);
