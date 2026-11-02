@@ -870,6 +870,7 @@
 "Mark each agent with the color of the project it runs in." = "Mark each agent with the color of the project it runs in.";
 "Maximize" = "Maximize";
 "Maximize Pane" = "Maximize Pane";
+"Menu" = "Menu";
 "Merge" = "Merge";
 "Merge %@ into %@ and push the updated branch?" = "Merge %@ into %@ and push the updated branch?";
 "Merge Commit" = "Merge Commit";
@@ -1320,6 +1321,7 @@
 "Selection" = "Selection";
 "Selection color" = "Selection color";
 "Selection text color" = "Selection text color";
+"Send" = "Send";
 "Send CSI sequence" = "Send CSI sequence";
 "Send Escape sequence" = "Send Escape sequence";
 "Send Without Enter" = "Send Without Enter";

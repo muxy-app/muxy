@@ -4,11 +4,12 @@ use gpui::accesskit::{Live, Node, Role};
 use gpui::{
     AccessibleAction, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId,
     InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 /// A button only accessibility clients find, for an action the pointer reaches
-/// by hovering or right-clicking. It takes no space and never draws.
+/// by hovering or right-clicking. It never draws, and it's one point wide
+/// because clients refuse to press a control with no bounds.
 pub fn hidden_button(
     id: impl Into<SharedString>,
     name: impl Into<SharedString>,
@@ -21,7 +22,7 @@ pub fn hidden_button(
         .accessibility_id(id)
         .aria_label(name)
         .absolute()
-        .size_0()
+        .size(px(1.0))
         .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
             on_press(window, cx);
         })

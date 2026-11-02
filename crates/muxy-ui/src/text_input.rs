@@ -1552,6 +1552,9 @@ impl Render for TextInput {
                 self.accessible_name(),
                 StatefulInteractiveElement::aria_label,
             )
+            .when_some(self.accessibility_id.clone(), |input, id| {
+                input.accessibility_id(id)
+            })
             .when(!self.secure, |input| input.aria_value(self.content.clone()))
             .on_a11y_action(AccessibleAction::SetValue, {
                 let input = cx.entity().downgrade();
@@ -2086,10 +2089,12 @@ mod gpui_regression_tests {
             assert_eq!(node.value(), Some("typed"));
 
             input.accessible_label = Some("Composer");
+            input.accessibility_id = Some("composer".into());
             let labelled = input.render(window, cx).into_element();
             let mut node = accesskit::Node::new(Role::TextInput);
             labelled.write_a11y_info(&mut node);
             assert_eq!(node.label(), Some("Composer"));
+            assert_eq!(node.author_id(), Some("composer"));
         });
     }
 

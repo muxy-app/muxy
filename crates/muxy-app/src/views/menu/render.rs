@@ -8,6 +8,7 @@ use muxy_ui::accessibility;
 use muxy_ui::components::SymbolGlyph;
 use muxy_ui::popover;
 use muxy_ui::theme::Metrics;
+use muxy_ui::tr;
 
 use super::{
     CloseSubmenu, Command, ConfirmHighlighted, DismissMenu, HighlightNext, HighlightPrevious, Item,
@@ -175,6 +176,7 @@ fn panel(
         .id(SharedString::from(name.clone()))
         .debug_selector(move || name)
         .role(Role::Menu)
+        .aria_label(tr!("Menu"))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_move(cx.listener(|model, event: &MouseMoveEvent, _, _| {
             model.track_menu_pointer(event.position);
