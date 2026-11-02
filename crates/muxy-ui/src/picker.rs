@@ -1,7 +1,7 @@
 use muxy_core::shortcuts::ShortcutId;
 
-#[cfg(target_os = "macos")]
 use crate::accessibility::OnPress;
+#[cfg(target_os = "macos")]
 use crate::components::SymbolGlyph;
 use crate::components::{IconGlyph, Tooltip};
 use crate::controls::{self, Style};
