@@ -102,3 +102,37 @@ fn palette_queries_still_run_the_commands_they_found_first(cx: &mut TestAppConte
         assert!(tab.expect("tab").zoomed.is_some());
     });
 }
+
+fn menu_actions(items: &[gpui::MenuItem], actions: &mut Vec<(String, Box<dyn gpui::Action>)>) {
+    for item in items {
+        match item {
+            gpui::MenuItem::Submenu(menu) => menu_actions(&menu.items, actions),
+            gpui::MenuItem::Action {
+                name,
+                action,
+                os_action: None,
+            } => actions.push((name.to_string(), action.boxed_clone())),
+            _ => {}
+        }
+    }
+}
+
+#[gpui::test]
+fn every_menu_item_has_a_label_and_a_handler_in_the_workspace(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, AppModel::new_tab);
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        let mut actions = Vec::new();
+        for menu in crate::menus() {
+            menu_actions(&menu.items, &mut actions);
+        }
+        assert!(!actions.is_empty());
+        for (name, action) in actions {
+            assert!(!name.is_empty(), "{action:?} has an empty label");
+            assert!(!name.contains("::"), "{name} has no row in the table");
+            assert!(window.is_action_available(&*action, cx), "{name}");
+        }
+    });
+}

@@ -1,8 +1,6 @@
 use std::rc::Rc;
 
-use gpui::{
-    Action, AnyElement, AppContext, Context, Entity, Focusable, IntoElement, SharedString, Window,
-};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::command_palette::{Command, CommandPalette, CommandPaletteEvent, Registry};
 
@@ -30,25 +28,12 @@ impl OverlayView for Palette {
     }
 }
 
-/// A palette command for a shortcut action. `title` is an English key, shown
-/// translated and still found by its English words.
-pub(crate) fn action(
+/// `command` showing the shortcut the user's keymap gives `id`.
+pub(crate) fn with_shortcut(
     model: &AppModel,
     id: ShortcutId,
-    title: &'static str,
-    action: impl Action,
+    command: Command<Handler>,
 ) -> Command<Handler> {
-    titled(model, id, muxy_ui::l10n::translate(title), action).keywords(title)
-}
-
-/// A palette command for a shortcut action, under a title already translated.
-pub(crate) fn titled(
-    model: &AppModel,
-    id: ShortcutId,
-    title: impl Into<SharedString>,
-    action: impl Action,
-) -> Command<Handler> {
-    let command = Command::new(id.name(), title, dispatch(action));
     match model.settings.keymap.chord(id) {
         Some(chord) => command.shortcut(
             gpui::Keystroke::parse(chord.as_str())
@@ -56,13 +41,6 @@ pub(crate) fn titled(
         ),
         None => command,
     }
-}
-
-/// Runs `action` where the keyboard focus is, as its shortcut would.
-pub(crate) fn dispatch(action: impl Action) -> Handler {
-    Rc::new(move |_, window, cx| {
-        window.dispatch_action(action.boxed_clone(), cx);
-    })
 }
 
 impl AppModel {
@@ -73,8 +51,7 @@ impl AppModel {
     ) -> Registry<Handler> {
         self.reload_themes(cx);
         let mut registry = Registry::default();
-        super::workspace::register_commands(&mut registry, self);
-        super::workspace::register_browser_commands(&mut registry, self);
+        super::workspace::commands::register_listed(&mut registry, self);
         super::sidebar::register_commands(&mut registry, self, cx);
         super::settings::register_commands(&mut registry, self);
         registry.register(super::theme_picker::command(

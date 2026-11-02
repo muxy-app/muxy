@@ -26,7 +26,6 @@ use super::{
 };
 use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
-use muxy_ui::l10n::tr_key;
 use muxy_ui::theme::{contrasting_foreground, parse_hex};
 use muxy_ui::tr;
 
@@ -37,22 +36,13 @@ pub(crate) fn register_commands(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) {
-    use super::command_palette::{Handler, action};
+    use super::command_palette::Handler;
+    use super::workspace::commands::register_placed;
     use muxy_core::shortcuts::ShortcutId;
     use muxy_ui::command_palette::{Command, Registry};
 
-    registry.register(action(
-        model,
-        ShortcutId::AddProject,
-        tr_key!("Open Project…"),
-        super::workspace::AddProject,
-    ));
-    registry.register(action(
-        model,
-        ShortcutId::NewTabInProject,
-        tr_key!("New Tab in Project…"),
-        super::workspace::NewTabInProject,
-    ));
+    register_placed(registry, model, ShortcutId::AddProject);
+    register_placed(registry, model, ShortcutId::NewTabInProject);
     let has_workspaces = !model.state.workspaces().is_empty() || model.remote_servers_offered();
     let model = cx.weak_entity();
     registry.register(

@@ -277,27 +277,28 @@ fn window_options() -> WindowOptions {
 fn menus() -> Vec<Menu> {
     use muxy_core::capability::Feature;
     use muxy_ui::text_input;
+    use views::workspace::commands::menu_item;
     let backends = model::capabilities::backends();
     let mut window_items = vec![
-        MenuItem::action(tr!("Minimize"), Minimize),
-        MenuItem::action(tr!("Zoom"), Zoom),
+        menu_item(Minimize),
+        menu_item(Zoom),
         MenuItem::separator(),
-        MenuItem::action(tr!("Split Right"), SplitRight),
-        MenuItem::action(tr!("Split Down"), SplitDown),
-        MenuItem::action(tr!("Focus Pane Left"), FocusPaneLeft),
-        MenuItem::action(tr!("Focus Pane Right"), FocusPaneRight),
-        MenuItem::action(tr!("Focus Pane Up"), FocusPaneUp),
-        MenuItem::action(tr!("Focus Pane Down"), FocusPaneDown),
-        MenuItem::action(tr!("Toggle Pane Zoom"), ToggleZoomPane),
-        MenuItem::action(tr!("Equalize Splits"), EqualizeSplits),
-        MenuItem::action(tr!("Close Pane"), ClosePane),
-        MenuItem::action(tr!("Close Tab"), CloseTab),
+        menu_item(SplitRight),
+        menu_item(SplitDown),
+        menu_item(FocusPaneLeft),
+        menu_item(FocusPaneRight),
+        menu_item(FocusPaneUp),
+        menu_item(FocusPaneDown),
+        menu_item(ToggleZoomPane),
+        menu_item(EqualizeSplits),
+        menu_item(ClosePane),
+        menu_item(CloseTab),
         MenuItem::separator(),
-        MenuItem::action(tr!("Next Tab"), NextTab),
-        MenuItem::action(tr!("Previous Tab"), PreviousTab),
+        menu_item(NextTab),
+        menu_item(PreviousTab),
         MenuItem::separator(),
-        MenuItem::action(tr!("Previous Project"), PreviousProject),
-        MenuItem::action(tr!("Next Project"), NextProject),
+        menu_item(PreviousProject),
+        menu_item(NextProject),
         MenuItem::separator(),
     ];
     window_items.extend(
@@ -308,41 +309,38 @@ fn menus() -> Vec<Menu> {
         .extend((0..9).map(|index| {
             MenuItem::action(tr!("Project %lld", index + 1), SelectProject { index })
         }));
-    let mut app_items = vec![MenuItem::action(tr!("Settings…"), OpenSettings)];
+    let mut app_items = vec![menu_item(OpenSettings)];
     if backends.has_backend(Feature::Updates) {
-        app_items.push(MenuItem::action(tr!("Check for Updates…"), CheckForUpdates));
+        app_items.push(menu_item(CheckForUpdates));
     }
     if backends.has_backend(Feature::CommandLineTool) {
-        app_items.push(MenuItem::action(
-            tr!("Install Command Line Tool…"),
-            InstallCommandLineTool,
-        ));
+        app_items.push(menu_item(InstallCommandLineTool));
     }
     app_items.extend([
         MenuItem::separator(),
         MenuItem::os_submenu(tr!("Services"), SystemMenuType::Services),
         MenuItem::separator(),
-        MenuItem::action(tr!("Hide %@", app_name()), HideApp),
-        MenuItem::action(tr!("Hide Others"), HideOthers),
-        MenuItem::action(tr!("Show All"), ShowAll),
+        menu_item(HideApp),
+        menu_item(HideOthers),
+        menu_item(ShowAll),
         MenuItem::separator(),
-        MenuItem::action(tr!("Quit %@", app_name()), Quit),
-        MenuItem::action(tr!("End All Sessions and Quit"), EndAllSessionsAndQuit),
+        menu_item(Quit),
+        menu_item(EndAllSessionsAndQuit),
     ]);
     let view_items = vec![
-        MenuItem::action(tr!("Command Palette…"), ToggleCommandPalette),
+        menu_item(ToggleCommandPalette),
         MenuItem::separator(),
-        MenuItem::action(tr!("Toggle Composer"), ToggleComposer),
+        menu_item(ToggleComposer),
         MenuItem::separator(),
-        MenuItem::action(tr!("Toggle Sidebar"), ToggleSidebar),
-        MenuItem::action(tr!("Toggle Agents Panel"), ToggleAgentsPanel),
-        MenuItem::action(tr!("Toggle Agent Sessions"), ToggleAgentSessions),
-        MenuItem::action(tr!("Toggle Full Screen"), ToggleFullScreen),
+        menu_item(ToggleSidebar),
+        menu_item(ToggleAgentsPanel),
+        menu_item(ToggleAgentSessions),
+        menu_item(ToggleFullScreen),
         MenuItem::separator(),
-        MenuItem::action(tr!("Theme Picker"), ToggleThemePicker),
+        menu_item(ToggleThemePicker),
         MenuItem::separator(),
-        MenuItem::action(tr!("Increase Font Size"), IncreaseFontSize),
-        MenuItem::action(tr!("Decrease Font Size"), DecreaseFontSize),
+        menu_item(IncreaseFontSize),
+        menu_item(DecreaseFontSize),
     ];
     vec![
         Menu {
@@ -361,27 +359,27 @@ fn menus() -> Vec<Menu> {
                     OsAction::SelectAll,
                 ),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Find…"), Find),
-                MenuItem::action(tr!("Find Next"), FindNext),
-                MenuItem::action(tr!("Find Previous"), FindPrevious),
+                menu_item(Find),
+                menu_item(FindNext),
+                menu_item(FindPrevious),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Previous Prompt"), PreviousPrompt),
-                MenuItem::action(tr!("Next Prompt"), NextPrompt),
-                MenuItem::action(tr!("Select Command Output"), SelectCommandOutput),
+                menu_item(PreviousPrompt),
+                menu_item(NextPrompt),
+                menu_item(SelectCommandOutput),
             ],
         },
         Menu {
             name: tr!("File"),
             items: vec![
-                MenuItem::action(tr!("New Tab"), NewTab),
-                MenuItem::action(tr!("New Browser Tab"), NewBrowserTab),
-                MenuItem::action(tr!("New Home Tab"), NewHomeTab),
-                MenuItem::action(tr!("New Tab in Project…"), NewTabInProject),
-                MenuItem::action(tr!("New Worktree…"), NewWorktree),
-                MenuItem::action(tr!("Switch Worktree…"), SwitchWorktree),
-                MenuItem::action(tr!("Open Project…"), AddProject),
+                menu_item(NewTab),
+                menu_item(NewBrowserTab),
+                menu_item(NewHomeTab),
+                menu_item(NewTabInProject),
+                menu_item(NewWorktree),
+                menu_item(SwitchWorktree),
+                menu_item(AddProject),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Close Tab"), CloseTab),
+                menu_item(CloseTab),
             ],
         },
         Menu {
