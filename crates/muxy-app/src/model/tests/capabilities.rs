@@ -1,5 +1,5 @@
 use super::*;
-use crate::views::settings::Change;
+use crate::model::preferences::{Change, ComposerToggle};
 use muxy_app_core::composer::submission::ImageSubmissionStrategy;
 use muxy_app_core::settings::Settings;
 use muxy_app_core::webview::WebviewDescriptor;
@@ -101,7 +101,7 @@ fn preferences_for_features_without_a_backend_survive_use_and_edits(cx: &mut Tes
     view.update_in(cx, |model, _, cx| {
         without(model, &[Feature::ClipboardImages, Feature::QuickTerminal]);
         model.toggle_quick_terminal(cx);
-        model.change_preference(Change::Composer("composer-clear-after", true), cx);
+        model.change_preference(Change::Composer(ComposerToggle::ClearAfter, true), cx);
 
         let saved = Settings::load(&path).expect("saved settings");
         assert!(saved.composer.clear_after_sending);

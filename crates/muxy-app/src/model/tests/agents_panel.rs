@@ -450,7 +450,7 @@ fn a_collapsed_sidebar_opens_the_panel_as_a_popup_that_escape_closes(cx: &mut Te
         );
     });
     view.update(cx, |model, cx| {
-        model.change_preference(crate::views::settings::Change::AgentsPanel(true), cx);
+        model.change_preference(crate::model::preferences::Change::AgentsPanel(true), cx);
         assert!(model.overlay.is_none());
     });
     cx.update(|window, _| window.refresh());
@@ -462,7 +462,7 @@ fn a_collapsed_sidebar_opens_the_panel_as_a_popup_that_escape_closes(cx: &mut Te
     cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
     view.update(cx, |model, cx| {
         assert!(model.agents_panel_shown());
-        model.change_preference(crate::views::settings::Change::AgentsPanel(false), cx);
+        model.change_preference(crate::model::preferences::Change::AgentsPanel(false), cx);
         assert!(!model.agents_panel_shown());
         assert!(model.overlay.is_none());
     });

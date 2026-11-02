@@ -20,7 +20,7 @@ mod links;
 mod mobile;
 mod pairing;
 pub(crate) use pairing::PairingForm;
-mod preferences;
+pub(crate) mod preferences;
 pub(crate) mod project_apps;
 pub(crate) mod project_layouts;
 pub(crate) mod proxy;

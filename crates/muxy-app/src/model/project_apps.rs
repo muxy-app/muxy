@@ -10,8 +10,8 @@ use muxy_ui::popover::PopoverAnchor;
 use muxy_ui::tr;
 
 use super::AppModel;
+use super::preferences::Change;
 use crate::opener::ProjectApp;
-use crate::views::settings::Change;
 
 /// Opens a project folder with the app of an id.
 pub(crate) type Open = Arc<dyn Fn(&Path, &str) -> io::Result<()> + Send + Sync>;

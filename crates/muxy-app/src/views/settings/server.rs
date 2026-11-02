@@ -1,4 +1,5 @@
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::{Category, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 use gpui::{AnyElement, Context, IntoElement};
 use muxy_ui::controls;
 use muxy_ui::l10n::{tr_key, translate};

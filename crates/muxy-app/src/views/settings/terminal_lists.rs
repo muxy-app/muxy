@@ -6,7 +6,8 @@ use muxy_ui::{controls, form, tr};
 
 use super::pickers::FontSlot;
 use super::terminal::change_button;
-use super::{Change, PickerKind, SettingsEvent, SettingsView};
+use super::{PickerKind, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 
 pub(super) const BINDING_ACTION: &str = "keybind-action";
 pub(super) const BINDING_CHORD: &str = "keybind-chord";

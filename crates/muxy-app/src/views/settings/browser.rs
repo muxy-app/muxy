@@ -8,7 +8,8 @@ use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::{Category, SettingsEvent, SettingsView};
+use crate::model::preferences::{BrowserChange, Change};
 
 /// A browser profile as Settings lists it.
 #[derive(Clone, Debug)]
@@ -16,23 +17,6 @@ pub(crate) struct Profile {
     pub id: String,
     pub name: String,
     pub default: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum BrowserChange {
-    Enabled(bool),
-    TerminalLinks(bool),
-    SearchEngine(SearchEngine),
-    DefaultProfile(String),
-    AddProfile(String),
-    RenameProfile(String, String),
-    ClearProfile(String),
-    DeleteProfile(String),
-    /// Imports from the listed browser at `source` into the default profile.
-    Import {
-        source: usize,
-        cookies: bool,
-    },
 }
 
 pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<AnyElement> {

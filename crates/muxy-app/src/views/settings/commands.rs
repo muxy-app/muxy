@@ -6,7 +6,8 @@ use gpui::{
 use muxy_app_core::settings::CustomCommand;
 use muxy_ui::{controls, form, tr};
 
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::{Category, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 
 pub(super) fn matching(pane: &SettingsView) -> Vec<usize> {
     pane.snapshot
