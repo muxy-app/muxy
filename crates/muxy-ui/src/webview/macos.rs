@@ -327,7 +327,6 @@ impl NativeWebview {
                 );
             }
         }
-        super::file_drop::install(&parent)?;
         let mut host = Host::new(parent, mtm);
         host.container().addSubview(&view);
         host.attach(view.clone(), move |signal| match signal {
