@@ -1,7 +1,30 @@
 use gpui::prelude::FluentBuilder;
-use gpui::{AnyElement, Div, ParentElement, Styled, div, px, relative};
+use gpui::{AnyElement, Div, FocusHandle, ParentElement, Styled, Window, div, px, relative};
+use muxy_core::shortcuts::ShortcutId;
 
 use crate::controls::Style;
+
+gpui::actions!(form, [NextControl, PreviousControl]);
+
+pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
+    registry.register(ShortcutId::FormNextControl, &NextControl);
+    registry.register(ShortcutId::FormPreviousControl, &PreviousControl);
+}
+
+/// Moves focus to the next field, wrapping at the ends. With none focused,
+/// goes to the first field, or to the last when moving backwards.
+pub fn advance_focus(fields: &[FocusHandle], backwards: bool, window: &mut Window) {
+    let count = fields.len();
+    let next = match fields.iter().position(|field| field.is_focused(window)) {
+        Some(index) if backwards => (index + count - 1) % count,
+        Some(index) => (index + 1) % count,
+        None if backwards => count.wrapping_sub(1),
+        None => 0,
+    };
+    if let Some(field) = fields.get(next) {
+        field.focus(window);
+    }
+}
 
 pub fn row(
     style: Style,

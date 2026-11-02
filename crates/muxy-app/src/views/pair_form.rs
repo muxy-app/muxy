@@ -7,6 +7,7 @@ use gpui::{
 };
 use muxy_app_core::ServerId;
 use muxy_ui::controls::{self, Style};
+use muxy_ui::form::{NextControl, PreviousControl};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::text_input::{InputEvent, TextInput};
 use muxy_ui::tr;
@@ -36,16 +37,8 @@ impl PairForm {
     }
 
     fn advance_focus(&self, backwards: bool, window: &mut Window, cx: &gpui::App) {
-        let inputs = [&self.link, &self.name, &self.group];
-        let current = inputs
-            .iter()
-            .position(|input| input.focus_handle(cx).is_focused(window));
-        let next = match current {
-            Some(index) if backwards => (index + inputs.len() - 1) % inputs.len(),
-            Some(index) => (index + 1) % inputs.len(),
-            None => 0,
-        };
-        inputs[next].focus_handle(cx).focus(window);
+        let fields = [&self.link, &self.name, &self.group].map(|input| input.focus_handle(cx));
+        muxy_ui::form::advance_focus(&fields, backwards, window);
     }
 }
 
@@ -196,23 +189,17 @@ fn render(
         ),
     };
     modal(model, window, "pair-form")
-        .on_key_down(
-            cx.listener(|model, event: &gpui::KeyDownEvent, window, cx| {
-                let modifiers = event.keystroke.modifiers;
-                if event.keystroke.key == "tab"
-                    && !modifiers.control
-                    && !modifiers.alt
-                    && !modifiers.platform
-                    && !modifiers.function
-                {
-                    if let Some(Overlay::PairForm(form)) = &model.overlay {
-                        form.advance_focus(modifiers.shift, window, cx);
-                    }
-                    window.prevent_default();
-                    cx.stop_propagation();
-                }
-            }),
-        )
+        .key_context("Form")
+        .on_action(cx.listener(|model, _: &NextControl, window, cx| {
+            if let Some(Overlay::PairForm(form)) = &model.overlay {
+                form.advance_focus(false, window, cx);
+            }
+        }))
+        .on_action(cx.listener(|model, _: &PreviousControl, window, cx| {
+            if let Some(Overlay::PairForm(form)) = &model.overlay {
+                form.advance_focus(true, window, cx);
+            }
+        }))
         .child(title(
             &if editing {
                 tr!("Edit Paired Server")

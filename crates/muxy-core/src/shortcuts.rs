@@ -204,6 +204,8 @@ pub enum ShortcutId {
     BrowserZoomReset,
     BrowserCopyUrl,
     BrowserInspect,
+    FormNextControl,
+    FormPreviousControl,
 }
 
 impl ShortcutId {
@@ -1399,5 +1401,17 @@ pub const ALL: &[Shortcut] = &[
         keys: platform_keys!(&["cmd-alt-i"], &["ctrl-shift-i"]),
         contexts: &[Some("Browser")],
         key_contexts: &[&[Some("Browser")]],
+    },
+    Shortcut {
+        id: "form.next_control",
+        keys: &["tab"],
+        contexts: &[Some("Form")],
+        key_contexts: &[&[Some("Form")]],
+    },
+    Shortcut {
+        id: "form.previous_control",
+        keys: &["shift-tab"],
+        contexts: &[Some("Form")],
+        key_contexts: &[&[Some("Form")]],
     },
 ];
