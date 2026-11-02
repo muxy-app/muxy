@@ -21,6 +21,7 @@ mod pane;
 mod panes;
 mod project;
 pub mod project_layouts;
+pub mod project_selector;
 pub mod qr;
 pub mod restore;
 mod servers;

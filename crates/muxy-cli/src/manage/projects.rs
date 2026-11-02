@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use muxy_app_core::project_selector::{Mismatch, pick, same_name};
 use muxy_app_core::settings::{Settings, WorktreeSettings};
 use muxy_client::{AddedWorktree, Client};
 use muxy_protocol::{
@@ -35,21 +36,22 @@ fn select(
         }
         Paths::Remote => (PathBuf::from(selector), None),
     };
-    let mut matches = projects.into_iter().filter(|project| {
+    let exact = |project: &ProjectDescriptor| {
         let directory = project.directory.as_path().to_path_buf();
-        project.name.eq_ignore_ascii_case(selector)
+        project.name == selector
             || directory == path
             || canonical
                 .as_ref()
                 .is_some_and(|path| directory.canonicalize().ok().as_ref() == Some(path))
-    });
-    let found = matches
-        .next()
-        .ok_or_else(|| format!("project not found: {selector}"))?;
-    if matches.next().is_some() {
-        return Err(format!("ambiguous project: {selector}; use its ID").into());
+    };
+    let loose = |project: &ProjectDescriptor| same_name(&project.name, selector);
+    match pick(&projects, exact, loose) {
+        Ok(project) => Ok(project.clone()),
+        Err(Mismatch::NotFound) => Err(format!("project not found: {selector}").into()),
+        Err(Mismatch::Ambiguous) => {
+            Err(format!("ambiguous project: {selector}; use its ID").into())
+        }
     }
-    Ok(found)
 }
 
 pub(super) fn record(project: &ProjectDescriptor) -> Value {
@@ -493,6 +495,25 @@ mod tests {
             Some(&projects[0])
         );
         assert!(existing(&projects[..1], &target, Paths::Remote).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn exact_names_win_over_ones_that_differ_in_case() -> Result {
+        let upper = project("App", "/tmp/upper");
+        let lower = project("app", "/tmp/lower");
+        let projects = vec![upper.clone(), lower.clone()];
+        for paths in [Paths::Local, Paths::Remote] {
+            assert_eq!(select(projects.clone(), "app", paths)?, lower);
+            assert_eq!(select(projects.clone(), "App", paths)?, upper);
+            assert_eq!(
+                select(projects.clone(), "APP", paths)
+                    .map_err(|error| error.to_string())
+                    .unwrap_err(),
+                "ambiguous project: APP; use its ID"
+            );
+            assert_eq!(select(vec![upper.clone()], "app", paths)?, upper);
+        }
         Ok(())
     }
 
