@@ -1,11 +1,32 @@
 //! What accessibility clients read beyond what's on screen.
 
+use std::rc::Rc;
+
 use gpui::accesskit::{Live, Node, Role};
 use gpui::{
-    AccessibleAction, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId,
-    InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    AccessibleAction, AnyElement, App, Bounds, ClickEvent, Div, Element, ElementId,
+    GlobalElementId, InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement,
+    Pixels, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
+
+/// What a click runs, and what a client's press runs directly. Otherwise the press
+/// becomes mouse events at the control's center, which land on whatever is drawn
+/// there once the control has scrolled away.
+pub trait OnPress: Sized {
+    #[must_use]
+    fn on_press(self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self;
+}
+
+impl OnPress for Stateful<Div> {
+    fn on_press(self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        let handler = Rc::new(handler);
+        let press = handler.clone();
+        self.on_click(move |event, window, cx| handler(event, window, cx))
+            .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
+                press(&ClickEvent::default(), window, cx);
+            })
+    }
+}
 
 /// A button only accessibility clients find, for an action the pointer reaches
 /// by hovering or right-clicking. It never draws, and it's one point wide
@@ -190,6 +211,14 @@ mod tests {
         assert_eq!(node.value(), Some("main"));
         let expected = cfg!(target_os = "linux").then_some("main");
         assert_eq!(node.description(), expected);
+    }
+
+    #[test]
+    fn a_press_is_published_as_a_click() {
+        let control = div().id("control").on_press(|_, _, _| {});
+        let mut node = Node::new(Role::Button);
+        control.write_a11y_info(&mut node);
+        assert!(node.supports_action(AccessibleAction::Click));
     }
 
     #[test]

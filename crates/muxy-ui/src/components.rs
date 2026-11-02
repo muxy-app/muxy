@@ -6,6 +6,7 @@ pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
     registry.register(ShortcutId::ButtonActivate, &ActivateButton);
 }
 
+use crate::accessibility::OnPress;
 use crate::icon::Icon;
 use gpui::{
     App, AppContext, ClickEvent, Context, ElementId, FocusHandle, Hsla, InteractiveElement,
@@ -37,7 +38,7 @@ impl ButtonInteraction for gpui::Stateful<gpui::Div> {
                 on_key(&ClickEvent::default(), window, cx);
                 cx.stop_propagation();
             })
-            .on_click(move |event, window, cx| on_click(event, window, cx))
+            .on_press(move |event, window, cx| on_click(event, window, cx))
     }
 }
 
@@ -286,7 +287,7 @@ impl RenderOnce for IconButton {
             );
         }
         if let Some(handler) = self.on_click {
-            button = button.on_click(move |event, window, cx| handler(event, window, cx));
+            button = button.on_press(move |event, window, cx| handler(event, window, cx));
         }
         if let Some(handler) = self.on_key {
             button =

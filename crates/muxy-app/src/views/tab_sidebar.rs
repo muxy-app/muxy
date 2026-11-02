@@ -5,6 +5,7 @@ use gpui::{
     div, px,
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::AppLayout};
+use muxy_ui::accessibility::OnPress;
 use muxy_ui::components::{IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::translate;
@@ -240,7 +241,7 @@ fn projects_without_tabs_toggle(
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_dim)
                 .hover(|style| style.text_color(theme.fg_muted))
-                .on_click(cx.listener(|model, _, window, cx| {
+                .on_press(cx.listener(|model, _, window, cx| {
                     model.toggle_projects_without_tabs(cx);
                     model.focus_active(window, cx);
                 }))
@@ -657,7 +658,7 @@ fn tab_row(
         ))
         .when(!tab.pinned, |row| {
             row.child(client_button(
-                format!("sidebar-close-{id}"),
+                format!("sidebar-tab-close-{id}"),
                 tr!("Close %@", title),
                 cx,
                 move |model, window, cx| {

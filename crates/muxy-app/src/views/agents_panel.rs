@@ -5,7 +5,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelIcon};
-use muxy_ui::accessibility;
+use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::panel::{PanelFrame, PanelSizeBounds, PanelSizing, PanelStyle};
@@ -285,7 +285,7 @@ fn entry_row(
         .when(active, |row| row.bg(theme.surface))
         .when(selected, |row| row.bg(theme.hover))
         .hover(|style| style.bg(theme.hover))
-        .on_click(cx.listener(move |model, _, window, cx| {
+        .on_press(cx.listener(move |model, _, window, cx| {
             model.open_agents_entry(key, window, cx);
         }))
         .children(leading)

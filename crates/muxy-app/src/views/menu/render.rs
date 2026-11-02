@@ -4,7 +4,7 @@ use gpui::{
     MouseMoveEvent, ParentElement, Pixels, Point, Role, SharedString, Size,
     StatefulInteractiveElement, Styled, Toggled, Window, div, point, px,
 };
-use muxy_ui::accessibility;
+use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::SymbolGlyph;
 use muxy_ui::popover;
 use muxy_ui::theme::Metrics;
@@ -80,6 +80,9 @@ fn render(
     let m = model.metrics;
     let viewport = window.viewport_size();
     let mut layer = div()
+        .id("menu-layer")
+        .role(Role::Group)
+        .aria_label(tr!("Menu"))
         .absolute()
         .top_0()
         .left_0()
@@ -268,6 +271,7 @@ impl Item {
         })
         .aria_label(self.label.clone())
         .aria_disabled(!enabled)
+        .aria_selected(highlighted)
         .when_some(self.checked, |row, checked| {
             row.aria_toggled(if checked {
                 Toggled::True
@@ -339,7 +343,7 @@ impl Item {
             }
         }))
         .when(enabled, |row| {
-            row.on_click(cx.listener(move |model, _, window, cx| {
+            row.on_press(cx.listener(move |model, _, window, cx| {
                 model.click_menu_row(level, index, window, cx);
             }))
         })

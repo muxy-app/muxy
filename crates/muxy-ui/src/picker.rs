@@ -1,6 +1,7 @@
 use muxy_core::shortcuts::ShortcutId;
 
 #[cfg(target_os = "macos")]
+use crate::accessibility::OnPress;
 use crate::components::SymbolGlyph;
 use crate::components::{IconGlyph, Tooltip};
 use crate::controls::{self, Style};
@@ -1212,7 +1213,7 @@ impl Picker {
                                     cx.notify();
                                 }
                             }))
-                            .on_click(cx.listener(
+                            .on_press(cx.listener(
                                 move |popover, event: &gpui::ClickEvent, _, cx| {
                                     if popover.state.select_row(&id).is_err() {
                                         return;
@@ -1374,7 +1375,7 @@ impl Picker {
                             let row_id = row_id.clone();
                             let action_id = action_id.clone();
                             hidden_actions.push(crate::accessibility::hidden_button(
-                                format!("picker-action-{row_id}-{action_id}"),
+                                format!("picker-client-action-{row_id}-{action_id}"),
                                 tr!("%@: %@", action.label.as_ref(), row.title.as_ref()),
                                 move |_, cx| {
                                     let _ = picker.update(cx, |_, cx| {

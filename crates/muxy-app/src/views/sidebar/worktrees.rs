@@ -5,6 +5,7 @@ use gpui::{
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus};
 use muxy_ui::{
+    accessibility::OnPress,
     components::{IconButton, IconGlyph},
     icon::Icon,
     tr,
@@ -385,7 +386,7 @@ pub(crate) fn new_worktree(
         .text_color(theme.fg)
         .hover(|style| style.text_color(theme.accent))
         .cursor_pointer()
-        .on_click(cx.listener(move |model, _, window, cx| {
+        .on_press(cx.listener(move |model, _, window, cx| {
             model.open_git_form(id, true, cx);
             model.focus_git_form(window, cx);
         }))
