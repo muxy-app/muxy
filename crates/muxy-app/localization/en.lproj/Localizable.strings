@@ -851,7 +851,6 @@
 "Merging PR #%lld" = "Merging PR #%lld";
 "Migration" = "Migration";
 "Minimize" = "Minimize";
-"Minimize Window" = "Minimize Window";
 "Missing application directory" = "Missing application directory";
 "Missing desktop update checksum" = "Missing desktop update checksum";
 "Missing installation directory" = "Missing installation directory";
@@ -988,7 +987,6 @@
 "Open Project…" = "Open Project…";
 "Open Quick Terminal" = "Open Quick Terminal";
 "Open Quick Terminal settings" = "Open Quick Terminal settings";
-"Open Settings" = "Open Settings";
 "Open a Copy" = "Open a Copy";
 "Open a live terminal before sending." = "Open a live terminal before sending.";
 "Open a new terminal tab to start working in this project." = "Open a new terminal tab to start working in this project.";
@@ -1449,7 +1447,6 @@
 "The working tree is clean." = "The working tree is clean.";
 "Their projects and layouts leave this app; nothing on the servers changes." = "Their projects and layouts leave this app; nothing on the servers changes.";
 "Theme %@ needs valid background and foreground colors" = "Theme %@ needs valid background and foreground colors";
-"Theme Picker" = "Theme Picker";
 "Themes" = "Themes";
 "There are no changes to include in a pull request" = "There are no changes to include in a pull request";
 "There is no folder named %@ in %@" = "There is no folder named %@ in %@";
@@ -1612,7 +1609,6 @@
 "Your previous projects are kept in %@" = "Your previous projects are kept in %@";
 "You’re running the latest version of %@." = "You’re running the latest version of %@.";
 "Zoom" = "Zoom";
-"Zoom Window" = "Zoom Window";
 "add project" = "add project";
 "allow" = "allow";
 "archive checksum does not match the marketplace" = "archive checksum does not match the marketplace";

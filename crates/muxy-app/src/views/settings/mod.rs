@@ -40,14 +40,11 @@ pub(crate) fn register_commands(
     registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
     model: &crate::model::AppModel,
 ) {
-    use super::command_palette::action;
-    use muxy_core::shortcuts::ShortcutId;
-    registry.register(action(
+    super::workspace::commands::register_placed(
+        registry,
         model,
-        ShortcutId::OpenSettings,
-        tr_key!("Open Settings"),
-        super::workspace::OpenSettings,
-    ));
+        muxy_core::shortcuts::ShortcutId::OpenSettings,
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

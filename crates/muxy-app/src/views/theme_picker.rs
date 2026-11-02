@@ -6,6 +6,7 @@ use muxy_ui::tr;
 
 use super::command_palette::Handler;
 use super::settings::Change;
+use super::workspace::commands;
 use crate::model::AppModel;
 
 pub(crate) const PAGE_ID: &str = "change_theme";
@@ -63,7 +64,8 @@ pub(crate) fn command(
     let mut entries = model.themes.entries.clone();
     entries.sort_by_cached_key(|entry| (entry.name.to_lowercase(), entry.name.clone()));
     let model = cx.weak_entity();
-    Command::list(target.page_id(), tr!("Change Theme…"), move |cx| {
+    let picker = muxy_core::shortcuts::ShortcutId::ToggleThemePicker;
+    Command::list(target.page_id(), commands::title(picker), move |cx| {
         let mut themes = Registry::default();
         let Some(model) = model.upgrade() else {
             return themes;
@@ -94,5 +96,5 @@ pub(crate) fn command(
         }
         themes
     })
-    .keywords("Change Theme")
+    .keywords(commands::search_words(picker))
 }

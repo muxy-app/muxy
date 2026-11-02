@@ -9,13 +9,14 @@ use muxy_app_core::Direction;
 use muxy_app_core::settings::Keymap;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
-use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
 use super::{menu, overlays, sidebar, status_bar, tab_strip, titlebar};
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
 use crate::model::focus::Next;
+
+pub(crate) mod commands;
 
 actions!(
     muxy,
@@ -103,45 +104,10 @@ pub(crate) fn bind_keys(keymap: &Keymap, cx: &mut App) {
 
 fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> Vec<KeyBinding> {
     let mut registry = muxy_ui::shortcuts::Registry::new(keymap);
-    registry.register(ShortcutId::OpenSettings, &OpenSettings);
-    registry.register(ShortcutId::NewHomeTab, &NewHomeTab);
-    registry.register(ShortcutId::NewTabInProject, &NewTabInProject);
-    registry.register(ShortcutId::NewWorktree, &NewWorktree);
-    registry.register(ShortcutId::SwitchWorktree, &SwitchWorktree);
-    registry.register(ShortcutId::ToggleSidebar, &ToggleSidebar);
-    registry.register(ShortcutId::ToggleAgentsPanel, &ToggleAgentsPanel);
-    registry.register(ShortcutId::ToggleAgentSessions, &ToggleAgentSessions);
-    registry.register(ShortcutId::ToggleFullScreen, &ToggleFullScreen);
-    registry.register(ShortcutId::ToggleThemePicker, &ToggleThemePicker);
-    registry.register(ShortcutId::ToggleCommandPalette, &ToggleCommandPalette);
-    registry.register(ShortcutId::ToggleComposer, &ToggleComposer);
+    commands::bind_shortcuts(&mut registry);
     registry.register(ShortcutId::ComposerSubmit, &super::composer::Submit);
     registry.register(ShortcutId::ComposerInsert, &super::composer::Insert);
     registry.register(ShortcutId::ComposerClose, &super::composer::Close);
-    registry.register(ShortcutId::NavigateBack, &NavigateBack);
-    registry.register(ShortcutId::NavigateForward, &NavigateForward);
-    registry.register(ShortcutId::Quit, &Quit);
-    registry.register(ShortcutId::HideApp, &HideApp);
-    registry.register(ShortcutId::HideOthers, &HideOthers);
-    registry.register(ShortcutId::Minimize, &Minimize);
-    registry.register(ShortcutId::NewTab, &NewTab);
-    registry.register(ShortcutId::ExistingTerminals, &ExistingTerminals);
-    registry.register(ShortcutId::DetachTerminal, &DetachTerminal);
-    registry.register(ShortcutId::CloseTab, &CloseTab);
-    registry.register(ShortcutId::SplitRight, &SplitRight);
-    registry.register(ShortcutId::SplitDown, &SplitDown);
-    registry.register(ShortcutId::FocusPaneLeft, &FocusPaneLeft);
-    registry.register(ShortcutId::FocusPaneRight, &FocusPaneRight);
-    registry.register(ShortcutId::FocusPaneUp, &FocusPaneUp);
-    registry.register(ShortcutId::FocusPaneDown, &FocusPaneDown);
-    registry.register(ShortcutId::ToggleZoomPane, &ToggleZoomPane);
-    registry.register(ShortcutId::EqualizeSplits, &EqualizeSplits);
-    registry.register(ShortcutId::ClosePane, &ClosePane);
-    registry.register(ShortcutId::NextTab, &NextTab);
-    registry.register(ShortcutId::PreviousTab, &PreviousTab);
-    registry.register(ShortcutId::PreviousProject, &PreviousProject);
-    registry.register(ShortcutId::NextProject, &NextProject);
-    registry.register(ShortcutId::AddProject, &AddProject);
     for (index, id) in ShortcutId::TABS.into_iter().enumerate() {
         registry.register(id, &SelectTab { index });
     }
@@ -150,36 +116,12 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
     }
     registry.register(ShortcutId::Copy, &muxy_ui::text_input::Copy);
     registry.register(ShortcutId::Paste, &muxy_ui::text_input::Paste);
-    registry.register(ShortcutId::Find, &Find);
-    registry.register(ShortcutId::FindNext, &FindNext);
-    registry.register(ShortcutId::FindPrevious, &FindPrevious);
-    registry.register(ShortcutId::PreviousPrompt, &PreviousPrompt);
-    registry.register(ShortcutId::NextPrompt, &NextPrompt);
-    registry.register(ShortcutId::SelectCommandOutput, &SelectCommandOutput);
-    registry.register(ShortcutId::ScrollToBottom, &ScrollToBottom);
-    registry.register(ShortcutId::IncreaseFontSize, &IncreaseFontSize);
-    registry.register(ShortcutId::DecreaseFontSize, &DecreaseFontSize);
-    registry.register(ShortcutId::NewBrowserTab, &NewBrowserTab);
-    registry.register(ShortcutId::BrowserFocusAddress, &BrowserFocusAddress);
-    registry.register(ShortcutId::BrowserReload, &BrowserReload);
-    registry.register(ShortcutId::BrowserBack, &BrowserBack);
-    registry.register(ShortcutId::BrowserForward, &BrowserForward);
-    registry.register(ShortcutId::BrowserZoomIn, &BrowserZoomIn);
-    registry.register(ShortcutId::BrowserZoomOut, &BrowserZoomOut);
-    registry.register(ShortcutId::BrowserZoomReset, &BrowserZoomReset);
-    registry.register(ShortcutId::BrowserCopyUrl, &BrowserCopyUrl);
-    registry.register(ShortcutId::BrowserInspect, &BrowserInspect);
     muxy_ui::text_input::register_shortcuts(&mut registry);
     muxy_ui::picker::register_shortcuts(&mut registry);
     muxy_ui::components::register_shortcuts(&mut registry);
     menu::register_shortcuts(&mut registry);
     super::terminal::pane::register_shortcuts(&mut registry);
     super::settings::register_shortcuts(&mut registry);
-    registry.register(ShortcutId::EndAllSessionsAndQuit, &EndAllSessionsAndQuit);
-    registry.register(ShortcutId::ShowAll, &ShowAll);
-    registry.register(ShortcutId::Zoom, &Zoom);
-    registry.register(ShortcutId::OpenConfiguration, &OpenConfiguration);
-    registry.register(ShortcutId::InstallCommandLineTool, &InstallCommandLineTool);
     registry.into_bindings()
 }
 
@@ -490,355 +432,6 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         )
         .on_action(cx.listener(|model, _: &IncreaseFontSize, _, cx| model.zoom_terminal(1.0, cx)))
         .on_action(cx.listener(|model, _: &DecreaseFontSize, _, cx| model.zoom_terminal(-1.0, cx)))
-}
-
-fn register_composer_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-) {
-    use super::command_palette::action;
-
-    registry.register(action(
-        model,
-        ShortcutId::ToggleComposer,
-        tr_key!("Toggle Composer"),
-        ToggleComposer,
-    ));
-}
-
-/// Commands that act on the focused terminal.
-fn register_terminal_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-) {
-    use super::command_palette::action;
-
-    let no_terminal = model
-        .active_pane()
-        .and_then(|pane| model.terminal(&pane))
-        .is_none();
-    for command in [
-        action(model, ShortcutId::Find, tr_key!("Find…"), Find),
-        action(model, ShortcutId::FindNext, tr_key!("Find Next"), FindNext),
-        action(
-            model,
-            ShortcutId::FindPrevious,
-            tr_key!("Find Previous"),
-            FindPrevious,
-        ),
-        action(
-            model,
-            ShortcutId::PreviousPrompt,
-            tr_key!("Previous Prompt"),
-            PreviousPrompt,
-        ),
-        action(
-            model,
-            ShortcutId::NextPrompt,
-            tr_key!("Next Prompt"),
-            NextPrompt,
-        ),
-        action(
-            model,
-            ShortcutId::SelectCommandOutput,
-            tr_key!("Select Command Output"),
-            SelectCommandOutput,
-        ),
-        action(
-            model,
-            ShortcutId::ScrollToBottom,
-            tr_key!("Scroll to Bottom"),
-            ScrollToBottom,
-        ),
-        action(
-            model,
-            ShortcutId::IncreaseFontSize,
-            tr_key!("Increase Font Size"),
-            IncreaseFontSize,
-        ),
-        action(
-            model,
-            ShortcutId::DecreaseFontSize,
-            tr_key!("Decrease Font Size"),
-            DecreaseFontSize,
-        ),
-        action(
-            model,
-            ShortcutId::DetachTerminal,
-            tr_key!("Detach Terminal"),
-            DetachTerminal,
-        ),
-    ] {
-        registry.register(command.disabled(no_terminal));
-    }
-}
-
-fn register_pane_focus_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-    unsplit: bool,
-) {
-    use super::command_palette::action;
-
-    for command in [
-        action(
-            model,
-            ShortcutId::FocusPaneLeft,
-            tr_key!("Focus Pane Left"),
-            FocusPaneLeft,
-        ),
-        action(
-            model,
-            ShortcutId::FocusPaneRight,
-            tr_key!("Focus Pane Right"),
-            FocusPaneRight,
-        ),
-        action(
-            model,
-            ShortcutId::FocusPaneUp,
-            tr_key!("Focus Pane Up"),
-            FocusPaneUp,
-        ),
-        action(
-            model,
-            ShortcutId::FocusPaneDown,
-            tr_key!("Focus Pane Down"),
-            FocusPaneDown,
-        ),
-    ] {
-        registry.register(command.disabled(unsplit));
-    }
-}
-
-/// Commands for the window and the app as a whole.
-fn register_app_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-) {
-    use super::command_palette::{action, dispatch, titled};
-    use muxy_core::capability::Feature;
-    use muxy_ui::command_palette::Command;
-
-    for command in [
-        action(
-            model,
-            ShortcutId::ExistingTerminals,
-            tr_key!("Existing Terminals…"),
-            ExistingTerminals,
-        ),
-        action(
-            model,
-            ShortcutId::ToggleFullScreen,
-            tr_key!("Toggle Full Screen"),
-            ToggleFullScreen,
-        ),
-        action(
-            model,
-            ShortcutId::Minimize,
-            tr_key!("Minimize Window"),
-            Minimize,
-        ),
-        action(model, ShortcutId::Zoom, tr_key!("Zoom Window"), Zoom)
-            .keywords("Zoom Window Maximize Restore"),
-        titled(
-            model,
-            ShortcutId::Quit,
-            tr!("Quit %@", crate::app_name()),
-            Quit,
-        )
-        .keywords("Quit"),
-        action(
-            model,
-            ShortcutId::EndAllSessionsAndQuit,
-            tr_key!("End All Sessions and Quit"),
-            EndAllSessionsAndQuit,
-        ),
-    ] {
-        registry.register(command);
-    }
-    if model.capabilities.has_backend(Feature::Updates) {
-        registry.register(
-            Command::new(
-                "check_for_updates",
-                tr!("Check for Updates…"),
-                dispatch(CheckForUpdates),
-            )
-            .keywords("Check for Updates"),
-        );
-    }
-    if model.capabilities.has_backend(Feature::CommandLineTool) {
-        registry.register(action(
-            model,
-            ShortcutId::InstallCommandLineTool,
-            tr_key!("Install Command Line Tool…"),
-            InstallCommandLineTool,
-        ));
-    }
-}
-
-fn register_panel_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-) {
-    use super::command_palette::action;
-
-    for command in [
-        action(
-            model,
-            ShortcutId::ToggleSidebar,
-            tr_key!("Toggle Sidebar"),
-            ToggleSidebar,
-        ),
-        action(
-            model,
-            ShortcutId::ToggleAgentsPanel,
-            tr_key!("Toggle Agents Panel"),
-            ToggleAgentsPanel,
-        ),
-        action(
-            model,
-            ShortcutId::ToggleAgentSessions,
-            tr_key!("Toggle Agent Sessions"),
-            ToggleAgentSessions,
-        )
-        .keywords("harness history resume providers"),
-    ] {
-        registry.register(command);
-    }
-}
-
-fn register_worktree_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-) {
-    use super::command_palette::action;
-
-    for command in [
-        action(
-            model,
-            ShortcutId::NewWorktree,
-            tr_key!("New Worktree…"),
-            NewWorktree,
-        )
-        .disabled(model.new_worktree_target().is_none()),
-        action(
-            model,
-            ShortcutId::SwitchWorktree,
-            tr_key!("Switch Worktree…"),
-            SwitchWorktree,
-        )
-        .disabled(model.worktree_switcher_project().is_none()),
-    ] {
-        registry.register(command);
-    }
-}
-
-pub(crate) fn register_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-) {
-    use super::command_palette::action;
-
-    let missing = model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing;
-    let no_pane = missing || model.active_pane().is_none();
-    let unsplit = missing
-        || model
-            .active_tab()
-            .and_then(|tab| model.tab(tab))
-            .is_none_or(|tab| tab.panes.len() < 2);
-    register_composer_commands(registry, model);
-    for command in [
-        action(model, ShortcutId::NewTab, tr_key!("New Tab"), NewTab).disabled(missing),
-        action(
-            model,
-            ShortcutId::NewHomeTab,
-            tr_key!("New Home Tab"),
-            NewHomeTab,
-        ),
-        action(model, ShortcutId::CloseTab, tr_key!("Close Tab"), CloseTab)
-            .disabled(model.active_tab().is_none()),
-        action(
-            model,
-            ShortcutId::SplitRight,
-            tr_key!("Split Right"),
-            SplitRight,
-        )
-        .disabled(no_pane),
-        action(
-            model,
-            ShortcutId::SplitDown,
-            tr_key!("Split Down"),
-            SplitDown,
-        )
-        .disabled(no_pane),
-        action(
-            model,
-            ShortcutId::ClosePane,
-            tr_key!("Close Pane"),
-            ClosePane,
-        )
-        .disabled(no_pane),
-        action(
-            model,
-            ShortcutId::ToggleZoomPane,
-            tr_key!("Toggle Pane Zoom"),
-            ToggleZoomPane,
-        )
-        .disabled(no_pane),
-        action(
-            model,
-            ShortcutId::EqualizeSplits,
-            tr_key!("Equalize Splits"),
-            EqualizeSplits,
-        )
-        .disabled(unsplit),
-        action(
-            model,
-            ShortcutId::NextProject,
-            tr_key!("Next Project"),
-            NextProject,
-        )
-        .disabled(model.navigation_projects().len() < 2),
-        action(
-            model,
-            ShortcutId::PreviousProject,
-            tr_key!("Previous Project"),
-            PreviousProject,
-        )
-        .disabled(model.navigation_projects().len() < 2),
-        action(model, ShortcutId::NextTab, tr_key!("Next Tab"), NextTab)
-            .disabled(model.navigation_tabs().len() < 2),
-        action(
-            model,
-            ShortcutId::PreviousTab,
-            tr_key!("Previous Tab"),
-            PreviousTab,
-        )
-        .disabled(model.navigation_tabs().len() < 2),
-    ] {
-        registry.register(command);
-    }
-    register_panel_commands(registry, model);
-    register_worktree_commands(registry, model);
-    register_terminal_commands(registry, model);
-    register_pane_focus_commands(registry, model, unsplit);
-    register_app_commands(registry, model);
-}
-
-pub(crate) fn register_browser_commands(
-    registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
-    model: &AppModel,
-) {
-    let missing = model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing;
-    registry.register(
-        super::command_palette::action(
-            model,
-            ShortcutId::NewBrowserTab,
-            tr_key!("New Browser Tab"),
-            NewBrowserTab,
-        )
-        .disabled(missing || !model.browser_enabled()),
-    );
 }
 
 impl AppModel {
