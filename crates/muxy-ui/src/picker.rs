@@ -1822,7 +1822,9 @@ impl Render for Picker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.focused {
             self.focused = true;
-            window.focus(&self.input.focus_handle(cx));
+            // After this frame, since what had focus already reported it in this one.
+            let input = self.input.focus_handle(cx);
+            window.defer(cx, move |window, _| window.focus(&input));
         }
         let viewport = window.viewport_size();
         let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);

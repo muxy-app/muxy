@@ -141,7 +141,9 @@ impl Render for Dialog {
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.dismissed && !self.focus.contains_focused(window, cx) {
-            window.focus(&self.focus_handle(cx));
+            // After this frame, since what had focus already reported it in this one.
+            let focus = self.focus_handle(cx);
+            window.defer(cx, move |window, _| window.focus(&focus));
         }
         let theme = &self.request.theme;
         let metrics = &self.request.metrics;
