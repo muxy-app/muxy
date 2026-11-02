@@ -130,6 +130,7 @@ fn every_menu_item_has_a_label_and_a_handler_in_the_workspace(cx: &mut TestAppCo
         }
         assert!(!actions.is_empty());
         for (name, action) in actions {
+            assert!(!name.is_empty(), "{action:?} has an empty label");
             assert!(!name.contains("::"), "{name} has no row in the table");
             assert!(window.is_action_available(&*action, cx), "{name}");
         }
