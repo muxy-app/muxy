@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::model::banners::BannerKind;
-use crate::views::settings::Change;
+use crate::model::preferences::Change;
 
 fn settings_view(model: &AppModel) -> Entity<crate::views::settings::SettingsView> {
     model

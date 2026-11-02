@@ -1,4 +1,5 @@
-use super::{Category, Change, PickerKind, SettingsEvent, SettingsView};
+use super::{Category, PickerKind, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,

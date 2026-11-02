@@ -5,9 +5,9 @@ use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::tr;
 
 use super::command_palette::Handler;
-use super::settings::Change;
 use super::workspace::commands;
 use crate::model::AppModel;
+use crate::model::preferences::Change;
 
 pub(crate) const PAGE_ID: &str = "change_theme";
 pub(crate) const QUICK_PAGE_ID: &str = "change_quick_theme";

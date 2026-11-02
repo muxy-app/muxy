@@ -17,7 +17,6 @@ mod terminal_lists;
 pub(crate) mod window;
 
 pub(crate) use ai::prompt_action;
-pub(crate) use browser::BrowserChange;
 pub(crate) use pickers::{PickerAnchor, PickerKind, PickerRequest};
 
 use std::collections::{HashMap, HashSet};
@@ -35,6 +34,8 @@ use muxy_ui::controls::{self, Style};
 use muxy_ui::form;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
+
+use crate::model::preferences::Change;
 
 pub(crate) fn register_commands(
     registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
@@ -96,46 +97,6 @@ impl Category {
             Self::Backup => tr_key!("Backup & Restore"),
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum Change {
-    Composer(&'static str, bool),
-    QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
-    Theme(bool, String),
-    Sidebar(bool),
-    SidebarVibrancy(bool),
-    /// The extension whose sidebar replaces the built-in one; empty for built-in.
-    ExtensionSidebar(String),
-    /// The app language as `<extension>:<localization>`; empty for English.
-    Language(String),
-    Worktrees(&'static str, bool),
-    SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
-    AgentsPanel(bool),
-    AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
-    AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
-    AgentsPanelOption(&'static str, bool),
-    StatusBar(bool),
-    Tips(bool),
-    RememberProjectsWithoutTabs(bool),
-    ConfirmProcess(bool),
-    CloseBehavior(muxy_app_core::settings::CloseBehavior),
-    Terminal(&'static str, String),
-    TerminalEdit(muxy_app_core::settings::TerminalEdit),
-    ResetTerminal,
-    /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
-    FileOpener(String),
-    /// `[openers] project_target`: the app the Open in IDE control opens.
-    ProjectTarget(String),
-    Directory(muxy_app_core::settings::NewPaneDirectory),
-    Field(&'static str, String),
-    Binding(String, Option<muxy_app_core::settings::KeyChord>),
-    Command(muxy_app_core::settings::CustomCommand),
-    RemoveCommand(String),
-    /// Removes an extension command's shortcut.
-    Unassign(String),
-    ShellIntegration(bool),
-    Browser(BrowserChange),
 }
 
 pub(crate) enum SettingsEvent {

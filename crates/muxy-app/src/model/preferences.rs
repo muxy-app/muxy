@@ -9,9 +9,115 @@ use muxy_ui::tr;
 use super::{AppModel, Overlay, Quitting};
 use crate::boot::Work;
 use crate::views::settings::window::SettingsWindow;
-use crate::views::settings::{BrowserChange, Change, SettingsView, Snapshot};
+use crate::views::settings::{SettingsView, Snapshot};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+#[derive(Clone, Debug)]
+pub(crate) enum Change {
+    Composer(ComposerToggle, bool),
+    QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
+    Theme(bool, String),
+    Sidebar(bool),
+    SidebarVibrancy(bool),
+    /// The extension whose sidebar replaces the built-in one; empty for built-in.
+    ExtensionSidebar(String),
+    /// The app language as `<extension>:<localization>`; empty for English.
+    Language(String),
+    Worktrees(WorktreeToggle, bool),
+    SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
+    AgentsPanel(bool),
+    AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
+    AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
+    AgentsPanelOption(AgentsPanelToggle, bool),
+    StatusBar(bool),
+    Tips(bool),
+    RememberProjectsWithoutTabs(bool),
+    ConfirmProcess(bool),
+    CloseBehavior(muxy_app_core::settings::CloseBehavior),
+    Terminal(&'static str, String),
+    TerminalEdit(TerminalEdit),
+    ResetTerminal,
+    /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
+    FileOpener(String),
+    /// `[openers] project_target`: the app the Open in IDE control opens.
+    ProjectTarget(String),
+    Directory(muxy_app_core::settings::NewPaneDirectory),
+    Field(&'static str, String),
+    Binding(String, Option<muxy_app_core::settings::KeyChord>),
+    Command(muxy_app_core::settings::CustomCommand),
+    RemoveCommand(String),
+    /// Removes an extension command's shortcut.
+    Unassign(String),
+    ShellIntegration(bool),
+    Browser(BrowserChange),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum BrowserChange {
+    Enabled(bool),
+    TerminalLinks(bool),
+    SearchEngine(muxy_app_core::browser::SearchEngine),
+    DefaultProfile(String),
+    AddProfile(String),
+    RenameProfile(String, String),
+    ClearProfile(String),
+    DeleteProfile(String),
+    /// Imports from the listed browser at `source` into the default profile.
+    Import {
+        source: usize,
+        cookies: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum WorktreeToggle {
+    AutoExpand,
+    Unread,
+    RecentOrder,
+}
+
+impl WorktreeToggle {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::AutoExpand => "auto-expand-worktrees",
+            Self::Unread => "worktree-unread",
+            Self::RecentOrder => "worktree-recent-order",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum AgentsPanelToggle {
+    ProjectColors,
+    IdleTime,
+}
+
+impl AgentsPanelToggle {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::ProjectColors => "agents-panel-project-colors",
+            Self::IdleTime => "agents-panel-idle-time",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ComposerToggle {
+    ClearAfter,
+    ClearClose,
+    Images,
+}
+
+impl ComposerToggle {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::ClearAfter => "composer-clear-after",
+            Self::ClearClose => "composer-clear-close",
+            Self::Images => "composer-images",
+        }
+    }
+}
 
 #[derive(Default)]
 pub(super) struct ServerPreferences {
@@ -312,9 +418,10 @@ impl AppModel {
         reason = "Exhaustive preference change dispatch"
     )]
     fn apply_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
-        let composer = matches!(&change, Change::Composer(..))
-            || matches!(&change, Change::Field(id, _) if id.starts_with("composer-"));
-        if composer {
+        if matches!(
+            &change,
+            Change::Composer(..) | Change::Field("composer-font" | "composer-line-height", _)
+        ) {
             return self.apply_composer_preference(change, cx);
         }
         let path = self.path.with_file_name("settings.toml");
@@ -362,12 +469,13 @@ impl AppModel {
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
-            Change::Worktrees(key, value) => {
-                match key {
-                    "auto-expand-worktrees" => settings.appearance.auto_expand_worktrees = value,
-                    "worktree-unread" => settings.appearance.worktree_show_unread = value,
-                    "worktree-recent-order" => settings.appearance.worktree_recent_order = value,
-                    _ => return Ok(()),
+            Change::Worktrees(toggle, value) => {
+                match toggle {
+                    WorktreeToggle::AutoExpand => settings.appearance.auto_expand_worktrees = value,
+                    WorktreeToggle::Unread => settings.appearance.worktree_show_unread = value,
+                    WorktreeToggle::RecentOrder => {
+                        settings.appearance.worktree_recent_order = value;
+                    }
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
@@ -398,13 +506,14 @@ impl AppModel {
                 settings.appearance.agents_panel_icon = icon;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
-            Change::AgentsPanelOption(key, value) => {
-                match key {
-                    "agents-panel-project-colors" => {
+            Change::AgentsPanelOption(toggle, value) => {
+                match toggle {
+                    AgentsPanelToggle::ProjectColors => {
                         settings.appearance.agents_panel_project_colors = value;
                     }
-                    "agents-panel-idle-time" => settings.appearance.agents_panel_idle_time = value,
-                    _ => return Ok(()),
+                    AgentsPanelToggle::IdleTime => {
+                        settings.appearance.agents_panel_idle_time = value;
+                    }
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
@@ -586,18 +695,17 @@ impl AppModel {
         let path = self.path.with_file_name("settings.toml");
         let mut settings = self.settings.clone();
         match change {
-            Change::Composer(id, value) => {
-                match id {
-                    "composer-clear-after" => settings.composer.clear_after_sending = value,
-                    "composer-clear-close" => settings.composer.clear_on_close = value,
-                    "composer-images" => {
+            Change::Composer(toggle, value) => {
+                match toggle {
+                    ComposerToggle::ClearAfter => settings.composer.clear_after_sending = value,
+                    ComposerToggle::ClearClose => settings.composer.clear_on_close = value,
+                    ComposerToggle::Images => {
                         settings.composer.image_strategy = if value {
                             muxy_app_core::composer::submission::ImageSubmissionStrategy::Clipboard
                         } else {
                             muxy_app_core::composer::submission::ImageSubmissionStrategy::InlinePath
                         }
                     }
-                    _ => return Err(tr!("Unknown composer preference").to_string().into()),
                 }
                 settings.save_composer(&path)?;
             }
@@ -976,7 +1084,8 @@ fn change_id(change: &Change) -> &str {
         Change::SidebarVibrancy(_) => "sidebar-vibrancy",
         Change::ExtensionSidebar(_) => "extension-sidebar",
         Change::Language(_) => "app-language",
-        Change::Worktrees(key, _) | Change::AgentsPanelOption(key, _) => key,
+        Change::Worktrees(toggle, _) => toggle.id(),
+        Change::AgentsPanelOption(toggle, _) => toggle.id(),
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
         Change::AgentsPanel(_) => "agents-panel",
         Change::AgentsPanelGrouping(_) => "agents-panel-grouping",
@@ -992,7 +1101,8 @@ fn change_id(change: &Change) -> &str {
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
         Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",
-        Change::Terminal(id, _) | Change::Composer(id, _) | Change::Field(id, _) => id,
+        Change::Composer(toggle, _) => toggle.id(),
+        Change::Terminal(id, _) | Change::Field(id, _) => id,
         Change::ResetTerminal => "terminal-reset",
         Change::TerminalEdit(edit) => match edit {
             TerminalEdit::Fallbacks(_) => "font-fallbacks",

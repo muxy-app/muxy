@@ -9,8 +9,9 @@ use muxy_ui::l10n::translate;
 use muxy_ui::picker::{Picker, PickerConfig, PickerEvent, PickerItem, PickerRow};
 use muxy_ui::tr;
 
-use super::{Change, PickerRequest, SettingsEvent, SettingsView, pickers};
+use super::{PickerRequest, SettingsEvent, SettingsView, pickers};
 use crate::model::AppModel;
+use crate::model::preferences::Change;
 use crate::views::{
     command_palette::Handler,
     font_picker::{FontEvent, FontPicker},

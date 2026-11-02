@@ -7,7 +7,7 @@ use muxy_ui::browser::polybrowser::{
 use muxy_ui::tr;
 
 use crate::model::AppModel;
-use crate::views::settings::BrowserChange;
+use crate::model::preferences::BrowserChange;
 use crate::views::settings::browser::Profile as SettingsProfile;
 
 /// The profile new tabs use when none is chosen.

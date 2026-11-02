@@ -1,4 +1,5 @@
-use super::{Category, Change, PickerKind, SettingsEvent, SettingsView, Snapshot};
+use super::{Category, PickerKind, SettingsEvent, SettingsView, Snapshot};
+use crate::model::preferences::{AgentsPanelToggle, Change, WorktreeToggle};
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
 use muxy_app_core::localization;
 use muxy_app_core::settings::{
@@ -160,28 +161,29 @@ pub(super) fn rows(
             ),
         ));
     }
-    for (id, label, value) in [
+    for (toggle, label, value) in [
         (
-            "auto-expand-worktrees",
+            WorktreeToggle::AutoExpand,
             tr_key!("Expand worktrees when switching projects"),
             appearance.auto_expand_worktrees,
         ),
         (
-            "worktree-unread",
+            WorktreeToggle::Unread,
             tr_key!("Show unread worktree indicators"),
             appearance.worktree_show_unread,
         ),
         (
-            "worktree-recent-order",
+            WorktreeToggle::RecentOrder,
             tr_key!("Order the worktree switcher by recent use"),
             appearance.worktree_recent_order,
         ),
     ] {
         if category == Category::Appearance && pane.matches(category, label) {
+            let id = toggle.id();
             rows.push(pane.row(
                 id,
                 label,
-                pane.toggle(id, value, Change::Worktrees(id, !value), cx),
+                pane.toggle(id, value, Change::Worktrees(toggle, !value), cx),
             ));
         }
     }
@@ -219,23 +221,24 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel icon")) {
         rows.push(agents_panel_icon(pane, cx));
     }
-    for (id, label, value) in [
+    for (toggle, label, value) in [
         (
-            "agents-panel-project-colors",
+            AgentsPanelToggle::ProjectColors,
             tr_key!("Show project colors"),
             appearance.agents_panel_project_colors,
         ),
         (
-            "agents-panel-idle-time",
+            AgentsPanelToggle::IdleTime,
             tr_key!("Show idle time"),
             appearance.agents_panel_idle_time,
         ),
     ] {
         if category == Category::Appearance && pane.matches(category, label) {
+            let id = toggle.id();
             rows.push(pane.row(
                 id,
                 label,
-                pane.toggle(id, value, Change::AgentsPanelOption(id, !value), cx),
+                pane.toggle(id, value, Change::AgentsPanelOption(toggle, !value), cx),
             ));
         }
     }

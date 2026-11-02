@@ -2,7 +2,8 @@ use gpui::{AnyElement, Context, IntoElement, ParentElement, SharedString, Styled
 use muxy_ui::l10n::tr_key;
 use muxy_ui::{controls, tr};
 
-use super::{Category, Change, PickerKind, SettingsEvent, SettingsView};
+use super::{Category, PickerKind, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 use crate::repository_actions::Action;
 
 pub(super) const PROMPTS: [(Action, &str); 2] = [
