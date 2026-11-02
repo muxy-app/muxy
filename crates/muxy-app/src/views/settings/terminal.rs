@@ -422,6 +422,7 @@ fn slider(
     let control = controls::slider(
         pane.style(),
         id,
+        &super::control_name(id),
         value,
         (spec.min, spec.max),
         cx.listener(move |view, grab: &controls::Grab, _, cx| {
@@ -432,6 +433,16 @@ fn slider(
                 value: None,
             });
             view.move_terminal_slider(grab.position, cx);
+        }),
+        cx.listener(move |view, value: &f32, _, cx| {
+            view.finish_terminal_slider(cx);
+            view.terminal_slider = Some(Drag {
+                slider: spec,
+                bounds: gpui::Bounds::default(),
+                value: None,
+            });
+            view.preview_terminal_slider(*value, cx);
+            view.finish_terminal_slider(cx);
         }),
     );
     let display = if suffix == "%" {
@@ -736,7 +747,15 @@ impl SettingsView {
         };
         let spec = drag.slider;
         let fraction = controls::fraction_at(drag.bounds, position);
-        let value = ((spec.min + fraction * (spec.max - spec.min)) / spec.step).round() * spec.step;
+        self.preview_terminal_slider(spec.min + fraction * (spec.max - spec.min), cx);
+    }
+
+    fn preview_terminal_slider(&mut self, value: f32, cx: &mut Context<Self>) {
+        let Some(drag) = &mut self.terminal_slider else {
+            return;
+        };
+        let spec = drag.slider;
+        let value = (value / spec.step).round() * spec.step;
         let value = value.clamp(spec.min, spec.max);
         let value = format!(
             "{}{}",

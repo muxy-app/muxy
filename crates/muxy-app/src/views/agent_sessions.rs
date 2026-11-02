@@ -180,13 +180,16 @@ fn icon_button(
 ) -> IconButton {
     let m = model.metrics;
     let theme = &model.theme;
-    IconButton::new(id, icon, m.icon_xs(), m.control_small(), color, theme.fg).tooltip(
+    IconButton::new(
+        id,
         tooltip,
-        theme.raised(),
+        icon,
+        m.icon_xs(),
+        m.control_small(),
+        color,
         theme.fg,
-        theme.border,
-        theme.bg,
     )
+    .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
 }
 
 fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {

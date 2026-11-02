@@ -63,6 +63,7 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 controls::toggle(
                     style(model),
                     "devices-access",
+                    &tr!("Allow other devices"),
                     state.settings.enabled,
                     cx.listener({
                         let enabled = state.settings.enabled;

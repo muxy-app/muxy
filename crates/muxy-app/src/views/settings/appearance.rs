@@ -32,6 +32,7 @@ pub(super) fn rows(
             controls::segmented(
                 pane.style(),
                 "close-behavior",
+                &tr!("When closing tabs or panes"),
                 &[
                     Choice::new("close", tr!("Close sessions")),
                     Choice::new("detach", tr!("Detach")),
@@ -348,6 +349,7 @@ fn agents_panel_grouping(pane: &SettingsView, cx: &mut Context<SettingsView>) ->
         controls::segmented(
             pane.style(),
             "agents-panel-grouping",
+            &tr!("Agents panel rows"),
             &[
                 Choice::new("agents", tr!("Agents")),
                 Choice::new("worktrees", tr!("Worktrees")),
@@ -377,6 +379,7 @@ fn agents_panel_icon(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Any
         controls::segmented(
             pane.style(),
             "agents-panel-icon",
+            &tr!("Agents panel icon"),
             &[
                 Choice::new("agent", tr!("Agent")),
                 Choice::new("project", tr!("Project")),
@@ -406,6 +409,7 @@ fn collapsed_sidebar_style(pane: &SettingsView, cx: &mut Context<SettingsView>) 
         controls::segmented(
             pane.style(),
             "sidebar-collapsed-style",
+            &tr!("Collapsed sidebar style"),
             &[
                 Choice::new("icons", tr!("Icons")),
                 Choice::new("hidden", tr!("Hidden")),

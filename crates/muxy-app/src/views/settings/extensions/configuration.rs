@@ -118,6 +118,7 @@ impl ExtensionsView {
                 controls::toggle(
                     self.style(),
                     &id,
+                    &setting.title,
                     on,
                     cx.listener(move |view, _, _, cx| {
                         view.store_setting(&owner, &key, Some(Value::Bool(!on)), cx);

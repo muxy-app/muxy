@@ -363,10 +363,11 @@ pub(super) fn group_label(text: impl Into<SharedString>, model: &AppModel) -> gp
         .child(text.into())
 }
 
-fn header_button(id: String, icon: Icon, model: &AppModel) -> IconButton {
+fn header_button(id: String, name: SharedString, icon: Icon, model: &AppModel) -> IconButton {
     let theme = &model.theme;
     IconButton::new(
         SharedString::from(id),
+        name,
         icon,
         model.metrics.icon_xs(),
         model.metrics.control_small(),
@@ -381,20 +382,19 @@ fn new_tab_button(id: ProjectId, model: &AppModel, cx: &mut Context<AppModel>) -
         .debug_selector(move || format!("project-new-tab-{id}"))
         .flex_none()
         .child(
-            header_button(format!("project-new-tab-{id}"), Icon::Plus, model)
-                .tooltip(
-                    tr!("New Terminal Tab"),
-                    theme.raised(),
-                    theme.fg,
-                    theme.border,
-                    theme.bg,
-                )
-                .on_click(cx.listener(move |model, _, window, cx| {
-                    cx.stop_propagation();
-                    model.select_project(id, cx);
-                    model.new_tab(cx);
-                    model.focus_active(window, cx);
-                })),
+            header_button(
+                format!("project-new-tab-{id}"),
+                tr!("New Terminal Tab"),
+                Icon::Plus,
+                model,
+            )
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .on_click(cx.listener(move |model, _, window, cx| {
+                cx.stop_propagation();
+                model.select_project(id, cx);
+                model.new_tab(cx);
+                model.focus_active(window, cx);
+            })),
         )
         .into_any_element()
 }
@@ -414,23 +414,19 @@ fn project_disclosure(
             header_button(
                 format!("tab-project-toggle-{id}"),
                 if expanded {
+                    tr!("Collapse Project")
+                } else {
+                    tr!("Expand Project")
+                },
+                if expanded {
                     Icon::ChevronDown
                 } else {
                     Icon::ChevronRight
                 },
                 model,
             )
-            .tooltip(
-                if expanded {
-                    tr!("Collapse Project")
-                } else {
-                    tr!("Expand Project")
-                },
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .expanded(expanded)
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_project_tabs(id, cx);

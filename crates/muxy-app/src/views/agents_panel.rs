@@ -343,13 +343,14 @@ fn header_buttons(detached: bool, model: &AppModel, cx: &mut Context<AppModel>) 
     let button = |id: &'static str, icon: Icon, tooltip: SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             m.icon_xs(),
             m.control_small(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
     };
     let right = model.appearance.agents_panel_dock == AgentsPanelDock::Right;
     let move_dock = button(

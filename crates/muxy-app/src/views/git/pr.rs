@@ -379,6 +379,7 @@ fn merge_removal(
         .child(controls::toggle(
             style,
             "pr-remove-worktree",
+            &tr!("Remove worktree after merge"),
             popover.remove_worktree,
             cx.listener(move |model, _, _, cx| {
                 if enabled {

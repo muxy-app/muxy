@@ -417,13 +417,14 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
     let button = |id: &'static str, icon, tooltip: gpui::SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             metrics.icon_sm(),
             metrics.control_medium(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.surface, theme.fg, theme.border, theme.bg)
+        .tooltip(theme.surface, theme.fg, theme.border, theme.bg)
     };
     Some(
         div()

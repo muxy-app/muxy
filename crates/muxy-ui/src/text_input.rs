@@ -2,9 +2,10 @@ use muxy_core::shortcuts::ShortcutId;
 
 use crate::scrollbar::{MINIMUM_THUMB_LENGTH, TRACK_INSET, ThumbGeometry, WIDTH};
 use crate::theme::{Metrics, Theme};
+use gpui::accesskit::ActionData;
 use gpui::{
-    App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, DispatchPhase, Element,
-    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    AccessibleAction, App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, DispatchPhase,
+    Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, Hsla, InteractiveElement, IntoElement, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render,
     Role, ScrollWheelEvent, ShapedLine, SharedString, Size, StatefulInteractiveElement, Style,
@@ -545,6 +546,10 @@ pub struct TextInput {
     secure: bool,
     /// The English key of the name accessibility clients read, in the app language.
     accessible_label: Option<&'static str>,
+    /// A name that isn't a translation key, such as a dialog's already translated title.
+    accessible_name: Option<SharedString>,
+    /// The stable ID accessibility clients find the input by.
+    accessibility_id: Option<SharedString>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -583,6 +588,8 @@ impl TextInput {
             paste_delegate: None,
             secure: false,
             accessible_label: None,
+            accessible_name: None,
+            accessibility_id: None,
         }
     }
 
@@ -614,9 +621,36 @@ impl TextInput {
 
     /// Names the input for accessibility clients, so dictation and automation
     /// tools find a text field to insert into. Given as a `tr_key!` literal.
+    /// Without it, they read the placeholder.
     pub fn with_accessible_label(mut self, key: &'static str) -> Self {
         self.accessible_label = Some(key);
         self
+    }
+
+    pub fn with_accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.accessibility_id = Some(id.into());
+        self
+    }
+
+    /// Names the input with text that is already translated.
+    pub fn set_accessible_name(&mut self, name: impl Into<SharedString>) {
+        self.accessible_name = Some(name.into());
+    }
+
+    fn accessible_name(&self) -> Option<SharedString> {
+        if self.accessible_name.is_some() {
+            return self.accessible_name.clone();
+        }
+        match self.accessible_label {
+            Some(key) => Some(crate::l10n::translate(key)),
+            None if self.placeholder.is_empty() => None,
+            None if self.placeholder_key => Some(
+                muxy_core::l10n::translate(&self.placeholder)
+                    .into_owned()
+                    .into(),
+            ),
+            None => Some(self.placeholder.clone()),
+        }
     }
 
     pub fn with_key_context(mut self, context: &'static str) -> Self {
@@ -1504,18 +1538,32 @@ impl Focusable for TextInput {
 impl Render for TextInput {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let style = self.style;
-        let role = if self.multiline {
+        let role = if self.secure {
+            Role::PasswordInput
+        } else if self.multiline {
             Role::MultilineTextInput
         } else {
             Role::TextInput
         };
         let mut container = div()
             .id("text-input")
-            .when_some(self.accessible_label, |input, key| {
-                input
-                    .role(role)
-                    .aria_label(crate::l10n::translate(key))
-                    .aria_read_only(true)
+            .role(role)
+            .when_some(
+                self.accessible_name(),
+                StatefulInteractiveElement::aria_label,
+            )
+            .when(!self.secure, |input| input.aria_value(self.content.clone()))
+            .on_a11y_action(AccessibleAction::SetValue, {
+                let input = cx.entity().downgrade();
+                move |data, _, cx| {
+                    if let Some(ActionData::Value(value)) = data {
+                        let value = value.to_string();
+                        let _ = input.update(cx, |input, cx| {
+                            input.set_text(value, cx);
+                            cx.emit(InputEvent::Changed);
+                        });
+                    }
+                }
             })
             .flex()
             .key_context(self.key_context)
@@ -2024,18 +2072,37 @@ mod gpui_regression_tests {
     use gpui::{TestAppContext, VisualTestContext, accesskit};
 
     #[gpui::test]
-    fn only_a_labelled_input_is_published_to_accessibility_clients(cx: &mut TestAppContext) {
-        let (input, cx) = open(cx, "");
+    fn accessibility_clients_read_the_label_or_else_the_placeholder_and_the_value(
+        cx: &mut TestAppContext,
+    ) {
+        let (input, cx) = open(cx, "typed");
         input.update_in(cx, |input, window, cx| {
-            let plain = input.render(window, cx).into_element();
-            assert_eq!(plain.a11y_role(), None);
+            input.set_placeholder("Search");
+            let named = input.render(window, cx).into_element();
+            let mut node = accesskit::Node::new(Role::TextInput);
+            named.write_a11y_info(&mut node);
+            assert_eq!(named.a11y_role(), Some(Role::TextInput));
+            assert_eq!(node.label(), Some("Search"));
+            assert_eq!(node.value(), Some("typed"));
 
             input.accessible_label = Some("Composer");
             let labelled = input.render(window, cx).into_element();
             let mut node = accesskit::Node::new(Role::TextInput);
             labelled.write_a11y_info(&mut node);
-            assert_eq!(labelled.a11y_role(), Some(Role::TextInput));
             assert_eq!(node.label(), Some("Composer"));
+        });
+    }
+
+    #[gpui::test]
+    fn a_secure_input_never_publishes_its_value(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "hunter2");
+        input.update_in(cx, |input, window, cx| {
+            input.secure = true;
+            let secure = input.render(window, cx).into_element();
+            let mut node = accesskit::Node::new(Role::PasswordInput);
+            secure.write_a11y_info(&mut node);
+            assert_eq!(secure.a11y_role(), Some(Role::PasswordInput));
+            assert_eq!(node.value(), None);
         });
     }
 

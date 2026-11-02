@@ -114,6 +114,11 @@ pub(super) fn disclosure(
             IconButton::new(
                 SharedString::from(format!("project-worktrees-toggle-{id}")),
                 if expanded {
+                    tr!("Collapse Worktrees")
+                } else {
+                    tr!("Expand Worktrees")
+                },
+                if expanded {
                     Icon::ChevronDown
                 } else {
                     Icon::ChevronRight
@@ -123,17 +128,7 @@ pub(super) fn disclosure(
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(
-                if expanded {
-                    tr!("Collapse Worktrees")
-                } else {
-                    tr!("Expand Worktrees")
-                },
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();
                 model.toggle_worktree_list(id, cx);

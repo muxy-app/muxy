@@ -307,7 +307,13 @@ impl SettingsView {
         .chain(ai::PROMPTS.iter().map(|(_, id)| (*id, true)))
         {
             let input = cx.new(|cx| {
-                let input = TextInput::new(InputStyle::field(&theme, &metrics), cx);
+                let mut input = TextInput::new(InputStyle::field(&theme, &metrics), cx)
+                    .with_accessibility_id(format!("settings-field-{id}"));
+                if let Some(label) = catalog::control_label(id) {
+                    input = input.with_accessible_label(label);
+                } else if let Some(index) = id.strip_prefix("palette-") {
+                    input.set_accessible_name(muxy_ui::tr!("Palette color %@", index));
+                }
                 if multiline { input.multiline() } else { input }
             });
             let changed = cx.subscribe(&input, move |pane: &mut Self, _, event, cx| {
@@ -732,12 +738,18 @@ impl SettingsView {
         controls::toggle(
             self.style(),
             id,
+            &control_name(id),
             value,
             cx.listener(move |_, _, _, cx| {
                 cx.emit(SettingsEvent::Change(change.clone()));
             }),
         )
     }
+}
+
+/// What accessibility clients read for the control `id`.
+fn control_name(id: &str) -> gpui::SharedString {
+    catalog::control_label(id).map_or_else(Default::default, muxy_ui::l10n::translate)
 }
 
 impl Render for SettingsView {

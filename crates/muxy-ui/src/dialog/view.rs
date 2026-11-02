@@ -1,8 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, PromptButton, Render, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, px,
+    IntoElement, ParentElement, PromptButton, Render, Role, StatefulInteractiveElement, Styled,
+    Subscription, Toggled, Window, div, px,
 };
 
 use super::{Answer, Request};
@@ -49,6 +49,7 @@ impl Dialog {
                 let mut field =
                     TextInput::new(InputStyle::field(&request.theme, &request.metrics), cx);
                 field.set_text(value.clone(), cx);
+                field.set_accessible_name(title.to_owned());
                 field.set_placeholder(placeholder.clone());
                 field
             })
@@ -166,22 +167,31 @@ impl Render for Dialog {
             for (index, label) in picker.items.iter().enumerate() {
                 let selected = picker.selected == index;
                 let weak = cx.entity().downgrade();
-                body = body.child(controls::button(
-                    style,
-                    &format!("dialog-choice-{index}"),
-                    controls::Button::secondary(&format!(
-                        "{} {label}",
-                        if selected { "●" } else { "○" }
-                    )),
-                    move |_, _, cx| {
-                        let _ = weak.update(cx, |view, cx| {
-                            if let Some(picker) = &mut view.request.choices.picker {
-                                picker.selected = index;
-                            }
-                            cx.notify();
-                        });
-                    },
-                ));
+                body = body.child(
+                    controls::button(
+                        style,
+                        &format!("dialog-choice-{index}"),
+                        controls::Button::secondary(&format!(
+                            "{} {label}",
+                            if selected { "●" } else { "○" }
+                        ))
+                        .named(label),
+                        move |_, _, cx| {
+                            let _ = weak.update(cx, |view, cx| {
+                                if let Some(picker) = &mut view.request.choices.picker {
+                                    picker.selected = index;
+                                }
+                                cx.notify();
+                            });
+                        },
+                    )
+                    .role(Role::RadioButton)
+                    .aria_toggled(if selected {
+                        Toggled::True
+                    } else {
+                        Toggled::False
+                    }),
+                );
             }
         }
         for (index, checkbox) in self.request.choices.checkboxes.iter().enumerate() {
@@ -197,6 +207,7 @@ impl Render for Dialog {
                     .child(controls::toggle(
                         style,
                         &format!("dialog-checkbox-{index}"),
+                        &checkbox.label,
                         checked,
                         move |_, _, cx| {
                             if enabled {
@@ -241,6 +252,10 @@ impl Render for Dialog {
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
+                    .id("dialog-card")
+                    .role(Role::Dialog)
+                    .aria_label(self.title.clone())
+                    .aria_description(self.message.clone())
                     .track_focus(&self.focus)
                     .w(px(520.0))
                     .max_w_full()

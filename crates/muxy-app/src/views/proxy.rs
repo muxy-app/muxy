@@ -218,6 +218,7 @@ fn fields(form: &ProxyForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
             controls::segmented(
                 style,
                 "proxy-kind",
+                &tr!("Type"),
                 &[Choice::new("http", "HTTP"), Choice::new("socks5", "SOCKS5")],
                 match form.kind {
                     ProxyKind::Http => "http",
@@ -272,6 +273,7 @@ fn fields(form: &ProxyForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 .child(controls::toggle(
                     style,
                     "proxy-global",
+                    &tr!("Use for the whole app"),
                     form.global,
                     cx.listener(|model, _, _, cx| model.toggle_proxy_form_global(cx)),
                 ))

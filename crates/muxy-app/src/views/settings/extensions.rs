@@ -867,6 +867,7 @@ impl ExtensionsView {
         controls::segmented(
             self.style(),
             "extensions",
+            &tr!("Extensions"),
             &choices,
             if self.tab == Tab::Installed {
                 "installed"

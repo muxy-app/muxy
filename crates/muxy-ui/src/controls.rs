@@ -4,9 +4,10 @@ use crate::text_input::TextInput;
 use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, Corner, Entity, FontWeight, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, SharedString, Styled,
-    Window, anchored, canvas, deferred, div, point, px,
+    AccessibleAction, AnyElement, App, Bounds, ClickEvent, Corner, Entity, FontWeight,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point,
+    Role, SharedString, StatefulInteractiveElement, Styled, Toggled, Window, anchored, canvas,
+    deferred, div, point, px,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -40,6 +41,7 @@ impl Choice {
 pub fn toggle(
     style: Style,
     id: &str,
+    name: &str,
     value: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
@@ -56,6 +58,10 @@ pub fn toggle(
 
     div()
         .id(SharedString::from(format!("settings-toggle-{id}")))
+        .role(Role::Switch)
+        .accessibility_id(format!("settings-toggle-{id}"))
+        .aria_label(name.to_owned())
+        .aria_toggled(toggled(value))
         .debug_selector({
             let selector = format!("settings-toggle-{id}");
             move || selector.clone()
@@ -79,11 +85,16 @@ pub fn toggle(
         .into_any_element()
 }
 
+fn toggled(on: bool) -> Toggled {
+    if on { Toggled::True } else { Toggled::False }
+}
+
 /// A box ticked when `checked`. `mixed` shows a dash instead, for a box that
 /// stands for several where only some are ticked.
 pub fn checkbox(
     style: Style,
     id: &str,
+    name: &str,
     checked: bool,
     mixed: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -92,6 +103,14 @@ pub fn checkbox(
     let on = checked || mixed;
     div()
         .id(SharedString::from(format!("checkbox-{id}")))
+        .role(Role::CheckBox)
+        .accessibility_id(format!("checkbox-{id}"))
+        .aria_label(name.to_owned())
+        .aria_toggled(if mixed && !checked {
+            Toggled::Mixed
+        } else {
+            toggled(checked)
+        })
         .debug_selector({
             let selector = format!("checkbox-{id}");
             move || selector.clone()
@@ -148,6 +167,7 @@ pub enum ButtonKind {
 pub struct Button<'a> {
     kind: ButtonKind,
     label: &'a str,
+    name: Option<&'a str>,
     icon: Option<&'static str>,
     enabled: bool,
 }
@@ -169,9 +189,18 @@ impl<'a> Button<'a> {
         Self {
             kind,
             label,
+            name: None,
             icon: None,
             enabled: true,
         }
+    }
+
+    /// What accessibility clients read when it isn't the label, such as for a
+    /// button that only shows an icon.
+    #[must_use]
+    pub fn named(mut self, name: &'a str) -> Self {
+        self.name = Some(name);
+        self
     }
 
     /// An SF Symbol shown before the label.
@@ -209,6 +238,10 @@ pub fn button(
     };
     div()
         .id(SharedString::from(format!("settings-button-{id}")))
+        .role(Role::Button)
+        .accessibility_id(format!("settings-button-{id}"))
+        .aria_label(button.name.unwrap_or(button.label).to_owned())
+        .aria_disabled(!button.enabled)
         .flex()
         .flex_none()
         .items_center()
@@ -257,6 +290,7 @@ pub fn button(
 pub fn picker(
     style: Style,
     id: &str,
+    name: &str,
     choices: &[Choice],
     selected: &str,
     popover: Option<Entity<Picker>>,
@@ -271,6 +305,7 @@ pub fn picker(
     let field = picker_trigger(
         style,
         id,
+        name,
         &label,
         Some(CONTROL_WIDTH),
         popover.is_some(),
@@ -312,6 +347,7 @@ pub fn picker(
 pub fn picker_trigger(
     style: Style,
     id: &str,
+    name: &str,
     label: &str,
     width: Option<f32>,
     open: bool,
@@ -320,6 +356,11 @@ pub fn picker_trigger(
     let Style { theme, metrics } = style;
     div()
         .id(SharedString::from(format!("settings-picker-{id}")))
+        .role(Role::ComboBox)
+        .accessibility_id(format!("settings-picker-{id}"))
+        .aria_label(name.to_owned())
+        .aria_value(label.to_owned())
+        .aria_expanded(open)
         .flex()
         .flex_row()
         .items_center()
@@ -363,6 +404,7 @@ pub fn picker_trigger(
 pub fn segmented(
     style: Style,
     id: &str,
+    name: &str,
     choices: &[Choice],
     selected: &str,
     on_select: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
@@ -370,6 +412,10 @@ pub fn segmented(
     let Style { theme, metrics } = style;
     let handler = Rc::new(on_select);
     let mut group = div()
+        .id(SharedString::from(format!("settings-segmented-{id}")))
+        .role(Role::RadioGroup)
+        .accessibility_id(format!("settings-segmented-{id}"))
+        .aria_label(name.to_owned())
         .flex()
         .flex_row()
         .flex_none()
@@ -391,6 +437,11 @@ pub fn segmented(
                     "settings-segment-{id}-{}",
                     choice.value
                 )))
+                .role(Role::RadioButton)
+                .accessibility_id(format!("settings-segment-{id}-{}", choice.value))
+                .aria_label(choice.label.clone())
+                .aria_toggled(toggled(is_selected))
+                .aria_disabled(!choice.enabled)
                 .debug_selector({
                     let selector = format!("settings-segment-{id}-{}", choice.value);
                     move || selector.clone()
@@ -452,12 +503,17 @@ pub fn fraction_at(bounds: Bounds<Pixels>, position: Point<Pixels>) -> f32 {
     (f32::from(position.x - bounds.origin.x) / width).clamp(0.0, 1.0)
 }
 
+/// How far a client's step moves a [`slider`], as a fraction of its range.
+const SLIDER_STEP: f32 = 0.05;
+
 pub fn slider(
     style: Style,
     id: &str,
+    name: &str,
     value: f32,
     range: (f32, f32),
     on_grab: impl Fn(&Grab, &mut Window, &mut App) + 'static,
+    on_step: impl Fn(&f32, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let Style { theme, metrics } = style;
     let span = (range.1 - range.0).max(f32::EPSILON);
@@ -467,9 +523,25 @@ pub fn slider(
     let width = metrics.scaled(SLIDER_WIDTH);
     let knob = metrics.scaled(12.0);
     let rail = metrics.scaled(4.0);
+    let on_step = Rc::new(on_step);
+    let on_decrement = on_step.clone();
+    let step = span * SLIDER_STEP;
+    let (min, max) = range;
 
     div()
         .id(SharedString::from(format!("settings-slider-{id}")))
+        .role(Role::Slider)
+        .accessibility_id(format!("settings-slider-{id}"))
+        .aria_label(name.to_owned())
+        .aria_numeric_value(f64::from(value))
+        .aria_min_numeric_value(f64::from(min))
+        .aria_max_numeric_value(f64::from(max))
+        .on_a11y_action(AccessibleAction::Increment, move |_, window, cx| {
+            on_step(&(value + step).min(max), window, cx);
+        })
+        .on_a11y_action(AccessibleAction::Decrement, move |_, window, cx| {
+            on_decrement(&(value - step).max(min), window, cx);
+        })
         .relative()
         .flex()
         .flex_none()
@@ -670,6 +742,46 @@ mod tests {
             cx.dispatch_action(ActivateButton);
         }
         pressed.take()
+    }
+
+    fn node_of(element: &impl gpui::Element) -> (Option<Role>, gpui::accesskit::Node) {
+        let mut node = gpui::accesskit::Node::new(Role::Unknown);
+        element.write_a11y_info(&mut node);
+        (element.a11y_role(), node)
+    }
+
+    #[gpui::test]
+    fn a_button_publishes_its_label_or_the_name_given_for_an_icon(cx: &mut TestAppContext) {
+        cx.update(|_| {
+            let theme = Theme::from_scheme(&ColorScheme::default());
+            let metrics = Metrics::new(1.0);
+            let style = Style {
+                theme: &theme,
+                metrics: &metrics,
+            };
+            let labelled = button(style, "save", Button::primary("Save"), |_, _, _| {});
+            let (role, node) = node_of(&labelled);
+            assert_eq!(role, Some(Role::Button));
+            assert_eq!(node.label(), Some("Save"));
+            assert_eq!(node.author_id(), Some("settings-button-save"));
+            assert!(!node.is_disabled());
+
+            let icon = button(
+                style,
+                "add",
+                Button::secondary("").named("Add").enabled(false),
+                |_, _, _| {},
+            );
+            let (_, node) = node_of(&icon);
+            assert_eq!(node.label(), Some("Add"));
+            assert!(node.is_disabled());
+        });
+    }
+
+    #[test]
+    fn toggled_follows_the_value() {
+        assert_eq!(toggled(true), Toggled::True);
+        assert_eq!(toggled(false), Toggled::False);
     }
 
     #[gpui::test]

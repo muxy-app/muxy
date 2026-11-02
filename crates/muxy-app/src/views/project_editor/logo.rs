@@ -429,6 +429,7 @@ fn render(
             m,
             window.viewport_size(),
             "project-logo-dialog",
+            tr!("Project Logo"),
             width,
         )
         .debug_selector(|| "project-logo-cropper".into())

@@ -70,6 +70,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::segmented(
                 view.style(),
                 "browser-search-engine",
+                &tr!("Search engine"),
                 &choices,
                 engine_id(settings.search_engine),
                 cx.listener(|_, selected: &gpui::SharedString, _, cx| {

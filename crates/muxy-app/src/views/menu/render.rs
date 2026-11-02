@@ -1,9 +1,10 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Bounds, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    MouseMoveEvent, ParentElement, Pixels, Point, SharedString, Size, StatefulInteractiveElement,
-    Styled, Window, div, point, px,
+    MouseMoveEvent, ParentElement, Pixels, Point, Role, SharedString, Size,
+    StatefulInteractiveElement, Styled, Toggled, Window, div, point, px,
 };
+use muxy_ui::accessibility;
 use muxy_ui::components::SymbolGlyph;
 use muxy_ui::popover;
 use muxy_ui::theme::Metrics;
@@ -173,6 +174,7 @@ fn panel(
     let mut panel = popover::surface(theme, m)
         .id(SharedString::from(name.clone()))
         .debug_selector(move || name)
+        .role(Role::Menu)
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_move(cx.listener(|model, event: &MouseMoveEvent, _, _| {
             model.track_menu_pointer(event.position);
@@ -239,7 +241,10 @@ impl Item {
                 .text_size(m.font_footnote())
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.fg_muted)
-                .child(self.label.clone())
+                .child(accessibility::label(
+                    SharedString::from(format!("menu-heading-{level}-{index}")),
+                    self.label.clone(),
+                ))
                 .into_any_element();
         }
         popover::menu_row(
@@ -250,6 +255,23 @@ impl Item {
             highlighted,
         )
         .debug_selector(move || name)
+        .role(if self.checked.is_some() {
+            Role::MenuItemCheckBox
+        } else {
+            Role::MenuItem
+        })
+        .aria_label(self.label.clone())
+        .aria_disabled(!enabled)
+        .when_some(self.checked, |row, checked| {
+            row.aria_toggled(if checked {
+                Toggled::True
+            } else {
+                Toggled::False
+            })
+        })
+        .when(self.submenu_items().is_some(), |row| {
+            row.aria_expanded(highlighted)
+        })
         .font_weight(FontWeight::NORMAL)
         .when(columns.checkmarks, |row| {
             row.child(

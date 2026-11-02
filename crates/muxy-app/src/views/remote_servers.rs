@@ -298,19 +298,14 @@ fn edit_button(
         .child(
             IconButton::new(
                 SharedString::from(format!("remote-server-edit-{id}")),
+                tr!("Edit…"),
                 Icon::Pencil,
                 model.metrics.icon_sm(),
                 model.metrics.control_small(),
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(
-                tr!("Edit…"),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();
                 model.open_server_form(Some(id), cx);
@@ -1093,12 +1088,14 @@ pub(super) fn modal(
     model: &AppModel,
     window: &Window,
     id: &'static str,
+    title: SharedString,
 ) -> gpui::Stateful<gpui::Div> {
     muxy_ui::popover::modal_card(
         &model.theme,
         model.metrics,
         window.viewport_size(),
         id,
+        title,
         model.metrics.scaled(460.0),
     )
     .debug_selector(move || id.into())
@@ -1213,7 +1210,12 @@ pub(crate) fn render_form(
         theme,
     );
     let text = |id: &str, input: &Entity<TextInput>| controls::text_field(style, id, input, None);
-    modal(model, window, "server-form")
+    let heading = if form.device.is_some() {
+        tr!("Edit Remote Server")
+    } else {
+        tr!("Add Remote Server")
+    };
+    modal(model, window, "server-form", heading.clone())
         .key_context("Form")
         .on_action(cx.listener(|model, _: &NextControl, window, cx| {
             if let Some(Overlay::ServerForm(form)) = &model.overlay {
@@ -1225,14 +1227,7 @@ pub(crate) fn render_form(
                 form.advance_focus(true, window, cx);
             }
         }))
-        .child(title(
-            &if form.device.is_some() {
-                tr!("Edit Remote Server")
-            } else {
-                tr!("Add Remote Server")
-            },
-            model,
-        ))
+        .child(title(&heading, model))
         .child(field(&tr!("Name"), text("server-name", &form.name), model))
         .child(field(
             &tr!("Group"),
@@ -1311,6 +1306,7 @@ fn connection_fields(form: &ServerForm, model: &AppModel, cx: &mut Context<AppMo
                 .child(controls::toggle(
                     style,
                     "server-custom-command",
+                    &tr!("Custom command"),
                     form.custom_command,
                     cx.listener(|model, _, _, cx| model.toggle_custom_command(cx)),
                 ))
@@ -1398,6 +1394,7 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
                 .child(controls::toggle(
                     style,
                     "server-password-login",
+                    &tr!("Log in with a password"),
                     form.password_login,
                     cx.listener(|model, _, _, cx| model.toggle_password_login(cx)),
                 ))
@@ -1502,8 +1499,9 @@ pub(crate) fn render_password(
     let error = server
         .and_then(|server| server.error)
         .filter(|_| model.server_failed_login(prompt.server));
-    modal(model, window, "server-password")
-        .child(title(&tr!("Password for %@", &name), model))
+    let heading = tr!("Password for %@", &name);
+    modal(model, window, "server-password", heading.clone())
+        .child(title(&heading, model))
         .child(
             div()
                 .text_size(m.font_footnote())

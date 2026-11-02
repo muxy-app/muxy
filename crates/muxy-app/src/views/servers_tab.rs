@@ -324,13 +324,14 @@ fn icon_button(
         .child(
             IconButton::new(
                 SharedString::from(id),
+                tooltip,
                 icon,
                 model.metrics.icon_sm(),
                 model.metrics.control_small(),
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(on_click),
         )
         .into_any_element()
@@ -507,6 +508,7 @@ fn select_bar(
         .child(controls::checkbox(
             style(model),
             "servers-select-all",
+            &tr!("Select all"),
             all,
             any && !all,
             cx.listener(|model, _, _, cx| model.tick_all_servers(cx)),
@@ -750,6 +752,7 @@ fn row(
                 .child(controls::checkbox(
                     style(model),
                     &format!("server-{id}"),
+                    &tr!("Select %@", server.entry.name.as_str()),
                     selected,
                     false,
                     cx.listener(move |model, event: &ClickEvent, _, cx| {

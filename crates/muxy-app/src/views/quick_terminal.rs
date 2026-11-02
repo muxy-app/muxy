@@ -390,19 +390,14 @@ impl Render for QuickTerminalView {
                     .child(
                         IconButton::new(
                             "quick-terminal-settings",
+                            tr!("Settings"),
                             Icon::Settings,
                             metrics.icon_sm(),
                             metrics.control_medium(),
                             bridge_muted,
                             bridge_foreground,
                         )
-                        .tooltip(
-                            tr!("Settings"),
-                            theme.raised(),
-                            theme.fg,
-                            theme.border,
-                            theme.bg,
-                        )
+                        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_settings, BridgeAction::OpenSettings, cx);
                         }),
@@ -410,6 +405,7 @@ impl Render for QuickTerminalView {
                     .child(
                         IconButton::new(
                             "quick-terminal-pin",
+                            if pinned { tr!("Unpin") } else { tr!("Pin") },
                             Icon::Pin,
                             metrics.icon_sm(),
                             metrics.control_medium(),
@@ -421,13 +417,7 @@ impl Render for QuickTerminalView {
                             bridge_foreground,
                         )
                         .selected(pinned, bridge_control, metrics.radius_sm())
-                        .tooltip(
-                            if pinned { tr!("Unpin") } else { tr!("Pin") },
-                            theme.raised(),
-                            theme.fg,
-                            theme.border,
-                            theme.bg,
-                        )
+                        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_pin, BridgeAction::TogglePin, cx);
                         }),
@@ -435,19 +425,14 @@ impl Render for QuickTerminalView {
                     .child(
                         IconButton::new(
                             "quick-terminal-close",
+                            tr!("Close"),
                             Icon::X,
                             metrics.icon_sm(),
                             metrics.control_medium(),
                             bridge_muted,
                             bridge_foreground,
                         )
-                        .tooltip(
-                            tr!("Close"),
-                            theme.raised(),
-                            theme.fg,
-                            theme.border,
-                            theme.bg,
-                        )
+                        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_close, BridgeAction::Close, cx);
                         }),
@@ -576,6 +561,7 @@ fn confirmation_dialog(
                 metrics,
                 window.viewport_size(),
                 "quick-terminal-confirmation",
+                tr!("Close active terminal?"),
                 metrics.scaled(420.0),
             )
             .child(

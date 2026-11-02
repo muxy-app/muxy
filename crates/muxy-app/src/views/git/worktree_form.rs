@@ -258,6 +258,7 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
             .child(controls::segmented(
                 style,
                 "worktree-location",
+                &tr!("Location"),
                 &[
                     Choice::new("default", tr!("Default")),
                     Choice::new("template", tr!("Template")),
@@ -380,6 +381,7 @@ pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -
                     .child(controls::toggle(
                         style,
                         "worktree-setup",
+                        &tr!("Run these commands after creating the worktree"),
                         form.run_setup,
                         cx.listener(|model, _, _, cx| {
                             if let Some(Overlay::GitForm(form)) = &mut model.overlay {

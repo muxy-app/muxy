@@ -188,7 +188,12 @@ fn render(
             theme.fg_muted,
         ),
     };
-    modal(model, window, "pair-form")
+    let heading = if editing {
+        tr!("Edit Paired Server")
+    } else {
+        tr!("Pair with Another Computer")
+    };
+    modal(model, window, "pair-form", heading.clone())
         .key_context("Form")
         .on_action(cx.listener(|model, _: &NextControl, window, cx| {
             if let Some(Overlay::PairForm(form)) = &model.overlay {
@@ -200,14 +205,7 @@ fn render(
                 form.advance_focus(true, window, cx);
             }
         }))
-        .child(title(
-            &if editing {
-                tr!("Edit Paired Server")
-            } else {
-                tr!("Pair with Another Computer")
-            },
-            model,
-        ))
+        .child(title(&heading, model))
         .child(field(
             &tr!("Pairing Link"),
             text("pair-link", &form.link),

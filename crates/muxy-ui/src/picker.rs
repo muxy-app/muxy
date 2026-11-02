@@ -14,8 +14,8 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
     Hsla, InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, px, relative,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, Role, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Toggled, Window, actions, div, px, relative,
 };
 use std::collections::HashMap;
 
@@ -1113,7 +1113,10 @@ impl Picker {
                 section
                     .w_full()
                     .h(self.metrics.scaled(layout.section_height))
-                    .child(label)
+                    .child(crate::accessibility::label(
+                        SharedString::from(format!("picker-section-{index}")),
+                        label,
+                    ))
                     .into_any_element()
             }
             PickerItem::Row(row) => {
@@ -1166,10 +1169,31 @@ impl Picker {
                                 .hover(|style| style.bg(self.theme.hover))
                         })
                 };
+                let description = [
+                    row.detail.as_ref(),
+                    row.trailing.as_ref(),
+                    row.badge.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                .map(SharedString::as_ref)
+                .collect::<Vec<_>>()
+                .join(", ");
                 let mut content = content
                     .debug_selector({
                         let id = row.id.clone();
                         move || format!("picker-row-{id}")
+                    })
+                    .role(Role::MenuItem)
+                    .accessibility_id(format!("picker-row-{}", row.id))
+                    .aria_label(row.title.clone())
+                    .aria_selected(highlighted)
+                    .aria_disabled(row.disabled)
+                    .when(row.current || row.selected, |element| {
+                        element.aria_toggled(Toggled::True)
+                    })
+                    .when(!description.is_empty(), |element| {
+                        element.aria_description(description)
                     })
                     .group(group.clone())
                     .relative()
@@ -1243,7 +1267,7 @@ impl Picker {
                                 } else {
                                     FontWeight::NORMAL
                                 })
-                                .child(row.title),
+                                .child(row.title.clone()),
                         )
                         .when_some(row.detail, |element, detail| {
                             element.child(
@@ -1321,6 +1345,9 @@ impl Picker {
                             .child(badge),
                     );
                 }
+                // The visible action buttons only draw on hover, and hidden elements
+                // can't be pressed, so clients get their own buttons.
+                let mut hidden_actions = Vec::new();
                 if !row.actions.is_empty() {
                     let mut actions = div()
                         .absolute()
@@ -1342,6 +1369,23 @@ impl Picker {
                         let row_id = row.id.clone();
                         let action_id = action.id.clone();
                         let disabled = action.disabled;
+                        if !disabled {
+                            let picker = cx.entity().downgrade();
+                            let row_id = row_id.clone();
+                            let action_id = action_id.clone();
+                            hidden_actions.push(crate::accessibility::hidden_button(
+                                format!("picker-action-{}-{}", row_id, action_id),
+                                tr!("%@: %@", action.label.as_ref(), row.title.as_ref()),
+                                move |_, cx| {
+                                    let _ = picker.update(cx, |_, cx| {
+                                        cx.emit(PickerEvent::RowAction {
+                                            row: row_id.clone(),
+                                            action: action_id.clone(),
+                                        });
+                                    });
+                                },
+                            ));
+                        }
                         let color = if action.destructive {
                             self.theme.danger
                         } else {
@@ -1399,7 +1443,7 @@ impl Picker {
                                 }),
                         );
                     }
-                    content = content.child(actions);
+                    content = content.child(actions).children(hidden_actions);
                 }
                 let _ = window;
                 div()
@@ -1433,6 +1477,10 @@ impl Picker {
             strip = strip.child(
                 div()
                     .id(SharedString::from(format!("picker-tab-{}", tab.id)))
+                    .role(Role::Tab)
+                    .accessibility_id(format!("picker-tab-{}", tab.id))
+                    .aria_label(tab.label.clone())
+                    .aria_selected(selected)
                     .px(self.metrics.spacing5())
                     .h(self.metrics.scaled(layout.tab_height))
                     .flex()
@@ -1537,6 +1585,7 @@ impl Picker {
             } else {
                 &action.label
             })
+            .named(&action.label)
             .enabled(!action.disabled),
             cx.listener(move |_, _, _, cx| {
                 cx.emit(PickerEvent::FooterAction(action_id.clone()));
@@ -1804,6 +1853,8 @@ impl Render for Picker {
         let mut panel = surface
             .id(self.config.id.clone())
             .debug_selector(|| self.config.id.to_string())
+            .role(Role::Group)
+            .accessibility_id(self.config.id.clone())
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::select_next))
@@ -1852,6 +1903,9 @@ impl Render for Picker {
                         div()
                             .id("picker-back")
                             .debug_selector(|| "picker-back".into())
+                            .role(Role::Button)
+                            .accessibility_id("picker-back")
+                            .aria_label(tr!("Back"))
                             .size(self.metrics.control_small())
                             .flex_none()
                             .flex()

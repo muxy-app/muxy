@@ -25,6 +25,7 @@ pub(super) fn render(
     let button = |id: &'static str, icon, tooltip: SharedString, enabled: bool| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             metrics.icon_md(),
             metrics.control_medium(),
@@ -35,7 +36,7 @@ pub(super) fn render(
             },
             if enabled { theme.fg } else { theme.fg_dim },
         )
-        .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
     };
     let loading = view.page.loading;
     let editing = view.address.focus_handle(cx).is_focused(window);
@@ -401,13 +402,14 @@ pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Opt
     let button = |id: &'static str, icon, tooltip: SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             metrics.icon_sm(),
             metrics.control_medium(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
     };
     let missing = find.found == Some(false);
     Some(

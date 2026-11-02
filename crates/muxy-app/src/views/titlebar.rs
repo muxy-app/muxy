@@ -305,19 +305,14 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         .child(
             muxy_ui::components::IconButton::new(
                 "toggle-sidebar",
+                tr!("Toggle Sidebar"),
                 Icon::PanelLeft,
                 m.font_body(),
                 m.scaled(22.0),
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(
-                tr!("Toggle Sidebar"),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(|model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_sidebar(window, cx);

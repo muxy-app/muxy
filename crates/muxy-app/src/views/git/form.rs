@@ -25,11 +25,17 @@ pub(crate) fn render(
         && (!form.worktree
             || (!form.name.read(cx).text().trim().is_empty()
                 && model.worktree_directory(form, cx).is_ok()));
+    let title = if form.worktree {
+        tr!("New Worktree")
+    } else {
+        tr!("New Branch")
+    };
     let mut view = muxy_ui::popover::modal_card(
         theme,
         m,
         window.viewport_size(),
         "git-form-scroll",
+        title.clone(),
         m.scaled(460.0),
     )
     .debug_selector(|| "git-form".into())
@@ -50,11 +56,7 @@ pub(crate) fn render(
         div()
             .text_size(m.font_headline())
             .font_weight(FontWeight::SEMIBOLD)
-            .child(if form.worktree {
-                tr!("New Worktree")
-            } else {
-                tr!("New Branch")
-            }),
+            .child(title),
     );
     if form.worktree {
         view = view.child(field(
@@ -72,6 +74,7 @@ pub(crate) fn render(
         view = view.child(controls::segmented(
             style,
             "worktree-branch-mode",
+            &tr!("Branch"),
             &choices,
             if form.existing { "existing" } else { "new" },
             cx.listener(|model, value: &SharedString, _, cx| {
@@ -209,6 +212,11 @@ fn branch_picker(
             metrics: &m,
         },
         if base { "git-base" } else { "git-existing" },
+        &if base {
+            tr!("Base branch")
+        } else {
+            tr!("Branch")
+        },
         placeholder.as_ref().map_or(value, SharedString::as_str),
         None,
         form.chooser.is_some(),

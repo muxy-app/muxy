@@ -97,6 +97,7 @@ impl SettingsView {
             .child(controls::picker_trigger(
                 self.style(),
                 kind.id(),
+                &super::control_name(kind.id()),
                 value,
                 (!self.compact).then_some(
                     if matches!(kind, PickerKind::Terminal(id) if id.starts_with("adjust-")) {

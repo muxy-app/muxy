@@ -9,7 +9,7 @@ pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
 use crate::icon::Icon;
 use gpui::{
     App, AppContext, ClickEvent, Context, ElementId, FocusHandle, Hsla, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, SharedString,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, Role, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
@@ -137,12 +137,15 @@ fn svg_layer(icon: Icon, size: Pixels, color: Hsla) -> gpui::Div {
 #[must_use]
 pub struct IconButton {
     id: ElementId,
+    name: SharedString,
+    accessibility_id: Option<SharedString>,
+    expanded: Option<bool>,
     icon: Icon,
     glyph_size: Pixels,
     box_size: Pixels,
     color: Hsla,
     hover_color: Hsla,
-    tooltip: Option<(SharedString, Hsla, Hsla, Hsla, Hsla)>,
+    tooltip: Option<(Hsla, Hsla, Hsla, Hsla)>,
     focus_handle: Option<FocusHandle>,
     selected: Option<(bool, Hsla, Pixels)>,
     on_click: Option<ClickHandler>,
@@ -150,8 +153,11 @@ pub struct IconButton {
 }
 
 impl IconButton {
+    /// `name` is what accessibility clients read and what the tooltip says,
+    /// since the button shows only an icon.
     pub fn new(
         id: impl Into<ElementId>,
+        name: impl Into<SharedString>,
         icon: Icon,
         glyph_size: Pixels,
         box_size: Pixels,
@@ -160,6 +166,9 @@ impl IconButton {
     ) -> Self {
         Self {
             id: id.into(),
+            name: name.into(),
+            accessibility_id: None,
+            expanded: None,
             icon,
             glyph_size,
             box_size,
@@ -173,21 +182,27 @@ impl IconButton {
         }
     }
 
+    /// Shows the name in a tooltip.
     pub fn tooltip(
         mut self,
-        text: impl Into<SharedString>,
         background: Hsla,
         foreground: Hsla,
         border: Hsla,
         theme_background: Hsla,
     ) -> Self {
-        self.tooltip = Some((
-            text.into(),
-            background,
-            foreground,
-            border,
-            theme_background,
-        ));
+        self.tooltip = Some((background, foreground, border, theme_background));
+        self
+    }
+
+    /// The ID accessibility clients see, when the element ID holds a value that
+    /// changes between runs. Otherwise they see the element ID.
+    pub fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.accessibility_id = Some(id.into());
+        self
+    }
+
+    pub fn expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
         self
     }
 
@@ -222,8 +237,15 @@ impl RenderOnce for IconButton {
             .focus_handle
             .as_ref()
             .is_some_and(|focus_handle| focus_handle.is_focused(window));
+        let accessibility_id = self
+            .accessibility_id
+            .unwrap_or_else(|| SharedString::from(self.id.to_string()));
+        let name = self.name;
         let mut button = div()
             .id(self.id)
+            .role(Role::Button)
+            .accessibility_id(accessibility_id)
+            .aria_label(name.clone())
             .group(group.clone())
             .flex()
             .flex_none()
@@ -235,10 +257,14 @@ impl RenderOnce for IconButton {
                 IconGlyph::new(self.icon, self.glyph_size, self.color)
                     .hover_in_group(group, self.hover_color),
             );
-        if let Some((selected, background, radius)) = self.selected
-            && (selected || focused)
-        {
-            button = button.rounded(radius).bg(background);
+        if let Some(expanded) = self.expanded {
+            button = button.aria_expanded(expanded);
+        }
+        if let Some((selected, background, radius)) = self.selected {
+            button = button.aria_selected(selected);
+            if selected || focused {
+                button = button.rounded(radius).bg(background);
+            }
         }
         if let Some(focus_handle) = self.focus_handle {
             let focus_for_mouse = focus_handle.clone();
@@ -262,11 +288,11 @@ impl RenderOnce for IconButton {
                         cx.stop_propagation();
                     });
         }
-        if let Some((text, background, foreground, border, theme_background)) = self.tooltip {
+        if let Some((background, foreground, border, theme_background)) = self.tooltip {
             button = button.tooltip(move |_, cx| {
                 cx.new(|_| {
                     Tooltip::new(
-                        text.clone(),
+                        name.clone(),
                         background,
                         foreground,
                         border,
