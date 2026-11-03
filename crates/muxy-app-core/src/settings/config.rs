@@ -101,6 +101,10 @@ pub enum NewPaneDirectory {
 #[serde(default, deny_unknown_fields)]
 pub struct ProjectSettings {
     pub search_root: Option<PathBuf>,
+    /// Folders the project picker lists but never searches inside, on top of
+    /// the built-in skips. Relative entries are taken from the search root.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub search_skip: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
