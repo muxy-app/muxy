@@ -663,6 +663,7 @@
 "Find in Terminal" = "Find in Terminal";
 "Find in terminal…" = "Find in terminal…";
 "Find on page" = "Find on page";
+"Finder…" = "Finder…";
 "Finding SSH key…" = "Finding SSH key…";
 "Find…" = "Find…";
 "Finished working" = "Finished working";
@@ -1314,6 +1315,7 @@
 "Select All" = "Select All";
 "Select Command Output" = "Select Command Output";
 "Select a local project to browse its saved agent sessions." = "Select a local project to browse its saved agent sessions.";
+"Select a project folder" = "Select a project folder";
 "Select all" = "Select all";
 "Select an element to copy its HTML and text" = "Select an element to copy its HTML and text";
 "Selection" = "Selection";

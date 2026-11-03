@@ -51,6 +51,9 @@ pub(crate) enum PickerEvent {
         create_if_missing: bool,
         home_terminal: bool,
     },
+    ChooseFolder {
+        directory: String,
+    },
     Dismiss,
 }
 
@@ -188,6 +191,7 @@ impl ProjectPicker {
                     ListEvent::FooterAction(action) => match action.as_ref() {
                         "confirm" => project_picker.confirm(false, cx),
                         "secondary-confirm" => project_picker.confirm(true, cx),
+                        "finder" => project_picker.choose_folder(cx),
                         _ => {}
                     },
                     ListEvent::Dismissed => cx.emit(PickerEvent::Dismiss),
@@ -498,7 +502,7 @@ impl ProjectPicker {
             }
             (Purpose::NewTab, None) => vec![tr_key!("Terminal in Home"), add],
         };
-        ["confirm", "secondary-confirm"]
+        let mut actions: Vec<_> = ["confirm", "secondary-confirm"]
             .into_iter()
             .zip(titles)
             .zip(&self.shortcuts)
@@ -507,7 +511,22 @@ impl ProjectPicker {
                 action.shortcut = shortcut.clone().map(Into::into);
                 action.disabled(disabled)
             })
-            .collect()
+            .collect();
+        if self.purpose == Purpose::AddProject && self.remote.is_none() {
+            actions.push(PickerAction::new("finder", crate::opener::browse_label()));
+        }
+        actions
+    }
+
+    fn choose_folder(&self, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            return;
+        }
+        let directory = match self.session.input_mode() {
+            InputMode::FolderSearch => self.session.search_root_path.clone(),
+            InputMode::Path => self.session.path_state().directory_path,
+        };
+        cx.emit(PickerEvent::ChooseFolder { directory });
     }
 
     fn activate(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -835,6 +854,9 @@ impl AppModel {
                     } => {
                         model.confirm_project_path(path, *create_if_missing, cx);
                     }
+                    PickerEvent::ChooseFolder { directory } => {
+                        model.choose_project_folder(PathBuf::from(directory), cx);
+                    }
                     PickerEvent::Dismiss => model.dismiss_overlay(cx),
                 }),
             );
@@ -1080,6 +1102,23 @@ impl AppModel {
         }
     }
 
+    fn choose_project_folder(&mut self, directory: PathBuf, cx: &mut Context<Self>) {
+        if self.dialogs.is_open() {
+            return;
+        }
+        self.dismiss_overlay(cx);
+        self.ask_dialog(
+            self.window,
+            async move |_, cx| folder_prompt(directory, cx).await,
+            |model, response, cx| match response {
+                Ok(Some(path)) => model.open_project_path(path, true, cx),
+                Ok(None) => {}
+                Err(error) => model.fail(error, cx),
+            },
+            cx,
+        );
+    }
+
     pub(crate) fn open_folders_from(
         folders: async_channel::Receiver<Vec<String>>,
         cx: &mut Context<Self>,
@@ -1233,6 +1272,48 @@ async fn create_prompt(
         .await
         .map_err(|error| error.to_string())?;
     Ok(answer.is_some())
+}
+
+#[cfg(not(test))]
+async fn folder_prompt(
+    directory: PathBuf,
+    cx: &mut gpui::AsyncApp,
+) -> Result<Option<PathBuf>, String> {
+    let (sender, receiver) = async_channel::bounded(1);
+    let _dialog = cx
+        .update(|cx| {
+            muxy_ui::dialog::choose_folder(
+                cx,
+                &tr!("Select a project folder"),
+                &directory,
+                move |path| {
+                    let _ = sender.try_send(path);
+                },
+            )
+        })
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    match receiver.recv().await {
+        Ok(answer) => answer.map_err(|error| error.to_string()),
+        Err(_) => Ok(None),
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CHOSEN_FOLDER: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+    pub(crate) static ASKED_FOLDER: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+async fn folder_prompt(
+    directory: PathBuf,
+    _: &mut gpui::AsyncApp,
+) -> Result<Option<PathBuf>, String> {
+    ASKED_FOLDER.set(Some(directory));
+    std::future::ready(Ok(CHOSEN_FOLDER.take())).await
 }
 
 pub(crate) fn display_path(path: &Path) -> String {

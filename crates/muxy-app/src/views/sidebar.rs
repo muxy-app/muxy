@@ -241,6 +241,66 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .into_any_element()
 }
 
+/// The row after the last project, in the list's own layout.
+fn add_project_row(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let m = model.metrics;
+    let theme = &model.theme;
+    let wide = model.appearance.sidebar_expanded;
+    div()
+        .id("add-project")
+        .role(Role::Button)
+        .accessibility_id("add-project")
+        .aria_label(tr!("Add Project"))
+        .debug_selector(|| "add-project".into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .rounded(m.radius_md())
+        .cursor_pointer()
+        .hover(|style| style.bg(theme.hover))
+        .focus(|style| style.bg(theme.hover))
+        .when(wide, |row| {
+            row.p(m.spacing2())
+                .h(tab_sidebar::row_height(model))
+                .gap(m.spacing3())
+        })
+        .when(!wide, |row| {
+            row.justify_center()
+                .size(collapsed_item_size(model))
+                .tooltip(super::status_bar::tooltip(
+                    tr!("Add Project").to_string(),
+                    model,
+                ))
+        })
+        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
+            model.choose_project_source(event.position(), window, cx);
+        }))
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .size(tile_size(model))
+                .rounded(m.radius_md())
+                .bg(theme.surface)
+                .child(IconGlyph::new(Icon::Plus, m.font_body(), theme.fg_muted)),
+        )
+        .when(wide, |row| {
+            row.child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .text_size(m.font_body())
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.fg_muted)
+                    .child(tr!("Add Project")),
+            )
+        })
+        .into_any_element()
+}
+
 /// What a client's press on a row runs. It goes straight to the action, since
 /// the mouse events a press otherwise becomes land on whatever is at the row's
 /// center, and on nothing once the row has scrolled away.
@@ -809,6 +869,9 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                     let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
                     worktrees::group(project, index, shortcut, model, cx)
                 }))
+                .when(!model.appearance.sidebar_focus, |list| {
+                    list.child(add_project_row(model, cx))
+                })
                 .on_children_prepainted(move |bounds, _, _| {
                     measured.borrow_mut().0 = ids
                         .iter()

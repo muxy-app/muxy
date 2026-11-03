@@ -212,8 +212,8 @@ with separate settings and session data.
 
 ## First steps
 
-1. **Add a project.** Choose **Add Project** at the bottom of the sidebar, or
-   press `Cmd+O`, and pick a folder.
+1. **Add a project.** Choose **Add Project** in the sidebar, or press `Cmd+O`,
+   and pick a folder.
 2. **Open a terminal.** `Cmd+T` opens a tab in the project. `Cmd+N` opens one
    in Home.
 3. **Split it.** `Cmd+D` splits right, `Cmd+Shift+D` splits down.
