@@ -208,7 +208,7 @@ impl SettingsView {
         }
         self.results.editable = items
             .iter()
-            .any(|item| !matches!(item, Item::Section(Category::About)));
+            .any(|item| !matches!(item, Item::Section(Category::About | Category::Extensions)));
         if items.is_empty() {
             items.push(Item::Empty);
         }

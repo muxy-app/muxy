@@ -90,6 +90,8 @@ mod tests {
             (Category::About, "", false),
             (Category::About, "version", false),
             (Category::About, "updates", false),
+            (Category::About, "marketplace", false),
+            (Category::General, "marketplace", false),
             (Category::About, "width", true),
             (Category::About, "a", true),
             (Category::About, "no-match", false),
