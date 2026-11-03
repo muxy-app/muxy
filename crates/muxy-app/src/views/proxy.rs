@@ -170,10 +170,10 @@ fn render(
             cx.listener(|model, _: &super::menu::DismissMenu, _, cx| model.dismiss_overlay(cx)),
         )
         .on_action(cx.listener(|model, _: &NextControl, window, cx| {
-            advance_focus(model, false, window, cx);
+            muxy_ui::form::advance_focus_within(&model.overlay_focus, false, window, cx);
         }))
         .on_action(cx.listener(|model, _: &PreviousControl, window, cx| {
-            advance_focus(model, true, window, cx);
+            muxy_ui::form::advance_focus_within(&model.overlay_focus, true, window, cx);
         }))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .w(width)
@@ -194,27 +194,6 @@ fn render(
         .child(fields(form, model, cx))
         .child(actions(model, cx))
         .into_any_element()
-}
-
-/// Stops on the popover's toggles and buttons too, so it walks the window's
-/// tab order and skips what lies outside the popover.
-fn advance_focus(model: &AppModel, backwards: bool, window: &mut Window, cx: &gpui::App) {
-    let advance = |window: &mut Window| {
-        if backwards {
-            window.focus_prev();
-        } else {
-            window.focus_next();
-        }
-    };
-    advance(window);
-    let first = window.focused(cx);
-    while !model.overlay_focus.contains_focused(window, cx) {
-        advance(window);
-        if window.focused(cx) == first {
-            model.overlay_focus.focus(window);
-            break;
-        }
-    }
 }
 
 fn fields(form: &ProxyForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {

@@ -32,7 +32,7 @@ impl AppModel {
             "console" => {
                 self.console(&call);
                 call.reply.send(Ok(Value::Null), cx);
-                if self.settings_window.is_some() {
+                if self.settings_tab.is_some() {
                     cx.notify();
                 }
                 return;

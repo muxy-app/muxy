@@ -431,13 +431,21 @@ impl AppModel {
 
     pub(crate) fn open_quick_terminal_settings(&mut self, cx: &mut Context<Self>) {
         self.hide_quick_terminal(false, cx);
-        self.show_settings(cx);
-        if let Some(settings) = &self.settings_window {
-            settings.view.update(
-                cx,
-                super::super::views::settings::SettingsView::show_quick_terminal,
-            );
-        }
+        let workspace = self.window;
+        let owner = cx.entity();
+        gpui::App::defer(cx, move |cx| {
+            let _ = workspace.update(cx, |_, window, cx| {
+                owner.update(cx, |model, cx| {
+                    model.show_settings(window, cx);
+                    if let Some(settings) = &model.settings_tab {
+                        settings.view.update(
+                            cx,
+                            crate::views::settings::SettingsView::show_quick_terminal,
+                        );
+                    }
+                });
+            });
+        });
     }
 
     pub(super) fn quick_terminal_menu(

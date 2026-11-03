@@ -1,7 +1,9 @@
 # Settings
 
-Open Settings with `Cmd+,`. Use the search box to find a setting. Changes apply
-immediately, and Settings works while the server is offline.
+Open the Settings tab with `Cmd+,`. Opening Settings again selects the existing
+tab. Use the search box to find a setting. Changes apply immediately, and
+Settings works while the server is offline. Close it with the tab’s close button
+or `Cmd+W`; pending edits are saved.
 
 ## Sections
 

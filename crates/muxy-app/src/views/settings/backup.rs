@@ -3,7 +3,7 @@ use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
-use super::{Category, SettingsEvent, SettingsView, window::SettingsWindow};
+use super::{Category, SettingsEvent, SettingsView, tab::SettingsTab};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Action {
@@ -111,7 +111,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     rows
 }
 
-impl SettingsWindow {
+impl SettingsTab {
     #[allow(
         clippy::too_many_lines,
         reason = "Keep background backup actions and their completion handling together"

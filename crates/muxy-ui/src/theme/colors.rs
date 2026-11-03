@@ -67,6 +67,14 @@ impl Theme {
         blend(self.surface, self.bg)
     }
 
+    /// A panel set back from the content beside it. On a light theme it stays
+    /// lighter than `surface` over `bg`, because `border` is only a little darker
+    /// than that and would disappear against anything darker.
+    pub fn sunken(&self) -> Hsla {
+        let alpha = if self.bg.l > 0.5 { 0.03 } else { 0.1 };
+        blend(gpui::hsla(0.0, 0.0, 0.0, alpha), self.bg)
+    }
+
     pub fn border_solid(&self) -> Hsla {
         self.border
     }
@@ -98,5 +106,43 @@ pub fn contrasting_foreground(color: Rgba) -> Rgba {
         rgb(0x00_00_00)
     } else {
         rgb(0xff_ff_ff)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn themes() -> [Theme; 3] {
+        [
+            (0x19_17_1f, 0xc9_c2_d9),
+            (0xff_ff_ff, 0x1a_1a_1a),
+            (0xfa_f9_f5, 0x3d_39_29),
+        ]
+        .map(|(background, foreground)| {
+            Theme::from_scheme(&ColorScheme {
+                background: Some(rgb(background)),
+                foreground: Some(rgb(foreground)),
+                ..ColorScheme::default()
+            })
+        })
+    }
+
+    #[test]
+    fn a_sunken_panel_is_darker_than_the_content() {
+        for theme in themes() {
+            assert!(theme.sunken().l < theme.bg.l);
+        }
+    }
+
+    #[test]
+    fn a_sunken_panel_stands_apart_from_an_active_tab_and_its_borders() {
+        for theme in themes() {
+            let sunken = theme.sunken().l;
+            let from_tab = (sunken - theme.raised().l).abs();
+            let from_border = (sunken - theme.border.l).abs();
+            assert!(from_tab > 0.02, "only {from_tab} from an active tab");
+            assert!(from_border > 0.04, "only {from_border} from a border");
+        }
     }
 }

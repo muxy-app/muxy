@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
+    AnyElement, App, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
     Subscription, WeakEntity, Window, div,
 };
@@ -15,9 +15,7 @@ use crate::model::preferences::Change;
 use crate::views::{
     command_palette::Handler,
     font_picker::{FontEvent, FontPicker},
-    theme_picker,
-    titlebar::BeginWindowMove,
-    workspace,
+    theme_picker, workspace,
 };
 
 pub(crate) enum SettingsOverlay {
@@ -45,24 +43,23 @@ impl SettingsOverlay {
     }
 }
 
-pub(crate) struct SettingsWindow {
+pub(crate) struct SettingsTab {
     pub(super) model: WeakEntity<AppModel>,
     pub(crate) view: Entity<SettingsView>,
     pub(crate) overlay: Option<SettingsOverlay>,
+    pub(crate) overlay_view: Entity<crate::views::cached::CachedView<Self>>,
     overlay_subscription: Option<Subscription>,
-    #[cfg(target_os = "macos")]
-    window_drag: Option<muxy_ui::window_drag::WindowDrag>,
+    active: bool,
     _subscriptions: Vec<Subscription>,
 }
 
-impl SettingsWindow {
+impl SettingsTab {
     pub(crate) fn new(
         model: WeakEntity<AppModel>,
         view: Entity<SettingsView>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        view.read(cx).focus.focus(window);
         let events = cx.subscribe_in(&view, window, |root: &mut Self, _, event, window, cx| {
             root.handle_event(event, window, cx);
         });
@@ -97,9 +94,13 @@ impl SettingsWindow {
             }
             cx.notify();
         });
-        let focus_lost = cx.on_focus_lost(window, |root, window, cx| root.focus(window, cx));
+        let focus_lost = cx.on_focus_lost(window, |root: &mut Self, window, cx| {
+            if root.active {
+                root.focus(window, cx);
+            }
+        });
         let activation = cx.observe_window_activation(window, |root, window, cx| {
-            if window.is_window_active() {
+            if window.is_window_active() && root.active {
                 root.reload_terminal(cx);
             } else {
                 root.view.update(cx, |view, cx| {
@@ -122,21 +123,26 @@ impl SettingsWindow {
             model,
             view,
             overlay: None,
+            overlay_view: crate::views::cached::CachedView::new(|root, _, cx| root.overlay(cx), cx),
             overlay_subscription: None,
-            #[cfg(target_os = "macos")]
-            window_drag: muxy_ui::window_drag::WindowDrag::new(&window.window_title()),
+            active: false,
             _subscriptions: subscriptions,
         }
     }
 
-    pub(crate) fn focus(&self, window: &mut Window, cx: &Context<Self>) {
+    pub(crate) fn focus(&self, window: &mut Window, cx: &App) {
         match &self.overlay {
             Some(SettingsOverlay::Themes { picker, .. }) => picker.focus_handle(cx).focus(window),
             Some(SettingsOverlay::Fonts { picker, .. }) => picker.focus_handle(cx).focus(window),
             Some(SettingsOverlay::Providers { picker, .. }) => {
                 picker.focus_handle(cx).focus(window);
             }
-            None => self.view.read(cx).focus.focus(window),
+            None => {
+                let focus = &self.view.read(cx).focus;
+                if !focus.contains_focused(window, cx) {
+                    focus.focus(window);
+                }
+            }
         }
     }
 
@@ -504,11 +510,33 @@ impl SettingsWindow {
         });
     }
 
-    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let _ = self.model.update(cx, |model, cx| {
-            model.settings_closed(cx);
+    pub(crate) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.active == active {
+            return;
+        }
+        self.active = active;
+        let root = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = root.update(cx, |root, cx| {
+                if root.active {
+                    root.reload_terminal(cx);
+                } else {
+                    root.overlay = None;
+                    root.overlay_subscription = None;
+                    root.view.update(cx, SettingsView::cancel_quick_recording);
+                    let _ = root.model.update(cx, AppModel::flush_preferences);
+                }
+                cx.notify();
+            });
         });
-        window.remove_window();
+    }
+
+    fn close(&mut self, cx: &mut Context<Self>) {
+        let _ = self.model.update(cx, |model, cx| {
+            if let Some((_, tab)) = model.state.settings_tab() {
+                model.close_tab(tab, cx);
+            }
+        });
     }
 
     fn handle_event(&mut self, event: &SettingsEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -635,7 +663,8 @@ impl SettingsWindow {
             SettingsOverlay::Providers { picker, .. } => picker.clone().into_any_element(),
         };
         let picker = pickers::dropdown(picker, overlay.source().clone(), cx);
-        div()
+        Self::actions(cx)
+            .id("settings-tab-picker")
             .absolute()
             .top_0()
             .left_0()
@@ -664,45 +693,13 @@ impl SettingsWindow {
             .child(picker)
             .into_any_element()
     }
-}
 
-impl Render for SettingsWindow {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        #[cfg(not(target_os = "linux"))]
-        let _ = window;
-        let root = div()
-            .id("settings-window")
-            .key_context("SettingsWindow")
-            .relative()
-            .size_full()
-            .overflow_hidden()
-            .on_action(
-                cx.listener(|root, _: &super::CloseSettings, window, cx| root.close(window, cx)),
-            )
+    fn actions(cx: &Context<Self>) -> gpui::Div {
+        div()
+            .key_context("SettingsTab")
+            .on_action(cx.listener(|root, _: &super::CloseSettings, _, cx| root.close(cx)))
             .on_action(
                 cx.listener(|root, _: &workspace::OpenSettings, window, cx| root.focus(window, cx)),
-            )
-            .on_action(cx.listener(|root, _: &workspace::Quit, _, cx| {
-                let _ = root.model.update(cx, AppModel::quit);
-            }))
-            .on_action(cx.listener(|root, _: &workspace::CheckForUpdates, _, cx| {
-                let _ = root
-                    .model
-                    .update(cx, |model, cx| model.check_for_updates(true, cx));
-            }))
-            .on_action(
-                cx.listener(|root, _: &workspace::EndAllSessionsAndQuit, _, cx| {
-                    let _ = root.model.update(cx, AppModel::end_all_and_quit);
-                }),
-            )
-            .on_action(
-                cx.listener(|_, _: &workspace::Minimize, window, _| window.minimize_window()),
-            )
-            .on_action(cx.listener(|_, _: &workspace::Zoom, window, _| window.zoom_window()))
-            .on_action(
-                cx.listener(|_, _: &workspace::ToggleFullScreen, window, _| {
-                    window.toggle_fullscreen();
-                }),
             )
             .on_action(
                 cx.listener(|root, _: &workspace::OpenConfiguration, _, cx| {
@@ -710,51 +707,16 @@ impl Render for SettingsWindow {
                     root.open_configuration(file, cx);
                 }),
             )
-            .on_action(cx.listener(|root, _: &BeginWindowMove, window, _| {
-                #[cfg(not(target_os = "macos"))]
-                let _ = root;
-                #[cfg(target_os = "macos")]
-                let _ = &window;
-                #[cfg(target_os = "macos")]
-                if let Some(drag) = &root.window_drag {
-                    drag.begin();
-                }
-                #[cfg(not(target_os = "macos"))]
-                window.start_window_move();
-            }))
+    }
+}
+
+impl Render for SettingsTab {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        Self::actions(cx)
+            .id("settings-tab")
+            .relative()
+            .size_full()
+            .overflow_hidden()
             .child(self.view.clone())
-            .child(crate::views::titlebar::overlay(self.overlay(cx), window));
-        #[cfg(target_os = "linux")]
-        let root = {
-            let view = self.view.read(cx);
-            root.children(
-                crate::views::titlebar::linux::controls(
-                    window,
-                    &view.theme,
-                    cx.listener(|root, _, window, cx| root.close(window, cx)),
-                )
-                .map(|controls| {
-                    div()
-                        .absolute()
-                        .right_0()
-                        .top_0()
-                        .h(gpui::px(32.0))
-                        .flex()
-                        .items_center()
-                        .child(controls)
-                }),
-            )
-        };
-        #[cfg(target_os = "linux")]
-        let root = {
-            let view = self.view.read(cx);
-            crate::views::titlebar::frame::render(
-                root,
-                &view.theme,
-                (!view.compact).then_some((gpui::px(248.0), view.theme.raised())),
-                window,
-            )
-        };
-        root
     }
 }

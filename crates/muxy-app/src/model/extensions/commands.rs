@@ -223,9 +223,9 @@ impl AppModel {
                 registry.register(item);
             }
         }
-        let manage: Handler = std::rc::Rc::new(|model, _, cx| {
-            model.show_settings(cx);
-            if let Some(settings) = &model.settings_window {
+        let manage: Handler = std::rc::Rc::new(|model, window, cx| {
+            model.show_settings(window, cx);
+            if let Some(settings) = &model.settings_tab {
                 settings
                     .view
                     .update(cx, crate::views::settings::SettingsView::show_extensions);

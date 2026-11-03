@@ -130,8 +130,8 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
 
 ## Settings
 
-- Settings is one window, separate from projects. It works while offline, and
-  changes apply immediately.
+- Settings opens in a single tab, like Devices. Opening it again selects the
+  existing tab. It works while offline, and changes apply immediately.
 - App preferences live in `settings.toml`, terminal preferences in
   `terminal.toml`, and custom themes in `themes/`.
 - Every app shortcut can be changed in Settings → Keyboard. Terminal key

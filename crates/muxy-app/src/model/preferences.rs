@@ -1,14 +1,11 @@
-use gpui::{
-    AppContext, Bounds, Context, Entity, TitlebarOptions, Window, WindowBounds, WindowHandle,
-    WindowOptions, point, px, size,
-};
+use gpui::{AppContext, Context, Entity, Subscription, Window};
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::TerminalEdit;
 use muxy_ui::tr;
 
 use super::{AppModel, Overlay, Quitting};
 use crate::boot::Work;
-use crate::views::settings::window::SettingsWindow;
+use crate::views::settings::tab::SettingsTab;
 use crate::views::settings::{SettingsView, Snapshot};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -128,9 +125,12 @@ pub(super) struct ServerPreferences {
     pub(super) pending: std::collections::VecDeque<Change>,
 }
 
-pub(crate) struct SettingsWindowState {
-    pub(crate) window: WindowHandle<SettingsWindow>,
+pub(crate) struct SettingsTabState {
+    pub(crate) root: Entity<SettingsTab>,
     pub(crate) view: Entity<SettingsView>,
+    pub(crate) overlay: Entity<crate::views::cached::CachedView<SettingsTab>>,
+    overlay_open: bool,
+    _subscription: Subscription,
 }
 
 pub(super) struct TerminalPreview {
@@ -146,36 +146,57 @@ pub(super) struct TerminalBackground {
 }
 
 impl AppModel {
-    pub(crate) fn open_settings(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.show_settings(cx);
+    pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_settings(window, cx);
     }
 
     /// Opens Settings at Browser, where profiles are managed.
-    pub(crate) fn show_browser_settings(&mut self, cx: &mut Context<Self>) {
-        self.show_settings(cx);
-        if let Some(settings) = &self.settings_window {
+    pub(crate) fn show_browser_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_settings(window, cx);
+        if let Some(settings) = &self.settings_tab {
             settings.view.update(cx, SettingsView::show_browser);
         }
     }
 
-    pub(super) fn show_settings(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle || self.dialogs.is_open() {
+            return;
+        }
+        let project = self.state.current_project().id;
+        match self.transact(
+            |state| state.show_settings_tab(project, &tr!("Settings")),
+            cx,
+        ) {
+            Ok(Some(_)) => {}
+            Ok(None) => return,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
+        }
+        self.dismiss_overlay(cx);
+        self.changed(cx);
+        self.ensure_settings_tab(window, cx);
+        self.focus_active(window, cx);
+        self.focus_owner.settle();
+        window.activate_window();
+    }
+
+    pub(crate) fn ensure_settings_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.settings_tab().is_none() {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            let active = self
+                .active_pane()
+                .is_some_and(|pane| self.state.is_settings_pane(pane));
+            settings
+                .root
+                .update(cx, |root, cx| root.set_active(active, cx));
             return;
         }
         self.refresh_browser_profiles();
         self.browsers.import_sources = Self::browser_import_sources();
-        if let Some(settings) = &self.settings_window
-            && settings
-                .window
-                .update(cx, |root, window, cx| {
-                    window.activate_window();
-                    root.focus(window, cx);
-                })
-                .is_ok()
-        {
-            return;
-        }
-        self.settings_window = None;
         let snapshot = self.preferences_snapshot();
         self.refresh_theme(cx);
         let model = cx.weak_entity();
@@ -200,59 +221,49 @@ impl AppModel {
         });
         let weak = cx.weak_entity();
         let content = view.clone();
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(1040.0), px(780.0)),
-                cx,
-            ))),
-            window_min_size: Some(size(px(740.0), px(480.0))),
-            #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Client),
-            #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
-            is_movable: !cfg!(target_os = "macos"),
-            titlebar: Some(TitlebarOptions {
-                title: Some(tr!("Muxy Settings")),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(14.0), px(16.0))),
-            }),
-            ..crate::window_options()
-        };
-        match cx.open_window(options, move |window, cx| {
-            #[cfg(target_os = "linux")]
-            window.set_window_title(&tr!("Muxy Settings"));
-            let model = weak.clone();
-            window.on_window_should_close(cx, move |_, cx| {
-                let _ = model.update(cx, |model, cx| {
-                    model.settings_closed(cx);
-                });
-                true
-            });
-            cx.new(|cx| SettingsWindow::new(weak, content, window, cx))
-        }) {
-            Ok(window) => {
-                self.settings_window = Some(SettingsWindowState { window, view });
-                self.dismiss_overlay(cx);
-                self.read_server_settings(cx);
-                self.read_remote_access(cx);
+        let active = self
+            .active_pane()
+            .is_some_and(|pane| self.state.is_settings_pane(pane));
+        let root = cx.new(|cx| SettingsTab::new(weak, content, window, cx));
+        root.update(cx, |root, cx| root.set_active(active, cx));
+        let overlay = root.read(cx).overlay_view.clone();
+        let subscription = cx.observe(&root, |model, root, cx| {
+            let open = root.read(cx).overlay.is_some();
+            if let Some(settings) = &mut model.settings_tab
+                && settings.overlay_open != open
+            {
+                settings.overlay_open = open;
+                cx.notify();
             }
-            Err(error) => {
-                self.fail(
-                    tr!("Could not open Settings: %@", error.to_string()).to_string(),
-                    cx,
-                );
-            }
+        });
+        self.settings_tab = Some(SettingsTabState {
+            root,
+            view,
+            overlay,
+            overlay_open: false,
+            _subscription: subscription,
+        });
+        if active {
+            self.focus_owner.request_active_pane();
+        }
+        self.read_server_settings(cx);
+    }
+
+    pub(super) fn sync_settings_tab(&mut self, cx: &mut Context<Self>) {
+        if self.settings_tab.is_some() && self.state.settings_tab().is_none() {
+            self.record_quick_shortcut(false, cx);
+            self.flush_preferences(cx);
+            self.settings_tab = None;
         }
     }
 
-    pub(crate) fn settings_closed(&mut self, cx: &mut Context<Self>) {
-        self.record_quick_shortcut(false, cx);
-        self.flush_preferences(cx);
-        if let Some(settings) = self.settings_window.take() {
-            self.window_closed(settings.window.into(), cx);
-        }
-        cx.notify();
+    pub(crate) fn settings_picker_open(&self) -> bool {
+        self.settings_tab
+            .as_ref()
+            .is_some_and(|settings| settings.overlay_open)
+            && self
+                .active_pane()
+                .is_some_and(|pane| self.state.is_settings_pane(pane))
     }
 
     fn preferences_snapshot(&self) -> Snapshot {
@@ -310,7 +321,7 @@ impl AppModel {
 
     pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) {
         let changes = self
-            .settings_window
+            .settings_tab
             .as_ref()
             .map_or_else(Vec::new, |settings| {
                 settings.view.update(cx, |view, cx| view.take_changes(cx))
@@ -333,7 +344,7 @@ impl AppModel {
     }
 
     pub(super) fn sync_preferences(&self, cx: &mut Context<Self>) {
-        if let Some(settings) = &self.settings_window {
+        if let Some(settings) = &self.settings_tab {
             settings.view.update(cx, |view, cx| {
                 view.sync(self.preferences_snapshot(), self.theme.clone(), cx);
             });
@@ -341,7 +352,7 @@ impl AppModel {
     }
 
     pub(crate) fn preference_result(&self, id: &str, error: Option<&str>, cx: &mut Context<Self>) {
-        if let Some(settings) = &self.settings_window {
+        if let Some(settings) = &self.settings_tab {
             settings
                 .view
                 .update(cx, |view, cx| view.set_error(id, error, cx));

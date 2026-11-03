@@ -77,13 +77,20 @@ impl Coverage {
 
 impl AppModel {
     pub(crate) fn coverage(&self) -> Coverage {
-        let overlay = self.overlay.as_ref().map(|overlay| {
-            if overlay.mark(self).is_some() {
-                OverlayLayer::Marked
-            } else {
-                OverlayLayer::Unmarked
-            }
-        });
+        let overlay = self
+            .overlay
+            .as_ref()
+            .map(|overlay| {
+                if overlay.mark(self).is_some() {
+                    OverlayLayer::Marked
+                } else {
+                    OverlayLayer::Unmarked
+                }
+            })
+            .or_else(|| {
+                self.settings_picker_open()
+                    .then_some(OverlayLayer::Unmarked)
+            });
         let settings = &self.settings.composer;
         let composer = if settings.presentation == ComposerPresentation::Floating {
             (self.composer.view.is_some() || self.composer.closing.is_some())

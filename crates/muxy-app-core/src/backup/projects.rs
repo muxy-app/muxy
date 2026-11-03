@@ -227,6 +227,7 @@ impl AppState {
         }
         restored.ensure_home()?;
         restored.focus_selected_tab();
+        restored.retain_one_settings_pane()?;
         restored.validate()?;
         Ok(restored)
     }
@@ -290,6 +291,7 @@ impl AppState {
         merged.retain_workspace_members();
         merged.ensure_home()?;
         merged.focus_selected_tab();
+        merged.retain_one_settings_pane()?;
         merged.validate()?;
         Ok(merged)
     }

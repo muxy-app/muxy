@@ -221,6 +221,14 @@ impl AppModel {
         self.blur_webviews(cx);
         if self
             .active_pane()
+            .is_some_and(|pane| self.state.is_settings_pane(pane))
+            && let Some(settings) = &self.settings_tab
+        {
+            settings.root.read(cx).focus(window, cx);
+            return;
+        }
+        if self
+            .active_pane()
             .is_some_and(|pane| self.state.is_servers_pane(pane))
         {
             if !self.servers_tab.focus.contains_focused(window, cx) {
@@ -517,6 +525,7 @@ impl Render for AppModel {
             let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceSyncWebviews);
             self.sync_webviews(window, cx);
         }
+        self.ensure_settings_tab(window, cx);
         self.prepare_workspace(window, cx);
         self.sync_project_logos(window, cx);
         #[cfg(all(target_os = "macos", not(test)))]
@@ -602,6 +611,16 @@ impl Render for AppModel {
             .child(self.floating_composer(window, cx))
             .children(super::banners::render(self, window, cx))
             .children(super::agents_panel::floating(self, window, cx))
+            .when(
+                self.settings_picker_open() && self.overlay.is_none(),
+                |body| {
+                    body.children(
+                        self.settings_tab
+                            .as_ref()
+                            .map(|settings| titlebar::overlay(settings.overlay.clone(), window)),
+                    )
+                },
+            )
             .child(titlebar::overlay(overlays::layer(self, window, cx), window))
             .child(self.apply_webview_regions(cx));
         #[cfg(target_os = "linux")]

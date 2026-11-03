@@ -448,7 +448,6 @@
 "Could not load themes from %@: %@" = "Could not load themes from %@: %@";
 "Could not mark activity read: %@" = "Could not mark activity read: %@";
 "Could not open %@: %@" = "Could not open %@: %@";
-"Could not open Settings: %@" = "Could not open Settings: %@";
 "Could not open a copy: %@" = "Could not open a copy: %@";
 "Could not open file: %@" = "Could not open file: %@";
 "Could not open link: %@" = "Could not open link: %@";
@@ -912,7 +911,6 @@
 "Muxy 1.x was imported. Check these items:" = "Muxy 1.x was imported. Check these items:";
 "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@" = "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@";
 "Muxy Quick Terminal" = "Muxy Quick Terminal";
-"Muxy Settings" = "Muxy Settings";
 "Muxy Update" = "Muxy Update";
 "Muxy can open copies only of files in %@'s projects and Home." = "Muxy can open copies only of files in %@'s projects and Home.";
 "Muxy is already running but did not answer: %@" = "Muxy is already running but did not answer: %@";

@@ -12,9 +12,9 @@ mod pickers;
 mod quick_terminal;
 mod results;
 mod server;
+pub(crate) mod tab;
 mod terminal;
 mod terminal_lists;
-pub(crate) mod window;
 
 pub(crate) use ai::prompt_action;
 pub(crate) use pickers::{PickerAnchor, PickerKind, PickerRequest};
@@ -841,7 +841,6 @@ impl Render for SettingsView {
             .flex()
             .overflow_hidden()
             .bg(self.theme.bg)
-            .map(|view| super::titlebar::top_corners(view, window, true, true))
             .text_color(self.theme.fg)
             .text_size(self.metrics.font_body())
             .child(
