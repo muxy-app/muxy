@@ -1,4 +1,4 @@
-use super::preferences::settings_window;
+use super::preferences::settings_tab;
 use super::servers::{connect_remote, entry, page, work};
 use super::*;
 use crate::views::settings::SettingsEvent;
@@ -253,7 +253,7 @@ fn settings_server_control_stays_on_this_computer_while_a_remote_project_is_open
     let remote = ServerId::new();
     let (boot, local_work, remotes) = boot_with(vec![entry(remote, "box")]);
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, cx) = settings_window(boot, cx);
+    let (view, cx) = settings_tab(boot, cx);
     view.update(cx, |model, cx| {
         connect_local(model, cx);
         let api = ProjectId::new();
@@ -271,12 +271,7 @@ fn settings_server_control_stays_on_this_computer_while_a_remote_project_is_open
     work(&remote_work);
     work(&local_work);
     let settings = view.read_with(cx, |model, _| {
-        model
-            .settings_window
-            .as_ref()
-            .expect("settings")
-            .view
-            .clone()
+        model.settings_tab.as_ref().expect("settings").view.clone()
     });
     settings.update(cx, |_, cx| {
         cx.emit(SettingsEvent::ServerControl { restart: false });

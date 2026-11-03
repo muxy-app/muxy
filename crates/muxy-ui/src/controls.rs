@@ -4,7 +4,7 @@ use crate::text_input::TextInput;
 use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AccessibleAction, AnyElement, App, Bounds, ClickEvent, Corner, Entity, FontWeight,
+    AccessibleAction, AnyElement, App, Bounds, ClickEvent, Corner, Entity, Focusable, FontWeight,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point,
     Role, SharedString, StatefulInteractiveElement, Styled, Toggled, Window, anchored, canvas,
     deferred, div, point, px,
@@ -662,7 +662,19 @@ pub fn text_field(
             Some(width) => element.flex_none().w(metrics.scaled(width)),
             None => element.flex_grow().min_w(px(0.0)),
         })
-        .on_mouse_down_out(|_, window, _| window.blur())
+        .on_mouse_down_out({
+            let input = input.clone();
+            move |_, window, cx| {
+                // After the press, so whatever it landed on still sees the keyboard
+                // where it was, and can take it from this field.
+                let focus = input.focus_handle(cx);
+                window.defer(cx, move |window, _| {
+                    if focus.is_focused(window) {
+                        window.blur();
+                    }
+                });
+            }
+        })
         .child(crate::text_input::growing_input(input))
         .into_any_element()
 }

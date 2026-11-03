@@ -89,14 +89,16 @@ fn startup_checks_disabled_packages_after_loading_and_excludes_developer_folders
 #[gpui::test]
 fn opening_extensions_settings_refreshes_available_updates(cx: &mut TestAppContext) {
     let (_root, model, cx) = open_model(None, cx);
-    model.update(cx, |model, cx| {
-        model.extensions.checks.resolve = Some(|names| Ok(newer(names)));
-        model.show_settings(cx);
+    cx.update(|window, cx| {
+        model.update(cx, |model, cx| {
+            model.extensions.checks.resolve = Some(|names| Ok(newer(names)));
+            model.show_settings(window, cx);
+        });
     });
     cx.run_until_parked();
     let settings = model.read_with(cx, |model, _| {
         assert!(model.extensions.checks.available.is_empty());
-        model.settings_window.as_ref().unwrap().view.clone()
+        model.settings_tab.as_ref().unwrap().view.clone()
     });
     settings.update(cx, SettingsView::show_extensions);
     pump_until(cx, |cx| {

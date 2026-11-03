@@ -134,7 +134,7 @@ impl SettingsView {
 pub(crate) fn dropdown(
     picker: gpui::AnyElement,
     source: PickerRequest,
-    cx: &mut Context<super::window::SettingsWindow>,
+    cx: &mut Context<super::tab::SettingsTab>,
 ) -> gpui::AnyElement {
     let model = cx.weak_entity();
     muxy_ui::popover::anchored_popover(
@@ -148,7 +148,7 @@ pub(crate) fn dropdown(
                 if model
                     .overlay
                     .as_ref()
-                    .map(super::window::SettingsOverlay::source)
+                    .map(super::tab::SettingsOverlay::source)
                     .is_some_and(|current| current.kind == source.kind)
                 {
                     model.dismiss_overlay(window, cx);

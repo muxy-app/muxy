@@ -586,6 +586,15 @@ fn pane_element(
 }
 
 fn pane_content(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    if model.state.is_settings_pane(id)
+        && let Some(settings) = &model.settings_tab
+    {
+        return div()
+            .size_full()
+            .capture_any_mouse_down(cx.listener(move |model, _, _, cx| model.focus_pane(id, cx)))
+            .child(settings.root.clone())
+            .into_any_element();
+    }
     if !model.grids.contains_key(&id) && model.state.is_servers_pane(id) {
         return super::servers_tab::render(id, model, cx);
     }

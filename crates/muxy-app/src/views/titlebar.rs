@@ -142,7 +142,16 @@ pub(crate) fn begin_window_move(
         drag.begin();
     }
     #[cfg(not(target_os = "macos"))]
+    start_window_move(window);
+}
+
+/// The test platform has no window to move.
+#[cfg(not(target_os = "macos"))]
+fn start_window_move(window: &Window) {
+    #[cfg(not(test))]
     window.start_window_move();
+    #[cfg(test)]
+    let _ = window;
 }
 
 pub(crate) fn background(id: &'static str) -> Stateful<Div> {

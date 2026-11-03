@@ -170,7 +170,7 @@ pub(crate) struct AppModel {
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
-    pub(crate) settings_window: Option<preferences::SettingsWindowState>,
+    pub(crate) settings_tab: Option<preferences::SettingsTabState>,
     pane_runtime: HashMap<PaneId, pane_runtime::PaneRuntime>,
     terminal_preview: Option<preferences::TerminalPreview>,
     terminal_background: preferences::TerminalBackground,
@@ -579,7 +579,7 @@ impl AppModel {
             pending_folders: Vec::new(),
             remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
-            settings_window: None,
+            settings_tab: None,
             pane_runtime: HashMap::new(),
             terminal_preview: None,
             terminal_background: preferences::TerminalBackground::default(),
@@ -1702,6 +1702,7 @@ impl AppModel {
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
         self.sync_devices_tab(false, cx);
+        self.sync_settings_tab(cx);
         self.sync_git(cx);
         self.sync_references(cx);
         self.refresh_existing_sessions(cx);
@@ -2169,7 +2170,7 @@ impl AppModel {
         }
         self.discard_pending(server, cx);
         self.refresh_catalog(server, cx);
-        if server.is_local() && self.settings_window.is_some() {
+        if server.is_local() && self.settings_tab.is_some() {
             self.read_server_settings(cx);
         }
         if server.is_local() {

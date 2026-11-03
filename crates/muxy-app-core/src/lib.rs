@@ -26,6 +26,7 @@ pub mod qr;
 pub mod restore;
 mod servers;
 mod set_aside;
+mod settings_tab;
 mod state;
 pub mod store;
 mod tab;

@@ -39,14 +39,12 @@ type Show =
 struct Waiting {
     id: DialogId,
     question: Option<Question>,
-    window: AnyWindowHandle,
     show: Show,
 }
 
 struct Open {
     id: DialogId,
     question: Option<Question>,
-    window: AnyWindowHandle,
     /// Closes the dialog from inside its task, so the dialog is gone before
     /// the next one opens on the same window.
     dismiss: async_channel::Sender<()>,
@@ -140,12 +138,9 @@ impl AppModel {
                 });
             })
         });
-        self.dialogs.waiting.push_back(Waiting {
-            id,
-            question,
-            window,
-            show,
-        });
+        self.dialogs
+            .waiting
+            .push_back(Waiting { id, question, show });
         self.show_next_dialog(cx);
         id
     }
@@ -160,20 +155,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// `window` closed: its dialogs go unanswered.
-    pub(crate) fn window_closed(&mut self, window: AnyWindowHandle, cx: &mut Context<Self>) {
-        self.dialogs
-            .waiting
-            .retain(|waiting| waiting.window != window);
-        let open = self.dialogs.open.as_ref();
-        if let Some(id) = open
-            .filter(|open| open.window == window)
-            .map(|open| open.id)
-        {
-            self.dismiss_dialog(id, cx);
-        }
-    }
-
     fn show_next_dialog(&mut self, cx: &mut Context<Self>) {
         if self.dialogs.is_open() {
             return;
@@ -184,7 +165,6 @@ impl AppModel {
             self.dialogs.open = Some(Open {
                 id: next.id,
                 question: next.question,
-                window: next.window,
                 dismiss,
                 _task: task,
             });

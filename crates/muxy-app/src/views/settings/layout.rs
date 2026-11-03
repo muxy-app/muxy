@@ -10,7 +10,6 @@ use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::{controls, navigation, tr};
 
 use super::{Category, SettingsEvent, SettingsView};
-use crate::views::titlebar;
 
 impl Category {
     fn sections(self) -> &'static [&'static str] {
@@ -182,14 +181,16 @@ impl SettingsView {
         categories.into_any_element()
     }
 
-    fn titlebar(&self, id: &'static str) -> gpui::Stateful<gpui::Div> {
+    fn header_background(&self, id: &'static str) -> gpui::Stateful<gpui::Div> {
         let focus = self.focus.clone();
-        titlebar::background(id).on_mouse_down(gpui::MouseButton::Left, move |_, window, _| {
-            focus.focus(window);
-        })
+        div()
+            .id(id)
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, _| {
+                focus.focus(window);
+            })
     }
 
-    pub(super) fn navigation(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn navigation(&self, _: &Window, cx: &mut Context<Self>) -> AnyElement {
         div()
             .debug_selector(|| "settings-navigation".into())
             .flex_none()
@@ -202,16 +203,11 @@ impl SettingsView {
             })
             .flex()
             .flex_col()
-            .bg(self.theme.raised())
-            .map(|nav| titlebar::top_corners(nav, window, true, self.compact))
+            .bg(self.theme.sunken())
             .border_color(self.theme.border)
             .child(
-                self.titlebar("settings-sidebar-titlebar")
-                    .h(px(if cfg!(target_os = "linux") && !self.compact {
-                        12.0
-                    } else {
-                        40.0
-                    }))
+                self.header_background("settings-sidebar-titlebar")
+                    .h(px(12.0))
                     .flex_none(),
             )
             .child(
@@ -263,9 +259,8 @@ impl SettingsView {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
-        self.titlebar("settings-content-titlebar")
-            .h(px(76.0))
-            .when(cfg!(target_os = "linux"), |header| header.pt(px(28.0)))
+        self.header_background("settings-content-titlebar")
+            .h(px(56.0))
             .flex_none()
             .flex()
             .items_center()

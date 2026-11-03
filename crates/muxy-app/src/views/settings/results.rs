@@ -131,10 +131,8 @@ impl SettingsView {
                 self.results.state.scroll_to_reveal_item(*item);
             }
             focus.focus(window);
-        } else if backwards {
-            window.focus_prev();
         } else {
-            window.focus_next();
+            muxy_ui::form::advance_focus_within(&self.focus, backwards, window, cx);
         }
         cx.notify();
     }

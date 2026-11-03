@@ -749,7 +749,7 @@ impl AppModel {
                     self.switch_browser_profile(pane, profile.id, cx);
                 }
             }
-            Command::ManageBrowserProfiles => self.show_browser_settings(cx),
+            Command::ManageBrowserProfiles => self.show_browser_settings(window, cx),
             Command::OpenProjectIn(index) => self.open_project_in(index, cx),
             Command::BrowserInspect(pane) => {
                 if let Some(view) = self.browser_view(pane)

@@ -158,27 +158,7 @@ impl TryFrom<StoredState> for AppState {
             .focus_history
             .retain(|pane| panes.contains(pane));
         state.validate()?;
-        let legacy_settings: Vec<_> = state
-            .projects
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter(|pane| pane.content == PaneContent::Settings)
-            .map(|pane| pane.id)
-            .collect();
-        let restore_focus = state
-            .window
-            .active_pane
-            .is_some_and(|pane| legacy_settings.contains(&pane));
-        if restore_focus {
-            state.window.active_pane = None;
-        }
-        for pane in legacy_settings {
-            state.remove_pane(pane)?;
-        }
-        if restore_focus {
-            state.focus_selected_tab();
-        }
+        state.retain_one_settings_pane()?;
         state.validate()?;
         Ok(state)
     }
@@ -726,7 +706,7 @@ impl AppState {
         Ok(())
     }
 
-    fn remove_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+    pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
         let (project, tab) = self
             .projects
             .iter()

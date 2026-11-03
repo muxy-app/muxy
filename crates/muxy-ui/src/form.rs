@@ -1,5 +1,5 @@
 use gpui::prelude::FluentBuilder;
-use gpui::{AnyElement, Div, FocusHandle, ParentElement, Styled, Window, div, px, relative};
+use gpui::{AnyElement, App, Div, FocusHandle, ParentElement, Styled, Window, div, px, relative};
 use muxy_core::shortcuts::ShortcutId;
 
 use crate::controls::Style;
@@ -23,6 +23,33 @@ pub fn advance_focus(fields: &[FocusHandle], backwards: bool, window: &mut Windo
     };
     if let Some(field) = fields.get(next) {
         field.focus(window);
+    }
+}
+
+/// Moves focus to the next tab stop inside `container`, for a surface whose stops
+/// aren't known up front. It walks the window's tab order and skips the rest of
+/// the window. With no stop inside, focus goes to `container`.
+pub fn advance_focus_within(
+    container: &FocusHandle,
+    backwards: bool,
+    window: &mut Window,
+    cx: &App,
+) {
+    let advance = |window: &mut Window| {
+        if backwards {
+            window.focus_prev();
+        } else {
+            window.focus_next();
+        }
+    };
+    advance(window);
+    let first = window.focused(cx);
+    while !container.contains_focused(window, cx) {
+        advance(window);
+        if window.focused(cx) == first {
+            container.focus(window);
+            break;
+        }
     }
 }
 
