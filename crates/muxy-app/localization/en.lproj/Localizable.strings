@@ -101,6 +101,8 @@
 "AI prompt exceeds the 256 KB limit" = "AI prompt exceeds the 256 KB limit";
 "AI worker stopped" = "AI worker stopped";
 "ANSI colors" = "ANSI colors";
+"About" = "About";
+"About %@" = "About %@";
 "Action" = "Action";
 "Actions for %@" = "Actions for %@";
 "Active pane" = "Active pane";
@@ -157,6 +159,7 @@
 "Another update is in progress. Muxy will retry when it finishes." = "Another update is in progress. Muxy will retry when it finishes.";
 "App" = "App";
 "App language" = "App language";
+"App name" = "App name";
 "App update failed" = "App update failed";
 "App update ready" = "App update ready";
 "App update requires a server restart" = "App update requires a server restart";
@@ -211,6 +214,7 @@
 "Behavior" = "Behavior";
 "Behind base" = "Behind base";
 "Bell" = "Bell";
+"Beta" = "Beta";
 "Block" = "Block";
 "Block all auto-run terminal commands from this extension" = "Block all auto-run terminal commands from this extension";
 "Block all file changes from this extension" = "Block all file changes from this extension";
@@ -263,6 +267,7 @@
 "Case" = "Case";
 "Change Theme…" = "Change Theme…";
 "Changes apply immediately. Press Return or leave a field to save text." = "Changes apply immediately. Press Return or leave a field to save text.";
+"Channel" = "Channel";
 "Character spacing" = "Character spacing";
 "Check after import:" = "Check after import:";
 "Check for Updates…" = "Check for Updates…";
@@ -1401,6 +1406,7 @@
 "Split Right" = "Split Right";
 "Squash" = "Squash";
 "Squash and Merge" = "Squash and Merge";
+"Stable" = "Stable";
 "Stage" = "Stage";
 "Stage All" = "Stage All";
 "Stage Selected" = "Stage Selected";
@@ -1644,6 +1650,7 @@
 "Use the filter at the top of the expanded sidebar to show one workspace or Focus Current Project. Right-click a project → Workspaces to add it to one." = "Use the filter at the top of the expanded sidebar to show one workspace or Focus Current Project. Right-click a project → Workspaces to add it to one.";
 "User" = "User";
 "Value" = "Value";
+"Version" = "Version";
 "Version %@ is available." = "Version %@ is available.";
 "Vertical padding (points)" = "Vertical padding (points)";
 "Vibrancy of the glass background." = "Vibrancy of the glass background.";

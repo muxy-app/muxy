@@ -5,6 +5,9 @@ tab. Use the search box to find a setting. Changes apply immediately, and
 Settings works while the server is offline. Close it with the tab’s close button
 or `Cmd+W`; pending edits are saved.
 
+On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to open
+**Settings → About** in the same Settings tab.
+
 ## Sections
 
 | Section | What's in it |
@@ -21,6 +24,7 @@ or `Cmd+W`; pending edits are saved.
 | Extensions | Installed extensions and the marketplace |
 | AI | Tools and prompts for [Git](../features/git.md) actions |
 | Backup & Restore | Export, restore, and import from 1.x |
+| About | App name, version, channel, Check for Updates |
 
 Phone and computer pairing lives in the **Devices** tab, not in Settings; see
 [Mobile](../features/mobile.md) and

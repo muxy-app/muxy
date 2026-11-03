@@ -13,7 +13,7 @@ use super::{
     ExistingTerminals, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
     FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
     NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree,
-    NextProject, NextPrompt, NextTab, OpenConfiguration, OpenSettings, PreviousProject,
+    NextProject, NextPrompt, NextTab, OpenAbout, OpenConfiguration, OpenSettings, PreviousProject,
     PreviousPrompt, PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll, SplitDown,
     SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel, ToggleCommandPalette,
     ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom,
@@ -345,6 +345,7 @@ static COMMANDS: &[CommandDef] = &[
     row::<OpenSettings>(ShortcutId::OpenSettings, Label::Key(tr_key!("Settings…")))
         .keywords("Settings Open Settings")
         .placed(),
+    unbound::<OpenAbout>("open_about", Label::WithAppName(tr_key!("About %@"))).hidden(),
     row::<ToggleThemePicker>(
         ShortcutId::ToggleThemePicker,
         Label::Key(tr_key!("Change Theme…")),

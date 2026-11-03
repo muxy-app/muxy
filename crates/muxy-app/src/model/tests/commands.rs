@@ -137,6 +137,122 @@ fn every_menu_item_has_a_label_and_a_handler_in_the_workspace(cx: &mut TestAppCo
     });
 }
 
+#[test]
+fn about_menu_is_first_and_only_shown_on_macos() {
+    let menus = crate::menus();
+    let items = &menus[0].items;
+    let mut actions = Vec::new();
+    menu_actions(items, &mut actions);
+    let about = actions
+        .iter()
+        .position(|(_, action)| action.partial_eq(&crate::views::workspace::OpenAbout));
+    assert_eq!(about, cfg!(target_os = "macos").then_some(0));
+    if let Some(index) = about {
+        assert_eq!(actions[index].0, format!("About {}", crate::app_name()));
+        assert!(matches!(items[1], gpui::MenuItem::Separator));
+    }
+}
+
+#[gpui::test]
+fn about_menu_opens_or_reuses_settings_and_clears_search(cx: &mut TestAppContext) {
+    for already_open in [false, true] {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("terminal");
+        let (boot, _requests) = stub_boot(state);
+        let (model, cx) = if already_open {
+            preferences::settings_tab(boot, cx)
+        } else {
+            cx.add_window_view(|window, cx| AppModel::new(boot, window, cx))
+        };
+        cx.run_until_parked();
+        let windows = cx.update(|_, cx| cx.windows().len());
+        let original = model.read_with(cx, |model, _| {
+            model.settings_tab.as_ref().map(|tab| tab.view.clone())
+        });
+        if already_open {
+            preferences::click_preference(cx, "settings-search");
+            cx.simulate_input("no-matching-preference");
+            preferences::click_preference(cx, "tab-cell-0");
+        }
+        cx.dispatch_action(crate::views::workspace::OpenAbout);
+        cx.run_until_parked();
+        assert_eq!(cx.update(|_, cx| cx.windows().len()), windows);
+        for selector in [
+            "settings-about-name",
+            "settings-about-version",
+            "settings-about-channel",
+        ] {
+            assert!(cx.debug_bounds(selector).is_some(), "{selector}");
+        }
+        let settings = model.update(cx, |model, cx| {
+            assert_eq!(model.state.home().tabs.len(), 2);
+            assert_eq!(
+                model.active_tab(),
+                model.state.settings_tab().map(|(_, tab)| tab)
+            );
+            assert!(
+                model
+                    .command_registry(true, cx)
+                    .command("open_about")
+                    .is_none()
+            );
+            model.settings_tab.as_ref().expect("settings").view.clone()
+        });
+        if let Some(original) = original {
+            assert_eq!(settings, original);
+        }
+        cx.dispatch_action(crate::views::workspace::OpenAbout);
+        cx.run_until_parked();
+        model.read_with(cx, |model, _| {
+            assert_eq!(model.state.home().tabs.len(), 2);
+            assert_eq!(
+                model.settings_tab.as_ref().expect("settings").view,
+                settings
+            );
+        });
+        assert_eq!(cx.update(|_, cx| cx.windows().len()), windows);
+    }
+}
+
+#[gpui::test]
+fn about_menu_preserves_settings_when_opening_is_blocked(cx: &mut TestAppContext) {
+    for blocked_by in ["dialog", "quitting", "save"] {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("terminal");
+        let (boot, _requests) = stub_boot(state);
+        let (model, cx) = preferences::settings_tab(boot, cx);
+        preferences::click_preference(cx, "settings-search");
+        cx.simulate_input("width");
+        preferences::click_preference(cx, "tab-cell-0");
+        let directory = tempfile::tempdir().expect("directory");
+        model.update_in(cx, |model, window, cx| {
+            let state = model.state.clone();
+            let path = model.path.clone();
+            match blocked_by {
+                "dialog" => model.confirm("Question", "Wait".into(), "Continue", cx, |_, _| {}),
+                "quitting" => model.quitting = Quitting::Update,
+                "save" => model.path = directory.path().to_path_buf(),
+                _ => unreachable!(),
+            }
+            model.show_about_settings(window, cx);
+            assert_eq!(model.state, state);
+            model.path = path;
+            model.quitting = Quitting::Idle;
+        });
+        cx.run_until_parked();
+        if blocked_by == "dialog" {
+            cx.simulate_prompt_answer("Cancel");
+            cx.run_until_parked();
+        }
+        cx.dispatch_action(crate::views::workspace::OpenSettings);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("settings-about-version").is_none(),
+            "{blocked_by}"
+        );
+    }
+}
+
 #[gpui::test]
 fn a_failed_save_leaves_the_state_as_it_was(cx: &mut TestAppContext) {
     use crate::model::tabs::OpenTerminal;

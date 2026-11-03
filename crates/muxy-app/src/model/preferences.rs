@@ -151,6 +151,15 @@ impl AppModel {
         self.show_settings(window, cx);
     }
 
+    pub(crate) fn show_about_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.show_settings(window, cx) {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_about);
+        }
+    }
+
     /// Opens Settings at Browser, where profiles are managed.
     pub(crate) fn show_browser_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_settings(window, cx);
@@ -159,9 +168,9 @@ impl AppModel {
         }
     }
 
-    pub(super) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.quitting != Quitting::Idle || self.dialogs.is_open() {
-            return;
+            return false;
         }
         let project = self.state.current_project().id;
         match self.transact(
@@ -169,10 +178,10 @@ impl AppModel {
             cx,
         ) {
             Ok(Some(_)) => {}
-            Ok(None) => return,
+            Ok(None) => return false,
             Err(error) => {
                 self.fail(error.to_string(), cx);
-                return;
+                return false;
             }
         }
         self.dismiss_overlay(cx);
@@ -181,6 +190,7 @@ impl AppModel {
         self.focus_active(window, cx);
         self.focus_owner.settle();
         window.activate_window();
+        true
     }
 
     pub(crate) fn ensure_settings_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {

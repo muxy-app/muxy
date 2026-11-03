@@ -20,6 +20,7 @@ pub(super) struct Results {
     /// The row to bring on screen in the next frame.
     pub(super) reveal_row: Rc<Cell<Option<&'static str>>>,
     pub(super) dirty: bool,
+    pub(super) editable: bool,
     reset_scroll: bool,
     overdraw: Pixels,
 }
@@ -67,6 +68,7 @@ impl Results {
             reveal_focus: Rc::new(Cell::new(false)),
             reveal_row: Rc::new(Cell::new(None)),
             dirty: true,
+            editable: false,
             reset_scroll: true,
             overdraw: px(0.0),
         }
@@ -166,6 +168,7 @@ impl SettingsView {
                 Category::Extensions,
                 Category::Ai,
                 Category::Backup,
+                Category::About,
             ]
         };
         for category in order {
@@ -203,10 +206,15 @@ impl SettingsView {
                 items.push(Item::Section(category));
             }
         }
+        self.results.editable = items
+            .iter()
+            .any(|item| !matches!(item, Item::Section(Category::About | Category::Extensions)));
         if items.is_empty() {
             items.push(Item::Empty);
         }
-        items.push(Item::Footer);
+        if self.results.editable {
+            items.push(Item::Footer);
+        }
         self.refresh_shortcut_focus(&items, cx);
         let offset = self.results.state.logical_scroll_top();
         self.scrollbar.reset();
@@ -292,6 +300,7 @@ impl SettingsView {
             Category::Browser => super::browser::rows(self, cx),
             Category::Ai => super::ai::rows(self, cx),
             Category::Backup => super::backup::rows(self, cx),
+            Category::About => super::about::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),
             Category::Server => server::rows(self, cx),
             Category::Keyboard | Category::Commands => Vec::new(),

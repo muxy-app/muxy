@@ -1,3 +1,4 @@
+mod about;
 mod ai;
 mod appearance;
 mod backup;
@@ -63,10 +64,11 @@ pub(crate) enum Category {
     Server,
     Extensions,
     Backup,
+    About,
 }
 
 impl Category {
-    pub(crate) const ALL: [Self; 12] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -79,6 +81,7 @@ impl Category {
         Self::Extensions,
         Self::Ai,
         Self::Backup,
+        Self::About,
     ];
 
     /// The English name; also the key of its translation.
@@ -96,6 +99,7 @@ impl Category {
             Self::Server => tr_key!("Server"),
             Self::Extensions => tr_key!("Extensions"),
             Self::Backup => tr_key!("Backup & Restore"),
+            Self::About => tr_key!("About"),
         }
     }
 }
@@ -111,6 +115,7 @@ pub(crate) enum SettingsEvent {
     OpenLoginItems,
     ReadServer,
     CheckExtensionUpdates,
+    CheckForUpdates,
     Connect,
     OpenConfiguration(&'static str),
     DismissProblem,
