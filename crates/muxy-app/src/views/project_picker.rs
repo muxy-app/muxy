@@ -703,6 +703,8 @@ impl AppModel {
             .unwrap_or(&self.state.home().directory)
             .to_string_lossy()
             .into_owned();
+        self.picker_search
+            .set_skipped_paths(&self.settings.projects.search_skip);
         let paths = self.project_paths(ServerId::local());
         let targets = match purpose {
             Purpose::AddProject => Registry::default(),
