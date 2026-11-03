@@ -27,9 +27,8 @@ applies it.
 ## gpui
 
 gpui comes from the [muxy-app/gpui](https://github.com/muxy-app/gpui) fork,
-pinned by revision in the root `Cargo.toml`
-(`594a5631788e885134dc99db5f461dc656c38eab`). The fork starts from gpui 0.2.2
-on crates.io. Muxy relies on these changes on top of it:
+tracking its `main` branch in the root `Cargo.toml`. `Cargo.lock` records the
+exact commit. The fork starts from gpui 0.2.2 on crates.io. Muxy relies on these changes on top of it:
 
 - Keep presenting frames only during high-rate input.
 - Use memoryless storage for the path MSAA texture on Apple GPUs.
@@ -43,5 +42,6 @@ on crates.io. Muxy relies on these changes on top of it:
 - Truncate text from its full runs, and measure it again once its width is
   known.
 - Publish an accessibility tree through AccessKit.
+- Move a window's traffic lights after it opens on macOS.
 
 `git log` in the fork lists each change.

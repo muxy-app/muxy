@@ -3,7 +3,7 @@ use crate::model::preferences::{AgentsPanelToggle, Change, WorktreeToggle};
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
 use muxy_app_core::localization;
 use muxy_app_core::settings::{
-    AgentsPanelGrouping, AgentsPanelIcon, CloseBehavior, SidebarCollapsedStyle,
+    AgentsPanelGrouping, AgentsPanelIcon, CloseBehavior, InterfaceSize, SidebarCollapsedStyle,
 };
 use muxy_ui::controls::{self, Choice};
 use muxy_ui::l10n::{tr_key, translate};
@@ -81,6 +81,9 @@ pub(super) fn rows(
                 pane.picker(PickerKind::Theme(dark), value, cx),
             ));
         }
+    }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Size")) {
+        rows.push(interface_size(pane, cx));
     }
     for (id, label, value, change) in [
         (
@@ -394,6 +397,40 @@ fn agents_panel_icon(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Any
                         AgentsPanelIcon::Project
                     } else {
                         AgentsPanelIcon::Agent
+                    },
+                )));
+            }),
+        ),
+    )
+}
+
+fn interface_size(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    pane.row(
+        "interface-size",
+        tr_key!("Size"),
+        controls::segmented(
+            pane.style(),
+            "interface-size",
+            &tr!("Interface size"),
+            &[
+                Choice::new("regular", tr!("Default")),
+                Choice::new("large", tr!("Large")),
+                Choice::new("extra_large", tr!("Extra Large")),
+                Choice::new("huge", tr!("Huge")),
+            ],
+            match pane.snapshot.settings.appearance.interface_size {
+                InterfaceSize::Regular => "regular",
+                InterfaceSize::Large => "large",
+                InterfaceSize::ExtraLarge => "extra_large",
+                InterfaceSize::Huge => "huge",
+            },
+            cx.listener(|_, selected: &gpui::SharedString, _, cx| {
+                cx.emit(SettingsEvent::Change(Change::InterfaceSize(
+                    match selected.as_ref() {
+                        "large" => InterfaceSize::Large,
+                        "extra_large" => InterfaceSize::ExtraLarge,
+                        "huge" => InterfaceSize::Huge,
+                        _ => InterfaceSize::Regular,
                     },
                 )));
             }),

@@ -177,6 +177,7 @@ pub(crate) struct AppModel {
     pub(crate) theme: Theme,
     pub(crate) themes: crate::theme::Catalog,
     pub(crate) metrics: Metrics,
+    traffic_lights: Option<gpui::Point<gpui::Pixels>>,
     pub(crate) palette: Palette,
     pub(crate) dark: bool,
     pub(crate) overlay: Option<Overlay>,
@@ -253,6 +254,7 @@ impl AppModel {
     }
 
     pub(crate) fn refresh_theme(&mut self, cx: &mut Context<Self>) {
+        self.refresh_metrics();
         let previous_colors = self.palette.terminal_colors();
         let (theme, palette) = self
             .themes
@@ -272,7 +274,7 @@ impl AppModel {
             }
             pane.view.update(cx, |pane, cx| {
                 pane.palette = self.palette;
-                pane.update_find_theme(&self.theme, cx);
+                pane.update_find_appearance(&self.theme, self.metrics, cx);
                 cx.notify();
             });
         }
@@ -315,6 +317,25 @@ impl AppModel {
             });
         }
         cx.notify();
+    }
+
+    pub(crate) fn sync_traffic_lights(&mut self, window: &Window) {
+        let position =
+            crate::views::titlebar::traffic_light_position(self.metrics, window.scale_factor());
+        if self.traffic_lights != Some(position) {
+            window.set_traffic_light_position(position);
+            self.traffic_lights = Some(position);
+        }
+    }
+
+    fn refresh_metrics(&mut self) {
+        let metrics = Metrics::new(self.appearance.interface_size.multiplier());
+        if metrics == self.metrics {
+            return;
+        }
+        self.metrics = metrics;
+        self.agent_sessions.list.remeasure();
+        self.servers_tab.remeasure();
     }
 
     pub(crate) fn reload_configuration(&mut self, cx: &mut Context<Self>) {
@@ -374,7 +395,8 @@ impl AppModel {
         ) {
             Ok(saved) => {
                 let theme_changed = self.appearance.dark_theme != saved.dark_theme
-                    || self.appearance.light_theme != saved.light_theme;
+                    || self.appearance.light_theme != saved.light_theme
+                    || self.appearance.interface_size != saved.interface_size;
                 self.appearance = saved;
                 self.settings.appearance = self.appearance.clone();
                 self.sync_agents_panel(cx);
@@ -493,6 +515,7 @@ impl AppModel {
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
         let (theme, palette) = themes.resolve(boot.settings.appearance.theme(dark), dark);
         let palette = palette.with_options(&boot.terminal.options);
+        let metrics = Metrics::new(boot.settings.appearance.interface_size.multiplier());
         let configuration_error = boot.import_message;
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         cx.on_release(|model: &mut Self, cx| {
@@ -587,7 +610,8 @@ impl AppModel {
             project_apps: project_apps::ProjectApps::default(),
             theme,
             themes,
-            metrics: Metrics::new(1.0),
+            metrics,
+            traffic_lights: None,
             palette,
             dark,
             overlay: None,

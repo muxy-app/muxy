@@ -157,6 +157,7 @@ pub(crate) struct SettingsView {
     snapshot: Snapshot,
     theme: Theme,
     metrics: Metrics,
+    layout_metrics: Metrics,
     search: Entity<TextInput>,
     query: String,
     results: results::Results,
@@ -183,13 +184,35 @@ pub(crate) struct SettingsView {
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
+#[cfg(test)]
+impl SettingsView {
+    pub(crate) fn scale(&self) -> (u32, u32) {
+        (
+            self.layout_metrics.multiplier().to_bits(),
+            self.metrics.multiplier().to_bits(),
+        )
+    }
+}
+
+const CONTENT_SCALE: f32 = 1.15;
+
+/// Settings rows are drawn larger than the rest of the app.
+pub(crate) fn content_metrics(metrics: Metrics) -> Metrics {
+    metrics.times(CONTENT_SCALE)
+}
+
+fn layout_metrics(content: Metrics) -> Metrics {
+    Metrics::new(content.multiplier() / CONTENT_SCALE)
+}
+
 impl SettingsView {
     pub(crate) fn new(
         snapshot: Snapshot,
         theme: Theme,
-        metrics: Metrics,
+        layout_metrics: Metrics,
         cx: &mut Context<Self>,
     ) -> Self {
+        let metrics = content_metrics(layout_metrics);
         let search = cx.new(|cx| {
             TextInput::new(InputStyle::field(&theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Search settings…"))
@@ -238,6 +261,7 @@ impl SettingsView {
             snapshot,
             theme,
             metrics,
+            layout_metrics,
             search,
             query: String::new(),
             results: results::Results::new(cx),
@@ -337,12 +361,25 @@ impl SettingsView {
         }
     }
 
-    pub(crate) fn sync(&mut self, snapshot: Snapshot, theme: Theme, cx: &mut Context<Self>) {
+    pub(crate) fn sync(
+        &mut self,
+        snapshot: Snapshot,
+        theme: Theme,
+        layout_metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) {
         self.results.dirty = true;
         self.snapshot = snapshot;
         self.theme = theme;
+        if self.layout_metrics != layout_metrics {
+            self.results.reveal_row.set(Some("interface-size"));
+        }
+        self.layout_metrics = layout_metrics;
+        self.metrics = content_metrics(layout_metrics);
         if let Some(extensions) = &self.extensions {
-            extensions.update(cx, |view, cx| view.sync_theme(self.theme.clone(), cx));
+            extensions.update(cx, |view, cx| {
+                view.sync_appearance(self.theme.clone(), self.metrics, cx);
+            });
         }
         let style = InputStyle::field(&self.theme, &self.metrics);
         self.search
@@ -536,12 +573,13 @@ impl SettingsView {
                 || format!("{} {}", searchable(category.label()), searchable(label)),
                 |setting| {
                     format!(
-                        "{} {} {} {} {}",
+                        "{} {} {} {} {} {}",
                         searchable(category.label()),
                         searchable(setting.section),
                         setting.id,
                         searchable(label),
-                        searchable(setting.description)
+                        searchable(setting.description),
+                        catalog::search_aliases(setting.id)
                     )
                 },
             );
@@ -568,10 +606,9 @@ impl SettingsView {
     }
 
     fn layout_style(&self) -> Style<'_> {
-        const METRICS: Metrics = Metrics::new(1.0);
         Style {
             theme: &self.theme,
-            metrics: &METRICS,
+            metrics: &self.layout_metrics,
         }
     }
 
@@ -620,6 +657,7 @@ impl SettingsView {
         });
         let focus = self.results.row_focus[id].clone();
         let reveal = self.results.reveal_focus.clone();
+        let reveal_row = self.results.reveal_row.get() == Some(id);
         div()
             .relative()
             .track_focus(&focus)
@@ -665,6 +703,8 @@ impl SettingsView {
                     move |bounds, window, cx| {
                         if reveal.get() && focus.contains_focused(window, cx) {
                             reveal.set(false);
+                            window.request_autoscroll(bounds);
+                        } else if reveal_row {
                             window.request_autoscroll(bounds);
                         }
                     },
@@ -795,6 +835,7 @@ impl Render for SettingsView {
         self.initialize_focus(window, cx);
         let view = cx.entity();
         let reveal = self.results.reveal_focus.clone();
+        let reveal_row = self.results.reveal_row.clone();
         div()
             .id("settings-view")
             .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
@@ -851,6 +892,7 @@ impl Render for SettingsView {
                         content.layout_as_root(bounds.size.into(), window, cx);
                         content.prepaint_at(bounds.origin, window, cx);
                         reveal.set(false);
+                        reveal_row.set(None);
                         content
                     },
                     |_, mut content, window, cx| content.paint(window, cx),
@@ -886,6 +928,13 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_interface_size_is_found_by_its_other_names() {
+        assert!(catalog::search_aliases("interface-size").contains("zoom"));
+        assert!(catalog::search_aliases("interface-size").contains("density"));
+        assert!(catalog::search_aliases("sidebar").is_empty());
+    }
 
     #[test]
     fn every_text_field_has_a_name() {

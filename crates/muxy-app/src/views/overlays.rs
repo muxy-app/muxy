@@ -260,7 +260,7 @@ pub(crate) fn place(
     let (anchor, above) = match placement {
         Placement::Above(anchor) => (anchor, true),
         Placement::Below(anchor) => (anchor, false),
-        Placement::Modal => return muxy_ui::popover::modal(&model.theme, content),
+        Placement::Modal => return muxy_ui::popover::modal(&model.theme, model.metrics, content),
         Placement::Own | Placement::OwnBackdrop => return content,
     };
     let content = match mark {

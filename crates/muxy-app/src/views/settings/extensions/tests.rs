@@ -7,6 +7,7 @@ use std::time::Duration;
 use gpui::{AppContext, Entity, TestAppContext, VisualTestContext};
 use muxy_app_core::AppState;
 use muxy_app_core::extensions::Extension;
+use muxy_ui::text_input::{InputStyle, TextInput};
 
 use super::{ExtensionsView, Mutation, Tab, permissions_note};
 use crate::model::extensions::{ActiveInstall, FinishedInstall};
@@ -370,4 +371,26 @@ fn unknown_permissions_are_not_described_as_none() {
         Some("No permissions requested.")
     );
     assert_eq!(note(Some(&BTreeSet::from(["files:read".to_owned()]))), None);
+}
+
+#[gpui::test]
+fn a_live_size_change_restyles_every_extension_field(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&[], cx);
+    let view = open_view(&model, cx);
+    let theme = model.read_with(cx, |model, _| model.theme.clone());
+    let metrics = muxy_ui::theme::Metrics::new(2.0);
+    let input = view.update(cx, |view, cx| {
+        let style = InputStyle::field(&view.theme, &view.metrics);
+        let input = cx.new(|cx| TextInput::new(style, cx));
+        view.setting_inputs
+            .insert(("sample".into(), "field".into()), input.clone());
+        view.sync_appearance(theme.clone(), metrics, cx);
+        input
+    });
+    let expected = InputStyle::field(&theme, &metrics);
+    assert_eq!(input.read_with(cx, |input, _| input.style()), expected);
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.search.read(cx).style()),
+        expected
+    );
 }

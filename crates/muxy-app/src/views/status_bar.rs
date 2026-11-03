@@ -39,9 +39,9 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .flex_grow()
                 .min_w(px(0.0))
                 .items_center()
-                .gap(px(8.0))
+                .gap(m.scaled(8.0))
                 .h_full()
-                .px(px(10.0))
+                .px(m.scaled(10.0))
                 .child(path_chip(model, cx))
                 .children(path_actions(model, cx))
                 .children(git_controls(model, cx))
@@ -57,9 +57,9 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(px(8.0))
+                .gap(m.scaled(8.0))
                 .h_full()
-                .px(px(10.0))
+                .px(m.scaled(10.0))
                 .children(update_control(model, cx))
                 .children(super::disconnected::status(model, cx))
                 .child(super::proxy::control(model, cx))
@@ -112,8 +112,8 @@ fn update_control(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyEle
             .flex_none()
             .items_center()
             .h_full()
-            .gap(px(6.0))
-            .pl(px(8.0))
+            .gap(m.scaled(6.0))
+            .pl(m.scaled(8.0))
             .border_l_1()
             .border_color(theme.border)
             .text_color(theme.fg_muted)
@@ -222,7 +222,7 @@ fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
         .flex_initial()
         .min_w(px(0.0))
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
         .text_color(model.theme.fg_muted)
         .when(available, |path| {
@@ -425,7 +425,7 @@ fn ai_action_chip(
             .flex_none()
             .items_center()
             .h_full()
-            .gap(px(4.0))
+            .gap(m.scaled(4.0))
             .child(
                 canvas(
                     move |bounds, _, _| anchor.set(Some(bounds)),
@@ -445,7 +445,7 @@ fn ai_action_chip(
                     .flex()
                     .items_center()
                     .h_full()
-                    .gap(px(4.0))
+                    .gap(m.scaled(4.0))
                     .text_color(color)
                     .when(can_run, |button| {
                         button
@@ -484,7 +484,7 @@ fn ai_action_chip(
                     .items_center()
                     .justify_center()
                     .h_full()
-                    .px(px(2.0))
+                    .px(m.scaled(2.0))
                     .text_color(menu_color)
                     .when(menu_enabled, |button| {
                         button
@@ -537,7 +537,7 @@ fn progress(label: SharedString, model: &AppModel) -> AnyElement {
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
         .text_color(model.theme.fg_muted);
     accessibility::announced(region, label.clone(), false)
@@ -596,7 +596,7 @@ fn pull_request_chip(
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
         .text_color(color)
         .when(enabled, |chip| {
@@ -646,7 +646,7 @@ fn pull_request_unavailable(model: &AppModel, cx: &mut Context<AppModel>) -> Any
         .flex_none()
         .items_center()
         .h_full()
-        .px(px(2.0))
+        .px(model.metrics.scaled(2.0))
         .cursor_pointer()
         .hover(|style| style.text_color(model.theme.fg))
         .tooltip(tooltip(
@@ -701,7 +701,7 @@ fn repository_chip(
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
         .text_color(color)
         .when(enabled, |chip| {

@@ -332,6 +332,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Themes"),
     },
     Setting {
+        id: "interface-size",
+        label: tr_key!("Size"),
+        description: tr_key!("Controls the scale of the app interface."),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar",
         label: tr_key!("Expand sidebar"),
         description: tr_key!("Show project names alongside their icons in the workspace sidebar."),
@@ -910,4 +917,12 @@ pub(super) fn control_label(id: &str) -> Option<&'static str> {
 
 pub(super) fn setting(id: &str) -> Option<&'static Setting> {
     SETTINGS.iter().find(|setting| setting.id == id)
+}
+
+/// Other words people search for a setting by.
+pub(super) fn search_aliases(id: &str) -> &'static str {
+    match id {
+        "interface-size" => "zoom density",
+        _ => "",
+    }
 }

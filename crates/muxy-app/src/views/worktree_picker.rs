@@ -1,4 +1,4 @@
-use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window, point, px};
+use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window, point};
 use muxy_app_core::{Project, ProjectId, ProjectStatus};
 use muxy_protocol::ProgressState;
 use muxy_ui::icon::Icon;
@@ -256,7 +256,10 @@ impl AppModel {
             }
             Some(RENAME) => {
                 let size = window.viewport_size();
-                let position = point(size.width / 2.0 - px(120.0), size.height / 3.0);
+                let position = point(
+                    size.width / 2.0 - self.metrics.scaled(120.0),
+                    size.height / 3.0,
+                );
                 self.open_project_editor(id, Field::Name, position, window, cx);
             }
             Some(REMOVE) if available => {

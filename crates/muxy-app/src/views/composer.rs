@@ -34,6 +34,8 @@ pub(crate) enum ComposerEvent {
     Preferences(ComposerSettings),
 }
 
+const SMALLEST_PANEL: f32 = 120.0;
+
 pub(crate) struct Composer {
     pub(crate) input: Entity<TextInput>,
     pub(crate) draft: ComposerDraft,
@@ -138,32 +140,34 @@ impl Composer {
 
     pub(crate) fn sizing(&self, window: &Window) -> PanelSizing {
         let placement = self.placement();
-        let (dimension, maximum, minimum) = if placement.position == PanelPosition::Right {
+        let scale = self.metrics.multiplier();
+        let (dimension, maximum, minimum): (f32, f32, f32) = if placement.position
+            == PanelPosition::Right
+        {
             (
                 self.settings.width,
-                f32::from(window.viewport_size().width) - self.workspace_inset - 100.0,
+                (f32::from(window.viewport_size().width) - self.workspace_inset) / scale - 100.0,
                 280.0,
             )
         } else {
             (
                 self.settings.height,
-                f32::from(window.viewport_size().height) - 160.0,
+                f32::from(window.viewport_size().height) / scale - 160.0,
                 120.0,
             )
         };
+        let minimum = minimum.min(maximum.max(SMALLEST_PANEL));
+        let maximum = maximum
+            .max(minimum)
+            .min(if placement.position == PanelPosition::Right {
+                800.0
+            } else {
+                600.0
+            });
         PanelSizing::new(
             &placement,
-            dimension,
-            PanelSizeBounds::new(
-                minimum,
-                maximum
-                    .max(minimum)
-                    .min(if placement.position == PanelPosition::Right {
-                        800.0
-                    } else {
-                        600.0
-                    }),
-            ),
+            dimension * scale,
+            PanelSizeBounds::new(minimum * scale, maximum * scale),
             self.resize.clone(),
         )
     }

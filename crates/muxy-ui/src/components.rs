@@ -8,6 +8,7 @@ pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
 
 use crate::accessibility::OnPress;
 use crate::icon::Icon;
+use crate::theme::Metrics;
 use gpui::{
     App, AppContext, ClickEvent, Context, ElementId, FocusHandle, Hsla, InteractiveElement,
     IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, Role, SharedString,
@@ -342,17 +343,17 @@ impl Tooltip {
         }
     }
 
-    fn surface(&self) -> gpui::Div {
+    fn surface(&self, metrics: Metrics) -> gpui::Div {
         div()
-            .max_w(px(320.0))
+            .max_w(metrics.scaled(320.0))
             .line_clamp(4)
-            .px(px(8.0))
-            .py(px(4.0))
-            .rounded(px(5.0))
+            .px(metrics.scaled(8.0))
+            .py(metrics.scaled(4.0))
+            .rounded(metrics.scaled(5.0))
             .bg(self.background)
             .border_1()
             .border_color(self.border)
-            .text_size(px(11.0))
+            .text_size(metrics.scaled(11.0))
             .text_color(self.foreground)
             .shadow(crate::theme::Elevation::Elevated.shadow(self.theme_background))
             .child(self.text.clone())
@@ -360,8 +361,8 @@ impl Tooltip {
 }
 
 impl Render for Tooltip {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        self.surface()
+    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.surface(Metrics::of_window(window))
     }
 }
 

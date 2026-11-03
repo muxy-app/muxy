@@ -99,7 +99,7 @@ pub(super) fn render(
         )
         .child(
             div()
-                .h(px(2.0))
+                .h(metrics.scaled(2.0))
                 .w_full()
                 .when(loading && progress < 1.0, |bar| {
                     bar.child(

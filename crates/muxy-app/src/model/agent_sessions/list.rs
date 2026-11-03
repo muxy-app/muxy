@@ -37,6 +37,12 @@ pub(crate) struct SessionList {
     filter: Option<(String, Vec<AgentProvider>)>,
 }
 
+impl SessionList {
+    pub(crate) fn remeasure(&self) {
+        muxy_ui::scrollbar::remeasure_list(&self.state);
+    }
+}
+
 impl Default for SessionList {
     fn default() -> Self {
         Self {

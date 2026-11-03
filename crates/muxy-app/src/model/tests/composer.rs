@@ -344,3 +344,68 @@ fn a_floating_composer_closed_by_its_menu_row_leaves_the_keyboard_to_the_termina
         assert!(model.overlay.is_none());
     });
 }
+
+#[gpui::test]
+fn a_pinned_composer_keeps_its_saved_size_and_scales_with_the_interface(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    cx.simulate_resize(size(px(2400.0), px(1600.0)));
+    let composer = view.update_in(cx, |model, window, cx| {
+        if model.composer.view.is_none() {
+            model.toggle_composer(window, cx);
+        }
+        model.composer.view.clone().expect("composer")
+    });
+    cx.run_until_parked();
+    let stored = |composer: &crate::views::composer::Composer| {
+        if composer.settings.position == muxy_app_core::settings::ComposerPosition::Right {
+            composer.settings.width
+        } else {
+            composer.settings.height
+        }
+    };
+    composer.update(cx, |composer, _| composer.settings.pinned = true);
+    let saved = composer.read_with(cx, |composer, _| stored(composer));
+    let theme = view.read_with(cx, |model, _| model.theme.clone());
+    composer.update(cx, |composer, cx| {
+        composer.appearance(theme, Metrics::new(1.5), cx);
+    });
+    cx.update(|window, cx| {
+        let composer = composer.read(cx);
+        assert_eq!(
+            composer.sizing(window).layout().dimension().to_bits(),
+            (saved * 1.5).to_bits()
+        );
+        assert_eq!(stored(composer).to_bits(), saved.to_bits());
+    });
+}
+
+#[gpui::test]
+fn a_pinned_composer_leaves_room_for_the_workspace_in_a_small_window(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    let width = 640.0;
+    let sidebar = 252.0;
+    cx.simulate_resize(size(px(width), px(400.0)));
+    let composer = view.update_in(cx, |model, window, cx| {
+        if model.composer.view.is_none() {
+            model.toggle_composer(window, cx);
+        }
+        model.composer.view.clone().expect("composer")
+    });
+    cx.run_until_parked();
+    let theme = view.read_with(cx, |model, _| model.theme.clone());
+    cx.update(|window, cx| {
+        composer.update(cx, |composer, cx| {
+            composer.settings.position = muxy_app_core::settings::ComposerPosition::Right;
+            composer.settings.pinned = true;
+            composer.workspace_inset = sidebar;
+            composer.appearance(theme, Metrics::new(1.40), cx);
+            let consumed = composer.sizing(window).layout().consumed_width();
+            assert!(consumed > 0.0, "the composer is not pinned");
+            assert!(
+                consumed < width - sidebar,
+                "the composer takes {consumed} of the {} left",
+                width - sidebar,
+            );
+        });
+    });
+}

@@ -17,6 +17,8 @@ pub(super) struct Results {
     pub(super) extension_focus: HashMap<String, [FocusHandle; 3]>,
     pub(super) command_focus: HashMap<String, [FocusHandle; 4]>,
     pub(super) reveal_focus: Rc<Cell<bool>>,
+    /// The row to bring on screen in the next frame.
+    pub(super) reveal_row: Rc<Cell<Option<&'static str>>>,
     pub(super) dirty: bool,
     reset_scroll: bool,
     overdraw: Pixels,
@@ -63,6 +65,7 @@ impl Results {
             extension_focus: HashMap::new(),
             command_focus: HashMap::new(),
             reveal_focus: Rc::new(Cell::new(false)),
+            reveal_row: Rc::new(Cell::new(None)),
             dirty: true,
             reset_scroll: true,
             overdraw: px(0.0),

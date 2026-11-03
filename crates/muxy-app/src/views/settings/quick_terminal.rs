@@ -2,7 +2,7 @@ use super::{Category, PickerKind, SettingsEvent, SettingsView};
 use crate::model::preferences::Change;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div,
 };
 use muxy_app_core::settings::QuickTerminalSettings;
 use muxy_core::capability::Feature;
@@ -124,7 +124,10 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         ));
     }
     if view.matches(Category::QuickTerminal, tr_key!("Open Quick Terminal")) {
-        let mut buttons = div().flex().flex_wrap().gap(px(8.0));
+        let mut buttons = div()
+            .flex()
+            .flex_wrap()
+            .gap(view.layout_metrics.scaled(8.0));
         let mut unassigned = settings.clone();
         unassigned.shortcut = QuickTerminalShortcut::Unassigned;
         buttons = buttons.child(
@@ -175,7 +178,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(8.0))
+                    .gap(view.layout_metrics.scaled(8.0))
                     .child(buttons)
                     .children(label.map(|label| {
                         div().child(muxy_ui::accessibility::label(
@@ -205,7 +208,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     .flex()
                     .items_center()
                     .flex_wrap()
-                    .gap(px(8.0))
+                    .gap(view.layout_metrics.scaled(8.0))
                     .child(tr!("Width"))
                     .child(view.field("quick-width"))
                     .child(tr!("Height"))
@@ -268,7 +271,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             let mut control = div()
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .gap(view.layout_metrics.scaled(8.0))
                 .child(slider)
                 .child(tr!("%lld%%", value));
             if id == "quick-blur" {

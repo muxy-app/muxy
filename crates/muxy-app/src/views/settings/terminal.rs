@@ -116,9 +116,9 @@ fn color_text(color: TerminalColor) -> String {
 
 fn swatch(pane: &SettingsView, color: Option<TerminalColor>) -> AnyElement {
     div()
-        .size(px(16.0))
+        .size(pane.layout_metrics.scaled(16.0))
         .flex_none()
-        .rounded(px(3.0))
+        .rounded(pane.layout_metrics.scaled(3.0))
         .border_1()
         .border_color(pane.theme.border)
         .when_some(
@@ -164,7 +164,7 @@ fn color_control(
     div()
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(swatch(pane, color))
         .child(pane.field(id))
         .child(change_button(
@@ -184,21 +184,21 @@ fn palette_control(pane: &SettingsView) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(
             div()
                 .flex()
                 .flex_wrap()
-                .gap(px(8.0))
+                .gap(pane.layout_metrics.scaled(8.0))
                 .children(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(4.0))
+                        .gap(pane.layout_metrics.scaled(4.0))
                         .child(
                             div()
-                                .w(px(18.0))
-                                .text_size(px(12.0))
+                                .w(pane.layout_metrics.scaled(18.0))
+                                .text_size(pane.layout_metrics.scaled(12.0))
                                 .text_color(pane.theme.fg_muted)
                                 .child(index.to_string()),
                         )
@@ -234,7 +234,7 @@ fn style_font(pane: &SettingsView, slot: FontSlot, cx: &mut Context<SettingsView
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(pane.picker(
             PickerKind::Font(slot),
             current.map_or(default.as_ref(), String::as_str),
@@ -465,9 +465,9 @@ fn slider(
         .debug_selector(move || format!("terminal-slider-{id}"))
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(control)
-        .child(div().min_w(px(44.0)).child(display))
+        .child(div().min_w(pane.layout_metrics.scaled(44.0)).child(display))
         .into_any_element()
 }
 
@@ -490,7 +490,7 @@ fn adjustment_slider(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(slider(pane, id, value, range, 1.0, suffix, cx))
         .child(picker(pane, id, cx))
         .into_any_element()
@@ -634,13 +634,13 @@ pub(super) fn rows(
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(8.0))
+                        .gap(pane.layout_metrics.scaled(8.0))
                         .children(items.into_iter().map(|(id, label, value)| {
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(8.0))
-                                .child(div().w(px(60.0)).child(label))
+                                .gap(pane.layout_metrics.scaled(8.0))
+                                .child(div().w(pane.layout_metrics.scaled(60.0)).child(label))
                                 .child(slider(pane, id, value, (0.0, 64.0), 1.0, "", cx))
                         }))
                         .into_any_element()
@@ -660,14 +660,14 @@ pub(super) fn rows(
                         .min_w(px(0.0))
                         .flex()
                         .flex_col()
-                        .gap(px(8.0))
+                        .gap(pane.layout_metrics.scaled(8.0))
                         .children(messages.map(|text| div().min_w(px(0.0)).child(text.to_owned())))
                         .into_any_element();
                     let control = div()
                         .w_full()
                         .flex()
                         .flex_col()
-                        .gap(px(8.0))
+                        .gap(pane.layout_metrics.scaled(8.0))
                         .child(notes)
                         .child(div().flex().child(change_button(
                             pane,

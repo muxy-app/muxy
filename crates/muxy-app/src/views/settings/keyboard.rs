@@ -1,7 +1,7 @@
 use super::{Category, SettingsEvent, SettingsView};
 use crate::model::preferences::Change;
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, Keystroke, ParentElement, Styled, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, Keystroke, ParentElement, Styled, div,
 };
 use muxy_ui::{controls, tr};
 
@@ -48,7 +48,7 @@ pub(super) fn extension_row(
     let control = div()
         .flex()
         .flex_wrap()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(
             controls::button(
                 pane.style(),
@@ -115,7 +115,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
     let control = div()
         .flex()
         .flex_wrap()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(
             controls::button(
                 pane.style(),

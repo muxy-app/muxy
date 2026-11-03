@@ -98,11 +98,15 @@ pub(super) fn action_choices(pane: &SettingsView) -> (String, Vec<(&'static str,
     )
 }
 
-fn list_row(label: String, controls: impl IntoIterator<Item = AnyElement>) -> gpui::Div {
+fn list_row(
+    pane: &SettingsView,
+    label: String,
+    controls: impl IntoIterator<Item = AnyElement>,
+) -> gpui::Div {
     div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(div().flex_1().min_w(px(0.0)).child(label))
         .children(controls)
 }
@@ -114,7 +118,7 @@ fn editor_buttons(
 ) -> gpui::Div {
     div()
         .flex()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(controls::button(
             pane.style(),
             &format!("{field}-save"),
@@ -150,6 +154,7 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
             let mut removed = names.clone();
             removed.remove(index);
             list_row(
+                pane,
                 format!("{}. {name}", index + 1),
                 [
                     change_button(
@@ -186,7 +191,7 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
     div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .children(rows)
         .child(div().flex().child(pane.picker(
             PickerKind::Font(FontSlot::Fallback),
@@ -209,6 +214,7 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
             let edit = map.clone();
             let row = format!("{} → {}", range_text(map), map.family);
             list_row(
+                pane,
                 row.clone(),
                 [
                     controls::button(
@@ -241,7 +247,7 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
     div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .children(rows)
         .child(if editing {
             codepoint_editor(pane, cx)
@@ -307,6 +313,7 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
             let edit = (chord.clone(), action.clone());
             let row = format!("{chord}  ·  {description}");
             list_row(
+                pane,
                 row.clone(),
                 [
                     controls::button(
@@ -339,7 +346,7 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
     div()
         .flex()
         .flex_col()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .when(bindings.is_empty() && !editing, |list| {
             list.child(pane.readable_note(
                 "settings-no-key-bindings",

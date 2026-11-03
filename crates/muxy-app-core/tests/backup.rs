@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use muxy_app_core::{AppState, Direction, ServerId, backup, settings::Settings};
+use muxy_app_core::{
+    AppState, Direction, ServerId, backup,
+    settings::{InterfaceSize, Settings},
+};
 use serde_json::json;
 
 #[test]
@@ -391,4 +394,21 @@ fn one_x_shell_command_becomes_the_default_shell_unless_one_is_chosen() {
             .is_none()
     );
     assert!(report.attention.iter().any(|item| item.contains("fish -l")));
+}
+
+#[test]
+fn the_interface_size_migrates_from_muxy_1() {
+    for (old, size) in [
+        ("regular", InterfaceSize::Regular),
+        ("large", InterfaceSize::Large),
+        ("extraLarge", InterfaceSize::ExtraLarge),
+        ("huge", InterfaceSize::Huge),
+    ] {
+        let source = json!({ "muxy.ui.scale": old });
+        let (settings, report) =
+            backup::import_settings(&serde_json::to_vec(&source).unwrap(), &Settings::default())
+                .unwrap();
+        assert_eq!(settings.appearance.interface_size, size);
+        assert!(report.skipped.is_empty());
+    }
 }

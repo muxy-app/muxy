@@ -424,6 +424,7 @@ fn render(
     let style = muxy_ui::controls::Style { theme, metrics: &m };
     muxy_ui::popover::modal(
         theme,
+        m,
         muxy_ui::popover::modal_card(
             theme,
             m,

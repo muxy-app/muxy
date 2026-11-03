@@ -576,7 +576,7 @@ impl AppModel {
     fn perform_menu(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         let position = match &self.overlay {
             Some(Overlay::Menu(menu)) => menu.position,
-            _ => gpui::point(px(8.0), px(40.0)),
+            _ => gpui::point(self.metrics.scaled(8.0), self.metrics.scaled(40.0)),
         };
         self.dismiss_overlay(cx);
         match command {

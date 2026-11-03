@@ -848,3 +848,99 @@ fn settings_picker_is_clickable_outside_a_narrow_split(cx: &mut TestAppContext) 
 fn settings_picker_is_clickable_outside_a_short_split(cx: &mut TestAppContext) {
     settings_picker_outside_split(Direction::Down, cx);
 }
+
+#[gpui::test]
+fn the_interface_size_resizes_the_app_live_and_is_saved(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::InterfaceSize;
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let (boot, _) = stub_boot(state);
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, cx) = settings_tab(boot, cx);
+    assert_eq!(
+        cx.debug_bounds("tab-strip").expect("strip").size.height,
+        px(32.0)
+    );
+    let view = model.read_with(cx, |model, _| settings_view(model));
+    assert_eq!(
+        view.read_with(cx, |view, _| view.scale()),
+        (1.0_f32.to_bits(), 1.15_f32.to_bits())
+    );
+
+    click_preference(cx, "settings-category-Appearance");
+    click_preference(cx, "settings-segment-interface-size-huge");
+
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.appearance.interface_size, InterfaceSize::Huge);
+        assert_eq!(model.metrics, Metrics::new(1.40));
+    });
+    assert_eq!(
+        view.read_with(cx, |view, _| view.scale()),
+        (1.40_f32.to_bits(), (1.40_f32 * 1.15).to_bits())
+    );
+    assert_eq!(
+        cx.debug_bounds("tab-strip").expect("strip").size.height,
+        px((32.0_f32 * 1.40).round())
+    );
+    let saved = std::fs::read_to_string(&path).expect("saved settings");
+    assert!(saved.contains("interface_size = \"huge\""), "{saved}");
+
+    click_preference(cx, "settings-segment-interface-size-regular");
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.metrics, Metrics::new(1.0));
+    });
+    assert_eq!(
+        cx.debug_bounds("tab-strip").expect("strip").size.height,
+        px(32.0)
+    );
+}
+
+#[gpui::test]
+fn the_interface_size_applies_at_launch(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::InterfaceSize;
+    let state = AppState::bootstrap().expect("state");
+    let (mut boot, _) = stub_boot(state);
+    boot.settings.appearance.interface_size = InterfaceSize::Large;
+    let (model, cx) = settings_tab(boot, cx);
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.metrics, Metrics::new(1.12));
+    });
+    cx.update(|window, _| assert_eq!(window.rem_size(), px(16.0 * 1.12)));
+}
+
+#[gpui::test]
+fn the_size_row_stays_on_screen_when_the_interface_grows(cx: &mut TestAppContext) {
+    let state = AppState::bootstrap().expect("state");
+    let (boot, _) = stub_boot(state);
+    let (model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    let selector = "settings-segment-interface-size-huge";
+    let status_bar = px(40.0);
+    let fitted = cx.debug_bounds(selector).expect("size row").bottom() + status_bar;
+    cx.simulate_resize(size(px(1200.0), fitted));
+    cx.run_until_parked();
+
+    click_preference(cx, selector);
+    cx.run_until_parked();
+
+    let row = cx.debug_bounds(selector).expect("size row");
+    let visible = fitted - model.read_with(cx, |model, _| model.metrics.status_bar_height());
+    assert!(
+        row.bottom() <= visible,
+        "the Size row ends at {:?}, below the visible {visible:?}",
+        row.bottom(),
+    );
+
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: row.center(),
+        delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(200.0))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    let scrolled = cx.debug_bounds(selector).expect("size row");
+    assert!(
+        scrolled.top() > row.top(),
+        "scrolling away brought the Size row back to {:?}",
+        scrolled.top(),
+    );
+}

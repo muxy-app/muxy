@@ -1681,7 +1681,7 @@ impl Picker {
         let viewport = self.scroll.viewport_bounds();
         let visible = f64::from(viewport.size.height);
         let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         let heights = scrollbar_item_heights(layout, scale, self.state.items());
         let vertical_inset = f32::from(self.metrics.scaled(layout.list_vertical_inset)) * 2.0;
         let content = heights.iter().sum::<f32>() + vertical_inset;
@@ -1751,11 +1751,7 @@ impl Picker {
         let origin = (pointer_y - geometry.track_origin - grab).clamp(px(0.0), travel);
         let offset = geometry.maximum_offset * (origin / travel);
         let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
-        let heights = scrollbar_item_heights(
-            layout,
-            f32::from(self.metrics.scaled(1.0)),
-            self.state.items(),
-        );
+        let heights = scrollbar_item_heights(layout, self.metrics.multiplier(), self.state.items());
         self.scroll
             .scroll_to(scrollbar_list_offset(&heights, f32::from(offset)));
     }

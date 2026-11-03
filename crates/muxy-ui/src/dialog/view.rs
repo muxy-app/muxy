@@ -9,6 +9,7 @@ use super::{Answer, Request};
 use crate::{
     controls::{self, Style},
     text_input::{InputEvent, InputStyle, TextInput},
+    theme::Metrics,
 };
 
 pub(super) struct Dialog {
@@ -147,13 +148,15 @@ impl Render for Dialog {
         }
         let theme = &self.request.theme;
         let metrics = &self.request.metrics;
+        let window_metrics = Metrics::of_window(window);
         let style = Style { theme, metrics };
         let mut body = div()
             .id("dialog-body")
             .flex()
             .flex_col()
             .gap(metrics.spacing5())
-            .max_h(px(480.0))
+            .max_h(window_metrics.scaled(480.0))
+            .min_h(px(0.0))
             .overflow_y_scroll()
             .child(
                 div()
@@ -228,7 +231,9 @@ impl Render for Dialog {
             );
         }
         let mut buttons = div()
+            .debug_selector(|| "dialog-buttons".into())
             .flex()
+            .flex_none()
             .flex_wrap()
             .when(self.buttons.len() > 3, Styled::flex_col)
             .justify_end()
@@ -259,8 +264,9 @@ impl Render for Dialog {
                     .aria_label(self.title.clone())
                     .aria_description(self.message.clone())
                     .track_focus(&self.focus)
-                    .w(px(520.0))
+                    .w(window_metrics.scaled(520.0))
                     .max_w_full()
+                    .max_h((window.viewport_size().height - px(16.0)).max(px(0.0)))
                     .p(metrics.spacing8())
                     .flex()
                     .flex_col()

@@ -43,6 +43,7 @@ const MAPPINGS: &[(&str, &[&str])] = &[
         "muxy.sidebarCollapsedStyle",
         &["appearance", "sidebar_collapsed_style"],
     ),
+    ("muxy.ui.scale", &["appearance", "interface_size"]),
     ("muxy.activeSidebar", &["appearance", "extension_sidebar"]),
     ("muxy.localization", &["appearance", "language"]),
     ("muxy.appLayout", &["appearance", "layout"]),
@@ -114,7 +115,9 @@ pub fn import_settings(source: &[u8], current: &Settings) -> Result<(Settings, I
         let result = (|| -> Result<toml::Value> {
             let mut candidate = document.clone();
             let value = match (key.as_str(), value) {
-                ("muxy.appLayout", Value::String(value)) => Value::String(action_id(value)),
+                ("muxy.appLayout" | "muxy.ui.scale", Value::String(value)) => {
+                    Value::String(action_id(value))
+                }
                 ("editor.richInputImageStrategy", Value::String(value))
                     if value == "inlinePath" =>
                 {

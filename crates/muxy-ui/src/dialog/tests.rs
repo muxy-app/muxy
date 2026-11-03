@@ -295,3 +295,32 @@ fn a_choice_takes_the_parents_theme_and_reports_the_button_chosen(cx: &mut TestA
         Some(Some(1))
     );
 }
+
+#[gpui::test]
+fn a_long_dialog_keeps_its_buttons_in_a_short_window(cx: &mut TestAppContext) {
+    let (_, cx) = cx.add_window_view(|_, cx| Host::new(cx));
+    let window_height = gpui::px(400.0);
+    cx.simulate_resize(gpui::size(gpui::px(800.0), window_height));
+    let message = "A long line of dialog text.\n".repeat(200);
+    let prompt = cx.update(|window, cx| {
+        confirm_with_checkbox(
+            window,
+            cx,
+            "Muxy Update",
+            &message,
+            ["Update", "Not Now"],
+            "Also restart the server",
+            style(),
+            |_| {},
+        )
+        .expect("prompt")
+    });
+    cx.run_until_parked();
+    let buttons = cx.debug_bounds("dialog-buttons").expect("buttons");
+    assert!(
+        buttons.bottom() <= window_height,
+        "the buttons end at {:?}, below the window's {window_height:?}",
+        buttons.bottom(),
+    );
+    drop(prompt);
+}

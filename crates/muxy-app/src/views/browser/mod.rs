@@ -830,7 +830,7 @@ impl BrowserView {
             )
             .child(muxy_ui::popover::contained_dropdown(
                 menu.anchor,
-                px(240.0),
+                self.metrics.scaled(240.0),
                 muxy_ui::popover::surface(&self.theme, self.metrics)
                     .id("page-options")
                     .role(gpui::Role::Menu)
@@ -1049,7 +1049,7 @@ pub(crate) fn placeholder(
         .size_full()
         .items_center()
         .justify_center()
-        .gap(px(8.0))
+        .gap(metrics.scaled(8.0))
         .child(muxy_ui::components::IconGlyph::new(
             muxy_ui::icon::Icon::Globe,
             metrics.icon_xxl(),
