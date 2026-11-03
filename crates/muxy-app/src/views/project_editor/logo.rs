@@ -159,8 +159,9 @@ fn unsupported() -> String {
 }
 
 /// Draws an SVG at most 1024 pixels on its longer side, like `load` does for
-/// other images. Linked images are ignored so a logo can't read other files,
-/// and compressed SVGs are refused because usvg inflates them without a limit.
+/// other images, with text set in the system fonts. Linked images are ignored
+/// so a logo can't read other files, and compressed SVGs are refused because
+/// usvg inflates them without a limit.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -173,6 +174,7 @@ fn rasterize_svg(bytes: &[u8]) -> Result<image::RgbaImage, String> {
         return Err(unsupported());
     }
     let mut options = usvg::Options::default();
+    options.fontdb_mut().load_system_fonts();
     options.image_href_resolver.resolve_string = Box::new(|_, _| None);
     let tree = usvg::Tree::from_data(bytes, &options).map_err(|_| unsupported())?;
     let size = tree.size();
@@ -645,14 +647,20 @@ fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElemen
 
 #[cfg(test)]
 mod tests {
-    use super::rasterize_svg;
+    use super::{load, rasterize_svg};
 
     #[test]
-    fn svg_size_is_bounded_whatever_it_declares() {
-        let image = rasterize_svg(
+    fn load_bounds_svg_size_whatever_it_declares() {
+        let file = tempfile::Builder::new()
+            .suffix(".svg")
+            .tempfile()
+            .expect("file");
+        std::fs::write(
+            file.path(),
             br#"<svg xmlns="http://www.w3.org/2000/svg" width="1000000" height="10"/>"#,
         )
-        .expect("svg");
+        .expect("write");
+        let image = load(file.path()).expect("svg");
         assert_eq!((image.width(), image.height()), (1024, 1));
     }
 
