@@ -132,7 +132,7 @@ pub(crate) fn begin_window_move(
     window: &mut Window,
     _: &mut Context<AppModel>,
 ) {
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(target_os = "macos")]
     let _ = &window;
     if model.coverage().modal() {
         return;
@@ -141,8 +141,17 @@ pub(crate) fn begin_window_move(
     if let Some(drag) = &model.window_drag {
         drag.begin();
     }
-    #[cfg(all(not(target_os = "macos"), not(test)))]
+    #[cfg(not(target_os = "macos"))]
+    start_window_move(window);
+}
+
+/// The test platform has no window to move.
+#[cfg(not(target_os = "macos"))]
+fn start_window_move(window: &Window) {
+    #[cfg(not(test))]
     window.start_window_move();
+    #[cfg(test)]
+    let _ = window;
 }
 
 pub(crate) fn background(id: &'static str) -> Stateful<Div> {
