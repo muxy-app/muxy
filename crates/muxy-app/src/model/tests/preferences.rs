@@ -907,3 +907,39 @@ fn the_interface_size_applies_at_launch(cx: &mut TestAppContext) {
     });
     cx.update(|window, _| assert_eq!(window.rem_size(), px(16.0 * 1.12)));
 }
+
+#[gpui::test]
+fn the_size_row_stays_on_screen_when_the_interface_grows(cx: &mut TestAppContext) {
+    let state = AppState::bootstrap().expect("state");
+    let (boot, _) = stub_boot(state);
+    let (_model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    let selector = "settings-segment-interface-size-huge";
+    let status_bar = px(40.0);
+    let fitted = cx.debug_bounds(selector).expect("size row").bottom() + status_bar;
+    cx.simulate_resize(size(px(1200.0), fitted));
+    cx.run_until_parked();
+
+    click_preference(cx, selector);
+    cx.run_until_parked();
+
+    let row = cx.debug_bounds(selector).expect("size row");
+    assert!(
+        row.bottom() <= fitted,
+        "the Size row ends at {:?}, below the window's {fitted:?}",
+        row.bottom(),
+    );
+
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: row.center(),
+        delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(200.0))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    let scrolled = cx.debug_bounds(selector).expect("size row");
+    assert!(
+        scrolled.top() > row.top(),
+        "scrolling away brought the Size row back to {:?}",
+        scrolled.top(),
+    );
+}

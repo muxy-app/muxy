@@ -371,6 +371,9 @@ impl SettingsView {
         self.results.dirty = true;
         self.snapshot = snapshot;
         self.theme = theme;
+        if self.layout_metrics != layout_metrics {
+            self.results.reveal_row.set(Some("interface-size"));
+        }
         self.layout_metrics = layout_metrics;
         self.metrics = content_metrics(layout_metrics);
         if let Some(extensions) = &self.extensions {
@@ -654,6 +657,7 @@ impl SettingsView {
         });
         let focus = self.results.row_focus[id].clone();
         let reveal = self.results.reveal_focus.clone();
+        let reveal_row = self.results.reveal_row.get() == Some(id);
         div()
             .relative()
             .track_focus(&focus)
@@ -699,6 +703,8 @@ impl SettingsView {
                     move |bounds, window, cx| {
                         if reveal.get() && focus.contains_focused(window, cx) {
                             reveal.set(false);
+                            window.request_autoscroll(bounds);
+                        } else if reveal_row {
                             window.request_autoscroll(bounds);
                         }
                     },
@@ -829,6 +835,7 @@ impl Render for SettingsView {
         self.initialize_focus(window, cx);
         let view = cx.entity();
         let reveal = self.results.reveal_focus.clone();
+        let reveal_row = self.results.reveal_row.clone();
         div()
             .id("settings-view")
             .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
@@ -885,6 +892,7 @@ impl Render for SettingsView {
                         content.layout_as_root(bounds.size.into(), window, cx);
                         content.prepaint_at(bounds.origin, window, cx);
                         reveal.set(false);
+                        reveal_row.set(None);
                         content
                     },
                     |_, mut content, window, cx| content.paint(window, cx),
