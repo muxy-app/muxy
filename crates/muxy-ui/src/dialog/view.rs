@@ -2,13 +2,14 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ParentElement, PromptButton, Render, Role, StatefulInteractiveElement, Styled,
-    Subscription, Toggled, Window, div, px,
+    Subscription, Toggled, Window, div,
 };
 
 use super::{Answer, Request};
 use crate::{
     controls::{self, Style},
     text_input::{InputEvent, InputStyle, TextInput},
+    theme::Metrics,
 };
 
 pub(super) struct Dialog {
