@@ -11,7 +11,7 @@ use std::{
     collections::HashMap,
     io::{Cursor, Read},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 pub(crate) type Cache = HashMap<ProjectId, (Arc<[u8]>, Arc<gpui::Image>)>;
@@ -121,6 +121,9 @@ impl Cropper {
     }
 }
 
+/// Reads a logo file of at most 20 MB and returns it at most 1024 pixels on
+/// its longer side. Raster images are decoded within 8192 pixels and 64 MB,
+/// and anything the image crate doesn't recognise is tried as an SVG.
 fn load(path: &Path) -> Result<image::RgbaImage, String> {
     const MAX_FILE: u64 = 20 * 1024 * 1024;
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
@@ -158,10 +161,22 @@ fn unsupported() -> String {
         .to_string()
 }
 
+fn system_fonts() -> Arc<resvg::usvg::fontdb::Database> {
+    static FONTS: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+    FONTS
+        .get_or_init(|| {
+            let mut fonts = resvg::usvg::fontdb::Database::new();
+            fonts.load_system_fonts();
+            Arc::new(fonts)
+        })
+        .clone()
+}
+
 /// Draws an SVG at most 1024 pixels on its longer side, like `load` does for
-/// other images, with text set in the system fonts. Linked images are ignored
-/// so a logo can't read other files, and compressed SVGs are refused because
-/// usvg inflates them without a limit.
+/// other images. Text is set in the system fonts, which are scanned once, the
+/// first time an SVG asks for a font. Linked images are ignored so a logo
+/// can't read other files, and compressed SVGs are refused because usvg
+/// inflates them without a limit.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -174,7 +189,13 @@ fn rasterize_svg(bytes: &[u8]) -> Result<image::RgbaImage, String> {
         return Err(unsupported());
     }
     let mut options = usvg::Options::default();
-    options.fontdb_mut().load_system_fonts();
+    let select_font = usvg::FontResolver::default_font_selector();
+    options.font_resolver.select_font = Box::new(move |font, fonts| {
+        if fonts.is_empty() {
+            *fonts = system_fonts();
+        }
+        select_font(font, fonts)
+    });
     options.image_href_resolver.resolve_string = Box::new(|_, _| None);
     let tree = usvg::Tree::from_data(bytes, &options).map_err(|_| unsupported())?;
     let size = tree.size();
@@ -650,18 +671,19 @@ mod tests {
     use super::{load, rasterize_svg};
 
     #[test]
-    fn load_bounds_svg_size_whatever_it_declares() {
+    fn load_draws_svg_bounded_whatever_size_it_declares() {
         let file = tempfile::Builder::new()
             .suffix(".svg")
             .tempfile()
             .expect("file");
         std::fs::write(
             file.path(),
-            br#"<svg xmlns="http://www.w3.org/2000/svg" width="1000000" height="10"/>"#,
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="1000000" height="10"><rect width="1000000" height="10" fill="red"/></svg>"#,
         )
         .expect("write");
         let image = load(file.path()).expect("svg");
         assert_eq!((image.width(), image.height()), (1024, 1));
+        assert!(image.pixels().any(|pixel| pixel.0[3] != 0));
     }
 
     #[test]
