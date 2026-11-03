@@ -4695,6 +4695,7 @@ dependencies = [
  "muxy-protocol",
  "muxy-terminal",
  "muxy-ui",
+ "resvg",
  "rustix 1.1.4",
  "serde",
  "serde_json",

@@ -286,7 +286,7 @@
 "Choose Provider for %@" = "Choose Provider for %@";
 "Choose Tab Focused from the layout menu at the top of the expanded sidebar to list every project's tabs there. By default, ⌘1–⌘9 then select tabs across projects." = "Choose Tab Focused from the layout menu at the top of the expanded sidebar to list every project's tabs there. By default, ⌘1–⌘9 then select tabs across projects.";
 "Choose a .muxy backup or a 1.x settings.json file. Review the import before applying it on the next launch." = "Choose a .muxy backup or a 1.x settings.json file. Review the import before applying it on the next launch.";
-"Choose a PNG, JPEG, GIF, or WebP image up to 8192 pixels and 64 MB decoded." = "Choose a PNG, JPEG, GIF, or WebP image up to 8192 pixels and 64 MB decoded.";
+"Choose a PNG, JPEG, GIF, WebP, or SVG image up to 8192 pixels and 64 MB decoded." = "Choose a PNG, JPEG, GIF, WebP, or SVG image up to 8192 pixels and 64 MB decoded.";
 "Choose a branch…" = "Choose a branch…";
 "Choose a folder inside the home folder on %@." = "Choose a folder inside the home folder on %@.";
 "Choose a folder inside the home folder on the server." = "Choose a folder inside the home folder on the server.";

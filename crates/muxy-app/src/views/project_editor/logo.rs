@@ -131,6 +131,9 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
     if bytes.len() as u64 > MAX_FILE {
         return Err(tr!("Choose an image smaller than 20 MB.").to_string());
     }
+    if image::guess_format(&bytes).is_err() {
+        return rasterize_svg(&bytes);
+    }
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|error| error.to_string())?;
@@ -139,10 +142,7 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
     limits.max_image_height = Some(8192);
     limits.max_alloc = Some(64 * 1024 * 1024);
     reader.limits(limits);
-    let mut decoder = reader.into_decoder().map_err(|_| {
-        tr!("Choose a PNG, JPEG, GIF, or WebP image up to 8192 pixels and 64 MB decoded.")
-            .to_string()
-    })?;
+    let mut decoder = reader.into_decoder().map_err(|_| unsupported())?;
     let orientation = decoder.orientation().map_err(|error| error.to_string())?;
     let mut image =
         image::DynamicImage::from_decoder(decoder).map_err(|error| error.to_string())?;
@@ -151,6 +151,50 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
         return Err(tr!("The image is empty.").to_string());
     }
     Ok(image.thumbnail(1024, 1024).to_rgba8())
+}
+
+fn unsupported() -> String {
+    tr!("Choose a PNG, JPEG, GIF, WebP, or SVG image up to 8192 pixels and 64 MB decoded.")
+        .to_string()
+}
+
+/// Draws an SVG at most 1024 pixels on its longer side, like `load` does for
+/// other images. Linked images are ignored so a logo can't read other files,
+/// and compressed SVGs are refused because usvg inflates them without a limit.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "Both sides are clamped to 1..=1024 before the cast"
+)]
+fn rasterize_svg(bytes: &[u8]) -> Result<image::RgbaImage, String> {
+    use resvg::{tiny_skia, usvg};
+    const SIDE: f32 = 1024.0;
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return Err(unsupported());
+    }
+    let mut options = usvg::Options::default();
+    options.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    let tree = usvg::Tree::from_data(bytes, &options).map_err(|_| unsupported())?;
+    let size = tree.size();
+    let scale = SIDE / size.width().max(size.height());
+    let width = (size.width() * scale).round().clamp(1.0, SIDE) as u32;
+    let height = (size.height() * scale).round().clamp(1.0, SIDE) as u32;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| tr!("The image is empty.").to_string())?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let pixels = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let color = pixel.demultiply();
+            [color.red(), color.green(), color.blue(), color.alpha()]
+        })
+        .collect();
+    image::RgbaImage::from_raw(width, height, pixels).ok_or_else(unsupported)
 }
 
 impl AppModel {
@@ -597,4 +641,45 @@ fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElemen
         cx.listener(|model, _, _, cx| model.apply_project_logo(cx)),
     )
     .debug_selector(|| "logo-apply".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rasterize_svg;
+
+    #[test]
+    fn svg_size_is_bounded_whatever_it_declares() {
+        let image = rasterize_svg(
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="1000000" height="10"/>"#,
+        )
+        .expect("svg");
+        assert_eq!((image.width(), image.height()), (1024, 1));
+    }
+
+    #[test]
+    fn svg_draws_embedded_images_but_not_linked_files() {
+        let red = br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="red"/></svg>"#;
+        let file = tempfile::Builder::new()
+            .suffix(".svg")
+            .tempfile()
+            .expect("file");
+        std::fs::write(file.path(), red).expect("write");
+        let svg = |href: &str| {
+            format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><image href="{href}" width="4" height="4"/></svg>"#
+            )
+        };
+        let opaque = |href: &str| {
+            rasterize_svg(svg(href).as_bytes())
+                .expect("svg")
+                .pixels()
+                .any(|pixel| pixel.0[3] != 0)
+        };
+        let embedded = format!(
+            "data:image/svg+xml;base64,{}",
+            muxy_core::base64::encode(red)
+        );
+        assert!(opaque(&embedded));
+        assert!(!opaque(&file.path().to_string_lossy()));
+    }
 }
