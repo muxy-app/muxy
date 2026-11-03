@@ -2,10 +2,11 @@
 //! page that couldn't be opened.
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Role,
     StatefulInteractiveElement, Styled, div, px,
 };
 use muxy_app_core::browser::SearchEngine;
+use muxy_ui::accessibility;
 use muxy_ui::components::{IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::{Metrics, Theme};
@@ -31,20 +32,23 @@ pub(super) fn start(
             div()
                 .text_size(metrics.font_headline())
                 .text_color(theme.fg)
-                .child(tr!("New Tab")),
+                .child(accessibility::label("browser-start-title", tr!("New Tab"))),
         )
         .child(
             div()
                 .text_size(metrics.font_body())
                 .text_color(theme.fg_muted)
-                .child(tr!(
-                    "Search with %@ or enter a website address.",
-                    engine.name()
+                .child(accessibility::label(
+                    "browser-start-hint",
+                    tr!("Search with %@ or enter a website address.", engine.name()),
                 )),
         )
         .child(
             div()
                 .id("browser-start-search")
+                .role(Role::Button)
+                .accessibility_id("browser-start-search")
+                .aria_label(tr!("Search or enter address"))
                 .flex()
                 .items_center()
                 .justify_between()
@@ -72,53 +76,59 @@ pub(super) fn error(
     metrics: Metrics,
     cx: &mut Context<BrowserView>,
 ) -> AnyElement {
-    centered(metrics)
-        .id("browser-error")
-        .debug_selector(|| "browser-error".into())
-        .child(
-            SymbolGlyph::new(
-                "exclamationmark.triangle",
-                metrics.icon_xxl(),
-                theme.warning,
-            )
-            .regular(),
+    let title = tr!("This page can't be opened");
+    accessibility::announced(
+        centered(metrics)
+            .id("browser-error")
+            .accessibility_id("browser-error")
+            .debug_selector(|| "browser-error".into()),
+        format!("{title}\n{}", error.message),
+        true,
+    )
+    .child(
+        SymbolGlyph::new(
+            "exclamationmark.triangle",
+            metrics.icon_xxl(),
+            theme.warning,
         )
-        .child(
-            div()
-                .text_size(metrics.font_headline())
-                .text_color(theme.fg)
-                .child(tr!("This page can't be opened")),
+        .regular(),
+    )
+    .child(
+        div()
+            .text_size(metrics.font_headline())
+            .text_color(theme.fg)
+            .child(title),
+    )
+    .child(
+        div()
+            .max_w(metrics.scaled(420.0))
+            .text_center()
+            .text_size(metrics.font_body())
+            .text_color(theme.fg_muted)
+            .child(error.message.clone()),
+    )
+    .child(
+        div()
+            .max_w(metrics.scaled(420.0))
+            .truncate()
+            .font_family("SF Mono")
+            .text_size(metrics.font_caption())
+            .text_color(theme.fg_dim)
+            .child(error.url.clone()),
+    )
+    .child(
+        muxy_ui::controls::button(
+            muxy_ui::controls::Style {
+                theme,
+                metrics: &metrics,
+            },
+            "browser-try-again",
+            muxy_ui::controls::Button::primary(&tr!("Try Again")),
+            cx.listener(|view, _, _, cx| view.reload(cx)),
         )
-        .child(
-            div()
-                .max_w(metrics.scaled(420.0))
-                .text_center()
-                .text_size(metrics.font_body())
-                .text_color(theme.fg_muted)
-                .child(error.message.clone()),
-        )
-        .child(
-            div()
-                .max_w(metrics.scaled(420.0))
-                .truncate()
-                .font_family("SF Mono")
-                .text_size(metrics.font_caption())
-                .text_color(theme.fg_dim)
-                .child(error.url.clone()),
-        )
-        .child(
-            muxy_ui::controls::button(
-                muxy_ui::controls::Style {
-                    theme,
-                    metrics: &metrics,
-                },
-                "browser-try-again",
-                muxy_ui::controls::Button::primary(&tr!("Try Again")),
-                cx.listener(|view, _, _, cx| view.reload(cx)),
-            )
-            .mt(metrics.spacing4()),
-        )
-        .into_any_element()
+        .mt(metrics.spacing4()),
+    )
+    .into_any_element()
 }
 
 fn centered(metrics: Metrics) -> gpui::Div {

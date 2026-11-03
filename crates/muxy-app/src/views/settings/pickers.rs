@@ -1,6 +1,6 @@
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
-use muxy_ui::controls;
 pub(crate) use muxy_ui::popover::PopoverAnchor as PickerAnchor;
+use muxy_ui::{controls, tr};
 
 use super::{SettingsEvent, SettingsView};
 
@@ -90,6 +90,13 @@ impl SettingsView {
     ) -> gpui::AnyElement {
         let anchor = self.picker_anchors[&kind].clone();
         let recorder = anchor.clone();
+        let name = match kind {
+            PickerKind::Font(FontSlot::Codepoint) => tr!("Font"),
+            PickerKind::Terminal(id) if id.starts_with("adjust-") => {
+                tr!("%@ unit", &super::control_name(id))
+            }
+            _ => super::control_name(kind.id()),
+        };
         div()
             .flex()
             .min_w(px(0.0))
@@ -97,6 +104,7 @@ impl SettingsView {
             .child(controls::picker_trigger(
                 self.style(),
                 kind.id(),
+                &name,
                 value,
                 (!self.compact).then_some(
                     if matches!(kind, PickerKind::Terminal(id) if id.starts_with("adjust-")) {

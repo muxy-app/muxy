@@ -24,6 +24,10 @@ fn number(text: &str) -> Option<Value> {
     })
 }
 
+fn setting_id(extension: &str, key: &str) -> String {
+    format!("extension-setting-{extension}-{key}")
+}
+
 fn display(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
@@ -48,8 +52,14 @@ impl ExtensionsView {
             }
             let value = stored.get(&setting.key).unwrap_or(&setting.default_value);
             let input = cx.new(|cx| {
-                TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
-                    .with_text(display(value))
+                let mut input = TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                    .with_accessibility_id(format!(
+                        "settings-field-{}",
+                        setting_id(&extension.name, &setting.key)
+                    ))
+                    .with_text(display(value));
+                input.set_accessible_name(setting.title.clone());
+                input
             });
             let (owner, name, kind) = (key.0.clone(), key.1.clone(), setting.kind);
             self.subscriptions.push(cx.subscribe(
@@ -107,7 +117,7 @@ impl ExtensionsView {
         }
         let mut rows = div().flex().flex_col();
         for setting in &extension.manifest.settings {
-            let id = format!("extension-setting-{}-{}", extension.name, setting.key);
+            let id = setting_id(&extension.name, &setting.key);
             let control = if setting.kind == SettingKind::Bool {
                 let on = stored
                     .get(&setting.key)
@@ -118,6 +128,7 @@ impl ExtensionsView {
                 controls::toggle(
                     self.style(),
                     &id,
+                    &setting.title,
                     on,
                     cx.listener(move |view, _, _, cx| {
                         view.store_setting(&owner, &key, Some(Value::Bool(!on)), cx);

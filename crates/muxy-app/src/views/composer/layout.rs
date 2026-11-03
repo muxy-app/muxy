@@ -2,11 +2,12 @@ use super::{Close, Composer, ComposerEvent, Insert, Submit};
 use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, FontWeight, MouseButton, Pixels, Point, Size, size};
 use gpui::{
-    AppContext, Context, InteractiveElement, IntoElement, ParentElement,
+    AppContext, Context, InteractiveElement, IntoElement, ParentElement, Role,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 use muxy_app_core::settings::{ComposerPosition, ComposerPresentation};
 use muxy_ui::{
+    accessibility,
     components::{ButtonInteraction, SymbolGlyph},
     l10n::{tr_key, translate},
     panel::{PanelAction, PanelChrome, PanelControl, PanelFrame, PanelStyle},
@@ -76,6 +77,9 @@ impl Composer {
             .id(id)
             .group(id)
             .debug_selector(move || id.into())
+            .role(Role::Button)
+            .accessibility_id(id)
+            .aria_label(translate(label))
             .flex()
             .flex_none()
             .items_center()
@@ -285,36 +289,41 @@ impl Composer {
         let error = self.error.as_ref()?;
         let m = self.metrics;
         Some(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(m.spacing4())
-                .h(m.scaled(26.0))
-                .px(m.spacing1())
-                .text_size(m.font_caption())
-                .text_color(self.theme.diff_remove)
-                .child(
-                    SymbolGlyph::new(
-                        "exclamationmark.circle.fill",
-                        m.font_caption(),
-                        self.theme.diff_remove,
-                    )
-                    .regular(),
+            accessibility::announced(
+                div()
+                    .id("composer-error")
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(m.spacing4())
+                    .h(m.scaled(26.0))
+                    .px(m.spacing1())
+                    .text_size(m.font_caption())
+                    .text_color(self.theme.diff_remove),
+                error.clone(),
+                true,
+            )
+            .child(
+                SymbolGlyph::new(
+                    "exclamationmark.circle.fill",
+                    m.font_caption(),
+                    self.theme.diff_remove,
                 )
-                .child(div().min_w_0().flex_1().truncate().child(error.clone()))
-                .child(self.glyph_button(
-                    "composer-dismiss-error",
-                    "xmark",
-                    tr_key!("Dismiss Error"),
-                    Control::Dismiss,
-                    |view, _, cx| {
-                        view.error = None;
-                        cx.notify();
-                    },
-                    cx,
-                ))
-                .into_any_element(),
+                .regular(),
+            )
+            .child(div().min_w_0().flex_1().truncate().child(error.clone()))
+            .child(self.glyph_button(
+                "composer-dismiss-error",
+                "xmark",
+                tr_key!("Dismiss Error"),
+                Control::Dismiss,
+                |view, _, cx| {
+                    view.error = None;
+                    cx.notify();
+                },
+                cx,
+            ))
+            .into_any_element(),
         )
     }
 
@@ -335,6 +344,7 @@ impl Composer {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
+            let remove = tr!("Remove %@", name.as_str());
             row = row.child(
                 div()
                     .flex()
@@ -352,6 +362,8 @@ impl Composer {
                     .child(
                         div()
                             .id(("composer-remove-file", index))
+                            .role(Role::Button)
+                            .aria_label(remove)
                             .button_interaction(cx.listener(move |view, _, _, cx| {
                                 if index < view.draft.file_attachments.len() {
                                     view.draft.file_attachments.remove(index);
@@ -401,17 +413,24 @@ impl Composer {
                     .truncate()
                     .text_size(m.font_xs())
                     .text_color(self.theme.fg_dim)
-                    .child(if self.settings.broadcast {
-                        tr!("All split panes")
-                    } else {
-                        tr!("Active pane")
-                    }),
+                    .child(accessibility::label(
+                        "composer-destination",
+                        if self.settings.broadcast {
+                            tr!("All split panes")
+                        } else {
+                            tr!("Active pane")
+                        },
+                    )),
             )
             .child(div().flex_1().min_w(m.spacing4()))
             .child(
                 div()
                     .id("composer-send")
                     .debug_selector(|| "composer-send".into())
+                    .role(Role::Button)
+                    .accessibility_id("composer-send")
+                    .aria_label(tr!("Send"))
+                    .aria_disabled(!enabled)
                     .flex()
                     .flex_none()
                     .items_center()

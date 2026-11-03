@@ -5,10 +5,11 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Entity, FocusHandle, FontWeight,
-    InteractiveElement, IntoElement, ListAlignment, ListState, MouseButton, ParentElement,
+    InteractiveElement, IntoElement, ListAlignment, ListState, MouseButton, ParentElement, Role,
     SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, list, px,
 };
 use muxy_app_core::{PaneId, ServerId};
+use muxy_ui::accessibility;
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::controls::{self, Style};
 use muxy_ui::icon::Icon;
@@ -98,7 +99,12 @@ impl AppModel {
                 .as_ref()
                 .map(|state| state.settings.port.to_string())
                 .unwrap_or_default();
-            let input = cx.new(|cx| TextInput::new(style, cx).with_text(port));
+            let input = cx.new(|cx| {
+                TextInput::new(style, cx)
+                    .with_accessible_label(tr_key!("Port"))
+                    .with_accessibility_id("settings-field-devices-port")
+                    .with_text(port)
+            });
             let subscription = cx.subscribe(&input, |model, input, event, cx| match event {
                 InputEvent::Changed => model.servers_tab.port_edited = true,
                 InputEvent::Submitted => {
@@ -113,8 +119,11 @@ impl AppModel {
             return;
         }
         let style = InputStyle::compact(&self.theme, &self.metrics);
-        let input =
-            cx.new(|cx| TextInput::new(style, cx).with_placeholder_key(tr_key!("Search servers…")));
+        let input = cx.new(|cx| {
+            TextInput::new(style, cx)
+                .with_placeholder_key(tr_key!("Search servers…"))
+                .with_accessibility_id("servers-search")
+        });
         let subscription = cx.subscribe(&input, |model, _, event, cx| {
             if matches!(event, InputEvent::Changed) {
                 let shown = model.shown_server_ids(cx);
@@ -312,6 +321,7 @@ fn icon_button(
     id: String,
     icon: Icon,
     tooltip: SharedString,
+    name: SharedString,
     model: &AppModel,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
@@ -324,13 +334,15 @@ fn icon_button(
         .child(
             IconButton::new(
                 SharedString::from(id),
+                tooltip,
                 icon,
                 model.metrics.icon_sm(),
                 model.metrics.control_small(),
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+            .named(name)
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(on_click),
         )
         .into_any_element()
@@ -395,7 +407,7 @@ fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
                     div()
                         .text_size(m.font_title())
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(tr!("Devices")),
+                        .child(accessibility::label("servers-heading", tr!("Devices"))),
                 ),
         )
         .child(
@@ -445,7 +457,10 @@ fn sections(
             div()
                 .text_color(model.theme.fg_muted)
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(tr!("Connects To")),
+                .child(accessibility::label(
+                    "servers-connects-to",
+                    tr!("Connects To"),
+                )),
         )
         .children(model.servers_tab.search_input().map(|input| {
             controls::search_field(style(model), "servers-search", input)
@@ -507,6 +522,7 @@ fn select_bar(
         .child(controls::checkbox(
             style(model),
             "servers-select-all",
+            &tr!("Select all"),
             all,
             any && !all,
             cx.listener(|model, _, _, cx| model.tick_all_servers(cx)),
@@ -589,12 +605,19 @@ fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
         .gap(m.spacing6())
         .p(m.spacing9())
         .child(IconGlyph::new(Icon::Network, m.icon_xxl(), theme.fg_muted))
-        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(accessibility::label("servers-empty-title", title)),
+        )
         .child(
             div()
                 .text_color(theme.fg_muted)
                 .text_center()
-                .child(description),
+                .child(accessibility::label(
+                    "servers-empty-description",
+                    description,
+                )),
         )
         .when(none, |empty| {
             empty.child(controls::button(
@@ -648,6 +671,14 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
         tr!("Connect")
     };
     let (menu_name, more_name) = (group.map(str::to_owned), group.map(str::to_owned));
+    let hidden_name = group.map(str::to_owned);
+    let title = group.map_or_else(|| tr!("Ungrouped"), |group| group.to_owned().into());
+    let connect_name = if matches!(action, Action::Reconnect) {
+        tr!("Reconnect %@", &title)
+    } else {
+        tr!("Connect %@", &title)
+    };
+    let owner = cx.weak_entity();
     div()
         .id(SharedString::from(format!("servers-group-{key}")))
         .debug_selector({
@@ -670,7 +701,10 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
                 .truncate()
                 .text_size(m.font_emphasis())
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(group.map_or_else(|| tr!("Ungrouped"), |group| group.to_owned().into())),
+                .child(accessibility::label(
+                    SharedString::from(format!("servers-group-title-{key}")),
+                    title.clone(),
+                )),
         )
         .child(
             div()
@@ -679,6 +713,16 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
                 .text_color(theme.fg_muted)
                 .child(section.members.len().to_string()),
         )
+        .child(accessibility::hidden_button(
+            format!("servers-group-actions-{key}"),
+            tr!("Actions for %@", &title),
+            move |window, cx| {
+                let position = window.mouse_position();
+                let _ = owner.update(cx, |model, cx| {
+                    model.open_group_menu(hidden_name.as_deref(), position, window, cx);
+                });
+            },
+        ))
         .child(div().flex_1())
         .child(
             div()
@@ -690,7 +734,9 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
                 .child(controls::button(
                     style(model),
                     &format!("servers-group-connect-{key}"),
-                    controls::Button::secondary(&connect).enabled(!section.whole.is_empty()),
+                    controls::Button::secondary(&connect)
+                        .named(&connect_name)
+                        .enabled(!section.whole.is_empty()),
                     cx.listener(move |model, _, window, cx| {
                         let position = window.mouse_position();
                         model.perform_server_menu(servers, action, position, window, cx);
@@ -700,6 +746,7 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
                     format!("servers-group-more-{key}"),
                     Icon::Ellipsis,
                     tr!("Group Actions"),
+                    tr!("Group Actions for %@", &title),
                     model,
                     cx.listener(move |model, _, window, cx| {
                         let position = window.mouse_position();
@@ -723,8 +770,16 @@ fn row(
     let theme = &model.theme;
     let id = server.entry.id;
     let group = SharedString::from(format!("servers-row-{id}"));
+    let owner = cx.weak_entity();
     div()
         .id(group.clone())
+        .role(Role::Group)
+        .aria_label(server.entry.name.clone())
+        .aria_description(format!(
+            "{}, {}",
+            status_label(server),
+            server.entry.destination()
+        ))
         .group(group.clone())
         .debug_selector(move || format!("servers-row-{id}"))
         .flex()
@@ -750,6 +805,7 @@ fn row(
                 .child(controls::checkbox(
                     style(model),
                     &format!("server-{id}"),
+                    &tr!("Select %@", server.entry.name.as_str()),
                     selected,
                     false,
                     cx.listener(move |model, event: &ClickEvent, _, cx| {
@@ -759,7 +815,17 @@ fn row(
                 .child(dot(status_color(server, model), model)),
         )
         .child(row_text(server, model))
-        .child(row_actions(id, group, model, cx))
+        .child(row_actions(id, &server.entry.name, group, model, cx))
+        .child(accessibility::hidden_button(
+            format!("servers-actions-{id}"),
+            tr!("Actions for %@", server.entry.name.as_str()),
+            move |window, cx| {
+                let position = window.mouse_position();
+                let _ = owner.update(cx, |model, cx| {
+                    model.open_server_menu(id, true, position, window, cx);
+                });
+            },
+        ))
         .into_any_element()
 }
 
@@ -802,11 +868,19 @@ fn row_text(server: &RemoteServer, model: &AppModel) -> AnyElement {
                 .child(server.entry.destination().to_owned()),
         )
         .children(error.map(|error| {
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.danger)
-                .line_clamp(2)
-                .child(error)
+            accessibility::announced(
+                div()
+                    .id(SharedString::from(format!(
+                        "servers-row-error-{}",
+                        server.entry.id
+                    )))
+                    .text_size(m.font_footnote())
+                    .text_color(theme.danger)
+                    .line_clamp(2),
+                error.clone(),
+                true,
+            )
+            .child(error)
         }))
         .into_any_element()
 }
@@ -814,6 +888,7 @@ fn row_text(server: &RemoteServer, model: &AppModel) -> AnyElement {
 /// New Tab, Edit, and more, shown on a hovered row.
 fn row_actions(
     id: ServerId,
+    name: &str,
     group: SharedString,
     model: &AppModel,
     cx: &Context<AppModel>,
@@ -831,6 +906,7 @@ fn row_actions(
             format!("servers-new-tab-{id}"),
             Icon::Terminal,
             tr!("New Tab"),
+            tr!("New Tab on %@", name),
             model,
             cx.listener(move |model, _, _, cx| model.new_remote_home_tab(id, cx)),
         ))
@@ -838,6 +914,7 @@ fn row_actions(
             format!("servers-edit-{id}"),
             Icon::Pencil,
             tr!("Edit…"),
+            tr!("Edit %@", name),
             model,
             cx.listener(move |model, _, _, cx| model.open_server_form(Some(id), cx)),
         ))
@@ -845,6 +922,7 @@ fn row_actions(
             format!("servers-more-{id}"),
             Icon::Ellipsis,
             tr!("More Actions"),
+            tr!("More Actions for %@", name),
             model,
             cx.listener(move |model, _, window, cx| {
                 let position = window.mouse_position();

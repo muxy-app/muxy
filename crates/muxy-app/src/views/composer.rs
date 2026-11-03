@@ -76,6 +76,7 @@ impl Composer {
                 .multiline()
                 .with_text(draft.text.clone())
                 .with_placeholder_key(tr_key!("Type or speak…"))
+                .with_accessible_label(tr_key!("Composer"))
                 .with_placeholder_font(".SystemUIFont")
                 .with_paste_delegate(move |_, cx| {
                     let content = muxy_ui::pasteboard::read_content(cx);

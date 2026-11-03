@@ -3,10 +3,11 @@ use muxy_core::shortcuts::ShortcutId;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Context, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, actions, div, px, relative,
+    Role, StatefulInteractiveElement, Styled, Window, actions, div, px, relative,
 };
 use muxy_app_core::Direction;
 use muxy_app_core::settings::Keymap;
+use muxy_ui::accessibility;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
@@ -652,7 +653,7 @@ fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::AnyElement {
             div()
                 .text_size(m.font_headline())
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(if missing { tr!("Project folder is missing") } else { tr!("No tabs in %@", &model.state.current_project().name) }),
+                .child(accessibility::label("empty-title", if missing { tr!("Project folder is missing") } else { tr!("No tabs in %@", &model.state.current_project().name) })),
         )
         .child(
             div()
@@ -660,11 +661,14 @@ fn empty(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::AnyElement {
                 .text_center()
                 .text_size(m.font_body())
                 .text_color(theme.fg_muted)
-                .child(if missing { tr!("This project’s folder could not be found. Remove the project from the sidebar to clear its tabs.") } else { tr!("Open a new terminal tab to start working in this project.") }),
+                .child(accessibility::label("empty-detail", if missing { tr!("This project’s folder could not be found. Remove the project from the sidebar to clear its tabs.") } else { tr!("Open a new terminal tab to start working in this project.") })),
         )
         .when(!missing, |view| view.child(
             div()
                 .id("empty-new-tab")
+                .role(Role::Button)
+                .accessibility_id("empty-new-tab")
+                .aria_label(tr!("New Tab"))
                 .flex()
                 .items_center()
                 .gap(m.spacing4())

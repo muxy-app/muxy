@@ -1,13 +1,17 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AccessibleAction, AnyElement, Context, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px,
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::AppLayout};
+use muxy_ui::accessibility::OnPress;
 use muxy_ui::components::{IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
+use muxy_ui::l10n::translate;
 use muxy_ui::tr;
 
+use super::sidebar::{client_button, client_press, describe, project_description};
 use super::{tab_activity, tab_strip, titlebar};
 use crate::model::AppModel;
 
@@ -186,6 +190,9 @@ pub(super) fn contents(
         .child(
             div()
                 .id("tab-sidebar-scroll")
+                .role(Role::Tree)
+                .accessibility_id("tab-sidebar-scroll")
+                .aria_label(tr!("Projects"))
                 .debug_selector(|| "tab-sidebar-scroll".into())
                 .flex_1()
                 .min_h(px(0.0))
@@ -207,7 +214,8 @@ fn projects_without_tabs_toggle(
 ) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
-    let label = if model.projects_without_tabs_shown {
+    let shown = model.projects_without_tabs_shown;
+    let label = if shown {
         tr!("Hide projects without tabs")
     } else if count == 1 {
         tr!("1 more project")
@@ -224,12 +232,16 @@ fn projects_without_tabs_toggle(
         .child(
             div()
                 .id("tab-sidebar-projects-without-tabs")
+                .role(Role::Button)
+                .accessibility_id("tab-sidebar-projects-without-tabs")
+                .aria_label(label.clone())
+                .aria_expanded(shown)
                 .debug_selector(|| "tab-sidebar-projects-without-tabs".into())
                 .cursor_pointer()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_dim)
                 .hover(|style| style.text_color(theme.fg_muted))
-                .on_click(cx.listener(|model, _, window, cx| {
+                .on_press(cx.listener(|model, _, window, cx| {
                     model.toggle_projects_without_tabs(cx);
                     model.focus_active(window, cx);
                 }))
@@ -276,7 +288,10 @@ fn project_group(
                             .zip(bounds)
                             .map(|(id, bounds)| (*id, bounds.intersect(&clip))),
                     );
-                }),
+                })
+                .id(SharedString::from(format!("tab-project-tabs-{id}")))
+                .role(Role::TabList)
+                .aria_label(tr!("Tabs in %@", model.project_title(project).as_str())),
         );
     }
     group.into_any_element()
@@ -286,8 +301,31 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
     let id = project.id;
     let m = model.metrics;
     let missing = project.status() == ProjectStatus::Missing;
+    let title = model.project_title(project);
+    let activity = tab_activity::project_status(id, model);
+    let description = project_description(
+        missing,
+        super::sidebar::remote_description(project, model),
+        activity,
+    );
     div()
         .id(SharedString::from(format!("tab-project-{id}")))
+        .role(Role::TreeItem)
+        .accessibility_id(format!("tab-project-{}", project.name))
+        .aria_label(title.clone())
+        .aria_selected(model.state.current_project().id == id)
+        .aria_level(super::sidebar::project_level(project))
+        .when(!missing, |row| {
+            row.aria_expanded(model.project_expanded(id))
+        })
+        .when_some(description, StatefulInteractiveElement::aria_description)
+        .on_a11y_action(
+            AccessibleAction::Click,
+            client_press(cx, move |model, window, cx| {
+                model.toggle_project_tabs(id, cx);
+                model.focus_active(window, cx);
+            }),
+        )
         .debug_selector(move || format!("tab-project-{id}"))
         .mx(m.spacing3())
         .my(m.spacing1())
@@ -306,10 +344,11 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 }
             }),
         )
+        .child(super::sidebar::project_actions(project, &title, cx))
         .child(project_title(project, model, cx))
-        .child(project_accessory(project, model))
+        .child(project_accessory(project, activity, model))
         .when(!missing, |row| {
-            row.child(new_tab_button(id, model, cx))
+            row.child(new_tab_button(project, model, cx))
                 .child(project_disclosure(project, model, cx))
         })
         .into_any_element()
@@ -347,6 +386,40 @@ fn project_title(project: &Project, model: &AppModel, cx: &mut Context<AppModel>
         .into_any_element()
 }
 
+/// What a status glyph's tooltip says, for clients that can't hover it.
+pub(super) fn activity_description(status: tab_activity::Status) -> Option<SharedString> {
+    use muxy_protocol::ProgressState;
+    use tab_activity::Status;
+    Some(match status {
+        Status::None => return None,
+        Status::Busy(key) => translate(key),
+        Status::Progress(progress) => match progress.state {
+            ProgressState::Error => tr!("Work reported an error."),
+            ProgressState::Paused => tr!("Work is paused."),
+            ProgressState::Running
+            | ProgressState::Indeterminate
+            | ProgressState::Unrecognized(_) => tr!("Work is in progress."),
+        },
+        Status::Blocked => tr!("An agent is waiting for your attention."),
+        Status::Completed => tr!("Work finished and is ready to review."),
+        Status::Unread(1) => tr!("1 unread notification"),
+        Status::Unread(count) => tr!("%lld unread notifications", count),
+    })
+}
+
+/// What a client reads after a tab's title, beyond its selected state.
+pub(super) fn tab_description(
+    pinned: bool,
+    status: tab_activity::Status,
+    bell: bool,
+) -> Option<SharedString> {
+    describe([
+        pinned.then(|| tr!("Pinned")),
+        activity_description(status),
+        bell.then(|| tr!("Bell")),
+    ])
+}
+
 /// The height of a tab row, shared with the agents panel's rows.
 pub(super) fn row_height(model: &AppModel) -> gpui::Pixels {
     model.metrics.control_small() + model.metrics.spacing2() * 2.0
@@ -363,10 +436,11 @@ pub(super) fn group_label(text: impl Into<SharedString>, model: &AppModel) -> gp
         .child(text.into())
 }
 
-fn header_button(id: String, icon: Icon, model: &AppModel) -> IconButton {
+fn header_button(id: String, name: SharedString, icon: Icon, model: &AppModel) -> IconButton {
     let theme = &model.theme;
     IconButton::new(
         SharedString::from(id),
+        name,
         icon,
         model.metrics.icon_xs(),
         model.metrics.control_small(),
@@ -375,26 +449,27 @@ fn header_button(id: String, icon: Icon, model: &AppModel) -> IconButton {
     )
 }
 
-fn new_tab_button(id: ProjectId, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+fn new_tab_button(project: &Project, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let id = project.id;
     let theme = &model.theme;
     div()
         .debug_selector(move || format!("project-new-tab-{id}"))
         .flex_none()
         .child(
-            header_button(format!("project-new-tab-{id}"), Icon::Plus, model)
-                .tooltip(
-                    tr!("New Terminal Tab"),
-                    theme.raised(),
-                    theme.fg,
-                    theme.border,
-                    theme.bg,
-                )
-                .on_click(cx.listener(move |model, _, window, cx| {
-                    cx.stop_propagation();
-                    model.select_project(id, cx);
-                    model.new_tab(cx);
-                    model.focus_active(window, cx);
-                })),
+            header_button(
+                format!("project-new-tab-{id}"),
+                tr!("New Terminal Tab"),
+                Icon::Plus,
+                model,
+            )
+            .accessibility_id(format!("project-new-tab-{}", project.name))
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .on_click(cx.listener(move |model, _, window, cx| {
+                cx.stop_propagation();
+                model.select_project(id, cx);
+                model.new_tab(cx);
+                model.focus_active(window, cx);
+            })),
         )
         .into_any_element()
 }
@@ -414,23 +489,20 @@ fn project_disclosure(
             header_button(
                 format!("tab-project-toggle-{id}"),
                 if expanded {
+                    tr!("Collapse Project")
+                } else {
+                    tr!("Expand Project")
+                },
+                if expanded {
                     Icon::ChevronDown
                 } else {
                     Icon::ChevronRight
                 },
                 model,
             )
-            .tooltip(
-                if expanded {
-                    tr!("Collapse Project")
-                } else {
-                    tr!("Expand Project")
-                },
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .accessibility_id(format!("tab-project-toggle-{}", project.name))
+            .expanded(expanded)
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_project_tabs(id, cx);
@@ -440,10 +512,13 @@ fn project_disclosure(
         .into_any_element()
 }
 
-fn project_accessory(project: &Project, model: &AppModel) -> AnyElement {
+fn project_accessory(
+    project: &Project,
+    activity: tab_activity::Status,
+    model: &AppModel,
+) -> AnyElement {
     let id = project.id;
     let m = model.metrics;
-    let activity = tab_activity::project_status(id, model);
     let has_activity = activity != tab_activity::Status::None;
     div()
         .flex()
@@ -503,11 +578,29 @@ fn tab_row(
         .and_then(|color| muxy_ui::theme::parse_hex(color.as_str()))
         .map(gpui::Hsla::from);
     let group = SharedString::from(format!("sidebar-tab-{id}"));
+    let status = tab_activity::tab_status(tab, model);
     let hover = color.map_or(if active { theme.surface } else { theme.hover }, |color| {
         color.opacity(if active { 0.18 } else { 0.08 })
     });
     div()
         .id(group.clone())
+        .role(Role::Tab)
+        .aria_label(title.to_owned())
+        .aria_selected(active)
+        .when_some(
+            tab_description(tab.pinned, status, bell),
+            StatefulInteractiveElement::aria_description,
+        )
+        .on_a11y_action(
+            AccessibleAction::Click,
+            client_press(cx, move |model, window, cx| {
+                model.select_tab(id, cx);
+                if let Some(pane) = agent_pane {
+                    model.focus_pane(pane, cx);
+                }
+                model.focus_active(window, cx);
+            }),
+        )
         .debug_selector(move || format!("sidebar-tab-{id}"))
         .when(!model.tab_drag.is_active(), |row| row.group(group.clone()))
         .mx(m.spacing3())
@@ -557,6 +650,23 @@ fn tab_row(
                 model.focus_active(window, cx);
             }),
         )
+        .child(client_button(
+            format!("sidebar-tab-actions-{id}"),
+            tr!("Actions for %@", title),
+            cx,
+            move |model, window, cx| model.open_tab_menu(id, window.mouse_position(), window, cx),
+        ))
+        .when(!tab.pinned, |row| {
+            row.child(client_button(
+                format!("sidebar-tab-close-{id}"),
+                tr!("Close %@", title),
+                cx,
+                move |model, window, cx| {
+                    model.close_tab(id, cx);
+                    model.focus_active(window, cx);
+                },
+            ))
+        })
         .child(
             div()
                 .debug_selector(move || format!("sidebar-tab-icon-{id}"))
@@ -586,6 +696,7 @@ fn tab_row(
         )
         .child(tab_accessory(
             tab,
+            status,
             number.and_then(|index| {
                 model.shortcut_hints.label(
                     muxy_core::shortcuts::ShortcutId::TABS[index],
@@ -697,6 +808,7 @@ impl AppModel {
 
 fn tab_accessory(
     tab: &Tab,
+    status: tab_activity::Status,
     shortcut: Option<String>,
     bell: bool,
     group: SharedString,
@@ -705,7 +817,6 @@ fn tab_accessory(
 ) -> AnyElement {
     let id = tab.id;
     let m = model.metrics;
-    let status = tab_activity::tab_status(tab, model);
     let content = if tab.pinned {
         div()
             .debug_selector(move || format!("sidebar-tab-pin-{id}"))
@@ -777,4 +888,36 @@ fn webview_tab_icon(tab: &Tab, model: &AppModel, active: bool, cx: &gpui::App) -
                     .into_any_element()
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tab_activity::Status;
+
+    #[test]
+    fn a_tab_reports_pinned_activity_and_bell() {
+        assert_eq!(tab_description(false, Status::None, false), None);
+        assert_eq!(
+            tab_description(true, Status::Blocked, true),
+            Some("Pinned, An agent is waiting for your attention., Bell".into()),
+        );
+    }
+
+    #[test]
+    fn activity_reads_as_its_tooltip_says() {
+        assert_eq!(activity_description(Status::None), None);
+        assert_eq!(
+            activity_description(Status::Unread(1)),
+            Some("1 unread notification".into()),
+        );
+        assert_eq!(
+            activity_description(Status::Unread(3)),
+            Some("3 unread notifications".into()),
+        );
+        assert_eq!(
+            activity_description(Status::Completed),
+            Some("Work finished and is ready to review.".into()),
+        );
+    }
 }

@@ -1,8 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
-    div, px,
+    MouseButton, ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    Window, div, px,
 };
 use muxy_ui::components::{IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
@@ -180,9 +180,12 @@ pub(crate) fn action_button(
 ) -> Stateful<Div> {
     let m = model.metrics;
     let hover = model.theme.hover;
+    let tooltip = tooltip.into();
     with_tooltip(
         div()
             .id(id)
+            .role(Role::Button)
+            .aria_label(tooltip.clone())
             .relative()
             .flex()
             .flex_none()
@@ -305,19 +308,15 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         .child(
             muxy_ui::components::IconButton::new(
                 "toggle-sidebar",
+                tr!("Toggle Sidebar"),
                 Icon::PanelLeft,
                 m.font_body(),
                 m.scaled(22.0),
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(
-                tr!("Toggle Sidebar"),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .expanded(model.appearance.sidebar_expanded)
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(|model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_sidebar(window, cx);
@@ -361,6 +360,10 @@ fn arrow(model: &AppModel, forward: bool, cx: &mut Context<AppModel>) -> AnyElem
     );
     let arrow = div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(if forward { tr!("Forward") } else { tr!("Back") })
+        .aria_disabled(!enabled)
         .debug_selector(move || id.into())
         .group(id)
         .flex()

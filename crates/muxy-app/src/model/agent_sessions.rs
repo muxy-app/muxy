@@ -109,6 +109,7 @@ impl AppModel {
                 let input = cx.new(|cx| {
                     TextInput::new(InputStyle::compact(&self.theme, &self.metrics), cx)
                         .with_placeholder_key(tr_key!("Search sessions…"))
+                        .with_accessibility_id("agent-session-search")
                         .with_key_context(muxy_ui::text_input::BARE_CONTEXT)
                 });
                 self.agent_sessions.subscription =

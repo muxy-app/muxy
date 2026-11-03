@@ -1,7 +1,8 @@
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Styled, Window, canvas, div,
+    Role, StatefulInteractiveElement, Styled, Window, canvas, div,
 };
+use muxy_ui::accessibility;
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
@@ -48,19 +49,14 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                         .child(
                             IconButton::new(
                                 "sidebar-tip-button",
+                                tr!("Show Muxy Tip"),
                                 Icon::Lightbulb,
                                 m.font_body(),
                                 m.control_large(),
                                 theme.fg_muted,
                                 theme.fg,
                             )
-                            .tooltip(
-                                tr!("Show Muxy Tip"),
-                                theme.raised(),
-                                theme.fg,
-                                theme.border,
-                                theme.bg,
-                            )
+                            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                             .on_click(cx.listener(
                                 |model, _, window, cx| {
                                     model.toggle_tip_popover(window, cx);
@@ -104,6 +100,9 @@ fn popover_card(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     muxy_ui::popover::surface(&model.theme, m)
         .id("tip-popover")
+        .role(Role::Dialog)
+        .accessibility_id("tip-popover")
+        .aria_label(tr!("MUXY TIP"))
         .debug_selector(|| "tip-popover".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -143,25 +142,20 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .text_size(m.font_caption())
                 .font_weight(FontWeight::BOLD)
                 .text_color(theme.accent)
-                .child(tr!("MUXY TIP")),
+                .child(accessibility::label("tip-heading", tr!("MUXY TIP"))),
         )
         .child(
             div().debug_selector(|| "hide-tips".into()).child(
                 IconButton::new(
                     "hide-tips",
+                    tr!("Hide Tips"),
                     Icon::X,
                     m.icon_xs(),
                     m.control_small(),
                     theme.fg_dim,
                     theme.fg,
                 )
-                .tooltip(
-                    tr!("Hide Tips"),
-                    theme.raised(),
-                    theme.fg,
-                    theme.border,
-                    theme.bg,
-                )
+                .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
                 .on_click(cx.listener(|model, _, _, cx| model.confirm_hide_tips(cx))),
             ),
         );
@@ -174,7 +168,10 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .flex_1()
                 .text_size(m.font_caption())
                 .text_color(theme.fg_dim)
-                .child(tr!("%lld of %lld", model.tips.position(), TIPS.len())),
+                .child(accessibility::label(
+                    "tip-position",
+                    tr!("%lld of %lld", model.tips.position(), TIPS.len()),
+                )),
         )
         .child(step_button(false, model, cx))
         .child(step_button(true, model, cx));
@@ -188,7 +185,7 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                 .debug_selector(|| "tip-text".into())
                 .text_size(m.font_body())
                 .text_color(theme.fg)
-                .child(model.tips.current()),
+                .child(accessibility::label("tip-text", model.tips.current())),
         )
         .child(controls)
 }
@@ -206,13 +203,14 @@ fn step_button(forward: bool, model: &AppModel, cx: &mut Context<AppModel>) -> A
         .child(
             IconButton::new(
                 id,
+                tooltip,
                 icon,
                 m.icon_xs(),
                 m.control_small(),
                 theme.fg_dim,
                 theme.fg,
             )
-            .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, _, cx| model.step_tip(forward, cx))),
         )
         .into_any_element()

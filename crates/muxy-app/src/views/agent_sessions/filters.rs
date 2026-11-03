@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Context, Div, FocusHandle, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, StatefulInteractiveElement, Styled, Window, div, px,
+    ParentElement, Role, StatefulInteractiveElement, Styled, Toggled, Window, div, px,
 };
 use muxy_protocol::AgentProvider;
 use muxy_ui::components::IconGlyph;
@@ -98,6 +98,9 @@ fn providers(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> A
     let style = Style { theme, metrics: &m };
     let mut menu = popover::surface(theme, m)
         .id("session-providers")
+        .role(Role::Menu)
+        .accessibility_id("session-providers")
+        .aria_label(tr!("Include providers"))
         .debug_selector(|| "session-providers".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -141,6 +144,10 @@ fn providers(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> A
     menu.child(popover::divider(theme, m))
         .child(
             popover::row(theme, m, "session-unsupported", true, false)
+                .role(Role::MenuItem)
+                .accessibility_id("session-unsupported")
+                .aria_label(tr!("Unavailable providers"))
+                .aria_expanded(model.agent_sessions.show_unsupported)
                 .text_color(theme.fg_muted)
                 .child(IconGlyph::new(
                     if model.agent_sessions.show_unsupported {
@@ -209,6 +216,15 @@ fn provider_row(
         true,
         model.agent_sessions.highlighted_provider == index,
     )
+    .role(Role::MenuItemCheckBox)
+    .accessibility_id(format!("session-provider-{index}"))
+    .aria_label(provider.name())
+    .aria_toggled(if selected {
+        Toggled::True
+    } else {
+        Toggled::False
+    })
+    .aria_description(count.to_string())
     .debug_selector(move || format!("session-provider-{index}"))
     .child(div().flex_none().w(m.icon_sm()).when(selected, |slot| {
         slot.child(IconGlyph::new(Icon::Check, m.icon_sm(), theme.accent))
@@ -240,6 +256,10 @@ fn unsupported(model: &AppModel) -> Div {
                     false,
                     false,
                 )
+                .role(Role::MenuItem)
+                .aria_label(provider.name())
+                .aria_description(tr!("Not supported"))
+                .aria_disabled(true)
                 .child(div().flex_none().w(m.icon_sm()))
                 .child(provider_icon(provider, m.icon_sm(), model))
                 .child(div().flex_1().child(provider.name()))

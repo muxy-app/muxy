@@ -2,13 +2,14 @@ use std::fmt::Write as _;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Styled,
-    div,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    ParentElement, StatefulInteractiveElement, Styled, div,
 };
 use muxy_app_core::settings::{DEFAULT_WORKTREE_FOLDER, WorktreeLocation};
 use muxy_protocol::{
     GitAction, ProjectId, WorktreeHook, WorktreeIntent, WorktreeOptions, WorktreeRemoval,
 };
+use muxy_ui::accessibility;
 use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::text_input::TextInput;
 use muxy_ui::tr;
@@ -258,6 +259,7 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
             .child(controls::segmented(
                 style,
                 "worktree-location",
+                &tr!("Location"),
                 &[
                     Choice::new("default", tr!("Default")),
                     Choice::new("template", tr!("Template")),
@@ -314,30 +316,46 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
             content = content.child(
                 div()
                     .text_size(model.metrics.font_caption())
-                    .child(description),
+                    .child(accessibility::label("git-location-default", description)),
             );
         }
     }
-    let (preview, color) = match model.worktree_directory(form, cx) {
-        Ok(path) => (path.to_string_lossy().into_owned(), model.theme.fg_muted),
-        Err(error) => (error, model.theme.danger),
-    };
-    content = content
-        .child(
-            div()
-                .text_size(model.metrics.font_caption())
-                .text_color(color)
-                .child(preview),
-        )
-        .child(
-            div()
-                .text_size(model.metrics.font_caption())
-                .text_color(model.theme.fg_muted)
-                .child(tr!(
+    content = content.child(location_preview(form, model, cx)).child(
+        div()
+            .text_size(model.metrics.font_caption())
+            .text_color(model.theme.fg_muted)
+            .child(accessibility::label(
+                "git-location-hint",
+                tr!(
                     "Templates must include {branch}. Relative paths start from the project folder."
-                )),
-        );
+                ),
+            )),
+    );
     field(&tr!("Location"), content.into_any_element(), model).into_any_element()
+}
+
+/// Where the worktree would go, or why it can't go there, which is announced.
+fn location_preview(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let preview = div().text_size(model.metrics.font_caption());
+    match model.worktree_directory(form, cx) {
+        Ok(path) => preview
+            .text_color(model.theme.fg_muted)
+            .child(accessibility::label(
+                "git-location-preview",
+                path.to_string_lossy().into_owned(),
+            ))
+            .into_any_element(),
+        Err(error) => accessibility::announced(
+            preview
+                .text_color(model.theme.danger)
+                .id("git-location-error")
+                .accessibility_id("git-location-error"),
+            error.clone(),
+            true,
+        )
+        .child(error)
+        .into_any_element(),
+    }
 }
 
 pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -351,26 +369,43 @@ pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -
         .gap(model.metrics.spacing3())
         .text_size(model.metrics.font_caption());
     if let Some(error) = &form.hooks_error {
-        content = content.child(div().text_color(model.theme.danger).child(tr!(
+        let error = tr!(
             "Setup hooks unavailable: %@. You can create without hooks.",
             error
-        )));
+        );
+        content = content.child(
+            accessibility::announced(
+                div().text_color(model.theme.danger).id("git-hooks-error"),
+                error.clone(),
+                true,
+            )
+            .child(error),
+        );
     } else if let Some(hooks) = &form.hooks {
         if hooks.is_empty() {
-            content = content.child(tr!("Optional setup commands: add setup to .muxy/worktree.json in the project or $XDG_CONFIG_HOME/muxy/worktree.json (defaults to ~/.config/muxy/worktree.json)."));
-        } else {
-            content = content.child(tr!(
-                "Commands run in the new worktree. Review project commands before enabling them."
+            content = content.child(accessibility::label(
+                "git-hooks-none",
+                tr!("Optional setup commands: add setup to .muxy/worktree.json in the project or $XDG_CONFIG_HOME/muxy/worktree.json (defaults to ~/.config/muxy/worktree.json)."),
             ));
-            for hook in hooks {
-                content = content.child(format!(
-                    "[{}] {}",
-                    if hook.project {
-                        tr!("Project")
-                    } else {
-                        tr!("Per-machine")
-                    },
-                    hook.command
+        } else {
+            content = content.child(accessibility::label(
+                "git-hooks-intro",
+                tr!(
+                    "Commands run in the new worktree. Review project commands before enabling them."
+                ),
+            ));
+            for (index, hook) in hooks.iter().enumerate() {
+                content = content.child(accessibility::label(
+                    ("git-hook", index),
+                    format!(
+                        "[{}] {}",
+                        if hook.project {
+                            tr!("Project")
+                        } else {
+                            tr!("Per-machine")
+                        },
+                        hook.command
+                    ),
                 ));
             }
             content = content.child(
@@ -380,6 +415,7 @@ pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -
                     .child(controls::toggle(
                         style,
                         "worktree-setup",
+                        &tr!("Run these commands after creating the worktree"),
                         form.run_setup,
                         cx.listener(|model, _, _, cx| {
                             if let Some(Overlay::GitForm(form)) = &mut model.overlay {
@@ -392,7 +428,10 @@ pub(super) fn hooks(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -
             );
         }
     } else {
-        content = content.child(tr!("Loading setup commands…"));
+        content = content.child(accessibility::label(
+            "git-hooks-loading",
+            tr!("Loading setup commands…"),
+        ));
     }
     field(&tr!("Setup commands"), content.into_any_element(), model).into_any_element()
 }

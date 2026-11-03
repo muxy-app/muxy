@@ -888,6 +888,26 @@ pub(super) const SETTINGS: &[Setting] = &[
     },
 ];
 
+/// The `tr_key!` literal accessibility clients read for the control `id`, which is
+/// the setting's label, or for a field inside a setting, what that field holds.
+pub(super) fn control_label(id: &str) -> Option<&'static str> {
+    setting(id).map(|setting| setting.label).or(match id {
+        "command-name" => Some(tr_key!("Name")),
+        "command-text" => Some(tr_key!("Command")),
+        "quick-width" => Some(tr_key!("Width")),
+        "quick-height" => Some(tr_key!("Height")),
+        "browser-profile-name" => Some(tr_key!("Profile name")),
+        "codepoint-range" => Some(tr_key!("Range")),
+        "keybind-parameter" => Some(tr_key!("Value")),
+        "keybind-action" => Some(tr_key!("Action")),
+        "padding-left" => Some(tr_key!("Left padding")),
+        "padding-right" => Some(tr_key!("Right padding")),
+        "padding-top" => Some(tr_key!("Top padding")),
+        "padding-bottom" => Some(tr_key!("Bottom padding")),
+        _ => None,
+    })
+}
+
 pub(super) fn setting(id: &str) -> Option<&'static Setting> {
     SETTINGS.iter().find(|setting| setting.id == id)
 }

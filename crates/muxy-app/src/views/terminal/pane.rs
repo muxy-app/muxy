@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use gpui::{
     Bounds, Context, EventEmitter, FocusHandle, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Render, Styled, Task, Window, div, prelude::FluentBuilder, px,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Task, Window, div,
+    prelude::FluentBuilder, px,
 };
 use muxy_app_core::ServerId;
 use muxy_client::{AttachedTerminal, Attachment, RunGrid};
@@ -1737,6 +1738,9 @@ impl Render for TerminalPane {
         let palette = self.palette;
         div()
             .id("terminal-pane")
+            .role(gpui::Role::MultilineTextInput)
+            .aria_label(tr!("Terminal"))
+            .aria_read_only(true)
             .debug_selector(|| "terminal-pane".to_owned())
             .track_focus(&self.focus)
             .size_full()

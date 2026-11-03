@@ -131,10 +131,12 @@ fn swatch(pane: &SettingsView, color: Option<TerminalColor>) -> AnyElement {
         .into_any_element()
 }
 
+/// A button whose `name` says which row it acts on, when `label` alone doesn't.
 pub(super) fn change_button(
     pane: &SettingsView,
     id: &str,
     label: &str,
+    name: &str,
     enabled: bool,
     change: Change,
     cx: &mut Context<SettingsView>,
@@ -142,7 +144,9 @@ pub(super) fn change_button(
     controls::button(
         pane.style(),
         id,
-        controls::Button::secondary(label).enabled(enabled),
+        controls::Button::secondary(label)
+            .named(name)
+            .enabled(enabled),
         cx.listener(move |pane, _, _, cx| {
             pane.recording = None;
             cx.emit(SettingsEvent::Change(change.clone()));
@@ -167,6 +171,7 @@ fn color_control(
             pane,
             &format!("{id}-theme"),
             &tr!("Use Theme"),
+            &tr!("Use Theme for %@", &super::control_name(id)),
             color.is_some(),
             Change::Terminal(id, String::new()),
             cx,
@@ -209,11 +214,11 @@ fn palette_control(pane: &SettingsView) -> AnyElement {
                         ))
                 })),
         )
-        .children(
-            PALETTE
-                .into_iter()
-                .filter_map(|id| pane.errors.get(id).map(|error| pane.note(error, true))),
-        )
+        .children(PALETTE.into_iter().filter_map(|id| {
+            pane.errors
+                .get(id)
+                .map(|error| super::announced_error(pane.note(error, true), id, error))
+        }))
         .into_any_element()
 }
 
@@ -240,6 +245,7 @@ fn style_font(pane: &SettingsView, slot: FontSlot, cx: &mut Context<SettingsView
                 pane,
                 &format!("{}-default", slot.id()),
                 &tr!("Use Default"),
+                &tr!("Use Default for %@", &super::control_name(slot.id())),
                 true,
                 Change::Terminal(slot.id(), String::new()),
                 cx,
@@ -422,6 +428,7 @@ fn slider(
     let control = controls::slider(
         pane.style(),
         id,
+        &super::control_name(id),
         value,
         (spec.min, spec.max),
         cx.listener(move |view, grab: &controls::Grab, _, cx| {
@@ -432,6 +439,16 @@ fn slider(
                 value: None,
             });
             view.move_terminal_slider(grab.position, cx);
+        }),
+        cx.listener(move |view, value: &f32, _, cx| {
+            view.finish_terminal_slider(cx);
+            view.terminal_slider = Some(Drag {
+                slider: spec,
+                bounds: gpui::Bounds::default(),
+                value: None,
+            });
+            view.preview_terminal_slider(*value, cx);
+            view.finish_terminal_slider(cx);
         }),
     );
     let display = if suffix == "%" {
@@ -656,6 +673,7 @@ pub(super) fn rows(
                             pane,
                             "dismiss-import-notes",
                             &tr!("Dismiss"),
+                            &tr!("Dismiss %@", &super::control_name(id)),
                             true,
                             Change::Terminal("dismiss-import-notes", String::new()),
                             cx,
@@ -667,11 +685,13 @@ pub(super) fn rows(
                 "terminal-reset" => controls::button(
                     pane.style(),
                     id,
-                    controls::Button::secondary(&tr!("Reset")).enabled(
-                        *terminal != TerminalSettings::default()
-                            || pane.snapshot.settings.panes.new_pane_directory
-                                != NewPaneDirectory::default(),
-                    ),
+                    controls::Button::secondary(&tr!("Reset"))
+                        .named(&super::control_name(id))
+                        .enabled(
+                            *terminal != TerminalSettings::default()
+                                || pane.snapshot.settings.panes.new_pane_directory
+                                    != NewPaneDirectory::default(),
+                        ),
                     cx.listener(|pane, _, _, cx| {
                         pane.recording = None;
                         cx.emit(SettingsEvent::ResetTerminal);
@@ -736,7 +756,15 @@ impl SettingsView {
         };
         let spec = drag.slider;
         let fraction = controls::fraction_at(drag.bounds, position);
-        let value = ((spec.min + fraction * (spec.max - spec.min)) / spec.step).round() * spec.step;
+        self.preview_terminal_slider(spec.min + fraction * (spec.max - spec.min), cx);
+    }
+
+    fn preview_terminal_slider(&mut self, value: f32, cx: &mut Context<Self>) {
+        let Some(drag) = &mut self.terminal_slider else {
+            return;
+        };
+        let spec = drag.slider;
+        let value = (value / spec.step).round() * spec.step;
         let value = value.clamp(spec.min, spec.max);
         let value = format!(
             "{}{}",

@@ -70,6 +70,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::segmented(
                 view.style(),
                 "browser-search-engine",
+                &tr!("Search engine"),
                 &choices,
                 engine_id(settings.search_engine),
                 cx.listener(|_, selected: &gpui::SharedString, _, cx| {
@@ -169,8 +170,6 @@ fn profile_row(
     name: &str,
     cx: &mut Context<SettingsView>,
 ) -> AnyElement {
-    let theme = &view.theme;
-    let metrics = view.style().metrics;
     let id = profile.id.clone();
     let mut buttons = div().flex().flex_wrap().gap(px(6.0));
     if !profile.default {
@@ -178,7 +177,8 @@ fn profile_row(
         buttons = buttons.child(controls::button(
             view.style(),
             &format!("browser-default-{id}"),
-            controls::Button::secondary(&tr!("Make Default")),
+            controls::Button::secondary(&tr!("Make Default"))
+                .named(&tr!("Make %@ Default", &profile.name)),
             cx.listener(move |_, _, _, cx| {
                 cx.emit(SettingsEvent::Change(Change::Browser(
                     BrowserChange::DefaultProfile(chosen.clone()),
@@ -190,7 +190,9 @@ fn profile_row(
     buttons = buttons.child(controls::button(
         view.style(),
         &format!("browser-rename-{id}"),
-        controls::Button::secondary(&tr!("Rename to Name Below")).enabled(!name.is_empty()),
+        controls::Button::secondary(&tr!("Rename to Name Below"))
+            .named(&tr!("Rename %@ to Name Below", &profile.name))
+            .enabled(!name.is_empty()),
         cx.listener(move |view, _, _, cx| {
             view.clear_browser_profile_name(cx);
             cx.emit(SettingsEvent::Change(Change::Browser(
@@ -202,7 +204,8 @@ fn profile_row(
     buttons = buttons.child(controls::button(
         view.style(),
         &format!("browser-clear-{id}"),
-        controls::Button::secondary(&tr!("Clear Data")),
+        controls::Button::secondary(&tr!("Clear Data"))
+            .named(&tr!("Clear Data for %@", &profile.name)),
         cx.listener(move |settings, _, window, cx| {
             confirm(
                 BrowserChange::ClearProfile(cleared.clone()),
@@ -220,7 +223,7 @@ fn profile_row(
         buttons = buttons.child(controls::button(
             view.style(),
             &format!("browser-delete-{id}"),
-            controls::Button::secondary(&tr!("Delete")),
+            controls::Button::secondary(&tr!("Delete")).named(&tr!("Delete %@", &profile.name)),
             cx.listener(move |settings, _, window, cx| {
                 confirm(
                     BrowserChange::DeleteProfile(deleted.clone()),
@@ -240,27 +243,39 @@ fn profile_row(
         .items_center()
         .justify_between()
         .gap(px(8.0))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .text_size(metrics.font_body())
-                .child(profile.name.clone())
-                .when(profile.default, |row| {
-                    row.child(
-                        div()
-                            .px(px(6.0))
-                            .rounded(metrics.radius_sm())
-                            .bg(theme.accent_soft)
-                            .text_size(metrics.font_caption())
-                            .text_color(theme.fg)
-                            .child(tr!("Default")),
-                    )
-                }),
-        )
+        .child(profile_title(view, profile))
         .child(buttons)
         .into_any_element()
+}
+
+/// A profile's name, and whether it is the default one.
+fn profile_title(view: &SettingsView, profile: &Profile) -> gpui::Div {
+    let theme = &view.theme;
+    let metrics = view.style().metrics;
+    let id = &profile.id;
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(metrics.font_body())
+        .child(muxy_ui::accessibility::label(
+            gpui::SharedString::from(format!("browser-profile-{id}")),
+            profile.name.clone(),
+        ))
+        .when(profile.default, |row| {
+            row.child(
+                div()
+                    .px(px(6.0))
+                    .rounded(metrics.radius_sm())
+                    .bg(theme.accent_soft)
+                    .text_size(metrics.font_caption())
+                    .text_color(theme.fg)
+                    .child(muxy_ui::accessibility::label(
+                        gpui::SharedString::from(format!("browser-profile-default-{id}")),
+                        tr!("Default"),
+                    )),
+            )
+        })
 }
 
 fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
@@ -268,9 +283,9 @@ fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let mut list = div().flex().flex_col().gap(px(6.0)).w_full();
     if view.snapshot.browser_sources.is_empty() {
         return list
-            .child(view.note(
+            .child(view.readable_note(
+                "browser-no-sources",
                 &tr!("No other browsers were found on this computer."),
-                false,
             ))
             .into_any_element();
     }
@@ -284,7 +299,11 @@ fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             buttons = buttons.child(controls::button(
                 view.style(),
                 &format!("browser-import-{index}-{cookies}"),
-                controls::Button::secondary(&label),
+                controls::Button::secondary(&label).named(&tr!(
+                    "Import %@ from %@",
+                    &label,
+                    source
+                )),
                 cx.listener(move |_, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::Browser(
                         BrowserChange::Import {

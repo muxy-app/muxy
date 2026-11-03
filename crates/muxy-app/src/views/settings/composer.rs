@@ -58,6 +58,7 @@ fn image_rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<AnyEle
             controls::segmented(
                 view.style(),
                 ComposerToggle::Images.id(),
+                &tr!("Image submission"),
                 &[
                     Choice {
                         enabled: clipboard.is_none(),

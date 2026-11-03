@@ -459,6 +459,7 @@ impl AppModel {
             .is_some_and(Repository::not_a_repository)
     }
 
+    #[allow(clippy::too_many_lines, reason = "Creates all of the form's inputs")]
     pub(crate) fn open_git_form(
         &mut self,
         project: ProjectId,
@@ -497,25 +498,37 @@ impl AppModel {
         let name = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder("feature-x")
+                .with_accessible_label(tr_key!("Name"))
+                .with_accessibility_id("settings-field-git-name")
         });
-        let existing_branch =
-            cx.new(|cx| TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx));
+        let existing_branch = cx.new(|cx| {
+            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_accessible_label(tr_key!("Branch"))
+        });
         let template = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder(muxy_app_core::settings::SUGGESTED_WORKTREE_TEMPLATE)
+                .with_accessible_label(tr_key!("Template"))
+                .with_accessibility_id("settings-field-git-template")
                 .with_text(location.path_template)
         });
         let branch = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder("feature-x")
+                .with_accessible_label(tr_key!("Branch name"))
+                .with_accessibility_id("settings-field-git-branch")
         });
         let directory = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder("/path/to/worktrees")
+                .with_accessible_label(tr_key!("Folder"))
+                .with_accessibility_id("settings-field-git-directory")
                 .with_text(location.parent_path)
         });
         let base = cx.new(|cx| {
-            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx).with_text(default)
+            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_accessible_label(tr_key!("Base branch"))
+                .with_text(default)
         });
         let mut subscriptions = Vec::new();
         for input in [

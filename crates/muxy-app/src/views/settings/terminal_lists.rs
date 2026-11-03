@@ -156,6 +156,7 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
                         pane,
                         &format!("fallback-up-{index}"),
                         "↑",
+                        &tr!("Move %@ Up", name),
                         index > 0,
                         moved(index.saturating_sub(1)),
                         cx,
@@ -164,6 +165,7 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
                         pane,
                         &format!("fallback-down-{index}"),
                         "↓",
+                        &tr!("Move %@ Down", name),
                         index < last,
                         moved((index + 1).min(last)),
                         cx,
@@ -172,6 +174,7 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
                         pane,
                         &format!("fallback-remove-{index}"),
                         &tr!("Remove"),
+                        &tr!("Remove %@", name),
                         true,
                         Change::TerminalEdit(TerminalEdit::Fallbacks(removed)),
                         cx,
@@ -204,13 +207,16 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
         .enumerate()
         .map(|(index, map)| {
             let edit = map.clone();
+            let row = format!("{} → {}", range_text(map), map.family);
             list_row(
-                format!("{} → {}", range_text(map), map.family),
+                row.clone(),
                 [
                     controls::button(
                         pane.style(),
                         &format!("codepoint-edit-{index}"),
-                        controls::Button::secondary(&tr!("Edit")).enabled(!editing),
+                        controls::Button::secondary(&tr!("Edit"))
+                            .named(&tr!("Edit %@", &row))
+                            .enabled(!editing),
                         cx.listener(move |pane, _, window, cx| {
                             pane.edit_codepoint_map(Some(edit.clone()), window, cx);
                         }),
@@ -220,6 +226,7 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
                         pane,
                         &format!("codepoint-delete-{index}"),
                         &tr!("Delete"),
+                        &tr!("Delete %@", &row),
                         !editing,
                         Change::TerminalEdit(TerminalEdit::CodepointMap {
                             previous: Some(map.clone()),
@@ -298,13 +305,16 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
                 format!("{label}: {parameter}")
             };
             let edit = (chord.clone(), action.clone());
+            let row = format!("{chord}  ·  {description}");
             list_row(
-                format!("{chord}  ·  {description}"),
+                row.clone(),
                 [
                     controls::button(
                         pane.style(),
                         &format!("keybind-edit-{index}"),
-                        controls::Button::secondary(&tr!("Edit")).enabled(!editing),
+                        controls::Button::secondary(&tr!("Edit"))
+                            .named(&tr!("Edit %@", &row))
+                            .enabled(!editing),
                         cx.listener(move |pane, _, window, cx| {
                             pane.edit_binding(Some(edit.clone()), window, cx);
                         }),
@@ -314,6 +324,7 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
                         pane,
                         &format!("keybind-delete-{index}"),
                         &tr!("Delete"),
+                        &tr!("Delete %@", &row),
                         !editing,
                         Change::TerminalEdit(TerminalEdit::Binding {
                             previous: Some(chord.clone()),
@@ -330,7 +341,10 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
         .flex_col()
         .gap(px(6.0))
         .when(bindings.is_empty() && !editing, |list| {
-            list.child(pane.note(&tr!("No custom key bindings yet."), false))
+            list.child(pane.readable_note(
+                "settings-no-key-bindings",
+                &tr!("No custom key bindings yet."),
+            ))
         })
         .children(rows)
         .child(if editing {
@@ -378,7 +392,7 @@ fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
             controls::button(
                 pane.style(),
                 BINDING_CHORD,
-                controls::Button::secondary(&key),
+                controls::Button::secondary(&key).named(&tr!("Key: %@", &key)),
                 cx.listener(|pane, _, window, cx| pane.begin_recording(BINDING_CHORD, window, cx)),
             )
             .into_any_element(),
@@ -405,7 +419,11 @@ fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
             ))
         })
         .when_some(pane.errors.get(BINDING_CHORD), |body, error| {
-            body.child(pane.note(error, true))
+            body.child(super::announced_error(
+                pane.note(error, true),
+                BINDING_CHORD,
+                error,
+            ))
         })
         .child(editor_buttons(pane, BINDING_PARAMETER, cx))
         .into_any_element()

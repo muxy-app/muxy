@@ -1,10 +1,11 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, DispatchPhase, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, SharedString,
+    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Role, SharedString,
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelIcon};
+use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::panel::{PanelFrame, PanelSizeBounds, PanelSizing, PanelStyle};
@@ -67,6 +68,38 @@ impl AppModel {
             Some(parent) => format!("{} › {}", parent.name, project.name),
             None => self.project_title(project),
         }
+    }
+}
+
+fn status_name(status: AgentStatus) -> SharedString {
+    match status {
+        AgentStatus::Blocked => tr!("Needs input"),
+        AgentStatus::Working => tr!("Working"),
+        AgentStatus::Completed => tr!("Completed"),
+        AgentStatus::Idle => tr!("Idle"),
+    }
+}
+
+/// How many agents a worktree has in each status, as clients read it.
+fn counts_description(counts: &[usize; 4]) -> String {
+    AgentStatus::ALL
+        .into_iter()
+        .zip(counts)
+        .filter(|(_, count)| **count > 0)
+        .map(|(status, count)| format!("{count} {}", status_name(status)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// What a row's icons and colors say, for clients that can't see them.
+fn entry_description(entry: &Entry, model: &AppModel) -> String {
+    match entry {
+        Entry::Agent(agent) => format!(
+            "{}, {}",
+            model.agents_location(agent.project),
+            status_name(agent.status)
+        ),
+        Entry::Worktree { counts, .. } => counts_description(counts),
     }
 }
 
@@ -232,6 +265,10 @@ fn entry_row(
     let leading = leading(entry, model);
     div()
         .id(SharedString::from(format!("agents-panel-row-{key}")))
+        .role(Role::TreeItem)
+        .aria_label(title.clone())
+        .aria_description(entry_description(entry, model))
+        .aria_selected(active)
         .debug_selector(move || format!("agents-panel-row-{key}"))
         .flex()
         .flex_none()
@@ -248,7 +285,7 @@ fn entry_row(
         .when(active, |row| row.bg(theme.surface))
         .when(selected, |row| row.bg(theme.hover))
         .hover(|style| style.bg(theme.hover))
-        .on_click(cx.listener(move |model, _, window, cx| {
+        .on_press(cx.listener(move |model, _, window, cx| {
             model.open_agents_entry(key, window, cx);
         }))
         .children(leading)
@@ -284,6 +321,8 @@ fn rows(
     };
     let mut list = div()
         .id("agents-panel-rows")
+        .role(Role::Tree)
+        .aria_label(tr!("Agents"))
         .flex()
         .flex_col()
         .flex_1()
@@ -300,7 +339,10 @@ fn rows(
                     .py(m.spacing3())
                     .text_size(m.font_footnote())
                     .text_color(theme.fg_dim)
-                    .child(tr!("No agents running")),
+                    .child(accessibility::label(
+                        "agents-panel-empty",
+                        tr!("No agents running"),
+                    )),
             )
             .into_any_element();
     }
@@ -343,13 +385,14 @@ fn header_buttons(detached: bool, model: &AppModel, cx: &mut Context<AppModel>) 
     let button = |id: &'static str, icon: Icon, tooltip: SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             m.icon_xs(),
             m.control_small(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
     };
     let right = model.appearance.agents_panel_dock == AgentsPanelDock::Right;
     let move_dock = button(
@@ -497,7 +540,9 @@ fn header(
                 .truncate()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_dim)
-                .child(summary),
+                .when(!summary.is_empty(), |text| {
+                    text.child(accessibility::label("agents-panel-summary", summary))
+                }),
         )
         .child(
             div()
@@ -519,6 +564,9 @@ fn body(
     let entries = model.agents_panel_entries_from(agents.clone());
     div()
         .id("agents-panel")
+        .role(Role::Group)
+        .accessibility_id("agents-panel")
+        .aria_label(tr!("Agents"))
         .debug_selector(|| "agents-panel".into())
         .track_focus(&model.agents_panel.focus)
         .key_context("Picker")
@@ -795,6 +843,10 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
     Some(
         div()
             .id("agents-panel-button")
+            .role(Role::Button)
+            .accessibility_id("agents-panel-button")
+            .aria_label(tr!("Agents"))
+            .aria_expanded(open)
             .debug_selector(|| "agents-panel-button".into())
             .group("agents-panel-button")
             .relative()
@@ -1048,4 +1100,15 @@ pub(crate) fn floating(
             .child(panel)
             .into_any_element(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::counts_description;
+
+    #[test]
+    fn a_worktree_reads_only_the_statuses_it_has() {
+        assert_eq!(counts_description(&[2, 0, 0, 1]), "2 Needs input, 1 Idle");
+        assert_eq!(counts_description(&[0, 0, 0, 0]), "");
+    }
 }

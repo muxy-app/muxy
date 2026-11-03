@@ -6,8 +6,8 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, CursorStyle, DispatchPhase, ElementId, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
-    canvas, div, px,
+    ParentElement, Point, RenderOnce, Role, SharedString, StatefulInteractiveElement, Styled,
+    Window, canvas, div, px,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -549,7 +549,7 @@ impl RenderOnce for PanelChrome {
                 .text_size(self.metrics.font_body())
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(self.theme.fg)
-                .child(self.title),
+                .child(crate::accessibility::label("panel-title", self.title)),
         );
 
         div()
@@ -599,6 +599,7 @@ fn panel_action(
         selected,
     } = action;
     let selector = SharedString::from(id.to_string());
+    let accessibility_id = selector.clone();
     let group = SharedString::from(format!("panel-action-{id}"));
     let color = if selected {
         theme.accent
@@ -631,6 +632,10 @@ fn panel_action(
     let tooltip_border = theme.border;
     div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(accessibility_id)
+        .aria_label(label.clone())
+        .when(selected, |button| button.aria_selected(true))
         .group(group)
         .debug_selector(move || selector.to_string())
         .flex()

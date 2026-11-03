@@ -53,7 +53,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &id,
-                controls::Button::secondary(&label),
+                controls::Button::secondary(&label).named(&tr!("%@: %@", &shortcut.title, &label)),
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(&record, window, cx);
                 }),
@@ -64,7 +64,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                controls::Button::secondary(&tr!("Reset")),
+                controls::Button::secondary(&tr!("Reset")).named(&tr!("Reset %@", &shortcut.title)),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(reset.clone(), None)));
@@ -76,7 +76,8 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                controls::Button::secondary(&tr!("Unassign")),
+                controls::Button::secondary(&tr!("Unassign"))
+                    .named(&tr!("Unassign %@", &shortcut.title)),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Unassign(unassign.clone())));
@@ -109,6 +110,8 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             |chord| chord.as_str().to_owned().into(),
         )
     };
+    let name = muxy_core::l10n::translate(&pane.shortcut_names[index]);
+    let name = name.as_ref();
     let control = div()
         .flex()
         .flex_wrap()
@@ -117,7 +120,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 id,
-                controls::Button::secondary(&label),
+                controls::Button::secondary(&label).named(&tr!("%@: %@", name, &label)),
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(id, window, cx);
                 }),
@@ -128,7 +131,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                controls::Button::secondary(&tr!("Reset")),
+                controls::Button::secondary(&tr!("Reset")).named(&tr!("Reset %@", name)),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(id.into(), None)));

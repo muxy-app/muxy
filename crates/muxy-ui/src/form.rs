@@ -71,7 +71,7 @@ pub fn row(
         .child(div().flex_none().min_w(px(0.0)).child(control))
 }
 
-pub fn section_heading(style: Style, title: &str) -> Div {
+pub fn section_heading(style: Style, id: impl Into<gpui::ElementId>, title: &str) -> Div {
     let Style { theme, metrics } = style;
     div()
         .pt(metrics.spacing8())
@@ -81,7 +81,7 @@ pub fn section_heading(style: Style, title: &str) -> Div {
         .font_family(".SystemUIFontMonospaced")
         .text_size(metrics.font_body())
         .text_color(theme.fg_muted)
-        .child(title.to_owned())
+        .child(crate::accessibility::label(id, title.to_owned()))
 }
 
 pub fn note(style: Style, text: &str, error: bool) -> Div {

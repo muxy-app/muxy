@@ -177,8 +177,18 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     .flex_col()
                     .gap(px(8.0))
                     .child(buttons)
-                    .children(label.map(|label| div().child(label)))
-                    .child(view.note(&status, false))
+                    .children(label.map(|label| {
+                        div().child(muxy_ui::accessibility::label(
+                            "settings-quick-shortcut",
+                            label,
+                        ))
+                    }))
+                    .child(muxy_ui::accessibility::announced(
+                        view.note(&status, false)
+                            .id("settings-quick-shortcut-status"),
+                        status.clone(),
+                        false,
+                    ))
                     .into_any_element(),
             ),
         );
@@ -203,7 +213,8 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                     .child(controls::button(
                         view.style(),
                         "quick-size-reset",
-                        controls::Button::secondary(&tr!("Reset")),
+                        controls::Button::secondary(&tr!("Reset"))
+                            .named(&tr!("Reset %@", &tr!("Terminal size"))),
                         cx.listener(move |_: &mut SettingsView, _, _, cx| {
                             cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
                         }),
@@ -243,11 +254,15 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             let slider = controls::slider(
                 view.style(),
                 id,
+                &muxy_ui::l10n::translate(label),
                 f32::from(value),
                 (0.0, max),
                 cx.listener(move |view, grab: &controls::Grab, _, cx| {
                     view.quick_slider = Some((id, grab.bounds));
                     view.move_quick_slider(id, grab.bounds, grab.position, cx);
+                }),
+                cx.listener(move |view, value: &f32, _, cx| {
+                    view.set_quick_slider(id, *value, cx);
                 }),
             );
             let mut control = div()
@@ -263,7 +278,8 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 control = control.child(controls::button(
                     view.style(),
                     "quick-appearance-reset",
-                    controls::Button::secondary(&tr!("Reset")),
+                    controls::Button::secondary(&tr!("Reset"))
+                        .named(&tr!("Reset %@", &tr!("Appearance"))),
                     cx.listener(move |_: &mut SettingsView, _, _, cx| {
                         cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
                     }),
@@ -293,12 +309,26 @@ impl SettingsView {
         position: gpui::Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let mut next = self.snapshot.settings.quick_terminal.clone();
         let fraction = controls::fraction_at(bounds, position);
-        if id == "quick-transparency" {
-            next.transparency = (fraction * 55.0).round() as u8;
+        let max = if id == "quick-transparency" {
+            55.0
         } else {
-            next.blur = (fraction * 100.0).round() as u8;
+            100.0
+        };
+        self.set_quick_slider(id, fraction * max, cx);
+    }
+
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "These sliders stay between 0 and 100"
+    )]
+    fn set_quick_slider(&mut self, id: &'static str, value: f32, cx: &mut Context<Self>) {
+        let mut next = self.snapshot.settings.quick_terminal.clone();
+        if id == "quick-transparency" {
+            next.transparency = value.round() as u8;
+        } else {
+            next.blur = value.round() as u8;
         }
         if next != self.snapshot.settings.quick_terminal {
             cx.emit(SettingsEvent::Change(Change::QuickTerminal(next)));

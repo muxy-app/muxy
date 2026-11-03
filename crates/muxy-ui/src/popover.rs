@@ -50,16 +50,20 @@ pub fn modal(theme: &Theme, content: impl IntoElement) -> AnyElement {
 
 /// The card of a modal dialog: `width` wide, or as wide as the window allows,
 /// and scrolling when taller than the window. Clicks inside stay inside.
+/// Accessibility clients read it as a dialog with `title`.
 pub fn modal_card(
     theme: &Theme,
     metrics: Metrics,
     window: Size<Pixels>,
     id: impl Into<ElementId>,
+    title: impl Into<gpui::SharedString>,
     width: Pixels,
 ) -> gpui::Stateful<gpui::Div> {
     surface(theme, metrics)
         .shadow(crate::theme::Elevation::Modal.shadow(theme.bg))
         .id(id)
+        .role(gpui::Role::Dialog)
+        .aria_label(title)
         .w(width.min((window.width - px(16.0)).max(px(0.0))))
         .max_h((window.height - metrics.scaled(80.0)).max(px(0.0)))
         .overflow_y_scroll()

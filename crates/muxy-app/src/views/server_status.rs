@@ -1,7 +1,8 @@
 use gpui::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
+use muxy_ui::accessibility;
 use muxy_ui::components::ButtonInteraction;
 use muxy_ui::controls::{self, Style};
 use muxy_ui::l10n::translate;
@@ -44,13 +45,29 @@ fn status_color(status: ServerStatus, model: &AppModel) -> Hsla {
     }
 }
 
+/// What the status bar's server item says: which server, and how it's doing.
+fn control_text(remote: Option<&str>, status: ServerStatus) -> SharedString {
+    let status = translate(status.label());
+    match remote {
+        Some(server) => format!("{server} · {status}"),
+        None => format!("{} · {status}", tr!("Server")),
+    }
+    .into()
+}
+
 pub(crate) fn control(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     let m = model.metrics;
     let theme = &model.theme;
     let status = model.server_status();
     let anchor = model.server_anchor();
+    let server = model.status_server();
+    let remote = (!server.is_local()).then(|| model.server_label(server));
+    let text = control_text(remote.as_deref(), status);
     div()
         .id("project-server-status")
+        .role(Role::Button)
+        .accessibility_id("project-connection-status")
+        .aria_label(text.clone())
         .debug_selector(|| "project-connection-status".into())
         .relative()
         .flex()
@@ -87,15 +104,7 @@ pub(crate) fn control(model: &AppModel, cx: &mut Context<AppModel>) -> impl Into
             div()
                 .text_size(m.font_footnote())
                 .font_weight(FontWeight::MEDIUM)
-                .child(if model.status_server().is_local() {
-                    format!("{} · {}", tr!("Server"), translate(status.label()))
-                } else {
-                    format!(
-                        "{} · {}",
-                        model.server_label(model.status_server()),
-                        translate(status.label())
-                    )
-                }),
+                .child(text),
         )
 }
 
@@ -119,43 +128,55 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
                 .child(
                     div()
                         .debug_selector(|| "server-popover-name".into())
-                        .child(label.clone()),
+                        .child(accessibility::label("server-popover-name", label.clone())),
                 )
                 .child(
                     div()
                         .text_color(status_color(status, model))
-                        .child(translate(status.label())),
+                        .child(accessibility::label(
+                            "server-popover-status",
+                            translate(status.label()),
+                        )),
                 ),
         )
         .child(
             div()
                 .text_color(theme.fg_muted)
-                .child(match version {
-                    Some(version) => tr!(
-                        "Server for %@ · Muxy %@",
-                        &model.state.current_project().name,
-                        version
-                    ),
-                    None => tr!("Server for %@", &model.state.current_project().name),
-                }),
+                .child(accessibility::label(
+                    "server-popover-project",
+                    match version {
+                        Some(version) => tr!(
+                            "Server for %@ · Muxy %@",
+                            &model.state.current_project().name,
+                            version
+                        ),
+                        None => tr!("Server for %@", &model.state.current_project().name),
+                    },
+                )),
         )
         .children(error.map(|error| {
             div()
                 .debug_selector(|| "server-popover-error".into())
                 .text_color(theme.danger)
-                .child(error.to_owned())
+                .child(accessibility::label(
+                    "server-popover-error",
+                    error.to_owned(),
+                ))
         }))
         .child(
             div()
                 .text_color(theme.fg_muted)
-                .child(if server.is_local() {
+                .child(accessibility::label("server-popover-warning", if server.is_local() {
                     tr!("Restarting or stopping this server ends all terminal sessions on this device, including sessions in other projects and clients.")
                 } else {
                     tr!("Restarting or stopping this server ends all terminal sessions on %@, including sessions in other projects and clients.", &label)
-                }),
+                })),
         );
     let panel = popover::surface(theme, m)
         .id("server-popover")
+        .role(Role::Dialog)
+        .accessibility_id("server-popover")
+        .aria_label(tr!("Project server"))
         .debug_selector(|| "server-popover".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -233,4 +254,21 @@ fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
         }
     }
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_server_item_names_a_remote_server_and_says_how_it_is() {
+        assert_eq!(
+            control_text(None, ServerStatus::Connected).as_ref(),
+            "Server · Connected",
+        );
+        assert_eq!(
+            control_text(Some("nas"), ServerStatus::Disconnected).as_ref(),
+            "nas · Disconnected",
+        );
+    }
 }

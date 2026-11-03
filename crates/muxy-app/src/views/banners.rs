@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement, Role,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 use muxy_ui::components::{ButtonInteraction, IconGlyph, Tooltip};
@@ -55,6 +55,9 @@ fn problem(
     let tooltip_theme = theme.clone();
     let close = div()
         .id("dismiss-workspace-toast")
+        .role(Role::Button)
+        .accessibility_id("dismiss-workspace-toast")
+        .aria_label(tr!("Dismiss"))
         .debug_selector(|| "dismiss-workspace-toast".into())
         .flex()
         .flex_none()
@@ -92,13 +95,18 @@ fn placed(
     window: &Window,
 ) -> AnyElement {
     let progress = toast.motion.sample(window);
+    let id = if close.is_some() {
+        "workspace-problem-toast"
+    } else {
+        "workspace-notice-toast"
+    };
     div()
         .flex()
         .justify_center()
         .max_w_full()
         .mt(-model.metrics.scaled(12.0) * (1.0 - progress))
         .opacity(progress)
-        .child(
+        .child(muxy_ui::toast::announced(
             muxy_ui::toast::toast(
                 toast.kind,
                 &toast.message,
@@ -106,9 +114,14 @@ fn placed(
                 &model.theme,
                 model.metrics,
             )
+            .id(id)
+            .accessibility_id(id)
             .min_w(px(0.0))
             .children(close)
             .child(model.webview_occlusion()),
-        )
+            toast.kind,
+            &toast.message,
+            toast.body.as_deref(),
+        ))
         .into_any_element()
 }

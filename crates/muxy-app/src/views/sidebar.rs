@@ -11,9 +11,9 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Bounds, Context, DragMoveEvent, Empty, FontWeight, Hsla,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Point, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Window, div, px,
+    AccessibleAction, AnyElement, App, AppContext, Bounds, Context, Div, DragMoveEvent, Empty,
+    FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Point, Role,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Window, div, px,
 };
 use muxy_app_core::{
     Project, ProjectId, ProjectStatus,
@@ -22,8 +22,9 @@ use muxy_app_core::{
 
 use super::{
     menu::{Command, Item},
-    tab_sidebar,
+    tab_activity, tab_sidebar,
 };
+use muxy_ui::accessibility::hidden_button;
 use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::{contrasting_foreground, parse_hex};
@@ -212,6 +213,9 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
     let m = model.metrics;
     div()
         .id("sidebar-add-project")
+        .role(Role::Button)
+        .accessibility_id("sidebar-add-project")
+        .aria_label(tr!("Add Project"))
         .debug_selector(|| "sidebar-add-project".into())
         .group("sidebar-add-project")
         .flex()
@@ -235,6 +239,36 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
                 .hover_in_group("sidebar-add-project", model.theme.fg),
         )
         .into_any_element()
+}
+
+/// What a client's press on a row runs. It goes straight to the action, since
+/// the mouse events a press otherwise becomes land on whatever is at the row's
+/// center, and on nothing once the row has scrolled away.
+pub(super) fn client_press(
+    cx: &Context<AppModel>,
+    action: impl Fn(&mut AppModel, &mut Window, &mut Context<AppModel>) + 'static,
+) -> impl FnMut(Option<&gpui::accesskit::ActionData>, &mut Window, &mut App) + 'static {
+    let press = cx.listener(move |model, (): &(), window, cx| action(model, window, cx));
+    move |_, window, cx| press(&(), window, cx)
+}
+
+/// A button for what the pointer reaches by hovering or right-clicking a row.
+pub(super) fn client_button(
+    id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
+    cx: &Context<AppModel>,
+    action: impl Fn(&mut AppModel, &mut Window, &mut Context<AppModel>) + 'static,
+) -> Stateful<Div> {
+    let press = cx.listener(move |model, (): &(), window, cx| action(model, window, cx));
+    hidden_button(id, name, move |window, cx| press(&(), window, cx))
+}
+
+/// What applies to a row, read after its name.
+pub(super) fn describe(
+    parts: impl IntoIterator<Item = Option<SharedString>>,
+) -> Option<SharedString> {
+    let parts: Vec<_> = parts.into_iter().flatten().collect();
+    (!parts.is_empty()).then(|| parts.join(", ").into())
 }
 
 impl AppModel {
@@ -494,6 +528,12 @@ fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .child(
             div()
                 .id("sidebar-project-filter")
+                .role(Role::Button)
+                .accessibility_id("sidebar-project-filter")
+                .aria_label(tr!(
+                    "Workspace Filter: %@",
+                    model.sidebar_filter_label().as_ref()
+                ))
                 .debug_selector(|| "sidebar-project-filter".into())
                 .flex()
                 .flex_1()
@@ -528,6 +568,9 @@ fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .child(
             div()
                 .id("sidebar-project-sort")
+                .role(Role::Button)
+                .accessibility_id("sidebar-project-sort")
+                .aria_label(tr!("Sort Projects"))
                 .debug_selector(|| "sidebar-project-sort".into())
                 .flex()
                 .items_center()
@@ -620,6 +663,9 @@ fn layout_selector(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let theme = &model.theme;
     div()
         .id("layout-menu")
+        .role(Role::Button)
+        .accessibility_id("layout-menu")
+        .aria_label(tr!("Layout"))
         .debug_selector(|| "layout-menu".into())
         .group("layout-menu")
         .flex()
@@ -721,6 +767,9 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .collect();
     div()
         .id("projects-scroll")
+        .role(Role::Tree)
+        .accessibility_id("projects-scroll")
+        .aria_label(tr!("Projects"))
         .debug_selector(|| "projects-scroll".into())
         .flex_1()
         .min_h(px(0.0))
@@ -807,13 +856,24 @@ fn project_row(
                     .into_any_element()
             },
         );
-    let activity = super::tab_activity::project_status(id, model);
+    let activity = tab_activity::project_status(id, model);
+    let name = SharedString::from(model.project_title(project));
+    let description = project_description(missing, remote_description(project, model), activity);
+    let expanded = has_worktrees.then(|| wide && model.expanded_worktrees.contains(&id));
     let drag = DraggedProject {
         id,
         last_target: Cell::new(None),
     };
     div()
         .id(group.clone())
+        .role(Role::TreeItem)
+        .accessibility_id(format!("project-row-{}", project.name))
+        .aria_label(name.clone())
+        .aria_selected(active)
+        .aria_level(project_level(project))
+        .aria_disabled(missing)
+        .when_some(expanded, StatefulInteractiveElement::aria_expanded)
+        .when_some(description, StatefulInteractiveElement::aria_description)
         .debug_selector(|| format!("project-row-{index}"))
         .group(group)
         .relative()
@@ -836,18 +896,17 @@ fn project_row(
         })
         .when(missing, |row| row.opacity(0.5))
         .when(!missing, |row| {
+            let opens_worktrees = active && has_worktrees;
             row.cursor_pointer()
                 .on_click(cx.listener(move |model, _, window, cx| {
-                    if active && has_worktrees && wide {
-                        model.toggle_worktree_list(id, cx);
-                    } else if active && has_worktrees {
-                        model.expanded_worktrees.insert(id);
-                        model.toggle_sidebar(window, cx);
-                    } else {
-                        model.select_project(model.preferred_worktree(id), cx);
-                        model.focus_active(window, cx);
-                    }
+                    press_project(model, id, opens_worktrees, wide, window, cx);
                 }))
+                .on_a11y_action(
+                    AccessibleAction::Click,
+                    client_press(cx, move |model, window, cx| {
+                        press_project(model, id, opens_worktrees, wide, window, cx);
+                    }),
+                )
         })
         .on_mouse_down(
             gpui::MouseButton::Right,
@@ -857,6 +916,7 @@ fn project_row(
                 }
             }),
         )
+        .child(project_actions(project, &name, cx))
         .when(
             !project.home
                 && project.parent_id.is_none()
@@ -874,11 +934,11 @@ fn project_row(
                     .text_size(m.font_body())
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.fg)
-                    .child(model.project_title(project)),
+                    .child(name),
             )
         })
         .when(wide, |row| row.children(remote_marker(project, model)))
-        .when(activity != super::tab_activity::Status::None, |row| {
+        .when(activity != tab_activity::Status::None, |row| {
             row.child(
                 div()
                     .flex()
@@ -890,7 +950,7 @@ fn project_row(
                     .when(!wide, |badge| {
                         badge.absolute().right(m.scaled(-3.0)).top(m.scaled(-3.0))
                     })
-                    .child(super::tab_activity::status_glyph(
+                    .child(tab_activity::status_glyph(
                         format!("project-activity-{id}"),
                         activity,
                         m.icon_sm(),
@@ -921,6 +981,76 @@ fn project_row(
         .into_any_element()
 }
 
+fn press_project(
+    model: &mut AppModel,
+    id: ProjectId,
+    opens_worktrees: bool,
+    wide: bool,
+    window: &mut Window,
+    cx: &mut Context<AppModel>,
+) {
+    if opens_worktrees && wide {
+        model.toggle_worktree_list(id, cx);
+    } else if opens_worktrees {
+        model.expanded_worktrees.insert(id);
+        model.toggle_sidebar(window, cx);
+    } else {
+        model.select_project(model.preferred_worktree(id), cx);
+        model.focus_active(window, cx);
+    }
+}
+
+/// Opens the menu a project's right click opens.
+pub(super) fn project_actions(
+    project: &Project,
+    title: &str,
+    cx: &Context<AppModel>,
+) -> Stateful<Div> {
+    let id = project.id;
+    client_button(
+        format!("project-actions-{}", project.name),
+        tr!("Actions for %@", title),
+        cx,
+        move |model, window, cx| {
+            if let Some(project) = model.state.project(id) {
+                model.open_menu(
+                    model.project_menu(project),
+                    window.mouse_position(),
+                    window,
+                    cx,
+                );
+            }
+        },
+    )
+}
+
+/// A worktree sits under its project.
+pub(super) fn project_level(project: &Project) -> usize {
+    if project.parent_id.is_some() { 2 } else { 1 }
+}
+
+/// What a client reads after a project's name, beyond its selected state.
+pub(super) fn project_description(
+    missing: bool,
+    remote: Option<SharedString>,
+    activity: tab_activity::Status,
+) -> Option<SharedString> {
+    describe([
+        missing.then(|| tr!("Project folder is missing")),
+        remote,
+        tab_sidebar::activity_description(activity),
+    ])
+}
+
+pub(super) fn remote_description(project: &Project, model: &AppModel) -> Option<SharedString> {
+    if project.is_remote_home() {
+        return None;
+    }
+    model
+        .server_name(project.server_id)
+        .map(|name| tr!("Remote project on %@", name))
+}
+
 pub(super) fn tile_size(model: &AppModel) -> Pixels {
     if model.appearance.sidebar_expanded {
         model.metrics.control_small()
@@ -931,14 +1061,10 @@ pub(super) fn tile_size(model: &AppModel) -> Pixels {
 
 /// Marks another computer's project, naming it in a tooltip.
 pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyElement> {
-    if project.is_remote_home() {
-        return None;
-    }
-    let name = model.server_name(project.server_id)?;
+    let tooltip = remote_description(project, model)?;
     let id = project.id;
     let m = model.metrics;
     let theme = model.theme.clone();
-    let tooltip = tr!("Remote project on %@", name);
     Some(
         div()
             .id(SharedString::from(format!("project-remote-{id}")))
@@ -1070,5 +1196,37 @@ mod tests {
         let (background, mark) = tile_colors(red, &theme("#ffffff"));
         assert_eq!(background, Hsla::from(red));
         assert_eq!(mark, Hsla::from(contrasting_foreground(red)));
+    }
+
+    #[test]
+    fn a_project_row_names_a_missing_folder_and_a_remote_computer() {
+        assert_eq!(
+            project_description(false, None, tab_activity::Status::None),
+            None,
+        );
+        assert_eq!(
+            project_description(
+                true,
+                Some("Remote project on nas".into()),
+                tab_activity::Status::Blocked,
+            ),
+            Some(
+                "Project folder is missing, Remote project on nas, \
+                 An agent is waiting for your attention."
+                    .into()
+            ),
+        );
+    }
+
+    #[test]
+    fn a_project_row_reports_failed_work() {
+        let failed = muxy_protocol::TerminalProgress {
+            state: muxy_protocol::ProgressState::Error,
+            percent: None,
+        };
+        assert_eq!(
+            project_description(false, None, tab_activity::Status::Progress(failed)),
+            Some("Work reported an error.".into()),
+        );
     }
 }

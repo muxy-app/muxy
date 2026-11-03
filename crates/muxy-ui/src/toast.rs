@@ -1,9 +1,11 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    FontWeight, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, div, px,
+    Div, FontWeight, InteractiveElement, ParentElement, Stateful, StatefulInteractiveElement,
+    Styled, div, px,
 };
 
 use crate::{
+    accessibility::LiveRegion,
     components::SymbolGlyph,
     theme::{Metrics, Theme},
 };
@@ -15,14 +17,22 @@ pub enum ToastKind {
     Error,
 }
 
-/// Success toasts stay compact; problems wrap so their full text stays readable.
-pub fn toast(
+/// `element`, a [`toast`] with an id, read out when it appears. Problems interrupt.
+pub fn announced(
+    element: Stateful<Div>,
     kind: ToastKind,
     message: &str,
     body: Option<&str>,
-    theme: &Theme,
-    m: Metrics,
-) -> gpui::Div {
+) -> LiveRegion {
+    let text = match body {
+        Some(body) => format!("{message}\n{body}"),
+        None => message.to_owned(),
+    };
+    crate::accessibility::announced(element, text, kind != ToastKind::Success)
+}
+
+/// Success toasts stay compact; problems wrap so their full text stays readable.
+pub fn toast(kind: ToastKind, message: &str, body: Option<&str>, theme: &Theme, m: Metrics) -> Div {
     let (symbol, color) = match kind {
         ToastKind::Success => ("checkmark.circle.fill", theme.diff_add),
         ToastKind::Warning => ("exclamationmark.triangle.fill", theme.warning),
@@ -93,4 +103,33 @@ pub fn toast(
                     )
                 }),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::Element;
+    use gpui::accesskit::{Live, Node, Role};
+
+    fn node_of(kind: ToastKind, body: Option<&str>) -> Node {
+        let mut node = Node::new(Role::Unknown);
+        announced(div().id("toast"), kind, "Saved", body).write_a11y_info(&mut node);
+        node
+    }
+
+    #[test]
+    fn problems_interrupt_and_read_their_body() {
+        for kind in [ToastKind::Warning, ToastKind::Error] {
+            let node = node_of(kind, Some("Disk full"));
+            assert_eq!(node.live(), Some(Live::Assertive));
+            assert_eq!(node.label(), Some("Saved\nDisk full"));
+        }
+    }
+
+    #[test]
+    fn a_success_waits_its_turn() {
+        let node = node_of(ToastKind::Success, None);
+        assert_eq!(node.live(), Some(Live::Polite));
+        assert_eq!(node.label(), Some("Saved"));
+    }
 }

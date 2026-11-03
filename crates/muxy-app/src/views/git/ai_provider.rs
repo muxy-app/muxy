@@ -1,13 +1,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window, div, px, svg,
+    IntoElement, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Toggled, Window, div, px, svg,
 };
 use muxy_protocol::ProjectId;
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
 use muxy_ui::controls::{self, Style};
-use muxy_ui::l10n::translate;
+use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::popover;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
@@ -116,6 +116,8 @@ impl AppModel {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_font_family(muxy_ui::font::monospace())
                 .multiline()
+                .with_accessible_label(tr_key!("Create PR Prompt"))
+                .with_accessibility_id("settings-area-ai-project-pr-prompt")
                 .with_text(text)
         });
         let subscription =
@@ -210,6 +212,13 @@ fn provider_row(
         true,
         menu.highlighted == Some(index),
     )
+    .role(Role::MenuItem)
+    .accessibility_id(format!(
+        "ai-provider-{}",
+        if id.is_empty() { "auto" } else { id }
+    ))
+    .aria_label(title.clone())
+    .when(configured == id, |row| row.aria_toggled(Toggled::True))
     .debug_selector(move || format!("ai-provider-{id}"))
     .min_w(m.scaled(220.0))
     .button_interaction(
@@ -275,6 +284,16 @@ fn render_provider_menu(
         .is_some_and(|prompt| !prompt.trim().is_empty());
     let mut view = popover::surface(theme, m)
         .id("ai-provider-menu")
+        .role(if menu.prompt.is_some() {
+            Role::Dialog
+        } else {
+            Role::Menu
+        })
+        .aria_label(if menu.prompt.is_some() {
+            tr!("Create PR Prompt")
+        } else {
+            translate(menu.action.settings_title())
+        })
         .debug_selector(|| "ai-provider-menu".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -380,6 +399,10 @@ fn render_provider_menu(
                     true,
                     menu.highlighted == Some(PROVIDERS.len() + 1),
                 )
+                .role(Role::MenuItem)
+                .accessibility_id("ai-project-prompt-edit")
+                .aria_label(tr!("Edit Project Prompt…"))
+                .aria_description(project_name.to_owned())
                 .debug_selector(|| "ai-project-prompt-edit".into())
                 .h(m.scaled(44.0))
                 .min_w(m.scaled(220.0))

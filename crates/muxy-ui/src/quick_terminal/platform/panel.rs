@@ -54,11 +54,4 @@ impl PanelAdapter {
     pub fn forget_previous_focus(&mut self) {
         self.0.forget_previous_focus();
     }
-
-    pub fn install_accessibility(&mut self, status: &str, shortcut: &str, pinned: bool) {
-        self.0
-            .install_accessibility(&crate::quick_terminal::view::bridge_accessibility_model(
-                status, shortcut, pinned,
-            ));
-    }
 }

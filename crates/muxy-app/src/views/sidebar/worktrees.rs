@@ -1,10 +1,11 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, div, px,
+    AccessibleAction, AnyElement, Context, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, div, px,
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus};
 use muxy_ui::{
+    accessibility::OnPress,
     components::{IconButton, IconGlyph},
     icon::Icon,
     tr,
@@ -114,6 +115,11 @@ pub(super) fn disclosure(
             IconButton::new(
                 SharedString::from(format!("project-worktrees-toggle-{id}")),
                 if expanded {
+                    tr!("Collapse Worktrees")
+                } else {
+                    tr!("Expand Worktrees")
+                },
+                if expanded {
                     Icon::ChevronDown
                 } else {
                     Icon::ChevronRight
@@ -123,17 +129,9 @@ pub(super) fn disclosure(
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(
-                if expanded {
-                    tr!("Collapse Worktrees")
-                } else {
-                    tr!("Expand Worktrees")
-                },
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .accessibility_id(format!("project-worktrees-toggle-{}", project.name))
+            .expanded(expanded)
+            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
             .on_click(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();
                 model.toggle_worktree_list(id, cx);
@@ -176,6 +174,10 @@ pub(super) fn group(
     group.into_any_element()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Declarative worktree row and interaction layout"
+)]
 fn row(
     project: &Project,
     primary: bool,
@@ -191,6 +193,16 @@ fn row(
     let activity = super::super::tab_activity::worktree_status(id, model);
     div()
         .id(SharedString::from(format!("worktree-{id}")))
+        .role(Role::TreeItem)
+        .accessibility_id(format!("worktree-row-{}", project.name))
+        .aria_label(project.name.clone())
+        .aria_selected(active)
+        .aria_level(2)
+        .aria_disabled(unavailable)
+        .when_some(
+            worktree_description(primary, missing, activity),
+            StatefulInteractiveElement::aria_description,
+        )
         .debug_selector(move || format!("worktree-{id}"))
         .flex()
         .items_center()
@@ -209,6 +221,13 @@ fn row(
                     model.select_project(id, cx);
                     model.focus_active(window, cx);
                 }))
+                .on_a11y_action(
+                    AccessibleAction::Click,
+                    super::client_press(cx, move |model, window, cx| {
+                        model.select_project(id, cx);
+                        model.focus_active(window, cx);
+                    }),
+                )
         })
         .on_mouse_down(
             MouseButton::Right,
@@ -223,6 +242,21 @@ fn row(
                 }
             }),
         )
+        .child(super::client_button(
+            format!("worktree-actions-{}", project.name),
+            tr!("Actions for %@", &project.name),
+            cx,
+            move |model, window, cx| {
+                if let Some(project) = model.state.project(id) {
+                    model.open_menu(
+                        super::super::project_menu::worktree_items(project, primary),
+                        window.mouse_position(),
+                        window,
+                        cx,
+                    );
+                }
+            },
+        ))
         .child(
             div()
                 .flex_none()
@@ -262,12 +296,37 @@ fn row(
         .into_any_element()
 }
 
+/// What a client reads after a worktree's name, beyond its selected state. A
+/// removal is in `activity`.
+fn worktree_description(
+    primary: bool,
+    missing: bool,
+    activity: super::super::tab_activity::Status,
+) -> Option<SharedString> {
+    super::describe([
+        primary.then(|| tr!("PRIMARY")),
+        missing.then(|| tr!("Folder missing")),
+        super::super::tab_sidebar::activity_description(activity),
+    ])
+}
+
 /// A worktree the server is still creating.
 fn creating_row(name: &str, parent: ProjectId, index: usize, model: &AppModel) -> AnyElement {
     let m = model.metrics;
     let key = format!("worktree-creating-{parent}-{index}");
     let selector = key.clone();
+    let creating = super::super::tab_activity::Status::Busy(super::super::tab_activity::CREATING);
     div()
+        .id(SharedString::from(key.clone()))
+        .role(Role::TreeItem)
+        .accessibility_id(format!("worktree-creating-{name}"))
+        .aria_label(name.to_owned())
+        .aria_level(2)
+        .aria_disabled(true)
+        .when_some(
+            super::super::tab_sidebar::activity_description(creating),
+            StatefulInteractiveElement::aria_description,
+        )
         .debug_selector(move || selector.clone())
         .flex()
         .items_center()
@@ -285,7 +344,7 @@ fn creating_row(name: &str, parent: ProjectId, index: usize, model: &AppModel) -
                 .justify_center()
                 .child(super::super::tab_activity::status_glyph(
                     key,
-                    super::super::tab_activity::Status::Busy(super::super::tab_activity::CREATING),
+                    creating,
                     m.icon_sm(),
                     model,
                 )),
@@ -308,8 +367,12 @@ pub(crate) fn new_worktree(
     let m = model.metrics;
     let theme = &model.theme;
     let group = SharedString::from(format!("new-worktree-{id}"));
+    let name = model.state.project(id).map_or("", |project| &project.name);
     div()
         .id(SharedString::from(format!("new-worktree-{id}")))
+        .role(Role::Button)
+        .accessibility_id(format!("new-worktree-{name}"))
+        .aria_label(tr!("New Worktree"))
         .debug_selector(move || format!("new-worktree-{id}"))
         .group(group.clone())
         .flex()
@@ -323,7 +386,7 @@ pub(crate) fn new_worktree(
         .text_color(theme.fg)
         .hover(|style| style.text_color(theme.accent))
         .cursor_pointer()
-        .on_click(cx.listener(move |model, _, window, cx| {
+        .on_press(cx.listener(move |model, _, window, cx| {
             model.open_git_form(id, true, cx);
             model.focus_git_form(window, cx);
         }))
@@ -341,4 +404,27 @@ pub(crate) fn new_worktree(
         )
         .child(tr!("New Worktree"))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::tab_activity::Status;
+    use super::*;
+
+    #[test]
+    fn a_worktree_row_reports_primary_missing_and_its_work() {
+        assert_eq!(worktree_description(false, false, Status::None), None);
+        assert_eq!(
+            worktree_description(true, false, Status::None),
+            Some("PRIMARY".into()),
+        );
+        assert_eq!(
+            worktree_description(false, true, Status::None),
+            Some("Folder missing".into()),
+        );
+        assert_eq!(
+            worktree_description(true, false, Status::Busy("Removing worktree")),
+            Some("PRIMARY, Removing worktree".into()),
+        );
+    }
 }

@@ -28,7 +28,7 @@ applies it.
 
 gpui comes from the [muxy-app/gpui](https://github.com/muxy-app/gpui) fork,
 pinned by revision in the root `Cargo.toml`
-(`ec24331257b2565cff99ad09a99d5f5855af9be0`). The fork starts from gpui 0.2.2
+(`594a5631788e885134dc99db5f461dc656c38eab`). The fork starts from gpui 0.2.2
 on crates.io. Muxy relies on these changes on top of it:
 
 - Keep presenting frames only during high-rate input.
@@ -42,5 +42,6 @@ on crates.io. Muxy relies on these changes on top of it:
 - Composite translucent layers with "over" alpha on macOS.
 - Truncate text from its full runs, and measure it again once its width is
   known.
+- Publish an accessibility tree through AccessKit.
 
 `git log` in the fork lists each change.

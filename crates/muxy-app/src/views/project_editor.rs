@@ -3,7 +3,7 @@ pub(crate) mod logo;
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Point, Styled, Window, div, px, size,
+    ParentElement, Pixels, Point, StatefulInteractiveElement, Styled, Window, div, px, size,
 };
 use muxy_app_core::{ProjectId, ProjectStatus, TabId, WorkspaceId};
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
@@ -136,7 +136,11 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let input = cx.new(|cx| {
-            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx).with_text(text)
+            let mut input = TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_accessibility_id("settings-field-project-editor")
+                .with_text(text);
+            input.set_accessible_name(title(target));
+            input
         });
         input.update(cx, TextInput::select_all_text);
         input.focus_handle(cx).focus(window);
@@ -211,6 +215,17 @@ impl OverlayView for Editor {
     }
 }
 
+fn title(target: Target) -> gpui::SharedString {
+    match target {
+        Target::Tab(_) => tr!("Rename Tab"),
+        Target::Project(_) => tr!("Rename Project"),
+        Target::Workspace(_) => tr!("Rename Workspace"),
+        Target::NewWorkspace(_) => tr!("New Workspace"),
+        Target::NewServerGroup(_) => tr!("New Group"),
+        Target::ServerGroup(_) => tr!("Rename Group"),
+    }
+}
+
 fn render(
     editor: &Editor,
     mark: Option<Mark>,
@@ -226,6 +241,10 @@ fn render(
         window.viewport_size(),
     );
     muxy_ui::popover::surface(theme, m)
+        .id("project-editor")
+        .role(gpui::Role::Dialog)
+        .accessibility_id("project-editor")
+        .aria_label(title(editor.target))
         .absolute()
         .left(origin.x)
         .top(origin.y)
@@ -233,16 +252,7 @@ fn render(
             .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .children(mark.map(|mark| mark.of(model)))
-        .child(
-            muxy_ui::popover::header(theme, m).child(match editor.target {
-                Target::Tab(_) => tr!("Rename Tab"),
-                Target::Project(_) => tr!("Rename Project"),
-                Target::Workspace(_) => tr!("Rename Workspace"),
-                Target::NewWorkspace(_) => tr!("New Workspace"),
-                Target::NewServerGroup(_) => tr!("New Group"),
-                Target::ServerGroup(_) => tr!("Rename Group"),
-            }),
-        )
+        .child(muxy_ui::popover::header(theme, m).child(title(editor.target)))
         .child(
             muxy_ui::popover::body(m)
                 .child(muxy_ui::controls::text_field(
@@ -252,10 +262,15 @@ fn render(
                     None,
                 ))
                 .children(editor.error.as_ref().map(|error| {
-                    div()
-                        .text_size(m.font_footnote())
-                        .text_color(theme.danger)
-                        .child(error.clone())
+                    muxy_ui::accessibility::announced(
+                        div()
+                            .id("project-editor-error")
+                            .text_size(m.font_footnote())
+                            .text_color(theme.danger),
+                        error.clone(),
+                        true,
+                    )
+                    .child(error.clone())
                 })),
         )
         .child(

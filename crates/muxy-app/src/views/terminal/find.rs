@@ -217,6 +217,7 @@ impl TerminalPane {
         let input = cx.new(|cx| {
             TextInput::new(InputStyle::compact(theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Find in terminal…"))
+                .with_accessible_label(tr_key!("Find in terminal…"))
                 .with_key_context(SEARCH_CONTEXT)
         });
         let subscription =
@@ -416,17 +417,21 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
     let button = |id: &'static str, icon, tooltip: gpui::SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             metrics.icon_sm(),
             metrics.control_medium(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.surface, theme.fg, theme.border, theme.bg)
+        .tooltip(theme.surface, theme.fg, theme.border, theme.bg)
     };
     Some(
         div()
             .id("terminal-find")
+            .role(gpui::Role::Group)
+            .accessibility_id("terminal-find")
+            .aria_label(tr!("Find in Terminal"))
             .debug_selector(|| "terminal-find".into())
             .flex()
             .flex_none()
@@ -458,7 +463,10 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     .truncate()
                     .text_size(metrics.font_caption())
                     .text_color(theme.fg_muted)
-                    .child(find.results.counter()),
+                    .child(muxy_ui::accessibility::label(
+                        "find-counter",
+                        find.results.counter(),
+                    )),
             )
             .child(
                 button("find-previous", Icon::ChevronLeft, tr!("Previous match"))
@@ -471,6 +479,14 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
             .child(
                 div()
                     .id("find-ignore-case")
+                    .role(gpui::Role::Switch)
+                    .accessibility_id("find-ignore-case")
+                    .aria_label(tr!("Ignore Case"))
+                    .aria_toggled(if find.results.ignore_case {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .debug_selector(|| "find-ignore-case".into())
                     .cursor_pointer()
                     .px(metrics.spacing2())

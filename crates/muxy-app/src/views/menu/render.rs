@@ -1,12 +1,14 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Bounds, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    MouseMoveEvent, ParentElement, Pixels, Point, SharedString, Size, StatefulInteractiveElement,
-    Styled, Window, div, point, px,
+    MouseMoveEvent, ParentElement, Pixels, Point, Role, SharedString, Size,
+    StatefulInteractiveElement, Styled, Toggled, Window, div, point, px,
 };
+use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::SymbolGlyph;
 use muxy_ui::popover;
 use muxy_ui::theme::Metrics;
+use muxy_ui::tr;
 
 use super::{
     CloseSubmenu, Command, ConfirmHighlighted, DismissMenu, HighlightNext, HighlightPrevious, Item,
@@ -78,6 +80,9 @@ fn render(
     let m = model.metrics;
     let viewport = window.viewport_size();
     let mut layer = div()
+        .id("menu-layer")
+        .role(Role::Group)
+        .aria_label(tr!("Menu"))
         .absolute()
         .top_0()
         .left_0()
@@ -173,6 +178,8 @@ fn panel(
     let mut panel = popover::surface(theme, m)
         .id(SharedString::from(name.clone()))
         .debug_selector(move || name)
+        .role(Role::Menu)
+        .aria_label(tr!("Menu"))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_move(cx.listener(|model, event: &MouseMoveEvent, _, _| {
             model.track_menu_pointer(event.position);
@@ -208,7 +215,11 @@ fn panel(
 }
 
 impl Item {
-    #[allow(clippy::too_many_arguments, reason = "One menu row and its placement")]
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::too_many_lines,
+        reason = "One menu row and its placement"
+    )]
     fn render(
         &self,
         level: usize,
@@ -239,7 +250,10 @@ impl Item {
                 .text_size(m.font_footnote())
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.fg_muted)
-                .child(self.label.clone())
+                .child(accessibility::label(
+                    SharedString::from(format!("menu-heading-{level}-{index}")),
+                    self.label.clone(),
+                ))
                 .into_any_element();
         }
         popover::menu_row(
@@ -250,6 +264,24 @@ impl Item {
             highlighted,
         )
         .debug_selector(move || name)
+        .role(if self.checked.is_some() {
+            Role::MenuItemCheckBox
+        } else {
+            Role::MenuItem
+        })
+        .aria_label(self.label.clone())
+        .aria_disabled(!enabled)
+        .aria_selected(highlighted)
+        .when_some(self.checked, |row, checked| {
+            row.aria_toggled(if checked {
+                Toggled::True
+            } else {
+                Toggled::False
+            })
+        })
+        .when(self.submenu_items().is_some(), |row| {
+            row.aria_expanded(highlighted)
+        })
         .font_weight(FontWeight::NORMAL)
         .when(columns.checkmarks, |row| {
             row.child(
@@ -311,7 +343,7 @@ impl Item {
             }
         }))
         .when(enabled, |row| {
-            row.on_click(cx.listener(move |model, _, window, cx| {
+            row.on_press(cx.listener(move |model, _, window, cx| {
                 model.click_menu_row(level, index, window, cx);
             }))
         })

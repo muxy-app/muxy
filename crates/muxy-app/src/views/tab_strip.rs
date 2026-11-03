@@ -5,11 +5,14 @@ pub(crate) use drag::{TabDragState, TabDrop};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px, relative,
+    AccessibleAction, AnyElement, Context, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, relative,
 };
 use muxy_app_core::{Tab, TabGroup, TabId, TabSide};
 
+use super::sidebar::{client_button, client_press};
+use super::tab_sidebar::tab_description;
 use super::titlebar;
 use crate::model::AppModel;
 use muxy_ui::components::IconGlyph;
@@ -63,6 +66,9 @@ pub(crate) fn tab_strip(
         .child(
             div()
                 .id("tabs-scroll")
+                .role(Role::TabList)
+                .accessibility_id("tabs-scroll")
+                .aria_label(tr!("Tabs"))
                 .debug_selector(|| "tabs-scroll".into())
                 .flex()
                 .flex_1()
@@ -122,6 +128,8 @@ pub(crate) fn group_strip(
         .child(
             div()
                 .id(SharedString::from(format!("group-tabs-{}", group.id())))
+                .role(Role::TabList)
+                .aria_label(tr!("Tabs"))
                 .flex()
                 .flex_1()
                 .min_w(px(0.0))
@@ -170,6 +178,12 @@ pub(super) fn new_tab_button(
         |anchor| SharedString::from(format!("new-tab-{anchor}")),
     );
     titlebar::icon_button(id, Icon::Plus, tr!("New Tab (⌘T)"), model)
+        .aria_label(tr!("New Tab"))
+        .accessibility_id(if anchor.is_some() {
+            "group-new-tab-button"
+        } else {
+            "new-tab-button"
+        })
         .ml(model.metrics.spacing2())
         .debug_selector(move || {
             if anchor.is_some() {
@@ -194,17 +208,19 @@ pub(super) fn existing_terminals_button(
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let project = model.state.current_project().id;
-    let tooltip = if count == 1 {
-        tr!("1 Existing Terminal").to_string()
+    let name = if count == 1 {
+        tr!("1 Existing Terminal")
     } else {
-        tr!("%lld Existing Terminals", count).to_string()
+        tr!("%lld Existing Terminals", count)
     };
     let tooltip = model
         .settings
         .keymap
         .chord(ShortcutId::ExistingTerminals)
-        .map_or_else(|| tooltip.clone(), |chord| format!("{tooltip} ({chord})"));
+        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
     titlebar::icon_button("existing-terminals", Icon::TerminalStack, tooltip, model)
+        .aria_label(name)
+        .accessibility_id("existing-terminals-button")
         .debug_selector(|| "existing-terminals-button".into())
         .on_click(cx.listener(move |model, _, window, cx| {
             cx.stop_propagation();
@@ -215,15 +231,15 @@ pub(super) fn existing_terminals_button(
 
 /// Opens a browser tab in the current project.
 pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let name = tr!("Open Browser Tab");
     let tooltip = model
         .settings
         .keymap
         .chord(ShortcutId::NewBrowserTab)
-        .map_or_else(
-            || tr!("Open Browser Tab").to_string(),
-            |chord| format!("{} ({chord})", tr!("Open Browser Tab")),
-        );
+        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
     titlebar::icon_button("new-browser-tab", Icon::Globe, tooltip, model)
+        .aria_label(name)
+        .accessibility_id("browser-button")
         .debug_selector(|| "browser-button".into())
         .on_click(cx.listener(|model, _, _, cx| {
             cx.stop_propagation();
@@ -233,15 +249,15 @@ pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> An
 }
 
 pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let name = tr!("Settings");
     let tooltip = model
         .settings
         .keymap
         .chord(ShortcutId::OpenSettings)
-        .map_or_else(
-            || tr!("Settings").to_string(),
-            |chord| format!("{} ({chord})", tr!("Settings")),
-        );
+        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
     titlebar::icon_button("open-settings", Icon::Settings, tooltip, model)
+        .aria_label(name)
+        .accessibility_id("settings-button")
         .debug_selector(|| "settings-button".into())
         .on_click(cx.listener(|model, _, window, cx| {
             cx.stop_propagation();
@@ -275,6 +291,8 @@ pub(super) fn zoom_control(
         tooltip,
         model,
     )
+    .aria_label(label)
+    .accessibility_id("toggle-zoom-pane")
     .debug_selector(move || {
         if zoomed {
             "restore-pane"
@@ -368,8 +386,23 @@ fn tab_cell(
     let show_close = active && shows_title;
     let close = close_control(id, show_close, shows_title, group.clone(), theme, cx);
     let foreground = if active { theme.fg } else { theme.fg_muted };
+    let status = super::tab_activity::tab_status(tab, model);
     div()
         .id(group.clone())
+        .role(Role::Tab)
+        .aria_label(title.clone())
+        .aria_selected(active)
+        .when_some(
+            tab_description(tab.pinned, status, bell),
+            StatefulInteractiveElement::aria_description,
+        )
+        .on_a11y_action(
+            AccessibleAction::Click,
+            client_press(cx, move |model, window, cx| {
+                model.select_tab(id, cx);
+                model.focus_active(window, cx);
+            }),
+        )
         .debug_selector(move || {
             if grouped {
                 format!("group-tab-{id}")
@@ -428,6 +461,23 @@ fn tab_cell(
                 model.focus_active(window, cx);
             }),
         )
+        .child(client_button(
+            format!("tab-actions-{id}"),
+            tr!("Actions for %@", &title),
+            cx,
+            move |model, window, cx| model.open_tab_menu(id, window.mouse_position(), window, cx),
+        ))
+        .when(!tab.pinned, |cell| {
+            cell.child(client_button(
+                format!("close-tab-{id}"),
+                tr!("Close %@", &title),
+                cx,
+                move |model, window, cx| {
+                    model.close_tab(id, cx);
+                    model.focus_active(window, cx);
+                },
+            ))
+        })
         .child(tab_label(
             &title,
             shows_title,
