@@ -200,12 +200,16 @@ fn fits_decode_limits(kind: &resvg::usvg::ImageKind) -> bool {
         && u64::from(width) * u64::from(height) * 4 <= MAX_DECODED
 }
 
+fn is_gzip(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0x1f, 0x8b])
+}
+
 /// Draws an SVG at most 1024 pixels on its longer side, like `load` does for
 /// other images. Text is set in the system fonts, which are scanned once, the
 /// first time an SVG asks for a font. Embedded images are drawn when they fit
 /// `fits_decode_limits`, linked images are ignored so a logo can't read other
-/// files, and compressed SVGs are refused because usvg inflates them without
-/// a limit.
+/// files, and compressed SVGs, embedded or not, are refused because usvg
+/// inflates them without a limit.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -214,7 +218,7 @@ fn fits_decode_limits(kind: &resvg::usvg::ImageKind) -> bool {
 fn rasterize_svg(bytes: &[u8]) -> Result<image::RgbaImage, String> {
     use resvg::{tiny_skia, usvg};
     const SIDE: f32 = 1024.0;
-    if bytes.starts_with(&[0x1f, 0x8b]) {
+    if is_gzip(bytes) {
         return Err(unsupported());
     }
     let mut options = usvg::Options::default();
@@ -227,6 +231,9 @@ fn rasterize_svg(bytes: &[u8]) -> Result<image::RgbaImage, String> {
     });
     let resolve_data = usvg::ImageHrefResolver::default_data_resolver();
     options.image_href_resolver.resolve_data = Box::new(move |mime, data, svg_options| {
+        if is_gzip(&data) {
+            return None;
+        }
         resolve_data(mime, data, svg_options).filter(fits_decode_limits)
     });
     options.image_href_resolver.resolve_string = Box::new(|_, _| None);
@@ -720,7 +727,7 @@ mod tests {
     }
 
     #[test]
-    fn svg_draws_embedded_images_within_limits_but_not_linked_files() {
+    fn svg_draws_embedded_images_within_limits_but_not_linked_or_gzipped_ones() {
         let red = br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="red"/></svg>"#;
         let file = tempfile::Builder::new()
             .suffix(".svg")
@@ -742,19 +749,33 @@ mod tests {
             "data:image/svg+xml;base64,{}",
             muxy_core::base64::encode(red)
         );
-        let png = |width| {
+        let gzipped = "data:image/svg+xml;base64,H4sIAAAAAAAC/22MSQ6AIAwAv9L0AZaoJwN8RpCS4BJorM9X7t4mmcnYdid49nI0hyxyLUSqOug0nDXRaIyhr0DQHIQdzggcc2Lp6G2Nq/wq2HIpDmsMSN72hX8BNPb9iWoAAAA=";
+        let raster = |format: image::ImageFormat, width, height| {
             let mut bytes = std::io::Cursor::new(Vec::new());
-            image::RgbaImage::from_pixel(width, 1, image::Rgba([255, 0, 0, 255]))
-                .write_to(&mut bytes, image::ImageFormat::Png)
-                .expect("png");
+            image::RgbImage::from_pixel(width, height, image::Rgb([255, 0, 0]))
+                .write_to(&mut bytes, format)
+                .expect("encode");
             format!(
-                "data:image/png;base64,{}",
+                "data:{};base64,{}",
+                format.to_mime_type(),
                 muxy_core::base64::encode(bytes.get_ref())
             )
         };
         assert!(opaque(&embedded));
-        assert!(opaque(&png(4)));
-        assert!(!opaque(&png(super::MAX_SIDE + 1)));
+        assert!(!opaque(gzipped));
         assert!(!opaque(&file.path().to_string_lossy()));
+        assert!(opaque(&raster(image::ImageFormat::Png, 4, 1)));
+        for format in [
+            image::ImageFormat::Png,
+            image::ImageFormat::Jpeg,
+            image::ImageFormat::Gif,
+            image::ImageFormat::WebP,
+        ] {
+            assert!(
+                !opaque(&raster(format, super::MAX_SIDE + 1, 1)),
+                "{format:?}"
+            );
+        }
+        assert!(!opaque(&raster(image::ImageFormat::Png, 4096, 4097)));
     }
 }
