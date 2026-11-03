@@ -3124,7 +3124,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/muxy-app/gpui?rev=66d2bf88134d6cd5871150cd804c1de6e2d74089#66d2bf88134d6cd5871150cd804c1de6e2d74089"
+source = "git+https://github.com/muxy-app/gpui?branch=main#66d2bf88134d6cd5871150cd804c1de6e2d74089"
 dependencies = [
  "accesskit",
  "accesskit_macos",
