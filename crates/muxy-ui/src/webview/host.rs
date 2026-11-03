@@ -606,65 +606,14 @@ fn subtract(region: Bounds<Pixels>, cut: Bounds<Pixels>) -> Vec<Bounds<Pixels>> 
     .collect()
 }
 
-fn keystroke(event: &NSEvent) -> gpui::Keystroke {
-    native_keystroke(
-        event.keyCode(),
-        &event
-            .charactersIgnoringModifiers()
-            .map_or_else(String::new, |text| text.to_string()),
-        event.modifierFlags(),
-    )
-}
-
-fn native_keystroke(code: u16, characters: &str, flags: NSEventModifierFlags) -> gpui::Keystroke {
-    let mut shift = flags.contains(NSEventModifierFlags::Shift);
-    let key = match code {
-        36 | 76 => "enter".into(),
-        48 => "tab".into(),
-        49 => "space".into(),
-        51 => "backspace".into(),
-        53 => "escape".into(),
-        114 => "insert".into(),
-        115 => "home".into(),
-        116 => "pageup".into(),
-        117 => "delete".into(),
-        119 => "end".into(),
-        121 => "pagedown".into(),
-        123 => "left".into(),
-        124 => "right".into(),
-        125 => "down".into(),
-        126 => "up".into(),
-        _ => match characters.chars().next() {
-            Some(character) if (0xf704..=0xf726).contains(&u32::from(character)) => {
-                format!("f{}", u32::from(character) - 0xf704 + 1)
-            }
-            _ => {
-                if shift
-                    && !characters
-                        .chars()
-                        .all(|character| character.is_ascii_alphabetic())
-                {
-                    shift = false;
-                }
-                characters.to_lowercase()
-            }
-        },
-    };
-    gpui::Keystroke {
-        key,
+/// What GPUI reads from a key event, without its text: a kept shortcut no
+/// binding takes must not type through `dispatch_keystroke`.
+fn keystroke(event: &NSEvent) -> Option<gpui::Keystroke> {
+    let event = ptr::from_ref(event).cast_mut().cast();
+    gpui::keystroke_from_native_event(event).map(|keystroke| gpui::Keystroke {
         key_char: None,
-        modifiers: gpui::Modifiers {
-            control: flags.contains(NSEventModifierFlags::Control),
-            alt: flags.contains(NSEventModifierFlags::Option),
-            shift,
-            platform: flags.contains(NSEventModifierFlags::Command),
-            function: flags.contains(NSEventModifierFlags::Function)
-                && characters
-                    .chars()
-                    .next()
-                    .is_none_or(|character| !(0xf700..=0xf747).contains(&u32::from(character))),
-        },
-    }
+        ..keystroke
+    })
 }
 
 fn monitor(
@@ -734,8 +683,11 @@ fn monitor(
             }
             return event;
         }
+        let Some(keystroke) = keystroke(event_ref) else {
+            return event;
+        };
         if route_key_event(
-            keystroke(event_ref),
+            keystroke,
             &focus,
             &*on_signal,
             || page_key_equivalent(&page, event_ref),
