@@ -363,6 +363,7 @@ fn a_pinned_composer_keeps_its_saved_size_and_scales_with_the_interface(cx: &mut
             composer.settings.height
         }
     };
+    composer.update(cx, |composer, _| composer.settings.pinned = true);
     let saved = composer.read_with(cx, |composer, _| stored(composer));
     let theme = view.read_with(cx, |model, _| model.theme.clone());
     composer.update(cx, |composer, cx| {
@@ -395,12 +396,14 @@ fn a_pinned_composer_leaves_room_for_the_workspace_in_a_small_window(cx: &mut Te
     cx.update(|window, cx| {
         composer.update(cx, |composer, cx| {
             composer.settings.position = muxy_app_core::settings::ComposerPosition::Right;
+            composer.settings.pinned = true;
             composer.workspace_inset = sidebar;
             composer.appearance(theme, Metrics::new(1.40), cx);
-            let dimension = composer.sizing(window).layout().dimension();
+            let consumed = composer.sizing(window).layout().consumed_width();
+            assert!(consumed > 0.0, "the composer is not pinned");
             assert!(
-                dimension < width - sidebar,
-                "the composer takes {dimension} of the {} left",
+                consumed < width - sidebar,
+                "the composer takes {consumed} of the {} left",
                 width - sidebar,
             );
         });
