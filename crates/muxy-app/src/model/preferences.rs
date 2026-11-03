@@ -151,6 +151,13 @@ impl AppModel {
         self.show_settings(window, cx);
     }
 
+    pub(crate) fn show_about_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_settings(window, cx);
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_about);
+        }
+    }
+
     /// Opens Settings at Browser, where profiles are managed.
     pub(crate) fn show_browser_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_settings(window, cx);

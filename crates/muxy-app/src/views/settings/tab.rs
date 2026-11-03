@@ -591,6 +591,11 @@ impl SettingsTab {
             SettingsEvent::CheckExtensionUpdates => {
                 let _ = self.model.update(cx, AppModel::check_extension_updates);
             }
+            SettingsEvent::CheckForUpdates => {
+                let _ = self
+                    .model
+                    .update(cx, |model, cx| model.check_for_updates(true, cx));
+            }
             SettingsEvent::Connect => {
                 let _ = self.model.update(cx, AppModel::connect);
             }

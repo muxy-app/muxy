@@ -42,7 +42,7 @@ impl Category {
                 tr_key!("Sessions"),
                 tr_key!("Server control"),
             ],
-            Self::Extensions | Self::Commands => &[],
+            Self::Extensions | Self::Commands | Self::About => &[],
             Self::Backup => &[
                 tr_key!("Backup & Restore"),
                 tr_key!("Migration"),
@@ -261,6 +261,12 @@ impl SettingsView {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.category == Category::About && self.query.is_empty() {
+            return div()
+                .h(self.layout_metrics.scaled(56.0))
+                .flex_none()
+                .into_any_element();
+        }
         self.header_background("settings-content-titlebar")
             .h(self.layout_metrics.scaled(56.0))
             .flex_none()

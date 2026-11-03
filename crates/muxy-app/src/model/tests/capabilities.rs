@@ -17,6 +17,78 @@ fn reason(feature: Feature) -> String {
 }
 
 #[gpui::test]
+fn about_shows_build_details_and_only_offers_updates_with_a_backend(cx: &mut TestAppContext) {
+    use crate::views::settings::Category;
+
+    assert_eq!(Category::ALL.last(), Some(&Category::About));
+    for capability in [
+        Capability::Supported,
+        Capability::Unsupported,
+        Capability::Unavailable("Updates need an installed release".into()),
+    ] {
+        let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+        let (model, cx) = preferences::settings_tab(boot, cx);
+        let has_backend = capability != Capability::Unsupported;
+        model.update(cx, |model, cx| {
+            model.capabilities.set(Feature::Updates, capability);
+            model.sync_preferences(cx);
+        });
+        preferences::click_preference(cx, "settings-category-About");
+        for selector in [
+            "settings-about-name",
+            "settings-about-version",
+            "settings-about-channel",
+        ] {
+            assert!(cx.debug_bounds(selector).is_some(), "{selector}");
+        }
+        assert_eq!(
+            cx.debug_bounds("settings-about-check-for-updates")
+                .is_some(),
+            has_backend,
+        );
+    }
+}
+
+#[gpui::test]
+fn about_version_is_searchable(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (_model, cx) = preferences::settings_tab(boot, cx);
+    preferences::click_preference(cx, "settings-search");
+    cx.simulate_input("version");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-about-version").is_some());
+    assert!(cx.debug_bounds("settings-about-name").is_none());
+    assert!(
+        cx.debug_bounds("settings-about-check-for-updates")
+            .is_none()
+    );
+}
+
+#[gpui::test]
+fn about_checks_for_updates_like_the_menu_action(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (model, cx) = preferences::settings_tab(boot, cx);
+    model.update(cx, |model, cx| {
+        model.capabilities.set(
+            Feature::Updates,
+            Capability::Unavailable("Updates need an installed release".into()),
+        );
+        model.sync_preferences(cx);
+    });
+    preferences::click_preference(cx, "settings-category-About");
+    preferences::click_preference(cx, "settings-about-check-for-updates");
+    let prompt = cx.pending_prompt().expect("manual update result");
+    assert_eq!(prompt.1, "Updates need an installed release");
+    cx.simulate_prompt_answer("Ok");
+    cx.run_until_parked();
+    cx.dispatch_action(crate::views::workspace::CheckForUpdates);
+    cx.run_until_parked();
+    assert_eq!(cx.pending_prompt(), Some(prompt));
+    cx.simulate_prompt_answer("Ok");
+    cx.run_until_parked();
+}
+
+#[gpui::test]
 fn commands_without_a_backend_report_why_and_start_nothing(cx: &mut TestAppContext) {
     let (mut boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
     boot.settings.quick_terminal.enabled = true;

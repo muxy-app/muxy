@@ -166,6 +166,7 @@ impl SettingsView {
                 Category::Extensions,
                 Category::Ai,
                 Category::Backup,
+                Category::About,
             ]
         };
         for category in order {
@@ -206,7 +207,9 @@ impl SettingsView {
         if items.is_empty() {
             items.push(Item::Empty);
         }
-        items.push(Item::Footer);
+        if self.category != Category::About || !self.query.is_empty() {
+            items.push(Item::Footer);
+        }
         self.refresh_shortcut_focus(&items, cx);
         let offset = self.results.state.logical_scroll_top();
         self.scrollbar.reset();
@@ -292,6 +295,7 @@ impl SettingsView {
             Category::Browser => super::browser::rows(self, cx),
             Category::Ai => super::ai::rows(self, cx),
             Category::Backup => super::backup::rows(self, cx),
+            Category::About => super::about::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),
             Category::Server => server::rows(self, cx),
             Category::Keyboard | Category::Commands => Vec::new(),

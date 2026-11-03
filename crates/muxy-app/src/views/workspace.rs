@@ -23,6 +23,7 @@ actions!(
     muxy,
     [
         OpenSettings,
+        OpenAbout,
         CheckForUpdates,
         InstallCommandLineTool,
         NewTab,
@@ -261,6 +262,9 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
         .on_action(
             cx.listener(|model, _: &OpenSettings, window, cx| model.open_settings(window, cx)),
         )
+        .on_action(cx.listener(|model, _: &OpenAbout, window, cx| {
+            model.show_about_settings(window, cx);
+        }))
         .on_action(cx.listener(|model, _: &Find, window, cx| model.find_terminal(window, cx)))
         .on_action(cx.listener(|model, _: &FindNext, _, cx| model.step_find(false, cx)))
         .on_action(cx.listener(|model, _: &FindPrevious, _, cx| model.step_find(true, cx)))

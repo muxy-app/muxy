@@ -310,7 +310,14 @@ fn menus() -> Vec<Menu> {
         .extend((0..9).map(|index| {
             MenuItem::action(tr!("Project %lld", index + 1), SelectProject { index })
         }));
-    let mut app_items = vec![menu_item(OpenSettings)];
+    let mut app_items = Vec::new();
+    if cfg!(target_os = "macos") {
+        app_items.extend([
+            menu_item(views::workspace::OpenAbout),
+            MenuItem::separator(),
+        ]);
+    }
+    app_items.push(menu_item(OpenSettings));
     if backends.has_backend(Feature::Updates) {
         app_items.push(menu_item(CheckForUpdates));
     }
