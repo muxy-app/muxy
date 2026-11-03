@@ -92,6 +92,7 @@ use gpui::{
 
 use model::AppModel;
 use muxy_ui::tr;
+use views::titlebar::initial_traffic_lights;
 use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
@@ -206,7 +207,7 @@ fn run() -> ExitCode {
             titlebar: Some(TitlebarOptions {
                 title: Some(app_name().into()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(9.0), px(9.0))),
+                traffic_light_position: Some(initial_traffic_lights(&boot.settings.appearance)),
             }),
             ..window_options()
         };

@@ -20,7 +20,7 @@ impl AppModel {
         let width = self.clamp_expanded_sidebar_width(resize.width + pointer - resize.pointer);
         if width != px(self.sidebar_width()) {
             self.appearance.sidebar_expanded_width =
-                Some(f32::from(width) / f32::from(self.metrics.scaled(1.0)));
+                Some(f32::from(width) / self.metrics.multiplier());
             cx.notify();
         }
     }

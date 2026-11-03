@@ -416,6 +416,7 @@
 "Connection" = "Connection";
 "Connection succeeded · Muxy %@" = "Connection succeeded · Muxy %@";
 "Connects To" = "Connects To";
+"Controls the scale of the app interface." = "Controls the scale of the app interface.";
 "Cookies" = "Cookies";
 "Copied image is larger than 25 MiB" = "Copied image is larger than 25 MiB";
 "Copied the path" = "Copied the path";
@@ -648,6 +649,7 @@
 "Extension webviews are not available on this platform yet." = "Extension webviews are not available on this platform yet.";
 "Extensions" = "Extensions";
 "Extensions changed while reloading. Try again." = "Extensions changed while reloading. Try again.";
+"Extra Large" = "Extra Large";
 "Fallback fonts" = "Fallback fonts";
 "File" = "File";
 "File Manager" = "File Manager";
@@ -731,6 +733,7 @@
 "How much heavier text is drawn when Thicken font is on." = "How much heavier text is drawn when Thicken font is on.";
 "How much of the macOS background effect shows through the theme color, from 0 to 100. Collapsed sidebars stay solid." = "How much of the macOS background effect shows through the theme color, from 0 to 100. Collapsed sidebars stay solid.";
 "How opaque the cursor is." = "How opaque the cursor is.";
+"Huge" = "Huge";
 "Icon" = "Icon";
 "Icons" = "Icons";
 "Identity file" = "Identity file";
@@ -785,6 +788,7 @@
 "Installing the command line tool is not available on this platform yet." = "Installing the command line tool is not available on this platform yet.";
 "Installing…" = "Installing…";
 "Interface" = "Interface";
+"Interface size" = "Interface size";
 "Invalid Mobile port" = "Invalid Mobile port";
 "Invalid Quick Terminal shortcut" = "Invalid Quick Terminal shortcut";
 "Invalid attachment path" = "Invalid attachment path";
@@ -818,6 +822,7 @@
 "Keys the terminal handles while it is focused. They take precedence over app shortcuts." = "Keys the terminal handles while it is focused. They take precedence over app shortcuts.";
 "Language" = "Language";
 "Language packs and other resource-only extensions keep working." = "Language packs and other resource-only extensions keep working.";
+"Large" = "Large";
 "Last 24 hours" = "Last 24 hours";
 "Last seen %lld d ago" = "Last seen %lld d ago";
 "Last seen %lld h ago" = "Last seen %lld h ago";

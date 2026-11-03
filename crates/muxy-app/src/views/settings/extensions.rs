@@ -187,12 +187,23 @@ impl ExtensionsView {
         }
     }
 
-    pub(crate) fn sync_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
+    pub(crate) fn sync_appearance(
+        &mut self,
+        theme: Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) {
         self.theme = theme;
-        self.search.update(cx, |input, cx| {
-            input.set_style(InputStyle::field(&self.theme, &self.metrics), cx);
-        });
+        self.metrics = metrics;
+        let style = InputStyle::field(&self.theme, &self.metrics);
+        for input in std::iter::once(&self.search).chain(self.setting_inputs.values()) {
+            input.update(cx, |input, cx| input.set_style(style, cx));
+        }
         cx.notify();
+    }
+
+    fn layout_scale(&self) -> Metrics {
+        super::layout_metrics(self.metrics)
     }
 
     fn active_install<'a>(&self, cx: &'a gpui::App) -> Option<&'a ActiveInstall> {
@@ -1074,7 +1085,7 @@ impl ExtensionsView {
             .child(
                 div()
                     .flex_none()
-                    .w(gpui::px(64.0))
+                    .w(self.layout_scale().scaled(64.0))
                     .text_size(self.metrics.font_footnote())
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color)
@@ -1083,7 +1094,7 @@ impl ExtensionsView {
             .child(
                 div()
                     .flex_none()
-                    .w(gpui::px(130.0))
+                    .w(self.layout_scale().scaled(130.0))
                     .truncate()
                     .child(rule.gate.name()),
             )

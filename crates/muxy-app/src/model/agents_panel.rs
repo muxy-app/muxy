@@ -548,7 +548,7 @@ impl AppModel {
     }
 
     pub(crate) fn agents_panel_frame(&self, viewport: gpui::Size<Pixels>) -> [f32; 4] {
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         let [x, y, width, height] = self
             .appearance
             .agents_panel_frame
@@ -597,7 +597,7 @@ impl AppModel {
         let Some(drag) = self.agents_panel.drag else {
             return;
         };
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         match drag {
             Drag::Docked {
                 pointer: from,
@@ -670,7 +670,7 @@ impl AppModel {
     }
 
     pub(crate) fn clamp_docked_height(&self, height: f32, viewport: gpui::Size<Pixels>) -> f32 {
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         let max = (f32::from(viewport.height) / scale * 0.7).max(MIN_HEIGHT);
         height.clamp(MIN_HEIGHT, max)
     }
@@ -681,7 +681,7 @@ impl AppModel {
         height: Pixels,
         cx: &mut Context<Self>,
     ) {
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         self.agents_panel.drag = Some(Drag::Docked {
             pointer,
             height: f32::from(height) / scale,

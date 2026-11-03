@@ -14,6 +14,7 @@ use muxy_app_core::qr::{QUIET_ZONE, QrCode};
 use muxy_protocol::{DeviceKind, ListenerStatus, PairedDevice, PairingOffer, RemoteAccessState};
 use muxy_ui::accessibility;
 use muxy_ui::controls;
+use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
 use super::servers_tab::{card, style};
@@ -270,8 +271,8 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .min_w(px(0.0))
         .flex()
         .flex_col()
-        .gap(px(10.0))
-        .child(code(pairing.code.clone()))
+        .gap(model.metrics.scaled(10.0))
+        .child(code(pairing.code.clone(), model.metrics))
         .child(div().min_w(px(0.0)).text_color(model.theme.fg_muted).child(accessibility::label(
             "devices-code-hint",
             tr!(
@@ -281,7 +282,7 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .child(
             div()
                 .flex()
-                .gap(px(8.0))
+                .gap(model.metrics.scaled(8.0))
                 .child(controls::button(
                     style(model),
                     "devices-copy-link",
@@ -299,7 +300,7 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
 }
 
 /// Dark modules on a light square in every theme, merged into one quad per run.
-fn code(code: Option<Arc<QrCode>>) -> AnyElement {
+fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
     let Some(code) = code else {
         return div()
             .child(accessibility::label(
@@ -338,7 +339,7 @@ fn code(code: Option<Arc<QrCode>>) -> AnyElement {
             }
         },
     )
-    .size(px(CODE_SIZE));
+    .size(metrics.scaled(CODE_SIZE));
     div()
         .id("devices-code")
         .role(Role::Image)
@@ -368,7 +369,7 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .min_w(px(0.0))
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(model.metrics.scaled(8.0))
         .children(state.devices.iter().map(|device| {
             let id = device.id;
             div()
@@ -376,7 +377,7 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap(px(12.0))
+                .gap(model.metrics.scaled(12.0))
                 .debug_selector(move || format!("devices-paired-{id}"))
                 .child(
                     div()

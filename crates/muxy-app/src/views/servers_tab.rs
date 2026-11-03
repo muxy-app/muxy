@@ -42,6 +42,10 @@ impl ServersTab {
         }
     }
 
+    pub(crate) fn remeasure(&self) {
+        muxy_ui::scrollbar::remeasure_list(&self.list);
+    }
+
     pub(crate) fn search_input(&self) -> Option<&Entity<TextInput>> {
         self.search.as_ref().map(|(input, _)| input)
     }
@@ -306,15 +310,19 @@ pub(super) fn style(model: &AppModel) -> Style<'_> {
 /// from flexing and stretching, never percentages, which can resolve against
 /// a parent still being measured and leave the column shrunk to its text.
 fn column(content: impl IntoElement, model: &AppModel) -> gpui::Div {
-    div().flex().justify_center().px(px(32.0)).child(
-        div()
-            .flex_1()
-            .min_w(px(0.0))
-            .max_w(model.metrics.scaled(CONTENT_WIDTH))
-            .flex()
-            .flex_col()
-            .child(content),
-    )
+    div()
+        .flex()
+        .justify_center()
+        .px(model.metrics.scaled(32.0))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .max_w(model.metrics.scaled(CONTENT_WIDTH))
+                .flex()
+                .flex_col()
+                .child(content),
+        )
 }
 
 fn icon_button(

@@ -35,7 +35,7 @@ pub const MODAL_TOP: f32 = 48.0;
 
 /// `content` as a modal dialog: centered across the window, near its top,
 /// above a dimmed backdrop.
-pub fn modal(theme: &Theme, content: impl IntoElement) -> AnyElement {
+pub fn modal(theme: &Theme, metrics: Metrics, content: impl IntoElement) -> AnyElement {
     div()
         .absolute()
         .inset_0()
@@ -43,7 +43,7 @@ pub fn modal(theme: &Theme, content: impl IntoElement) -> AnyElement {
         .flex_col()
         .items_center()
         .bg(theme.backdrop)
-        .pt(px(MODAL_TOP))
+        .pt(metrics.scaled(MODAL_TOP))
         .child(content)
         .into_any_element()
 }

@@ -17,7 +17,7 @@ use super::titlebar;
 use crate::model::AppModel;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
-use muxy_ui::theme::Theme;
+use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
 pub(crate) fn tab_strip(
@@ -31,7 +31,7 @@ pub(crate) fn tab_strip(
         .relative()
         .flex()
         .items_center()
-        .h(px(32.0))
+        .h(model.metrics.scaled(32.0))
         .flex_none();
     let (actions, actions_width) = actions;
     if model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing {
@@ -52,10 +52,10 @@ pub(crate) fn tab_strip(
         .max(0.0);
     let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
     let ideal_width = available / f32::from(count.max(1));
-    let width = ideal_width.clamp(44.0, 200.0);
+    let width = ideal_width.clamp(min_tab_width(model), max_tab_width(model));
     let tabs: Vec<_> = model.state.current_project().tabs.iter().collect();
     let mut cells = tab_cells(&tabs, width, true, model, cx);
-    let pinned_button = if ideal_width < 44.0 {
+    let pinned_button = if ideal_width < min_tab_width(model) {
         new_button
     } else {
         cells = cells.children(new_button);
@@ -80,6 +80,14 @@ pub(crate) fn tab_strip(
         .children(pinned_button)
         .child(actions)
         .into_any_element()
+}
+
+fn min_tab_width(model: &AppModel) -> f32 {
+    f32::from(model.metrics.scaled(44.0))
+}
+
+fn max_tab_width(model: &AppModel) -> f32 {
+    f32::from(model.metrics.scaled(200.0))
 }
 
 /// Whether the built-in sidebar shows tabs, each project with its own new tab
@@ -109,7 +117,8 @@ pub(crate) fn group_strip(
         .is_some_and(|tab| group.tabs().contains(&tab));
     let count = u16::try_from(tabs.len()).unwrap_or(u16::MAX).max(1);
     let control_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2() * 2.0);
-    let cell_width = ((width - control_width) / f32::from(count)).clamp(44.0, 200.0);
+    let cell_width = ((width - control_width) / f32::from(count))
+        .clamp(min_tab_width(model), max_tab_width(model));
     let cells = tab_cells(&tabs, cell_width, focused, model, cx).child(new_tab_button(
         group.tabs().last().copied(),
         model,
@@ -122,7 +131,7 @@ pub(crate) fn group_strip(
         .relative()
         .flex()
         .items_center()
-        .h(px(32.0))
+        .h(model.metrics.scaled(32.0))
         .flex_none()
         .bg(model.theme.bg)
         .child(
@@ -314,9 +323,11 @@ fn close_control(
     active: bool,
     shows_title: bool,
     group: SharedString,
-    theme: &Theme,
+    model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
+    let theme = &model.theme;
+    let m = model.metrics;
     div()
         .id(SharedString::from(format!("close-{id}")))
         .debug_selector(|| "close-tab-button".into())
@@ -326,9 +337,14 @@ fn close_control(
         .items_center()
         .justify_center()
         .h_full()
-        .when(shows_title, |button| button.right(px(10.0)).w(px(14.0)))
+        .when(shows_title, |button| {
+            button.right(m.scaled(10.0)).w(m.scaled(14.0))
+        })
         .when(!shows_title, |button| {
-            button.left(relative(0.5)).ml(px(-7.0)).w(px(14.0))
+            button
+                .left(relative(0.5))
+                .ml(m.scaled(-7.0))
+                .w(m.scaled(14.0))
         })
         .opacity(if active { 1.0 } else { 0.0 })
         .group_hover(group, |style| style.opacity(1.0))
@@ -344,10 +360,14 @@ fn close_control(
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(px(14.0))
-                .rounded(px(4.0))
+                .size(model.metrics.scaled(14.0))
+                .rounded(model.metrics.scaled(4.0))
                 .hover(|style| style.bg(theme.hover))
-                .child(IconGlyph::new(Icon::X, px(10.0), theme.fg_muted)),
+                .child(IconGlyph::new(
+                    Icon::X,
+                    model.metrics.scaled(10.0),
+                    theme.fg_muted,
+                )),
         )
         .into_any_element()
 }
@@ -380,11 +400,11 @@ fn tab_cell(
         .and_then(|color| muxy_ui::theme::parse_hex(color.as_str()))
         .map(gpui::Hsla::from);
     let settings = pane.is_some_and(|pane| pane.content == muxy_app_core::PaneContent::Settings);
-    let shows_title = width >= 80.0;
+    let shows_title = width >= f32::from(model.metrics.scaled(80.0));
     let id = tab.id;
     let group = SharedString::from(format!("tab-{id}"));
     let show_close = active && shows_title;
-    let close = close_control(id, show_close, shows_title, group.clone(), theme, cx);
+    let close = close_control(id, show_close, shows_title, group.clone(), model, cx);
     let foreground = if active { theme.fg } else { theme.fg_muted };
     let status = super::tab_activity::tab_status(tab, model);
     div()
@@ -423,7 +443,7 @@ fn tab_cell(
         .border_r(px(1.0))
         .border_color(theme.border)
         .cursor_pointer()
-        .text_size(px(12.0))
+        .text_size(model.metrics.scaled(12.0))
         .text_color(foreground)
         .when(active, |tab| tab.bg(theme.surface))
         .when_some(color, |cell, color| {
@@ -480,6 +500,7 @@ fn tab_cell(
         })
         .child(tab_label(
             &title,
+            model.metrics,
             shows_title,
             active,
             group,
@@ -493,9 +514,9 @@ fn tab_cell(
                         super::tab_activity::glyph(
                             tab,
                             model,
-                            px(14.0),
+                            model.metrics.scaled(14.0),
                             model
-                                .webview_glyph(tab, px(14.0), foreground, cx)
+                                .webview_glyph(tab, model.metrics.scaled(14.0), foreground, cx)
                                 .unwrap_or_else(|| {
                                     tab_glyph(
                                         if bell {
@@ -510,7 +531,7 @@ fn tab_cell(
                                             Glyph::Terminal
                                         },
                                         foreground,
-                                        theme,
+                                        model,
                                     )
                                 }),
                         )
@@ -518,7 +539,11 @@ fn tab_cell(
                     |label| {
                         div()
                             .debug_selector(move || format!("tab-shortcut-{index}"))
-                            .child(super::shortcut_hints::badge(label, px(14.0), model))
+                            .child(super::shortcut_hints::badge(
+                                label,
+                                model.metrics.scaled(14.0),
+                                model,
+                            ))
                             .into_any_element()
                     },
                 ),
@@ -537,7 +562,7 @@ enum Glyph {
     Terminal,
 }
 
-fn tab_glyph(glyph: Glyph, foreground: gpui::Hsla, theme: &Theme) -> AnyElement {
+fn tab_glyph(glyph: Glyph, foreground: gpui::Hsla, model: &AppModel) -> AnyElement {
     let (icon, selector) = match glyph {
         Glyph::Bell => (Icon::Bell, "tab-bell"),
         Glyph::Pin => (Icon::Pin, "tab-pin"),
@@ -549,9 +574,9 @@ fn tab_glyph(glyph: Glyph, foreground: gpui::Hsla, theme: &Theme) -> AnyElement 
         .debug_selector(move || selector.into())
         .child(IconGlyph::new(
             icon,
-            px(14.0),
+            model.metrics.scaled(14.0),
             if matches!(glyph, Glyph::Bell | Glyph::Proxy) {
-                theme.accent
+                model.theme.accent
             } else {
                 foreground
             },
@@ -561,6 +586,7 @@ fn tab_glyph(glyph: Glyph, foreground: gpui::Hsla, theme: &Theme) -> AnyElement 
 
 fn tab_label(
     title: &str,
+    m: Metrics,
     shows_title: bool,
     active: bool,
     group: SharedString,
@@ -572,9 +598,9 @@ fn tab_label(
         .flex_1()
         .min_w(px(0.0))
         .items_center()
-        .gap(px(6.0))
+        .gap(m.scaled(6.0))
         .h_full()
-        .when(shows_title, |row| row.pl(px(12.0)).pr(px(28.0)))
+        .when(shows_title, |row| row.pl(m.scaled(12.0)).pr(m.scaled(28.0)))
         .when(!shows_title, Styled::justify_center)
         .child(
             div()

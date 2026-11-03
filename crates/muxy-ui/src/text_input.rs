@@ -733,6 +733,10 @@ impl TextInput {
         cx.notify();
     }
 
+    pub fn style(&self) -> InputStyle {
+        self.style
+    }
+
     pub fn set_style(&mut self, style: InputStyle, cx: &mut Context<Self>) {
         if self.style != style {
             self.style = style;

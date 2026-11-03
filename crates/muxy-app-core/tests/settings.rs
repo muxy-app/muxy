@@ -11,7 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::{
-    KeyChord, Keymap, PairedServer, ServerEntry, Settings, TerminalSettings,
+    Appearance, InterfaceSize, KeyChord, Keymap, PairedServer, ServerEntry, Settings,
+    TerminalSettings,
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -888,5 +889,31 @@ fn an_extension_that_took_tab_keeps_it_over_the_form_defaults() -> Result {
         Some(&"shift-tab".parse()?)
     );
     assert_eq!(fs::read_to_string(&path)?, source);
+    Ok(())
+}
+
+#[test]
+fn interface_sizes_keep_the_multipliers_of_muxy_1() -> Result<()> {
+    assert_eq!(InterfaceSize::default(), InterfaceSize::Regular);
+    for (size, name, multiplier) in [
+        (InterfaceSize::Regular, "regular", 1.0),
+        (InterfaceSize::Large, "large", 1.12),
+        (InterfaceSize::ExtraLarge, "extra_large", 1.24),
+        (InterfaceSize::Huge, "huge", 1.40),
+    ] {
+        assert_eq!(size.multiplier().to_bits(), f32::to_bits(multiplier));
+        let fixture = Fixture::new()?;
+        let path = fixture.write(
+            "settings.toml",
+            &format!("[appearance]\ninterface_size = \"{name}\"\n"),
+        )?;
+        assert_eq!(Appearance::load(&path)?.interface_size, size);
+    }
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    assert_eq!(
+        Appearance::load(&path)?.interface_size,
+        InterfaceSize::Regular
+    );
     Ok(())
 }

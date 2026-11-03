@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div, px,
+    div,
 };
 use muxy_app_core::settings::CustomCommand;
 use muxy_ui::{controls, form, tr};
@@ -29,7 +29,7 @@ pub(super) fn heading(pane: &SettingsView, cx: &mut Context<SettingsView>) -> An
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(pane.note(&tr!("Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette."), false))
         .child(
             div().flex().child(
@@ -74,7 +74,7 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
         .child(
             div()
                 .flex()
-                .gap(px(6.0))
+                .gap(pane.layout_metrics.scaled(6.0))
                 .child(
                     controls::button(
                         pane.style(),
@@ -120,7 +120,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
         })
         .flex()
         .flex_wrap()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(
             controls::button(
                 pane.style(),

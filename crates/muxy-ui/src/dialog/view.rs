@@ -147,13 +147,14 @@ impl Render for Dialog {
         }
         let theme = &self.request.theme;
         let metrics = &self.request.metrics;
+        let window_metrics = Metrics::of_window(window);
         let style = Style { theme, metrics };
         let mut body = div()
             .id("dialog-body")
             .flex()
             .flex_col()
             .gap(metrics.spacing5())
-            .max_h(px(480.0))
+            .max_h(window_metrics.scaled(480.0))
             .overflow_y_scroll()
             .child(
                 div()
@@ -259,7 +260,7 @@ impl Render for Dialog {
                     .aria_label(self.title.clone())
                     .aria_description(self.message.clone())
                     .track_focus(&self.focus)
-                    .w(px(520.0))
+                    .w(window_metrics.scaled(520.0))
                     .max_w_full()
                     .p(metrics.spacing8())
                     .flex()

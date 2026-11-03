@@ -520,7 +520,7 @@ impl Composer {
             let dimensions = self.animated_size(window, cx);
             let dimensions = size(dimensions.width * scale, dimensions.height * scale);
             let metrics = self.metrics;
-            self.metrics = muxy_ui::theme::Metrics::new(f32::from(metrics.scaled(1.0)) * scale);
+            self.metrics = metrics.times(scale);
             let mut style = self.input_style;
             style.font_size *= scale;
             style.line_height *= scale;
@@ -543,6 +543,7 @@ impl Composer {
             body,
             move |dimension, _, cx| {
                 let _ = owner.update(cx, |view, cx| {
+                    let dimension = dimension / view.metrics.multiplier();
                     if view.settings.position == ComposerPosition::Right {
                         view.settings.width = dimension;
                     } else {
@@ -732,7 +733,7 @@ impl Composer {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         self.settings.expanded = false;
         self.settings.floating_width = f32::from(dimensions.width) / scale;
         self.settings.floating_height = f32::from(dimensions.height) / scale;

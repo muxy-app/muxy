@@ -109,7 +109,7 @@ impl SettingsView {
             .role(Role::TabList)
             .aria_label(tr!("Settings"))
             .flex()
-            .gap(px(2.0))
+            .gap(self.layout_metrics.scaled(2.0))
             .map(|nav| {
                 if self.compact {
                     nav.flex_wrap()
@@ -198,7 +198,9 @@ impl SettingsView {
                 if self.compact {
                     nav.w_full().border_b_1()
                 } else {
-                    nav.w(px(248.0)).h_full().border_r_1()
+                    nav.w(self.layout_metrics.scaled(248.0))
+                        .h_full()
+                        .border_r_1()
                 }
             })
             .flex()
@@ -207,7 +209,7 @@ impl SettingsView {
             .border_color(self.theme.border)
             .child(
                 self.header_background("settings-sidebar-titlebar")
-                    .h(px(12.0))
+                    .h(self.layout_metrics.scaled(12.0))
                     .flex_none(),
             )
             .child(
@@ -216,8 +218,8 @@ impl SettingsView {
                     .flex_col()
                     .min_h(px(0.0))
                     .flex_1()
-                    .px(px(12.0))
-                    .gap(px(12.0))
+                    .px(self.layout_metrics.scaled(12.0))
+                    .gap(self.layout_metrics.scaled(12.0))
                     .child(
                         controls::search_field(
                             self.layout_style(),
@@ -239,9 +241,9 @@ impl SettingsView {
                             div()
                                 .border_t_1()
                                 .border_color(self.theme.border)
-                                .py(px(14.0))
-                                .px(px(8.0))
-                                .text_size(px(11.0))
+                                .py(self.layout_metrics.scaled(14.0))
+                                .px(self.layout_metrics.scaled(8.0))
+                                .text_size(self.layout_metrics.scaled(11.0))
                                 .text_color(self.theme.fg_dim)
                                 .child(tr!(
                                     "%@  Focus navbar",
@@ -253,25 +255,25 @@ impl SettingsView {
                                 )),
                         )
                     })
-                    .when(self.compact, |nav| nav.pb(px(12.0))),
+                    .when(self.compact, |nav| nav.pb(self.layout_metrics.scaled(12.0))),
             )
             .into_any_element()
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
         self.header_background("settings-content-titlebar")
-            .h(px(56.0))
+            .h(self.layout_metrics.scaled(56.0))
             .flex_none()
             .flex()
             .items_center()
             .justify_between()
-            .gap(px(12.0))
+            .gap(self.layout_metrics.scaled(12.0))
             .child(
                 div()
-                    .rounded(px(4.0))
-                    .px(px(7.0))
-                    .py(px(4.0))
-                    .text_size(px(14.0))
+                    .rounded(self.layout_metrics.scaled(4.0))
+                    .px(self.layout_metrics.scaled(7.0))
+                    .py(self.layout_metrics.scaled(4.0))
+                    .text_size(self.layout_metrics.scaled(14.0))
                     .text_color(self.theme.accent)
                     .bg(self.theme.accent_soft)
                     .child(if self.category == Category::Server {
@@ -288,12 +290,12 @@ impl SettingsView {
                     .accessibility_id("settings-open-configuration")
                     .aria_label(tr!("Edit in %@", file))
                     .debug_selector(|| "settings-open-configuration".into())
-                    .px(px(9.0))
-                    .py(px(4.0))
-                    .rounded(px(4.0))
+                    .px(self.layout_metrics.scaled(9.0))
+                    .py(self.layout_metrics.scaled(4.0))
+                    .rounded(self.layout_metrics.scaled(4.0))
                     .border_1()
                     .border_color(self.theme.border)
-                    .text_size(px(13.0))
+                    .text_size(self.layout_metrics.scaled(13.0))
                     .text_color(self.theme.fg_muted)
                     .cursor_pointer()
                     .hover(|button| button.bg(self.theme.hover).text_color(self.theme.fg))
@@ -318,7 +320,7 @@ impl SettingsView {
             .debug_selector(move || format!("settings-{id}-error"))
             .flex()
             .items_center()
-            .gap(px(8.0))
+            .gap(self.layout_metrics.scaled(8.0))
             .child(accessibility::announced(
                 self.note(error, true)
                     .flex_1()
@@ -380,8 +382,12 @@ impl SettingsView {
                 .min_w_0()
                 .min_h_0()
                 .h_full()
-                .px(px(if self.compact { 20.0 } else { 32.0 }))
-                .when(cfg!(target_os = "linux"), |content| content.pt(px(32.0)))
+                .px(self
+                    .layout_metrics
+                    .scaled(if self.compact { 20.0 } else { 32.0 }))
+                .when(cfg!(target_os = "linux"), |content| {
+                    content.pt(self.layout_metrics.scaled(32.0))
+                })
                 .child(extensions.clone())
                 .into_any_element();
         }
@@ -394,7 +400,9 @@ impl SettingsView {
             .h_full()
             .flex()
             .flex_col()
-            .px(px(if self.compact { 20.0 } else { 32.0 }))
+            .px(self
+                .layout_metrics
+                .scaled(if self.compact { 20.0 } else { 32.0 }))
             .child(self.header(cx))
             .children(
                 ["application", "configuration"]
@@ -425,7 +433,7 @@ impl SettingsView {
                     .debug_selector(|| "settings-scrollbar".into())
                     .absolute()
                     .right(px(3.0))
-                    .top(px(76.0))
+                    .top(self.layout_metrics.scaled(76.0))
                     .bottom(px(8.0))
                     .child(
                         self.scrollbar
@@ -441,7 +449,7 @@ impl SettingsView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        self.compact = size.width < px(660.0);
+        self.compact = size.width < self.layout_metrics.scaled(660.0);
         self.refresh_results(size.height, window, cx);
         div()
             .debug_selector(|| "settings-container".into())
@@ -452,7 +460,14 @@ impl SettingsView {
                 self.navigation(window, cx)
             } else {
                 gpui::AnyView::from(self.navigation_view.clone())
-                    .cached(div().w(px(248.0)).h_full().flex_none().style().clone())
+                    .cached(
+                        div()
+                            .w(self.layout_metrics.scaled(248.0))
+                            .h_full()
+                            .flex_none()
+                            .style()
+                            .clone(),
+                    )
                     .into_any_element()
             })
             .child(

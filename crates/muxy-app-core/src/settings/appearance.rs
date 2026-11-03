@@ -38,6 +38,27 @@ pub enum SidebarCollapsedStyle {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum InterfaceSize {
+    #[default]
+    Regular,
+    Large,
+    ExtraLarge,
+    Huge,
+}
+
+impl InterfaceSize {
+    pub const fn multiplier(self) -> f32 {
+        match self {
+            Self::Regular => 1.0,
+            Self::Large => 1.12,
+            Self::ExtraLarge => 1.24,
+            Self::Huge => 1.40,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentsPanelGrouping {
     #[default]
     Agents,
@@ -78,6 +99,7 @@ pub struct Appearance {
     pub layout: AppLayout,
     pub dark_theme: String,
     pub light_theme: String,
+    pub interface_size: InterfaceSize,
     pub sidebar_expanded: bool,
     pub sidebar_vibrancy: bool,
     pub sidebar_vibrancy_level: u8,
@@ -127,6 +149,7 @@ impl Default for Appearance {
             layout: AppLayout::default(),
             dark_theme: "Muxy".into(),
             light_theme: "Muxy Light".into(),
+            interface_size: InterfaceSize::default(),
             sidebar_expanded: false,
             sidebar_vibrancy: true,
             sidebar_vibrancy_level: 50,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, AppContext, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
-    StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    StatefulInteractiveElement, Styled, Window, canvas, div,
 };
 use muxy_app_core::extensions::{Action, Extension, Icon, Side};
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph, TemplateGlyph, Tooltip};
@@ -319,9 +319,9 @@ impl AppModel {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(metrics.scaled(4.0))
                     .h_full()
-                    .px(px(4.0))
+                    .px(metrics.scaled(4.0))
                     .text_color(self.theme.fg_muted)
                     .cursor_pointer()
                     .hover(|style| style.text_color(self.theme.fg))

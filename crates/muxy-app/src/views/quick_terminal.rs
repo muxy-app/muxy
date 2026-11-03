@@ -211,6 +211,7 @@ impl Render for QuickTerminalView {
         reason = "Declarative panel layout and terminal action wiring"
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.model.metrics.apply_to_window(window);
         let terminal = self.terminal.clone();
         if let Some(terminal) = &terminal {
             let visible = self.visible && !self.confirm_close && self.menu.is_none();

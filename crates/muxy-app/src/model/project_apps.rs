@@ -217,7 +217,7 @@ impl AppModel {
         }
         let anchor = self.project_apps.anchor.get();
         let position = anchor.map_or_else(
-            || gpui::point(gpui::px(8.0), gpui::px(40.0)),
+            || gpui::point(self.metrics.scaled(8.0), self.metrics.scaled(40.0)),
             |anchor| anchor.bottom_left(),
         );
         self.open_menu(items, position, window, cx);

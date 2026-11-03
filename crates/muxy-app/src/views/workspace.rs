@@ -521,6 +521,8 @@ impl Render for AppModel {
     #[allow(clippy::too_many_lines, reason = "One workspace layout")]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceRender);
+        self.metrics.apply_to_window(window);
+        self.sync_traffic_lights(window);
         {
             let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceSyncWebviews);
             self.sync_webviews(window, cx);
@@ -640,7 +642,7 @@ fn sidebar_divider(model: &AppModel, sidebar_width: f32, window: &Window) -> gpu
     let top = if sidebar_width >= titlebar::navigation_width(model, window) {
         0.0
     } else {
-        33.0
+        f32::from(model.metrics.title_bar_height()) + 1.0
     };
     div()
         .absolute()

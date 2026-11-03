@@ -23,6 +23,7 @@ pub(crate) enum Change {
     Language(String),
     Worktrees(WorktreeToggle, bool),
     SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
+    InterfaceSize(muxy_app_core::settings::InterfaceSize),
     AgentsPanel(bool),
     AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
     AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
@@ -204,17 +205,12 @@ impl AppModel {
             crate::views::settings::extensions::ExtensionsView::new(
                 model,
                 self.theme.clone(),
-                muxy_ui::theme::Metrics::new(1.15),
+                crate::views::settings::content_metrics(self.metrics),
                 cx,
             )
         });
         let view = cx.new(|cx| {
-            let mut view = SettingsView::new(
-                snapshot,
-                self.theme.clone(),
-                muxy_ui::theme::Metrics::new(1.15),
-                cx,
-            );
+            let mut view = SettingsView::new(snapshot, self.theme.clone(), self.metrics, cx);
             view.extensions = Some(extensions);
             view.set_backup_pending(self.path.with_file_name("pending-import.muxy").exists());
             view
@@ -346,7 +342,12 @@ impl AppModel {
     pub(super) fn sync_preferences(&self, cx: &mut Context<Self>) {
         if let Some(settings) = &self.settings_tab {
             settings.view.update(cx, |view, cx| {
-                view.sync(self.preferences_snapshot(), self.theme.clone(), cx);
+                view.sync(
+                    self.preferences_snapshot(),
+                    self.theme.clone(),
+                    self.metrics,
+                    cx,
+                );
             });
         }
     }
@@ -479,6 +480,10 @@ impl AppModel {
             }
             Change::SidebarCollapsedStyle(style) => {
                 settings.appearance.sidebar_collapsed_style = style;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::InterfaceSize(size) => {
+                settings.appearance.interface_size = size;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::AgentsPanel(value) => {
@@ -659,7 +664,8 @@ impl AppModel {
         }
         let theme_changed = theme_changed
             || self.appearance.dark_theme != settings.appearance.dark_theme
-            || self.appearance.light_theme != settings.appearance.light_theme;
+            || self.appearance.light_theme != settings.appearance.light_theme
+            || self.appearance.interface_size != settings.appearance.interface_size;
         let language_changed = self.appearance.language != settings.appearance.language;
         self.appearance = settings.appearance.clone();
         self.settings = settings;
@@ -1081,6 +1087,7 @@ fn change_id(change: &Change) -> &str {
         Change::Worktrees(toggle, _) => toggle.id(),
         Change::AgentsPanelOption(toggle, _) => toggle.id(),
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
+        Change::InterfaceSize(_) => "interface-size",
         Change::AgentsPanel(_) => "agents-panel",
         Change::AgentsPanelGrouping(_) => "agents-panel-grouping",
         Change::AgentsPanelIcon(_) => "agents-panel-icon",

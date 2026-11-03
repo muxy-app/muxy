@@ -462,7 +462,7 @@ impl AppModel {
             - px(actions_width)
             - self.metrics.control_medium()
             - self.metrics.spacing2()
-            - px(56.0))
+            - self.metrics.scaled(56.0))
         .max(self.metrics.sidebar_expanded_min_width());
         if self.sidebar_available_width != available {
             self.sidebar_available_width = available;

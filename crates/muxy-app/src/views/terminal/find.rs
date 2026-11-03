@@ -257,11 +257,17 @@ impl TerminalPane {
         cx.notify();
     }
 
-    pub(crate) fn update_find_theme(&mut self, theme: &Theme, cx: &mut Context<Self>) {
+    pub(crate) fn update_find_appearance(
+        &mut self,
+        theme: &Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(find) = &mut self.find {
             find.theme = theme.clone();
+            find.metrics = metrics;
             find.input.update(cx, |input, cx| {
-                input.set_style(InputStyle::compact(theme, &find.metrics), cx);
+                input.set_style(InputStyle::compact(theme, &metrics), cx);
             });
         }
     }

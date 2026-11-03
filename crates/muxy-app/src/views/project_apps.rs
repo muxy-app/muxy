@@ -69,7 +69,7 @@ pub(super) fn control(
 ) -> Option<(AnyElement, f32)> {
     let shown = shown(model)?;
     let named_width = width(model, shown, true, window);
-    let named = room - named_width >= TAB_ROOM;
+    let named = room - named_width >= f32::from(model.metrics.scaled(TAB_ROOM));
     let width = if named {
         named_width
     } else {

@@ -500,7 +500,7 @@ impl Webview {
             )
             .child(muxy_ui::popover::contained_dropdown(
                 menu.anchor,
-                px(240.0),
+                self.metrics.scaled(240.0),
                 muxy_ui::popover::surface(&self.palette, self.metrics)
                     .id("page-options")
                     .role(gpui::Role::Menu)
@@ -590,7 +590,7 @@ impl Render for Webview {
             .children(
                 self.error
                     .clone()
-                    .map(|error| div().p(px(20.0)).child(error)),
+                    .map(|error| div().p(self.metrics.scaled(20.0)).child(error)),
             )
             .child(
                 canvas(
@@ -672,10 +672,14 @@ pub(crate) fn placeholder(
         .size_full()
         .items_center()
         .justify_center()
-        .gap(px(8.0))
+        .gap(metrics.scaled(8.0))
         .child(
-            muxy_ui::components::SymbolGlyph::new("puzzlepiece.extension", px(32.0), theme.fg)
-                .regular(),
+            muxy_ui::components::SymbolGlyph::new(
+                "puzzlepiece.extension",
+                metrics.scaled(32.0),
+                theme.fg,
+            )
+            .regular(),
         )
         .child(
             div()

@@ -386,7 +386,7 @@ impl AppModel {
             pane.update(cx, |pane, cx| {
                 pane.background_opacity = alpha;
                 pane.palette = palette;
-                pane.update_find_theme(&model.theme, cx);
+                pane.update_find_appearance(&model.theme, model.metrics, cx);
                 cx.notify();
             });
         }

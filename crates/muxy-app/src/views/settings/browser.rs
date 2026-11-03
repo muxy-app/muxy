@@ -2,7 +2,7 @@
 //! and importing from other browsers.
 
 use gpui::prelude::FluentBuilder;
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
 use muxy_app_core::browser::SearchEngine;
 use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::l10n::tr_key;
@@ -129,7 +129,11 @@ fn profiles(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
         .text()
         .trim()
         .to_owned();
-    let mut list = div().flex().flex_col().gap(px(6.0)).w_full();
+    let mut list = div()
+        .flex()
+        .flex_col()
+        .gap(view.layout_metrics.scaled(6.0))
+        .w_full();
     for profile in &view.snapshot.browser_profiles {
         list = list.child(profile_row(view, profile, &name, cx));
     }
@@ -139,8 +143,8 @@ fn profiles(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(8.0))
-            .pt(px(4.0))
+            .gap(view.layout_metrics.scaled(8.0))
+            .pt(view.layout_metrics.scaled(4.0))
             .child(view.field("browser-profile-name"))
             .child(controls::button(
                 view.style(),
@@ -171,7 +175,10 @@ fn profile_row(
     cx: &mut Context<SettingsView>,
 ) -> AnyElement {
     let id = profile.id.clone();
-    let mut buttons = div().flex().flex_wrap().gap(px(6.0));
+    let mut buttons = div()
+        .flex()
+        .flex_wrap()
+        .gap(view.layout_metrics.scaled(6.0));
     if !profile.default {
         let chosen = id.clone();
         buttons = buttons.child(controls::button(
@@ -242,7 +249,7 @@ fn profile_row(
         .flex_wrap()
         .items_center()
         .justify_between()
-        .gap(px(8.0))
+        .gap(view.layout_metrics.scaled(8.0))
         .child(profile_title(view, profile))
         .child(buttons)
         .into_any_element()
@@ -256,7 +263,7 @@ fn profile_title(view: &SettingsView, profile: &Profile) -> gpui::Div {
     div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(view.layout_metrics.scaled(6.0))
         .text_size(metrics.font_body())
         .child(muxy_ui::accessibility::label(
             gpui::SharedString::from(format!("browser-profile-{id}")),
@@ -265,7 +272,7 @@ fn profile_title(view: &SettingsView, profile: &Profile) -> gpui::Div {
         .when(profile.default, |row| {
             row.child(
                 div()
-                    .px(px(6.0))
+                    .px(view.layout_metrics.scaled(6.0))
                     .rounded(metrics.radius_sm())
                     .bg(theme.accent_soft)
                     .text_size(metrics.font_caption())
@@ -280,7 +287,11 @@ fn profile_title(view: &SettingsView, profile: &Profile) -> gpui::Div {
 
 fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let metrics = view.style().metrics;
-    let mut list = div().flex().flex_col().gap(px(6.0)).w_full();
+    let mut list = div()
+        .flex()
+        .flex_col()
+        .gap(view.layout_metrics.scaled(6.0))
+        .w_full();
     if view.snapshot.browser_sources.is_empty() {
         return list
             .child(view.readable_note(
@@ -290,7 +301,10 @@ fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             .into_any_element();
     }
     for (index, (source, has_cookies)) in view.snapshot.browser_sources.iter().enumerate() {
-        let mut buttons = div().flex().flex_wrap().gap(px(6.0));
+        let mut buttons = div()
+            .flex()
+            .flex_wrap()
+            .gap(view.layout_metrics.scaled(6.0));
         let kinds = [(false, tr!("History & Bookmarks")), (true, tr!("Cookies"))];
         for (cookies, label) in kinds
             .into_iter()
@@ -320,7 +334,7 @@ fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
                 .flex_wrap()
                 .items_center()
                 .justify_between()
-                .gap(px(8.0))
+                .gap(view.layout_metrics.scaled(8.0))
                 .child(div().text_size(metrics.font_body()).child(source.clone()))
                 .child(buttons),
         );

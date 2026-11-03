@@ -1,11 +1,12 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Div, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement, Styled,
-    Window, div, px,
+    MouseButton, ParentElement, Pixels, Point, Role, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Window, div, point, px,
 };
 use muxy_ui::components::{IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
+use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
 use crate::model::AppModel;
@@ -15,7 +16,7 @@ pub(crate) mod frame;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
 
-pub(crate) fn content_size(window: &Window) -> gpui::Size<gpui::Pixels> {
+pub(crate) fn content_size(window: &Window) -> gpui::Size<Pixels> {
     #[cfg(target_os = "linux")]
     return frame::bounds(window).size;
     #[cfg(not(target_os = "linux"))]
@@ -66,7 +67,7 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         * f32::from(model.metrics.control_medium() + model.metrics.spacing2())
         + model.extension_toolbar_width();
     #[cfg(target_os = "linux")]
-    let window_controls = linux::controls_width(window);
+    let window_controls = linux::controls_width(window, model.metrics);
     #[cfg(not(target_os = "linux"))]
     let window_controls = 0.0;
     let room = f32::from(content_size(window).width)
@@ -112,11 +113,12 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
     if let Some(controls) = linux::controls(
         window,
         &model.theme,
+        model.metrics,
         cx.listener(|model, _, _, cx| model.quit(cx)),
     ) {
         return (
             bar.child(controls.border_l_1().border_color(model.theme.border)),
-            width + linux::controls_width(window) + 1.0,
+            width + linux::controls_width(window, model.metrics) + 1.0,
         );
     }
     (bar, width)
@@ -333,6 +335,21 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         )
 }
 
+/// Where the macOS traffic lights sit: centered in the title bar, on the
+/// nearest device pixel.
+pub(crate) fn traffic_light_position(metrics: Metrics, scale_factor: f32) -> Point<Pixels> {
+    const INSET: f32 = 9.0;
+    let growth = metrics.title_bar_height() - Metrics::new(1.0).title_bar_height();
+    let y = INSET + f32::from(growth) / 2.0;
+    point(px(INSET), px((y * scale_factor).round() / scale_factor))
+}
+
+pub(crate) fn initial_traffic_lights(
+    appearance: &muxy_app_core::settings::Appearance,
+) -> Point<Pixels> {
+    traffic_light_position(Metrics::new(appearance.interface_size.multiplier()), 1.0)
+}
+
 pub(super) fn navigation_width(model: &AppModel, _: &Window) -> f32 {
     if cfg!(target_os = "linux") {
         return f32::from(model.metrics.sidebar_collapsed_width() + model.metrics.scaled(52.0));
@@ -395,5 +412,26 @@ fn arrow(model: &AppModel, forward: bool, cx: &mut Context<AppModel>) -> AnyElem
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(glyph)
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod traffic_light_tests {
+    use super::*;
+
+    #[test]
+    fn traffic_lights_stay_centered_as_the_title_bar_grows() {
+        for (multiplier, scale_factor, y) in [
+            (1.0, 2.0, 9.0),
+            (1.12, 2.0, 11.0),
+            (1.24, 2.0, 13.0),
+            (1.40, 2.0, 15.5),
+            (1.40, 1.0, 15.0),
+        ] {
+            assert_eq!(
+                traffic_light_position(Metrics::new(multiplier), scale_factor),
+                point(px(9.0), px(y)),
+            );
+        }
     }
 }

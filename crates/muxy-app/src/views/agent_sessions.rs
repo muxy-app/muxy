@@ -59,7 +59,7 @@ pub(crate) fn panel_content(
         return content;
     }
     let m = model.metrics;
-    let scale = f32::from(m.scaled(1.0));
+    let scale = m.multiplier();
     let placement = model.agent_sessions_placement();
     let right = placement.position == PanelPosition::Right;
     let pinned = placement.mode == PanelMode::Pinned;
