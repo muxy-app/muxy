@@ -2,7 +2,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ParentElement, PromptButton, Render, Role, StatefulInteractiveElement, Styled,
-    Subscription, Toggled, Window, div,
+    Subscription, Toggled, Window, div, px,
 };
 
 use super::{Answer, Request};
@@ -156,6 +156,7 @@ impl Render for Dialog {
             .flex_col()
             .gap(metrics.spacing5())
             .max_h(window_metrics.scaled(480.0))
+            .min_h(px(0.0))
             .overflow_y_scroll()
             .child(
                 div()
@@ -230,7 +231,9 @@ impl Render for Dialog {
             );
         }
         let mut buttons = div()
+            .debug_selector(|| "dialog-buttons".into())
             .flex()
+            .flex_none()
             .flex_wrap()
             .when(self.buttons.len() > 3, Styled::flex_col)
             .justify_end()
@@ -263,6 +266,7 @@ impl Render for Dialog {
                     .track_focus(&self.focus)
                     .w(window_metrics.scaled(520.0))
                     .max_w_full()
+                    .max_h((window.viewport_size().height - px(16.0)).max(px(0.0)))
                     .p(metrics.spacing8())
                     .flex()
                     .flex_col()

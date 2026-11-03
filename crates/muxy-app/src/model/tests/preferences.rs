@@ -912,7 +912,7 @@ fn the_interface_size_applies_at_launch(cx: &mut TestAppContext) {
 fn the_size_row_stays_on_screen_when_the_interface_grows(cx: &mut TestAppContext) {
     let state = AppState::bootstrap().expect("state");
     let (boot, _) = stub_boot(state);
-    let (_model, cx) = settings_tab(boot, cx);
+    let (model, cx) = settings_tab(boot, cx);
     click_preference(cx, "settings-category-Appearance");
     let selector = "settings-segment-interface-size-huge";
     let status_bar = px(40.0);
@@ -924,9 +924,10 @@ fn the_size_row_stays_on_screen_when_the_interface_grows(cx: &mut TestAppContext
     cx.run_until_parked();
 
     let row = cx.debug_bounds(selector).expect("size row");
+    let visible = fitted - model.read_with(cx, |model, _| model.metrics.status_bar_height());
     assert!(
-        row.bottom() <= fitted,
-        "the Size row ends at {:?}, below the window's {fitted:?}",
+        row.bottom() <= visible,
+        "the Size row ends at {:?}, below the visible {visible:?}",
         row.bottom(),
     );
 

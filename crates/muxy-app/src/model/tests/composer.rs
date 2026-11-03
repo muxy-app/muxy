@@ -377,3 +377,32 @@ fn a_pinned_composer_keeps_its_saved_size_and_scales_with_the_interface(cx: &mut
         assert_eq!(stored(composer).to_bits(), saved.to_bits());
     });
 }
+
+#[gpui::test]
+fn a_pinned_composer_leaves_room_for_the_workspace_in_a_small_window(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    let width = 640.0;
+    let sidebar = 252.0;
+    cx.simulate_resize(size(px(width), px(400.0)));
+    let composer = view.update_in(cx, |model, window, cx| {
+        if model.composer.view.is_none() {
+            model.toggle_composer(window, cx);
+        }
+        model.composer.view.clone().expect("composer")
+    });
+    cx.run_until_parked();
+    let theme = view.read_with(cx, |model, _| model.theme.clone());
+    cx.update(|window, cx| {
+        composer.update(cx, |composer, cx| {
+            composer.settings.position = muxy_app_core::settings::ComposerPosition::Right;
+            composer.workspace_inset = sidebar;
+            composer.appearance(theme, Metrics::new(1.40), cx);
+            let dimension = composer.sizing(window).layout().dimension();
+            assert!(
+                dimension < width - sidebar,
+                "the composer takes {dimension} of the {} left",
+                width - sidebar,
+            );
+        });
+    });
+}
