@@ -121,9 +121,13 @@ impl Cropper {
     }
 }
 
+const MAX_SIDE: u32 = 8192;
+const MAX_DECODED: u64 = 64 * 1024 * 1024;
+
 /// Reads a logo file of at most 20 MB and returns it at most 1024 pixels on
-/// its longer side. Raster images are decoded within 8192 pixels and 64 MB,
-/// and anything the image crate doesn't recognise is tried as an SVG.
+/// its longer side. Raster images are decoded within `MAX_SIDE` pixels and
+/// `MAX_DECODED` bytes, and anything the image crate doesn't recognise is
+/// tried as an SVG.
 fn load(path: &Path) -> Result<image::RgbaImage, String> {
     const MAX_FILE: u64 = 20 * 1024 * 1024;
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
@@ -141,9 +145,9 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
         .with_guessed_format()
         .map_err(|error| error.to_string())?;
     let mut limits = image::Limits::default();
-    limits.max_image_width = Some(8192);
-    limits.max_image_height = Some(8192);
-    limits.max_alloc = Some(64 * 1024 * 1024);
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_alloc = Some(MAX_DECODED);
     reader.limits(limits);
     let mut decoder = reader.into_decoder().map_err(|_| unsupported())?;
     let orientation = decoder.orientation().map_err(|error| error.to_string())?;
@@ -172,11 +176,36 @@ fn system_fonts() -> Arc<resvg::usvg::fontdb::Database> {
         .clone()
 }
 
+/// Tells whether resvg may decode an image embedded in an SVG logo. resvg
+/// decodes without limits, so a raster image is drawn only when its header
+/// declares a size within the limits `load` applies to other images.
+fn fits_decode_limits(kind: &resvg::usvg::ImageKind) -> bool {
+    use resvg::usvg::ImageKind;
+    let (ImageKind::JPEG(data)
+    | ImageKind::PNG(data)
+    | ImageKind::GIF(data)
+    | ImageKind::WEBP(data)) = kind
+    else {
+        return true;
+    };
+    let dimensions = image::ImageReader::new(Cursor::new(data.as_slice()))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok());
+    let Some((width, height)) = dimensions else {
+        return false;
+    };
+    width <= MAX_SIDE
+        && height <= MAX_SIDE
+        && u64::from(width) * u64::from(height) * 4 <= MAX_DECODED
+}
+
 /// Draws an SVG at most 1024 pixels on its longer side, like `load` does for
 /// other images. Text is set in the system fonts, which are scanned once, the
-/// first time an SVG asks for a font. Linked images are ignored so a logo
-/// can't read other files, and compressed SVGs are refused because usvg
-/// inflates them without a limit.
+/// first time an SVG asks for a font. Embedded images are drawn when they fit
+/// `fits_decode_limits`, linked images are ignored so a logo can't read other
+/// files, and compressed SVGs are refused because usvg inflates them without
+/// a limit.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -195,6 +224,10 @@ fn rasterize_svg(bytes: &[u8]) -> Result<image::RgbaImage, String> {
             *fonts = system_fonts();
         }
         select_font(font, fonts)
+    });
+    let resolve_data = usvg::ImageHrefResolver::default_data_resolver();
+    options.image_href_resolver.resolve_data = Box::new(move |mime, data, svg_options| {
+        resolve_data(mime, data, svg_options).filter(fits_decode_limits)
     });
     options.image_href_resolver.resolve_string = Box::new(|_, _| None);
     let tree = usvg::Tree::from_data(bytes, &options).map_err(|_| unsupported())?;
@@ -678,7 +711,7 @@ mod tests {
             .expect("file");
         std::fs::write(
             file.path(),
-            br#"<svg xmlns="http://www.w3.org/2000/svg" width="1000000" height="10"><rect width="1000000" height="10" fill="red"/></svg>"#,
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="1000000" height="1000"><rect width="1000000" height="1000" fill="red"/></svg>"#,
         )
         .expect("write");
         let image = load(file.path()).expect("svg");
@@ -687,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn svg_draws_embedded_images_but_not_linked_files() {
+    fn svg_draws_embedded_images_within_limits_but_not_linked_files() {
         let red = br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="red"/></svg>"#;
         let file = tempfile::Builder::new()
             .suffix(".svg")
@@ -696,7 +729,7 @@ mod tests {
         std::fs::write(file.path(), red).expect("write");
         let svg = |href: &str| {
             format!(
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><image href="{href}" width="4" height="4"/></svg>"#
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><image href="{href}" width="4" height="4" preserveAspectRatio="none"/></svg>"#
             )
         };
         let opaque = |href: &str| {
@@ -709,7 +742,19 @@ mod tests {
             "data:image/svg+xml;base64,{}",
             muxy_core::base64::encode(red)
         );
+        let png = |width| {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::RgbaImage::from_pixel(width, 1, image::Rgba([255, 0, 0, 255]))
+                .write_to(&mut bytes, image::ImageFormat::Png)
+                .expect("png");
+            format!(
+                "data:image/png;base64,{}",
+                muxy_core::base64::encode(bytes.get_ref())
+            )
+        };
         assert!(opaque(&embedded));
+        assert!(opaque(&png(4)));
+        assert!(!opaque(&png(super::MAX_SIDE + 1)));
         assert!(!opaque(&file.path().to_string_lossy()));
     }
 }
