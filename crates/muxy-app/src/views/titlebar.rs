@@ -132,7 +132,7 @@ pub(crate) fn begin_window_move(
     window: &mut Window,
     _: &mut Context<AppModel>,
 ) {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", test))]
     let _ = &window;
     if model.coverage().modal() {
         return;
@@ -141,7 +141,7 @@ pub(crate) fn begin_window_move(
     if let Some(drag) = &model.window_drag {
         drag.begin();
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(test)))]
     window.start_window_move();
 }
 
