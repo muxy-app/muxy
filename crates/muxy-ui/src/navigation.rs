@@ -59,8 +59,8 @@ pub fn subitem(
         })
 }
 
-/// The chevron inside an [`item`]. A client can't reach a control nested in a
-/// tab, so it stays out of the tree: give clients a hidden button beside the tab.
+/// The chevron inside an [`item`]. It stays out of the tree, so give clients a
+/// hidden button beside the tab.
 pub fn disclosure(
     style: Style,
     id: impl Into<ElementId>,
