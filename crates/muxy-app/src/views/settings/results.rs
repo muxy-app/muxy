@@ -20,6 +20,7 @@ pub(super) struct Results {
     /// The row to bring on screen in the next frame.
     pub(super) reveal_row: Rc<Cell<Option<&'static str>>>,
     pub(super) dirty: bool,
+    pub(super) editable: bool,
     reset_scroll: bool,
     overdraw: Pixels,
 }
@@ -67,6 +68,7 @@ impl Results {
             reveal_focus: Rc::new(Cell::new(false)),
             reveal_row: Rc::new(Cell::new(None)),
             dirty: true,
+            editable: false,
             reset_scroll: true,
             overdraw: px(0.0),
         }
@@ -204,10 +206,13 @@ impl SettingsView {
                 items.push(Item::Section(category));
             }
         }
+        self.results.editable = items
+            .iter()
+            .any(|item| !matches!(item, Item::Section(Category::About)));
         if items.is_empty() {
             items.push(Item::Empty);
         }
-        if self.category != Category::About || !self.query.is_empty() {
+        if self.results.editable {
             items.push(Item::Footer);
         }
         self.refresh_shortcut_focus(&items, cx);

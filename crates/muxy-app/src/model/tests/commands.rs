@@ -215,6 +215,45 @@ fn about_menu_opens_or_reuses_settings_and_clears_search(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn about_menu_preserves_settings_when_opening_is_blocked(cx: &mut TestAppContext) {
+    for blocked_by in ["dialog", "quitting", "save"] {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("terminal");
+        let (boot, _requests) = stub_boot(state);
+        let (model, cx) = preferences::settings_tab(boot, cx);
+        preferences::click_preference(cx, "settings-search");
+        cx.simulate_input("width");
+        preferences::click_preference(cx, "tab-cell-0");
+        let directory = tempfile::tempdir().expect("directory");
+        model.update_in(cx, |model, window, cx| {
+            let state = model.state.clone();
+            let path = model.path.clone();
+            match blocked_by {
+                "dialog" => model.confirm("Question", "Wait".into(), "Continue", cx, |_, _| {}),
+                "quitting" => model.quitting = Quitting::Update,
+                "save" => model.path = directory.path().to_path_buf(),
+                _ => unreachable!(),
+            }
+            model.show_about_settings(window, cx);
+            assert_eq!(model.state, state);
+            model.path = path;
+            model.quitting = Quitting::Idle;
+        });
+        cx.run_until_parked();
+        if blocked_by == "dialog" {
+            cx.simulate_prompt_answer("Cancel");
+            cx.run_until_parked();
+        }
+        cx.dispatch_action(crate::views::workspace::OpenSettings);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("settings-about-version").is_none(),
+            "{blocked_by}"
+        );
+    }
+}
+
+#[gpui::test]
 fn a_failed_save_leaves_the_state_as_it_was(cx: &mut TestAppContext) {
     use crate::model::tabs::OpenTerminal;
     use muxy_app_core::store;

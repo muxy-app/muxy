@@ -261,7 +261,7 @@ impl SettingsView {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.category == Category::About && self.query.is_empty() {
+        if !self.results.editable {
             return div()
                 .h(self.layout_metrics.scaled(56.0))
                 .flex_none()
