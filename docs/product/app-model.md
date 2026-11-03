@@ -36,11 +36,13 @@ connections lives:
   regroups, or removes several at once. Disconnecting leaves a server's
   terminals running there.
 
-**Add Project** (the folder beside **Devices**) offers **Local** (⌘O),
-**Remote**, and **Recently Removed** projects. ⌘O searches folders that aren't
-projects yet and completes typed paths with Tab. Enter adds the folder as a
-project with a terminal, or opens a terminal in the project it already is.
-Missing folders require an explicit creation confirmation.
+**Add Project** (the row below the project list, and the folder beside
+**Devices**) offers **Local** (⌘O), **Remote**, and **Recently Removed**
+projects. ⌘O searches folders that aren't projects yet and completes typed paths
+with Tab; **Finder…** (**Browse…** on Linux) picks one in the system dialog
+instead. Enter adds the folder as a project with a terminal, or opens a terminal
+in the project it already is. Missing folders require an explicit creation
+confirmation.
 
 **New Tab in Project…** (⌘⇧N) lists saved projects and servers, then matching
 folders. Enter opens a terminal in the project, or at a folder in its

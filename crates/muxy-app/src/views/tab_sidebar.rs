@@ -6,7 +6,7 @@ use gpui::{
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::AppLayout};
 use muxy_ui::accessibility::OnPress;
-use muxy_ui::components::{IconButton, IconGlyph, SymbolGlyph};
+use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::translate;
 use muxy_ui::tr;
@@ -181,6 +181,9 @@ pub(super) fn contents(
     if without_tabs > 0 {
         rows = rows.child(projects_without_tabs_toggle(without_tabs, model, cx));
     }
+    if !model.appearance.sidebar_focus {
+        rows = rows.child(add_project_button(model, cx));
+    }
     div()
         .debug_selector(|| "tab-sidebar".into())
         .flex()
@@ -204,6 +207,38 @@ pub(super) fn contents(
             tab_strip::drag::Source::Sidebar,
             cx,
         ))
+        .into_any_element()
+}
+
+fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let m = model.metrics;
+    let theme = &model.theme;
+    div()
+        .id("tab-add-project")
+        .role(Role::Button)
+        .accessibility_id("tab-add-project")
+        .aria_label(tr!("Add Project"))
+        .debug_selector(|| "tab-add-project".into())
+        .mx(m.spacing3())
+        .my(m.spacing1())
+        .pl(m.spacing4())
+        .h(m.control_medium())
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(m.spacing3())
+        .rounded(m.radius_md())
+        .cursor_pointer()
+        .text_size(m.font_body())
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme.fg_muted)
+        .hover(|style| style.bg(theme.hover).text_color(theme.fg))
+        .focus(|style| style.bg(theme.hover).text_color(theme.fg))
+        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
+            model.choose_project_source(event.position(), window, cx);
+        }))
+        .child(IconGlyph::new(Icon::Plus, m.font_body(), theme.fg_muted))
+        .child(tr!("Add Project"))
         .into_any_element()
 }
 

@@ -841,6 +841,122 @@ fn sidebar_add_project_menu_and_remote_button_remain_separate_in_each_layout(
 }
 
 #[gpui::test]
+fn the_add_project_row_follows_the_project_list_and_opens_the_source_menu(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::AppLayout;
+
+    for (layout, expanded, row, list) in [
+        (
+            AppLayout::ProjectFocused,
+            true,
+            "add-project",
+            "projects-scroll",
+        ),
+        (
+            AppLayout::ProjectFocused,
+            false,
+            "add-project",
+            "projects-scroll",
+        ),
+        (
+            AppLayout::TabFocused,
+            true,
+            "tab-add-project",
+            "tab-sidebar-scroll",
+        ),
+        (
+            AppLayout::AgentsFocused,
+            true,
+            "tab-add-project",
+            "tab-sidebar-scroll",
+        ),
+    ] {
+        let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+        let (_view, window) = cx.add_window_view(|window, cx| {
+            let mut model = AppModel::new(boot, window, cx);
+            model.appearance.layout = layout;
+            model.appearance.sidebar_expanded = expanded;
+            model
+        });
+        window.simulate_resize(size(px(1200.0), px(800.0)));
+        window.run_until_parked();
+        let list = window.debug_bounds(list).expect("project list");
+        let bounds = window.debug_bounds(row).expect("add project row");
+        assert!(bounds.left() >= list.left() && bounds.right() <= list.right());
+        assert!(bounds.top() >= list.top() && bounds.bottom() <= list.bottom());
+        window.simulate_click(bounds.center(), Modifiers::none());
+        window.run_until_parked();
+        assert!(window.debug_bounds("menu-label-Local").is_some());
+    }
+}
+
+#[gpui::test]
+fn a_focused_sidebar_hides_the_add_project_row_but_keeps_the_footer_button(
+    cx: &mut TestAppContext,
+) {
+    use muxy_app_core::settings::AppLayout;
+
+    for layout in [
+        AppLayout::ProjectFocused,
+        AppLayout::TabFocused,
+        AppLayout::AgentsFocused,
+    ] {
+        let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+        let (_view, window) = cx.add_window_view(|window, cx| {
+            let mut model = AppModel::new(boot, window, cx);
+            model.appearance.layout = layout;
+            model.appearance.sidebar_expanded = true;
+            model.appearance.sidebar_focus = true;
+            model
+        });
+        window.simulate_resize(size(px(1200.0), px(800.0)));
+        window.run_until_parked();
+        assert!(window.debug_bounds("add-project").is_none());
+        assert!(window.debug_bounds("tab-add-project").is_none());
+        assert!(window.debug_bounds("sidebar-add-project").is_some());
+    }
+}
+
+#[gpui::test]
+fn the_finder_action_adds_the_chosen_folder_and_cancelling_adds_nothing(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("root");
+    let chosen = root.path().join("Chosen");
+    std::fs::create_dir(&chosen).expect("folder");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.settings.projects.search_root = Some(root.path().into());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+
+    open_new_tab(cx);
+    load_folders(cx);
+    assert!(cx.debug_bounds("picker-footer-finder").is_none());
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+
+    let projects = view.read_with(cx, |model, _| model.state.projects().len());
+    for answer in [None, Some(chosen.clone())] {
+        open_add_project(cx);
+        load_folders(cx);
+        crate::views::project_picker::CHOSEN_FOLDER.set(answer);
+        let finder = cx.debug_bounds("picker-footer-finder").expect("Finder");
+        cx.simulate_click(finder.center(), Modifiers::none());
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |model, _| model.overlay.is_none()));
+        assert_eq!(
+            crate::views::project_picker::ASKED_FOLDER.take(),
+            Some(PathBuf::from(crate::picker::path_service::standardize(
+                &root.path().to_string_lossy()
+            )))
+        );
+    }
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.projects().len(), projects + 1);
+        assert_eq!(model.state.current_project().directory, chosen);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+    });
+}
+
+#[gpui::test]
 fn the_command_palette_and_shortcuts_open_and_switch_each_picker(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().expect("root");
     let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
@@ -986,6 +1102,7 @@ fn remote_paths_use_server_checks_and_only_adding_can_create_projects(cx: &mut T
         show(Purpose::AddProject, cx);
         replace_query(cx, path);
         load_folders(cx);
+        assert!(cx.debug_bounds("picker-footer-finder").is_none());
         cx.simulate_keystrokes("enter");
         cx.run_until_parked();
         if path == "/srv/Missing" {
