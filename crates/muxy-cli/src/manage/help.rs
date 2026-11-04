@@ -3,8 +3,8 @@ pub(crate) const ROOT: &str = "Muxy - terminal client and server management
 Usage: muxy [--host DESTINATION] [COMMAND]
 
   (no command)  Open the terminal UI; Ctrl-B ? shows help
-  <folder>      Open a folder as a project in the desktop app, or in the
-                terminal UI without it or over SSH
+  <folder>      Open a new terminal in a folder's project in the desktop app;
+                without it or over SSH, show the project in the terminal UI
   server        Start, inspect or stop the server
   project       List, add, edit or delete server projects
   session       Create terminals, send input, read output and end sessions
