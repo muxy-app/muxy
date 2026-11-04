@@ -97,6 +97,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SYS_CPU");
     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SYS_OPTIMIZE");
+    println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR");
     println!("cargo:rerun-if-env-changed=GHOSTTY_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=GHOSTTY_ZIG_SYSTEM_DIR");
     println!("cargo:rerun-if-env-changed=ZIG");
@@ -161,7 +162,12 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
         "cargo:rustc-env=LIBGHOSTTY_VT_SYS_INCLUDE_DIR={}",
         install_prefix.join("include").display()
     );
-    let zig_cache_dir = out_dir.join("zig-cache");
+    // CI keeps Zig's build outputs across runs in a directory of its choosing,
+    // because caching tools discard this crate's OUT_DIR. Zig keys its cache by
+    // content, so a kept cache can only skip work, not change the result.
+    let zig_cache_dir = env::var_os("LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| out_dir.join("zig-cache"), PathBuf::from);
     let zig_global_cache_dir = out_dir.join("zig-global-cache");
 
     let optimize = zig_optimize_mode();

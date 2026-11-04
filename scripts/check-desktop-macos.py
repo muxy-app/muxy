@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ci_scope  # noqa: E402
 import slow_test_guard  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -18,7 +19,7 @@ PARTS = {
         ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
     ],
     "test": [
-        ["cargo", "test", "--locked", "--workspace", "--all-features"],
+        ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
     ],
 }
 
@@ -26,6 +27,7 @@ PARTS = {
 def main():
     parser = argparse.ArgumentParser(description="Run the native macOS desktop regression guard.")
     parser.add_argument("--part", choices=sorted(PARTS), help="run only this part; CI runs the parts in parallel")
+    parser.add_argument("--scope", choices=ci_scope.SCOPES, default=ci_scope.FULL, help="which crates to test")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         raise ValueError("The macOS guard must run on macOS; Linux checks do not replace it")
@@ -44,7 +46,8 @@ def main():
         "RUSTDOCFLAGS": (os.environ.get("RUSTDOCFLAGS", "") + " -D warnings").strip(),
         "RUST_TEST_THREADS": "4",
     }
-    for command in PARTS[args.part] if args.part else [*PARTS["lint"], *PARTS["test"]]:
+    parts = {**PARTS, "test": ci_scope.tests(args.scope, PARTS["test"])}
+    for command in parts[args.part] if args.part else [*parts["lint"], *parts["test"]]:
         print("+ " + " ".join(command), flush=True)
         slow_test_guard.run(command, cwd=ROOT, env=env)
     print(f"macOS automated guard passed on {host}; record required human checks separately.", flush=True)

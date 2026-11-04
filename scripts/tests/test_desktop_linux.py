@@ -18,10 +18,12 @@ WORKFLOW = (ROOT / ".github/workflows/ci.yml").read_text()
 
 
 class DesktopLinuxTests(unittest.TestCase):
-    def environment(self, system="Linux", machine="aarch64", host=TARGET, zig="/opt/zig/zig", env=None, part=None):
+    def environment(self, system="Linux", machine="aarch64", host=TARGET, zig="/opt/zig/zig", env=None, part=None,
+                    scope=None):
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
         arguments = ["--part", part] if part else []
+        arguments += ["--scope", scope] if scope else []
         stack.enter_context(patch.object(sys, "argv", ["check-desktop-linux.py", "--target", TARGET, *arguments]))
         stack.enter_context(patch.object(CHECK.platform, "system", return_value=system))
         stack.enter_context(patch.object(CHECK.platform, "machine", return_value=machine))
@@ -66,7 +68,7 @@ class DesktopLinuxTests(unittest.TestCase):
             ["cargo", "fmt", "--all", "--check"],
             ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
             ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features"],
+            ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
         ])
         for call in run.call_args_list:
             env = call.kwargs["env"]
@@ -81,6 +83,25 @@ class DesktopLinuxTests(unittest.TestCase):
                 CHECK.main()
                 self.assertEqual([call.args[0] for call in run.call_args_list], CHECK.PARTS[part])
                 self.doCleanups()
+
+    def test_desktop_scope_narrows_only_the_tests(self):
+        run = self.environment(part="test", scope="desktop")
+        CHECK.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], [CHECK.ci_scope.DESKTOP_TEST])
+        self.doCleanups()
+        run = self.environment(part="lint", scope="desktop")
+        CHECK.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], CHECK.PARTS["lint"])
+        self.doCleanups()
+        run = self.environment(part="test", scope="full")
+        CHECK.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], CHECK.PARTS["test"])
+
+    def test_an_unknown_scope_is_rejected(self):
+        run = self.environment(part="test", scope="nothing")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            CHECK.main()
+        run.assert_not_called()
 
     def test_ci_runs_desktop_checks_on_both_architectures_beside_the_headless_and_macos_jobs(self):
         for expected in [

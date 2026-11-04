@@ -75,6 +75,14 @@ and tests with `-p` for each package that
 `scripts/check-desktop-linux.py` covers the whole workspace, including the
 [experimental desktop app](docs/tech/constraints.md), on Ubuntu 24.04.
 
+A pull request that changes only source files in `crates/muxy-app` or
+`crates/muxy-ui` tests just those two crates and skips the headless check. Any
+other change, including a `Cargo.toml` or `Cargo.lock`, and every push to `main`
+run everything.
+
+The `MACOS_CI_RUNNER` repository variable moves CI's macOS jobs to another runner.
+Pull requests from forks and release builds stay on `macos-15`.
+
 ## Pull Request Guidelines
 
 - Keep PRs focused on a single change
