@@ -1,5 +1,5 @@
 diff --git a/build.rs b/build.rs
-index e434019..0803199 100644
+index e434019..189777e 100644
 --- a/build.rs
 +++ b/build.rs
 @@ -1,10 +1,19 @@
@@ -24,7 +24,7 @@ index e434019..0803199 100644
  
  /// File name of the static archive on Windows. Ghostty installs it under this
  /// name for every Windows ABI so it does not collide with `ghostty-vt.lib`,
-@@ -95,7 +104,10 @@ fn main() {
+@@ -95,7 +104,9 @@ fn main() {
      println!("cargo:rerun-if-env-changed=HOST");
      println!("cargo:rerun-if-env-changed=DEBUG");
      println!("cargo:rerun-if-env-changed=OPT_LEVEL");
@@ -32,11 +32,10 @@ index e434019..0803199 100644
 +    println!("cargo:rerun-if-changed=build.rs");
 +    println!("cargo:rerun-if-changed=patch.rs");
 +    println!("cargo:rerun-if-changed=patches/clear-screen.patch");
-+    println!("cargo:rerun-if-changed=patches/resize-cursor-line.patch");
  
      // An explicit source override should stay authoritative even when the
      // pkg-config feature is enabled, so local Ghostty checkouts remain easy to
-@@ -131,11 +143,15 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
+@@ -131,11 +142,15 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
                  "GHOSTTY_SOURCE_DIR does not contain build.zig: {}",
                  p.display()
              );
@@ -52,7 +51,7 @@ index e434019..0803199 100644
      // Build libghostty-vt via zig.
      let install_prefix = out_dir.join("ghostty-install");
      // Tell the gen-bindings tool, a binary of this crate, which headers
-@@ -212,7 +228,9 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
+@@ -212,7 +227,9 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
          .arg(&install_prefix)
          .arg("--cache-dir")
          .arg(&zig_cache_dir)
@@ -63,7 +62,7 @@ index e434019..0803199 100644
  
      // Package managers can provide Ghostty's Zig package cache ahead of time
      // and ask Zig to resolve packages from that immutable store path instead
-@@ -246,6 +264,12 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
+@@ -246,6 +263,12 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
          build.arg(format!("-Dtarget={zig_target}"));
      }
  
@@ -76,7 +75,7 @@ index e434019..0803199 100644
      run(build, "zig build");
  
      // The emit also installs host-native flat artifacts; replace them with the
-@@ -340,6 +364,13 @@ fn try_pkg_config(link_mode: LinkMode, target: &str) -> bool {
+@@ -340,6 +363,13 @@ fn try_pkg_config(link_mode: LinkMode, target: &str) -> bool {
          Err(_) => return false,
      };
  
@@ -90,7 +89,7 @@ index e434019..0803199 100644
      if let LinkMode::Static = link_mode {
          emit_static_pkg_config_metadata(&lib, target);
      }
-@@ -433,12 +464,6 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
+@@ -433,12 +463,6 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
          return src_dir;
      }
  
@@ -103,7 +102,7 @@ index e434019..0803199 100644
      eprintln!("Fetching ghostty {GHOSTTY_COMMIT} ...");
  
      let mut clone = Command::new("git");
-@@ -452,27 +477,82 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
+@@ -452,27 +476,82 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
          .arg("--no-checkout")
          .arg(GHOSTTY_REPO)
          .arg(&src_dir);
@@ -193,7 +192,7 @@ index e434019..0803199 100644
  /// so both are included.
 diff --git a/patch.rs b/patch.rs
 new file mode 100644
-index 0000000..61943be
+index 0000000..ea3c495
 --- /dev/null
 +++ b/patch.rs
 @@ -0,0 +1,47 @@
@@ -209,7 +208,7 @@ index 0000000..61943be
 +    }
 +    copy_tree(source, &patched);
 +    let patches = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("patches");
-+    for name in ["clear-screen.patch", "resize-cursor-line.patch"] {
++    for name in ["clear-screen.patch"] {
 +        let status = Command::new("git")
 +            .current_dir(&patched)
 +            .env("GIT_CEILING_DIRECTORIES", out_dir)
