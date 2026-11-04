@@ -72,8 +72,8 @@ Every release publishes the SDK next to the desktop app, on the
 
 | File | Contents |
 | --- | --- |
-| `muxy-mobile-<version>-ios.zip` | `MuxyMobile.xcframework` and `muxy_mobile.swift` |
-| `muxy-mobile-<version>-android.zip` | `jniLibs/` and `muxy_mobile.kt` |
+| `muxy-mobile-<version>-ios.zip` | `MuxyMobile.xcframework`, `muxy_mobile.swift`, `LICENSE`, and `NOTICE` |
+| `muxy-mobile-<version>-android.zip` | `jniLibs/`, `muxy_mobile.kt`, `LICENSE`, and `NOTICE` |
 | `muxy-mobile-<version>.json` | `version`, `protocol` versions, the legacy `compatibility`, and the `sha256` of each zip |
 
 Pin one version in the app repository, together with the SHA-256 that its JSON

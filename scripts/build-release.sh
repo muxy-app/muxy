@@ -91,7 +91,7 @@ done
 python3 "$ROOT/scripts/release.py" plist "$VERSION" "$APP/Contents/Info.plist" ${BUILD_NUMBER:+--build "$BUILD_NUMBER"}
 plutil -lint "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
-cat "$ROOT/LICENSE" "$ROOT/crates/muxy-server/src/detection/THIRD_PARTY.md" \
+cat "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/crates/muxy-server/src/detection/THIRD_PARTY.md" \
     "$ROOT/crates/muxy-server/src/detection/LICENSE-herdr" > "$APP/Contents/Resources/LICENSE"
 
 ICONSET="$STAGING/AppIcon.iconset"

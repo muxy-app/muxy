@@ -29,7 +29,7 @@ def package(version, arch, binaries, output, native_formats=False, tools=None):
         shutil.copyfile(ROOT / "scripts/install-desktop-linux.py", directory / "install.py")
         (directory / "LICENSE").write_text("\n".join(
             (ROOT / path).read_text() for path in (
-                "LICENSE", "crates/muxy-server/src/detection/THIRD_PARTY.md",
+                "LICENSE", "NOTICE", "crates/muxy-server/src/detection/THIRD_PARTY.md",
                 "crates/muxy-server/src/detection/LICENSE-herdr")))
         files = {}
         for path in sorted(directory.iterdir()):

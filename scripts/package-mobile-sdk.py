@@ -9,6 +9,7 @@ import zipfile
 
 from release import build_metadata, channel
 
+ROOT = Path(__file__).resolve().parent.parent
 ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 
 
@@ -21,6 +22,9 @@ def contents(sdk):
     android = [(f"jniLibs/{abi}/libmuxy_mobile.so", sdk / "android/jniLibs" / abi / "libmuxy_mobile.so")
                for abi in ANDROID_ABIS]
     android.append(("muxy_mobile.kt", sdk / "android/kotlin/uniffi/muxy_mobile/muxy_mobile.kt"))
+    licenses = [(name, ROOT / name) for name in ("LICENSE", "NOTICE")]
+    ios += licenses
+    android += licenses
     required = [framework / "Info.plist", *(source for _, source in ios + android)]
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
