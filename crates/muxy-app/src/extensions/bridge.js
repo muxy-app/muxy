@@ -98,6 +98,7 @@
       next: () => dispatch('tabs.next', {}),
       previous: () => dispatch('tabs.previous', {}),
       open: request => dispatch('tabs.open', request || {}),
+      split: (tab, beside, edge) => dispatch('tabs.split', { tabId: text(tab), besideId: text(beside), edge: optional(edge) }),
     };
     const tabId = (verb, extra) => (tabId, ...rest) => dispatch(verb, { tabId: String(tabId), ...extra(...rest) });
     muxy.browser = {

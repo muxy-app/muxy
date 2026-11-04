@@ -13,7 +13,7 @@ loading. Ask for the minimum.
 | Permission | Allows |
 | --- | --- |
 | `tabs:read` | `tabs.list` |
-| `tabs:write` | Open, switch, and create tabs; set a tab's title and icon; `openTab` commands |
+| `tabs:write` | Open, switch, split, and create tabs; set a tab's title and icon; `openTab` commands |
 | `panes:read` | `panes.list`, `panes.readScreen` |
 | `panes:write` | `panes.send`, `panes.sendKeys`, `panes.close`, `panes.rename` |
 | `projects:read` | List projects and workspaces; the `projects.changed` event |

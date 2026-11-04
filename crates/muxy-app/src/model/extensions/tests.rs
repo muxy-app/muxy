@@ -1,7 +1,7 @@
 use super::*;
 use crate::model::tests::stub_boot;
 use gpui::TestAppContext;
-use muxy_app_core::AppState;
+use muxy_app_core::{AppState, TabId};
 
 #[gpui::test]
 fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppContext) {
@@ -191,5 +191,61 @@ fn a_terminal_tab_that_cannot_open_leaves_nothing_behind(cx: &mut TestAppContext
             model.active_tab().map(|tab| json!(tab.to_string())),
             Some(tab)
         );
+    });
+}
+
+#[gpui::test]
+fn extensions_split_tabs_into_groups(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let [a, b, c] = [0, 1, 2].map(|index| {
+        let tab = state.open_terminal_tab(home).expect("tab");
+        let pane = state.window().active_pane.expect("pane");
+        state
+            .set_pane_session(pane, muxy_protocol::SessionId::new(300 + index))
+            .expect("session");
+        tab
+    });
+    state.select_tab(home, a).expect("select");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let split = |tab: TabId, beside: TabId, edge: &str| json!({"tabId": tab.to_string(), "besideId": beside.to_string(), "edge": edge});
+    let groups = |model: &AppModel| {
+        model.state.home().groups().map_or_else(Vec::new, |groups| {
+            groups
+                .layout()
+                .leaves()
+                .into_iter()
+                .filter_map(|id| groups.group(id))
+                .map(|group| group.tabs().to_vec())
+                .collect::<Vec<_>>()
+        })
+    };
+    view.update(cx, |model, cx| {
+        assert_eq!(
+            model.extension_split_tab(&split(c, a, "right"), cx),
+            Ok(Value::Null)
+        );
+        assert_eq!(groups(model), [vec![a, b], vec![c]]);
+        assert_eq!(model.active_tab(), Some(c));
+
+        assert_eq!(
+            model.extension_split_tab(&split(b, c, "down"), cx),
+            Ok(Value::Null)
+        );
+        assert_eq!(groups(model), [vec![a], vec![c], vec![b]]);
+
+        let before = model.state.clone();
+        assert_eq!(
+            model.extension_split_tab(&split(a, c, "diagonal"), cx),
+            Err("invalid edge 'diagonal'".into())
+        );
+        assert_eq!(
+            model.extension_split_tab(&json!({"tabId": "nope", "besideId": a.to_string()}), cx),
+            Err("tab not found nope".into())
+        );
+        assert!(model.extension_split_tab(&split(a, a, "left"), cx).is_err());
+        assert_eq!(model.state, before);
+        assert!(model.error.is_none(), "{:?}", model.error);
     });
 }
