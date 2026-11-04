@@ -143,15 +143,24 @@ impl AppModel {
     }
 
     pub(crate) fn cancel_titlebar_drag(&mut self, cx: &mut Context<Self>) {
+        self.cancel_tab_and_layout_drags(cx);
+        #[cfg(test)]
+        {
+            self.window_move_cancels += 1;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(drag) = &self.window_drag {
+            drag.cancel();
+        }
+    }
+
+    /// Ends drags of tabs and layouts, leaving a move of the window alone.
+    pub(crate) fn cancel_tab_and_layout_drags(&mut self, cx: &mut Context<Self>) {
         let layout_changed = self.layout_drag.cancel();
         let tab_changed = self.tab_drag.pending();
         self.tab_drag.end();
         if tab_changed || layout_changed {
             cx.notify();
-        }
-        #[cfg(target_os = "macos")]
-        if let Some(drag) = &self.window_drag {
-            drag.cancel();
         }
     }
 

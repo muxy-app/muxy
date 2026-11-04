@@ -46,6 +46,8 @@ section opens its file.
 - Restart the app after editing `settings.toml` by hand. If the file has an
   error or an unknown key, the app won't open; see
   [Troubleshooting](troubleshooting.md#the-app-doesnt-open).
+- **Welcome Tour** at the top of Settings replays the
+  [welcome tour](../product/app-model.md#welcome-tour).
 - Hand edits to `terminal.toml` apply when Muxy or Settings becomes active. If
   the file has an error, Settings shows it and keeps the last good values.
 

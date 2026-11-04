@@ -20,7 +20,7 @@ use muxy_ui::tr;
 use super::servers_tab::{card, style};
 use crate::model::AppModel;
 
-const CODE_SIZE: f32 = 196.0;
+pub(crate) const CODE_SIZE: f32 = 196.0;
 
 /// A pairing offer as shown: its link, and the QR code encoded once.
 #[derive(Clone)]
@@ -30,6 +30,10 @@ pub(crate) struct Pairing {
 }
 
 impl Pairing {
+    pub(crate) fn qr(&self) -> Option<Arc<QrCode>> {
+        self.code.clone()
+    }
+
     pub(crate) fn new(offer: &PairingOffer) -> Self {
         let link = offer.invite.to_link();
         Self {
@@ -299,8 +303,8 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .into_any_element()
 }
 
-/// Dark modules on a light square in every theme, merged into one quad per run.
-fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
+/// The pairing code, or why it can't show.
+pub(crate) fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
     let Some(code) = code else {
         return div()
             .child(accessibility::label(
@@ -309,7 +313,20 @@ fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
             ))
             .into_any_element();
     };
-    let painted = canvas(
+    let painted = qr(code).size(metrics.scaled(CODE_SIZE));
+    div()
+        .id("devices-code")
+        .role(Role::Image)
+        .accessibility_id("devices-code")
+        .aria_label(tr!("Pairing code"))
+        .debug_selector(|| "devices-code".into())
+        .child(painted)
+        .into_any_element()
+}
+
+/// Dark modules on a light square in every theme, merged into one quad per run.
+pub(crate) fn qr(code: Arc<QrCode>) -> gpui::Canvas<()> {
+    canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {
             window.paint_quad(gpui::fill(bounds, gpui::white()));
@@ -339,15 +356,6 @@ fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
             }
         },
     )
-    .size(metrics.scaled(CODE_SIZE));
-    div()
-        .id("devices-code")
-        .role(Role::Image)
-        .accessibility_id("devices-code")
-        .aria_label(tr!("Pairing code"))
-        .debug_selector(|| "devices-code".into())
-        .child(painted)
-        .into_any_element()
 }
 
 fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {

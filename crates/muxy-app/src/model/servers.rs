@@ -580,7 +580,7 @@ impl AppModel {
             }
             self.server_preferences.busy = false;
             self.server_preferences.pending.clear();
-            self.mobile = super::mobile::MobileAccess::default();
+            self.mobile = self.mobile.after_disconnect();
         }
         self.sync_preferences(cx);
         self.forget_requests(server);

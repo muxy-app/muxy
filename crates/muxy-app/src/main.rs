@@ -35,6 +35,7 @@ mod views {
     pub(crate) mod git;
     pub(crate) mod menu;
     pub(crate) mod native_modal;
+    pub(crate) mod onboarding;
     pub(crate) mod overlays;
     pub(crate) mod pair_form;
     pub(crate) mod project_apps;
