@@ -467,6 +467,8 @@ impl Render for AppModel {
             workspace,
             theme,
             (sidebar_width > 0.0).then_some((px(sidebar_width), self.sidebar_background())),
+            matches!(self.overlay, Some(overlays::Overlay::Onboarding))
+                .then_some(super::onboarding::BACKDROP_ALPHA),
             window,
         );
         crate::profiler::workspace(workspace)

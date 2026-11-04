@@ -33,7 +33,7 @@ const ART_SHARE: f32 = 0.56;
 /// Narrower than this and the words need all of the room.
 const ART_MIN_CARD_WIDTH: f32 = 760.0;
 const WINDOW_MARGIN: f32 = 16.0;
-const BACKDROP_ALPHA: f32 = 0.6;
+pub(crate) const BACKDROP_ALPHA: f32 = 0.6;
 
 /// The card and its art at the current window size. The art is left out when
 /// the window is too small to spare room for it.
