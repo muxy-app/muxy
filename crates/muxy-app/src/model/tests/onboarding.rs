@@ -872,9 +872,9 @@ fn a_refused_access_change_stops_and_shows_its_error(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn leaving_withdraws_the_code_even_with_a_devices_tab_open(cx: &mut TestAppContext) {
+fn leaving_withdraws_the_code_even_with_the_devices_page_open(cx: &mut TestAppContext) {
     let (view, cx, requests) = at_mobile(cx, access(true, Vec::new()));
-    view.update_in(cx, AppModel::open_servers_tab);
+    view.update_in(cx, AppModel::show_devices_settings);
     cx.run_until_parked();
     view.update(cx, |model, cx| {
         model.receive_remote_access(Ok(access(true, Vec::new())), cx);

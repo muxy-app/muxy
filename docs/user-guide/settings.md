@@ -21,13 +21,13 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
 | Browser | The [built-in browser](../features/browser.md): terminal links, search engine, home page, profiles, import |
 | Server | This computer's [server](../features/server.md#settings): shell, history, shell integration, stop and restart |
+| Devices | [Remote servers](../features/remote-servers.md), [paired phones](../features/mobile.md) and computers, and pairing |
 | Extensions | Installed extensions and the marketplace |
 | AI | Tools and prompts for [Git](../features/git.md) actions |
 | Backup & Restore | Export, restore, and import from 1.x |
 | About | App name, version, channel, Check for Updates |
 
-Phone and computer pairing lives in the **Devices** tab, not in Settings; see
-[Mobile](../features/mobile.md) and
+To pair phones and computers, see [Mobile](../features/mobile.md) and
 [Remote servers](../features/remote-servers.md#pair-with-another-computer).
 
 ## Files

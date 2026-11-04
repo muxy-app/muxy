@@ -1,4 +1,4 @@
-//! This computer's access for phones and other computers, as the Devices tab
+//! This computer's access for phones and other computers, as the Devices page
 //! shows and changes it.
 
 use muxy_protocol::{
@@ -6,7 +6,8 @@ use muxy_protocol::{
     RemoteAccessState,
 };
 
-use super::tab::{open_tab, tab_window};
+use super::groups::press;
+use super::tab::open_tab;
 use super::*;
 
 fn now() -> u64 {
@@ -45,7 +46,7 @@ fn offer(expires_at: u64) -> PairingOffer {
     }
 }
 
-/// A window with the Devices tab open, its first read answered with `state`.
+/// A window with the Devices page open, its first read answered with `state`.
 fn devices_tab(
     cx: &mut TestAppContext,
     state: RemoteAccessState,
@@ -64,7 +65,7 @@ fn devices_tab(
         work(&requests)
             .iter()
             .any(|work| matches!(work, Work::ReadRemoteAccess)),
-        "opening the tab reads device access"
+        "opening the page reads device access"
     );
     view.update(cx, |model, cx| model.receive_remote_access(Ok(state), cx));
     cx.run_until_parked();
@@ -73,19 +74,19 @@ fn devices_tab(
 
 fn close_devices_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
     view.update(cx, |model, cx| {
-        let (_, tab) = model.state.servers_tab().expect("devices tab");
+        let (_, tab) = model.state.settings_tab().expect("settings tab");
         model.close_tab(tab, cx);
     });
     cx.run_until_parked();
 }
 
 #[gpui::test]
-fn the_tab_shows_access_and_its_port(cx: &mut TestAppContext) {
+fn the_page_shows_access_and_its_port(cx: &mut TestAppContext) {
     let (view, cx, _) = devices_tab(cx, access(true, None, Vec::new()));
     view.read_with(cx, |model, cx| {
         assert_eq!(
             model
-                .servers_tab
+                .devices_page
                 .port_input()
                 .map(|input| input.read(cx).text().to_owned()),
             Some("7419".into())
@@ -125,7 +126,7 @@ fn access_and_port_changes_go_to_the_server_or_say_why_not(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn device_changes_refresh_only_while_the_tab_is_open(cx: &mut TestAppContext) {
+fn device_changes_refresh_only_while_the_page_is_open(cx: &mut TestAppContext) {
     let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
     view.update(cx, AppModel::remote_access_changed);
     assert!(
@@ -172,7 +173,7 @@ fn a_cancel_during_another_request_still_reaches_the_server(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn closing_the_tab_withdraws_a_code_still_on_screen(cx: &mut TestAppContext) {
+fn closing_settings_withdraws_a_code_still_on_screen(cx: &mut TestAppContext) {
     let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
@@ -188,7 +189,7 @@ fn closing_the_tab_withdraws_a_code_still_on_screen(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn closing_the_tab_withdraws_a_pending_code(cx: &mut TestAppContext) {
+fn closing_settings_withdraws_a_pending_code(cx: &mut TestAppContext) {
     let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
     view.update(cx, AppModel::show_pairing_code);
     assert!(
@@ -209,29 +210,109 @@ fn closing_the_tab_withdraws_a_pending_code(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_tab_saved_under_its_old_title_takes_the_new_one(cx: &mut TestAppContext) {
-    let (view, cx, _, _) = tab_window(Vec::new(), cx);
-    view.update(cx, |model, _| {
-        let project = model.state.current_project().id;
-        model
-            .state
-            .show_servers_tab(project, "Remote Servers")
-            .expect("old tab");
+fn leaving_the_page_withdraws_a_shown_code_and_coming_back_reads_access(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    view.update(cx, |model, cx| {
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
     });
-    open_tab(&view, cx);
-    view.read_with(cx, |model, _| {
-        let (project, tab) = model.state.servers_tab().expect("devices tab");
-        let title = model
-            .state
-            .project(project)
-            .and_then(|project| project.tabs.iter().find(|listed| listed.id == tab))
-            .and_then(|tab| tab.panes.first())
-            .map(|pane| pane.title.clone());
-        assert_eq!(title.as_deref(), Some("Devices"));
+    work(&requests);
+    press(cx, "settings-category-General".into());
+    assert!(cancels_code(&sent(&requests)), "the code was only shown");
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
     });
+    work(&requests);
+    press(cx, "settings-category-Devices".into());
+    assert!(reads_access(&sent(&requests)));
 }
 
-/// A window connected to this computer's server, with no Devices tab.
+#[gpui::test]
+fn searching_hides_the_page_and_withdraws_a_shown_code(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    view.update(cx, |model, cx| {
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
+    });
+    work(&requests);
+    press(cx, "settings-search".into());
+    cx.simulate_input("theme");
+    cx.run_until_parked();
+    assert!(cancels_code(&sent(&requests)), "the code is off screen");
+    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
+}
+
+#[gpui::test]
+fn the_page_reads_access_again_when_its_server_returns(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    view.update(cx, |model, cx| {
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::Disconnected),
+            ),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    work(&requests);
+    view.update(cx, connect_local);
+    assert!(
+        reads_access(&sent(&requests)),
+        "the page is still on screen"
+    );
+}
+
+#[gpui::test]
+fn switching_tabs_withdraws_a_shown_code_and_coming_back_reads_access(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (settings, terminal) = view.update(cx, |model, cx| {
+        let (_, settings) = model.state.settings_tab().expect("settings tab");
+        let home = model.state.home().id;
+        let terminal = model.state.open_terminal_tab(home).expect("terminal");
+        model.select_tab(settings, cx);
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
+        (settings, terminal)
+    });
+    cx.run_until_parked();
+    work(&requests);
+    view.update(cx, |model, cx| model.select_tab(terminal, cx));
+    cx.run_until_parked();
+    assert!(cancels_code(&sent(&requests)), "the code is off screen");
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
+    });
+    work(&requests);
+    view.update(cx, |model, cx| model.select_tab(settings, cx));
+    cx.run_until_parked();
+    assert!(reads_access(&sent(&requests)), "the list may have changed");
+}
+
+#[gpui::test]
+fn focusing_a_split_beside_settings_keeps_a_shown_code(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    view.update(cx, |model, cx| {
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
+        let pane = model.active_pane().expect("settings pane");
+        model
+            .state
+            .split_pane(pane, Direction::Right)
+            .expect("split");
+        assert!(
+            !model
+                .active_pane()
+                .is_some_and(|pane| model.state.is_settings_pane(pane))
+        );
+        model.sync_devices_page(false, cx);
+    });
+    cx.run_until_parked();
+    assert!(
+        !cancels_code(&sent(&requests)),
+        "the code is still on screen"
+    );
+    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_some()));
+}
+
+/// A window connected to this computer's server, with no Devices page.
 fn window_without_tab(
     cx: &mut TestAppContext,
 ) -> (
@@ -289,7 +370,7 @@ fn copying_the_link_uses_the_code_on_screen(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn copying_the_link_away_from_the_tab_copies_in_place(cx: &mut TestAppContext) {
+fn copying_the_link_away_from_the_page_copies_in_place(cx: &mut TestAppContext) {
     let (view, cx, requests) = window_without_tab(cx);
     copy_link(&view, cx);
     assert!(
@@ -304,16 +385,16 @@ fn copying_the_link_away_from_the_tab_copies_in_place(cx: &mut TestAppContext) {
     view.update(cx, |model, cx| model.receive_pairing(Ok(code.clone()), cx));
     cx.run_until_parked();
     assert_eq!(clipboard(cx), Some(code.invite.to_link()));
-    view.update(cx, |model, cx| model.sync_devices_tab(false, cx));
+    view.update(cx, |model, cx| model.sync_devices_page(false, cx));
     view.read_with(cx, |model, _| {
-        assert!(model.state.servers_tab().is_none(), "no tab opens");
+        assert!(model.state.settings_tab().is_none(), "no tab opens");
         assert_eq!(model.notice.as_deref(), Some("Pairing link copied"));
     });
     assert!(!cancels_code(&sent(&requests)), "a copied code stays valid");
 }
 
 #[gpui::test]
-fn a_copied_code_outlives_the_tab_but_a_shown_one_does_not(cx: &mut TestAppContext) {
+fn a_copied_code_outlives_the_page_but_a_shown_one_does_not(cx: &mut TestAppContext) {
     for copied in [true, false] {
         let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
         view.update(cx, |model, cx| {
@@ -358,7 +439,7 @@ fn copying_the_link_with_access_off_says_why_not(cx: &mut TestAppContext) {
     assert_eq!(clipboard(cx), None);
     view.read_with(cx, |model, _| {
         assert!(model.error.is_some(), "the reason shows as a toast");
-        assert!(model.state.servers_tab().is_none());
+        assert!(model.state.settings_tab().is_none());
     });
 }
 
@@ -386,7 +467,11 @@ fn a_code_cancelled_before_it_arrives_is_not_copied(cx: &mut TestAppContext) {
 fn a_refresh_keeps_a_port_edit_until_it_is_saved(cx: &mut TestAppContext) {
     let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
     let input = view.read_with(cx, |model, _| {
-        model.servers_tab.port_input().cloned().expect("port field")
+        model
+            .devices_page
+            .port_input()
+            .cloned()
+            .expect("port field")
     });
     let port = |cx: &mut VisualTestContext| input.read_with(cx, |input, _| input.text().to_owned());
     let reported = |port: u16| {

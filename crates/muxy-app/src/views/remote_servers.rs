@@ -507,7 +507,7 @@ pub(crate) fn list(
                 tr!("Manage Devices…"),
             )
             .on_click(cx.listener(|model, _, window, cx| {
-                model.open_servers_tab(window, cx);
+                model.show_devices_settings(window, cx);
             })),
         )
 }
@@ -533,7 +533,7 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
             Command::new("remote-copy-pair-link", tr!("Copy My Pair Link"), copy)
                 .keywords("Copy My Pair Link Pairing Code Computer Phone"),
         );
-        let manage: Handler = Rc::new(AppModel::open_servers_tab);
+        let manage: Handler = Rc::new(AppModel::show_devices_settings);
         servers.register(
             Command::new("remote-manage-servers", tr!("Manage Devices…"), manage)
                 .keywords("Manage Devices Servers Pairing"),

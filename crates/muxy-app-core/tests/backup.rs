@@ -16,6 +16,7 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
         "muxy.theme.dark": "Dracula",
         "muxy.general.autoCopyTerminalSelection": true,
         "muxy.appLayout": "agentsFocused",
+        "muxy.activeSidebar": "workspace-nav",
         "muxy.quickTerminal.width": 900,
         "muxy.quickTerminal.height": 0,
         "muxy.projectPicker.defaultDirectory": "/projects",
@@ -40,6 +41,7 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
         settings.appearance.layout,
         muxy_app_core::settings::AppLayout::AgentsFocused
     );
+    assert_eq!(settings.appearance.extension_sidebar, "workspace-nav");
     assert!(settings.composer.pinned);
     assert_eq!(settings.appearance.language, "language-packs:ko");
     assert_eq!(settings.ai.prompts["create_pr"], "My instructions");

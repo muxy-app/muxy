@@ -126,10 +126,6 @@ impl AppModel {
                     .unwrap_or_default();
                 put("url", url);
             }
-            Some((id, PaneContent::Servers)) => {
-                put("kind", "remoteServers".into());
-                put("paneID", id.to_string());
-            }
             Some((id, _)) => {
                 put("kind", "terminal".into());
                 put("paneID", id.to_string());

@@ -17,21 +17,22 @@ their server and path. There is no global "current server".
 The **Devices** section at the bottom of the sidebar shows each remote server's
 state. Its popover adds servers (host, user, port, key file, or a password that
 Muxy asks for and keeps only in memory) and manages them. **Pair with Link…**
-adds another computer from the link its **Devices** tab shows instead, with no
-SSH setup. A paired computer can't be restarted from here, and pairing again
+adds another computer from the link its **Settings → Devices** shows instead,
+with no SSH setup. A paired computer can't be restarted from here, and pairing again
 from its **Edit…** form recovers one that was revoked or reset. **Add Project →
 Remote** browses that server's folders. When a server lacks Muxy, a released
 app offers to install the same version there; when its version can't talk to
 the app, the section explains how to update it. Removing a server only forgets
 its projects in this app.
 
-**Manage Devices…** opens the **Devices** tab, where everything about remote
+**Manage Devices…** opens **Settings → Devices**, where everything about remote
 connections lives:
 
 - **This Computer** lets phones and other computers pair: it turns access on,
-  shows a pairing code and link, and lists paired devices to revoke. The code
-  is withdrawn when the tab closes. `muxy mobile` does the same without the
-  desktop app.
+  shows a pairing code and link, and lists paired devices to revoke. A code
+  that wasn't copied is withdrawn once the page leaves the screen; a copied link
+  stays valid until it is used or expires. `muxy mobile` does the same without
+  the desktop app.
 - **Connects To** lists every server by group, and connects, disconnects,
   regroups, or removes several at once. Disconnecting leaves a server's
   terminals running there.

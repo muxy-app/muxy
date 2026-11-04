@@ -1,4 +1,4 @@
-//! The Devices tab's This Computer section: whether phones and other
+//! The Devices page's This Computer section: whether phones and other
 //! computers may reach this computer's server, the code that pairs one, and
 //! the devices paired with it.
 
@@ -17,7 +17,7 @@ use muxy_ui::controls;
 use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
-use super::servers_tab::{card, style};
+use super::devices_page::{card, style};
 use crate::model::AppModel;
 
 pub(crate) const CODE_SIZE: f32 = 196.0;
@@ -49,7 +49,7 @@ impl Pairing {
 
 /// The section's title and its card, or why it can't show yet.
 pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     let access = model.device_access();
     let body = if !model.mobile_available() {
@@ -83,7 +83,7 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 "devices-port",
                 tr!("Port"),
                 Some(tr!("From 1024 to 65535. Press Return to save.")),
-                model.servers_tab.port_input().map_or_else(
+                model.devices_page.port_input().map_or_else(
                     || div().into_any_element(),
                     |input| controls::text_field(style(model), "devices-port", input, Some(96.0)),
                 ),
@@ -162,7 +162,7 @@ fn row(
     first: bool,
     model: &AppModel,
 ) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     div()
         .debug_selector(move || format!("{id}-row"))
@@ -201,7 +201,7 @@ fn stacked(
     content: AnyElement,
     model: &AppModel,
 ) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     div()
         .debug_selector(move || format!("{id}-row"))
@@ -275,18 +275,18 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .min_w(px(0.0))
         .flex()
         .flex_col()
-        .gap(model.metrics.scaled(10.0))
-        .child(code(pairing.code.clone(), model.metrics))
+        .gap(model.devices_page.metrics.scaled(10.0))
+        .child(code(pairing.code.clone(), model.devices_page.metrics))
         .child(div().min_w(px(0.0)).text_color(model.theme.fg_muted).child(accessibility::label(
             "devices-code-hint",
             tr!(
-                "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes."
+                "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Devices and paste the link. The code works once and expires in 5 minutes."
             ),
         )))
         .child(
             div()
                 .flex()
-                .gap(model.metrics.scaled(8.0))
+                .gap(model.devices_page.metrics.scaled(8.0))
                 .child(controls::button(
                     style(model),
                     "devices-copy-link",
@@ -377,7 +377,7 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .min_w(px(0.0))
         .flex()
         .flex_col()
-        .gap(model.metrics.scaled(8.0))
+        .gap(model.devices_page.metrics.scaled(8.0))
         .children(state.devices.iter().map(|device| {
             let id = device.id;
             div()
@@ -385,7 +385,7 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap(model.metrics.scaled(12.0))
+                .gap(model.devices_page.metrics.scaled(12.0))
                 .debug_selector(move || format!("devices-paired-{id}"))
                 .child(
                     div()

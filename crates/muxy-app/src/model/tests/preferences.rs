@@ -944,3 +944,73 @@ fn the_size_row_stays_on_screen_when_the_interface_grows(cx: &mut TestAppContext
         scrolled.top(),
     );
 }
+
+fn sidebar_extension_boot() -> (tempfile::TempDir, Boot) {
+    let root = tempfile::tempdir().expect("directory");
+    let directory = root.path().join("extensions/workspace-nav");
+    std::fs::create_dir_all(&directory).expect("extension");
+    std::fs::write(directory.join("index.html"), "<!doctype html>").expect("page");
+    std::fs::write(
+        directory.join("package.json"),
+        serde_json::json!({
+            "name": "workspace-nav",
+            "version": "0.1.0",
+            "muxy": { "sidebar": { "id": "main", "title": "Workspace", "entry": "index.html" } }
+        })
+        .to_string(),
+    )
+    .expect("manifest");
+    muxy_app_core::extensions::Registry::load(root.path())
+        .set_enabled("workspace-nav", true)
+        .expect("enabled");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    (root, boot)
+}
+
+#[gpui::test]
+fn the_active_sidebar_row_shows_before_any_extension_provides_one(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("directory");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    let (model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    assert!(model.read_with(cx, |model, _| model.extension_sidebars().is_empty()));
+    assert!(cx.debug_bounds("settings-row-extension-sidebar").is_some());
+    click_preference(cx, "settings-picker-extension-sidebar");
+    assert!(cx.debug_bounds("settings-dropdown").is_some());
+}
+
+#[gpui::test]
+fn an_extension_sidebar_is_listed_chosen_and_falls_back_when_disabled(cx: &mut TestAppContext) {
+    let (_root, boot) = sidebar_extension_boot();
+    let (model, cx) = settings_tab(boot, cx);
+    for _ in 0..2000 {
+        cx.run_until_parked();
+        if model.read_with(cx, |model, _| model.extensions_loaded()) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    model.read_with(cx, |model, _| {
+        assert_eq!(
+            model.extension_sidebars(),
+            [("workspace-nav".to_owned(), "Workspace".to_owned())]
+        );
+        assert!(!model.extension_sidebar_active());
+    });
+    click_preference(cx, "settings-category-Appearance");
+    click_preference(cx, "settings-picker-extension-sidebar");
+    click_preference(cx, "picker-row-workspace-nav");
+    model.update(cx, |model, _| {
+        assert_eq!(model.appearance.extension_sidebar, "workspace-nav");
+        assert!(model.extension_sidebar_active());
+        model
+            .extensions
+            .registry
+            .set_enabled("workspace-nav", false)
+            .expect("disabled");
+        assert!(!model.extension_sidebar_active());
+        assert_eq!(model.appearance.extension_sidebar, "workspace-nav");
+    });
+}

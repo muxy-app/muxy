@@ -50,6 +50,7 @@ pub(crate) struct SettingsTab {
     pub(crate) overlay_view: Entity<crate::views::cached::CachedView<Self>>,
     overlay_subscription: Option<Subscription>,
     active: bool,
+    devices_shown: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -67,6 +68,13 @@ impl SettingsTab {
             let view = root.view.read(cx);
             let theme = view.theme.clone();
             let metrics = view.metrics;
+            let devices_shown = view.devices_shown();
+            if root.devices_shown != devices_shown {
+                root.devices_shown = devices_shown;
+                let _ = root.model.update(cx, |model, cx| {
+                    model.set_devices_page_open(devices_shown, cx);
+                });
+            }
             if let Some(overlay) = &root.overlay {
                 match overlay {
                     SettingsOverlay::Themes { picker, source } => {
@@ -126,6 +134,7 @@ impl SettingsTab {
             overlay_view: crate::views::cached::CachedView::new(|root, _, cx| root.overlay(cx), cx),
             overlay_subscription: None,
             active: false,
+            devices_shown: false,
             _subscriptions: subscriptions,
         }
     }
@@ -294,7 +303,8 @@ impl SettingsTab {
         });
     }
 
-    /// Chooses between the built-in sidebar and enabled extension sidebars.
+    /// Chooses between the built-in sidebar and enabled extension sidebars. A
+    /// chosen sidebar that is no longer available stays listed, disabled.
     fn open_sidebar_picker(
         &mut self,
         request: PickerRequest,
@@ -302,7 +312,14 @@ impl SettingsTab {
         cx: &mut Context<Self>,
     ) {
         let view = self.view.read(cx);
-        let sidebars = view.snapshot.sidebars.clone();
+        let current = view.snapshot.settings.appearance.extension_sidebar.clone();
+        let mut sidebars = vec![(String::new(), tr!("Built-in").to_string())];
+        sidebars.extend(view.snapshot.sidebars.iter().cloned());
+        let unavailable = !sidebars.iter().any(|(id, _)| *id == current);
+        if unavailable {
+            let label = super::appearance::sidebar_label(&view.snapshot, &current);
+            sidebars.push((current.clone(), label));
+        }
         let (theme, metrics) = (view.theme.clone(), view.metrics);
         let picker = cx.new(|cx| {
             Picker::new(
@@ -312,12 +329,14 @@ impl SettingsTab {
                 cx,
             )
         });
-        let items = std::iter::once(PickerItem::Row(PickerRow::new("", tr!("Built-in"))))
-            .chain(
-                sidebars
-                    .into_iter()
-                    .map(|(id, label)| PickerItem::Row(PickerRow::new(id, label))),
-            )
+        let items = sidebars
+            .into_iter()
+            .map(|(id, label)| {
+                let disabled = unavailable && id == current;
+                let mut row = PickerRow::new(id.clone(), label);
+                row.current = id == current;
+                PickerItem::Row(row).disabled(disabled)
+            })
             .collect();
         picker.update(cx, |picker, cx| picker.set_items(items, cx));
         self.overlay_subscription = Some(cx.subscribe_in(

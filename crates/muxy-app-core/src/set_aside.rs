@@ -60,6 +60,7 @@ impl AppState {
         let outcome = match next.set_aside.take() {
             Some(view) if view.server.identity == Some(page.server) => {
                 next.put_back(view);
+                next.remove_saved_devices_panes()?;
                 LocalCatalog::Restored
             }
             _ => LocalCatalog::Fresh,

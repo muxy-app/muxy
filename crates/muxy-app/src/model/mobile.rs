@@ -11,7 +11,7 @@ use super::{AppModel, Quitting};
 use crate::boot::Work;
 use crate::views::devices::Pairing;
 
-/// Device access as the Devices tab shows it; the server owns the real state.
+/// Device access as the Devices page shows it; the server owns the real state.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -21,8 +21,12 @@ pub(crate) struct MobileAccess {
     pub(crate) state: Option<RemoteAccessState>,
     /// The current pairing code, until it is used, cancelled, or expires.
     pub(crate) pairing: Option<Pairing>,
+    /// Settings is on the Devices page, whether or not its tab is displayed.
+    page_open: bool,
+    /// The Devices page was on screen when last checked.
+    page_shown: bool,
     /// The code's link was copied, so it stays valid away from the Devices
-    /// tab until it is used or expires.
+    /// page until it is used or expires.
     copied: bool,
     pub(crate) busy: bool,
     /// The running request creates a pairing code.
@@ -41,10 +45,19 @@ pub(crate) struct MobileAccess {
 }
 
 impl MobileAccess {
-    /// What survives losing the server: only the promise to turn access back
-    /// off, which is kept once it returns.
+    pub(super) fn show_page(&mut self) {
+        self.page_open = true;
+    }
+
+    pub(super) fn hide_page(&mut self) {
+        self.page_open = false;
+    }
+
+    /// What survives losing the server: the Devices page staying on screen,
+    /// and the promise to turn access back off, which is kept once it returns.
     pub(super) fn after_disconnect(&self) -> Self {
         Self {
+            page_open: self.page_open,
             restore_off: self.restore_off,
             ..Self::default()
         }
@@ -60,22 +73,39 @@ impl AppModel {
         self.quitting == Quitting::Idle && self.ready(ServerId::local())
     }
 
-    fn devices_tab_open(&self) -> bool {
-        self.state.servers_tab().is_some()
+    /// The Devices page is on screen, which focus elsewhere doesn't change.
+    fn devices_page_open(&self) -> bool {
+        self.mobile.page_open
+            && self.state.settings_tab().is_some()
+            && self
+                .visible_panes()
+                .into_iter()
+                .any(|pane| self.state.is_settings_pane(pane))
     }
 
-    /// Device access is on screen, in the Devices tab or the welcome tour.
+    /// Settings moved to the Devices page or away from it.
+    pub(crate) fn set_devices_page_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.mobile.page_open != open {
+            self.mobile.page_open = open;
+            self.sync_devices_page(open, cx);
+        }
+    }
+
+    /// Device access is on screen, on the Devices page or in the welcome tour.
     fn device_access_shown(&self) -> bool {
-        self.devices_tab_open() || self.onboarding_pairing_shown()
+        self.devices_page_open() || self.onboarding_pairing_shown()
     }
 
-    /// Reads device access when the Devices tab opens or this computer's
-    /// server connects with it open, and withdraws a pairing code that was
-    /// never copied once it leaves the screen.
-    pub(super) fn sync_devices_tab(&mut self, opened: bool, cx: &mut Context<Self>) {
+    /// Reads device access when the Devices page comes on screen or this
+    /// computer's server connects with it open, and withdraws a pairing code
+    /// that was never copied once it leaves the screen.
+    pub(crate) fn sync_devices_page(&mut self, opened: bool, cx: &mut Context<Self>) {
+        let page = self.devices_page_open();
+        let returned = page && !self.mobile.page_shown;
+        self.mobile.page_shown = page;
         if !self.device_access_shown() {
             self.withdraw_pairing(cx);
-        } else if opened {
+        } else if opened || returned {
             self.read_remote_access(cx);
         }
     }
@@ -99,7 +129,7 @@ impl AppModel {
         }
     }
 
-    /// Turns access for other devices on or off. A refusal shows in the tab.
+    /// Turns access for other devices on or off. A refusal shows on the page.
     pub(crate) fn set_device_access(&mut self, enabled: bool, cx: &mut Context<Self>) {
         let result = self.write_remote_access(
             |settings| RemoteAccessSettings {
@@ -179,7 +209,7 @@ impl AppModel {
             return;
         }
         self.mobile.copy_link = true;
-        let code_may_be_stale = !self.devices_tab_open();
+        let code_may_be_stale = !self.devices_page_open();
         if code_may_be_stale && !self.mobile.busy {
             self.read_remote_access(cx);
         }
@@ -210,7 +240,7 @@ impl AppModel {
         let reason = if state.settings.enabled {
             tr!("This computer isn't listening for devices yet. Try again in a moment.")
         } else {
-            tr!("Turn on Allow other devices in the Devices tab to copy a pairing link.")
+            tr!("Turn on Allow other devices in Settings → Devices to copy a pairing link.")
         };
         self.fail(reason.to_string(), cx);
     }

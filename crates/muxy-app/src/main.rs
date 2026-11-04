@@ -30,6 +30,7 @@ mod views {
     pub(crate) mod composer;
     pub(crate) mod confirm;
     pub(crate) mod devices;
+    pub(crate) mod devices_page;
     pub(crate) mod disconnected;
     pub(crate) mod font_picker;
     pub(crate) mod git;
@@ -48,7 +49,6 @@ mod views {
     pub(crate) mod remote_servers;
     pub(crate) mod server_menu;
     pub(crate) mod server_status;
-    pub(crate) mod servers_tab;
     pub(crate) mod session_picker;
     pub(crate) mod settings;
     pub(crate) mod shortcut_hints;

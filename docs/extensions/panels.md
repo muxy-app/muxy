@@ -66,5 +66,8 @@ sidebar.
 "sidebar": { "id": "main", "title": "My Sidebar", "icon": "sidebar.left", "entry": "sidebar/index.html" }
 ```
 
-Users turn it on in **Settings → Appearance → Active sidebar**. It can't close
-itself.
+Users turn it on in **Settings → Appearance → Active sidebar**, which lists the
+built-in sidebar and every enabled extension that declares one. If the chosen
+extension is disabled or removed, the built-in sidebar shows until it returns.
+It can't close itself. The manifest and the choice carry over from Muxy 1.x
+unchanged.

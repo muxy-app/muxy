@@ -42,7 +42,7 @@ On Linux hosts that end your processes when you log out, run
 - Put servers in a **Group** from **Add Server…** or **Edit…**, or with
   **Move to Group** in their menu. The popover and **Add Project → Remote** list
   them by group. In `settings.toml`, it is `group = "…"`.
-- **Manage Devices…** opens the **Devices** tab. Under **Connects To** it has
+- **Manage Devices…** opens **Settings → Devices**. Under **Connects To** it has
   every server by group:
   - Tick servers' boxes, or **Select all**, to act on several; `Shift`-click a
     box to tick a range. The bar above the list connects, disconnects,
@@ -61,15 +61,15 @@ On Linux hosts that end your processes when you log out, run
 Pairing needs no SSH setup, only Muxy on both computers, macOS or Linux, which
 can reach each other on the network or through a VPN.
 
-1. On the other computer, open the **Devices** tab (**Manage Devices…** in the
+1. On the other computer, open **Settings → Devices** (**Manage Devices…** in the
    sidebar's **Devices** popover). Under **This Computer**, turn on **Allow
    other devices**, choose **Show Pairing Code**, then **Copy Link**.
-2. Here, in the **Devices** popover or tab, choose **Pair with Link…** and
-   paste it.
+2. Here, in the **Devices** popover or **Settings → Devices**, choose **Pair with
+   Link…** and paste it.
 
 The paired computer works like any remote server, except that it can't be
 restarted from here. It is listed under **Paired with this computer** in the
-other computer's **Devices** tab, where **Revoke** disconnects it. If it was revoked or reset, paste a
+other computer's **Settings → Devices**, where **Revoke** disconnects it. If it was revoked or reset, paste a
 new link in its **Edit…** form to pair again.
 
 ### Custom SSH commands

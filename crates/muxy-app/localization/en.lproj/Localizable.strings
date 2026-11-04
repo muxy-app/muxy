@@ -178,7 +178,7 @@
 "Amber" = "Amber";
 "An agent is waiting for your attention." = "An agent is waiting for your attention.";
 "An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here." = "An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here.";
-"Another computer's Devices tab gives you a link to pair with." = "Another computer's Devices tab gives you a link to pair with.";
+"Another computer's Settings → Devices gives you a link to pair with." = "Another computer's Settings → Devices gives you a link to pair with.";
 "Another installation of the muxy command is in progress" = "Another installation of the muxy command is in progress";
 "Another update is in progress. Muxy will retry when it finishes." = "Another update is in progress. Muxy will retry when it finishes.";
 "App" = "App";
@@ -913,7 +913,7 @@
 "Identity file" = "Identity file";
 "Identity file (automatic)" = "Identity file (automatic)";
 "Idle" = "Idle";
-"If it was revoked, moved, or reset, copy a new pairing link from its Devices tab to pair again." = "If it was revoked, moved, or reset, copy a new pairing link from its Devices tab to pair again.";
+"If it was revoked, moved, or reset, copy a new pairing link from its Settings → Devices to pair again." = "If it was revoked, moved, or reset, copy a new pairing link from its Settings → Devices to pair again.";
 "Ignore Case" = "Ignore Case";
 "Ignore key" = "Ignore key";
 "Image submission" = "Image submission";
@@ -1061,9 +1061,11 @@
 "Make %@ Default" = "Make %@ Default";
 "Make Default" = "Make Default";
 "Make it yours" = "Make it yours";
+"Manage Devices" = "Manage Devices";
 "Manage Devices…" = "Manage Devices…";
 "Manage Extensions" = "Manage Extensions";
 "Manage Profiles…" = "Manage Profiles…";
+"Manage devices remote servers ssh pairing paired mobile phones computers port qr" = "Manage devices remote servers ssh pairing paired mobile phones computers port qr";
 "Manage extension" = "Manage extension";
 "Manage extensions marketplace installed unpacked" = "Manage extensions marketplace installed unpacked";
 "Manage scheduled update…" = "Manage scheduled update…";
@@ -1180,6 +1182,7 @@
 "No commit was created" = "No commit was created";
 "No custom commands yet." = "No custom commands yet.";
 "No custom key bindings yet." = "No custom key bindings yet.";
+"No enabled extension provides a sidebar. Install or enable one in Extensions." = "No enabled extension provides a sidebar. Install or enable one in Extensions.";
 "No extensions found" = "No extensions found";
 "No extensions installed" = "No extensions installed";
 "No fonts found" = "No fonts found";
@@ -1229,7 +1232,7 @@
 "Off" = "Off";
 "Older sessions" = "Older sessions";
 "On" = "On";
-"On the other computer, open the Devices tab, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open the Devices tab, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
+"On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
 "One terminal, any client" = "One terminal, any client";
 "Open" = "Open";
 "Open Browser Tab" = "Open Browser Tab";
@@ -1298,7 +1301,7 @@
 "Paste" = "Paste";
 "Paste a new link to pair again" = "Paste a new link to pair again";
 "Paste image contents into compatible terminal apps or insert the saved image path." = "Paste image contents into compatible terminal apps or insert the saved image path.";
-"Paste the whole pairing link from the other computer's Devices tab." = "Paste the whole pairing link from the other computer's Devices tab.";
+"Paste the whole pairing link from the other computer's Settings → Devices." = "Paste the whole pairing link from the other computer's Settings → Devices.";
 "Path template is required." = "Path template is required.";
 "Pencil" = "Pencil";
 "Pencil and Ruler" = "Pencil and Ruler";
@@ -1537,7 +1540,7 @@
 "Same as App" = "Same as App";
 "Save" = "Save";
 "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file." = "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file.";
-"Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes." = "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in the Devices section and paste the link. The code works once and expires in 5 minutes.";
+"Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Devices and paste the link. The code works once and expires in 5 minutes." = "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Devices and paste the link. The code works once and expires in 5 minutes.";
 "Scan the code with the Muxy app. It works once and expires in 5 minutes." = "Scan the code with the Muxy app. It works once and expires in 5 minutes.";
 "Scan with the Muxy app" = "Scan with the Muxy app";
 "Screwdriver" = "Screwdriver";
@@ -1761,7 +1764,7 @@
 "The bundled client and server do not match the release" = "The bundled client and server do not match the release";
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
 "The composer open over two terminals, with a prompt being written." = "The composer open over two terminals, with a prompt being written.";
-"The computer at this link isn't the one that made it. Copy the link again from its Devices tab." = "The computer at this link isn't the one that made it. Copy the link again from its Devices tab.";
+"The computer at this link isn't the one that made it. Copy the link again from its Settings → Devices." = "The computer at this link isn't the one that made it. Copy the link again from its Settings → Devices.";
 "The connection closed before the server confirmed it stopped, so it may still be running." = "The connection closed before the server confirmed it stopped, so it may still be running.";
 "The default profile can't be deleted" = "The default profile can't be deleted";
 "The desktop app, terminal UI, command line, and phone all connected to one server." = "The desktop app, terminal UI, command line, and phone all connected to one server.";
@@ -1797,6 +1800,7 @@
 "The selected 1.x configuration contains no supported settings or projects." = "The selected 1.x configuration contains no supported settings or projects.";
 "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI." = "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI.";
 "The selected language extension is unavailable, so Muxy is temporarily using English." = "The selected language extension is unavailable, so Muxy is temporarily using English.";
+"The selected sidebar's extension is unavailable, so Muxy is showing the built-in sidebar." = "The selected sidebar's extension is unavailable, so Muxy is showing the built-in sidebar.";
 "The server changed. Review the update again." = "The server changed. Review the update again.";
 "The server connection worker stopped" = "The server connection worker stopped";
 "The server could not check or create the folder." = "The server could not check or create the folder.";
@@ -1850,11 +1854,11 @@
 "This remote server is no longer listed" = "This remote server is no longer listed";
 "This session is no longer available. Refresh the session list." = "This session is no longer available. Refresh the session list.";
 "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
-"This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in the Devices tab." = "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in the Devices tab.";
+"This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in Settings → Devices." = "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in Settings → Devices.";
 "This update requires a server restart" = "This update requires a server restart";
 "Timer" = "Timer";
 "Tips turned off" = "Tips turned off";
-"To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
+"To pair a phone or another computer, open Settings → Devices, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone or another computer, open Settings → Devices, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
 "Toggle Agent Sessions" = "Toggle Agent Sessions";
 "Toggle Agents Panel" = "Toggle Agents Panel";
 "Toggle Composer" = "Toggle Composer";
@@ -1870,7 +1874,7 @@
 "Try a different name or clear your search." = "Try a different name or clear your search.";
 "Try a different search to find extensions." = "Try a different search to find extensions.";
 "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours." = "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours.";
-"Turn on Allow other devices in the Devices tab to copy a pairing link." = "Turn on Allow other devices in the Devices tab to copy a pairing link.";
+"Turn on Allow other devices in Settings → Devices to copy a pairing link." = "Turn on Allow other devices in Settings → Devices to copy a pairing link.";
 "Type" = "Type";
 "Type or speak…" = "Type or speak…";
 "Unassign" = "Unassign";
