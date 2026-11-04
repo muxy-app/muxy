@@ -82,7 +82,6 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-          use-cache: false
       - name: Stamp the build version without committing a bump
         run: |
           rm -rf target/packages
@@ -230,7 +229,6 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-          use-cache: false
       - name: Stamp and build the desktop with matching helpers
         run: |
           rm -rf target/packages

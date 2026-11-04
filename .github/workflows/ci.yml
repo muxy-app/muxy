@@ -34,16 +34,13 @@ jobs:
         run: python3 scripts/ci_scope.py >> "$GITHUB_OUTPUT"
 
   macos:
-    name: macos (${{ matrix.part }})
     needs: scope
     if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         part: [lint, test]
-        runner:
-          - ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-15' || vars.MACOS_CI_RUNNER || 'macos-15' }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15
     timeout-minutes: 60
     env:
       SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
@@ -63,16 +60,22 @@ jobs:
         with:
           version: 0.17.0
           use-cache: false
-      - uses: actions/cache@v4
+      - id: zig-cache
+        uses: actions/cache/restore@v4
         with:
           path: .zig-cache
-          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          key: zig-macos-15-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.part }}-${{ matrix.runner }}
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}" --scope "$SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
       - if: matrix.part == 'test' && env.SCOPE != 'desktop'
         run: python3 scripts/protocol_fixtures.py last-release
       - if: matrix.part == 'test' && !cancelled()
@@ -108,7 +111,8 @@ jobs:
         with:
           version: 0.17.0
           use-cache: false
-      - uses: actions/cache@v4
+      - id: zig-cache
+        uses: actions/cache/restore@v4
         with:
           path: .zig-cache
           key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
@@ -117,6 +121,11 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: python3 scripts/check-headless.py --target "${{ matrix.target }}"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
 
   linux-desktop:
     needs: scope
@@ -151,7 +160,8 @@ jobs:
         with:
           version: 0.17.0
           use-cache: false
-      - uses: actions/cache@v4
+      - id: zig-cache
+        uses: actions/cache/restore@v4
         with:
           path: .zig-cache
           key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
@@ -161,6 +171,11 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}" --part "${{ matrix.part }}" --scope "$SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
       - if: matrix.part == 'test' && !cancelled()
         uses: actions/upload-artifact@v4
         with:

@@ -80,9 +80,6 @@ A pull request that changes only source files in `crates/muxy-app` or
 other change, including a `Cargo.toml` or `Cargo.lock`, and every push to `main`
 run everything.
 
-The `MACOS_CI_RUNNER` repository variable moves CI's macOS jobs to another runner.
-Pull requests from forks and release builds stay on `macos-15`.
-
 ## Pull Request Guidelines
 
 - Keep PRs focused on a single change

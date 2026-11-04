@@ -215,34 +215,25 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn("if: ${{ !cancelled() }}", self.job(name))
 
-    def test_the_ghostty_build_is_cached_once_instead_of_every_run(self):
+    def test_the_ghostty_build_is_cached_once_and_saved_only_from_main(self):
         self.assertIn("LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR: ${{ github.workspace }}/.zig-cache", WORKFLOW)
-        for name in ["macos", "linux", "linux-desktop"]:
+        self.assertNotIn("actions/cache@", WORKFLOW)
+        for name, runner in [("macos", "macos-15"), ("linux", "${{ matrix.runner }}"), ("linux-desktop", "${{ matrix.runner }}")]:
             job = self.job(name)
             with self.subTest(job=name):
                 self.assertIn("use-cache: false", job)
-                self.assertIn("path: .zig-cache", job)
-                self.assertIn("key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}", job)
+                self.assertIn("uses: actions/cache/restore@v4", job)
+                self.assertIn(f"key: zig-{runner}-0.17.0-${{{{ hashFiles('vendor/libghostty-vt-sys/**') }}}}", job)
+                self.assertIn(
+                    "if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'", job)
 
-    def test_fork_pull_requests_stay_on_github_hosted_macos_runners(self):
-        job = self.job("macos")
-        self.assertIn(
-            "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
-            " && 'macos-15' || vars.MACOS_CI_RUNNER || 'macos-15' }}",
-            job,
-        )
-        self.assertIn("runs-on: ${{ matrix.runner }}", job)
+    def test_ci_and_releases_build_on_the_same_pinned_macos_image(self):
+        labels = set(re.findall(r"macos-[\w.-]+", "\n".join(
+            line for line in (WORKFLOW + RELEASE_WORKFLOW).splitlines() if "runs-on:" in line or "runner:" in line)))
+        self.assertEqual(labels, {"macos-15"})
 
-    def test_macos_caches_are_kept_per_runner(self):
-        self.assertIn("key: ${{ matrix.part }}-${{ matrix.runner }}", self.job("macos"))
-
-    def test_release_builds_neither_read_nor_spend_the_shared_build_caches(self):
+    def test_release_builds_do_not_read_or_spend_the_shared_rust_caches(self):
         self.assertNotIn("rust-cache", RELEASE_WORKFLOW)
-        self.assertNotIn("actions/cache", RELEASE_WORKFLOW)
-        steps = RELEASE_WORKFLOW.count("uses: mlugg/setup-zig@v2")
-        self.assertGreater(steps, 0)
-        self.assertEqual(RELEASE_WORKFLOW.count("use-cache: false"), steps)
-        self.assertNotIn("MACOS_CI_RUNNER", RELEASE_WORKFLOW)
 
 
 if __name__ == "__main__":
