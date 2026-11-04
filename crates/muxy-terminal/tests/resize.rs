@@ -22,6 +22,38 @@ fn resizing_keeps_the_cursor_line_rows_even_when_the_cursor_is_in_the_middle() -
 }
 
 #[test]
+fn resizing_a_prompt_after_wrapped_output_preserves_physical_rows() -> TestResult {
+    let mut terminal = Terminal::new(Size { cols: 8, rows: 4 }, 1024 * 1024)?;
+    terminal.feed(b"abcdefghij\x1b]133;P;k=i\x07$ \x1b]133;B\x07");
+    terminal.resize(Size { cols: 16, rows: 4 })?;
+    assert_eq!(texts(&terminal.screen()?), ["abcdefgh", "ij$", "", ""]);
+    assert_eq!((terminal.cursor()?.row, terminal.cursor()?.col), (1, 4));
+    terminal.feed(b"\r\x1b[2C\x1b[K\x1b]133;P;k=i\x07$ \x1b]133;B\x07");
+    assert_eq!(texts(&terminal.screen()?), ["abcdefgh", "ij$", "", ""]);
+    Ok(())
+}
+
+#[test]
+fn resizing_keeps_empty_continuation_rows_in_the_cursor_line() -> TestResult {
+    let mut terminal = Terminal::new(Size { cols: 8, rows: 6 }, 1024 * 1024)?;
+    terminal.feed(b"out\r\nabcdefghijklmnopqrstuvwx\x1b[3;8H\x1b[1K\x1b[4;1H");
+    assert_eq!(
+        texts(&terminal.screen()?),
+        ["out", "abcdefgh", "", "qrstuvwx", "", ""]
+    );
+    for cols in [5, 16] {
+        terminal.resize(Size { cols, rows: 6 })?;
+        assert_eq!(
+            texts(&terminal.screen()?),
+            ["out", "abcde", "", "qrstu", "", ""],
+            "{cols}"
+        );
+        assert_eq!((terminal.cursor()?.row, terminal.cursor()?.col), (3, 0));
+    }
+    Ok(())
+}
+
+#[test]
 fn resizing_preserves_completed_output_across_history_pages_and_height_changes() -> TestResult {
     let mut terminal = Terminal::new(Size { cols: 30, rows: 4 }, 1024 * 1024)?;
     let output = "0123456789abcdef".repeat(500);
@@ -39,6 +71,7 @@ fn resizing_preserves_completed_output_across_history_pages_and_height_changes()
         let mut rows = terminal.history(0..count)?;
         rows.extend(terminal.screen()?);
         assert_eq!(texts(&rows).concat(), format!("{output}$"), "{size:?}");
+        assert!(texts(&rows).iter().any(|row| row == "$"), "{size:?}");
         assert!(terminal.cursor()?.row < size.rows);
         assert!(terminal.cursor()?.col < size.cols);
     }

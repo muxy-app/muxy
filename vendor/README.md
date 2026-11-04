@@ -24,6 +24,13 @@ unchanged as `Cargo.toml.orig`. `build.rs.orig` is upstream's build script.
 are different from the `upstream-*.patch` files: they change Ghostty's own
 source, and the build applies them.
 
+The resize patch preserves physical rows, not overflow cells, for the active
+cursor line and prompt. Narrowing clips cells past the new right edge; widening
+does not restore them unless the shell or application redraws them. This avoids
+changing the row count that a shell uses to redraw its prompt. Completed output
+still reflows, as does the inactive primary screen while the alternate screen
+is active.
+
 ## gpui
 
 gpui comes from the [muxy-app/gpui](https://github.com/muxy-app/gpui) fork,

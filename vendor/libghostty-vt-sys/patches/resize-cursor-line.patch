@@ -78,12 +78,12 @@ diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
 +    const cursor_line_start: ?Pin = start: {
 +        if (opts.reflow_cursor) break :start null;
 +        const c = preserved_cursor orelse break :start null;
-+        if (opts.cursor.?.prompt) {
-+            var prompts = c.tracked_pin.promptIterator(.left_up, null);
-+            if (prompts.next()) |prompt| break :start prompt;
-+        }
-+        var rows = c.tracked_pin.rowIterator(.left_up, null);
 +        var first = c.tracked_pin.*;
++        if (opts.cursor.?.prompt) {
++            var prompts = first.promptIterator(.left_up, null);
++            if (prompts.next()) |prompt| first = prompt;
++        }
++        var rows = first.rowIterator(.left_up, null);
 +        while (rows.next()) |row| {
 +            first = row;
 +            if (!row.rowAndCell().row.wrap_continuation) break;
@@ -157,7 +157,7 @@ diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
 
                  // If this pin is in the blanks on the right and past the end
                  // of the dst col width then we move it to the end of the dst
-@@ -1714,11 +1755,11 @@
+@@ -1714,15 +1755,15 @@
 
          // If the cursor is after blanks on the right, those cells are still
          // before the next write and must reflow with it.
@@ -171,15 +171,11 @@ diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
 
          // Defer processing of blank rows so that blank rows
          // at the end of the page list are never written.
-@@ -1726,7 +1767,7 @@
+-        if (cols_len == 0) {
++        if (cols_len == 0 and reflow) {
              // If this blank row was a wrap continuation somehow
              // then we won't need to write it since it should be
              // a part of the previously written row.
--            if (!src_row.wrap_continuation) self.new_rows += 1;
-+            if (!src_row.wrap_continuation or !reflow) self.new_rows += 1;
-             return;
-         }
-
 @@ -1795,9 +1836,16 @@
                  }
              }

@@ -70,6 +70,7 @@ fn resizing_a_redrawn_prompt_preserves_preceding_output() -> TestResult {
         assert_eq!(rows[1], "later-48", "{marker:?}");
         assert_eq!(rows[2], "window-b-32", "{marker:?}");
         assert_eq!(rows[3], "muxy@host-with-a-long-name ~ $", "{marker:?}");
+        assert!(rows[4..].iter().all(String::is_empty), "{marker:?}");
     }
     Ok(())
 }
