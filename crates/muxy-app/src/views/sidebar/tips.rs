@@ -56,7 +56,7 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                                 theme.fg_muted,
                                 theme.fg,
                             )
-                            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+                            .tooltip(theme)
                             .on_click(cx.listener(
                                 |model, _, window, cx| {
                                     model.toggle_tip_popover(window, cx);
@@ -155,7 +155,7 @@ fn content(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
                     theme.fg_dim,
                     theme.fg,
                 )
-                .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+                .tooltip(theme)
                 .on_click(cx.listener(|model, _, _, cx| model.confirm_hide_tips(cx))),
             ),
         );
@@ -210,7 +210,7 @@ fn step_button(forward: bool, model: &AppModel, cx: &mut Context<AppModel>) -> A
                 theme.fg_dim,
                 theme.fg,
             )
-            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme)
             .on_click(cx.listener(move |model, _, _, cx| model.step_tip(forward, cx))),
         )
         .into_any_element()

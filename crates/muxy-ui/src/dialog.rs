@@ -6,7 +6,7 @@ use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSAlertStyle, NSApplication,
+    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSAlertStyle,
     NSControlStateValueOn, NSModalResponse, NSWindow,
 };
 use objc2_foundation::NSString;
@@ -71,7 +71,7 @@ pub fn consent(
 ) -> io::Result<Confirmation> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
-    let parent = parent_window(window, main_thread)?;
+    let parent = parent_window(window)?;
     let alert = NSAlert::new(main_thread);
     alert.setMessageText(&NSString::from_str(title));
     alert.setInformativeText(&NSString::from_str(message));
@@ -112,21 +112,9 @@ pub fn consent(
     })
 }
 
-fn parent_window(
-    window: &gpui::Window,
-    main_thread: MainThreadMarker,
-) -> io::Result<Retained<NSWindow>> {
-    let windows = NSApplication::sharedApplication(main_thread).windows();
-    let title = window.window_title();
-    let mut matches = (0..windows.count())
-        .map(|index| windows.objectAtIndex(index))
-        .filter(|window| window.title().to_string() == title);
-    let parent = matches
-        .next()
-        .ok_or_else(|| io::Error::other("native dialog parent window is closed"))?;
-    if matches.next().is_some() {
-        return Err(io::Error::other("native dialog parent window is ambiguous"));
-    }
+fn parent_window(window: &gpui::Window) -> io::Result<Retained<NSWindow>> {
+    let parent = crate::appkit::ns_window(window)
+        .map_err(|_| io::Error::other("native dialog parent window is closed"))?;
     if parent.attachedSheet().is_some() {
         return Err(io::Error::other("an application dialog is already open"));
     }
@@ -199,7 +187,7 @@ fn two_button_alert(
 ) -> io::Result<Confirmation> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
-    let parent = parent_window(window, main_thread)?;
+    let parent = parent_window(window)?;
     let alert = NSAlert::new(main_thread);
     alert.setMessageText(&NSString::from_str(title));
     alert.setInformativeText(&NSString::from_str(message));
@@ -378,17 +366,8 @@ pub fn present(
 ) -> io::Result<Confirmation> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("dialogs require the main thread"))?;
-    let windows = NSApplication::sharedApplication(main_thread).windows();
-    let title = window.window_title();
-    let mut matches = (0..windows.count())
-        .map(|index| windows.objectAtIndex(index))
-        .filter(|window| window.title().to_string() == title);
-    let parent = matches
-        .next()
-        .ok_or_else(|| io::Error::other("dialog parent is closed"))?;
-    if matches.next().is_some() {
-        return Err(io::Error::other("dialog parent window is ambiguous"));
-    }
+    let parent = crate::appkit::ns_window(window)
+        .map_err(|_| io::Error::other("dialog parent is closed"))?;
     if parent.attachedSheet().is_some() {
         return Err(io::Error::other("an application dialog is already open"));
     }

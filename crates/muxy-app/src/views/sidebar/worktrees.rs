@@ -131,7 +131,7 @@ pub(super) fn disclosure(
             )
             .accessibility_id(format!("project-worktrees-toggle-{}", project.name))
             .expanded(expanded)
-            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme)
             .on_click(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();
                 model.toggle_worktree_list(id, cx);
@@ -246,11 +246,11 @@ fn row(
             format!("worktree-actions-{}", project.name),
             tr!("Actions for %@", &project.name),
             cx,
-            move |model, window, cx| {
+            move |model, position, window, cx| {
                 if let Some(project) = model.state.project(id) {
                     model.open_menu(
                         super::super::project_menu::worktree_items(project, primary),
-                        window.mouse_position(),
+                        position,
                         window,
                         cx,
                     );

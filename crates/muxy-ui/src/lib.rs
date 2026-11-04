@@ -4,6 +4,9 @@
 pub mod accessibility;
 #[cfg(target_os = "macos")]
 pub mod app_icon;
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub(crate) mod appkit;
 pub mod assets;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]

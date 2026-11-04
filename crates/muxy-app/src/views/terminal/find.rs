@@ -430,7 +430,7 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(theme.surface, theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     Some(
         div()
@@ -475,11 +475,11 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     )),
             )
             .child(
-                button("find-previous", Icon::ChevronLeft, tr!("Previous match"))
+                button("find-previous", Icon::ChevronUp, tr!("Previous match"))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(true, cx))),
             )
             .child(
-                button("find-next", Icon::ChevronRight, tr!("Next match"))
+                button("find-next", Icon::ChevronDown, tr!("Next match"))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(false, cx))),
             )
             .child(

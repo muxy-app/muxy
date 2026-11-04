@@ -2,8 +2,8 @@ use super::{Close, Composer, ComposerEvent, Insert, Submit};
 use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, FontWeight, MouseButton, Pixels, Point, Size, size};
 use gpui::{
-    AppContext, Context, InteractiveElement, IntoElement, ParentElement, Role,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    Context, InteractiveElement, IntoElement, ParentElement, Role, StatefulInteractiveElement,
+    Styled, Window, div, px,
 };
 use muxy_app_core::settings::{ComposerPosition, ComposerPresentation};
 use muxy_ui::{
@@ -96,18 +96,7 @@ impl Composer {
             })
             .rounded(m.radius_xl())
             .child(SymbolGlyph::new(symbol, glyph_size, color))
-            .tooltip(move |_, cx| {
-                cx.new(|_| {
-                    muxy_ui::components::Tooltip::new(
-                        translate(label),
-                        theme.raised(),
-                        theme.fg,
-                        theme.border,
-                        theme.bg,
-                    )
-                })
-                .into()
-            })
+            .tooltip(muxy_ui::components::tooltip(translate(label), &theme))
             .button_interaction(cx.listener(move |view, _, window, cx| action(view, window, cx)))
             .into_any_element()
     }

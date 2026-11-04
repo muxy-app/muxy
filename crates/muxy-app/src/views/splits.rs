@@ -559,8 +559,7 @@ fn pane_element(
             format!("pane-actions-{id}"),
             tr!("Actions for %@", name.as_ref()),
             cx,
-            move |model, window, cx| {
-                let position = window.mouse_position();
+            move |model, position, _, cx| {
                 if let Some(pane) = model.terminal(&id) {
                     pane.view
                         .update(cx, |_, cx| cx.emit(PaneEvent::ContextMenu(position)));

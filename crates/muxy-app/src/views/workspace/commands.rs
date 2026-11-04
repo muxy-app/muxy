@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
-use gpui::{Action, MenuItem, SharedString};
+use gpui::{Action, Context, Div, InteractiveElement, MenuItem, SharedString, Window, div};
+use muxy_app_core::Direction;
 use muxy_core::capability::Feature;
 use muxy_core::shortcuts::{ALL, ShortcutId};
 use muxy_ui::command_palette::{Command, Registry};
@@ -19,6 +20,7 @@ use super::{
     ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom,
 };
 use crate::model::AppModel;
+use crate::model::browsers::BrowserAction;
 use crate::views::command_palette::{Handler, with_shortcut};
 
 #[derive(Clone, Copy)]
@@ -35,6 +37,8 @@ enum Palette {
     Hidden,
 }
 
+type Run = fn(&mut AppModel, &mut Window, &mut Context<AppModel>);
+
 struct CommandDef {
     shortcut: Option<ShortcutId>,
     palette_id: &'static str,
@@ -45,6 +49,8 @@ struct CommandDef {
     palette: Palette,
     bind: fn(&mut muxy_ui::shortcuts::Registry<'_>, ShortcutId),
     boxed: fn() -> Box<dyn Action>,
+    run: Option<Run>,
+    listen: fn(Div, Run, &mut Context<AppModel>) -> Div,
 }
 
 fn bind<A: Action + Clone + Default>(
@@ -52,6 +58,10 @@ fn bind<A: Action + Clone + Default>(
     id: ShortcutId,
 ) {
     registry.register(id, &A::default());
+}
+
+fn listen<A: Action>(div: Div, run: Run, cx: &mut Context<AppModel>) -> Div {
+    div.on_action(cx.listener(move |model, _: &A, window, cx| run(model, window, cx)))
 }
 
 fn boxed<A: Action + Default>() -> Box<dyn Action> {
@@ -72,6 +82,8 @@ const fn unbound<A: Action + Clone + Default>(
         palette: Palette::Listed,
         bind: bind::<A>,
         boxed: boxed::<A>,
+        run: None,
+        listen: listen::<A>,
     }
 }
 
@@ -86,6 +98,11 @@ const fn shortcut_only<A: Action + Clone + Default>(shortcut: ShortcutId) -> Com
 }
 
 impl CommandDef {
+    const fn run(mut self, run: Run) -> Self {
+        self.run = Some(run);
+        self
+    }
+
     const fn keywords(mut self, keywords: &'static str) -> Self {
         self.keywords = Some(keywords);
         self
@@ -193,76 +210,138 @@ static COMMANDS: &[CommandDef] = &[
     row::<ToggleComposer>(
         ShortcutId::ToggleComposer,
         Label::Key(tr_key!("Toggle Composer")),
+    )
+    .run(|model, window, cx| {
+        model.toggle_composer(window, cx);
+    }),
+    row::<NewTab>(ShortcutId::NewTab, Label::Key(tr_key!("New Tab")))
+        .available(project_present)
+        .run(|model, _, cx| model.new_tab(cx)),
+    row::<NewHomeTab>(ShortcutId::NewHomeTab, Label::Key(tr_key!("New Home Tab"))).run(
+        |model, _, cx| {
+            model.select_project(model.state.home().id, cx);
+            model.new_tab(cx);
+        },
     ),
-    row::<NewTab>(ShortcutId::NewTab, Label::Key(tr_key!("New Tab"))).available(project_present),
-    row::<NewHomeTab>(ShortcutId::NewHomeTab, Label::Key(tr_key!("New Home Tab"))),
-    row::<CloseTab>(ShortcutId::CloseTab, Label::Key(tr_key!("Close Tab"))).available(has_tab),
+    row::<CloseTab>(ShortcutId::CloseTab, Label::Key(tr_key!("Close Tab")))
+        .available(has_tab)
+        .run(|model, _, cx| {
+            if let Some(tab) = model.active_tab() {
+                model.close_tab(tab, cx);
+            }
+        }),
     row::<SplitRight>(ShortcutId::SplitRight, Label::Key(tr_key!("Split Right")))
-        .available(has_pane),
-    row::<SplitDown>(ShortcutId::SplitDown, Label::Key(tr_key!("Split Down"))).available(has_pane),
-    row::<ClosePane>(ShortcutId::ClosePane, Label::Key(tr_key!("Close Pane"))).available(has_pane),
+        .available(has_pane)
+        .run(|model, _, cx| model.split_pane(Direction::Right, cx)),
+    row::<SplitDown>(ShortcutId::SplitDown, Label::Key(tr_key!("Split Down")))
+        .available(has_pane)
+        .run(|model, _, cx| model.split_pane(Direction::Down, cx)),
+    row::<ClosePane>(ShortcutId::ClosePane, Label::Key(tr_key!("Close Pane")))
+        .available(has_pane)
+        .run(|model, _, cx| {
+            if let Some(pane) = model.active_pane() {
+                model.close_pane(pane, cx);
+            }
+        }),
     row::<ToggleZoomPane>(
         ShortcutId::ToggleZoomPane,
         Label::Key(tr_key!("Toggle Pane Zoom")),
     )
-    .available(has_pane),
+    .available(has_pane)
+    .run(|model, _, cx| model.toggle_zoom_pane(cx)),
     row::<EqualizeSplits>(
         ShortcutId::EqualizeSplits,
         Label::Key(tr_key!("Equalize Splits")),
     )
-    .available(has_split),
+    .available(has_split)
+    .run(|model, _, cx| {
+        if let Some(pane) = model.active_pane() {
+            model.equalize_splits(pane, cx);
+        }
+    }),
     row::<NextProject>(ShortcutId::NextProject, Label::Key(tr_key!("Next Project")))
-        .available(has_other_project),
+        .available(has_other_project)
+        .run(|model, _, cx| model.cycle_project(true, cx)),
     row::<PreviousProject>(
         ShortcutId::PreviousProject,
         Label::Key(tr_key!("Previous Project")),
     )
-    .available(has_other_project),
-    row::<NextTab>(ShortcutId::NextTab, Label::Key(tr_key!("Next Tab"))).available(has_other_tab),
+    .available(has_other_project)
+    .run(|model, _, cx| model.cycle_project(false, cx)),
+    row::<NextTab>(ShortcutId::NextTab, Label::Key(tr_key!("Next Tab")))
+        .available(has_other_tab)
+        .run(|model, _, cx| model.cycle_tab(true, cx)),
     row::<PreviousTab>(ShortcutId::PreviousTab, Label::Key(tr_key!("Previous Tab")))
-        .available(has_other_tab),
+        .available(has_other_tab)
+        .run(|model, _, cx| model.cycle_tab(false, cx)),
     row::<ToggleSidebar>(
         ShortcutId::ToggleSidebar,
         Label::Key(tr_key!("Toggle Sidebar")),
-    ),
+    )
+    .run(AppModel::toggle_sidebar),
     row::<ToggleAgentsPanel>(
         ShortcutId::ToggleAgentsPanel,
         Label::Key(tr_key!("Toggle Agents Panel")),
-    ),
+    )
+    .run(|model, window, cx| {
+        model.toggle_agents_panel(window, cx);
+    }),
     row::<ToggleAgentSessions>(
         ShortcutId::ToggleAgentSessions,
         Label::Key(tr_key!("Toggle Agent Sessions")),
     )
-    .keywords("harness history resume providers"),
+    .keywords("harness history resume providers")
+    .run(|model, window, cx| {
+        model.toggle_agent_sessions(window, cx);
+    }),
     row::<NewWorktree>(
         ShortcutId::NewWorktree,
         Label::Key(tr_key!("New Worktree…")),
     )
-    .available(can_add_worktree),
+    .available(can_add_worktree)
+    .run(|model, window, cx| {
+        if !model.dialogs.is_open()
+            && let Some(project) = model.new_worktree_target()
+        {
+            model.open_git_form(project, true, cx);
+            model.focus_git_form(window, cx);
+        }
+    }),
     row::<SwitchWorktree>(
         ShortcutId::SwitchWorktree,
         Label::Key(tr_key!("Switch Worktree…")),
     )
-    .available(can_switch_worktree),
-    row::<Find>(ShortcutId::Find, Label::Key(tr_key!("Find…"))).available(has_terminal),
-    row::<FindNext>(ShortcutId::FindNext, Label::Key(tr_key!("Find Next"))).available(has_terminal),
+    .available(can_switch_worktree)
+    .run(|model, window, cx| {
+        model.toggle_worktree_switcher(window, cx);
+    }),
+    row::<Find>(ShortcutId::Find, Label::Key(tr_key!("Find…")))
+        .available(has_terminal)
+        .run(AppModel::find_terminal),
+    row::<FindNext>(ShortcutId::FindNext, Label::Key(tr_key!("Find Next")))
+        .available(has_terminal)
+        .run(|model, _, cx| model.step_find(false, cx)),
     row::<FindPrevious>(
         ShortcutId::FindPrevious,
         Label::Key(tr_key!("Find Previous")),
     )
-    .available(has_terminal),
+    .available(has_terminal)
+    .run(|model, _, cx| model.step_find(true, cx)),
     row::<PreviousPrompt>(
         ShortcutId::PreviousPrompt,
         Label::Key(tr_key!("Previous Prompt")),
     )
-    .available(has_terminal),
+    .available(has_terminal)
+    .run(|model, _, cx| model.prompt_action(Some(true), cx)),
     row::<NextPrompt>(ShortcutId::NextPrompt, Label::Key(tr_key!("Next Prompt")))
-        .available(has_terminal),
+        .available(has_terminal)
+        .run(|model, _, cx| model.prompt_action(Some(false), cx)),
     row::<SelectCommandOutput>(
         ShortcutId::SelectCommandOutput,
         Label::Key(tr_key!("Select Command Output")),
     )
-    .available(has_terminal),
+    .available(has_terminal)
+    .run(|model, _, cx| model.prompt_action(None, cx)),
     row::<ScrollToBottom>(
         ShortcutId::ScrollToBottom,
         Label::Key(tr_key!("Scroll to Bottom")),
@@ -272,107 +351,200 @@ static COMMANDS: &[CommandDef] = &[
         ShortcutId::IncreaseFontSize,
         Label::Key(tr_key!("Increase Font Size")),
     )
-    .available(has_terminal),
+    .available(has_terminal)
+    .run(|model, _, cx| model.zoom_terminal(1.0, cx)),
     row::<DecreaseFontSize>(
         ShortcutId::DecreaseFontSize,
         Label::Key(tr_key!("Decrease Font Size")),
     )
-    .available(has_terminal),
+    .available(has_terminal)
+    .run(|model, _, cx| model.zoom_terminal(-1.0, cx)),
     row::<DetachTerminal>(
         ShortcutId::DetachTerminal,
         Label::Key(tr_key!("Detach Terminal")),
     )
-    .available(has_terminal),
+    .available(has_terminal)
+    .run(AppModel::detach_active_terminal),
     row::<FocusPaneLeft>(
         ShortcutId::FocusPaneLeft,
         Label::Key(tr_key!("Focus Pane Left")),
     )
-    .available(has_split),
+    .available(has_split)
+    .run(|model, _, cx| {
+        model.focus_direction(Direction::Left, cx);
+    }),
     row::<FocusPaneRight>(
         ShortcutId::FocusPaneRight,
         Label::Key(tr_key!("Focus Pane Right")),
     )
-    .available(has_split),
+    .available(has_split)
+    .run(|model, _, cx| {
+        model.focus_direction(Direction::Right, cx);
+    }),
     row::<FocusPaneUp>(
         ShortcutId::FocusPaneUp,
         Label::Key(tr_key!("Focus Pane Up")),
     )
-    .available(has_split),
+    .available(has_split)
+    .run(|model, _, cx| model.focus_direction(Direction::Up, cx)),
     row::<FocusPaneDown>(
         ShortcutId::FocusPaneDown,
         Label::Key(tr_key!("Focus Pane Down")),
     )
-    .available(has_split),
+    .available(has_split)
+    .run(|model, _, cx| {
+        model.focus_direction(Direction::Down, cx);
+    }),
     row::<ExistingTerminals>(
         ShortcutId::ExistingTerminals,
         Label::Key(tr_key!("Existing Terminals…")),
-    ),
+    )
+    .run(AppModel::existing_terminals),
     row::<ToggleFullScreen>(
         ShortcutId::ToggleFullScreen,
         Label::Key(tr_key!("Toggle Full Screen")),
-    ),
+    )
+    .run(|_, window, _| window.toggle_fullscreen()),
     row::<Minimize>(ShortcutId::Minimize, Label::Key(tr_key!("Minimize")))
-        .keywords("Minimize Window"),
+        .keywords("Minimize Window")
+        .run(|_, window, _| window.minimize_window()),
     row::<Zoom>(ShortcutId::Zoom, Label::Key(tr_key!("Zoom")))
-        .keywords("Zoom Window Maximize Restore"),
-    row::<Quit>(ShortcutId::Quit, Label::WithAppName(tr_key!("Quit %@"))).keywords("Quit"),
+        .keywords("Zoom Window Maximize Restore")
+        .run(|_, window, _| window.zoom_window()),
+    row::<Quit>(ShortcutId::Quit, Label::WithAppName(tr_key!("Quit %@")))
+        .keywords("Quit")
+        .run(|model, _, cx| {
+            model.quit(cx);
+            cx.stop_propagation();
+        }),
     row::<EndAllSessionsAndQuit>(
         ShortcutId::EndAllSessionsAndQuit,
         Label::Key(tr_key!("End All Sessions and Quit")),
-    ),
+    )
+    .run(|model, _, cx| {
+        model.end_all_and_quit(cx);
+        cx.stop_propagation();
+    }),
     unbound::<CheckForUpdates>(
         "check_for_updates",
         Label::Key(tr_key!("Check for Updates…")),
     )
     .keywords("Check for Updates")
-    .feature(Feature::Updates),
+    .feature(Feature::Updates)
+    .run(|model, _, cx| {
+        model.check_for_updates(true, cx);
+    }),
     row::<InstallCommandLineTool>(
         ShortcutId::InstallCommandLineTool,
         Label::Key(tr_key!("Install Command Line Tool…")),
     )
-    .feature(Feature::CommandLineTool),
+    .feature(Feature::CommandLineTool)
+    .run(|model, _, cx| {
+        model.install_command_line(cx);
+    }),
     row::<NewBrowserTab>(
         ShortcutId::NewBrowserTab,
         Label::Key(tr_key!("New Browser Tab")),
     )
-    .available(can_open_browser),
-    row::<AddProject>(ShortcutId::AddProject, Label::Key(tr_key!("Open Project…"))).placed(),
+    .available(can_open_browser)
+    .run(|model, _, cx| model.new_browser_tab(cx)),
+    row::<AddProject>(ShortcutId::AddProject, Label::Key(tr_key!("Open Project…")))
+        .placed()
+        .run(AppModel::open_project_picker),
     row::<NewTabInProject>(
         ShortcutId::NewTabInProject,
         Label::Key(tr_key!("New Tab in Project…")),
     )
-    .placed(),
+    .placed()
+    .run(|model, window, cx| {
+        model.open_new_tab_picker(window, cx);
+    }),
     row::<OpenSettings>(ShortcutId::OpenSettings, Label::Key(tr_key!("Settings…")))
         .keywords("Settings Open Settings")
-        .placed(),
-    unbound::<OpenAbout>("open_about", Label::WithAppName(tr_key!("About %@"))).hidden(),
+        .placed()
+        .run(AppModel::open_settings),
+    unbound::<OpenAbout>("open_about", Label::WithAppName(tr_key!("About %@")))
+        .hidden()
+        .run(|model, window, cx| {
+            model.show_about_settings(window, cx);
+        }),
     row::<ToggleThemePicker>(
         ShortcutId::ToggleThemePicker,
         Label::Key(tr_key!("Change Theme…")),
     )
     .keywords("Change Theme Picker")
-    .placed(),
+    .placed()
+    .run(|model, window, cx| {
+        model.open_theme_picker(window, cx);
+    }),
     row::<ToggleCommandPalette>(
         ShortcutId::ToggleCommandPalette,
         Label::Key(tr_key!("Command Palette…")),
     )
-    .hidden(),
-    row::<HideApp>(ShortcutId::HideApp, Label::WithAppName(tr_key!("Hide %@"))).hidden(),
-    row::<HideOthers>(ShortcutId::HideOthers, Label::Key(tr_key!("Hide Others"))).hidden(),
-    row::<ShowAll>(ShortcutId::ShowAll, Label::Key(tr_key!("Show All"))).hidden(),
-    shortcut_only::<NavigateBack>(ShortcutId::NavigateBack),
-    shortcut_only::<NavigateForward>(ShortcutId::NavigateForward),
-    shortcut_only::<OpenConfiguration>(ShortcutId::OpenConfiguration),
-    shortcut_only::<BrowserFocusAddress>(ShortcutId::BrowserFocusAddress),
-    shortcut_only::<BrowserReload>(ShortcutId::BrowserReload),
-    shortcut_only::<BrowserBack>(ShortcutId::BrowserBack),
-    shortcut_only::<BrowserForward>(ShortcutId::BrowserForward),
-    shortcut_only::<BrowserZoomIn>(ShortcutId::BrowserZoomIn),
-    shortcut_only::<BrowserZoomOut>(ShortcutId::BrowserZoomOut),
-    shortcut_only::<BrowserZoomReset>(ShortcutId::BrowserZoomReset),
-    shortcut_only::<BrowserCopyUrl>(ShortcutId::BrowserCopyUrl),
-    shortcut_only::<BrowserInspect>(ShortcutId::BrowserInspect),
+    .hidden()
+    .run(|model, window, cx| {
+        model.toggle_command_palette(window, cx);
+    }),
+    row::<HideApp>(ShortcutId::HideApp, Label::WithAppName(tr_key!("Hide %@")))
+        .hidden()
+        .run(|model, _, cx| {
+            model.forward(Feature::AppHiding, cx);
+        }),
+    row::<HideOthers>(ShortcutId::HideOthers, Label::Key(tr_key!("Hide Others")))
+        .hidden()
+        .run(|model, _, cx| {
+            model.forward(Feature::AppHiding, cx);
+        }),
+    row::<ShowAll>(ShortcutId::ShowAll, Label::Key(tr_key!("Show All")))
+        .hidden()
+        .run(|model, _, cx| {
+            model.forward(Feature::AppHiding, cx);
+        }),
+    shortcut_only::<NavigateBack>(ShortcutId::NavigateBack)
+        .run(|model, _, cx| model.navigate(false, cx)),
+    shortcut_only::<NavigateForward>(ShortcutId::NavigateForward)
+        .run(|model, _, cx| model.navigate(true, cx)),
+    shortcut_only::<OpenConfiguration>(ShortcutId::OpenConfiguration).run(AppModel::open_settings),
+    shortcut_only::<BrowserFocusAddress>(ShortcutId::BrowserFocusAddress).run(
+        |model, window, cx| {
+            model.browser_action(BrowserAction::FocusAddress, window, cx);
+        },
+    ),
+    shortcut_only::<BrowserReload>(ShortcutId::BrowserReload).run(|model, window, cx| {
+        model.browser_action(BrowserAction::Reload, window, cx);
+    }),
+    shortcut_only::<BrowserBack>(ShortcutId::BrowserBack).run(|model, window, cx| {
+        model.browser_action(BrowserAction::Back, window, cx);
+    }),
+    shortcut_only::<BrowserForward>(ShortcutId::BrowserForward).run(|model, window, cx| {
+        model.browser_action(BrowserAction::Forward, window, cx);
+    }),
+    shortcut_only::<BrowserZoomIn>(ShortcutId::BrowserZoomIn).run(|model, window, cx| {
+        model.browser_action(BrowserAction::ZoomIn, window, cx);
+    }),
+    shortcut_only::<BrowserZoomOut>(ShortcutId::BrowserZoomOut).run(|model, window, cx| {
+        model.browser_action(BrowserAction::ZoomOut, window, cx);
+    }),
+    shortcut_only::<BrowserZoomReset>(ShortcutId::BrowserZoomReset).run(|model, window, cx| {
+        model.browser_action(BrowserAction::ZoomReset, window, cx);
+    }),
+    shortcut_only::<BrowserCopyUrl>(ShortcutId::BrowserCopyUrl).run(|model, window, cx| {
+        model.browser_action(BrowserAction::CopyUrl, window, cx);
+    }),
+    shortcut_only::<BrowserInspect>(ShortcutId::BrowserInspect).run(|model, window, cx| {
+        model.browser_action(BrowserAction::Inspect, window, cx);
+    }),
 ];
+
+pub(super) fn action_handlers(cx: &mut Context<AppModel>) -> Div {
+    let mut div = div();
+    for row in COMMANDS {
+        if let Some(run) = row.run {
+            div = (row.listen)(div, run, cx);
+        }
+    }
+    div
+}
 
 fn with_id(id: ShortcutId) -> Option<&'static CommandDef> {
     COMMANDS.iter().find(|row| row.shortcut == Some(id))

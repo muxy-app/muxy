@@ -29,7 +29,6 @@ use objc2_foundation::{
     NSOperationQueue, NSPoint, NSRect, NSSize,
 };
 use objc2_quartz_core::{CACornerMask, CALayer, CATransaction, kCACornerCurveContinuous};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -266,13 +265,13 @@ impl PanelAdapter {
         MainThreadMarker::new().ok_or_else(|| {
             "Quick Terminal panel must be configured on the main thread".to_owned()
         })?;
-        let handle = HasWindowHandle::window_handle(window)
-            .map_err(|error| format!("GPUI did not provide a native panel handle: {error}"))?;
-        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
-            return Err("GPUI Quick Terminal window is not backed by AppKit".to_owned());
-        };
-        let view = unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }
-            .ok_or_else(|| "GPUI Quick Terminal view is unavailable".to_owned())?;
+        let view = crate::appkit::gpui_view(window).map_err(|error| match error.as_str() {
+            "expected AppKit window" => {
+                "GPUI Quick Terminal window is not backed by AppKit".to_owned()
+            }
+            "missing native view" => "GPUI Quick Terminal view is unavailable".to_owned(),
+            _ => format!("GPUI did not provide a native panel handle: {error}"),
+        })?;
         let native_window = view
             .window()
             .ok_or_else(|| "GPUI Quick Terminal view is detached".to_owned())?;

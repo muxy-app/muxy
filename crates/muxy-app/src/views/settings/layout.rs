@@ -1,10 +1,10 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement, Role,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, list, px,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Role, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, list, px,
 };
 use muxy_ui::accessibility;
-use muxy_ui::components::{ButtonInteraction, IconGlyph, Tooltip};
+use muxy_ui::components::{ButtonInteraction, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::{controls, navigation, tr};
@@ -143,7 +143,7 @@ impl SettingsView {
                     accessibility::hidden_button(
                         format!("settings-disclosure-{}", category.label()),
                         tr!("Sections of %@", &translate(category.label())),
-                        move |_, cx| {
+                        move |_, _, cx| {
                             let _ = view.update(cx, |view, cx| view.toggle_sections(category, cx));
                         },
                     )
@@ -321,7 +321,6 @@ impl SettingsView {
         error: &str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let tooltip_theme = self.theme.clone();
         div()
             .debug_selector(move || format!("settings-{id}-error"))
             .flex()
@@ -351,18 +350,7 @@ impl SettingsView {
                     .cursor_pointer()
                     .hover(|button| button.bg(self.theme.hover))
                     .focus(|button| button.bg(self.theme.hover))
-                    .tooltip(move |_, cx| {
-                        cx.new(|_| {
-                            Tooltip::new(
-                                tr!("Dismiss"),
-                                tooltip_theme.raised(),
-                                tooltip_theme.fg,
-                                tooltip_theme.border,
-                                tooltip_theme.bg,
-                            )
-                        })
-                        .into()
-                    })
+                    .tooltip(muxy_ui::components::tooltip(tr!("Dismiss"), &self.theme))
                     .button_interaction(cx.listener(move |view, _, _, cx| {
                         view.dismiss_error(id, cx);
                     }))

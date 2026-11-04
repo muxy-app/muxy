@@ -137,6 +137,73 @@ fn every_menu_item_has_a_label_and_a_handler_in_the_workspace(cx: &mut TestAppCo
     });
 }
 
+#[gpui::test]
+fn menu_labels_fit_beside_shortcuts_at_fractional_scales(cx: &mut TestAppContext) {
+    use crate::views::menu::{Command, Item};
+
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(600.0)));
+    for scale in [1.0, 1.25, 1.5] {
+        for (label, label_id, shortcut_id) in [
+            (
+                "Existing Terminals…",
+                "menu-label-Existing Terminals…",
+                "menu-shortcut-Existing Terminals…",
+            ),
+            (
+                "Existing Terminals… Existing Terminals…",
+                "menu-label-Existing Terminals… Existing Terminals…",
+                "menu-shortcut-Existing Terminals… Existing Terminals…",
+            ),
+        ] {
+            let expected = cx.update(|window, cx| {
+                view.update(cx, |model, cx| {
+                    model.metrics = Metrics::new(scale);
+                    let command = Command::ExistingSessions(model.state.home().id);
+                    let shortcut = command.shortcut(model, cx).expect("shortcut");
+                    let mut style = window.text_style();
+                    style.font_family = ".SystemUIFont".into();
+                    style.font_weight = gpui::FontWeight::NORMAL;
+                    let measure = |text: &str, font_size| {
+                        window
+                            .text_system()
+                            .shape_line(
+                                text.to_owned().into(),
+                                font_size,
+                                &[style.to_run(text.len())],
+                                None,
+                            )
+                            .width
+                            .ceil()
+                    };
+                    let expected = (
+                        measure(label, model.metrics.font_body()),
+                        measure(&shortcut, model.metrics.font_footnote()),
+                    );
+                    model.open_menu(
+                        vec![Item::action(label, command)],
+                        gpui::point(px(40.0), px(40.0)),
+                        window,
+                        cx,
+                    );
+                    expected
+                })
+            });
+            cx.run_until_parked();
+            let text = cx.debug_bounds(label_id).expect("label");
+            let shortcut = cx.debug_bounds(shortcut_id).expect("shortcut");
+            assert!(
+                text.size.width >= expected.0,
+                "{label} at {scale}: {text:?}, needs {:?}",
+                expected.0
+            );
+            assert!(shortcut.size.width >= expected.1);
+            assert!(text.right() < shortcut.left());
+        }
+    }
+}
+
 #[test]
 fn about_menu_is_first_and_only_shown_on_macos() {
     let menus = crate::menus();

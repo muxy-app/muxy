@@ -71,7 +71,7 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                         let enabled = state.settings.enabled;
                         move |model, _, _, cx| model.set_device_access(!enabled, cx)
                     }),
-                ),
+                ).into_any_element(),
                 true,
                 model,
             ))

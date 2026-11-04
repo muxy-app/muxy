@@ -5,7 +5,6 @@ use gpui::{
     App, Context, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement, Render,
     Role, StatefulInteractiveElement, Styled, Window, actions, div, px, relative,
 };
-use muxy_app_core::Direction;
 use muxy_app_core::settings::Keymap;
 use muxy_ui::accessibility;
 use muxy_ui::components::IconGlyph;
@@ -14,7 +13,6 @@ use muxy_ui::tr;
 
 use super::{menu, overlays, sidebar, status_bar, tab_strip, titlebar};
 use crate::model::AppModel;
-use crate::model::browsers::BrowserAction;
 use crate::model::focus::Next;
 
 pub(crate) mod commands;
@@ -129,12 +127,7 @@ fn workspace_bindings(keymap: &impl muxy_core::shortcuts::ShortcutSettings) -> V
 }
 
 impl AppModel {
-    fn detach_active_terminal(
-        &mut self,
-        _: &DetachTerminal,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn detach_active_terminal(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if self.overlay.is_none()
             && let Some(pane) = self.active_pane()
         {
@@ -142,12 +135,7 @@ impl AppModel {
         }
     }
 
-    fn existing_terminals(
-        &mut self,
-        _: &ExistingTerminals,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn existing_terminals(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.dialogs.is_open() {
             self.open_session_picker(self.state.current_project().id, window, cx);
         }
@@ -253,28 +241,8 @@ impl AppModel {
     }
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "One workspace action registration chain"
-)]
 fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
-    div()
-        .on_action(
-            cx.listener(|model, _: &OpenSettings, window, cx| model.open_settings(window, cx)),
-        )
-        .on_action(cx.listener(|model, _: &OpenAbout, window, cx| {
-            model.show_about_settings(window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &Find, window, cx| model.find_terminal(window, cx)))
-        .on_action(cx.listener(|model, _: &FindNext, _, cx| model.step_find(false, cx)))
-        .on_action(cx.listener(|model, _: &FindPrevious, _, cx| model.step_find(true, cx)))
-        .on_action(
-            cx.listener(|model, _: &PreviousPrompt, _, cx| model.prompt_action(Some(true), cx)),
-        )
-        .on_action(cx.listener(|model, _: &NextPrompt, _, cx| model.prompt_action(Some(false), cx)))
-        .on_action(
-            cx.listener(|model, _: &SelectCommandOutput, _, cx| model.prompt_action(None, cx)),
-        )
+    commands::action_handlers(cx)
         .key_context("WorkspaceTabs")
         .on_modifiers_changed(
             cx.listener(|model, event: &gpui::ModifiersChangedEvent, _, cx| {
@@ -299,153 +267,20 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward),
             cx.listener(|model, _, _, cx| model.navigate(true, cx)),
         )
-        .on_action(cx.listener(|model, _: &NewTab, _, cx| model.new_tab(cx)))
-        .on_action(cx.listener(|model, _: &NewBrowserTab, _, cx| model.new_browser_tab(cx)))
-        .on_action(cx.listener(|model, _: &BrowserFocusAddress, window, cx| {
-            model.browser_action(BrowserAction::FocusAddress, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserReload, window, cx| {
-            model.browser_action(BrowserAction::Reload, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserBack, window, cx| {
-            model.browser_action(BrowserAction::Back, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserForward, window, cx| {
-            model.browser_action(BrowserAction::Forward, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserZoomIn, window, cx| {
-            model.browser_action(BrowserAction::ZoomIn, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserZoomOut, window, cx| {
-            model.browser_action(BrowserAction::ZoomOut, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserZoomReset, window, cx| {
-            model.browser_action(BrowserAction::ZoomReset, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserCopyUrl, window, cx| {
-            model.browser_action(BrowserAction::CopyUrl, window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &BrowserInspect, window, cx| {
-            model.browser_action(BrowserAction::Inspect, window, cx);
-        }))
-        .on_action(cx.listener(AppModel::detach_active_terminal))
-        .on_action(cx.listener(AppModel::existing_terminals))
-        .on_action(
-            cx.listener(|model, _: &SplitRight, _, cx| model.split_pane(Direction::Right, cx)),
-        )
-        .on_action(cx.listener(|model, _: &SplitDown, _, cx| model.split_pane(Direction::Down, cx)))
-        .on_action(cx.listener(|model, _: &ToggleZoomPane, _, cx| model.toggle_zoom_pane(cx)))
-        .on_action(cx.listener(|model, _: &EqualizeSplits, _, cx| {
-            if let Some(pane) = model.active_pane() {
-                model.equalize_splits(pane, cx);
-            }
-        }))
-        .on_action(cx.listener(|model, _: &ClosePane, _, cx| {
-            if let Some(pane) = model.active_pane() {
-                model.close_pane(pane, cx);
-            }
-        }))
-        .on_action(cx.listener(|model, _: &FocusPaneLeft, _, cx| {
-            model.focus_direction(Direction::Left, cx);
-        }))
-        .on_action(cx.listener(|model, _: &FocusPaneRight, _, cx| {
-            model.focus_direction(Direction::Right, cx);
-        }))
-        .on_action(
-            cx.listener(|model, _: &FocusPaneUp, _, cx| model.focus_direction(Direction::Up, cx)),
-        )
-        .on_action(cx.listener(|model, _: &FocusPaneDown, _, cx| {
-            model.focus_direction(Direction::Down, cx);
-        }))
-        .on_action(cx.listener(|model, _: &InstallCommandLineTool, _, cx| {
-            model.install_command_line(cx);
-        }))
-        .on_action(cx.listener(|model, _: &CheckForUpdates, _, cx| {
-            model.check_for_updates(true, cx);
-        }))
-        .on_action(cx.listener(|model, _: &Quit, _, cx| {
-            model.quit(cx);
-            cx.stop_propagation();
-        }))
-        .on_action(cx.listener(|model, _: &EndAllSessionsAndQuit, _, cx| {
-            model.end_all_and_quit(cx);
-            cx.stop_propagation();
-        }))
-        .on_action(cx.listener(|model, _: &NewHomeTab, _, cx| {
-            model.select_project(model.state.home().id, cx);
-            model.new_tab(cx);
-        }))
-        .on_action(cx.listener(|model, _: &NewTabInProject, window, cx| {
-            model.open_new_tab_picker(window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &NewWorktree, window, cx| {
-            if !model.dialogs.is_open()
-                && let Some(project) = model.new_worktree_target()
-            {
-                model.open_git_form(project, true, cx);
-                model.focus_git_form(window, cx);
-            }
-        }))
-        .on_action(cx.listener(|model, _: &SwitchWorktree, window, cx| {
-            model.toggle_worktree_switcher(window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &PreviousProject, _, cx| model.cycle_project(false, cx)))
-        .on_action(cx.listener(|model, _: &NextProject, _, cx| model.cycle_project(true, cx)))
         .on_action(cx.listener(|model, action: &SelectProject, _, cx| {
             if let Some(project) = model.navigation_projects().get(action.index) {
                 model.select_project(*project, cx);
             }
         }))
-        .on_action(
-            cx.listener(|model, _: &AddProject, window, cx| model.open_project_picker(window, cx)),
-        )
-        .on_action(cx.listener(|model, _: &CloseTab, _, cx| {
-            if let Some(tab) = model.active_tab() {
-                model.close_tab(tab, cx);
-            }
-        }))
-        .on_action(cx.listener(|model, _: &NextTab, _, cx| model.cycle_tab(true, cx)))
-        .on_action(cx.listener(|model, _: &PreviousTab, _, cx| model.cycle_tab(false, cx)))
         .on_action(cx.listener(|model, action: &SelectTab, _, cx| {
             if let Some(tab) = model.navigation_tabs().get(action.index) {
                 model.select_tab(*tab, cx);
             }
         }))
-        .on_action(
-            cx.listener(|model, _: &ToggleSidebar, window, cx| model.toggle_sidebar(window, cx)),
-        )
-        .on_action(cx.listener(|model, _: &ToggleAgentsPanel, window, cx| {
-            model.toggle_agents_panel(window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &ToggleAgentSessions, window, cx| {
-            model.toggle_agent_sessions(window, cx);
-        }))
-        .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| window.toggle_fullscreen()))
-        .on_action(cx.listener(|model, _: &ToggleThemePicker, window, cx| {
-            model.open_theme_picker(window, cx);
-        }))
-        .on_action(cx.listener(|model, _: &NavigateBack, _, cx| model.navigate(false, cx)))
-        .on_action(cx.listener(|model, _: &NavigateForward, _, cx| model.navigate(true, cx)))
-        .on_action(cx.listener(|_, _: &Minimize, window, _| window.minimize_window()))
-        .on_action(cx.listener(|model, _: &HideApp, _, cx| {
-            model.forward(muxy_core::capability::Feature::AppHiding, cx);
-        }))
-        .on_action(cx.listener(|model, _: &HideOthers, _, cx| {
-            model.forward(muxy_core::capability::Feature::AppHiding, cx);
-        }))
-        .on_action(cx.listener(|model, _: &ShowAll, _, cx| {
-            model.forward(muxy_core::capability::Feature::AppHiding, cx);
-        }))
-        .on_action(cx.listener(|_, _: &Zoom, window, _| window.zoom_window()))
         .on_action(cx.listener(titlebar::begin_window_move))
         .on_action(
             cx.listener(|model, _: &ReloadConfiguration, _, cx| model.reload_configuration(cx)),
         )
-        .on_action(
-            cx.listener(|model, _: &OpenConfiguration, window, cx| model.open_settings(window, cx)),
-        )
-        .on_action(cx.listener(|model, _: &IncreaseFontSize, _, cx| model.zoom_terminal(1.0, cx)))
-        .on_action(cx.listener(|model, _: &DecreaseFontSize, _, cx| model.zoom_terminal(-1.0, cx)))
 }
 
 impl AppModel {
@@ -556,12 +391,6 @@ impl Render for AppModel {
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
         let workspace = action_handlers(cx)
-            .on_action(cx.listener(|model, _: &ToggleComposer, window, cx| {
-                model.toggle_composer(window, cx);
-            }))
-            .on_action(cx.listener(|model, _: &ToggleCommandPalette, window, cx| {
-                model.toggle_command_palette(window, cx);
-            }))
             .capture_key_down(cx.listener(AppModel::cancel_drag_on_escape))
             .track_focus(&self.focus)
             .relative()

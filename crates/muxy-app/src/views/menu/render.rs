@@ -437,6 +437,7 @@ fn dimensions(
                 None,
             )
             .width
+            .ceil()
     };
     let columns = Columns::of(items);
     let mut leading = px(0.0);

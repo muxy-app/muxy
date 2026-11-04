@@ -191,7 +191,7 @@ fn icon_button(
         color,
         theme.fg,
     )
-    .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+    .tooltip(theme)
 }
 
 fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {

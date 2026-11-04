@@ -46,3 +46,4 @@ workspace = true
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["test-support"] }
+muxy-core = { path = "../muxy-core", features = ["test-support"] }

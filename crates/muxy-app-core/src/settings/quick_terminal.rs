@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use muxy_core::quick_terminal::QuickTerminalShortcut;
+use muxy_core::quick_terminal::{QuickTerminalShortcut, limits};
 use serde::{Deserialize, Serialize};
 
 use crate::settings::{Error, Result};
@@ -25,10 +25,10 @@ impl Default for QuickTerminalSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            width: 720,
-            height: 430,
-            transparency: 18,
-            blur: 70,
+            width: limits::DEFAULT_WIDTH,
+            height: limits::DEFAULT_HEIGHT,
+            transparency: limits::DEFAULT_TRANSPARENCY,
+            blur: limits::DEFAULT_BLUR,
             pinned: false,
             shortcut: QuickTerminalShortcut::Unassigned,
             dark_theme: String::new(),
@@ -59,10 +59,13 @@ impl QuickTerminalSettings {
 
     pub fn validate(&self) -> Result<()> {
         for (name, valid) in [
-            ("width", (480..=1200).contains(&self.width)),
-            ("height", (280..=800).contains(&self.height)),
-            ("transparency", self.transparency <= 55),
-            ("blur", self.blur <= 100),
+            ("width", limits::WIDTH.contains(&self.width)),
+            ("height", limits::HEIGHT.contains(&self.height)),
+            (
+                "transparency",
+                limits::TRANSPARENCY.contains(&self.transparency),
+            ),
+            ("blur", limits::BLUR.contains(&self.blur)),
             (
                 "shortcut",
                 !matches!(self.shortcut, QuickTerminalShortcut::KeyCombo { .. })

@@ -44,7 +44,7 @@ pub fn toggle(
     name: &str,
     value: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
+) -> gpui::Stateful<gpui::Div> {
     let Style { theme, metrics } = style;
     let knob = div()
         .size(metrics.scaled(12.0))
@@ -82,7 +82,6 @@ pub fn toggle(
         .child(knob)
         .focus(|focus| focus.border_color(theme.accent))
         .button_interaction(on_click)
-        .into_any_element()
 }
 
 fn toggled(on: bool) -> Toggled {
@@ -789,6 +788,29 @@ mod tests {
             let (_, node) = node_of(&icon);
             assert_eq!(node.label(), Some("Add"));
             assert!(node.is_disabled());
+        });
+    }
+
+    #[gpui::test]
+    fn a_toggle_publishes_its_value_and_disabled_state(cx: &mut TestAppContext) {
+        cx.update(|_| {
+            let theme = Theme::from_scheme(&ColorScheme::default());
+            let metrics = Metrics::new(1.0);
+            let style = Style {
+                theme: &theme,
+                metrics: &metrics,
+            };
+            for enabled in [false, true] {
+                for checked in [false, true] {
+                    let control = toggle(style, "choice", "Use worktree", checked, |_, _, _| {})
+                        .aria_disabled(!enabled);
+                    let (role, node) = node_of(&control);
+                    assert_eq!(role, Some(Role::Switch));
+                    assert_eq!(node.label(), Some("Use worktree"));
+                    assert_eq!(node.is_disabled(), !enabled);
+                    assert_eq!(node.toggled(), Some(toggled(checked)));
+                }
+            }
         });
     }
 

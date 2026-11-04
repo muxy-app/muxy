@@ -626,7 +626,7 @@ impl AppModel {
             tab_drag: crate::views::tab_strip::TabDragState::default(),
             layout_drag: crate::views::splits::drag::LayoutDragState::default(),
             #[cfg(target_os = "macos")]
-            window_drag: muxy_ui::window_drag::WindowDrag::new(&window.window_title()),
+            window_drag: muxy_ui::window_drag::WindowDrag::new(window),
             #[cfg(target_os = "macos")]
             sidebar_vibrancy: None,
             overlay_subscription: None,

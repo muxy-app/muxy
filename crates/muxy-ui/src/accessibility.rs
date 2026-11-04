@@ -1,12 +1,13 @@
 //! What accessibility clients read beyond what's on screen.
 
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc};
 
 use gpui::accesskit::{Live, Node, Role};
 use gpui::{
     AccessibleAction, AnyElement, App, Bounds, ClickEvent, Div, Element, ElementId,
     GlobalElementId, InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement,
-    Pixels, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    Pixels, Point, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, canvas, div,
+    px,
 };
 
 /// What a click runs, and what a client's press runs directly. Otherwise the press
@@ -34,9 +35,11 @@ impl OnPress for Stateful<Div> {
 pub fn hidden_button(
     id: impl Into<SharedString>,
     name: impl Into<SharedString>,
-    on_press: impl Fn(&mut Window, &mut App) + 'static,
+    on_press: impl Fn(Point<Pixels>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let id = id.into();
+    let position = Rc::new(Cell::new(None));
+    let anchor = position.clone();
     div()
         .id(id.clone())
         .role(Role::Button)
@@ -45,8 +48,17 @@ pub fn hidden_button(
         .absolute()
         .size(px(1.0))
         .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
-            on_press(window, cx);
+            if let Some(position) = position.get() {
+                on_press(position, window, cx);
+            }
         })
+        .child(
+            canvas(
+                move |bounds, _, _| anchor.set(Some(bounds.origin)),
+                |_, (), _, _| {},
+            )
+            .size_full(),
+        )
 }
 
 /// Gives a control text as its current value. AT-SPI only reads a value through
@@ -223,7 +235,7 @@ mod tests {
 
     #[test]
     fn a_hidden_button_can_only_be_pressed_by_a_client() {
-        let button = hidden_button("row-actions", "Actions for gamma", |_, _| {});
+        let button = hidden_button("row-actions", "Actions for gamma", |_, _, _| {});
         let mut node = Node::new(Role::Button);
         button.write_a11y_info(&mut node);
         assert_eq!(button.a11y_role(), Some(Role::Button));

@@ -73,7 +73,7 @@ impl NativeBrowser {
     /// before its pane is ever shown can lay out and be pictured.
     pub fn new(window: &Window, options: &Options<'_>) -> Result<(Self, Receiver<Event>), String> {
         let mtm = MainThreadMarker::new().ok_or("browser must be created on the main thread")?;
-        let parent = crate::webview::parent_view(window)?;
+        let parent = crate::appkit::gpui_view(window)?;
         let mut host = Host::new(parent.clone(), mtm);
         host.container().setFrame(parent.bounds());
         let (sender, receiver) = async_channel::unbounded();

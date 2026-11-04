@@ -1,13 +1,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AccessibleAction, AnyElement, AppContext, Context, FontWeight, Hsla, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement,
-    Styled, canvas, div, px,
+    AccessibleAction, AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, canvas,
+    div, px,
 };
 use muxy_app_core::extensions::Side;
 use muxy_protocol::{GitAction, GitPullRequestAction, WorktreeAction, WorktreeIntent};
 use muxy_ui::accessibility;
-use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph, Tooltip};
+use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::popover::PopoverAnchor;
 use muxy_ui::tr;
@@ -179,8 +179,8 @@ fn path_actions(model: &AppModel, cx: &Context<AppModel>) -> Option<AnyElement> 
             "status-path-actions",
             tr!("Actions for %@", tr!("Folder").as_ref()),
             cx,
-            move |model, window, cx| {
-                model.open_menu(path_items(id, local), window.mouse_position(), window, cx);
+            move |model, position, window, cx| {
+                model.open_menu(path_items(id, local), position, window, cx);
             },
         )
         .into_any_element()
@@ -351,25 +351,6 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
         }
     }
     controls
-}
-
-pub(super) fn tooltip(
-    text: String,
-    model: &AppModel,
-) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
-    let theme = model.theme.clone();
-    move |_, cx| {
-        cx.new(|_| {
-            Tooltip::new(
-                text.clone(),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
-        })
-        .into()
-    }
 }
 
 #[allow(
@@ -649,9 +630,9 @@ fn pull_request_unavailable(model: &AppModel, cx: &mut Context<AppModel>) -> Any
         .px(model.metrics.scaled(2.0))
         .cursor_pointer()
         .hover(|style| style.text_color(model.theme.fg))
-        .tooltip(tooltip(
+        .tooltip(muxy_ui::components::tooltip(
             tr!("Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.").to_string(),
-            model,
+            &model.theme,
         ))
         .button_interaction(
             cx.listener(move |model, _, _, cx| model.refresh_pull_request(project, cx)),

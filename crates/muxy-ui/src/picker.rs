@@ -1,9 +1,9 @@
 use muxy_core::shortcuts::ShortcutId;
 
 use crate::accessibility::OnPress;
+use crate::components::IconGlyph;
 #[cfg(target_os = "macos")]
 use crate::components::SymbolGlyph;
-use crate::components::{IconGlyph, Tooltip};
 use crate::controls::{self, Style};
 use crate::icon::Icon;
 use crate::popover;
@@ -1377,7 +1377,7 @@ impl Picker {
                             hidden_actions.push(crate::accessibility::hidden_button(
                                 format!("picker-client-action-{row_id}-{action_id}"),
                                 tr!("%@: %@", action.label.as_ref(), row.title.as_ref()),
-                                move |_, cx| {
+                                move |_, _, cx| {
                                     let _ = picker.update(cx, |_, cx| {
                                         cx.emit(PickerEvent::RowAction {
                                             row: row_id.clone(),
@@ -1466,6 +1466,8 @@ impl Picker {
         }
         let layout = PickerLayout::resolve(self.config.presentation, self.config.compact);
         let mut strip = div()
+            .id("picker-tabs")
+            .role(Role::TabList)
             .flex()
             .items_center()
             .border_1()
@@ -1630,19 +1632,7 @@ impl Picker {
                 || action.label.clone(),
                 |shortcut| format!("{} ({shortcut})", action.label).into(),
             );
-            let theme = self.theme.clone();
-            button.tooltip(move |_, cx| {
-                cx.new(|_| {
-                    Tooltip::new(
-                        label.clone(),
-                        theme.raised(),
-                        theme.fg,
-                        theme.border,
-                        theme.bg,
-                    )
-                })
-                .into()
-            })
+            button.tooltip(crate::components::tooltip(label, &self.theme))
         })
         .into_any_element()
     }

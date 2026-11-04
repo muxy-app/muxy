@@ -350,7 +350,7 @@ fn icon_button(
                 theme.fg,
             )
             .named(name)
-            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme)
             .on_click(on_click),
         )
         .into_any_element()
@@ -724,8 +724,7 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
         .child(accessibility::hidden_button(
             format!("servers-group-actions-{key}"),
             tr!("Actions for %@", &title),
-            move |window, cx| {
-                let position = window.mouse_position();
+            move |position, window, cx| {
                 let _ = owner.update(cx, |model, cx| {
                     model.open_group_menu(hidden_name.as_deref(), position, window, cx);
                 });
@@ -827,8 +826,7 @@ fn row(
         .child(accessibility::hidden_button(
             format!("servers-actions-{id}"),
             tr!("Actions for %@", server.entry.name.as_str()),
-            move |window, cx| {
-                let position = window.mouse_position();
+            move |position, window, cx| {
                 let _ = owner.update(cx, |model, cx| {
                     model.open_server_menu(id, true, position, window, cx);
                 });

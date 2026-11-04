@@ -111,14 +111,14 @@ fn row(
     } else {
         session.title.clone().into()
     };
-    let tooltip = super::super::status_bar::tooltip(
+    let tooltip = muxy_ui::components::tooltip(
         format!(
             "{title}\n{} · {}\n{}",
             session.provider.name(),
             session.id,
             tr!("Resume in a new terminal")
         ),
-        model,
+        theme,
     );
     div()
         .px(m.spacing2())

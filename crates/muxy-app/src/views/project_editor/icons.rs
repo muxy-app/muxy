@@ -11,7 +11,7 @@ use gpui::{
 use muxy_app_core::ProjectId;
 use muxy_ui::{
     accessibility,
-    components::{ButtonInteraction, SymbolGlyph, Tooltip},
+    components::{ButtonInteraction, SymbolGlyph},
     l10n::tr_key,
     text_input::{InputEvent, InputStyle, TextInput},
     tr,
@@ -218,13 +218,12 @@ fn symbol_button(
     let theme = &model.theme;
     let name = symbol.symbol;
     let active = selected.and_then(|value| value.strip_prefix("sf:")) == Some(name);
-    let tooltip_theme = theme.clone();
     let id = SharedString::from(format!("project-symbol-{name}"));
     div()
         .id(id.clone())
         .role(Role::Button)
         .accessibility_id(id)
-        .aria_label(symbol.name)
+        .aria_label(muxy_ui::l10n::translate(symbol.name))
         .aria_selected(active)
         .debug_selector(move || format!("project-symbol-{name}"))
         .size(m.control_large())
@@ -236,18 +235,10 @@ fn symbol_button(
         .cursor_pointer()
         .when(active, |button| button.bg(theme.accent_soft))
         .hover(|style| style.bg(theme.hover))
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    symbol.name,
-                    tooltip_theme.raised(),
-                    tooltip_theme.fg,
-                    tooltip_theme.border,
-                    tooltip_theme.bg,
-                )
-            })
-            .into()
-        })
+        .tooltip(muxy_ui::components::tooltip(
+            muxy_ui::l10n::translate(symbol.name),
+            theme,
+        ))
         .child(
             SymbolGlyph::new(
                 name,

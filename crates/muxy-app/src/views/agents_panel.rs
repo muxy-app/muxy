@@ -392,7 +392,7 @@ fn header_buttons(detached: bool, model: &AppModel, cx: &mut Context<AppModel>) 
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     let right = model.appearance.agents_panel_dock == AgentsPanelDock::Right;
     let move_dock = button(
@@ -861,7 +861,10 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
             .when(open, |button| button.bg(theme.hover))
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover))
-            .tooltip(super::status_bar::tooltip(tr!("Agents").to_string(), model))
+            .tooltip(muxy_ui::components::tooltip(
+                tr!("Agents").to_string(),
+                &model.theme,
+            ))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|model, _, window, cx| {
                 if matches!(model.overlay, Some(super::overlays::Overlay::Agents)) {

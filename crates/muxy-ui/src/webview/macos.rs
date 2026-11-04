@@ -10,7 +10,7 @@ use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{NSColor, NSView};
+use objc2_app_kit::NSColor;
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization, NSJSONWritingOptions,
     NSNumber, NSObject, NSObjectNSKeyValueCoding, NSObjectProtocol, NSRect, NSString, NSURL,
@@ -22,7 +22,6 @@ use objc2_web_kit::{
     WKURLSchemeHandler, WKURLSchemeTask, WKUserContentController, WKUserScript,
     WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::host::{Host, Signal};
 use super::{AssetResult, Event, Pointer, assets, assets::Source, rules};
@@ -280,7 +279,7 @@ impl NativeWebview {
     ) -> Result<(Self, Receiver<Event>), String> {
         let url = source.entry_url().map_err(|error| error.to_string())?;
         let mtm = MainThreadMarker::new().ok_or("webview must be created on the main thread")?;
-        let parent = parent_view(window)?;
+        let parent = crate::appkit::gpui_view(window)?;
         let (sender, receiver) = async_channel::bounded(256);
         let delegate = Delegate::alloc(mtm).set_ivars(State {
             source,
@@ -500,18 +499,6 @@ impl NativeWebview {
     }
     #[allow(clippy::unused_self)]
     pub(super) fn choose(&self, _option: Option<usize>) {}
-}
-
-/// The native view GPUI draws into, which pages are added to.
-pub(crate) fn parent_view(window: &Window) -> Result<Retained<NSView>, String> {
-    let RawWindowHandle::AppKit(handle) = HasWindowHandle::window_handle(window)
-        .map_err(|error| error.to_string())?
-        .as_raw()
-    else {
-        return Err("expected AppKit window".into());
-    };
-    unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }
-        .ok_or_else(|| "missing native view".into())
 }
 
 fn install_script(controller: &WKUserContentController, source: &str, mtm: MainThreadMarker) {

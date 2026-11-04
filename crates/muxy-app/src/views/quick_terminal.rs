@@ -400,7 +400,7 @@ impl Render for QuickTerminalView {
                             bridge_foreground,
                         )
                         .named(tr!("Open Quick Terminal settings"))
-                        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+                        .tooltip(&theme)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_settings, BridgeAction::OpenSettings, cx);
                         }),
@@ -425,7 +425,7 @@ impl Render for QuickTerminalView {
                             tr!("Pin Quick Terminal")
                         })
                         .selected(pinned, bridge_control, metrics.radius_sm())
-                        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+                        .tooltip(&theme)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_pin, BridgeAction::TogglePin, cx);
                         }),
@@ -441,7 +441,7 @@ impl Render for QuickTerminalView {
                             bridge_foreground,
                         )
                         .named(tr!("Close Quick Terminal"))
-                        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+                        .tooltip(&theme)
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_close, BridgeAction::Close, cx);
                         }),

@@ -1,8 +1,8 @@
 use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement, Role,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Role,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use muxy_ui::components::{ButtonInteraction, IconGlyph, Tooltip};
+use muxy_ui::components::{ButtonInteraction, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
@@ -52,7 +52,6 @@ fn problem(
 ) -> AnyElement {
     let theme = &model.theme;
     let m = model.metrics;
-    let tooltip_theme = theme.clone();
     let close = div()
         .id("dismiss-workspace-toast")
         .role(Role::Button)
@@ -67,18 +66,7 @@ fn problem(
         .rounded(m.radius_sm())
         .cursor_pointer()
         .hover(|style| style.bg(theme.hover))
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    tr!("Dismiss"),
-                    tooltip_theme.raised(),
-                    tooltip_theme.fg,
-                    tooltip_theme.border,
-                    tooltip_theme.bg,
-                )
-            })
-            .into()
-        })
+        .tooltip(muxy_ui::components::tooltip(tr!("Dismiss"), theme))
         .button_interaction(cx.listener(|model, _, window, cx| {
             model.dismiss_problem(cx);
             model.focus_active(window, cx);
